@@ -166,6 +166,12 @@ extension SettingsSchemaSamples {
                 .array([.number(1)]),
             ]
         ),
+        "json": SampleSet(
+            accept: [],
+            refuse: [
+                .string("[[\"name\"]]"), .number(1), .bool(true),
+            ]
+        ),
     ]
 
     /// The sample sets by validation domain; they win over the kind's.
@@ -284,6 +290,34 @@ extension SettingsSchemaSamples {
             ],
             refuse: [
                 .string("https://search.example/"), .string("search.example"), .string("not a url %s"), .number(1),
+            ]
+        ),
+        "domain:sidebar_row_lines": SampleSet(
+            accept: [
+                .array([]),
+                .array([.array([.string("icon"), .string("name"), .string("branch")]), .array([.string("agentStatus")])]),
+                .array([.array([.string("name"), .string("directory")]), .array([.string("process")]), .array([.string("ports"), .string("lastActivity")])]),
+            ],
+            refuse: [
+                .string("name"), .number(1), .object([:]), .null,
+            ]
+        ),
+        "domain:sidebar_row_lines_by_kind": SampleSet(
+            accept: [
+                .object([:]),
+                .object(["agent": .array([.array([.string("icon"), .string("name"), .string("working")]), .array([.string("agentStatus")])]), "terminal": .array([.array([.string("icon"), .string("name")]), .array([.string("process"), .string("directory")])])]),
+            ],
+            refuse: [
+                .array([]), .string("agent"), .number(1), .null,
+            ]
+        ),
+        "domain:sidebar_row_lines_by_agent": SampleSet(
+            accept: [
+                .object([:]),
+                .object(["claude": .array([.array([.string("icon"), .string("name"), .string("working")]), .array([.string("lastActivity")])]), "codex": .array([.array([.string("name"), .string("branch")])])]),
+            ],
+            refuse: [
+                .array([]), .string("claude"), .number(1), .null,
             ]
         ),
     ]

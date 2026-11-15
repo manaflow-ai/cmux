@@ -44,9 +44,9 @@ name, a syntax example). A row:
                  what an empty list field shows)
   kind           toggle | number | choice | choice_or_number | choice_or_url | color | sound | url |
                  host_list | folder_list | time_range | theme | font_family | text | number_list |
-                 string_map | sound_rules | string_list | ordered_choices | choice_set
+                 string_map | sound_rules | string_list | ordered_choices | choice_set | json
                  (the SettingKind cases; ordered_choices and choice_set export as a string_list with
-                 choices and `ordered`)
+                 choices and `ordered`; json is a nested value of the row's `shape`)
   choices        [{value, title: text, note?, swift_case?}]: choice, choice_or_number,
                  choice_or_url, ordered_choices and choice_set rows, and only those. On a row with a
                  hand-written swift_enum, "swift_case": null marks a value that is no case of the
@@ -58,6 +58,10 @@ name, a syntax example). A row:
                  unit is points | milliseconds | seconds | minutes | days | count | fraction;
                  placeholder (default min) is where the control sits while a null default is unset
   url_key        choice_or_url only: the object member that holds the address
+  shape          json only: the value's JSON Schema (draft 2020-12), type "array" or "object", of
+                 the keywords cmux-config schema/shape.rs applies (it refuses any other). The
+                 daemon checks it and the row's validation domain; the app the top-level type.
+                 Swift gets it as the owner's <name>Shape (or `shape`) constant
   default        required; the value an absent key means, or null when it is derived at run time
                  (then name it in default_label)
   aliases        {old value: choice value}: older values a generated enum reads (legacyValues)
@@ -242,7 +246,7 @@ MEMBER = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*\.[a-z][A-Za-z0-9]*$")
 UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
 ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "choices_from", "range", "url_key", "default",
               "default_label", "placeholder", "aliases", "keywords", "consumers", "palette_hidden", "page_hidden",
-              "palette_shown", "swift_enum", "swift_owner"}
+              "palette_shown", "swift_enum", "swift_owner", "shape"}
 IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")
 TYPE = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*$")
 # A hand-written enum may be nested in another type (`SidebarNavigationSettings.Scope`).
@@ -252,7 +256,7 @@ KINDS = {"toggle": ".toggle", "number": None, "choice": None, "choice_or_number"
          "color": ".color", "sound": ".sound", "url": ".url", "host_list": ".hostList", "folder_list": ".folderList",
          "time_range": ".timeRange", "theme": ".theme", "font_family": ".fontFamily", "text": ".text",
          "number_list": None, "string_map": ".stringMap", "sound_rules": ".soundRules", "string_list": ".stringList",
-         "ordered_choices": None, "choice_set": None}
+         "ordered_choices": None, "choice_set": None, "json": None}
 CHOICE_KINDS = {"choice", "choice_or_number", "choice_or_url", "ordered_choices", "choice_set"}
 RANGE_KINDS = {"number", "choice_or_number", "number_list"}
 CONSUMERS = {"cmux-next": ".cmuxNext", "cmux-browser": ".cmuxBrowser"}
@@ -406,8 +410,9 @@ def constant_names(row, list_owner):
         owner, prefixed = spec["type"], spec.get("prefixed", False)
     if prefixed:
         name = row["_name"]
-        return owner, {part: name + part[:1].upper() + part[1:] for part in ("path", "default", "range", "placeholder", "values")}
-    return owner, {"path": "configPath", "default": "fallback", "range": "range", "placeholder": "placeholder", "values": "values"}
+        return owner, {part: name + part[:1].upper() + part[1:] for part in ("path", "default", "range", "placeholder", "values", "shape")}
+    return owner, {"path": "configPath", "default": "fallback", "range": "range", "placeholder": "placeholder", "values": "values",
+                   "shape": "shape"}
 
 
 def check_default(src, key, kind, row, values):
@@ -433,6 +438,7 @@ def check_default(src, key, kind, row, values):
         "number_list": isinstance(default, list) and all(is_number(item) and rng["min"] <= item <= rng["max"] for item in default),
         "string_map": isinstance(default, dict) and all(isinstance(item, str) for item in default.values()),
         "sound_rules": isinstance(default, dict),
+        "json": isinstance(default, list if row.get("shape", {}).get("type") == "array" else dict),
         "time_range": isinstance(default, dict),
         "text": True,
     }.get(kind, isinstance(default, str))
@@ -467,6 +473,11 @@ def check_row(src, row, seen_keys, idents):
             (["choices"] if kind in CHOICE_KINDS else []) + (["range"] if kind in RANGE_KINDS else [])) or "no choices or range"))
     if ("url_key" in row) != (kind == "choice_or_url"):
         fail(src, "%s: url_key belongs to choice_or_url rows, which need it" % key)
+    if ("shape" in row) != (kind == "json"):
+        fail(src, "%s: shape belongs to json rows, which need it" % key)
+    if kind == "json" and not (isinstance(row["shape"], dict) and row["shape"].get("type") in ("array", "object")):
+        # The app checks a json value's top-level type (SettingDescriptor.accepts); the daemon the rest.
+        fail(src, "%s: a json row's shape is a JSON Schema object whose type is \"array\" or \"object\"" % key)
     values = []
     if kind in CHOICE_KINDS:
         values = [choice.get("value") for choice in row["choices"]]
@@ -671,7 +682,21 @@ def constants_swift(row, names, public=True):
             out.append(access + "nonisolated static let %s: Double = %s" % (names["placeholder"], number_literal(rng["placeholder"])))
     if kind in CHOICE_KINDS and not row.get("swift_enum") and not row.get("choices_from"):
         out.append(access + "nonisolated static let %s = [%s]" % (names["values"], ", ".join(swift_string(c["value"]) for c in row["choices"])))
+    if kind == "json":
+        out.append(access + "nonisolated static let %s: JSONValue = %s" % (names["shape"], json_swift_lines(row["shape"], "    ")))
     return out
+
+
+def json_swift_lines(value, indent):
+    """A JSONValue literal of `value`, one member or item per line below `indent` (a json row's shape)."""
+    inner = indent + "    "
+    if isinstance(value, dict) and value:
+        members = ["%s%s: %s," % (inner, swift_string(k), json_swift_lines(v, inner)) for k, v in value.items()]
+        return ".object([\n%s\n%s])" % ("\n".join(members), indent)
+    if isinstance(value, list) and value and any(isinstance(item, (dict, list)) for item in value):
+        items = ["%s%s," % (inner, json_swift_lines(item, inner)) for item in value]
+        return ".array([\n%s\n%s])" % ("\n".join(items), indent)
+    return json_swift(value)
 
 
 def kind_swift(row, owner, names):
@@ -704,6 +729,7 @@ def kind_swift(row, owner, names):
         "choice_set": lambda: ".choiceSet(%s)" % choices(),
         "choice_or_number": lambda: ".choiceOrNumber(%s, %s)" % (choices(), number()),
         "choice_or_url": lambda: ".choiceOrURL(%s, urlKey: %s)" % (choices(), swift_string(row["url_key"])),
+        "json": lambda: ".json(shape: %s.%s)" % (owner, names["shape"]),
     }[kind]()
 
 
@@ -1113,7 +1139,7 @@ SAMPLES_SWIFT = SCHEMA_DIR + "/SettingsSchema+Samples.generated.swift"
 # The export's row kinds, plus choice_list (a string_list row with choices).
 SAMPLE_KINDS = {"toggle", "choice", "choice_or_number", "choice_or_url", "number", "color", "sound", "url", "host_list",
                 "folder_list", "time_range", "theme", "font_family", "text", "number_list", "string_map", "sound_rules",
-                "string_list", "choice_list"}
+                "string_list", "choice_list", "json"}
 SAMPLE_TOKENS = {"choices", "choices_reversed", "first_choice", "min", "max", "mid", "below", "above", "url_key"}
 DOMAIN = __import__("re").compile(r"^(portable|domain:[a-z][a-z_]*)$")
 

@@ -4,327 +4,386 @@
 public import CmuxNextDesign
 
 extension SidebarSettingsSchema {
-    static var sidebarPart2: [SettingDescriptor] {
+    static var sidebarPart1: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
             SettingDescriptor(
-                SidebarSectionsSetting.groupGradientPath,
+                SidebarSurfaceSetting.configPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.groupGradient", "Group Gradient"),
-                help: SettingsText.keyed("settings.sidebar.groupGradient.help", "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."),
+                title: SettingsText.keyed("settings.sidebar.surface", "Sidebar Background"),
+                help: SettingsText.keyed("settings.sidebar.surface.help", "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."),
                 kind: .choice([
-                    SettingChoice(GroupGradient.sunset.rawValue, SettingsText.keyed("settings.choice.groupGradientSunset", "Sunset")),
-                    SettingChoice(GroupGradient.aurora.rawValue, SettingsText.keyed("settings.choice.groupGradientAurora", "Aurora")),
-                    SettingChoice(GroupGradient.lagoon.rawValue, SettingsText.keyed("settings.choice.groupGradientLagoon", "Lagoon")),
-                    SettingChoice(GroupGradient.twoTone.rawValue, SettingsText.keyed("settings.choice.groupGradientTwoTone", "Two-Tone")),
+                    SettingChoice(SidebarSurface.same.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.same", "Same as Main Pane")),
+                    SettingChoice(SidebarSurface.separate.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.separate", "Separate")),
                 ]),
-                default: .string(SidebarSectionsSetting.groupGradientDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "gradient", "sunset", "aurora", "lagoon"]
+                default: .string(SidebarSurfaceSetting.fallback.rawValue),
+                keywords: ["sidebar", "background", "surface", "shade", "color", "colour", "panel", "separate", "main pane"]
             ),
             SettingDescriptor(
-                SidebarSectionsSetting.minimalModePath,
+                SidebarBorderSetting.borderPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.minimalMode", "Hide Bands Until Hover"),
-                help: SettingsText.keyed("settings.sidebar.minimalMode.help", "Hides the chosen sections until the pointer is over the sidebar."),
+                title: SettingsText.keyed("settings.sidebar.border", "Border"),
+                help: SettingsText.keyed("settings.sidebar.border.help", "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it."),
+                kind: .toggle,
+                default: .bool(SidebarBorderSetting.borderDefault),
+                keywords: ["sidebar", "border", "edge", "line", "separator", "seam"]
+            ),
+            SettingDescriptor(
+                SidebarBorderSetting.widthPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.borderWidth", "Border Width"),
+                kind: .number(SettingNumber(SidebarBorderSetting.widthRange, step: 0.5, unit: .points, placeholder: SidebarBorderSetting.widthPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.onePixel", "One pixel"),
+                keywords: ["sidebar", "border", "edge", "line", "width", "thickness"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.lookPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.sectionLook", "Section Look"),
+                help: SettingsText.keyed("settings.sidebar.sectionLook.help", "How the sections above and below the workspace list draw."),
                 kind: .choice([
-                    SettingChoice(SidebarMinimalMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                    SettingChoice(SidebarMinimalMode.bottom.rawValue, SettingsText.keyed("settings.choice.minimalBottom", "Settings and Account Row")),
-                    SettingChoice(SidebarMinimalMode.top.rawValue, SettingsText.keyed("settings.choice.minimalTop", "Top Sections")),
-                    SettingChoice(SidebarMinimalMode.both.rawValue, SettingsText.keyed("settings.choice.minimalBoth", "Top and Bottom")),
+                    SettingChoice("quiet", SettingsText.keyed("settings.choice.sectionQuiet", "Quiet")),
+                    SettingChoice("card", SettingsText.keyed("settings.choice.sectionCard", "Cards")),
+                    SettingChoice("tray", SettingsText.keyed("settings.choice.sectionTray", "Tray")),
+                    SettingChoice("lines", SettingsText.keyed("settings.choice.sectionLines", "Lines")),
+                    SettingChoice("linesIcons", SettingsText.keyed("settings.choice.sectionLinesIcons", "Lines, Icons Only")),
                 ]),
-                default: .string(SidebarSectionsSetting.minimalModeDefault.rawValue),
-                keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"]
+                default: .string(SidebarSectionsSetting.lookDefault),
+                keywords: ["sidebar", "sections", "home", "look", "style"]
             ),
             SettingDescriptor(
-                SidebarSectionsSetting.tipsPath,
+                SidebarSectionsSetting.topSharePath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
-                help: SettingsText.keyed("settings.sidebar.cards.tips.help", "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
-                summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
+                title: SettingsText.keyed("settings.sidebar.topBandMaxShare", "Top Sections Height"),
+                help: SettingsText.keyed("settings.sidebar.topBandMaxShare.help", "The share of the sidebar the top sections fill before they scroll."),
+                kind: .number(SettingNumber(SidebarSectionsSetting.topShareRange, step: 0.05, unit: .fraction)),
+                default: .number(SidebarSectionsSetting.topShareDefault),
+                keywords: ["sidebar", "sections", "pinned", "height", "scroll"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.bottomSharePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.bottomBandMaxShare", "Bottom Sections Height"),
+                help: SettingsText.keyed("settings.sidebar.bottomBandMaxShare.help", "The share of the sidebar the bottom sections fill before they scroll."),
+                kind: .number(SettingNumber(SidebarSectionsSetting.bottomShareRange, step: 0.05, unit: .fraction)),
+                default: .number(SidebarSectionsSetting.bottomShareDefault),
+                keywords: ["sidebar", "sections", "pinned", "height", "scroll"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.scrollPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.pinnedBandsScroll", "Scroll Tall Sections"),
+                help: SettingsText.keyed("settings.sidebar.pinnedBandsScroll.help", "Off: the top and bottom sections never scroll and the workspace list gets smaller."),
                 kind: .toggle,
-                default: .bool(SidebarSectionsSetting.tipsDefault),
-                keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"]
+                default: .bool(SidebarSectionsSetting.scrollDefault),
+                keywords: ["sidebar", "sections", "pinned", "scroll"]
             ),
             SettingDescriptor(
-                SidebarPriorityViewSetting.enabledPath,
+                SidebarSectionsSetting.showChatsPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.priorityView.enabled", "Priority View"),
-                help: SettingsText.keyed("settings.sidebar.priorityView.enabled.help", "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."),
-                summary: SettingsText.keyed("settings.sidebar.priorityView.enabled.summary", "Agent chats that need you, at the top of the sidebar"),
+                title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats on New Tab"),
+                help: SettingsText.keyed("settings.sidebar.showChats.help", "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."),
                 kind: .toggle,
-                default: .bool(SidebarPriorityViewSetting.enabledDefault),
-                keywords: ["sidebar", "priority", "attention", "agents", "chats", "needs you", "activity", "bell", "inbox"]
+                default: .bool(SidebarSectionsSetting.showChatsDefault),
+                keywords: ["new tab", "chats", "all chats", "agents", "conversations", "history", "threads", "console"]
             ),
             SettingDescriptor(
-                SidebarPriorityViewSetting.shownPath,
+                SidebarSectionsSetting.sessionTreePath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.priorityView.shown", "Show Priority View"),
-                help: SettingsText.keyed("settings.sidebar.priorityView.shown.help", "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged."),
+                title: SettingsText.keyed("settings.sidebar.sessionTree", "Session Tree"),
+                help: SettingsText.keyed("settings.sidebar.sessionTree.help", "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."),
                 kind: .toggle,
-                default: .bool(SidebarPriorityViewSetting.shownDefault),
-                keywords: ["sidebar", "priority", "activity", "bell", "show", "hide"]
+                default: .bool(SidebarSectionsSetting.sessionTreeDefault),
+                keywords: ["sidebar", "tree", "nested", "parent", "child", "pull request", "keycap", "sessions"]
             ),
             SettingDescriptor(
-                ChromePlacementSetting.sidebarSidePath,
+                SidebarSectionsSetting.showProjectsPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.side", "Sidebar Side"),
-                help: SettingsText.keyed("settings.sidebar.side.help", "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar."),
+                title: SettingsText.keyed("settings.sidebar.showProjects", "Show Projects"),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showProjectsDefault),
+                keywords: ["sidebar", "projects", "workspaces", "section", "hide", "show"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupByPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupBy", "Group Projects By"),
                 kind: .choice([
-                    SettingChoice(SidebarSide.left.rawValue, SettingsText.keyed("settings.choice.left", "Left")),
-                    SettingChoice(SidebarSide.right.rawValue, SettingsText.keyed("settings.choice.right", "Right")),
+                    SettingChoice(SidebarGroupBy.none.rawValue, SettingsText.keyed("settings.choice.groupByNone", "None")),
+                    SettingChoice(SidebarGroupBy.folder.rawValue, SettingsText.keyed("settings.choice.groupByFolder", "Folder")),
+                    SettingChoice(SidebarGroupBy.recents.rawValue, SettingsText.keyed("settings.choice.groupByRecents", "Projects and Recents")),
                 ]),
-                default: .string(ChromePlacementSetting.sidebarSideDefault.rawValue),
-                keywords: ["sidebar", "side", "left", "right", "position", "edge", "layout"]
+                default: .string(SidebarSectionsSetting.groupByDefault.rawValue),
+                keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd", "recents", "recent", "chatgpt", "history"]
             ),
             SettingDescriptor(
-                ChromePlacementSetting.spacesPositionPath,
+                SidebarSectionsSetting.showSpacesPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.spacesPosition", "Spaces Position"),
-                help: SettingsText.keyed("settings.sidebar.spacesPosition.help", "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row."),
+                title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showSpacesDefault),
+                keywords: ["sidebar", "spaces", "dots", "profiles", "footer", "hide", "show"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.showProfileControlPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.showProfileControl", "Show Profile Button"),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showProfileControlDefault),
+                keywords: ["sidebar", "profile", "account", "avatar", "footer", "hide", "show"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.showSearchButtonPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.showSearchButton", "Show Search Button"),
+                help: SettingsText.keyed("settings.sidebar.showSearchButton.help", "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showSearchButtonDefault),
+                keywords: ["sidebar", "search", "find", "magnifying glass", "everything", "footer", "hide", "show"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.showNewWorkspaceChooserPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.showNewWorkspaceChooser", "Show New Workspace Menu Button"),
+                help: SettingsText.keyed("settings.sidebar.showNewWorkspaceChooser.help", "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showNewWorkspaceChooserDefault),
+                keywords: ["sidebar", "new workspace", "chevron", "dropdown", "menu", "titlebar", "hide", "show"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.workspacesAsTabsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.workspacesAsTabs", "Workspaces as Tabs"),
+                help: SettingsText.keyed("settings.sidebar.workspacesAsTabs.help", "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.workspacesAsTabsDefault),
+                keywords: ["sidebar", "compact", "tabs", "one line", "claude", "workspaces", "switch"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.chromeGroupsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.chromeGroups", "Chrome-Style Groups"),
+                help: SettingsText.keyed("settings.sidebar.chromeGroups.help", "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.chromeGroupsDefault),
+                keywords: ["sidebar", "chrome", "groups", "chip", "rail", "shape", "clip"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.sideBySidePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.sideBySide", "Workspaces Side by Side"),
+                help: SettingsText.keyed("settings.sidebar.sideBySide.help", "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.sideBySideDefault),
+                keywords: ["sidebar", "split", "side by side", "drag", "release", "multi view", "claude code"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.noFadePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.noFade", "Show Whole Sidebar Without Fade"),
+                help: SettingsText.keyed("settings.sidebar.noFade.help", "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.noFadeDefault),
+                keywords: ["sidebar", "fade", "whole", "full", "everything", "edges", "profile", "search", "footer", "show", "hide"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.controlsOnHoverPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.controlsOnHover", "Show Sidebar Controls Only on Hover"),
+                help: SettingsText.keyed("settings.sidebar.controlsOnHover.help", "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.controlsOnHoverDefault),
+                keywords: ["sidebar", "minimal", "hover", "hide", "show", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.floatOnHoverPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.floatOnHover", "Float Hidden Sidebar on Hover"),
+                help: SettingsText.keyed("settings.sidebar.floatOnHover.help", "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.floatOnHoverDefault),
+                keywords: ["sidebar", "float", "floating", "hover", "peek", "edge", "overlay", "reveal", "hidden", "auto hide"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.minimalPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.minimal", "Minimal Mode"),
+                help: SettingsText.keyed("settings.sidebar.minimal.help", "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."),
+                summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Buttons show only on hover"),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.minimalDefault),
+                keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.stylePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.style", "Sidebar Style"),
+                help: SettingsText.keyed("settings.sidebar.style.help", "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."),
                 kind: .choice([
-                    SettingChoice(SpacesPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
-                    SettingChoice(SpacesPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                    SettingChoice(SidebarLayoutStyle.standard.rawValue, SettingsText.keyed("settings.choice.sidebarStandard", "Standard")),
+                    SettingChoice(SidebarLayoutStyle.rail.rawValue, SettingsText.keyed("settings.choice.sidebarRail", "Rail")),
                 ]),
-                default: .string(ChromePlacementSetting.spacesPositionDefault.rawValue),
-                keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "top", "bottom", "position", "layout"]
+                default: .string(SidebarSectionsSetting.styleDefault.rawValue),
+                keywords: ["sidebar", "style", "rail", "thin", "narrow", "minimal", "strip", "hide", "hover", "overlay", "auto hide"]
             ),
             SettingDescriptor(
-                ChromePlacementSetting.spacesVisibilityPath,
+                SidebarSectionsSetting.densityPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.spacesVisibility", "Show Spaces"),
-                help: SettingsText.keyed("settings.sidebar.spacesVisibility.help", "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."),
+                title: SettingsText.keyed("settings.sidebar.density", "Sidebar Density"),
+                help: SettingsText.keyed("settings.sidebar.density.help", "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
                 kind: .choice([
-                    SettingChoice(SpacesVisibilityMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
-                    SettingChoice(SpacesVisibilityMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                    SettingChoice(SidebarDensity.compact.rawValue, SettingsText.keyed("settings.choice.compact", "Compact")),
+                    SettingChoice(SidebarDensity.comfortable.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
+                    SettingChoice(SidebarDensity.expanded.rawValue, SettingsText.keyed("settings.choice.expanded", "Expanded")),
                 ]),
-                default: .string(ChromePlacementSetting.spacesVisibilityDefault.rawValue),
-                keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "hover", "hide", "show", "always", "visibility"]
+                default: .string(SidebarSectionsSetting.densityDefault.rawValue),
+                keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"]
             ),
             SettingDescriptor(
-                CommandDigitsSetting.configPath,
+                SidebarSectionsSetting.textSizePath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.tabs.commandDigits", "Command-1 to 9 Select"),
-                help: SettingsText.keyed("settings.tabs.commandDigits.help", "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."),
-                summary: SettingsText.keyed("settings.tabs.commandDigits.summary", "Workspaces or tabs on Command-1 to 9"),
+                title: SettingsText.keyed("settings.sidebar.textSize", "Sidebar Text Size"),
+                help: SettingsText.keyed("settings.sidebar.textSize.help", "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."),
                 kind: .choice([
-                    SettingChoice(CommandDigitsSetting.workspaces.rawValue, SettingsText.keyed("settings.tabs.commandDigits.workspaces", "Workspaces")),
-                    SettingChoice(CommandDigitsSetting.tabs.rawValue, SettingsText.keyed("settings.tabs.commandDigits.tabs", "Tabs")),
+                    SettingChoice(SidebarTextSize.standard.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(SidebarTextSize.large.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarge", "Large")),
+                    SettingChoice(SidebarTextSize.larger.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarger", "Larger")),
                 ]),
-                default: .string(CommandDigitsSetting.fallback.rawValue),
-                keywords: ["command", "number", "digit", "shortcut", "tab", "workspace", "cmd-1", "switch"]
+                default: .string(SidebarSectionsSetting.textSizeDefault.rawValue),
+                keywords: ["sidebar", "text", "size", "font", "bigger", "larger", "large", "zoom", "readable", "accessibility", "chatgpt", "rows"]
             ),
             SettingDescriptor(
-                SidebarNavigationSetting.numberingPath,
+                SidebarSectionsSetting.detailedStatusIconsPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.numbering", "Command-Number Shortcuts"),
-                help: SettingsText.keyed("settings.sidebar.numbering.help", "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1."),
-                summary: SettingsText.keyed("settings.sidebar.numbering.summary", "What Command-1 to Command-9 go to"),
+                title: SettingsText.keyed("settings.sidebar.detailedStatusIcons", "Detailed Status Icons"),
+                help: SettingsText.keyed("settings.sidebar.detailedStatusIcons.help", "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.detailedStatusIconsDefault),
+                keywords: ["sidebar", "status", "icons", "badge", "working", "waiting", "input", "error", "done", "agent", "osc 7501"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.showTimestampsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.showTimestamps", "Show Timestamps"),
+                help: SettingsText.keyed("settings.sidebar.showTimestamps.help", "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showTimestampsDefault),
+                keywords: ["sidebar", "timestamps", "time", "times", "age", "ago", "elapsed", "duration", "last activity", "clock", "rows"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.showColorsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.showColors", "Show Workspace Colors"),
+                help: SettingsText.keyed("settings.sidebar.showColors.help", "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showColorsDefault),
+                keywords: ["sidebar", "color", "colors", "colour", "tint", "swatch", "group", "workspace", "hide", "plain"]
+            ),
+            SettingDescriptor(
+                WorkspaceColorsSetting.indicatorStylePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceColors.indicatorStyle", "Workspace Color Style"),
+                help: SettingsText.keyed("settings.workspaceColors.indicatorStyle.help", "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color."),
                 kind: .choice([
-                    SettingChoice(SidebarNavigationSettings.Scope.allItems.rawValue, SettingsText.keyed("settings.sidebar.scope.allItems", "Every Item")),
-                    SettingChoice(SidebarNavigationSettings.Scope.workspacesOnly.rawValue, SettingsText.keyed("settings.sidebar.scope.workspacesOnly", "Workspaces Only")),
+                    SettingChoice(WorkspaceColorIndicatorStyle.dot.rawValue, SettingsText.keyed("settings.choice.workspaceColorDot", "Dot")),
+                    SettingChoice(WorkspaceColorIndicatorStyle.leftRail.rawValue, SettingsText.keyed("settings.choice.workspaceColorLeftRail", "Left Rail")),
+                    SettingChoice(WorkspaceColorIndicatorStyle.fill.rawValue, SettingsText.keyed("settings.choice.workspaceColorFill", "Fill Row")),
                 ]),
-                default: .string(SidebarNavigationSetting.numberingDefault.rawValue),
-                keywords: ["sidebar", "shortcut", "number", "command", "home", "workspace"]
+                default: .string(WorkspaceColorsSetting.indicatorStyleDefault.rawValue),
+                keywords: ["sidebar", "workspace", "color", "colour", "tint", "fill", "row", "background", "rail", "bar", "dot", "highlight", "indicator", "review", "ready"]
             ),
             SettingDescriptor(
-                SidebarNavigationSetting.cmd9Path,
+                SidebarSectionsSetting.showLocalMachinePath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.cmd9", "Command-9"),
-                help: SettingsText.keyed("settings.sidebar.cmd9.help", "Goes to the last item, as in browsers, or to the ninth."),
+                title: SettingsText.keyed("settings.sidebar.showLocalMachine", "Mark This Mac's Workspaces"),
+                help: SettingsText.keyed("settings.sidebar.showLocalMachine.help", "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showLocalMachineDefault),
+                keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderMemberCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
+                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderUnreadCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
+                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderBackgroundPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."),
                 kind: .choice([
-                    SettingChoice(SidebarNavigationSettings.NinthKey.last.rawValue, SettingsText.keyed("settings.sidebar.cmd9.last", "Last Item")),
-                    SettingChoice(SidebarNavigationSettings.NinthKey.ninth.rawValue, SettingsText.keyed("settings.sidebar.cmd9.ninth", "Ninth Item")),
+                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
+                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
+                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
+                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
                 ]),
-                default: .string(SidebarNavigationSetting.cmd9Default.rawValue),
-                keywords: ["sidebar", "shortcut", "nine", "last"]
+                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
             ),
             SettingDescriptor(
-                SidebarNavigationSetting.steppingPath,
+                SidebarSectionsSetting.groupPalettePath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.stepping", "Next and Previous Item"),
-                help: SettingsText.keyed("settings.sidebar.stepping.help", "What Command-Control-] and Command-Control-[ step through."),
-                summary: SettingsText.keyed("settings.sidebar.stepping.summary", "What Command-Control-] and [ step through"),
+                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
+                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."),
                 kind: .choice([
-                    SettingChoice(SidebarNavigationSettings.Scope.allItems.rawValue, SettingsText.keyed("settings.sidebar.scope.allItems", "Every Item")),
-                    SettingChoice(SidebarNavigationSettings.Scope.workspacesOnly.rawValue, SettingsText.keyed("settings.sidebar.scope.workspacesOnly", "Workspaces Only")),
+                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
+                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
+                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
+                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
+                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
+                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
+                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
                 ]),
-                default: .string(SidebarNavigationSetting.steppingDefault.rawValue),
-                keywords: ["sidebar", "next", "previous", "step", "shortcut"]
-            ),
-            SettingDescriptor(
-                SidebarNavigationSetting.steppingWrapsPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.steppingWraps", "Wrap Around"),
-                help: SettingsText.keyed("settings.sidebar.steppingWraps.help", "Past the last item, the next item is the first again."),
-                kind: .toggle,
-                default: .bool(SidebarNavigationSetting.steppingWrapsDefault),
-                keywords: ["sidebar", "next", "previous", "wrap"]
-            ),
-        ]
-    }
-}
-
-extension SidebarSettingsSchema {
-    static var workspaceRows: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.workspaceRows", "Workspace Rows")
-        return [
-            SettingDescriptor(
-                WorkspaceRowSetting.iconPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.icon", "Icon"),
-                help: SettingsText.keyed("settings.workspaceRow.icon.help", "The icon or emoji you chose for a workspace."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.iconDefault),
-                keywords: ["sidebar", "workspace", "row", "icon"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.directoryPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.directory", "Folder"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.directoryDefault),
-                keywords: ["sidebar", "workspace", "row", "directory"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.branchPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.branch", "Git Branch"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.branchDefault),
-                keywords: ["sidebar", "workspace", "row", "branch"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.processPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.process", "Running Program"),
-                help: SettingsText.keyed("settings.workspaceRow.process.help", "The terminal's title, which the shell or program sets."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.processDefault),
-                keywords: ["sidebar", "workspace", "row", "process"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.agentStatusPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.agentStatus", "Agent Status"),
-                help: SettingsText.keyed("settings.workspaceRow.agentStatus.help", "The status agents and hooks report, one line each."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.agentStatusDefault),
-                keywords: ["sidebar", "workspace", "row", "agentStatus"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.tabCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.tabCount", "Tab Count"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.tabCountDefault),
-                keywords: ["sidebar", "workspace", "row", "tabCount"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.portsPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.ports", "Ports"),
-                help: SettingsText.keyed("settings.workspaceRow.ports.help", "Set by a hook: cmux workspace status set ports <text>."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.portsDefault),
-                keywords: ["sidebar", "workspace", "row", "ports"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.lastActivityPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.lastActivity", "Last Activity"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.lastActivityDefault),
-                keywords: ["sidebar", "workspace", "row", "lastActivity"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.pullRequestPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.pullRequest", "Pull Request"),
-                help: SettingsText.keyed("settings.workspaceRow.pullRequest.help", "Set by a hook: cmux workspace status set pr <text>."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.pullRequestDefault),
-                keywords: ["sidebar", "workspace", "row", "pullRequest"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.progressPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.progress", "Progress"),
-                help: SettingsText.keyed("settings.workspaceRow.progress.help", "A progress bar under the row and the busy mark of running work."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.progressDefault),
-                keywords: ["sidebar", "workspace", "row", "progress"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.workingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.working", "Agent Working"),
-                help: SettingsText.keyed("settings.workspaceRow.working.help", "A mark while an agent works in the workspace."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.workingDefault),
-                keywords: ["sidebar", "workspace", "row", "working"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.logPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.log", "Log"),
-                help: SettingsText.keyed("settings.workspaceRow.log.help", "The newest line agents and scripts log: cmux workspace log append <text>."),
-                summary: SettingsText.keyed("settings.workspaceRow.log.summary", "Newest line agents and scripts log"),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.logDefault),
-                keywords: ["sidebar", "workspace", "row", "log"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.notificationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification"),
-                help: SettingsText.keyed("settings.workspaceRow.notification.help", "The text of the workspace's newest unread notification."),
-                kind: .toggle,
-                default: .bool(WorkspaceRowSetting.notificationDefault),
-                keywords: ["sidebar", "workspace", "row", "notification"]
-            ),
-            SettingDescriptor(
-                WorkspaceRowSetting.secondLineOrderPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.secondLineOrder", "Second Line Order"),
-                help: SettingsText.keyed("settings.workspaceRow.secondLineOrder.help", "The order of the shown items under the workspace name."),
-                kind: .orderedChoices([
-                    SettingChoice("notification", SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification")),
-                    SettingChoice("directory", SettingsText.keyed("settings.workspaceRow.directory", "Folder")),
-                    SettingChoice("branch", SettingsText.keyed("settings.workspaceRow.branch", "Git Branch")),
-                    SettingChoice("process", SettingsText.keyed("settings.workspaceRow.process", "Running Program")),
-                    SettingChoice("agentStatus", SettingsText.keyed("settings.workspaceRow.agentStatus", "Agent Status")),
-                    SettingChoice("ports", SettingsText.keyed("settings.workspaceRow.ports", "Ports")),
-                    SettingChoice("lastActivity", SettingsText.keyed("settings.workspaceRow.lastActivity", "Last Activity")),
-                ]),
-                default: .array(WorkspaceRowSetting.secondLineOrderDefault.map { .string($0) }),
-                keywords: ["sidebar", "workspace", "row", "order", "subtitle"]
+                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

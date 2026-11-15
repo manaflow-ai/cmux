@@ -19,7 +19,10 @@
       "agentPane.display.commandLabels": "domain:command_labels",
       "browser.customSearchEngine.search": "domain:search_template",
       "browser.customSearchEngine.suggest": "domain:search_template",
-      "tabs.newTabApp": "domain:app_id"
+      "tabs.newTabApp": "domain:app_id",
+      "sidebar.workspaceRow.lines": "domain:sidebar_row_lines",
+      "sidebar.workspaceRow.linesByKind": "domain:sidebar_row_lines_by_kind",
+      "sidebar.workspaceRow.linesByAgent": "domain:sidebar_row_lines_by_agent"
     },
     "kinds": {
       "theme": "domain:theme",

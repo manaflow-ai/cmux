@@ -4,300 +4,316 @@
 public import CmuxNextDesign
 
 extension SidebarSettingsSchema {
-    static var terminalWorkspaceRows: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.workspaceRow.kind.terminal", "Terminal Workspaces")
+    static var sidebarPart2: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
             SettingDescriptor(
-                WorkspaceRowSetting.terminalIconPath,
+                SidebarSectionsSetting.groupGradientPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.workspaceRow.icon", "Icon"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "icon"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalDirectoryPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.directory", "Folder"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "directory"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalBranchPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.branch", "Git Branch"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "branch"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalProcessPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.process", "Running Program"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "process"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalAgentStatusPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.agentStatus", "Agent Status"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "agentStatus"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalTabCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.tabCount", "Tab Count"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "tabCount"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalPortsPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.ports", "Ports"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "ports"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalLastActivityPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.lastActivity", "Last Activity"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "lastActivity"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalPullRequestPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.pullRequest", "Pull Request"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "pullRequest"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalProgressPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.progress", "Progress"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "progress"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalWorkingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.working", "Agent Working"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "working"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalLogPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.log", "Log"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "log"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalNotificationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification"),
-                kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "notification"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
-            SettingDescriptor(
-                WorkspaceRowSetting.terminalSecondLineOrderPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.workspaceRow.secondLineOrder", "Second Line Order"),
-                kind: .orderedChoices([
-                    SettingChoice("notification", SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification")),
-                    SettingChoice("directory", SettingsText.keyed("settings.workspaceRow.directory", "Folder")),
-                    SettingChoice("branch", SettingsText.keyed("settings.workspaceRow.branch", "Git Branch")),
-                    SettingChoice("process", SettingsText.keyed("settings.workspaceRow.process", "Running Program")),
-                    SettingChoice("agentStatus", SettingsText.keyed("settings.workspaceRow.agentStatus", "Agent Status")),
-                    SettingChoice("ports", SettingsText.keyed("settings.workspaceRow.ports", "Ports")),
-                    SettingChoice("lastActivity", SettingsText.keyed("settings.workspaceRow.lastActivity", "Last Activity")),
+                title: SettingsText.keyed("settings.sidebar.groupGradient", "Group Gradient"),
+                help: SettingsText.keyed("settings.sidebar.groupGradient.help", "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."),
+                kind: .choice([
+                    SettingChoice(GroupGradient.sunset.rawValue, SettingsText.keyed("settings.choice.groupGradientSunset", "Sunset")),
+                    SettingChoice(GroupGradient.aurora.rawValue, SettingsText.keyed("settings.choice.groupGradientAurora", "Aurora")),
+                    SettingChoice(GroupGradient.lagoon.rawValue, SettingsText.keyed("settings.choice.groupGradientLagoon", "Lagoon")),
+                    SettingChoice(GroupGradient.twoTone.rawValue, SettingsText.keyed("settings.choice.groupGradientTwoTone", "Two-Tone")),
                 ]),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "terminal", "order"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .string(SidebarSectionsSetting.groupGradientDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "gradient", "sunset", "aurora", "lagoon"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.minimalModePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.minimalMode", "Hide Bands Until Hover"),
+                help: SettingsText.keyed("settings.sidebar.minimalMode.help", "Hides the chosen sections until the pointer is over the sidebar."),
+                kind: .choice([
+                    SettingChoice(SidebarMinimalMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(SidebarMinimalMode.bottom.rawValue, SettingsText.keyed("settings.choice.minimalBottom", "Settings and Account Row")),
+                    SettingChoice(SidebarMinimalMode.top.rawValue, SettingsText.keyed("settings.choice.minimalTop", "Top Sections")),
+                    SettingChoice(SidebarMinimalMode.both.rawValue, SettingsText.keyed("settings.choice.minimalBoth", "Top and Bottom")),
+                ]),
+                default: .string(SidebarSectionsSetting.minimalModeDefault.rawValue),
+                keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.tipsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
+                help: SettingsText.keyed("settings.sidebar.cards.tips.help", "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
+                summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.tipsDefault),
+                keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"]
+            ),
+            SettingDescriptor(
+                SidebarPriorityViewSetting.enabledPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.priorityView.enabled", "Priority View"),
+                help: SettingsText.keyed("settings.sidebar.priorityView.enabled.help", "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."),
+                summary: SettingsText.keyed("settings.sidebar.priorityView.enabled.summary", "Agent chats that need you, at the top of the sidebar"),
+                kind: .toggle,
+                default: .bool(SidebarPriorityViewSetting.enabledDefault),
+                keywords: ["sidebar", "priority", "attention", "agents", "chats", "needs you", "activity", "bell", "inbox"]
+            ),
+            SettingDescriptor(
+                SidebarPriorityViewSetting.shownPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.priorityView.shown", "Show Priority View"),
+                help: SettingsText.keyed("settings.sidebar.priorityView.shown.help", "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged."),
+                kind: .toggle,
+                default: .bool(SidebarPriorityViewSetting.shownDefault),
+                keywords: ["sidebar", "priority", "activity", "bell", "show", "hide"]
+            ),
+            SettingDescriptor(
+                ChromePlacementSetting.sidebarSidePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.side", "Sidebar Side"),
+                help: SettingsText.keyed("settings.sidebar.side.help", "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar."),
+                kind: .choice([
+                    SettingChoice(SidebarSide.left.rawValue, SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice(SidebarSide.right.rawValue, SettingsText.keyed("settings.choice.right", "Right")),
+                ]),
+                default: .string(ChromePlacementSetting.sidebarSideDefault.rawValue),
+                keywords: ["sidebar", "side", "left", "right", "position", "edge", "layout"]
+            ),
+            SettingDescriptor(
+                ChromePlacementSetting.spacesPositionPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.spacesPosition", "Spaces Position"),
+                help: SettingsText.keyed("settings.sidebar.spacesPosition.help", "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row."),
+                kind: .choice([
+                    SettingChoice(SpacesPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
+                    SettingChoice(SpacesPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                ]),
+                default: .string(ChromePlacementSetting.spacesPositionDefault.rawValue),
+                keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "top", "bottom", "position", "layout"]
+            ),
+            SettingDescriptor(
+                ChromePlacementSetting.spacesVisibilityPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.spacesVisibility", "Show Spaces"),
+                help: SettingsText.keyed("settings.sidebar.spacesVisibility.help", "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."),
+                kind: .choice([
+                    SettingChoice(SpacesVisibilityMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                    SettingChoice(SpacesVisibilityMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                ]),
+                default: .string(ChromePlacementSetting.spacesVisibilityDefault.rawValue),
+                keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "hover", "hide", "show", "always", "visibility"]
+            ),
+            SettingDescriptor(
+                CommandDigitsSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.commandDigits", "Command-1 to 9 Select"),
+                help: SettingsText.keyed("settings.tabs.commandDigits.help", "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."),
+                summary: SettingsText.keyed("settings.tabs.commandDigits.summary", "Workspaces or tabs on Command-1 to 9"),
+                kind: .choice([
+                    SettingChoice(CommandDigitsSetting.workspaces.rawValue, SettingsText.keyed("settings.tabs.commandDigits.workspaces", "Workspaces")),
+                    SettingChoice(CommandDigitsSetting.tabs.rawValue, SettingsText.keyed("settings.tabs.commandDigits.tabs", "Tabs")),
+                ]),
+                default: .string(CommandDigitsSetting.fallback.rawValue),
+                keywords: ["command", "number", "digit", "shortcut", "tab", "workspace", "cmd-1", "switch"]
+            ),
+            SettingDescriptor(
+                SidebarNavigationSetting.numberingPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.numbering", "Command-Number Shortcuts"),
+                help: SettingsText.keyed("settings.sidebar.numbering.help", "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1."),
+                summary: SettingsText.keyed("settings.sidebar.numbering.summary", "What Command-1 to Command-9 go to"),
+                kind: .choice([
+                    SettingChoice(SidebarNavigationSettings.Scope.allItems.rawValue, SettingsText.keyed("settings.sidebar.scope.allItems", "Every Item")),
+                    SettingChoice(SidebarNavigationSettings.Scope.workspacesOnly.rawValue, SettingsText.keyed("settings.sidebar.scope.workspacesOnly", "Workspaces Only")),
+                ]),
+                default: .string(SidebarNavigationSetting.numberingDefault.rawValue),
+                keywords: ["sidebar", "shortcut", "number", "command", "home", "workspace"]
+            ),
+            SettingDescriptor(
+                SidebarNavigationSetting.cmd9Path,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.cmd9", "Command-9"),
+                help: SettingsText.keyed("settings.sidebar.cmd9.help", "Goes to the last item, as in browsers, or to the ninth."),
+                kind: .choice([
+                    SettingChoice(SidebarNavigationSettings.NinthKey.last.rawValue, SettingsText.keyed("settings.sidebar.cmd9.last", "Last Item")),
+                    SettingChoice(SidebarNavigationSettings.NinthKey.ninth.rawValue, SettingsText.keyed("settings.sidebar.cmd9.ninth", "Ninth Item")),
+                ]),
+                default: .string(SidebarNavigationSetting.cmd9Default.rawValue),
+                keywords: ["sidebar", "shortcut", "nine", "last"]
+            ),
+            SettingDescriptor(
+                SidebarNavigationSetting.steppingPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.stepping", "Next and Previous Item"),
+                help: SettingsText.keyed("settings.sidebar.stepping.help", "What Command-Control-] and Command-Control-[ step through."),
+                summary: SettingsText.keyed("settings.sidebar.stepping.summary", "What Command-Control-] and [ step through"),
+                kind: .choice([
+                    SettingChoice(SidebarNavigationSettings.Scope.allItems.rawValue, SettingsText.keyed("settings.sidebar.scope.allItems", "Every Item")),
+                    SettingChoice(SidebarNavigationSettings.Scope.workspacesOnly.rawValue, SettingsText.keyed("settings.sidebar.scope.workspacesOnly", "Workspaces Only")),
+                ]),
+                default: .string(SidebarNavigationSetting.steppingDefault.rawValue),
+                keywords: ["sidebar", "next", "previous", "step", "shortcut"]
+            ),
+            SettingDescriptor(
+                SidebarNavigationSetting.steppingWrapsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.steppingWraps", "Wrap Around"),
+                help: SettingsText.keyed("settings.sidebar.steppingWraps.help", "Past the last item, the next item is the first again."),
+                kind: .toggle,
+                default: .bool(SidebarNavigationSetting.steppingWrapsDefault),
+                keywords: ["sidebar", "next", "previous", "wrap"]
+            ),
         ]
     }
 }
 
 extension SidebarSettingsSchema {
-    static var agentWorkspaceRows: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.workspaceRow.kind.agent", "Agent Workspaces")
+    static var workspaceRows: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.workspaceRows", "Workspace Rows")
         return [
             SettingDescriptor(
-                WorkspaceRowSetting.agentIconPath,
+                WorkspaceRowSetting.iconPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.icon", "Icon"),
+                help: SettingsText.keyed("settings.workspaceRow.icon.help", "The icon or emoji you chose for a workspace."),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "icon"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.iconDefault),
+                keywords: ["sidebar", "workspace", "row", "icon"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentDirectoryPath,
+                WorkspaceRowSetting.directoryPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.directory", "Folder"),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "directory"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.directoryDefault),
+                keywords: ["sidebar", "workspace", "row", "directory"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentBranchPath,
+                WorkspaceRowSetting.branchPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.branch", "Git Branch"),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "branch"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.branchDefault),
+                keywords: ["sidebar", "workspace", "row", "branch"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentProcessPath,
+                WorkspaceRowSetting.processPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.process", "Running Program"),
+                help: SettingsText.keyed("settings.workspaceRow.process.help", "The terminal's title, which the shell or program sets."),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "process"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.processDefault),
+                keywords: ["sidebar", "workspace", "row", "process"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentAgentStatusPath,
+                WorkspaceRowSetting.agentStatusPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.agentStatus", "Agent Status"),
+                help: SettingsText.keyed("settings.workspaceRow.agentStatus.help", "The status agents and hooks report, one line each."),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "agentStatus"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.agentStatusDefault),
+                keywords: ["sidebar", "workspace", "row", "agentStatus"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentTabCountPath,
+                WorkspaceRowSetting.tabCountPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.tabCount", "Tab Count"),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "tabCount"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.tabCountDefault),
+                keywords: ["sidebar", "workspace", "row", "tabCount"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentPortsPath,
+                WorkspaceRowSetting.portsPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.ports", "Ports"),
+                help: SettingsText.keyed("settings.workspaceRow.ports.help", "Set by a hook: cmux workspace status set ports <text>."),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "ports"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.portsDefault),
+                keywords: ["sidebar", "workspace", "row", "ports"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentLastActivityPath,
+                WorkspaceRowSetting.lastActivityPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.lastActivity", "Last Activity"),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "lastActivity"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.lastActivityDefault),
+                keywords: ["sidebar", "workspace", "row", "lastActivity"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentPullRequestPath,
+                WorkspaceRowSetting.pullRequestPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.pullRequest", "Pull Request"),
+                help: SettingsText.keyed("settings.workspaceRow.pullRequest.help", "Set by a hook: cmux workspace status set pr <text>."),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "pullRequest"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.pullRequestDefault),
+                keywords: ["sidebar", "workspace", "row", "pullRequest"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentProgressPath,
+                WorkspaceRowSetting.progressPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.progress", "Progress"),
+                help: SettingsText.keyed("settings.workspaceRow.progress.help", "A progress bar under the row and the busy mark of running work."),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "progress"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.progressDefault),
+                keywords: ["sidebar", "workspace", "row", "progress"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentWorkingPath,
+                WorkspaceRowSetting.workingPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.working", "Agent Working"),
+                help: SettingsText.keyed("settings.workspaceRow.working.help", "A mark while an agent works in the workspace."),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "working"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.workingDefault),
+                keywords: ["sidebar", "workspace", "row", "working"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentLogPath,
+                WorkspaceRowSetting.logPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.log", "Log"),
+                help: SettingsText.keyed("settings.workspaceRow.log.help", "The newest line agents and scripts log: cmux workspace log append <text>."),
+                summary: SettingsText.keyed("settings.workspaceRow.log.summary", "Newest line agents and scripts log"),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "log"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.logDefault),
+                keywords: ["sidebar", "workspace", "row", "log"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentNotificationPath,
+                WorkspaceRowSetting.notificationPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification"),
+                help: SettingsText.keyed("settings.workspaceRow.notification.help", "The text of the workspace's newest unread notification."),
                 kind: .toggle,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "notification"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                default: .bool(WorkspaceRowSetting.notificationDefault),
+                keywords: ["sidebar", "workspace", "row", "notification"]
+            ),
             SettingDescriptor(
-                WorkspaceRowSetting.agentSecondLineOrderPath,
+                WorkspaceRowSetting.secondLineOrderPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.workspaceRow.secondLineOrder", "Second Line Order"),
+                help: SettingsText.keyed("settings.workspaceRow.secondLineOrder.help", "The order of the shown items under the workspace name."),
                 kind: .orderedChoices([
                     SettingChoice("notification", SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification")),
                     SettingChoice("directory", SettingsText.keyed("settings.workspaceRow.directory", "Folder")),
@@ -307,10 +323,42 @@ extension SidebarSettingsSchema {
                     SettingChoice("ports", SettingsText.keyed("settings.workspaceRow.ports", "Ports")),
                     SettingChoice("lastActivity", SettingsText.keyed("settings.workspaceRow.lastActivity", "Last Activity")),
                 ]),
+                default: .array(WorkspaceRowSetting.secondLineOrderDefault.map { .string($0) }),
+                keywords: ["sidebar", "workspace", "row", "order", "subtitle"]
+            ),
+            SettingDescriptor(
+                WorkspaceRowSetting.linesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceRow.lines", "Row Layout"),
+                help: SettingsText.keyed("settings.workspaceRow.lines.help", "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line."),
+                kind: .json(shape: WorkspaceRowSetting.linesShape),
                 default: nil,
-                defaultLabel: SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces"),
-                keywords: ["sidebar", "workspace", "row", "agent", "order"]
-            ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
+                defaultLabel: SettingsText.keyed("settings.workspaceRow.lines.default", "Item switches"),
+                keywords: ["sidebar", "workspace", "row", "layout", "lines", "customize", "tokens"]
+            ).hiddenFromSettingsPage("The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working."),
+            SettingDescriptor(
+                WorkspaceRowSetting.linesByKindPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceRow.linesByKind", "Row Layout by Kind"),
+                help: SettingsText.keyed("settings.workspaceRow.linesByKind.help", "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout."),
+                kind: .json(shape: WorkspaceRowSetting.linesByKindShape),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.workspaceRow.lines.default", "Item switches"),
+                keywords: ["sidebar", "workspace", "row", "layout", "lines", "customize", "tokens", "kind", "terminal", "agent", "browser"]
+            ).hiddenFromSettingsPage("The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working."),
+            SettingDescriptor(
+                WorkspaceRowSetting.linesByAgentPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceRow.linesByAgent", "Row Layout by Agent"),
+                help: SettingsText.keyed("settings.workspaceRow.linesByAgent.help", "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts."),
+                kind: .json(shape: WorkspaceRowSetting.linesByAgentShape),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.workspaceRow.lines.default", "Item switches"),
+                keywords: ["sidebar", "workspace", "row", "layout", "lines", "customize", "tokens", "agent", "claude", "codex"]
+            ).hiddenFromSettingsPage("The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working."),
         ]
     }
 }

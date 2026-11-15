@@ -216,6 +216,66 @@ extension WorkspaceRowSetting {
     public nonisolated static let secondLineOrderPath = ["sidebar", "workspaceRow", "secondLineOrder"]
     public nonisolated static let secondLineOrderDefault: [String] = ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"]
     public nonisolated static let secondLineOrderValues = ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"]
+    /// `sidebar.workspaceRow.lines`.
+    public nonisolated static let linesPath = ["sidebar", "workspaceRow", "lines"]
+    public nonisolated static let linesShape: JSONValue = .object([
+        "type": .string("array"),
+        "maxItems": .number(3),
+        "items": .object([
+            "type": .string("array"),
+            "minItems": .number(1),
+            "maxItems": .number(10),
+            "uniqueItems": .bool(true),
+            "items": .object([
+                "enum": .array([.string("icon"), .string("name"), .string("working"), .string("progress"), .string("notification"), .string("directory"), .string("branch"), .string("process"), .string("agentStatus"), .string("tabCount"), .string("ports"), .string("lastActivity"), .string("pullRequest"), .string("log")]),
+            ]),
+        ]),
+    ])
+    /// `sidebar.workspaceRow.linesByKind`.
+    public nonisolated static let linesByKindPath = ["sidebar", "workspaceRow", "linesByKind"]
+    public nonisolated static let linesByKindShape: JSONValue = .object([
+        "type": .string("object"),
+        "propertyNames": .object([
+            "enum": .array([.string("terminal"), .string("agent"), .string("browser"), .string("mixed")]),
+        ]),
+        "additionalProperties": .object([
+            "type": .string("array"),
+            "maxItems": .number(3),
+            "items": .object([
+                "type": .string("array"),
+                "minItems": .number(1),
+                "maxItems": .number(10),
+                "uniqueItems": .bool(true),
+                "items": .object([
+                    "enum": .array([.string("icon"), .string("name"), .string("working"), .string("progress"), .string("notification"), .string("directory"), .string("branch"), .string("process"), .string("agentStatus"), .string("tabCount"), .string("ports"), .string("lastActivity"), .string("pullRequest"), .string("log")]),
+                ]),
+            ]),
+        ]),
+    ])
+    /// `sidebar.workspaceRow.linesByAgent`.
+    public nonisolated static let linesByAgentPath = ["sidebar", "workspaceRow", "linesByAgent"]
+    public nonisolated static let linesByAgentShape: JSONValue = .object([
+        "type": .string("object"),
+        "maxProperties": .number(32),
+        "propertyNames": .object([
+            "type": .string("string"),
+            "minLength": .number(1),
+            "maxLength": .number(64),
+        ]),
+        "additionalProperties": .object([
+            "type": .string("array"),
+            "maxItems": .number(3),
+            "items": .object([
+                "type": .string("array"),
+                "minItems": .number(1),
+                "maxItems": .number(10),
+                "uniqueItems": .bool(true),
+                "items": .object([
+                    "enum": .array([.string("icon"), .string("name"), .string("working"), .string("progress"), .string("notification"), .string("directory"), .string("branch"), .string("process"), .string("agentStatus"), .string("tabCount"), .string("ports"), .string("lastActivity"), .string("pullRequest"), .string("log")]),
+                ]),
+            ]),
+        ]),
+    ])
 }
 
 extension WorkspaceRowSetting {
@@ -312,41 +372,4 @@ extension WorkspaceRowSetting {
     /// `sidebar.workspaceRow.browser.secondLineOrder`.
     public nonisolated static let browserSecondLineOrderPath = ["sidebar", "workspaceRow", "browser", "secondLineOrder"]
     public nonisolated static let browserSecondLineOrderValues = ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"]
-}
-
-extension WorkspaceRowSetting {
-    /// `sidebar.workspaceRow.mixed.icon`.
-    public nonisolated static let mixedIconPath = ["sidebar", "workspaceRow", "mixed", "icon"]
-    /// `sidebar.workspaceRow.mixed.directory`.
-    public nonisolated static let mixedDirectoryPath = ["sidebar", "workspaceRow", "mixed", "directory"]
-    /// `sidebar.workspaceRow.mixed.branch`.
-    public nonisolated static let mixedBranchPath = ["sidebar", "workspaceRow", "mixed", "branch"]
-    /// `sidebar.workspaceRow.mixed.process`.
-    public nonisolated static let mixedProcessPath = ["sidebar", "workspaceRow", "mixed", "process"]
-    /// `sidebar.workspaceRow.mixed.agentStatus`.
-    public nonisolated static let mixedAgentStatusPath = ["sidebar", "workspaceRow", "mixed", "agentStatus"]
-    /// `sidebar.workspaceRow.mixed.tabCount`.
-    public nonisolated static let mixedTabCountPath = ["sidebar", "workspaceRow", "mixed", "tabCount"]
-    /// `sidebar.workspaceRow.mixed.ports`.
-    public nonisolated static let mixedPortsPath = ["sidebar", "workspaceRow", "mixed", "ports"]
-    /// `sidebar.workspaceRow.mixed.lastActivity`.
-    public nonisolated static let mixedLastActivityPath = ["sidebar", "workspaceRow", "mixed", "lastActivity"]
-    /// `sidebar.workspaceRow.mixed.pullRequest`.
-    public nonisolated static let mixedPullRequestPath = ["sidebar", "workspaceRow", "mixed", "pullRequest"]
-    /// `sidebar.workspaceRow.mixed.progress`.
-    public nonisolated static let mixedProgressPath = ["sidebar", "workspaceRow", "mixed", "progress"]
-    /// `sidebar.workspaceRow.mixed.working`.
-    public nonisolated static let mixedWorkingPath = ["sidebar", "workspaceRow", "mixed", "working"]
-    /// `sidebar.workspaceRow.mixed.log`.
-    public nonisolated static let mixedLogPath = ["sidebar", "workspaceRow", "mixed", "log"]
-    /// `sidebar.workspaceRow.mixed.notification`.
-    public nonisolated static let mixedNotificationPath = ["sidebar", "workspaceRow", "mixed", "notification"]
-    /// `sidebar.workspaceRow.mixed.secondLineOrder`.
-    public nonisolated static let mixedSecondLineOrderPath = ["sidebar", "workspaceRow", "mixed", "secondLineOrder"]
-    public nonisolated static let mixedSecondLineOrderValues = ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"]
-}
-
-/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
-nonisolated enum SidebarSettingsSchema {
-    static var sidebar: [SettingDescriptor] { sidebarPart1 + sidebarPart2 }
 }
