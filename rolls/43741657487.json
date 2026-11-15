@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43741657487",
+  "recorded_at": "2026-11-15T17:42:14Z",
+  "reason": "cmux-tui e038fa7935b4 changes the image's cmux-tui (pinned b0cfe5fb7932)",
+  "dry_run": false,
+  "cmux_tui": "e038fa7935b468ed16412fc47fa6bec083c702c0",
+  "fixes": [
+    {
+      "sha": "e038fa7935b468ed16412fc47fa6bec083c702c0",
+      "mergedAt": "2026-11-15T09:15:40-08:00",
+      "subject": "customize: honest sha lookups, refresh in place, folder refresh never aborts (#43846)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T17:42:14Z",
+    "snapshot_id": "sh-f363de8acf0449aeb80dbe877da7754d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43741657487): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3f210e0734e96f556b9cfd6b006cad885ad1a9bc",
+    "image": "cloud-native-auto-e038fa79-43741657487-1",
+    "revision": "ci-43741657487-1",
+    "at": "2026-11-15T17:42:14Z"
+  },
+  "rolled_back": false
+}
