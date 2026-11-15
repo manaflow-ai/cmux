@@ -577,6 +577,9 @@ try {
     `chat-100k-flat: longest CPU settle ${settleMax.toFixed(1)} s (${slowest}); empty ${emptySettle.toFixed(1)} s`,
   );
   perfRow({ name: `${ROW}.cpu_settle_s_max`, p50: settleMax, p95: settleMax, unit: "s" });
+  // What a long chat adds to the empty chats' own settle, the number the goal reads (target 2 s).
+  const excess = Math.max(0, settleMax - emptySettle);
+  perfRow({ name: `${ROW}.cpu_settle_excess_s`, p50: excess, p95: excess, unit: "s", target: 2 });
 } finally {
   await release();
 }
