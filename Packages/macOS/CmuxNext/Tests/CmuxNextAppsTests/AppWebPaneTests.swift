@@ -154,6 +154,30 @@ struct AppWebPaneTests {
         #expect(views.webPage("tab-1") == nil)
     }
 
+    /// next-review's BLOCK on #43033 (P1, blocks:security): the extension pane's own router refuses
+    /// the host ops the shared PageRouter answers itself (a raw title bar double-click zoomed or
+    /// minimized cmux with no grant or gesture), runs none of them and sends nothing to the daemon.
+    @Test func theExtensionPaneRunsNoHostOpOutsideItsNamespace() async throws {
+        let package = try Self.package(entry: "index.html")
+        defer { try? FileManager.default.removeItem(at: package) }
+        let transport = Transport()
+        let views = AppPaneViews(client: AppsClient(transport: transport))
+        _ = views.makeView(try #require(Self.record(package: package)), key: "tab-1")
+        defer { views.close("tab-1") }
+        let router = try #require(views.webPage("tab-1")).router
+        var ran: [String] = []
+        router.titleBarDoubleClick = { ran.append("title_bar_double_click") }
+        router.contextMenu = { _ in ran.append("contextMenu"); return ["picked": .null] }
+        router.historyNavigate = { _, _ in ran.append("history"); return true }
+        for (id, (op, params)) in [(PageNativeOp.titleBarDoubleClick, [:] as JSONValue), (PageNativeOp.contextMenu, ["items": []]),
+                                   (PageNativeOp.historyNavigate, ["back": true, "g": 1])].enumerated() {
+            let reply = await router.handle(["t": "call", "id": .number(Double(id + 1)), "op": .string(op), "params": params])
+            #expect(reply["code"]?.stringValue == "cmux.protocol.unknown_op", "\(op) answered \(reply)")
+        }
+        #expect(ran.isEmpty)
+        #expect(transport.pageCalls.isEmpty)
+    }
+
     /// A package with `web/<entry>` in a fresh temporary folder.
     private static func package(entry: String) throws -> URL {
         let package = FileManager.default.temporaryDirectory.appendingPathComponent("web-pane-\(UUID().uuidString)", isDirectory: true)
