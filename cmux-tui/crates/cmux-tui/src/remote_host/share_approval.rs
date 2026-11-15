@@ -34,7 +34,8 @@ pub(crate) fn asker_fields(approval: &ShareApproval) -> Value {
     })
 }
 
-/// [`admit`], with the decision written to this Mac's host audit log.
+/// [`admit`], with the decision written to an audit log: this Mac's host
+/// audit log in the app (`record` is `remote_host::audit::append`).
 #[cfg_attr(
     not(test),
     allow(
@@ -48,9 +49,10 @@ pub(crate) fn admit_and_record(
     grant: &impl SameAccountGrant,
     keys: &impl AskerKeys,
     seen: &mut HashSet<String>,
+    record: impl FnOnce(&Value),
 ) -> Result<(), Refused> {
     let decision = admit(approval, target, grant, keys, seen);
-    super::audit::append(&target_entry(approval, &decision));
+    record(&target_entry(approval, &decision));
     decision
 }
 
