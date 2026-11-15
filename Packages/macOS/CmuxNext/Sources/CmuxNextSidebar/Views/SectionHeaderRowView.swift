@@ -72,9 +72,6 @@ final class SectionHeaderRowView: SidebarRowView {
         // strip's, and the tooltip says it.
         default: break
         }
-        // This Mac connecting for less than the grace (a launch, a daemon restart or handoff): no spinner; one that
-        // lasts draws it (`SidebarPlaceholderGrace.holdingConnectingLabels`).
-        if machine.kind == .local, machine.holdsStatusLabel { return nil }
         return switch machine.status.linkState {
         case .connected: .success
         case .connecting: .working
@@ -82,6 +79,18 @@ final class SectionHeaderRowView: SidebarRowView {
         case .paused: .quiet
         case .attention: .attention
         }
+    }
+
+    /// The machine as its header draws it: a link that has been coming up, dropped or out of reach for
+    /// less than the grace (`holdsStatusLabel`, `SidebarPlaceholderGrace.holdingConnectingLabels`)
+    /// keeps the connected look, with no spinner and no "Reconnecting…", since it redials on its own
+    /// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"). The tooltip and
+    /// VoiceOver still read the real state.
+    static func drawn(_ machine: SidebarMachine) -> SidebarMachine {
+        guard machine.holdsStatusLabel else { return machine }
+        var held = machine
+        held.status = .connected
+        return held
     }
 
     /// A machine's state in words, for the header's label and the dot's tooltip.
@@ -184,9 +193,10 @@ final class SectionHeaderRowView: SidebarRowView {
             }
             title = machine.name
             ownIcon = machine.icon
-            statusTone = Self.tone(machine, hostGroup: section.isHostGroup)
+            let drawn = Self.drawn(machine)
+            statusTone = Self.tone(drawn, hostGroup: section.isHostGroup)
             let words = Self.statusWords(machine.status)
-            badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
+            badgeText = Self.statusText(drawn.status, hostGroup: section.isHostGroup)
             // A connected Cloud machine draws no dot (Leo 2026-10-30), yet its tooltip still says it is connected.
             statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil
                 && (statusTone != nil || machine.status == .updateAvailable || machine.kind == .cloud))
