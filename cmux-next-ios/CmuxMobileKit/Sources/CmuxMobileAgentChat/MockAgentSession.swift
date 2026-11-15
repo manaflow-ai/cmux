@@ -61,11 +61,19 @@ public final class MockAgentSession: AgentSessionSource {
 
     public func send(_ intent: AgentClientIntent) {
         switch intent {
-        case .prompt(let text, let attachments, let steer, _, _):
-            let promptID = UUID().uuidString
+        case .prompt(let text, let attachments, let steer, let sentID, _):
+            // The prompt's own id, as acpmux echoes it: the store matches the turn it drew as sent.
+            let promptID = sentID.isEmpty ? UUID().uuidString : sentID
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))
                 emit(.queued(text: text, promptId: promptID, position: queued.count))
+            } else if DeveloperOptions.mockEchoDelay > .zero {
+                // DEBUG: a Mac's round trip before the prompt comes back.
+                let delay = DeveloperOptions.mockEchoDelay
+                Task { [weak self] in
+                    try? await Task.sleep(for: delay)
+                    self?.startTurn(text: text, attachments: attachments, promptID: promptID)
+                }
             } else {
                 startTurn(text: text, attachments: attachments, promptID: promptID)
             }

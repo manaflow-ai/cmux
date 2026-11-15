@@ -589,8 +589,12 @@ struct ChatComposer: View {
             return
         }
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
-        text = ""
-        attachments = []
+        // The field clears and shrinks on the spring the sent bubble glides in on (the
+        // transcript's `ChatSendSettle`), as one motion.
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
+            text = ""
+            attachments = []
+        }
         sendCount += 1
         if CmuxMobilePreferences.dismissKeyboardAfterSend() { focus.wrappedValue = false }
     }

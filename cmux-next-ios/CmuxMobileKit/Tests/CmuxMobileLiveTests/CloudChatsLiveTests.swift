@@ -202,7 +202,8 @@ import Testing
         let store = try #require(relay.store(sessionID: session))
         store.send(prompt: "hello from the phone")
         // `wire` is not observed: wait for the user_message the machine sent back, then read what it received.
-        #expect(await until { !store.turns.isEmpty })
+        // The bubble shows as sent at once (`isUnconfirmed`); the machine's record confirms it.
+        #expect(await until { store.turns.first.map { !$0.isUnconfirmed } ?? false })
         #expect(wire.sent.contains { $0.0 == "vm-a" && $0.1 == session && $0.2 == "hello from the phone" })
         relay.disconnect()
     }

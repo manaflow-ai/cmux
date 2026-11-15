@@ -28,6 +28,16 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
     public var retry: Retry?
     /// Tool calls drawn by something else (the subagent row that a spawn call started).
     public var hiddenToolCalls: Set<String> = []
+    /// The key this phone drew the turn's rows under before the Mac named the turn: a prompt
+    /// shown as it was sent (`AgentChatStore.send`) keeps its rows when the Mac's record of it
+    /// comes back under the Mac's id, so the bubble is never taken out and put in again.
+    public var localKey: String?
+
+    /// What the transcript keys the turn's own rows by (its prompt bubble, working line, footer).
+    public var rowKey: String { localKey ?? id }
+
+    /// Shown as sent, not yet seen on the Mac.
+    public var isUnconfirmed: Bool { localKey != nil && localKey == id }
 
     public init(id: String, prompt: String, promptID: String? = nil, attachments: [AgentAttachment] = [], promptAt: Date) {
         self.id = id
@@ -548,6 +558,59 @@ public final class AgentChatStore {
         let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
         source.send(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
+        showSent(text: text, attachments: attachments, promptID: promptID)
+    }
+
+    /// The local key of a prompt shown as it was sent (`AgentTurn.localKey`).
+    nonisolated static func localTurnKey(_ promptID: String) -> String { "local-\(promptID)" }
+
+    /// A prompt into an idle chat is drawn at once, as Messages draws a sent message: a turn
+    /// under a local key that the Mac's `userMessage` for the same prompt id takes over in place
+    /// (`confirmSent`), keeping its rows. One the Mac does not run as a turn of its own (queued
+    /// behind another turn, refused, never sent) is taken out again (`dropUnconfirmed`); a
+    /// refused one comes back to the composer as before. A message into a running turn is the
+    /// Mac's to place (a steer or the queue), so it waits for the Mac.
+    private func showSent(text: String, attachments: [AgentAttachment], promptID: String) {
+        guard !source.isReadOnly, !isRunning, queue.isEmpty, !queuePaused, pendingPermission == nil,
+              pendingQuestion == nil, gapFiller == nil,
+              !turns.contains(where: { $0.promptID == promptID }) else { return }
+        revision &+= 1
+        lastChangeWasReplay = false
+        let key = Self.localTurnKey(promptID)
+        var turn = AgentTurn(id: key, prompt: text, promptID: promptID, attachments: attachments, promptAt: Date())
+        turn.localKey = key
+        turns.append(turn)
+        justSentRowKey = key
+        refreshDerived()
+    }
+
+    /// The row key of the turn the last send drew, until the transcript takes it
+    /// (``takeJustSent()``): its rows settle in on the send's motion instead of fading in.
+    @ObservationIgnored private var justSentRowKey: String?
+
+    /// The row key of the turn just drawn as sent, once (nil when there is none new).
+    func takeJustSent() -> String? {
+        defer { justSentRowKey = nil }
+        return justSentRowKey
+    }
+
+    /// The Mac's turn for a prompt shown as sent: the shown turn becomes it (same rows). False
+    /// when no turn waits for `promptID`.
+    private func confirmSent(promptID: String, turnID: String, text: String, attachments: [AgentAttachment], at: Date) -> Bool {
+        guard let index = turns.indices.last, turns[index].isUnconfirmed, turns[index].promptID == promptID else { return false }
+        turns[index].id = turnID
+        turns[index].prompt = text
+        turns[index].attachments = attachments
+        turns[index].promptAt = at
+        return true
+    }
+
+    /// Takes out the turn shown as sent and not confirmed (any, or the one for `promptID`). It is
+    /// always the last turn: it goes in only into an idle chat, and any turn that comes after it
+    /// takes it out first.
+    private func dropUnconfirmed(promptID: String? = nil) {
+        guard let last = turns.last, last.isUnconfirmed, promptID == nil || last.promptID == promptID else { return }
+        turns.removeLast()
     }
 
     /// Whether `text` is one of a Claude agent's own slash commands (`commands`, its
@@ -949,22 +1012,29 @@ public final class AgentChatStore {
                     steeredPrompt = (turnId, promptId)
                 }
             } else if !spilledTurnIDs.contains(turnId) {
-                // A steer the turn ended before the agent read it runs as this turn's prompt, under
-                // its own id (acpmux `steer_end.rs`): it draws once, here, not also as a steer in
-                // the turn before.
-                if let last = turns.indices.last {
-                    turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
-                }
+                let sent = Self.sentAttachments(sentAttachments[promptId], recorded: attachments)
                 promptedTurnID = turnId
                 startsNewAttempt = false
-                turns.append(AgentTurn(id: turnId, prompt: text, promptID: promptId,
-                                       attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
-                                       promptAt: at))
+                // The prompt this phone drew as it sent it: that turn is this one, in place.
+                if !confirmSent(promptID: promptId, turnID: turnId, text: text, attachments: sent, at: at) {
+                    // Another turn ran first (sent from the Mac or another device): the updates
+                    // that follow are its, and a prompt drawn as sent waits for its own record.
+                    dropUnconfirmed()
+                    // A steer the turn ended before the agent read it runs as this turn's prompt, under
+                    // its own id (acpmux `steer_end.rs`): it draws once, here, not also as a steer in
+                    // the turn before.
+                    if let last = turns.indices.last {
+                        turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
+                    }
+                    turns.append(AgentTurn(id: turnId, prompt: text, promptID: promptId, attachments: sent, promptAt: at))
+                }
             }
             // The turn holds them now.
             sentAttachments[promptId] = nil
         case .queued(let text, let promptId, _):
             reached(promptId)
+            // Drawn as sent, but the Mac queued it behind a turn: it shows in the queue.
+            dropUnconfirmed(promptID: promptId)
             // A steer that lost a stop race waits in the queue now (the Mac's `dropDeferredSteer`):
             // it is drawn there, not also in the turn it missed.
             if let last = turns.indices.last {
@@ -1148,6 +1218,8 @@ public final class AgentChatStore {
             retryRequested = false
             clientError = message
         case .promptNotSent(let text, let attachments, let promptID, let reason):
+            // Drawn as sent: it comes back to the composer instead (below).
+            dropUnconfirmed(promptID: promptID)
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason

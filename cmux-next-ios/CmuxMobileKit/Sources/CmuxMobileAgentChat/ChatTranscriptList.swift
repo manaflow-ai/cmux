@@ -550,6 +550,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
     /// Rows that arrived live (after the replayed history): they fade in when first shown.
     private var fadeIn: Set<String> = []
+    /// The rows a send just drew (its bubble and working line), before they are laid out: the
+    /// controller glides them in (`ChatSendSettle`). Unset, they fade in as other live rows.
+    var sentRowsArrived: (([String]) -> Void)?
+    /// Rows whose cells the send's glide draws (moved or faded): a cell shown for any other row
+    /// is drawn at rest.
+    var settlingRowIDs: Set<String> = []
+
+    /// The turn rows a send draws under its turn's row key (`ChatTranscriptBuilder`).
+    static func isSentRow(_ id: String, key: String) -> Bool {
+        id == "u-\(key)" || id == "cx-\(key)" || id == "w-\(key)"
+    }
     /// Older turns that came in above the rows shown and were weighed for holding (`reload`):
     /// each is held out at most once, until its native rows are laid out.
     private var heldOnce: Set<String> = []
@@ -644,6 +655,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // shorter than the screen): read the page before it. The list keeps the reader's rows
         // in place as it lands (`reload`'s anchor).
         if shownID == "session-start", store.hasEarlierHistory { store.loadEarlier() }
+        // A reused cell a send's glide moved or faded is drawn at rest for its new row.
+        if let id = shownID, !settlingRowIDs.contains(id), cell.contentView.transform != .identity || cell.contentView.alpha < 1,
+           !fadeIn.contains(id) {
+            cell.contentView.transform = .identity
+            cell.contentView.alpha = 1
+        }
         guard !fadeIn.isEmpty, let id = shownID, fadeIn.remove(id) != nil,
               !UIAccessibility.isReduceMotionEnabled else { return }
         cell.contentView.alpha = 0
@@ -867,6 +884,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             if lookup.viewedShown[id] != ChatNativeRowActions.viewed(changes) { forced.insert(id) }
         }
         let turns = store.turns
+        // The rows a send just drew settle in on its motion (the controller's glide), not the fade.
+        let sentKey = store.takeJustSent()
+        let settlesSent = sentRowsArrived != nil && ChatSendMotion.current != .off && !UIAccessibility.isReduceMotionEnabled
+        var sent: [String] = []
         let built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
                                   askOpen: store.pendingPermission != nil || store.pendingQuestion != nil,
                                   permissionBarHidden: surface.permissionBarHidden,
@@ -955,7 +976,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     if !isNew { changed.append(row.id) }
                     revisions.bump(row.id)
                     rows[row.id] = row
-                    if loaded, isNew, !store.isReplayed(Self.storeID(row)) { fadeIn.insert(row.id) }
+                    if loaded, isNew, !store.isReplayed(Self.storeID(row)) {
+                        if settlesSent, let sentKey, Self.isSentRow(row.id, key: sentKey) { sent.append(row.id) } else { fadeIn.insert(row.id) }
+                    }
                     if loaded, row.turnID == runningTurn, lookup.eligible(row), !streamsOffScreen(row) {
                         lookup.layouts.makeNow(row, revision: revisions[row.id] ?? 0, expanded: lookup.expanded(row.id))
                     }
@@ -1013,6 +1036,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         applies += 1
         lastReconfigured = changed.count
         let anchor = surface.following || !loaded ? nil : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
+        // Before the rows are laid out: the controller notes where the transcript is now.
+        if !sent.isEmpty { sentRowsArrived?(sent) }
         layout.setItems(items)
         // A row whose cell type changes (native and SwiftUI) is reloaded; reconfiguring one
         // must dequeue the same cell type.

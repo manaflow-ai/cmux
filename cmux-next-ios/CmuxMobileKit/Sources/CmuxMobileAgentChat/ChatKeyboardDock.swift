@@ -142,6 +142,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         shownIdentity = ObjectIdentifier(store)
         super.init(nibName: nil, bundle: nil)
         list.collectionView.didLayout = { [weak self] in self?.transcriptLaidOut() }
+        list.sentRowsArrived = { [weak self] ids in self?.armSendSettle(ids) }
         // A tapped disclosure in a row holds its line while it opens or closes (DisclosureReveal).
         list.context.foldHold = TranscriptFoldHold(
             begin: { [weak self] in self?.holdForDisclosure() },
@@ -190,6 +191,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let identity = ObjectIdentifier(store)
         if let shown = shownIdentity, shown != identity {
             endFoldHold(force: true)
+            endSendSettle()
             list.show(store: store)
             emptyHost.rootView = empty
             if let dock {
@@ -515,7 +517,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         } else if positionedInitially, surface.following {
             // Inside the keyboard's animation: the newest turn rides the
             // stack frame by frame and the top of the transcript is covered.
-            if scrollView.contentOffset != bottomOffset { scrollView.contentOffset = bottomOffset }
+            // A send's rows glide up into that place (`sendSettled`).
+            let target = sendSettled(bottomOffset)
+            if scrollView.contentOffset != target { scrollView.contentOffset = target }
         } else if positionedInitially {
             // A reader scrolled up keeps the bottom of what they see on the
             // stack too (Telegram): the stack rising covers the top instead.
@@ -552,6 +556,102 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if foldHolding { updateInsets() } else { UIView.performWithoutAnimation { updateInsets() } }
     }
 
+    // MARK: Sending
+
+    /// The send being glided in: the following offset trails the newest row's resting place by
+    /// what it has left (`ChatSendSettle`), set every display frame by `settleLink`.
+    private var sendSettle: ChatSendSettle?
+    private var settleLink: CADisplayLink?
+    /// The time the transcript is drawn at: the display frame's while the glide runs.
+    private var settleClock: CFTimeInterval { settleLink?.targetTimestamp ?? CACurrentMediaTime() }
+
+    /// A send drew `ids` and they are about to be laid out: where the transcript is now is where
+    /// the glide starts. Only a reader resting on the newest row glides (one scrolled up keeps
+    /// what they read, and the rows go in below it); Reduce Motion draws them in place.
+    private func armSendSettle(_ ids: [String]) {
+        let motion = ChatSendMotion.current
+        guard isViewLoaded, positionedInitially, surface.following, motion != .off, !foldHolding,
+              !scrollView.isTracking, !scrollView.isDecelerating, !UIAccessibility.isReduceMotionEnabled else { return }
+        // A second send mid-glide starts from where the first has the rows now.
+        endSendSettle()
+        sendSettle = ChatSendSettle(rowIDs: ids, motion: motion, fromOffset: Double(scrollView.contentOffset.y))
+        list.settlingRowIDs = Set(ids)
+    }
+
+    /// The following offset for `resting` (the newest row on the stack): less what the send's
+    /// glide has left. The first layout with the sent rows in starts the glide.
+    private func sendSettled(_ resting: CGPoint) -> CGPoint {
+        guard var settle = sendSettle else { return resting }
+        let now = settleClock
+        if settle.start == nil {
+            guard settle.begin(restingOffset: Double(resting.y), contentHeight: Double(contentHeight), at: now) else {
+                endSendSettle()
+                return resting
+            }
+            let link = CADisplayLink(target: SettleLinkTarget(self), selector: #selector(SettleLinkTarget.tick(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            settleLink = link
+        } else if abs(settle.contentHeight - Double(contentHeight)) > 0.01 {
+            settle.contentGrew(to: Double(contentHeight), at: now)
+        }
+        sendSettle = settle
+        drawSentRows(settle, progress: settle.progress(at: now))
+        return CGPoint(x: resting.x, y: resting.y - CGFloat(settle.remaining(at: now)))
+    }
+
+    /// A display frame of the glide: the offset (and the bubble, for A and B) at this frame's time.
+    fileprivate func settleFrame() {
+        guard let settle = sendSettle else { return endSendSettle() }
+        if settle.isDone(at: settleClock) || !surface.following || scrollView.isTracking {
+            endSendSettle()
+            UIView.performWithoutAnimation { updateInsets() }
+            return
+        }
+        UIView.performWithoutAnimation { updateInsets() }
+    }
+
+    /// The sent rows' own part of the motion at `progress` (0 to 1).
+    private func drawSentRows(_ settle: ChatSendSettle, progress p: Double) {
+        guard settle.motion != .glide else { return }
+        let left = CGFloat(1 - p)
+        for id in settle.rowIDs {
+            guard let view = list.cell(for: id)?.contentView else { continue }
+            let bubble = id.hasPrefix("u-")
+            switch settle.motion {
+            case .rise:
+                // Out of the field: half its height lower than the rows it rides with, fading in.
+                view.alpha = min(1, 0.25 + CGFloat(p) * 1.5)
+                view.transform = bubble ? CGAffineTransform(translationX: 0, y: (view.bounds.height * 0.5 + 16) * left) : .identity
+            case .fade:
+                view.alpha = min(1, CGFloat(p) / 0.6)
+                guard bubble else { continue }
+                // Grows from 92 % at its bottom trailing corner (where the bubble sits).
+                let scale = 1 - 0.08 * left
+                let size = view.bounds.size
+                view.transform = CGAffineTransform(translationX: size.width * (1 - scale) / 2, y: size.height * (1 - scale) / 2)
+                    .scaledBy(x: scale, y: scale)
+            case .glide, .off:
+                break
+            }
+        }
+    }
+
+    /// Ends the glide: the rows at rest where they are.
+    private func endSendSettle() {
+        settleLink?.invalidate()
+        settleLink = nil
+        if let settle = sendSettle {
+            for id in settle.rowIDs {
+                guard let view = list.cell(for: id)?.contentView else { continue }
+                view.transform = .identity
+                view.alpha = 1
+            }
+        }
+        sendSettle = nil
+        list.settlingRowIDs = []
+    }
+
     // MARK: Disclosures
 
     /// A disclosure in the transcript was tapped (a tool group, a tool call, a thought): its line
@@ -560,6 +660,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// button shows); closing at the end lets the rows above come down with the same spring.
     func holdForDisclosure() {
         guard isViewLoaded, positionedInitially, !scrollView.isTracking else { return }
+        endSendSettle()
         foldHolding = true
         surface.following = false
         foldHoldCap?.cancel()
@@ -761,8 +862,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     // MARK: Scrolling
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        // The person's own scroll ends a disclosure's hold.
+        // The person's own scroll ends a disclosure's hold, and a send's glide (they hold the rows).
         endFoldHold(force: true)
+        endSendSettle()
         followDraggedKeyboard(true)
     }
 
@@ -813,6 +915,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if isEmpty {
             jumpVisibility = JumpToBottomVisibility()
             shown = false
+        } else if sendSettle?.start != nil {
+            // A send's rows gliding up to the bottom are not the reader away from it.
+            shown = false
         } else {
             shown = jumpVisibility.update(offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top,
                                           maxOffsetY: bottomOffset.y, keyboardDragging: keyboardDragging)
@@ -826,6 +931,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // A jump ends the reader's own drag and fling first, before its layout pass.
         scrollView.haltScrollMomentum()
         endFoldHold(force: true)
+        endSendSettle()
         surface.following = !toTop
         view.layoutIfNeeded()
         scroll(to: toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset, animated: animated)
@@ -838,6 +944,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // A jump ends the reader's own drag and fling first, before its layout pass.
         scrollView.haltScrollMomentum()
         endFoldHold(force: true)
+        endSendSettle()
         surface.following = false
         view.layoutIfNeeded()
         let headerBottom = topInset ?? view.safeAreaInsets.top
@@ -1017,6 +1124,16 @@ final class PassthroughView: UIView {
 
 /// Breaks the display link's retain of the controller.
 @MainActor
+/// The send glide's display link target (weak, so the link never keeps the controller).
+private final class SettleLinkTarget: NSObject {
+    weak var owner: ChatTranscriptController?
+    init(_ owner: ChatTranscriptController) { self.owner = owner }
+    @objc func tick(_ link: CADisplayLink) {
+        guard let owner else { return link.invalidate() }
+        owner.settleFrame()
+    }
+}
+
 private final class DragLinkTarget: NSObject {
     weak var owner: ChatTranscriptController?
     init(_ owner: ChatTranscriptController) { self.owner = owner }
