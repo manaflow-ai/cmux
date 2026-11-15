@@ -1317,21 +1317,31 @@ fn cmux_setup_mcp_names_a_leftover_cmux_entry_and_removes_it_only_on_request() {
     assert_eq!(leftover(0)["remove"], "claude mcp remove --scope user cmux", "{report}");
     assert_eq!(leftover(1)["remove"], "codex mcp remove cmux", "{report}");
     assert!(world.take_mcp_calls().is_empty(), "reading removed something");
+    // Never without a person: no terminal and no `--confirm` (an agent, a script) is refused.
+    let unasked = world.run(&["setup", "mcp", "--remove", "claude"]);
+    assert_eq!(unasked.status.code(), Some(2), "{unasked:?}");
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&unasked.stdout),
+        String::from_utf8_lossy(&unasked.stderr)
+    );
+    assert!(said.contains("a person runs it"), "{said}");
+    assert!(world.take_mcp_calls().is_empty(), "an unasked --remove ran the agent's CLI");
     // Removing, on request: through each agent's own CLI, with the line that puts it back.
-    let removed = world.json(&["setup", "mcp", "--remove", "claude"]);
+    let removed = world.json(&["setup", "mcp", "--remove", "claude", "--confirm"]);
     assert_eq!(removed["state"], "changed", "{removed}");
     assert_eq!(
         removed["undo"],
         "claude mcp add --scope user cmux -- /Applications/cmux.app/Contents/Resources/bin/cmux mcp serve"
     );
     assert_eq!(world.take_mcp_calls(), ["claude mcp remove --scope user cmux"]);
-    let removed = world.json(&["setup", "mcp", "--remove", "codex"]);
+    let removed = world.json(&["setup", "mcp", "--remove", "codex", "--confirm"]);
     assert_eq!(removed["undo"], "codex mcp add cmux -- npx -y cmux mcp serve", "{removed}");
     assert_eq!(world.take_mcp_calls(), ["codex mcp remove cmux"]);
     // Nothing left: nothing named, nothing removed.
     let after = world.json(&["setup", "mcp"]);
     assert_eq!(after["clients"][0]["leftover"], Value::Null, "{after}");
-    assert_eq!(world.json(&["setup", "mcp", "--remove", "claude"])["state"], "ok");
+    assert_eq!(world.json(&["setup", "mcp", "--remove", "claude", "--confirm"])["state"], "ok");
     assert!(world.take_mcp_calls().is_empty());
     // An entry with a setting cmux would not put back: named, never removed.
     std::fs::write(
@@ -1339,7 +1349,7 @@ fn cmux_setup_mcp_names_a_leftover_cmux_entry_and_removes_it_only_on_request() {
         "[mcp_servers.cmux]\ncommand = \"/x/cmux\"\nargs = [\"mcp\", \"serve\"]\ncwd = \"/w\"\n",
     )
     .unwrap();
-    let kept = world.json(&["setup", "mcp", "--remove", "codex"]);
+    let kept = world.json(&["setup", "mcp", "--remove", "codex", "--confirm"]);
     assert_eq!(kept["state"], "needs_user", "{kept}");
     assert_eq!(kept["user_action"]["command"], "codex mcp remove cmux");
     assert!(world.take_mcp_calls().is_empty());
@@ -1347,7 +1357,7 @@ fn cmux_setup_mcp_names_a_leftover_cmux_entry_and_removes_it_only_on_request() {
     std::fs::write(&codex_toml, "[mcp_servers.cmux]\ncommand = \"/usr/bin/my-tool\"\nargs = []\n")
         .unwrap();
     assert_eq!(world.json(&["setup", "mcp"])["clients"][1]["leftover"], Value::Null);
-    world.json(&["setup", "mcp", "--remove", "codex"]);
+    world.json(&["setup", "mcp", "--remove", "codex", "--confirm"]);
     assert!(world.take_mcp_calls().is_empty());
 }
 
@@ -1381,7 +1391,7 @@ fn cmux_setup_mcp_remove_keeps_secrets_skips_the_manual_line_and_dry_run_only_pl
     assert!(!shown.contains(secret), "the report printed a secret: {shown}");
     let report: Value = serde_json::from_slice(&listed.stdout).unwrap();
     assert_eq!(report["clients"][0]["leftover"]["remove"], "claude mcp remove --scope user cmux");
-    let removing = world.run(&["setup", "mcp", "--remove", "claude"]);
+    let removing = world.run(&["setup", "mcp", "--remove", "claude", "--confirm"]);
     let shown = format!(
         "{}{}",
         String::from_utf8_lossy(&removing.stdout),
@@ -1408,7 +1418,7 @@ fn cmux_setup_mcp_remove_keeps_secrets_skips_the_manual_line_and_dry_run_only_pl
     assert_eq!(planned["plan"], "claude mcp remove --scope user cmux", "{planned}");
     assert_eq!(planned["undo"], Value::Null, "{planned}");
     assert!(world.take_mcp_calls().is_empty(), "a dry run ran the agent's CLI");
-    let removed = world.json(&["setup", "mcp", "--remove", "claude"]);
+    let removed = world.json(&["setup", "mcp", "--remove", "claude", "--confirm"]);
     assert_eq!(removed["state"], "changed", "{removed}");
     assert_eq!(
         removed["undo"],
@@ -1431,7 +1441,7 @@ fn cmux_setup_mcp_remove_keeps_secrets_skips_the_manual_line_and_dry_run_only_pl
     let report = world.json(&["setup", "mcp"]);
     assert_eq!(report["clients"][0]["leftover"], Value::Null, "{report}");
     assert_eq!(report["clients"][1]["leftover"], Value::Null, "{report}");
-    assert_eq!(world.json(&["setup", "mcp", "--remove", "codex"])["state"], "ok");
+    assert_eq!(world.json(&["setup", "mcp", "--remove", "codex", "--confirm"])["state"], "ok");
     assert!(world.take_mcp_calls().is_empty(), "the person's own manual line was removed");
     // Another cmux's line: listed, removable on request, in neutral words.
     std::fs::write(
@@ -1458,7 +1468,7 @@ fn cmux_setup_mcp_redacts_a_registry_urls_credentials_and_keeps_the_entry() {
         .to_string(),
     )
     .unwrap();
-    for args in [&["setup", "mcp"][..], &["setup", "mcp", "--remove", "claude"]] {
+    for args in [&["setup", "mcp"][..], &["setup", "mcp", "--remove", "claude", "--confirm"]] {
         let out = world.run(args);
         let shown = format!(
             "{}{}",
@@ -1472,7 +1482,7 @@ fn cmux_setup_mcp_redacts_a_registry_urls_credentials_and_keeps_the_entry() {
         report["clients"][0]["leftover"]["args"][1], "--registry=https://<redacted>@npm.example/",
         "{report}"
     );
-    let kept = world.json(&["setup", "mcp", "--remove", "claude"]);
+    let kept = world.json(&["setup", "mcp", "--remove", "claude", "--confirm"]);
     assert_eq!(kept["state"], "needs_user", "{kept}");
     assert_eq!(kept["undo"], Value::Null);
     assert!(world.take_mcp_calls().is_empty(), "an entry with a credential was removed");
@@ -1504,6 +1514,18 @@ fn cmux_setup_mcp_never_prints_a_secret_in_a_cmux_entrys_command_or_args() {
             "--//registry.npmjs.org/:_authToken=<redacted>",
         ),
         (
+            json!("npx"),
+            json!([
+                "-y",
+                "cmux",
+                "mcp",
+                "serve",
+                "--header",
+                format!("Authorization: Bearer {token}")
+            ]),
+            "Authorization: <redacted>",
+        ),
+        (
             json!(format!("https://me:{url_secret}@dl.example/cmux")),
             json!(["mcp", "serve"]),
             "https://<redacted>@dl.example/cmux",
@@ -1516,7 +1538,7 @@ fn cmux_setup_mcp_never_prints_a_secret_in_a_cmux_entrys_command_or_args() {
                 .to_string(),
         )
         .unwrap();
-        for run in [&["setup", "mcp"][..], &["setup", "mcp", "--remove", "claude"]] {
+        for run in [&["setup", "mcp"][..], &["setup", "mcp", "--remove", "claude", "--confirm"]] {
             let out = world.run(run);
             let printed = format!(
                 "{}{}",
@@ -1530,7 +1552,7 @@ fn cmux_setup_mcp_never_prints_a_secret_in_a_cmux_entrys_command_or_args() {
         let report = world.json(&["setup", "mcp"]);
         let leftover = report["clients"][0]["leftover"].to_string();
         assert!(leftover.contains(shown), "{leftover}");
-        let kept = world.json(&["setup", "mcp", "--remove", "claude"]);
+        let kept = world.json(&["setup", "mcp", "--remove", "claude", "--confirm"]);
         assert_eq!(kept["state"], "needs_user", "{kept}");
         assert_eq!(kept["undo"], Value::Null);
         assert!(world.take_mcp_calls().is_empty(), "an entry with a secret was removed");

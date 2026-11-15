@@ -122,9 +122,9 @@ async fn a_chat_a_peer_daemon_started_runs_with_that_macs_answer() {
     }
 }
 
-/// A `session/new` this daemon forwards to a peer over a real peer link carries this daemon's
-/// own answer (here: no settings file, so `off`), over the `on` its caller sent: the chat on the
-/// peer runs with `off`.
+/// A `session/new` or a brief (`_acpmux/dispatch`) this daemon forwards to a peer over a real
+/// peer link carries this daemon's own answer (here: no settings file, so `off`), over the `on`
+/// its caller sent: the chat on the peer runs with `off`.
 #[test]
 fn a_start_forwarded_to_a_peer_carries_this_macs_answer_not_the_callers() {
     big_stack(async {
@@ -148,8 +148,22 @@ fn a_start_forwarded_to_a_peer_carries_this_macs_answer_not_the_callers() {
         let s = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
         let mut on_b = Client::new(&b, Origin::Local, ConnAuth::LocalSocket);
         let seen = on_b.answer_of(&s).await;
+        // A brief dispatched to B (as a workflow's `on: b` activity does): the same.
+        let sent = app
+            .call(
+                "_acpmux/dispatch",
+                json!({"brief": "say hi", "host": "b", "cwd": d.join("work"),
+                       "_meta": {"acpmux": {"cmuxTools": "on"}}}),
+            )
+            .await;
+        let dispatched = sent["result"]["brief"]["sessionId"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{sent}"))
+            .to_owned();
+        let seen_dispatched = on_b.answer_of(&dispatched).await;
         let _ = std::fs::remove_dir_all(&d);
-        assert_eq!(seen, "off");
+        assert_eq!(seen, "off", "session/new");
+        assert_eq!(seen_dispatched, "off", "dispatch");
     });
 }
 
