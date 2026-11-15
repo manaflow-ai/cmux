@@ -73,8 +73,9 @@ pub struct State {
 /// other `Live`, so changing it never rewrites `state.json`.
 #[derive(Clone, Debug, Default)]
 pub struct Live {
-    /// The turn whose `send` or `reply` tool call succeeded last.
-    replied_turn: String,
+    /// Turns still open whose `send` or `reply` tool call succeeded (a side
+    /// chat's turn can overlap the main chat's); `turn.end` removes its own.
+    replied_turns: BTreeSet<String>,
     /// `event:reason` -> (UTC hour, sent this hour, held back since sent).
     bursts: std::collections::HashMap<String, (u64, u32, u64)>,
 }
@@ -257,9 +258,8 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
                 .map(|e| error_class(e.get("prefix").and_then(Value::as_str).unwrap_or("")));
             // The Chief answers by its `send` tool and then ends the turn
             // itself (`stopped`): that is a replied, finished turn.
-            let replied = trace.get("reply").is_some_and(|r| !r.is_null())
-                || (!state.live.replied_turn.is_empty()
-                    && trace.get("turn").and_then(Value::as_str) == Some(state.live.replied_turn.as_str()));
+            let sent = str_of(trace, "turn").is_some_and(|t| state.live.replied_turns.remove(t));
+            let replied = trace.get("reply").is_some_and(|r| !r.is_null()) || sent;
             out.push(event(
                 "chief_turn_completed",
                 json!({
@@ -306,8 +306,15 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
         }
         "tool" if trace.get("turn").is_some() => {
             let name = tool(str_of(trace, "name"));
-            if matches!(name, "send" | "reply") && trace.get("ok") != Some(&Value::Bool(false)) {
-                state.live.replied_turn = str_of(trace, "turn").unwrap_or("").to_owned();
+            if matches!(name, "send" | "reply")
+                && trace.get("ok") != Some(&Value::Bool(false))
+                && let Some(turn) = str_of(trace, "turn")
+            {
+                // A turn that never ends (a lost session) must not grow this.
+                if state.live.replied_turns.len() >= 32 {
+                    state.live.replied_turns.pop_first();
+                }
+                state.live.replied_turns.insert(turn.to_owned());
             }
             let day = utc_day(now_ms);
             if state.tools_day != day {

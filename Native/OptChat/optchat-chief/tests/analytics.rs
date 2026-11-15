@@ -576,6 +576,19 @@ fn a_turn_the_chief_ends_after_send_is_active_and_replied() {
             .any(|e| e.properties.get("milestone") == Some(&json!("first_reply")))
     );
 
+    // A side chat's turn that overlaps keeps its own mark.
+    let side = "turn:optchat:2:1";
+    let side_send = json!({"ev": "tool", "turn": side, "name": "mcp__optchat__send", "ok": true});
+    let side_end = json!({"ev": "turn.end", "turn": side, "status": "stopped", "reply": null});
+    catalog::map(&side_send, &mut state, ts);
+    catalog::map(&send, &mut state, ts);
+    let out = catalog::map(&side_end, &mut state, ts);
+    let done = out
+        .iter()
+        .find(|e| e.name == "chief_turn_completed")
+        .unwrap();
+    assert_eq!(done.properties["replied"], json!(true));
+
     // A refused send, or a send in another turn, is no reply.
     let mut state = State::default();
     let refused = json!({"ev": "tool", "turn": turn, "name": "mcp__optchat__send", "ok": false});
