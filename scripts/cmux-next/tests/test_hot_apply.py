@@ -1478,6 +1478,33 @@ class HotApplyFFI(unittest.TestCase):
         finally:
             self.ffi.signature, self.ffi.validates_no_libraries = saved
 
+    def test_the_app_opens_through_launchd_where_open_fails(self):
+        # A terminal of the app outlives `cmux app quit --keep-sessions`, but `open` fails there (error -600), and
+        # over ssh: the user's GUI domain opens the app, and the one-shot agent goes once the app answers.
+        calls = []
+
+        def run(*args, check=True):
+            calls.append(args)
+            failed = args[0] == "open"
+            return subprocess.CompletedProcess(args, 1 if failed else 0, "",
+                                               "_LSOpenURLsWithCompletionHandler() failed with error -600." if failed else "")
+
+        saved = self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS
+        try:
+            self.ffi._run = run
+            self.ffi.answering_pid = lambda app: 4242
+            self.ffi.app_pid = lambda app: 4242
+            self.ffi.STAY_SECONDS = 0
+            step = self.ffi.launch(self.app, 4141)
+        finally:
+            self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS = saved
+        self.assertEqual((step["pid"], step["opened_via"]), (4242, "launchd"))
+        self.assertEqual([c[:2] for c in calls], [("open", str(self.app)), ("launchctl", "bootstrap"),
+                                                  ("launchctl", "bootout")])
+        plist = Path(calls[1][3])
+        self.assertFalse(plist.parent.exists(), "the one-shot agent's plist is removed")
+        self.assertEqual(calls[2][2], f"gui/{os.getuid()}/{plist.stem}")
+
 
 def load_hot(name):
     spec = importlib.util.spec_from_file_location(name, SCRIPT)
