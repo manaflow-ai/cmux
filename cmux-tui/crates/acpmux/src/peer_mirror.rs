@@ -147,6 +147,8 @@ struct Dial<'a> {
     last_sent: Option<MirrorMark>,
     /// Restarts since a unit last went in.
     restarts: u32,
+    /// [`MAX_UNIT_CHANGES`]; the cut tests take smaller units to reach more cuts.
+    unit_changes: usize,
 }
 
 impl<'a> Dial<'a> {
@@ -165,6 +167,7 @@ impl<'a> Dial<'a> {
             whole: false,
             last_sent: None,
             restarts: 0,
+            unit_changes: MAX_UNIT_CHANGES,
         }
     }
 
@@ -300,8 +303,8 @@ impl<'a> Dial<'a> {
             return self.unit(Vec::new(), mark).await.err();
         }
         let mut changes = changes.into_iter();
-        for (n, chunk) in marks.chunks(MAX_UNIT_CHANGES).enumerate() {
-            let last = n + 1 == marks.len().div_ceil(MAX_UNIT_CHANGES);
+        for (n, chunk) in marks.chunks(self.unit_changes).enumerate() {
+            let last = n + 1 == marks.len().div_ceil(self.unit_changes);
             // A frame's last unit carries the frame's mark: a `whole` or a
             // resume's end after the last row moves it too.
             let unit_mark = if last { mark } else { chunk.last().copied().unwrap_or(mark) };
@@ -420,6 +423,9 @@ impl<'a> Dial<'a> {
     }
 }
 
+#[cfg(test)]
+#[path = "peer_mirror_cut_tests.rs"]
+mod cut_tests;
 #[cfg(test)]
 #[path = "peer_mirror_tests.rs"]
 mod tests;
