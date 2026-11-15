@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """The xbench template launch waits until the browser's first-run writes end (settle_template), so a launch
-cloned from it measures idle, not first-run work. Before this file's fix the template slept a flat 45 s:
-cmux NEXT's Chromium wrote its components (60 s check) and the built-in uBlock Origin's selfie (53 s) only
-after that, in every measured launch's Home window, and budget-idle-disk-writes-home read about 2.3 MB/s
-(run 43649027609) where steady idle writes nothing. Each test fails on xbench before the fix (no
-settle_template; the template ended at 45 s whatever was still writing).
+cloned from it measures idle, not first-run work. Before this file's fix the template slept a flat 45 s and
+cmux NEXT's Chromium downloaded its components (60 s check, done by about 95 s) in every measured launch's
+Home window: 23 to 62 MB of budget-idle-disk-writes-home (run 43649027609). Each test fails on xbench
+before the fix (no settle_template; the template ended at 45 s whatever was still writing).
 Run: python3 -I scripts/perf-bench/tests/test_settle_template.py"""
 import os, sys, types, unittest
 
@@ -53,9 +52,9 @@ class SettleTemplate(unittest.TestCase):
         return took, writing
 
     def test_waits_past_first_run_writes(self):
-        # run 43649027609's writers: uBlock Origin's selfie at 53 s, then the component updater's downloads
-        # from 60 s on (Widevine, CRL set, crx cache copies) until about 95 s.
-        writes = [(53, "Local Extension Settings/000017.ldb"), (61, "component_crx_cache/a"),
+        # run 43649027609's first-run writers: the component updater's downloads from 60 s on (Widevine,
+        # CRL set, crx cache copies) until about 95 s.
+        writes = [(53, "Preferences"), (61, "component_crx_cache/a"),
                   (70, "WidevineCdm/libwidevinecdm.dylib"), (82, "CertificateRevocation/crl-set"),
                   (95, "component_crx_cache/b")]
         took, writing = self.run_settle(writes)

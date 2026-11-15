@@ -163,15 +163,15 @@ def tree_states(root: str) -> dict[str, tuple[float, int]]:
 
 # A template launch must outlast a browser's first-run jobs, or every launch cloned from it runs them
 # again inside its measured windows. cmux NEXT's Chromium: the component updater's first check 60 s
-# after start (Widevine, CRL set, optimization hints, subresource filter, each also copied into
-# component_crx_cache), and the built-in uBlock Origin's filter-list update (2 s after launch while its
-# bundled lists are stale) and selfie (its compiled filters, written 53 s after a launch without one).
-# A 45 s template held none of them, so budget-idle-disk-writes-home read about 2.3 MB/s of first-run
-# work (run 43649027609: 140 MB in one 60 s window) where steady idle writes nothing.
+# after start (Widevine, CRL set, optimization hints, on-device suggest, subresource filter, each also
+# copied into component_crx_cache), done by about 95 s. A 45 s template ended before it, so every
+# launch's Home window paid 23 to 62 MB of it (runs 43649027609 and step 2fc0210280de). The built-in
+# uBlock Origin's filter cache (Local Extension Settings, IndexedDB, about 70 MB) is written again on
+# every launch, not once, so no template holds it: that is app idle cost, and the Home row keeps it.
 CHROMIUM_COMPONENT_CHECK_S = 60.0  # ChromeConfigurator's InitialDelay, without --component-updater=fast-update
 TEMPLATE_MIN_S = CHROMIUM_COMPONENT_CHECK_S + 15.0
 TEMPLATE_QUIET_S = 30.0
-TEMPLATE_MAX_S = 300.0
+TEMPLATE_MAX_S = 150.0  # past the component updater (done by ~95 s); uBO and Dawn caches never go quiet
 TEMPLATE_POLL_S = 5.0
 
 
