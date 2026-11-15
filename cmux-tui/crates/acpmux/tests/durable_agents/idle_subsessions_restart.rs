@@ -174,9 +174,10 @@ fn cpu_secs(pid: &str) -> Option<f64> {
     Some(days * 86_400.0 + secs)
 }
 
-/// The bench behind the numbers in the pull request: the same `ACPMUX_IDLE_SUBS` idle
-/// sub-sessions, a restart, then two minutes in which lane tools read every chat each 30 s (as
-/// the sidebar and stall reconcilers do on cmux NIGHTLY). It prints `acpmux-idle-subs: {...}`:
+/// The bench behind the numbers in the pull request: `ACPMUX_IDLE_SUBS` idle sub-sessions, a
+/// third of them with their agents up (opened lately), an update's relaunch, then two minutes in
+/// which lane tools read every chat each 30 s (as the sidebar and stall reconcilers do on cmux
+/// NIGHTLY). Agents a third of them kept up are adopted and counted as before (no new start). It prints `acpmux-idle-subs: {...}`:
 /// agent starts, the most agents at once, and the agents' CPU seconds (sampled each 250 ms, the
 /// most each pid showed). Run on the base build and on this one with `--ignored`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -220,8 +221,28 @@ async fn bench_idle_subsessions_two_minutes_after_a_restart() {
         .await;
     drop(rpc);
     daemon.sigterm();
-    // The real idle period after the restart (Leo's 2 minutes), as the app runs it.
+    // The real idle period from now on (Leo's 2 minutes), as the app runs it, and the daemon on
+    // an installed copy an update can replace.
     daemon.env.retain(|(k, _)| k != "ACPMUX_IDLE_CHILD_SECS");
+    let installed = daemon.home.join("app").join("acpmux");
+    std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    std::fs::copy(daemon_env::bin(), &installed).unwrap();
+    daemon.exe = installed.clone();
+    daemon.start();
+    // A third were opened lately, so their agents are up when the app quits, as on NIGHTLY.
+    let mut rpc = daemon.rpc().await;
+    let up = n.div_ceil(3);
+    for id in ids.iter().take(up) {
+        rpc.call("_acpmux/attach", json!({"sessionId": id, "limit": 0, "visible": true})).await;
+        rpc.call("_acpmux/detach", json!({"sessionId": id})).await;
+    }
+    until("the opened sub-sessions never woke", async || live_agents(&mut rpc).await == up as u64)
+        .await;
+    drop(rpc);
+    daemon.sigterm();
+    // The relaunch is an update's: the old bundle moves aside, a new build takes its path.
+    std::fs::rename(&installed, daemon.home.join("app").join("acpmux.old")).unwrap();
+    std::fs::copy(daemon_env::bin(), &installed).unwrap();
     let seeded = spawns(&spawn_log);
     daemon.start();
     let started = Instant::now();
