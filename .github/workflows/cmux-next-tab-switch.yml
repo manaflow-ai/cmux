@@ -124,7 +124,7 @@ jobs:
         with:
           name: tab-switch-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tab-switch
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: ignore
 
   verdict:
