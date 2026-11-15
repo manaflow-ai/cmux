@@ -218,6 +218,12 @@ pub fn serve(
                             let _ =
                                 ws.send_text(&json!({"type": "path", "path": path}).to_string());
                         }
+                        if let Some(message) = line["status"]["message"].as_str() {
+                            eprintln!(
+                                "cmux-rd linux-host: session {}: {message}",
+                                ticket.session_id
+                            );
+                        }
                         if let Some(reason) = line["ended"].as_str() {
                             finished = Some(reason.to_owned());
                             break;

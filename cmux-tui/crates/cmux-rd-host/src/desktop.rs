@@ -40,6 +40,48 @@ pub trait Desktop {
     }
 }
 
+/// Receives capture setup states (`state` code, sentence) while a desktop opens: `cmux-rd serve`
+/// prints them as `{"status":..}` lines for the app. Unset, the portal logs them on stderr.
+pub type StatusSink = Box<dyn Fn(&str, &str) + Send + Sync>;
+
+#[cfg_attr(not(all(feature = "portal", target_os = "linux")), allow(dead_code))]
+static STATUS_SINK: std::sync::OnceLock<StatusSink> = std::sync::OnceLock::new();
+
+/// Sets the process's status sink (once; later calls are ignored).
+pub fn set_status_sink(sink: StatusSink) {
+    let _ = STATUS_SINK.set(sink);
+}
+
+/// The stable status code and sentence of one portal handshake state.
+#[cfg(all(feature = "portal", target_os = "linux"))]
+pub(crate) fn portal_status(state: &crate::portal::PortalState) -> (&'static str, String) {
+    use crate::portal::PortalState;
+    let code = match state {
+        PortalState::Connecting => "connecting",
+        PortalState::CreatingSession => "creating_session",
+        PortalState::Restoring => "restoring",
+        PortalState::WaitingForConsent => "waiting_for_consent",
+        PortalState::Streaming { .. } => "streaming",
+    };
+    (code, state.message())
+}
+
+#[cfg(all(test, feature = "portal", target_os = "linux"))]
+mod tests {
+    use crate::portal::PortalState;
+
+    #[test]
+    fn waiting_for_consent_reaches_the_app_as_a_status() {
+        let (code, message) = super::portal_status(&PortalState::WaitingForConsent);
+        assert_eq!(code, "waiting_for_consent");
+        assert!(message.contains("allow sharing"), "{message}");
+        assert_eq!(
+            super::portal_status(&PortalState::Streaming { width: 4, height: 2 }).0,
+            "streaming"
+        );
+    }
+}
+
 /// The desktop of this OS.
 pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
     #[cfg(target_os = "linux")]
@@ -47,8 +89,21 @@ pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
         crate::capture_backend::CaptureBackend::X11 => {
             Ok(Box::new(crate::x11::X11Desktop::open(cfg)?))
         }
-        // The portal backend (xdg-desktop-portal ScreenCast and PipeWire) plugs in here;
-        // until it is built in, the session ends with a clear reason.
+        // Wayland: xdg-desktop-portal ScreenCast and PipeWire (view-only). Its handshake
+        // states (the person at the screen still has to allow sharing) go to the status sink.
+        #[cfg(feature = "portal")]
+        crate::capture_backend::CaptureBackend::Portal => {
+            let mut opts = crate::portal::PortalOpts::default();
+            if let Some(sink) = STATUS_SINK.get() {
+                opts.on_state = Some(Box::new(move |state: crate::portal::PortalState| {
+                    let (code, message) = portal_status(&state);
+                    sink(code, &message);
+                }));
+            }
+            Ok(Box::new(crate::portal::PortalDesktop::open(cfg, opts)?))
+        }
+        // A build without the portal backend ends the session with a clear reason.
+        #[cfg(not(feature = "portal"))]
         backend @ crate::capture_backend::CaptureBackend::Portal => match backend.available() {
             Ok(()) => Err("portal capture has no desktop yet".into()),
             Err(reason) => Err(reason.into()),

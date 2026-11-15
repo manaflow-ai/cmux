@@ -258,6 +258,16 @@ pub fn run(opts: &Opts) -> Res<()> {
     // the capture backend and the display, before any X connection.
     #[cfg(target_os = "linux")]
     crate::host::set_xauthority(opts)?;
+    // Capture setup states (a Wayland portal waiting for the person at the screen) reach the app.
+    crate::desktop::set_status_sink(Box::new(|state, message| {
+        say(AppLine {
+            status: Some(cmux_rd_proto::app_line::LineStatus {
+                state: state.to_owned(),
+                message: message.to_owned(),
+            }),
+            ..AppLine::default()
+        })
+    }));
     let capture = CaptureBackend::from_env(setup.capture.as_deref().or(opts.get("capture")))?;
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.

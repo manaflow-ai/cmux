@@ -52,11 +52,13 @@ impl CaptureBackend {
     }
 
     /// Whether this build can capture with the backend. The portal backend is its own
-    /// module (`portal.rs`, `pipewire_capture.rs`); until it is built in, a portal session
-    /// fails with [`PORTAL_NOT_BUILT_IN`] instead of streaming a black or wrong screen.
+    /// module (`portal.rs`, `pipewire_capture.rs`, feature `portal`); a build without it
+    /// fails a portal session with [`PORTAL_NOT_BUILT_IN`] instead of streaming a black or
+    /// wrong screen.
     pub fn available(self) -> Result<(), String> {
         match self {
             CaptureBackend::X11 => Ok(()),
+            CaptureBackend::Portal if cfg!(all(feature = "portal", target_os = "linux")) => Ok(()),
             CaptureBackend::Portal => Err(PORTAL_NOT_BUILT_IN.to_owned()),
         }
     }
@@ -107,10 +109,18 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(all(feature = "portal", target_os = "linux")))]
     fn portal_is_refused_with_a_clear_reason_until_built_in() {
         assert_eq!(CaptureBackend::X11.available(), Ok(()));
         let reason = CaptureBackend::Portal.available().unwrap_err();
         assert!(reason.starts_with("portal capture not built in"), "{reason}");
+    }
+
+    #[test]
+    #[cfg(all(feature = "portal", target_os = "linux"))]
+    fn portal_is_available_when_built_in() {
+        assert_eq!(CaptureBackend::X11.available(), Ok(()));
+        assert_eq!(CaptureBackend::Portal.available(), Ok(()));
     }
 
     #[test]
