@@ -5509,9 +5509,11 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
             if clock() >= deadline:
                 break
             # assess() reports a long queue before a refusal: look for one before waiting again.
-            turned_away = [job for job in read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
-                           if refused(job)]
-            if turned_away:
+            # As watch() does, a refusal waits for running siblings (a refusal's cancel would kill them, run
+            # 36198335113): it is acted on once nothing runs.
+            looked = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+            turned_away = [job for job in looked if refused(job) and not carried(job, target.attempt_started_at)]
+            if turned_away and not any(job_running(job) for job in looked):
                 names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
                 outcome, reason = "refused", f"{names} refused by {job_pool(turned_away[0])} at job start"
                 break
