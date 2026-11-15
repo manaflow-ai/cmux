@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43666858666",
+  "recorded_at": "2026-11-15T02:21:59Z",
+  "reason": "cmux-tui 455cb12de01f changes the image's cmux-tui (pinned 33b52ff88553)",
+  "dry_run": false,
+  "cmux_tui": "455cb12de01fa0b8f28483009df95c3533e37d9b",
+  "fixes": [
+    {
+      "sha": "455cb12de01fa0b8f28483009df95c3533e37d9b",
+      "mergedAt": "2026-11-15T01:57:08Z",
+      "subject": "acpmux: hub rows read one field set, and a refused 257th origin says so in the log (#43097 items 1 and 3) (#43412)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T02:21:59Z",
+    "snapshot_id": "sh-1dce453996a347e09d85ec7074f8e91d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43666858666): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3104ff38a170f4e59aa1fb37e59cefa652f666a8",
+    "image": "cloud-native-auto-455cb12d-43666858666-1",
+    "revision": "ci-43666858666-1",
+    "at": "2026-11-15T02:21:59Z"
+  },
+  "rolled_back": false
+}
