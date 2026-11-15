@@ -5,7 +5,7 @@
 //! state transitions with deterministic assertions.
 
 use super::*;
-use acpmux_book::gate_rounds::{all_p95, best_p95};
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Instant;
@@ -130,6 +130,7 @@ fn pr05d_removed_origin_batch() {
 fn pr05d_submit_time() {
     let small_rounds = submit_samples(20);
     let god_rounds = submit_samples(11_000);
+    gate_rounds::report("v2.pr05d.submit_time", &[("small", &small_rounds), ("god", &god_rounds)]);
     let (small, god, god_all) =
         (best_p95(&small_rounds), best_p95(&god_rounds), all_p95(&god_rounds));
     assert!(god * 10 <= small * 12, "submit p95 exceeded 1.2x: {small} -> {god} ns");
