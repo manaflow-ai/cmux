@@ -5038,35 +5038,42 @@ def settled_here(api: Any, target: Target, log: Callable[[str], None]) -> None:
 
 
 def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-                 log: Callable[[str], None], every_job: bool, only_job: int | None = None, side_label: str = "",
-                 deadline: dt.datetime | None = None) -> str:
+                 log: Callable[[str], None], every_job: bool, only_job: int | None = None,
+                 side_label: str = "") -> str:
     """The re-run a stopped rescue meant after its cancel (rerun_intended()), with its own CANCEL_SETTLED mark.
     `only_job` (a settled-sibling failover's mark) re-runs that job and its dependents, never the failed jobs.
-    A nightly whose head does not compile (nightly_compile_red()) is settled without it. A cmux-next re-run of
-    failed jobs takes `side_label` (rerun_side_label()) and keeps the depth rule (resume_depth_hold())."""
+    A nightly whose head does not compile (nightly_compile_red()) is settled without it.
+
+    A cmux-next re-run of failed jobs re-runs the placement instead where the head places the bot's next attempt
+    (rerun_placement_plan(), as the rerun input does), so placement picks the shallower pool. Else the failed jobs
+    can only take `side_label` (rerun_side_label()): the cancel gave up their place in line, so a hold gains
+    nothing and leaves the pull request with no checks; it goes ahead at once and logs when that queue is deeper
+    (side_depth()), never silently."""
     red = nightly_compile_red(api, target, sleep, log)
     if red:
         settled_here(api, target, log)
         return compile_red_answer(red)
     plan: PlacementRerun | None = None
     if not every_job and only_job is None and target.path == CMUX_NEXT_WORKFLOW_PATH:
-        # As the rerun input does (rerun_named()): placement chooses afresh where the head places the bot's next
-        # attempt; else the failed jobs carry the side label, held while it is the deeper queue.
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
         again = [job for job in jobs if job.get("status") != "completed"
                  or job.get("conclusion") in ("failure", "cancelled", "timed_out")]
-        plan = rerun_placement_plan(api, target.path, target.head_sha, jobs, again, target.attempt,
-                                    sleep=sleep, log=log) if again else None
-        if plan is None and side_label:
-            deeper = resume_depth_hold(api, target, side_label, now=now, sleep=sleep, log=log, deadline=deadline)
+        text = head_workflow(api, target.path, target.head_sha, sleep=sleep, log=log) if again else None
+        plan = rerun_placement_plan(text, target.path, jobs, again, target.attempt, log=log) if again else None
+        if plan is None and again and side_label:
+            deeper = side_depth(api, again, side_label, gui_jobs(text), now=now, log=log)
             if deeper:
-                # The run is cancelled already: left so, its pull request has no checks at all, a worse wait than
-                # the deeper queue. Said plainly, never silently.
-                log(f"resumed re-run goes ahead onto {side_label} although {deeper}: the run is cancelled already")
+                log(f"resumed re-run goes ahead onto {side_label} although {deeper.removeprefix('and ')}: "
+                    "the run is cancelled already")
     try:
         result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log,
                                   failed_only=not every_job and plan is None, keep_main=False, only_job=only_job,
                                   placement=plan)
+        if plan is not None and result.startswith("not re-run: GitHub refused"):
+            # The run is cancelled already: a refused placement re-run falls back to its failed jobs.
+            log(result)
+            api.rerun_failed(target.run_id, target.attempt + 1)
+            result = f"re-ran the failed jobs of run {target.run_id} instead; {next_attempt(target)}"
     except Exception:
         # A pull request's run (cancelled by an open-head failover, unstarted_failover()) stays unsettled when its
         # re-run fails, so the next successor tries again instead of leaving the run cancelled at its open head.
@@ -5077,35 +5084,46 @@ def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
     return result
 
 
-def resume_depth_hold(api: GitHub, target: Target, side_label: str, *, now: Callable[[], dt.datetime],
-                      sleep: Callable[[float], None], log: Callable[[str], None],
-                      deadline: dt.datetime | None) -> str:
-    """Waits while a resumed re-run of a cmux-next attempt's failed jobs would join a deeper queue: `side_label`'s is
-    deeper than one its failed, cancelled and waiting jobs leave, or the GUI label they could take
-    (rerun_depth_sources(), deeper_queue(), #43799), or the snapshot is unreadable. It looks again every
-    STALL_RECHECK_SECONDS until `deadline` (none: one look). Returns why it is still deeper then, or ""."""
-    while True:
-        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-        sources = rerun_depth_sources(job for job in jobs if job.get("status") != "completed"
-                                      or job.get("conclusion") in ("failure", "cancelled", "timed_out"))
-        if not sources - {side_label}:
-            return ""
-        try:
-            snapshot = api.pool_snapshot(now())
-        except Aborted:
-            raise
-        except Exception as error:  # noqa: BLE001 - an unread snapshot shows no depth: the hold goes on
-            log(f"could not read the pool snapshot ({type(error).__name__}: {error})")
-            snapshot = None
-        why = deeper_queue(snapshot, sources, side_label) if isinstance(snapshot, Mapping) else \
-            "the pool snapshot is unreadable"
-        if not why:
-            return ""
-        if deadline is None or now() + dt.timedelta(seconds=STALL_RECHECK_SECONDS) > deadline:
-            log(f"resumed re-run held: {why}")
-            return why
-        log(f"resumed re-run held while {why}; looking again in {STALL_RECHECK_SECONDS}s")
-        sleep(STALL_RECHECK_SECONDS)
+def side_depth(api: GitHub, again: Sequence[Mapping[str, Any]], side_label: str, gui: Iterable[str], *,
+               now: Callable[[], dt.datetime], log: Callable[[str], None]) -> str:
+    """Why a cmux-next re-run of the failed jobs `again`, which carries `side_label`, joins a deeper queue than one they
+    leave or placement could give them (rerun_depth_sources() with `gui`, side_depth_snapshot(), deeper_queue(),
+    #43799); "and the pool snapshot is unreadable"; or ""."""
+    sources = rerun_depth_sources(again, gui)
+    if not sources - {side_label}:
+        return ""
+    try:
+        snapshot = api.pool_snapshot(now())
+    except Aborted:
+        raise
+    except Exception as error:  # noqa: BLE001 - an unread snapshot shows no depth
+        log(f"could not read the pool snapshot ({type(error).__name__}: {error})")
+        snapshot = None
+    if not isinstance(snapshot, Mapping):
+        return "and the pool snapshot is unreadable"
+    return deeper_queue(side_depth_snapshot(snapshot, side_label, again), sources, side_label)
+
+
+def side_depth_snapshot(snapshot: Mapping[str, Any], side_label: str,
+                        again: Iterable[Mapping[str, Any]]) -> Mapping[str, Any]:
+    """`snapshot` without the re-run's own jobs still queued on `side_label`: re-running them there joins no queue
+    they are not in already, so they never make it deeper (pools' and gates' queued counts)."""
+    own = sum(1 for job in again if job.get("status") != "completed" and job_pool(job) == side_label)
+    if not own:
+        return snapshot
+    copied = dict(snapshot)
+    pools = snapshot.get("pools")
+    if isinstance(pools, Mapping) and isinstance(pools.get(side_label), Mapping):
+        entry = dict(pools[side_label])
+        entry["queued"] = max(0, int(entry.get("queued") or 0) - own)
+        copied["pools"] = {**pools, side_label: entry}
+    gates = snapshot.get("gates")
+    labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    if isinstance(labels, Mapping) and isinstance(labels.get(side_label), Mapping):
+        entry = dict(labels[side_label])
+        entry["queued"] = max(0, int(entry.get("queued") or 0) - own)
+        copied["gates"] = {**gates, "labels": {**labels, side_label: entry}}
+    return copied
 
 
 def settle_and_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
@@ -5393,31 +5411,51 @@ RERUN_PATHS = frozenset({CMUX_NEXT_WORKFLOW_PATH, CI_WORKFLOW_PATH})
 # one is shallower. Run 43716323834's 'cmux-next generated files' (#43733) took glaeda-side-std-xcode-26.6 again at
 # attempt 5 on 2026-11-15 while this label had 0 queued: it left side-std, so the old rule saw nothing deeper.
 CMUX_NEXT_GUI_LABEL = "glaeda-gui-std-xcode-26.6"
-CMUX_NEXT_GUI_JOBS = frozenset({"cmux-next swift test", "cmux-next daemon tests", "cmux-next generated files"})
+# A cmux-next.yml job's runs-on that reads this placement output can take CMUX_NEXT_GUI_LABEL.
+CMUX_NEXT_GUI_OUTPUT = "macos-placement.outputs.gui_runner"
 
 
-def rerun_depth_sources(again: Iterable[Mapping[str, Any]]) -> set[str]:
+def gui_jobs(workflow_text: str | None) -> frozenset[str]:
+    """The names of the head's cmux-next.yml jobs whose runs-on reads placement's gui_runner (CMUX_NEXT_GUI_OUTPUT):
+    the jobs placement can give CMUX_NEXT_GUI_LABEL. None for a file that cannot be read."""
+    if not workflow_text:
+        return frozenset()
+    try:
+        document = owned_pool_sources._load(workflow_text)
+    except Exception:  # noqa: BLE001 - an unreadable file shows no GUI job
+        return frozenset()
+    return frozenset(str(spec.get("name") or key) for key, spec in (document.get("jobs") or {}).items()
+                     if isinstance(spec, Mapping) and CMUX_NEXT_GUI_OUTPUT in str(spec.get("runs-on") or ""))
+
+
+def rerun_depth_sources(again: Iterable[Mapping[str, Any]], gui: Iterable[str] = ()) -> set[str]:
     """The owned labels a cmux-next re-run of failed jobs must not be deeper than: those its failed, cancelled and
-    waiting jobs leave, and CMUX_NEXT_GUI_LABEL when one of them is a job placement could give it."""
-    jobs = list(again)
+    waiting jobs leave, and CMUX_NEXT_GUI_LABEL when one of them is a job placement could give it (`gui`,
+    gui_jobs())."""
+    jobs, gui = list(again), frozenset(gui)
     sources = {str(job_pool(job)) for job in jobs if job_pool(job)}
-    if any(str(job.get("name") or "") in CMUX_NEXT_GUI_JOBS for job in jobs):
+    if any(str(job.get("name") or "").split(" (", 1)[0] in gui for job in jobs):
         sources.add(CMUX_NEXT_GUI_LABEL)
     return sources
 
 
-def rerun_placement_plan(api: GitHub, path: str, head: str, jobs: Sequence[Mapping[str, Any]],
-                         again: Sequence[Mapping[str, Any]], attempt: int, *, sleep: Callable[[float], None],
+def head_workflow(api: GitHub, path: str, head: str, *, sleep: Callable[[float], None],
+                  log: Callable[[str], None]) -> str | None:
+    """`path` at `head`, or None (logged) when it cannot be read."""
+    try:
+        return read(lambda: api.workflow_file(path, head), sleep, log)
+    except READ_ERRORS as error:
+        log(f"could not read {path} at {head[:12]} ({error})")
+        return None
+
+
+def rerun_placement_plan(text: str | None, path: str, jobs: Sequence[Mapping[str, Any]],
+                         again: Sequence[Mapping[str, Any]], attempt: int, *,
                          log: Callable[[str], None]) -> PlacementRerun | None:
     """The placement re-run that brings back every one of `again` (placement_rerun(), PlacementRerun.brings_back())
-    for a cmux-next attempt whose head places the bot's next attempt, or None (logged why)."""
+    for a cmux-next attempt whose head (`text`) places the bot's next attempt, or None (logged why)."""
     if path != CMUX_NEXT_WORKFLOW_PATH:
         return None
-    try:
-        text = read(lambda: api.workflow_file(path, head), sleep, log)
-    except READ_ERRORS as error:
-        log(f"could not read {path} at {head[:12]} ({error}); its failed and cancelled jobs are re-run instead")
-        text = None
     plan, why = placement_rerun(text, jobs, attempt=attempt)
     lost = sorted(str(job.get("name") or job.get("id")) for job in again
                   if plan is not None and job.get("id") != plan.job_id and not plan.brings_back(job))
@@ -5483,21 +5521,14 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
              or job.get("conclusion") in ("failure", "cancelled", "timed_out")]
     if not again:
         return f"not re-run: attempt {attempt} of run {run_id} has no failed, cancelled or waiting job"
-    plan = rerun_placement_plan(api, path, head, jobs, again, attempt, sleep=sleep, log=log)
+    text = head_workflow(api, path, head, sleep=sleep, log=log) if path == CMUX_NEXT_WORKFLOW_PATH else None
+    plan = rerun_placement_plan(text, path, jobs, again, attempt, log=log)
     if plan is None and path == CMUX_NEXT_WORKFLOW_PATH and side_label:
-        sources = rerun_depth_sources(again)
-        try:
-            snapshot = api.pool_snapshot(now())
-        except Aborted:
-            raise
-        except Exception as error:  # noqa: BLE001 - an unread snapshot shows no depth, so nothing is re-run
-            log(f"could not read the pool snapshot ({type(error).__name__}: {error})")
-            snapshot = None
-        if sources - {side_label} and not isinstance(snapshot, Mapping):
-            return f"not re-run: attempt {following} takes {side_label}, and the pool snapshot is unreadable"
-        deeper = deeper_queue(snapshot, sources, side_label)
+        # An unread snapshot shows no depth, so nothing is re-run.
+        deeper = side_depth(api, again, side_label, gui_jobs(text), now=now, log=log)
         if deeper:
-            return f"not re-run: attempt {following} takes {side_label}, but {deeper}"
+            return f"not re-run: attempt {following} takes {side_label}, " + (
+                deeper if deeper.startswith("and ") else f"but {deeper}")
     cancelled = run.get("status") != "completed"
     if cancelled:
         known = {job.get("id") for job in jobs}
