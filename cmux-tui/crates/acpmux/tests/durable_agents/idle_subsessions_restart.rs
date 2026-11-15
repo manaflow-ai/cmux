@@ -261,3 +261,65 @@ async fn bench_idle_subsessions_two_minutes_after_a_restart() {
         std::fs::write(out, format!("{line}\n")).unwrap();
     }
 }
+
+/// An app update moves the bundle every agent host was started from (`hub/stale_host_respawn.rs`):
+/// the next daemon restarted each adopted agent on the new binary at once, idle ones too, so
+/// every sub-session up at an update got a new Claude process (30 at one cmux NIGHTLY relaunch,
+/// 2026-11-15). An idle one now ends and stays asleep; a send starts it on the new binary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_update_ends_idle_subsessions_on_the_old_binary_and_starts_none() {
+    let n = 5;
+    let mut daemon = Daemon::with_env("idlestale", "approve-all", &[("ACPMUX_SPARE_HARNESS", "0")]);
+    daemon.sigterm();
+    let spawn_log = daemon.home.join("spawns");
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": counted_harness(&spawn_log)}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+    let installed = daemon.home.join("app").join("acpmux");
+    std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    std::fs::copy(daemon_env::bin(), &installed).unwrap();
+    daemon.exe = installed.clone();
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let mut ids = Vec::new();
+    for i in 0..n {
+        let created = rpc
+            .call(
+                "session/new",
+                json!({"cwd": daemon.home, "mcpServers": [], "_meta": {"acpmux": {"name": format!("optchat-sub-stale-a{i}")}}}),
+            )
+            .await;
+        let id = created["sessionId"].as_str().unwrap().to_owned();
+        rpc.call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+        ids.push(id);
+    }
+    // Idle, with their agents still up (the idle period has not passed).
+    assert_eq!(live_agents(&mut rpc).await, n as u64);
+    let before = spawns(&spawn_log);
+    drop(rpc);
+    daemon.sigterm();
+    // The update: the old bundle moves aside, a new build takes its path.
+    std::fs::rename(&installed, daemon.home.join("app").join("acpmux.old")).unwrap();
+    std::fs::copy(daemon_env::bin(), &installed).unwrap();
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    until("the idle agents on the replaced binary kept running", async || {
+        live_agents(&mut rpc).await == 0
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(spawns(&spawn_log), before, "the update restarted idle sub-sessions' agents");
+    // A send starts one, on the installed binary, and is answered.
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": ids[0], "prompt": [{"type": "text", "text": "again"}]}),
+    )
+    .await;
+    assert_eq!(spawns(&spawn_log), before + 1, "a send starts its agent");
+}
