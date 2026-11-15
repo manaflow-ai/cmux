@@ -1,3 +1,4 @@
+// l10n-allow-file: a measurement script, not shipped.
 // What one streamed record costs a long running turn: the drawn rows that come back as new objects
 // (each is laid out, measured and rendered again downstream) and the time to shape and lay out.
 // A coordinator's running turn holds thousands of rows (steers keep it open), so this is the work a
