@@ -14,7 +14,10 @@ public struct TerminalDemoRoot: View {
 
     public init() {
         let session: any TerminalSession
-        if TerminalDemoDriver.requestedPhases?.contains("projection") == true {
+        if TerminalWidthCaptureDemo.isRequested {
+            // A Mac pane for the width-mode captures (TerminalWidthModesCaptureTests).
+            session = TerminalWidthCaptureDemo.session()
+        } else if TerminalDemoDriver.requestedPhases?.contains("projection") == true {
             // A Mac pane of 120x40, through the session the app builds for a Mac terminal.
             session = TerminalSessionChoice.session(live: MacPaneMockSession(), mockDataEnabled: false, macName: "Mac", programName: "zsh")
         } else {
@@ -51,6 +54,10 @@ public struct TerminalDemoRoot: View {
                 .accessibilityIdentifier("debug.terminal-demo")
         }
         .task {
+            if TerminalWidthCaptureDemo.isRequested {
+                await TerminalWidthCaptureDemo.run(model: model)
+                return
+            }
             // The host grid demo is a still: no scripted phases.
             guard TerminalHostGridDemoSession.requestedSpec == nil else { return }
             await TerminalDemoDriver(model: model).run(phases: TerminalDemoDriver.requestedPhases)
