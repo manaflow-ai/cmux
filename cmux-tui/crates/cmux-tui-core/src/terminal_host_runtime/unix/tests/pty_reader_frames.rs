@@ -143,9 +143,10 @@ fn bench_payload(bytes: usize) -> Vec<u8> {
 /// in the way: a program writes the payload into a socket as fast as it can,
 /// the host's PTY reader reads it in macOS-sized (1 KiB) reads or whole reads,
 /// and the host's parser applies it. MB/s is payload bytes over the time
-/// until the parser drained the last byte. A Linux PTY caps a writer near
-/// 150 MB/s on its own, which hides this stage in the daemon bench
-/// (cmux-tui tests/terminal_throughput_stages.rs); a macOS PTY does not.
+/// until the parser drained the last byte. A Linux PTY read returns what the
+/// line discipline holds (about 1.3 KiB a read in the daemon bench, cmux-tui
+/// tests/terminal_throughput_stages.rs), a macOS one at most 1 KiB; this
+/// stage fixes the read size, so it measures the host alone on any machine.
 /// `CMUX_HOST_STAGE_MB` sets the payload (default 200).
 #[test]
 #[ignore = "a throughput bench; run with --ignored --nocapture"]
@@ -175,7 +176,10 @@ fn host_stage_throughput_bench() {
         let parser_host = host.clone();
         let parser = thread::Builder::new()
             .name("terminal-host-parser".into())
-            .spawn(move || run_host_parser(parser_host, receiver, initial_colors, signals))
+            .spawn(move || {
+                run_host_parser(parser_host, receiver, initial_colors, signals);
+                thread_cpu_seconds()
+            })
             .unwrap();
         let (pty, mut program) = UnixStream::pair().unwrap();
         let pty_fd = pty.as_raw_fd();
@@ -188,6 +192,7 @@ fn host_stage_throughput_bench() {
                 let pty: Box<dyn Read + Send> =
                     if macos_reads { Box::new(MacOsSizedReads(pty)) } else { Box::new(pty) };
                 read_pty_output(&reader_host, pty, pty_fd, drain_waiter);
+                thread_cpu_seconds()
             })
             .unwrap();
         let started = Instant::now();
@@ -198,14 +203,25 @@ fn host_stage_throughput_bench() {
             }
         });
         writer.join().unwrap();
-        reader.join().unwrap();
-        parser.join().unwrap();
+        let reader_cpu = reader.join().unwrap();
+        let parser_cpu = parser.join().unwrap();
         let seconds = started.elapsed().as_secs_f64();
         drop(drain_waker);
         let mb_s = payload.len() as f64 / 1_000_000.0 / seconds;
+        let reader_pct = reader_cpu / seconds * 100.0;
+        let parser_pct = parser_cpu / seconds * 100.0;
         println!(
-            "HOST-STAGE {{\"stage\":\"{label}\",\"bytes\":{},\"seconds\":{seconds:.4},\"mb_s\":{mb_s:.1}}}",
+            "HOST-STAGE {{\"stage\":\"{label}\",\"bytes\":{},\"seconds\":{seconds:.4},\"mb_s\":{mb_s:.1},\"reader_cpu_pct\":{reader_pct:.1},\"parser_cpu_pct\":{parser_pct:.1}}}",
             payload.len()
         );
     }
+}
+
+/// CPU seconds the calling thread has used.
+fn thread_cpu_seconds() -> f64 {
+    let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `now` is a valid timespec for clock_gettime to fill.
+    let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) };
+    assert_eq!(status, 0, "clock_gettime: {}", std::io::Error::last_os_error());
+    now.tv_sec as f64 + now.tv_nsec as f64 / 1e9
 }

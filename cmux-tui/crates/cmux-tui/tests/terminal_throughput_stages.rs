@@ -10,9 +10,9 @@
 //! gets its own MB/s:
 //!
 //! - `pty-only`: the kernel PTY alone, its master read and dropped by one
-//!   thread (no terminal reads faster on this machine; a Linux PTY tops out
-//!   near 150 MB/s, a macOS one does not, so the host stage has its own
-//!   bench: cmux-tui-core `host_stage_throughput_bench`);
+//!   thread: no terminal reads faster on this machine. The host alone, at
+//!   macOS read sizes, has its own bench: cmux-tui-core
+//!   `host_stage_throughput_bench`;
 //! - `parse-NNNN`: ghostty-vt alone, the payload fed in NNNN-byte writes on
 //!   one thread (the ceiling of any one parser of the stream);
 //! - `daemon-hosted`: the daemon as the app runs it (`--state`): a terminal
