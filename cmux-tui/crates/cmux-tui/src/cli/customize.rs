@@ -35,6 +35,9 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize show N                       What generation N changed
   cmux customize save NAME [NOTE]             Save what is live as a profile: one file to keep or share
   cmux customize use NAME|FILE                Preview a profile, then apply or discard it
+  cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
+  cmux customize keep                         Keep what you are trying on
+  cmux customize revert                       Stop trying it on: put back what was there before
   cmux customize profiles                     The saved profiles
   cmux customize library [VERB]               Everything you applied, kept as layers: list|on|off|order|export|import|remove
 
@@ -69,6 +72,9 @@ const VERBS: &[&str] = &[
     "save",
     "use",
     "profiles",
+    "try",
+    "keep",
+    "revert",
     "library",
     "paths",
     "brief",
@@ -91,20 +97,51 @@ pub(super) enum Request {
     Help,
     Status,
     Diff,
-    Ask { wish: String, options: AskOptions },
-    Brief { wish: String },
+    Ask {
+        wish: String,
+        options: AskOptions,
+    },
+    Brief {
+        wish: String,
+    },
     Check,
-    Apply { note: Option<String> },
+    Apply {
+        note: Option<String>,
+    },
     Discard,
-    Rollback { to: Option<u32> },
+    Rollback {
+        to: Option<u32>,
+    },
     Generations,
-    Show { n: u32 },
-    Save { name: String, note: String },
-    Use { source: String },
+    Show {
+        n: u32,
+    },
+    Save {
+        name: String,
+        note: String,
+    },
+    Use {
+        source: String,
+    },
+    /// A try-on of a profile, or with `None` of what is live now.
+    Try {
+        source: Option<String>,
+        duration_ms: u64,
+    },
+    Keep,
+    Revert,
+    /// Settles a try-on whose time is up; with `wait`, waits for it first
+    /// (the child `try` leaves running, and the app's start).
+    Settle {
+        wait: bool,
+    },
     Profiles,
     Library(library::Request),
     Paths,
-    Schema { section: Option<Section>, format: SchemaFormat },
+    Schema {
+        section: Option<Section>,
+        format: SchemaFormat,
+    },
 }
 
 /// How `customize schema` answers: the schema, or the SDK types written from it.
@@ -142,6 +179,14 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             none(Request::Generations)
         }
         "profiles" => none(Request::Profiles),
+        "keep" => none(Request::Keep),
+        "revert" => none(Request::Revert),
+        "settle" => match rest {
+            [] => Ok(Request::Settle { wait: false }),
+            [flag] if flag == "--wait" => Ok(Request::Settle { wait: true }),
+            _ => Err("customize settle takes only --wait".to_owned()),
+        },
+        "try" | "try-on" => try_of(rest),
         "library" | "lib" => library::parse(rest).map(Request::Library),
         "paths" => none(Request::Paths),
         "apply" => Ok(Request::Apply { note: (!rest.is_empty()).then(|| rest.join(" ")) }),
@@ -194,6 +239,31 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             Err(format!("unknown customize command {first:?}; {hint}"))
         }
     }
+}
+
+/// `try [NAME|FILE] [--minutes N]`.
+fn try_of(words: &[String]) -> Result<Request, String> {
+    let mut source = None;
+    let mut minutes = f64::from(cmux_customize::DEFAULT_TRY_ON_MINUTES);
+    let mut iter = words.iter();
+    while let Some(word) = iter.next() {
+        match word.as_str() {
+            "--minutes" | "-m" => {
+                let value = value_of(&mut iter, word)?;
+                minutes = value
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|minutes| minutes.is_finite() && *minutes > 0.0)
+                    .ok_or_else(|| format!("--minutes takes a number of minutes, got {value:?}"))?;
+            }
+            flag if flag.starts_with('-') => {
+                return Err(format!("customize try does not take {flag:?}"));
+            }
+            _ if source.is_none() => source = Some(word.clone()),
+            _ => return Err("customize try takes one profile NAME or FILE".to_owned()),
+        }
+    }
+    Ok(Request::Try { source, duration_ms: (minutes * 60_000.0).round() as u64 })
 }
 
 /// `schema [PART] [--typescript|--rust]`.
@@ -349,6 +419,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         .and_then(|customize| execute(&customize, request, "cli", now_ms(), &chat));
     Some(match result {
         Ok(answer) => {
+            if matches!(answer, render::Answer::TriedOn(_)) {
+                spawn_try_on_waiter();
+            }
             if json_out {
                 println!("{}", answer.json());
             } else if global.output != OutputMode::Quiet {
@@ -387,9 +460,32 @@ pub(super) fn run_json(words: &[String], origin: &str) -> Result<Value, Value> {
         return Ok(render::Answer::Schema(Schema::current(), section, format).json());
     }
     let customize = Customize::from_env().map_err(|error| Failure::from(error).envelope())?;
-    execute(&customize, request, origin, now_ms(), &ask::NoChat)
-        .map(|answer| answer.json())
-        .map_err(|failure| failure.envelope())
+    let answer = execute(&customize, request, origin, now_ms(), &ask::NoChat)
+        .map_err(|failure| failure.envelope())?;
+    if matches!(answer, render::Answer::TriedOn(_)) {
+        spawn_try_on_waiter();
+    }
+    Ok(answer.json())
+}
+
+/// Leaves `cmux customize settle --wait` running on its own, so a try-on
+/// reverts at its time with this process gone. It is not the only guard:
+/// the app's start and every verb settle a try-on whose time is up, so a
+/// waiter lost to a reboot changes nothing but when the revert lands.
+fn spawn_try_on_waiter() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut command = cmux_process::Command::new(exe);
+    command
+        .args(["customize", "settle", "--wait"])
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        // Its own session: the terminal's hangup or Ctrl-C does not reach it.
+        .new_session();
+    if let Ok(mut child) = command.spawn() {
+        // It returns once no try-on is left (kept, reverted or replaced), and init reaps it.
+        child.detach("a try-on reverts at its time after the command that started it exits");
+    }
 }
 
 /// One verb against one customization.
@@ -404,6 +500,11 @@ pub(super) fn execute(
     // The first verb anyone runs records generation 1, so there is always
     // something to go back to.
     customize.ensure_baseline(now_ms)?;
+    // A try-on whose time is up reverts at the first look, whoever looks.
+    let settled = match &request {
+        Request::Settle { wait: true } => customize.run_try_on_timer()?,
+        _ => customize.settle(now_ms)?.into_iter().collect(),
+    };
     Ok(match request {
         Request::Help => return Err(Failure::usage("customize needs a command".to_owned())),
         Request::Status => Answer::Status(customize.status()?),
@@ -436,6 +537,17 @@ pub(super) fn execute(
             let begun = customize.preview_profile(&profile, origin, now_ms)?;
             Answer::Using { name: profile.name, begun, status: customize.status()? }
         }
+        Request::Try { source, duration_ms } => {
+            let profile =
+                source.as_deref().map(|source| customize.load_profile(source)).transpose()?;
+            Answer::TriedOn(customize.try_on(profile.as_ref(), duration_ms, origin, now_ms)?)
+        }
+        Request::Keep => Answer::Settled(customize.keep()?.into_iter().collect(), "keep"),
+        Request::Revert => Answer::Settled(
+            settled.into_iter().chain(customize.revert_try_on(origin, now_ms)?).collect(),
+            "revert",
+        ),
+        Request::Settle { .. } => Answer::Settled(settled, "settle"),
         Request::Profiles => Answer::Profiles(customize.profiles()?),
         Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
