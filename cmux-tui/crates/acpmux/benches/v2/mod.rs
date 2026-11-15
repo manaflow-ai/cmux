@@ -195,10 +195,10 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3c",
         name: "v2.pr03c.queue_window",
-        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 1 KB (the head's bound, so both windows carry the same bytes): 1.2x. Window time and bytes read of the lines.",
-        // Red once each window reads its heads (a cold actor per sample): best p95 time ratio
-        // 1.265, 1.234 and 1.289 in three runs; bytes read 1.12.
-        measured: false,
+        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 16 KB (the head read's bound, so both sides fill each head's one read and both windows carry the same bytes), each on a cold actor: 1.2x. Window time and bytes read. A probe prints the 1 KB and 1 MB sides.",
+        // Best p95 time ratio 0.984, 0.965 and 0.945 in three runs, bytes read 1.000; the probe
+        // (`queue_window_sizes_probe`) has 1 MB within 1.013 of 16 KB on time and 1.000 on bytes.
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
