@@ -188,7 +188,7 @@ public struct RowSwipeActionButton: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(title)
     }
 }
