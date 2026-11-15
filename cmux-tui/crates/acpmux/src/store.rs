@@ -1896,7 +1896,7 @@ impl LocalStore {
         // #37020). A log whose only segment it is goes on in `000001`.
         // Nor a cold segment's archive (`store/cold_segments.rs`): the log goes on in the next.
         let (index, path) = match segs.last().filter(|(i, _)| *i > 0) {
-            Some((i, p)) if cold_segments::is_cold(p) => {
+            Some((i, p)) if cold_segments::is_cold(p) || p.extension().is_some() => {
                 (i + 1, dir.join(format!("{:06}.ndjson", i + 1)))
             }
             Some((i, p)) => (*i, p.clone()),
