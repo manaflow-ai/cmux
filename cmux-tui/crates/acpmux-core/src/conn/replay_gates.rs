@@ -6,6 +6,7 @@
 use super::{HubSource, run};
 use crate::hub::{Hub, HubWriter, RawRead};
 use crate::wire::{DeltaFrame, DeltaOp, Frame, FrameKind, MAX_REPLAY_FRAME_BYTES, Sub};
+use acpmux_book::gate_rounds::{self, all_p95, best_p95, p95};
 use acpmux_book::index::{Summary, SummaryIndex};
 use serde_json::json;
 use std::fs::OpenOptions;
@@ -29,16 +30,6 @@ fn emit(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
     {
         let _ = writeln!(file, "{line}");
     }
-}
-
-fn p95(samples: &[u128]) -> u128 {
-    let mut sorted = samples.to_vec();
-    sorted.sort_unstable();
-    sorted[((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
-}
-
-fn best_p95(rounds: &[Vec<u128>]) -> u128 {
-    rounds.iter().map(|round| p95(round)).min().unwrap_or(1)
 }
 
 fn summary(id: String, seq: u64, verbose: bool) -> Summary {
@@ -326,15 +317,14 @@ async fn replay_append_gate() {
     }
     let small = best_p95(&baseline);
     let god = best_p95(&during);
-    let all = p95(&during.iter().flatten().copied().collect::<Vec<_>>());
-    for (round, (outside, inside)) in baseline.iter().zip(&during).enumerate() {
+    let all = all_p95(&during);
+    gate_rounds::report("v2.pr05c.replay_append", &[("small", &baseline), ("god", &during)]);
+    for (round, copies) in copy_counts.iter().enumerate() {
         eprintln!(
-            "REPLAY_APPEND_ROUND round={} outside_p95={} during_p95={} raw_copies_min={} raw_copies_total={}",
+            "REPLAY_APPEND_ROUND round={} raw_copies_min={} raw_copies_total={}",
             round + 1,
-            p95(outside),
-            p95(inside),
-            copy_counts[round].iter().copied().min().unwrap_or(0),
-            copy_counts[round].iter().sum::<usize>()
+            copies.iter().copied().min().unwrap_or(0),
+            copies.iter().sum::<usize>()
         );
     }
     assert!(
