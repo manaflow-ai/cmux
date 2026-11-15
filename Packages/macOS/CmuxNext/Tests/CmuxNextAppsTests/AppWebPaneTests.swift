@@ -169,9 +169,16 @@ struct AppWebPaneTests {
         router.titleBarDoubleClick = { ran.append("title_bar_double_click") }
         router.contextMenu = { _ in ran.append("contextMenu"); return ["picked": .null] }
         router.historyNavigate = { _, _ in ran.append("history"); return true }
-        for (id, (op, params)) in [(PageNativeOp.titleBarDoubleClick, [:] as CmuxNextSettings.JSONValue), (PageNativeOp.contextMenu, ["items": []]),
-                                   (PageNativeOp.historyNavigate, ["back": true, "g": 1])].enumerated() {
-            let reply = await router.handle(["t": "call", "id": .number(Double(id + 1)), "op": .string(op), "params": params])
+        let calls: [(op: String, params: CmuxNextSettings.JSONValue)] = [
+            (PageNativeOp.titleBarDoubleClick, .object([:])),
+            (PageNativeOp.contextMenu, .object(["items": .array([])])),
+            (PageNativeOp.historyNavigate, .object(["back": .bool(true), "g": .number(1)])),
+        ]
+        for (index, (op, params)) in calls.enumerated() {
+            let message: CmuxNextSettings.JSONValue = .object([
+                "t": .string("call"), "id": .number(Double(index + 1)), "op": .string(op), "params": params,
+            ])
+            let reply = await router.handle(message)
             #expect(reply["code"]?.stringValue == "cmux.protocol.unknown_op", "\(op) answered \(reply)")
         }
         #expect(ran.isEmpty)
