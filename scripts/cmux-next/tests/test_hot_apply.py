@@ -457,7 +457,7 @@ class OtherSessions(unittest.TestCase):
         self.new.write_bytes(b"new")
         self.want = hashlib.sha256(b"new").hexdigest()
         self.pids = {self.APP_SOCK: 100, self.CHIEF_SOCK: 200}
-        self.restarted, self.restart_works, self.surfaces = [], True, []
+        self.restarted, self.restart_works, self.surfaces, self.state_dirs = [], True, [], []
         test = self
 
         class Swapper:
@@ -482,9 +482,13 @@ class OtherSessions(unittest.TestCase):
                 sock = argv[argv.index("--socket") + 1]
                 test.restarted.append(sock)
                 test.surfaces.append(Path(argv[0]).name)
-                if test.restart_works:
+                test.state_dirs.append((kwargs.get("env") or {}).get("CMUX_TUI_STATE_DIR"))
+                if test.restart_works is True:
                     test.pids[sock] += 1
-                return subprocess.CompletedProcess(argv, 0 if test.restart_works else 1, "{}", "")
+                elif test.restart_works == "gone":
+                    del test.pids[sock]
+                return subprocess.CompletedProcess(argv, 0 if test.restart_works is True else 1, "{}",
+                                                   '{"code":"server.different_state"}')
             return real_run(argv, **kwargs)
 
         self.hot.load = lambda name, file: type("rust_live", (), {"Swapper": Swapper})
@@ -492,9 +496,26 @@ class OtherSessions(unittest.TestCase):
         self.hot.subprocess.run = run
         self.addCleanup(setattr, self.hot.subprocess, "run", real_run)
         self.hot.outside_login_session = lambda: False
+        # The Chief's daemon keeps its session in its own state dir, as on Leo's NIGHTLY.
+        self.real_owner_state_dir = self.hot.owner_state_dir
+        self.hot.owner_state_dir = lambda pid: "/u/.cmux/chief/default/tui" if pid == 200 else None
 
     def tearDown(self):
         subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def test_the_restart_runs_in_the_daemon_s_own_state_dir(self):
+        # Without it the restart's ensure read the default root and refused (server.different_state, 8568ebc).
+        self.swap(True)
+        self.assertEqual(self.state_dirs, ["/u/.cmux/chief/default/tui"])
+
+    def test_owner_state_dir_reads_the_value_up_to_the_next_variable(self):
+        real_run = self.hot.subprocess.run
+        self.hot.subprocess.run = lambda argv, **kw: subprocess.CompletedProcess(
+            argv, 0, "/A/cmux --headless --session c HOME=/u CMUX_TUI_STATE_DIR=/u/.cmux/chief/a b/tui TERM=x\n", "")
+        try:
+            self.assertEqual(self.real_owner_state_dir(1), "/u/.cmux/chief/a b/tui")
+        finally:
+            self.hot.subprocess.run = real_run
 
     def swap(self, sessions):
         return self.hot.swap_cmux(self.target.parents[3], self.new, self.want, None, self.tmp / "state", sessions)
@@ -523,8 +544,19 @@ class OtherSessions(unittest.TestCase):
         self.assertIn("ssh", step["left_on_old_build_why"])
         self.assertEqual(self.restarted, [])
 
-    def test_a_restart_that_leaves_no_new_owner_raises_so_the_apply_puts_back(self):
-        self.restart_works = False
+    def test_a_refused_restart_still_served_is_left_and_named_the_rest_moves(self):
+        # A Chief whose owner serves another state directory refuses (server.different_state, cmux bf0d3da):
+        # its owner still serves, so it keeps its build and the apply goes on.
+        self.restart_works = "refuse"
+        step = self.swap(True)
+        self.assertEqual(step["left_on_old_build"], [self.CHIEF_SOCK])
+        self.assertIn("refused", step["left_on_old_build_why"])
+        self.assertIn("server.different_state", step["sessions"][0]["left"])
+        self.assertEqual(self.pids[self.CHIEF_SOCK], 200)
+        self.assertEqual((step["old_pid"], step["new_pid"]), (100, 101))
+
+    def test_a_restart_that_leaves_no_owner_raises_so_the_apply_puts_back(self):
+        self.restart_works = "gone"
         with self.assertRaises(RuntimeError) as caught:
             self.swap(True)
         self.assertIn(self.CHIEF_SOCK, str(caught.exception))
@@ -580,6 +612,34 @@ class TreeKey(unittest.TestCase):
         sys.modules["hot_apply_key_under_test"] = hot
         spec.loader.exec_module(hot)
         self.assertEqual(hot._tree_key(ROOT, ADOPTED), ADOPTED_KEY)
+
+
+FFI ="2c58afdd5f8ac95146fed0cc3c472aee5af31562"  # cmux#43373: cmux-tui/bindings/rust, which the app links
+
+
+class LiveFrom(unittest.TestCase):
+    """`live-from SHA`: the app commits that can take SHA's daemon build live, for the signed Mac live update file."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [FIX, FFI], depth=4)
+
+    def live_from(self, sha, limit):
+        done = subprocess.run([sys.executable, str(SCRIPT), "live-from", sha, "--max", str(limit)],
+                              capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_a_daemon_only_commit_reaches_back_past_itself(self):
+        out = self.live_from(FIX, 3)
+        self.assertEqual(out["live_from"][0], FIX)
+        self.assertEqual(len(out["live_from"]), 3)
+        self.assertIsNone(out["floor"])  # no FFI change within the limit
+
+    def test_a_commit_that_changes_rust_the_app_links_is_its_own_floor(self):
+        out = self.live_from(FFI, 5)
+        self.assertEqual((out["live_from"], out["floor"]), ([FFI], FFI))
+        self.assertTrue(all(p.startswith("cmux-tui/bindings/rust/") for p in out["floor_paths"]), out["floor_paths"])
 
 
 class WebCache(unittest.TestCase):
@@ -732,8 +792,9 @@ class FindSocket(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, "".join(
                     f"{pid} {exe}{' ' + args if full else ''}\n" for pid, (exe, args, _) in procs.items()), "")
             if argv[0] == "lsof":
-                pid = argv[argv.index("-p") + 1]
-                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid][2]}\n", "")
+                # One lsof for every process (-p a,b,...): each pid's line, then its sockets.
+                asked = argv[argv.index("-p") + 1].split(",")
+                return subprocess.CompletedProcess(argv, 0, "".join(f"p{pid}\nn{procs[pid][2]}\n" for pid in asked), "")
             sock = argv[argv.index("--socket") + 1]
             if "acpmux" in sock:
                 raise subprocess.TimeoutExpired(argv, 10)
@@ -766,8 +827,8 @@ class FindSocket(unittest.TestCase):
             if argv[0] == "ps":
                 return subprocess.CompletedProcess(argv, 0, "".join(f"{pid} {prefix}/cmux-tui --headless\n" for pid in procs), "")
             if argv[0] == "lsof":
-                pid = argv[argv.index("-p") + 1]
-                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid]}\n", "")
+                asked = argv[argv.index("-p") + 1].split(",")  # one lsof for every process
+                return subprocess.CompletedProcess(argv, 0, "".join(f"p{pid}\nn{procs[pid]}\n" for pid in asked), "")
             sock = argv[argv.index("--socket") + 1]
             return subprocess.CompletedProcess(argv, 0, '{"pid": %s}' % next(p for p, n in procs.items() if n == sock), "")
         self.hot.subprocess.run = run
@@ -782,8 +843,8 @@ class FindSocket(unittest.TestCase):
             if argv[0] == "ps":
                 return subprocess.CompletedProcess(argv, 0, "".join(f"{pid} {prefix}/cmux-tui --headless\n" for pid in procs), "")
             if argv[0] == "lsof":
-                pid = argv[argv.index("-p") + 1]
-                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid]}\n", "")
+                asked = argv[argv.index("-p") + 1].split(",")  # one lsof for every process
+                return subprocess.CompletedProcess(argv, 0, "".join(f"p{pid}\nn{procs[pid]}\n" for pid in asked), "")
             if "cmux-app" in argv[argv.index("--socket") + 1]:
                 raise subprocess.TimeoutExpired(argv, 10)
             return subprocess.CompletedProcess(argv, 0, '{"pid": 3001}', "")
@@ -888,8 +949,8 @@ class RunningAcpmux(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, "".join(
                     f"{pid} {exe}{' ' + args if full else ''}\n" for pid, (exe, args, _) in self.procs.items()), "")
             if argv[0] == "lsof":
-                pid = argv[argv.index("-p") + 1]
-                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{self.procs[pid][2]}\n", "")
+                asked = argv[argv.index("-p") + 1].split(",")  # one lsof for every process
+                return subprocess.CompletedProcess(argv, 0, "".join(f"p{pid}\nn{self.procs[pid][2]}\n" for pid in asked), "")
             if argv[1:] == ["--json", "daemon", "status"]:
                 home = env.get("ACPMUX_HOME") or str(Path(env["ACPMUX_SOCKET"]).parent)
                 if home not in self.status:
@@ -1004,6 +1065,130 @@ class RunningAcpmux(unittest.TestCase):
         spec.loader.exec_module(fresh)
         self.assertIsNone(fresh.process_env(2 ** 22 + 12345))  # no such process
         self.assertIsNotNone(fresh.process_env(os.getpid()))
+
+
+FFI_FIX = "2d7bfe48c026a2382c834b04007492dd92c88e3b"  # cmux-layout-reducer only: an app FFI input
+
+
+class HotApplyFFI(unittest.TestCase):
+    """The ffi part: a commit that changes only the Rust the app links, against an app carrying it as a library."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [FFI_FIX], depth=2)
+        sys.path.insert(0, str(SCRIPT.parent))
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import hot_apply_ffi
+        cls.ffi = hot_apply_ffi
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-ffi-test-"))
+        self.base = run_git("rev-parse", f"{FFI_FIX}^").stdout.strip()
+        self.app = self.tmp / "cmux NIGHTLY.app"
+        (self.app / "Contents/Resources/bin").mkdir(parents=True)
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.base, "CFBundleExecutable": "cmux"}, handle)
+        self.releases = self.tmp / "releases"
+        self.env = dict(os.environ, CMUX_HOT_APPLY_FFI_BASE=self.releases.as_uri(),
+                        CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
+                        CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
+                        CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def hot(self, *args):
+        done = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, env=self.env)
+        out = done.stdout.strip()
+        if out.startswith("{") and "\n" in out and not out.splitlines()[-1].startswith("{"):
+            return done.returncode, json.loads(out), done.stderr  # plan: indented JSON
+        lines = out.splitlines()
+        return done.returncode, (json.loads(lines[-1]) if lines and lines[-1].startswith("{") else None), done.stderr
+
+    def carry_dylib(self):
+        (self.app / "Contents/Frameworks").mkdir(parents=True, exist_ok=True)
+        (self.app / self.ffi.DYLIB).write_bytes(b"old library")
+
+    def publish(self, member="CCmuxAppFFI.xcframework/macos-arm64_x86_64/libcmux_app_ffi.dylib", body=b"new library"):
+        import io
+        import zipfile
+        tag = self.releases / f"cmux-app-ffi-{FFI_FIX}"
+        tag.mkdir(parents=True, exist_ok=True)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as zipped:
+            zipped.writestr(member, body)
+        archive = buffer.getvalue()
+        (tag / "CCmuxAppFFI.xcframework.zip").write_bytes(archive)
+        digest = hashlib.sha256(archive).hexdigest()
+        (tag / "SHA256SUMS").write_text(f"{digest}  CCmuxAppFFI.xcframework.zip\n")
+        return digest
+
+    def test_plan_takes_the_ffi_part_for_an_app_carrying_the_library(self):
+        self.carry_dylib()
+        code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertIn("ffi", plan["parts"])
+        self.assertIn("rust", plan["parts"])  # the daemon part rides with it
+        self.assertNotIn("Rust the app links (FFI)", plan["left"])
+        self.assertEqual(plan["ffi"]["source"], FFI_FIX)
+        self.assertEqual(plan["ffi"]["release"], f"cmux-app-ffi-{FFI_FIX}")
+        self.assertTrue(all(p.startswith("cmux-tui/crates/cmux-layout-reducer") for p in plan["ffi"]["files"]))
+
+    def test_an_app_linking_the_ffi_statically_leaves_it_with_why(self):
+        code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app))
+        self.assertNotIn("ffi", plan["parts"], err)
+        self.assertIn("Rust the app links (FFI)", plan["left"])
+        self.assertTrue(any("links the app FFI statically" in note for note in plan["notes"]), plan["notes"])
+
+    def test_a_branch_s_ffi_is_left(self):
+        self.carry_dylib()
+        code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app), "--branch")
+        self.assertNotIn("ffi", plan["parts"], err)
+        self.assertTrue(any("branch" in note for note in plan["notes"]), plan["notes"])
+
+    def test_a_dry_run_fetches_and_checks_the_published_library(self):
+        digest = self.publish()
+        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["steps"]["ffi"]["archive_sha256"], digest)
+        self.assertEqual(Path(receipt["steps"]["ffi"]["copy"]).read_bytes(), b"new library")
+
+    def test_an_unpublished_release_says_so(self):
+        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
+        self.assertIn("not published", " ".join(receipt["left"]["ffi"]), err)
+
+    def test_a_release_from_before_the_dylib_is_left(self):
+        self.publish(member="CCmuxAppFFI.xcframework/macos-arm64_x86_64/libcmux_app_ffi.a")
+        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
+        self.assertIn("carries no libcmux_app_ffi.dylib", " ".join(receipt["left"]["ffi"]), err)
+
+    def test_an_archive_that_does_not_hash_to_its_sums_changes_nothing(self):
+        self.publish()
+        sums = self.releases / f"cmux-app-ffi-{FFI_FIX}" / "SHA256SUMS"
+        sums.write_text(f"{'0' * 64}  CCmuxAppFFI.xcframework.zip\n")
+        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
+        self.assertNotEqual(code, 0)
+        self.assertIn("does not hash", receipt["error"], err)
+        self.assertFalse((self.tmp / "state" / "ffi").exists())
+
+    def test_a_developer_id_app_takes_the_library_only_as_asked(self):
+        saved = self.ffi.signature, self.ffi.validates_no_libraries
+        try:
+            self.ffi.signature = lambda path: {"team": "TEAM123456", "runtime": True, "adhoc": False}
+            self.ffi.validates_no_libraries = lambda path: False
+            with self.assertRaises(self.ffi.Left) as left:
+                self.ffi.how_to_sign(self.app, None, False)
+            self.assertIn("--sign-identity", str(left.exception))
+            self.assertEqual(self.ffi.how_to_sign(self.app, "Developer ID Application: X", False), "identity")
+            self.assertEqual(self.ffi.how_to_sign(self.app, None, True), "reseal")
+            # A NIGHTLY's signature disables library validation (cmux.nightly.entitlements): an ad hoc library loads.
+            self.ffi.validates_no_libraries = lambda path: True
+            self.assertEqual(self.ffi.how_to_sign(self.app, None, False), "adhoc")
+            self.ffi.signature = lambda path: {"team": None, "runtime": False, "adhoc": True}
+            self.ffi.validates_no_libraries = lambda path: False
+            self.assertEqual(self.ffi.how_to_sign(self.app, None, False), "adhoc")
+        finally:
+            self.ffi.signature, self.ffi.validates_no_libraries = saved
 
 
 if __name__ == "__main__":

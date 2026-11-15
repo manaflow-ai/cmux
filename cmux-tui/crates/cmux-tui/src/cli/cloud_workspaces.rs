@@ -130,20 +130,35 @@ fn read(global: &super::GlobalArgs) -> Option<Vec<Value>> {
 }
 
 /// Whether a `workspace list` result takes the Cloud rows: the session the
-/// app owns (no `--machine`, no `--session`, no `--socket`).
+/// app owns (no `--machine`, no `--socket`, and no `--session` but the app's
+/// own: the bundled `cmux --session cmux-app-nightly` is still its app's).
 fn joins(global: &super::GlobalArgs) -> bool {
-    global.machine.is_none() && global.session.is_none() && global.socket.is_none()
+    global.machine.is_none()
+        && global.socket.is_none()
+        && global.session.as_deref().is_none_or(|session| app_session().as_deref() == Some(session))
+}
+
+/// The daemon session of the cmux app this `cmux` belongs to, if any.
+fn app_session() -> Option<String> {
+    let exe = std::env::current_exe().ok();
+    crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())?
+        .daemon_session()
+}
+
+/// The Cloud rows `workspace list` appends for this invocation: none when it
+/// names its own daemon route, or the app answers no Cloud machines. A
+/// `--workspace` selector resolves over the daemon's rows and these
+/// (`agents chat new`, agents/chat_control.rs): the set the list prints.
+pub(super) fn listed_rows(global: &super::GlobalArgs) -> Vec<Value> {
+    if !joins(global) {
+        return Vec::new();
+    }
+    read(global).map(|machines| printed(rows(&machines))).unwrap_or_default()
 }
 
 /// The daemon's `workspace list` with the app's Cloud workspaces appended.
 pub(super) fn merge(global: &super::GlobalArgs, result: Value) -> Value {
-    if !joins(global) {
-        return result;
-    }
-    match read(global) {
-        Some(machines) => append(result, printed(rows(&machines))),
-        None => result,
-    }
+    append(result, listed_rows(global))
 }
 
 /// `--machine <Cloud machine> workspace list`: the local daemon has no such

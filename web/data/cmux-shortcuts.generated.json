@@ -8147,6 +8147,42 @@
           "aliases": []
         },
         {
+          "id": "palette.captureScreenshotToChat",
+          "title": {
+            "en": "Capture Screenshot to Chat",
+            "ar": "التقاط لقطة شاشة إلى الدردشة",
+            "bs": "Snimi snimak ekrana u chat",
+            "da": "Tag skærmbillede til chat",
+            "de": "Bildschirmfoto in Chat aufnehmen",
+            "es": "Capturar pantalla al chat",
+            "fr": "Capturer l’écran dans le chat",
+            "it": "Cattura schermata nella chat",
+            "ja": "スクリーンショットを撮ってチャットへ",
+            "km": "ថតរូបអេក្រង់ទៅការជជែក",
+            "ko": "스크린샷을 찍어 채팅에 넣기",
+            "no": "Ta skjermbilde til chat",
+            "pl": "Zrób zrzut ekranu do czatu",
+            "pt-BR": "Capturar tela para o chat",
+            "ru": "Снимок экрана в чат",
+            "th": "จับภาพหน้าจอไปยังแชท",
+            "tr": "Ekran Görüntüsünü Sohbete Al",
+            "uk": "Знімок екрана в чат",
+            "vi": "Chụp màn hình vào cuộc trò chuyện",
+            "zh-CN": "截屏到聊天",
+            "zh-TW": "截圖到聊天"
+          },
+          "shortcut": {
+            "key": "s",
+            "modifiers": [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "palette.toggleDictation",
           "title": {
             "en": "Toggle Dictation",
