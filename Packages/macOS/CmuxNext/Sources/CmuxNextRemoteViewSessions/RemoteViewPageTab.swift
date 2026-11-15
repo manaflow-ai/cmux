@@ -40,7 +40,8 @@ public final class RemoteViewPageTab: BrowserTab {
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
          closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void,
          cloudTransport: RemoteViewPageSession.CloudDesktopTransport? = nil,
-         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil, loginKeychain: LoginKeychain) {
+         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil,
+         connectionTarget: RemoteConnectionTarget? = nil, loginKeychain: LoginKeychain) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -62,7 +63,9 @@ public final class RemoteViewPageTab: BrowserTab {
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):
             session = nil
-            let notice = RemoteViewUnavailableView(content: .confirm(host: record.host))
+            let target = connectionTarget ?? RemoteConnectionTarget(name: record.cloudDesktop ? (displayName ?? "") : (displayName ?? record.host),
+                                                                     kind: .desktop)
+            let notice = RemoteViewUnavailableView(content: .confirmTarget(target))
             // Connect starts view mode; control is the toolbar toggle.
             notice.onConnect = { connect(record.url) }
             contentView = notice

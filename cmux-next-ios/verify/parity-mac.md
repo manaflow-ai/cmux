@@ -31,6 +31,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Customize… (the palette and the app menu, `customize.open`; opens a new chat whose composer starts with `/customize `; 2026-11-14) | none: a local new chat tab seeded with a draft | — | missing | The phone has no Customize… row yet. A phone chat on this Mac's agent can still type `/customize WISH`, the same ask the Mac's row prefills (webviews `customizeCommand.ts`). |
 | Customize… on the right-click menus of the big parts of the window (sidebar, sections, rows, tab bar, tabs, panes, chat; `customize.open` with `element`; 2026-11-15) | none | — | missing | The phone has no Customize… row yet; a phone chat can type `/customize WISH` naming the part. |
 | Customize Inspector (hold Option over the window: a part's name, settings and theme colors, Change This… and Reset; `customize.reset`; 2026-11-15) | none | — | not from a phone | A pointer hover with a held modifier over Mac window chrome; the phone has neither. Reset runs from a phone chat as `cmux action customize-reset`. |
+| An extension draws the whole New Tab page: `tabs.newTabApp` names an app implementing `cmux.newtab/1` (unset: cmux's own page; 2026-11-14) | none: the Mac's web New Tab page mounts the app's scene (`cmux.apps.panels.mount {surface: newTab}`) | — | not from a phone | The phone has no New Tab page: its New Agent Chat sheet and + rows stand in for it, and it draws no extension scenes yet. The key stays settable over `cmux settings` like any setting. |
 
 ## Tabs
 

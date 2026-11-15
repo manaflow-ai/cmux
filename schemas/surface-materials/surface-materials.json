@@ -139,6 +139,7 @@
     "CmuxNextRemoteView/Pane/RemoteLatencyBanner.swift": "native-overlay",
     "CmuxNextRemoteView/Pane/RemoteStateCard.swift": "native-overlay",
     "CmuxNextRemoteView/Pane/RemoteUpstreamIndicator.swift": "native-overlay",
+    "CmuxNextRemoteView/Tab/RemoteViewUnavailableView.swift": "native-overlay",
     "CmuxNextServer/AddDevice/AddDeviceCardPanel.swift": "native-overlay",
     "CmuxNextServer/AddDevice/JoinConsentAskPanel.swift": "native-overlay",
     "CmuxNextSidebar/Views/DragLiftView.swift": "native-overlay",
