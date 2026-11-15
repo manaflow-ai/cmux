@@ -4,6 +4,7 @@
 //! online machine of the user's own (same login, not tagged, not shared
 //! in), a few at a time and at most [`MAX_PROBES`].
 
+use crate::cli::host_enroll::SshFailure;
 use crate::cli::host_peering::{Io, Live, Ran};
 use crate::cli::hosts::checked_host;
 use crate::cli::output::print_json;
@@ -42,6 +43,8 @@ pub(crate) struct Candidate {
     pub peer_url: Option<String>,
     /// With `--probe`: key-only ssh worked. Not tried for an offline machine,
     /// one that is not [`Candidate::mine`], or one past [`MAX_PROBES`].
+    /// Also unknown when host-key verification needs explicit first contact:
+    /// Add Machine may offer it, but a background probe never records a key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ssh_ok: Option<bool>,
 }
@@ -109,13 +112,25 @@ pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
         .collect()
 }
 
-/// `ssh -o BatchMode=yes -o ConnectTimeout=5 -- TARGET true`.
+/// A read-only SSH probe, even when the user's configuration accepts new keys.
 pub(crate) fn probe_argv(target: &str) -> Result<Vec<String>> {
     let target = checked_host(target)?;
-    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", target, "true"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect())
+    Ok([
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "UpdateHostKeys=no",
+        "--",
+        target,
+        "true",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect())
 }
 
 /// Try ssh to the user's own online candidates (at most [`MAX_PROBES`]),
@@ -132,13 +147,21 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
         .take(MAX_PROBES)
         .collect();
     let next = AtomicUsize::new(0);
-    let results: Vec<(usize, bool)> = std::thread::scope(|scope| {
+    let results: Vec<(usize, Option<bool>)> = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..PROBES_AT_ONCE.min(targets.len()))
             .map(|_| {
                 scope.spawn(|| {
                     let mut done = Vec::new();
                     while let Some((i, argv)) = targets.get(next.fetch_add(1, Ordering::SeqCst)) {
-                        done.push((*i, ssh(argv).ok));
+                        let result = ssh(argv);
+                        let verified = if !result.ok
+                            && SshFailure::of(&result.stderr) == SshFailure::HostKeyUntrusted
+                        {
+                            None
+                        } else {
+                            Some(result.ok)
+                        };
+                        done.push((*i, verified));
                     }
                     done
                 })
@@ -150,7 +173,7 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
         list[i].ssh_ok = Some(false);
     }
     for (i, ok) in results {
-        list[i].ssh_ok = Some(ok);
+        list[i].ssh_ok = ok;
     }
 }
 
@@ -313,7 +336,19 @@ mod tests {
         );
         assert_eq!(
             probe_argv("huge-blue").unwrap(),
-            ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", "huge-blue", "true"]
+            [
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=5",
+                "-o",
+                "StrictHostKeyChecking=yes",
+                "-o",
+                "UpdateHostKeys=no",
+                "--",
+                "huge-blue",
+                "true"
+            ]
         );
         assert!(probe_argv("-oProxyCommand=x").is_err());
     }

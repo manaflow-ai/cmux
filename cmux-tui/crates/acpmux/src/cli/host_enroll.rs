@@ -328,6 +328,7 @@ pub(super) enum SshFailure {
     SshOff,
     KeyRejected,
     HostKeyChanged,
+    HostKeyRevoked,
     HostKeyUntrusted,
     Other,
 }
@@ -337,7 +338,9 @@ impl SshFailure {
         let s = stderr.to_ascii_lowercase();
         let any = |needles: &[&str]| needles.iter().any(|n| s.contains(n));
         // ssh prints the host key warning before anything else it reports.
-        if any(&["remote host identification has changed"]) {
+        if any(&["revoked host key", "host key is revoked"]) {
+            Self::HostKeyRevoked
+        } else if any(&["remote host identification has changed"]) {
             Self::HostKeyChanged
         } else if any(&["host key verification failed"]) {
             Self::HostKeyUntrusted
@@ -367,6 +370,7 @@ impl SshFailure {
             Self::SshOff => "ssh is off (connection refused)",
             Self::KeyRejected => "the ssh key was rejected",
             Self::HostKeyChanged => "the host key has changed",
+            Self::HostKeyRevoked => "the host key has been revoked",
             Self::HostKeyUntrusted => "the host key is not trusted",
             Self::Other => "ssh failed",
         }
@@ -388,6 +392,9 @@ impl SshFailure {
             ),
             Self::HostKeyChanged => format!(
                 "Verify {bare}'s new fingerprint with its owner before removing the old key with `ssh-keygen -R {bare}` and reconnecting."
+            ),
+            Self::HostKeyRevoked => format!(
+                "The host key for {bare} was revoked and cannot be accepted. Contact its owner to replace the revoked key and verify the replacement fingerprint before reconnecting."
             ),
             Self::HostKeyUntrusted => format!(
                 "Run `ssh {host}` to inspect the host key. For a new machine, Add Machine or `acpmux machine enroll {host} --accept-new-host-key` records its first key; changed keys are still refused."
