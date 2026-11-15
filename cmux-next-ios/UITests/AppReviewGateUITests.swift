@@ -608,10 +608,14 @@ final class AppReviewGateUITests: XCTestCase {
             app.activate()
             guard app.wait(for: .runningForeground, timeout: 5) else { return nil }
         }
-        if waitForLayout(start.layout, in: app, timeout: 1) { return true }
+        if waitForLayout(start.layout, in: app, timeout: 1) { return holds(start.layout, in: app) }
         var tried = false
         for round in 0..<3 {
             var ways: [XCUIElement] = []
+            // The switch the tap flipped, flipped back first (first round
+            // only, or it would flip again): a back or Done button the start
+            // screen itself shows would otherwise leave it.
+            if round == 0, let flipBack { ways.append(flipBack) }
             if let tab = start.tab {
                 let button = app.tabBars.buttons[tab]
                 if button.exists, !button.isSelected { ways.append(button) }
@@ -621,21 +625,33 @@ final class AppReviewGateUITests: XCTestCase {
                 ways.append(app.alerts.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch)
                 ways.append(app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch)
             }
-            // The switch the tap flipped, flipped back (first round only, or
-            // it would flip again).
-            if round == 0, let flipBack { ways.append(flipBack) }
             var acted = false
             for way in ways where way.exists && way.isHittable {
                 guard !skip.contains(way.identifier), !skip.contains(way.label) else { continue }
                 way.tap()
                 acted = true
                 tried = true
-                if waitForLayout(start.layout, in: app, timeout: 2) { return true }
+                if waitForLayout(start.layout, in: app, timeout: 2) { return holds(start.layout, in: app) }
                 break
             }
             if !acted { break }
         }
         return tried ? false : nil
+    }
+
+    /// The screen stays exactly `wanted` for as long as a tap's judgement
+    /// waits (3 s, `waitForChange`). A relaunch cancelled anything the last
+    /// control left pending; going back does not, so a late sheet or fetch
+    /// from it could land in the next control's window and make a dead
+    /// control look alive. Any change in that time means a relaunch instead.
+    @MainActor
+    private func holds(_ wanted: String, in app: XCUIApplication) -> Bool {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if layout(app) != wanted { return false }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return layout(app) == wanted
     }
 
     @MainActor
