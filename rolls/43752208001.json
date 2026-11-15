@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43752208001",
+  "recorded_at": "2026-11-15T19:37:22Z",
+  "reason": "cmux-tui f27d27cdf946 changes the image's cmux-tui (pinned 46dfc13c88e5)",
+  "dry_run": false,
+  "cmux_tui": "f27d27cdf9460c8fca56af07c926caba990cedb0",
+  "fixes": [
+    {
+      "sha": "e23ec3445de65c22114269bcaa52d11951efcd8d",
+      "mergedAt": "2026-11-15T11:08:09-08:00",
+      "subject": "Chief compactor: build a too-long node once, no titles for throwaway sessions, bounded preview scan (#43883)"
+    },
+    {
+      "sha": "49540536f891d1032b9d026f7458cf117bf08498",
+      "mergedAt": "2026-11-15T11:05:34-08:00",
+      "subject": "Toggle Terminal and Chat: the place and draft rules in Rust, for the app FFI release (step A) (#43885)"
+    },
+    {
+      "sha": "72e7b0364a1176b65462ca59c3275ba8e4c200f7",
+      "mergedAt": "2026-11-15T10:56:59-08:00",
+      "subject": "acpmux v2 gates: one row file and one gate-line file per design-doc row (#43779)"
+    },
+    {
+      "sha": "7bbdae67b2dc3346f13da1a5824c4f2f21edf8b4",
+      "mergedAt": "2026-11-15T10:51:08-08:00",
+      "subject": "cmux-tui-core: a new worktree's setup starts only in the git folder that its repository keeps for it, and a setup keeps the folders that it opened (#43712)"
+    },
+    {
+      "sha": "195bf0b7da481fff12caccf848c301ea1aacc393",
+      "mergedAt": "2026-11-15T10:47:11-08:00",
+      "subject": "Daemon start log: name 5 parts of the `mux.build` step (#43869)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T19:37:22Z",
+    "snapshot_id": "sh-cece3c991af44544b61da5158f2a1518",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43752208001): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c33c38386032797f63b3818eafc1b477a35bdca0",
+    "image": "cloud-native-auto-f27d27cd-43752208001-1",
+    "revision": "ci-43752208001-1",
+    "at": "2026-11-15T19:37:22Z"
+  },
+  "rolled_back": false
+}
