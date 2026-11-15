@@ -88,15 +88,16 @@ function ExtensionGroup({
   const store = useStore();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const change = async (values: Record<string, unknown>) => {
+  // A promise chain, not try/finally: React Compiler can't lower a try without a catch.
+  const change = (values: Record<string, unknown>) => {
     setBusy(true);
-    try {
-      const result = await store.setExtensionSettings(app.app, values);
-      setProblem(result.error);
-      if (result.values) onValues(result.values);
-    } finally {
-      setBusy(false);
-    }
+    return store
+      .setExtensionSettings(app.app, values)
+      .then((result) => {
+        setProblem(result.error);
+        if (result.values) onValues(result.values);
+      })
+      .finally(() => setBusy(false));
   };
   return (
     <section className="group" data-extension={app.app}>
