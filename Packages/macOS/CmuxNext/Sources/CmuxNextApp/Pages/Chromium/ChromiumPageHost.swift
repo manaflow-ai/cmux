@@ -75,7 +75,7 @@ final class ChromiumPageHost: PageChromiumHosting {
             throw Failure.notChromium
         }
         tab.pageThemeSurface = .internalPage
-        tab.keyRouter = keyRouter
+        tab.keyRouter = keyRouter; tab.onReadyForKeys = { [weak keyRouter] in keyRouter?.creationInputCoordinator.pageArrived(nil) } // its grant ends a key hold that waited for it
         let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()

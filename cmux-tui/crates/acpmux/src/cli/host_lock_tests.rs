@@ -23,6 +23,7 @@ fn two_updates_of_one_host_never_run_at_once() {
         keep_newer: false,
         allow_downgrade: false,
         caller: None,
+        now: true,
     };
 
     // An update from another machine holds it: a second one changes nothing.
@@ -117,6 +118,7 @@ fn an_update_whose_lock_connection_drops_changes_nothing_more() {
         keep_newer: false,
         allow_downgrade: false,
         caller: None,
+        now: true,
     };
     let up = update_locked(&peer, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("lockLost")), "{up:?}");
