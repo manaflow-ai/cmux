@@ -3,7 +3,7 @@
 
     hot-apply.py plan SHA [--app APP] [--repo DIR]
     hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
-                       [--restart-acpmux] [--dry-run] [--base COMMIT]
+                       [--restart-acpmux] [--restart-sessions] [--dry-run] [--base COMMIT]
     hot-apply.py prefetch SHA [--app APP | --base COMMIT] [--repo DIR]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
@@ -25,7 +25,11 @@ with live_apply.py's rules:
          app's Contents/Resources/bin/cmux, with the companions bundled beside it (cmux-app-host,
          cmux-cloud, cmux-browser-host, cmux-tui-host, cmux-holder, the screen detector) from the
          same build, or removed where that build has none; then the app's daemon is handed to it the way the app
-         hands off its own (rust-live.py's Swapper: same app pid, terminals kept). bin/cmux is
+         hands off its own (rust-live.py's Swapper: same app pid, terminals kept). Another
+         session's daemon running from the same bin (a Chief's) keeps its build and is named in the
+         receipt (`left_on_old_build`), unless --restart-sessions hands each one over too with
+         `server restart` on its socket (terminals kept; its session, launch flags and environment
+         carried; not from ssh on macOS), checked like the app's, and `rollback` hands them back. bin/cmux is
          also cmux-tui and acpmux (one multi-call binary), so `cmux link`, the CLI in the app's
          terminals and every acpmux daemon started after it run SHA's build. A running acpmux
          daemon keeps its build until it restarts: --acpmux-home H restarts the one of H, and
@@ -661,8 +665,38 @@ def find_socket(app: Path, cli: Path) -> str | None:
     return found[0] if found else None
 
 
-def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) -> dict:
-    """bin/cmux becomes `new` (sha256 `want`) and the app's daemon is handed to it; checked."""
+def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict]:
+    """Each other session's daemon running from the app's bin (a Chief's) restarted onto `target`, the build
+    now in place: `server restart` by its socket stops the owner the way an update hands it off (its
+    terminal hosts live on) and starts one from `target` with the stopped owner's session, launch flags and
+    environment, which adopts them. Checked: a new owner answers on the socket, running `target`. The first
+    that fails raises, and the caller puts every part back."""
+    swapper_cls = load("rust_live", "rust-live.py").Swapper
+    done = []
+    for name in sockets:
+        swapper = swapper_cls(None, name, state=state / "handoff")
+        t0 = time.monotonic()
+        with PHASES("find"):
+            before = swapper.owner(target, timeout=10)
+        with PHASES("reload"):
+            ran = subprocess.run([str(target), "--socket", name, "--json", "server", "restart"],
+                                 capture_output=True, text=True, timeout=180)
+            now = swapper.owner(target, timeout=30)
+        step = {"socket": name, "old_pid": before[0] if before else None, "new_pid": now[0] if now else None,
+                "seconds": round(time.monotonic() - t0, 3)}
+        done.append(step)
+        if ran.returncode != 0 or not now or (before and now[0] == before[0]):
+            raise RuntimeError(f"`server restart` on {name} left no new owner (exit {ran.returncode}): "
+                               f"{(ran.stderr or ran.stdout).strip()[-300:]}")
+        if swapper.app_file(now[1]) != target:
+            raise RuntimeError(f"the new owner on {name} runs {now[1]}, not {target}")
+    return done
+
+
+def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, sessions: bool = False) -> dict:
+    """bin/cmux becomes `new` (sha256 `want`) and the app's daemon is handed to it; checked. With
+    `sessions`, every other session's daemon from the same bin is restarted onto it too (restart_sessions);
+    without, or from ssh on macOS, they keep the build they mapped and the receipt names them."""
     target = (app / BIN / "cmux").resolve()
     swapper_cls = load("rust_live", "rust-live.py").Swapper
     try:
@@ -674,10 +708,16 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) 
         running = [socket]  # --socket names the daemon; the others are not known
     socket = socket or (running[0] if running else None)
     step: dict = {"file": str(target), "to": want, "socket": socket}
-    # Only the app's own daemon is handed off. Another session's (the chief's) keeps the build it
-    # mapped until its owner restarts; the receipt names it.
-    if others := [name for name in running if name != socket]:
+    # The app's own daemon is handed off here. Another session's (the chief's) keeps the build it mapped
+    # unless `sessions` restarts it below; the receipt names each one left, and why.
+    others = [name for name in running if name != socket]
+    ssh = outside_login_session()
+    if others and (not sessions or ssh):
         step["left_on_old_build"] = others
+        step["left_on_old_build_why"] = (
+            "not asked (--restart-sessions)" if not sessions else
+            "this run is an ssh session: the restarted daemon's new terminals would start outside the login "
+            "session; run hot-apply in the Mac's own terminal")
     t0 = time.monotonic()
     if socket is None:
         # No daemon runs from this app: the file alone, which the app's next ensure runs.
@@ -707,6 +747,8 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) 
     step["running_sha256"] = have
     if have != want:
         raise RuntimeError(f"{target} hashes to {have}, not {want}")
+    if others and sessions and not ssh:
+        step["sessions"] = restart_sessions(target, others, state)
     return step
 
 
@@ -1052,7 +1094,7 @@ def command_apply(args) -> int:
             else:
                 new, want = fetch_cmux(planned["tree_key"], state)
                 companions = fetch_companions(planned["tree_key"], state)
-            if not (args.restart_acpmux or args.acpmux_home) and rust_unchanged(app, want, companions):
+            if not (args.restart_acpmux or args.acpmux_home or args.restart_sessions) and rust_unchanged(app, want, companions):
                 # A hot apply of SHA (or a later commit with the same build) already put it in: nothing to hand off.
                 receipt["unchanged"].append("rust")
                 receipt["steps"]["rust"] = {"to": want, "unchanged": True}
@@ -1063,7 +1105,9 @@ def command_apply(args) -> int:
             # Before the handoff, so the new daemon starts the companions of its own build.
             undo["rust"]["companions"] = place_companions(app, companions, state)
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
-            receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state)
+            # Before the swap: a session restart that fails part way is put back by the rollback.
+            undo["rust"]["sessions"] = bool(args.restart_sessions)
+            receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state, args.restart_sessions)
             receipt["steps"]["rust"]["from"] = prior_sha
             receipt["applied"].append("rust")
             daemons = running_acpmux(app) if args.restart_acpmux or not args.acpmux_home else []
@@ -1149,7 +1193,8 @@ def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> di
             if sha256_file(target) == undo["rust"]["sha256"]:
                 out["rust"] = {"ok": True, "running_sha256": undo["rust"]["sha256"], "daemon": "unchanged"}
             else:
-                out["rust"] = {"ok": True, **swap_cmux(app, Path(undo["rust"]["copy"]), undo["rust"]["sha256"], socket, state)}
+                out["rust"] = {"ok": True, **swap_cmux(app, Path(undo["rust"]["copy"]), undo["rust"]["sha256"], socket, state,
+                                                     bool(undo["rust"].get("sessions")))}
             # The acpmux daemons the apply restarted run the applied build: restart them on the prior one.
             if undo["rust"].get("acpmux_homes"):
                 # The ones restarted with their own environment go back with it, or not at all (#40219 review P2).
@@ -1196,7 +1241,7 @@ def command_rollback(args) -> int:
 def command_prefetch(args) -> int:
     """`apply --dry-run` under its own name: fetch and check what SHA's apply needs, and keep it."""
     args.dry_run, args.parts, args.binary = True, "web,rust", None
-    args.socket, args.acpmux_home, args.restart_acpmux = None, [], False
+    args.socket, args.acpmux_home, args.restart_acpmux, args.restart_sessions = None, [], False, False
     return command_apply(args)
 
 
@@ -1226,6 +1271,9 @@ def main(argv=None) -> int:
             p.add_argument("--acpmux-home", action="append", default=[])
             p.add_argument("--restart-acpmux", action="store_true",
                            help="also restart every acpmux daemon running from the app's bin folder (sessions resume)")
+            p.add_argument("--restart-sessions", action="store_true",
+                           help="also hand every other session's terminal daemon from the app's bin (a Chief's) "
+                                "to the new build with `server restart` (terminals kept)")
             p.add_argument("--dry-run", action="store_true",
                            help="plan, fetch and verify every part; change nothing in the app (receipt: history.jsonl)")
     p = sub.add_parser("rollback")

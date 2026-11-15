@@ -1252,21 +1252,29 @@ function shapedTurn(
 /// thousands of rows, so every streamed token re-laid, re-measured and re-rendered all of them
 /// (Leo's long chat: 110% renderer CPU, frames every 283 ms). A row equal to the one drawn last
 /// time keeps that object, so a token costs only the rows it changed.
-const liveTurnRows = new WeakMap<AcpmuxRow, Map<string, AcpmuxRow>>();
+const liveTurnRows = new WeakMap<AcpmuxRow, { byId: Map<string, AcpmuxRow>; drawn: readonly AcpmuxRow[] }>();
 
 function steadyLiveRows(user: AcpmuxRow, shaped: AcpmuxRow[]): AcpmuxRow[] {
   const before = liveTurnRows.get(user);
-  const next = new Map<string, AcpmuxRow>();
+  // One map for the turn's life, written only where a row changed: a record into a turn of
+  // thousands of rows looks up and compares only the rows it handed over as new objects (a row
+  // drawn last time in the same place as the same object is passed by), never rebuilding the map.
+  // An id that left keeps its last row, which only ever stands in for an equal one.
+  const byId = before?.byId ?? new Map<string, AcpmuxRow>();
+  const drawn = before?.drawn;
   let out: AcpmuxRow[] | undefined;
   for (let at = 0; at < shaped.length; at += 1) {
     const row = shaped[at]!;
-    const prior = before?.get(row.id);
-    const kept = prior !== undefined && prior !== row && sameShape(prior, row, ROW_COMPARE_DEPTH) ? prior : row;
+    if (drawn?.[at] === row) continue;
+    const prior = byId.get(row.id);
+    if (prior === row) continue;
+    const kept = prior !== undefined && sameShape(prior, row, ROW_COMPARE_DEPTH) ? prior : row;
     if (kept !== row) (out ??= shaped.slice())[at] = kept;
-    next.set(row.id, kept);
+    else byId.set(row.id, row);
   }
-  liveTurnRows.set(user, next);
-  return out ?? shaped;
+  const result = out ?? shaped;
+  liveTurnRows.set(user, { byId, drawn: result });
+  return result;
 }
 
 /// How deep `sameShape` compares: a row, its fields' objects and arrays (a group's rows, a tool
@@ -3178,6 +3186,48 @@ function runningBeforeLastRun(rows: readonly AcpmuxRow[]): Set<string> | undefin
   return running;
 }
 
+/// What `codexRuns` made of an activity row that is not the latest run, by that row: the running turn
+/// is shaped again on every record, and each earlier run came back as a new object, so everything
+/// after it that reads a run by its object (messageRuns.ts `member`, which groups the run's calls and
+/// parses each command line again; the layout; the row memos) did its work again for every run of
+/// the turn on every record (bench/live-turn-rows.bench.ts: 28 ms a record at 10,000 records). An
+/// earlier run is a function of its row and of whether the live line names one of its calls, so the
+/// rows made for it are kept while both hold. `named`: the named call, when it is one of the row's.
+type EarlierRun = { named: string | undefined; out: AcpmuxRow[] };
+const earlierRuns = new WeakMap<AcpmuxRow, EarlierRun>();
+/// The rows `codexRuns` makes of a run that keeps its own row (a change waiting for its permission,
+/// a call that keeps its row while it runs), by that row.
+const keptRuns = new WeakMap<AcpmuxRow, AcpmuxRow>();
+
+/// `named` when the live line names one of `row`'s calls, else undefined: all an earlier run's rows
+/// read of the line.
+function namedIn(row: AcpmuxRow, named: string | undefined): string | undefined {
+  if (named === undefined) return undefined;
+  for (const item of row.items ?? []) if (item.tool?.id === named) return named;
+  return undefined;
+}
+
+/// An earlier run's rows (`codexRuns`): what it draws of `row`'s calls, without the ones that have
+/// nothing to show yet and the one the live line names.
+function earlierRun(row: AcpmuxRow, named: string | undefined): AcpmuxRow[] {
+  const own = namedIn(row, named);
+  const kept = earlierRuns.get(row);
+  if (kept && kept.named === own) return kept.out;
+  const out = withoutDrafts(row).flatMap((drawn) => {
+    const items = drawn.items ?? [];
+    const shown = own === undefined ? items : items.filter((item) => item.tool?.id !== own);
+    if (!shown.length) return [];
+    // Its version says whether the line holds its command, which moves without the row's, and
+    // differs from every other state of the run (`RUN_STATES`).
+    const lined = shown.length !== items.length;
+    return [
+      { ...drawn, items: shown, settled: true, foldRun: true, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+    ];
+  });
+  earlierRuns.set(row, { named: own, out });
+  return out;
+}
+
 function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?: ReadonlySet<string>): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
@@ -3185,7 +3235,9 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
   let ended = -1;
   if (lineOnly)
     for (let at = rows.length - 1; at >= 0 && ended < 0; at -= 1) if (rows[at]!.kind === "turnSummary") ended = at;
-  return rows.flatMap((row, index) => {
+  // One pass that pushes, not a `flatMap`: a running turn of thousands of rows is shaped on every
+  // record, and a one-row array for each of them was most of what the pass made.
+  const shape = (row: AcpmuxRow, index: number): AcpmuxRow[] => {
     if (row.kind !== "activity") return [row];
     // A run that edited is shaped as the others; the turn's edited-files card lists its edits when
     // it ends. One with a file change still waiting for its permission stays as it is, so the change
@@ -3193,22 +3245,14 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
     // `staysInSight`).
     if (
       (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
-    )
-      return [{ ...row, foldRun: false, version: row.version * RUN_STATES }];
+    ) {
+      let own = keptRuns.get(row);
+      if (!own) keptRuns.set(row, (own = { ...row, foldRun: false, version: row.version * RUN_STATES }));
+      return [own];
+    }
     if (lineOnly && index > ended) return [];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
-    if (index !== latest)
-      return withoutDrafts(row).flatMap((kept) => {
-        const items = kept.items ?? [];
-        const shown = named === undefined ? items : items.filter((item) => item.tool?.id !== named);
-        if (!shown.length) return [];
-        // Its version says whether the line holds its command, which moves without the row's, and
-        // differs from every other state of the run (`RUN_STATES`).
-        const lined = shown.length !== items.length;
-        return [
-          { ...kept, items: shown, settled: true, foldRun: true, version: row.version * RUN_STATES + (lined ? 4 : 2) },
-        ];
-      });
+    if (index !== latest) return earlierRun(row, named);
     // The latest run: what is happening now leaves it for the live line, so the run holds only
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").
@@ -3245,7 +3289,14 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
     // Whether it shows its thought is the row's own (its text and its chunks' times, not the
     // clock), so the version it has says it: state 1 either way, never an ended fold's 3.
     return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
-  });
+  };
+  const out: AcpmuxRow[] = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (row.kind !== "activity") out.push(row);
+    else for (const shaped of shape(row, index)) out.push(shaped);
+  }
+  return out;
 }
 
 /// Narration short enough to fold into the work around it: a short paragraph, under about three

@@ -207,6 +207,7 @@ impl HubWriter {
             return Ok(());
         }
         REFUSED_ORIGINS.fetch_add(1, Ordering::Relaxed);
+        self.origins_refused.fetch_add(1, Ordering::Release);
         Err(HubError::OriginLimit)
     }
 
