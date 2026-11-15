@@ -333,6 +333,10 @@
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the simulator step to the controller with cmux-ci run"
     },
     "cmux-next-media.yml#tour": "apple-gui",
+    "cmux-next-hot-verify.yml#look": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the hot-verify step to the controller with cmux-ci run"
+    },
     "cmux-next-perf-bench.yml#bench": {
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
