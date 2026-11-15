@@ -2532,6 +2532,14 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
             r"github\.repository.*?&& '(?:blacksmith-6|blacksmith-12)vcpu-macos-26'",
             "false", expression,
         ).replace("vars.CI_SIDE_LANE_RUNNER", f"'{SIDE}'")
+        # reload-build's explicit-ref path keeps an untrusted revision on the
+        # ephemeral macOS pool even when the Blacksmith switch is off. That
+        # branch is intentionally safe; do not mistake its pool read for an
+        # owned fallback while checking the off-switch class.
+        text = re.sub(
+            r"needs\.resolve-ref\.outputs\.trusted_ref != 'true' && fromJSON\(vars\.RUNNER_POOLS\)\.macos_26",
+            "false", text,
+        )
         try:
             labels = resolve_labels(text, variables={"CI_BLACKSMITH_MACOS": switch})
             return {label for label in labels if isinstance(label, str) and self.BLACKSMITH_MACOS.match(label)}
