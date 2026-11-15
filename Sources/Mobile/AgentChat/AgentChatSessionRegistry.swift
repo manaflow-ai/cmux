@@ -397,6 +397,37 @@ final class AgentChatSessionRegistry {
         }
     }
 
+    /// The workspace settled a turn whose Stop hook never came (an Esc
+    /// interrupt, a timed-out or failed hook) from the agent's program
+    /// status going idle at `edge`. Ends the same turn here, for sessions of
+    /// `source` on the surface whose working turn began by `edge`. Hooks that
+    /// arrive after the edge without starting a turn (the interrupted tool's
+    /// failure, a SubagentStop) don't keep it open; the workspace already
+    /// checked the turn is over. A later hook remains authoritative.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: The terminal surface UUID string.
+    ///   - source: The agent source name, such as `claude`.
+    ///   - edge: When the agent's activity ended.
+    /// - Returns: The sessions whose turn ended.
+    @discardableResult
+    func noteTurnSettledFromProgramStatus(surfaceID: String, source: String, at edge: Date) -> [String] {
+        let sessionIDs = indexedRecords(surfaceID: surfaceID)
+            .filter { record in
+                guard record.agentKind.sourceName == source,
+                      case .working(let since) = record.state else { return false }
+                return since <= edge
+            }
+            .map(\.sessionID)
+        for sessionID in sessionIDs {
+            update(sessionID: sessionID) { record in
+                record.setTranscriptObservedIdle()
+                if edge > record.lastActivityAt { record.lastActivityAt = edge }
+            }
+        }
+        return sessionIDs
+    }
+
     /// Seeds the registry from the on-disk hook stores so sessions started
     /// before app launch are listable. The whole-file JSON read+parse runs off
     /// the main actor; only the (cheap) record application touches main state.

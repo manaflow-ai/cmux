@@ -278,6 +278,21 @@ final class AgentChatTranscriptService {
         Task { [weak self] in await self?.registry.seedFromHookStores() }
     }
 
+    /// Ends a session's working turn that the workspace settled from the
+    /// agent's program status, when its Stop hook never came, and its live
+    /// prose preview, as a Stop does.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: The terminal surface UUID string.
+    ///   - source: The agent source name, such as `claude`.
+    ///   - edge: When the agent's activity ended.
+    func noteTurnSettledFromProgramStatus(surfaceID: String, source: String, at edge: Date) {
+        guard !didShutdown else { return }
+        for sessionID in registry.noteTurnSettledFromProgramStatus(surfaceID: surfaceID, source: source, at: edge) {
+            endProseTurn(sessionID: sessionID)
+        }
+    }
+
     /// Ingests one hook event (called from the socket dispatch path).
     ///
     /// - Parameter event: The hook event.
