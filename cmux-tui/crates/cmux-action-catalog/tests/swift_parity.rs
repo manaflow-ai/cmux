@@ -77,22 +77,8 @@ fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
 /// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
 /// field of the row is still compared. A listed field the dump already shows as this crate has
 /// it fails: the re-pin landed, so take it off.
-const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[
-    ("palette.toggleTerminalChat", &["/defaultShortcut"]),
-    ("machine.joined.check", JOINED_PALETTE_ROW),
-    ("machine.joined.rotate", JOINED_PALETTE_ROW),
-    ("machine.joined.revoke", JOINED_PALETTE_ROW),
-];
-
-/// The fields a joined machine's action changed when it became a palette row that asks which
-/// joined machine (`palette_target_source` `joined`).
-const JOINED_PALETTE_ROW: &[&str] = &[
-    "/surfaces",
-    "/surfacePlan/palette",
-    "/paletteTarget",
-    "/paletteTargetSource",
-    "/computed/is_palette_visible",
-];
+const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] =
+    &[("palette.toggleTerminalChat", &["/defaultShortcut"])];
 
 /// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
 /// checking that the two still differ there.
