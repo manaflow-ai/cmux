@@ -94,7 +94,7 @@ public struct RetryButton: View {
             button.buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .inline))
         case .inline:
             button
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .font(CmuxMobileTheme.standard.type.meta.weight(.semibold))
                 .foregroundStyle(CmuxMobileTheme.standard.colors.label)
                 .frame(minHeight: CmuxMobileTheme.standard.metrics.glassButton)

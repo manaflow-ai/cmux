@@ -40,13 +40,13 @@ extension WindowRootView {
 
     /// Whether the buttons hide at rest. With the sidebar open they always
     /// show, as its + button does (Lawrence 2026-10-28 message 15460: "if
-    /// sidebar is open, all the stuff should show"), unless Show Sidebar
-    /// Controls Only on Hover (`sidebar.controlsOnHover`) is on. With the
+    /// sidebar is open, all the stuff should show"), unless Minimal Mode or Show
+    /// Sidebar Controls Only on Hover is on (``SidebarSectionsPreferences/hidesControlsUntilHover``). With the
     /// sidebar hidden, `window.titlebarButtons` decides: hover (the default)
     /// hides them at rest; always shows them.
     func applyTitlebarButtonsMode() {
         let design = DesignSettings.shared
-        let hidesAtRest = sidebarHidden ? design.titlebarButtons == .hover : design.sidebarSections.controlsOnHover
+        let hidesAtRest = sidebarHidden ? design.titlebarButtons == .hover : design.sidebarSections.hidesControlsUntilHover
         if titlebarReveal.isEnabled != hidesAtRest { titlebarReveal.isEnabled = hidesAtRest }
     }
 
