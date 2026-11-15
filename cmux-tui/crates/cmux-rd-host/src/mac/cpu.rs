@@ -117,7 +117,11 @@ mod tests {
         }
         let after = sample(pid).expect("self usage");
         let pct = interval(Ok(before), Ok(after)).cpu_pct.expect("cpu interval");
-        // Other test threads may run too, so allow headroom above one core.
-        assert!((40.0..=400.0).contains(&pct), "one busy thread read {pct:.1}% of a core");
+        // Other test threads share this process, so the ceiling is every core the machine has.
+        let cores = std::thread::available_parallelism().map_or(64, |n| n.get()) as f64;
+        assert!(
+            (40.0..=cores * 100.0 + 50.0).contains(&pct),
+            "one busy thread read {pct:.1}% of a core ({cores} cores)"
+        );
     }
 }
