@@ -2317,6 +2317,9 @@ dependencies = [
 name = "cmux-tui-core"
 version = "1.0.0"
 dependencies = [
+ "acpmux",
+ "acpmux-client",
+ "acpmux-list-types",
  "anyhow",
  "arc-swap",
  "base64",

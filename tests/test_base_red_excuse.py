@@ -6799,6 +6799,54 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "not a manaflow-ai/cmuxterm-hq Actions run"):
             self.judge()
 
+    HINT = "; lints before the next push: tools/ws_check_lints.py"
+
+    def deploy_red(self, description):
+        """HEAD and main both red on DEPLOY's test_a, HEAD's status described DESCRIPTION."""
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_a")})
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_a")}, description=description)
+
+    def test_a_description_with_a_lint_hint_after_the_step_is_read(self):
+        # leo-workspace tools/ws-check's with_lint_hint ends the description with "; lints before the next push: ..."
+        # when it fits in 139 characters; read as part of the step, the red was refused "does not match run ...".
+        self.deploy_red(f"1 of 77 steps failed: {self.DEPLOY}{self.HINT}")
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_description_labelled_base_red_is_read(self):
+        # leo-workspace ws-check labels a failure main's own run shares "base red (main SHA8 fails it too) ...";
+        # unread, the red was refused "names no failed steps".
+        self.deploy_red(f"base red (main {self.gh.TIP[:8]} fails it too) 1 of 77 steps failed: {self.DEPLOY}")
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_base_red_label_cut_at_139_characters_is_read(self):
+        label = f"base red (main {self.gh.TIP[:8]} fails it too) "
+        # The step itself cut short.
+        description = f"{label}1 of 77 steps failed: {self.RELAY}"[:139]
+        self.assertLess(len(description), len(f"{label}1 of 77 steps failed: {self.RELAY}"))
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, description=description)
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+        # The hint after the full step cut short.
+        description = f"{label}1 of 77 steps failed: {self.DEPLOY}{self.HINT}"[:139]
+        self.assertLess(len(description), len(f"{label}1 of 77 steps failed: {self.DEPLOY}{self.HINT}"))
+        self.deploy_red(description)
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_description_naming_another_step_is_still_refused(self):
+        label = f"base red (main {self.gh.TIP[:8]} fails it too) "
+        for description in (f"1 of 77 steps failed: {self.RELAY}{self.HINT}",
+                            f"{label}1 of 77 steps failed: {self.RELAY}",
+                            f"1 of 77 steps failed: {self.DEPLOY}x",
+                            f"1 of 77 steps failed: {self.DEPLOY} {self.HINT}",
+                            f"{label}1 of 77 steps failed: {self.DEPLOY}-more{self.HINT}"[:139]):
+            with self.subTest(description=description):
+                self.deploy_red(description)
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+        # A label that is not the exact base-red form is not read.
+        self.deploy_red(f"base red (main {self.gh.TIP[:7]} fails it too) 1 of 77 steps failed: {self.DEPLOY}")
+        with self.assertRaisesRegex(excuse.Refused, "names no failed steps"):
+            self.judge()
+
     def test_a_test_list_that_disagrees_with_its_summary_is_not_excused(self):
         red = {self.DEPLOY: self.ws_deploy("test_a")}
         self.gh.verdict(self.gh.TIP, 2, red)
@@ -13390,6 +13438,81 @@ def one_step_flood(headers, steps):
         if k == flooded:
             lines += [f"{at(100.0 + 10 * k + 4 * (n + 1) / (inner + 1))} ##[group]Run x" for n in range(inner)]
     return job, "\n".join(lines), names, own
+
+
+class MatrixLegsAreReadByTheirWorkflow(RealShapesOfNovember11):
+    """cmux#43014 at 749d8669 (2026-11-14) was refused over 'Reviewer path (appstore, ipad)' (head: run 43632344606,
+    job 132561563162; base: feat-cmux-next run 43625607673, job 132544579726 at d2314cf2). Its workflow job is a
+    matrix leg named by two expressions (`Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})`), so
+    workflow_step_names read no headers, and its composite setup-cmux-tui-rust step prints three inner `Run` lines, so
+    one header per step placed nothing: the log was compared whole. The walk step, which passed on both sides, prints
+    the gate's failing UI tests with different dead controls on each run, and those lines refused the head, though the
+    one failed step (Agent reviewer pass) is the base's. Fixtures: both jobs' steps and logs trimmed to the runner's
+    first lines, the step headers, groups and failure lines, stamps as served; the job's workflow steps at d2314cf2."""
+
+    PATHS = {**RealShapesOfNovember11.PATHS, "cmux-43014-review-gate-ipad": ".github/workflows/ios-review-gate.yml"}
+    GATE = "cmux-43014-review-gate-ipad"
+    JOB = "Reviewer path (appstore, ipad)"
+    AGENT = "##[error]agent reviewer pass: the agent exited 1 with no findings array"
+    WALK = "testSettingsHaveNoDeadControls] : XCTAssertTrue failed - dead controls in Settings"
+
+    def line(self, text, marker):
+        found = [line for line in text.splitlines() if marker in line]
+        self.assertEqual(len(found), 1, marker)
+        return found[0]
+
+    def with_agent_line_of(self, log, other):
+        """LOG with its agent-pass error line's text replaced by OTHER's, at LOG's own stamp (the same failure, the
+        walk's lines left as LOG's)."""
+        mine = self.line(log, self.AGENT)
+        return log.replace(mine, mine.split(" ", 1)[0] + " " + self.line(other, self.AGENT).split(" ", 1)[1])
+
+    def test_both_legs_are_placed_and_only_the_agent_pass_is_failed(self):
+        for side in ("head", "base"):
+            with self.subTest(side=side):
+                view = self.view(self.GATE, side, base=side == "base")
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual([(str(view.steps[k]["name"]), status) for k, status, _ in view.sections],
+                                 [("Agent reviewer pass", "failed")])
+
+    def test_without_the_rendered_name_the_leg_is_unplaced_as_reported(self):
+        # The detector: the reading before _rendered_name_fits finds no workflow job for the leg, the refusal #43014 got.
+        with unittest.mock.patch.object(excuse, "_rendered_name_fits", lambda *_: False):
+            self.assertIs(self.view(self.GATE, "head", base=False), excuse.UNPLACED)
+
+    def test_a_leg_whose_name_fits_two_workflow_jobs_reads_no_headers(self):
+        job, text = self.fixture(self.GATE, "head")
+        workflow = (STEP_MAPPING_FIXTURES / f"{self.GATE}.yml").read_text()
+        twin = workflow.replace("  reviewer-path:\n", "  twin:\n    name: Reviewer path (${{ matrix.x }})\n"
+                                "    runs-on: fixture\n    steps: []\n  reviewer-path:\n", 1)
+        github = self.github(self.GATE, (job, text), (job, text))
+        github.blob = lambda repo, ref, wanted: twin
+        names = excuse.workflow_step_names(REPO, dict(job, head_sha=HEAD), self.PATHS[self.GATE], github, {})
+        self.assertIs(names, excuse.STEP_NAMES_UNKNOWN)
+
+    def test_the_same_failed_step_is_excused_whatever_the_passing_walk_printed(self):
+        head, base = self.fixture(self.GATE, "head"), self.fixture(self.GATE, "base")
+        self.assertNotEqual(self.line(head[1], self.WALK), self.line(base[1], self.WALK))
+        said = self.judge(self.github(self.GATE, head, (base[0], self.with_agent_line_of(base[1], head[1]))))
+        self.assertIn(f"excused '{self.JOB}'", said)
+        self.assertNotIn("compared whole", said)
+
+    def test_a_different_agent_failure_is_refused_by_its_step_not_whole(self):
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.GATE, self.fixture(self.GATE, "head"), self.fixture(self.GATE, "base")))
+        self.assertIn("agent reviewer pass: the agent exited # with no findings array", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+        self.assertNotIn("dead controls", str(said.exception))
+
+    def test_rendered_name_fits_only_the_template_with_its_expressions_filled(self):
+        template = "Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})"
+        for name, fits in (("Reviewer path (appstore, ipad)", True), ("Reviewer path (, )", True),
+                           ("Reviewer path (appstore ipad)", False), ("Reviewer path (appstore, ipad) / x", False),
+                           ("Other (appstore, ipad)", False)):
+            with self.subTest(name=name):
+                self.assertIs(excuse._rendered_name_fits(template, name), fits)
+        self.assertFalse(excuse._rendered_name_fits("Reviewer path", "Reviewer path"))
+        self.assertFalse(excuse._rendered_name_fits(None, "Reviewer path"))
 
 
 class AlignedStartsIsLinear(unittest.TestCase):
