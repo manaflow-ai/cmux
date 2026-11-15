@@ -10,7 +10,9 @@ The Mac comparison (cmux-next generated files) is red on the base for other reas
 This reads only git objects, no build. It compares each export's key set at HEAD with BASE's and with
 HEAD's sources (schemas/settings/source/*.json rows, schemas/settings/retired-keys.json):
 
-  dropped  a key BASE's export has and HEAD's sources still declare, missing from HEAD's export
+  dropped  a key BASE's export has and HEAD's sources still declare with the same row as BASE's, missing from
+           HEAD's export (a row the change edits, such as its consumers or whether the docs list it, may leave
+           an export on purpose)
   extra    a key in HEAD's export that BASE's export lacks and no HEAD source declares
            (or that schemas/settings/retired-keys.json retires)
 
@@ -69,30 +71,37 @@ def settings(keys: set[str]) -> set[str]:
     return {key for key in keys if SETTING.match(key)}
 
 
-def source_keys(files: dict[str, bytes]) -> set[str]:
-    """The row keys of the source files FILES (path -> bytes): each one with a `lists` of rows."""
-    keys = set()
+def source_rows(files: dict[str, bytes]) -> dict[str, str]:
+    """key -> the row's canonical JSON, for the source files FILES (path -> bytes): each one with a `lists` of rows."""
+    rows = {}
     for data in files.values():
         loaded = json.loads(data)
         lists = loaded.get("lists") if isinstance(loaded, dict) else None
         for entry in lists if isinstance(lists, list) else []:
-            keys.update(row["key"] for row in entry.get("rows", []))
-    return keys
+            if not isinstance(entry, dict) or not isinstance(entry.get("rows", []), list):
+                raise ValueError("a `lists` entry is not {name, rows: [...]}: %r" % (entry,))
+            for row in entry.get("rows", []):
+                rows[row["key"]] = json.dumps(row, sort_keys=True)
+    return rows
 
 
 def retired_keys(data: bytes | None) -> set[str]:
     return {entry["key"] for entry in json.loads(data)["retired"]} if data else set()
 
 
-def drift(base: dict[str, set[str]], head: dict[str, set[str]], sources: set[str], retired: set[str]) -> list[str]:
+def drift(base: dict[str, set[str]], head: dict[str, set[str]], base_rows: dict[str, str], head_rows: dict[str, str],
+          retired: set[str]) -> list[str]:
     """`<export>: ...` per export whose HEAD keys (HEAD) lost a declared key BASE had, or gained an undeclared one.
 
-    BASE and HEAD map an export path to its keys (an export missing at a side is left out of that side)."""
+    BASE and HEAD map an export path to its keys (an export missing at a side is left out of that side); BASE_ROWS
+    and HEAD_ROWS map each source key to its row at that side."""
+    sources = set(head_rows)
+    unchanged = {key for key, row in head_rows.items() if base_rows.get(key) == row}
     found = []
     for path in sorted(head):
         if path not in base:
             continue
-        dropped = (base[path] & sources) - head[path]
+        dropped = (base[path] & unchanged) - head[path]
         extra = settings(head[path] - base[path]) - (sources - retired)
         if dropped:
             found.append("%s: drops %s, which the sources still declare" % (path, ", ".join(sorted(dropped))))
@@ -129,9 +138,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         found = drift(exports_at(args.repo, args.base), exports_at(args.repo, args.head),
-                      source_keys(sources_at(args.repo, args.head)),
+                      source_rows(sources_at(args.repo, args.base)), source_rows(sources_at(args.repo, args.head)),
                       retired_keys(git_show(args.repo, args.head, RETIRED)))
-    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError, plistlib.InvalidFileException) as error:
+    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError, AttributeError,
+            plistlib.InvalidFileException) as error:
         print("settings-export-key-drift: cannot read the exports or sources: %r" % (error,), file=sys.stderr)
         return 2
     for line in found:

@@ -2713,7 +2713,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if added:
             reserved.append((NEW_VERSIONS_CHECK, added))
     # Local only (CLAUDE.md: no new CI gates): git objects only, keys only, and only when a settings file changes. Not
-    # in gate_own's runs over the ranges a merge does not own (RESTRICT): an upstream range's drift is not the push's.
+    # in gate_own's runs over the ranges a merge does not own (RESTRICT): this is not a debt check, so those runs have
+    # nothing to take off. A merge push's own run already compares with the merged base's exports (#43022's shape).
     if (highlights_layer if only is None else "settings-export-keys" in only) and restrict is None:
         drift = settings_export_keys(repo, base, head, trusted_scripts)
         if drift:
