@@ -17,7 +17,7 @@
   };
   var exports_main = {};
   __export(exports_main, {
-    renderPane: () => renderPane
+    renderNewTab: () => renderNewTab
   });
   var events_default = {
     $comment: "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again. The daemon delivers a stream only to an app that may call its `reads` op (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
@@ -2345,27 +2345,15 @@
     Rectangle,
     RoundedRectangle
   } = g;
-  function pane(render) {
+  function newTab(render) {
     return render;
   }
   var EVENT_STREAMS = Object.keys(events_default.events);
-  function fromWatch(w) {
-    const live = () => w.value();
-    live.loading = () => w.status() === "loading";
-    live.error = () => w.error();
-    live.refresh = () => void w.refresh();
-    return live;
-  }
-  function workspaces() {
-    return fromWatch(cmux.watch("workspace.list"));
-  }
-  var renderPane = pane(() => {
-    const spaces = workspaces();
-    return VStack({ spacing: 2 }, [
-      Text("Hello from {{TITLE}}"),
-      ForEach({ items: () => spaces() ?? [], key: (w) => w.id }, (w) => Row({ title: () => w().name, symbol: () => w().focused ? "rectangle.inset.filled" : "rectangle" })),
-      () => spaces.error() ? EmptyState({ title: "Can't read workspaces", message: spaces.error().message, symbol: "exclamationmark.triangle" }) : null
-    ]);
-  });
+  var renderNewTab = newTab(({ cwd }) => VStack([
+    Panel({ title: "Hello from {{TITLE}}" }, [
+      Text(cwd ? `Starting in ${cwd}` : "A new tab"),
+      Button("Say hi", () => cmux.toast({ title: "Hi from my New Tab page", tone: "success" }))
+    ])
+  ]));
   globalThis.__cmuxAppExports = { ...exports_main };
 })();
