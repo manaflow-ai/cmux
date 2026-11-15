@@ -5414,13 +5414,20 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
         deeper = deeper_queue(snapshot, sources, side_label)
         if deeper:
             return f"not re-run: attempt {following} takes {side_label}, but {deeper}"
-    if run.get("status") != "completed":
+    cancelled = run.get("status") != "completed"
+    if cancelled:
+        known = {job.get("id") for job in jobs}
+
         def still_waiting() -> None:
-            # Read last, right before the cancel goes out: a runner that took a job since keeps the run.
+            # Read last, right before the cancel goes out: a runner that took a job since keeps the run, and a job
+            # created since was not weighed for the placement re-run (it could stay cancelled).
             now_jobs = read(lambda: api.jobs(run_id, attempt), sleep, log)
             taken = sorted(str(job.get("name") or job.get("id")) for job in now_jobs if job_running(job))
             if taken:
                 raise StallCleared(f"{', '.join(taken)} started before the cancel")
+            fresh = sorted(str(job.get("name") or job.get("id")) for job in now_jobs if job.get("id") not in known)
+            if fresh and plan is not None:
+                raise StallCleared(f"{', '.join(fresh)} appeared before the cancel")
         log(f"cancelling run {run_id} attempt {attempt} to re-run it as the bot")
         try:
             api.cancel(run_id, before_send=still_waiting)
@@ -5446,16 +5453,21 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
                     log(f"force-cancel of run {run_id} answered {error}; waiting for the cancel to settle")
             if waited >= CANCEL_WAIT_SECONDS:
                 return f"cancelled run {run_id}, not re-run: it had not finished after {CANCEL_WAIT_SECONDS}s"
-        log(f"{CANCEL_SETTLED} run {run_id} attempt {attempt}")
         # A push during the settle (its concurrency cancel can finish this run) makes this head superseded.
         moved = head_moved()
         if moved:
+            log(f"{CANCEL_SETTLED} run {run_id} attempt {attempt}")
             return f"cancelled run {run_id}, not re-run: {moved}"
+    # CANCEL_SETTLED only once the re-run went out: a failed request leaves CANCEL_SENT open for a successor.
     if plan is not None:
         api.rerun_job(run_id, plan.job_id, following)
+        if cancelled:
+            log(f"{CANCEL_SETTLED} run {run_id} attempt {attempt}")
         return (f"re-ran {plan.placement_job} of run {run_id} and every job that needs it as attempt "
                 f"{following}: placement chooses afresh")
     api.rerun_failed(run_id, following)
+    if cancelled:
+        log(f"{CANCEL_SETTLED} run {run_id} attempt {attempt}")
     where = f"; attempt {following} takes {side_label}" if path == CMUX_NEXT_WORKFLOW_PATH and side_label else ""
     return f"re-ran the failed and cancelled jobs of run {run_id} as attempt {following}{where}"
 
