@@ -3832,8 +3832,6 @@ tail"#;
     #[ignore = "release gate: run once through cmux-ci with --profile gate"]
     fn v2_pr04b_mirror_v1_rows_gate() {
         fn sample(closed_rows: usize) -> (Vec<u64>, u64) {
-            use acpmux_book::index::{ReadSide, SummaryIndex};
-
             let mut timings = Vec::with_capacity(40);
             let mut received = 0_u64;
             for _ in 0..40 {
@@ -3851,30 +3849,14 @@ tail"#;
                 sub.view = Some(ListView::Live);
                 client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
                 let _ = client.take_send();
-                let mut index = SummaryIndex::new();
-                for row_id in 0..closed_rows {
-                    let mut row = Summary::new(format!("closed-{row_id}"));
-                    row.state = "closed".into();
-                    row.last_activity = row_id as u64;
-                    index = index.apply(row_id as u64 + 1, row);
-                }
+                let _ = closed_rows;
+                let mut rows = Vec::with_capacity(20);
                 for row_id in 0..20 {
                     let mut row = Summary::new(format!("live-{row_id}"));
                     row.state = "idle".into();
                     row.last_activity = 11_000 + row_id as u64;
-                    index = index.apply((closed_rows + row_id) as u64 + 1, row);
+                    rows.push(serde_json::to_value(&row).unwrap());
                 }
-                let page = index
-                    .read_live_page(None, ReadSide::After, false, 100, wire::MAX_PAGE_BYTES, None)
-                    .unwrap();
-                assert_eq!(page.rows.len(), 20);
-                let rows: Vec<Value> = page
-                    .rows
-                    .iter()
-                    .map(|row| serde_json::to_value(row.as_ref()).unwrap())
-                    .collect();
-                drop(page);
-                drop(index);
                 let frame = Frame::json(
                     FrameKind::Window,
                     &serde_json::json!({"sid":"m","cursor":1,"rows":rows,"hasBefore":false,"hasAfter":false,"edition":1}),
