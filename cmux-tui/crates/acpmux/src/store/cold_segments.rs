@@ -836,6 +836,9 @@ impl LocalStore {
                 }
                 continue;
             }
+            if !has_src {
+                continue;
+            }
             // A crash between the commit and the segment's removal: both must read to the index.
             let archive = read_index(&session, index).and_then(|doc| {
                 archive_holds(&path, &doc)?;
