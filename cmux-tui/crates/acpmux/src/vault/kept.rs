@@ -5,9 +5,16 @@
 //! the safe key thing").
 //!
 //! An agent that made a key (a provider's token API, a CLI that mints one)
-//! pipes it in: `mint | acpmux machine vault keep R2_TOKEN --host
-//! '*.r2.cloudflarestorage.com'`. It shares nothing the agent did not already
-//! have, so it asks no one; the value stays on this machine.
+//! pipes it in: `mint | acpmux machine vault keep DEPLOY_TOKEN --host
+//! api.example.com`. It shares nothing the agent did not already have, so it
+//! asks no one; the value stays on this machine.
+//!
+//! - A placeholder is filled only where the key travels in a request (a
+//!   bearer token, an API key header). A key that signs requests locally (an
+//!   S3 SigV4 secret access key) never goes on the wire, so it needs `--env`.
+//! - Never keep a provider's root or bootstrap token (one that mints other
+//!   keys) here: every agent this daemon starts would get it, filled toward
+//!   that provider's API. Keep only the scoped keys made from it.
 //!
 //! - The value comes on stdin (never argv) and goes into the OS secret store
 //!   as the item `kept.NAME` (`store.rs`: account `env/<home-id>/kept.NAME`;
@@ -112,7 +119,7 @@ fn write(home: &Path, kept: &Kept) -> Result<(), &'static str> {
 /// never one that steers other agents (`HTTPS_PROXY`, `SSL_CERT_FILE`,
 /// `NODE_OPTIONS`, `GIT_ASKPASS`, `EDITOR`).
 pub const SECRET_SUFFIXES: &[&str] =
-    &["_TOKEN", "_KEY", "_SECRET", "_PASSWORD", "_PAT", "_CREDENTIALS"];
+    &["_TOKEN", "_KEY", "_KEY_ID", "_SECRET", "_PASSWORD", "_PAT", "_CREDENTIALS"];
 
 /// Model provider keys: one kept by an agent would move every later agent's
 /// model traffic onto that key.

@@ -409,7 +409,7 @@ pub async fn status_cmd(json_out: bool) -> Result<()> {
 fn kept_failure(code: &str) -> anyhow::Error {
     let message = match code {
         "vault.bad_name" => {
-            "not a name the vault gives agents (an env name like R2_TOKEN; not a sign-in or base URL)"
+            "not a name an agent may keep: an env name ending in _TOKEN, _KEY, _KEY_ID, _SECRET, _PASSWORD, _PAT or _CREDENTIALS; never a model provider key, sign-in or base URL"
         }
         "vault.bad_host" => "a --host is not a host pattern (example.com or *.example.com)",
         "vault.too_many_hosts" => "at most 16 --host patterns",

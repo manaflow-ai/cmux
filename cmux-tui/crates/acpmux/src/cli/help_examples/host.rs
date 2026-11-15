@@ -212,7 +212,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("See which vault env vars this machine holds", "acpmux machine vault status"),
             (
                 "Keep a key you made, sent only to its host",
-                "mint-token | acpmux machine vault keep R2_TOKEN --host '*.r2.cloudflarestorage.com'",
+                "mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com",
             ),
         ],
     ),
@@ -220,18 +220,18 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "machine vault keep",
         &[
             (
-                "Keep a key you made; new agents get cmux-secret://R2_TOKEN, filled only toward the host",
-                "mint-token | acpmux machine vault keep R2_TOKEN --host '*.r2.cloudflarestorage.com'",
+                "Keep a key you made; new agents get cmux-secret://DEPLOY_TOKEN, filled only toward the host",
+                "mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com",
             ),
             (
-                "Give new agents the value itself (weaker)",
-                "mint-token | acpmux machine vault keep BUILD_TOKEN --env",
+                "A key that signs requests itself (an S3 SigV4 secret): give agents the value (weaker)",
+                "mint-secret | acpmux machine vault keep STORAGE_SECRET_ACCESS_KEY --env",
             ),
         ],
     ),
     (
         "machine vault drop",
-        &[("Remove a kept key from this machine", "acpmux machine vault drop R2_TOKEN")],
+        &[("Remove a kept key from this machine", "acpmux machine vault drop DEPLOY_TOKEN")],
     ),
     (
         "machine vault pull",

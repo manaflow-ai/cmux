@@ -127,7 +127,14 @@ fn keep_refuses_unsafe_names_hosts_values_and_a_store_that_takes_no_write() {
     ] {
         assert_eq!(keep(name, KEY, &[]), Err("vault.bad_name"), "{name}");
     }
-    for name in ["R2_TOKEN", "STRIPE_SECRET", "DB_PASSWORD", "GH_PAT", "AWS_CREDENTIALS"] {
+    for name in [
+        "R2_TOKEN",
+        "STORAGE_ACCESS_KEY_ID",
+        "STORAGE_SECRET_ACCESS_KEY",
+        "DB_PASSWORD",
+        "DEPLOY_PAT",
+        "SERVICE_CREDENTIALS",
+    ] {
         assert_eq!(kept::check_name(name), Ok(()), "{name}");
     }
     assert_eq!(keep("R2_TOKEN", "", &[]), Err("vault.empty_value"));

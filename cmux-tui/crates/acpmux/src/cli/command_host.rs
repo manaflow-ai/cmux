@@ -338,9 +338,9 @@ pub enum VaultCmd {
     /// Secret Service only. Agents started from then on get the placeholder
     /// `cmux-secret://NAME`, which the egress proxy fills only in HTTPS
     /// requests to the --host patterns. Example:
-    /// `mint-token | acpmux machine vault keep R2_TOKEN --host '*.r2.cloudflarestorage.com'`.
+    /// `mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com`.
     Keep {
-        /// The env name agents get, like R2_TOKEN.
+        /// The env name agents get, like DEPLOY_TOKEN.
         name: String,
         /// Where the key may be sent: a host or `*.domain` (repeatable).
         #[arg(long = "host", value_name = "H")]
