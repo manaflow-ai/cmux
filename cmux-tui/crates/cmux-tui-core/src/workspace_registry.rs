@@ -12,14 +12,15 @@ pub(crate) use schema::{
     AutoVacuumMigration, ForeignKeyViolation, first_state_foreign_key_violation,
 };
 use schema::{
-    backfill_workspace_public_ids, check_registry_integrity, create_terminal_schema,
-    create_workspace_schema, ensure_session_public_id, initialize_compatibility_active_workspace,
-    mark_journal_auto_vacuum_migrated, migrate_journal_auto_vacuum,
-    migrate_resource_agent_hook_state_add_ended_at, migrate_terminal_hosts_add_on_exit,
-    migrate_terminal_hosts_to_session_ownership, normalize_journal_multiview_schema,
-    normalized_workspace_resource_deltas, resource_agent_hook_state_has_ended_at_column,
-    terminal_hosts_has_on_exit_column, terminal_hosts_has_workspace_foreign_key,
-    upsert_workspace_resource,
+    backfill_workspace_public_ids, check_registry_integrity, checkpoint_and_truncate_wal,
+    create_terminal_schema, create_workspace_schema, ensure_session_public_id,
+    initialize_compatibility_active_workspace, mark_journal_auto_vacuum_migrated,
+    migrate_journal_auto_vacuum, migrate_resource_agent_hook_state_add_ended_at,
+    migrate_terminal_hosts_add_on_exit, migrate_terminal_hosts_to_session_ownership,
+    normalize_journal_multiview_schema, normalized_workspace_resource_deltas,
+    resource_agent_hook_state_has_ended_at_column, terminal_hosts_has_on_exit_column,
+    terminal_hosts_has_workspace_foreign_key, upsert_workspace_resource,
+    vacuum_with_file_temp_store,
 };
 mod terminal_snapshot_read;
 use session_reset::*;

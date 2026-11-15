@@ -93,7 +93,10 @@ pub(super) fn migrate_journal_auto_vacuum(
 /// connection's memory temp store back. VACUUM builds a copy of the whole
 /// database in the temp store; the registry connection keeps it in memory
 /// for savepoint journals only (see `initialize`).
-fn vacuum_with_file_temp_store(connection: &Connection, sql: &str) -> anyhow::Result<()> {
+pub(super) fn vacuum_with_file_temp_store(
+    connection: &Connection,
+    sql: &str,
+) -> anyhow::Result<()> {
     connection.execute_batch("PRAGMA temp_store=FILE;")?;
     let result = connection.execute_batch(sql);
     connection.execute_batch("PRAGMA temp_store=MEMORY;")?;
@@ -385,7 +388,7 @@ pub(super) fn check_registry_integrity(connection: &Connection) -> anyhow::Resul
     Ok(())
 }
 
-fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
+pub(super) fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
     let (busy, _, _): (i64, i64, i64) =
         connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
