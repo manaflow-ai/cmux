@@ -1609,6 +1609,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
 
+      - name: Validate the Team-signed tree signs only on nightly-next and holds no merge
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_team_sign.py
+
       - name: Validate nightly builds and signers never cancel or replace a waiting run
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
