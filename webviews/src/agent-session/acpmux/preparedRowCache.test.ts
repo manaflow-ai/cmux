@@ -42,7 +42,7 @@ test("laying out 20,000 rows keeps the prepared text cache under a constant", ()
 
 // A new width with the view given (`near`), as the transcript lays out: the rows near the view and the
 // ones still cached are measured at it; the rest keep their last height, as Chromium keeps an off-screen
-// `content-visibility: auto` box's remembered size, and are measured once they come near again.
+// `content-visibility: auto` box's remembered size, until they draw or a layout measures them.
 test("a new width measures the rows near the view and keeps the rest's last height", () => {
   const chat = rows(4_000);
   const cache = new Map<string, PreparedRow>();
@@ -55,12 +55,28 @@ test("a new width measures the rows near the view and keeps the rest's last heig
   // Near the view: this width's heights, the same as a whole layout's.
   expect(narrow.heights.slice(near.from, near.to)).toEqual(exact.heights.slice(near.from, near.to));
   expect(exact.heights.slice(near.from, near.to)).not.toEqual(wide.heights.slice(near.from, near.to));
-  // Still cached (the newest rows): this width's heights.
-  expect(narrow.heights.slice(-100)).toEqual(exact.heights.slice(-100));
-  // Elsewhere, its prepared text gone: the last width's heights.
+  // Still cached when the pass began (the newest rows), though the near rows came first: this width's.
+  expect(narrow.heights.slice(-PREPARED_ROWS)).toEqual(exact.heights.slice(-PREPARED_ROWS));
+  // Elsewhere, its prepared text gone: the last width's heights, and the layout says so.
   expect(narrow.heights.slice(0, 900)).toEqual(wide.heights.slice(0, 900));
+  expect(narrow.remembered).toBe(true);
+  expect(exact.remembered).toBeUndefined();
   expect(cache.size).toBeLessThanOrEqual(PREPARED_ROWS);
-  // Once the view moves to them they are measured at this width.
+  // A pass that keeps those rows (a streamed tail) still says so.
+  const tail = [...chat.slice(0, -1), { ...chat.at(-1)!, version: 2, text: "Changed." }];
+  const streamed = layoutConversation(
+    tail,
+    500,
+    cache,
+    undefined,
+    known,
+    { rows: chat, layout: narrow },
+    undefined,
+    undefined,
+    near,
+  );
+  expect(streamed.remembered).toBe(true);
+  // A layout with the view at them measures them at this width.
   const moved = layoutConversation(chat, 500, cache, undefined, known, undefined, undefined, undefined, {
     from: 0,
     to: 900,

@@ -3974,7 +3974,9 @@ function TranscriptView({
   // pass reads every prompt's top (O(rows)); armed on every placement, it ran between the frames of
   // a stream, about 3 ms of each token in a 35,000-row chat (bench/transcript-replay.bench.ts, god).
   useEffect(() => {
-    if (canLoadOlder || !sessionId || rows.length === 0) return;
+    // Rows away from the view still at another width's height (layoutConversation `near`) would keep
+    // tops that are not this width's.
+    if (canLoadOlder || !sessionId || rows.length === 0 || estimated.layout.remembered) return;
     const placed = measured.layout;
     const width = scaledRowWidth;
     const keep = () => {
@@ -3994,7 +3996,7 @@ function TranscriptView({
       clearTimeout(quiet);
       if (idle !== undefined) cancelIdleCallback(idle);
     };
-  }, [canLoadOlder, sessionId, rows, measured, scaledRowWidth]);
+  }, [canLoadOlder, sessionId, rows, measured, estimated, scaledRowWidth]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.

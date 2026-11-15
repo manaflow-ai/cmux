@@ -1550,6 +1550,9 @@ export type ConversationLayout = {
   /// Room above the first row for history not loaded yet (conversation/olderReserve.ts): every top
   /// and the total include it. Absent is 0.
   origin?: number;
+  /// Some row keeps its height from another width (layoutConversation `near`), so the tops below it
+  /// are not this width's: nothing may keep them as measured (transcriptHeights.ts keepPromptTops).
+  remembered?: true;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -2501,22 +2504,34 @@ const PREPARED_CACHE_PER_BLOCK = 4;
 /// rows around the view and the live ones, which every pass measures, and a short tail of the rest.
 /// A chat at any length holds this many (cmuxterm-hq goals/chats-flat-at-any-length.md); one entry per
 /// row ever measured was most of a long chat's live heap, and V8's memory reducer kept collecting it
-/// while the chat sat idle. A row that left is measured again from its text when it comes back near
-/// the view; until then a new width keeps its last height (layoutConversation `near`).
+/// while the chat sat idle. A row that left is lexed and prepared again from its text when it is
+/// measured again; a new width keeps its last height instead while it is away from the view
+/// (layoutConversation `near`).
 export const PREPARED_ROWS = 256;
 
-/// `id`'s prepared text, made the most recent, or a new empty entry (the oldest one goes past
-/// PREPARED_ROWS). A Map keeps insertion order, so its first key is the least recently measured.
+/// `id`'s prepared text, made the most recent, or a new empty entry. A Map keeps insertion order, so
+/// its first key is the least recently measured. A pass trims to PREPARED_ROWS when it ends
+/// (trimPreparedRows), so the rows cached when it began are still there when it reaches them; within
+/// it the oldest goes only past twice that, which bounds a pass that measures every row.
 function preparedRow(cache: Map<string, PreparedRow>, id: string): PreparedRow {
   let entry = cache.get(id);
   if (entry) cache.delete(id);
   else entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
   cache.set(id, entry);
-  if (cache.size > PREPARED_ROWS) {
+  if (cache.size > 2 * PREPARED_ROWS) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
   return entry;
+}
+
+/// Drops the least recently measured rows' prepared text past PREPARED_ROWS.
+function trimPreparedRows(cache: Map<string, PreparedRow>): void {
+  if (cache.size <= PREPARED_ROWS) return;
+  for (const id of cache.keys()) {
+    cache.delete(id);
+    if (cache.size <= PREPARED_ROWS) break;
+  }
 }
 
 function trimPreparedCache(
@@ -3228,7 +3243,7 @@ export function layoutConversation(
   /// height (`known`) instead of being lexed and prepared again: a new width costs the rows near the
   /// view and the cached ones, not the whole chat. This is Chromium's `content-visibility: auto` with
   /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
-  /// again when it nears the viewport; here the drawn row's own measure corrects it as it mounts.
+  /// again as it is rendered; here the row's drawn height replaces it once it mounts.
   near?: { from: number; to: number },
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
@@ -3259,6 +3274,8 @@ export function layoutConversation(
     heights.set(previous.layout.heights.subarray(0, start));
   }
   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+  // Kept rows may hold a remembered height of their own.
+  let remembered = start > 0 && previous?.layout.remembered === true;
   let previousContent = start - 1;
   while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
   let beforeContent = previousContent - 1;
@@ -3303,11 +3320,13 @@ export function layoutConversation(
         (index < near.from || index >= near.to) &&
         row.text &&
         !cache.has(row.id)
-      )
+      ) {
         // Away from the view, with its prepared text gone (PREPARED_ROWS): its last height, never
-        // recorded as this width's, until it comes near the view or draws.
+        // recorded as this width's. Its drawn height replaces it once it mounts, and a layout that
+        // measures it (near the view, after a change above it) records this width's.
         height = kept.height;
-      else {
+        remembered = true;
+      } else {
         height = custom
           ? customHeight
           : edge === LIVE_STEP_EDGE
@@ -3346,7 +3365,9 @@ export function layoutConversation(
     restBand: restBand(footerAfter(marks, heights)) * scale,
     scale,
     totalHeight: top,
+    ...(remembered ? { remembered: true as const } : {}),
   };
+  trimPreparedRows(cache);
   messages.finish(rows, layout);
   return layout;
 }
