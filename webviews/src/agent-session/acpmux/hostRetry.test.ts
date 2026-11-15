@@ -200,6 +200,14 @@ test("a shown chat asks again within 500 ms during the first 10 s of a recovery"
   expect(quickRetry({ shown: false, failingForMs: 0 })).toBe(false);
 });
 
+// The first-load bench's 10 s drop got slower with quick asks (791 -> 2618 ms): over a page's own
+// WebSocket, Chromium holds back each open by 1-5 s once ~15 have failed, so ~25 refused opens in
+// 10 s delayed the one that would succeed. Only the app's host connect (`acpmux-bridge`) asks quickly.
+test("a page that opens its own WebSocket keeps the 2 s step", () => {
+  expect(quickRetry({ shown: true, failingForMs: 0, browserSocket: false })).toBe(true);
+  expect(quickRetry({ shown: true, failingForMs: 0, browserSocket: true })).toBe(false);
+});
+
 // Leo, 2026-11-12, after the machine hosting a chat's agent rebooted: "it should just automatically
 // do stuff". A failure the pane clears by asking again is the quiet line; one that waits on the
 // person, or that asking cannot change, keeps its words and action.
