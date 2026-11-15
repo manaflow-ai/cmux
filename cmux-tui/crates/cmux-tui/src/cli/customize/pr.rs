@@ -349,7 +349,7 @@ pub(super) fn unpack(bytes: &[u8], dir: &Path, layer: &CodeLayer) -> std::io::Re
         let manifest = json!({
             "stamp": format!("pr-{}-{}", layer.pr, &layer.head[..12]),
             "commit": layer.head,
-            "surfaces": surfaces,
+            "bundles": surfaces,
             "abi": layer.abi,
             "pr": layer.pr,
             "base": layer.base,
