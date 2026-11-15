@@ -137,7 +137,9 @@ const realTimers: Timers = {
 export class RequestBudget {
   /// Ids on the wire that the daemon counts: answered or not by the caller, until their reply.
   private readonly unanswered = new Set<number | string>();
-  private readonly waiting: { id: number | string; send: () => void }[] = [];
+  /// Reads waiting for a slot, oldest first, by id: an answer removes its own in O(1) and the next
+  /// one out is the first (a scan per answer made draining a long queue cost its square).
+  private readonly waiting = new Map<number | string, () => void>();
   /// Busy retries waiting for their time; cleared by `reset` (a closed connection).
   private readonly retries = new Map<number | string, ReturnType<typeof setTimeout>>();
   /// The most this connection had unanswered at once (perf harness, wire log).
@@ -153,7 +155,7 @@ export class RequestBudget {
   }
 
   get queued(): number {
-    return this.waiting.length;
+    return this.waiting.size;
   }
 
   /// Whether `id` went out and the daemon still counts it.
@@ -166,8 +168,8 @@ export class RequestBudget {
   admit(id: number | string, method: string, send: () => void, params?: Record<string, unknown>): void {
     if (!countsAgainstBudget(method)) return send();
     if (!waitsForSlot(method, params)) return this.start(id, send);
-    if (this.unanswered.size < this.limit && !this.waiting.length) return this.start(id, send);
-    this.waiting.push({ id, send });
+    if (this.unanswered.size < this.limit && !this.waiting.size) return this.start(id, send);
+    this.waiting.set(id, send);
   }
 
   /// The daemon answered `id` (or the request never went): its slot frees.
@@ -177,8 +179,7 @@ export class RequestBudget {
       this.timers.clear(timer);
       this.retries.delete(id);
     }
-    const queuedAt = this.waiting.findIndex((item) => item.id === id);
-    if (queuedAt >= 0) this.waiting.splice(queuedAt, 1);
+    this.waiting.delete(id);
     if (this.unanswered.delete(id)) this.pump();
   }
 
@@ -188,7 +189,7 @@ export class RequestBudget {
     this.settled(id);
     const timer = this.timers.set(() => {
       this.retries.delete(id);
-      this.waiting.push({ id, send });
+      this.waiting.set(id, send);
       this.pump();
     }, delayMs);
     this.retries.set(id, timer);
@@ -197,9 +198,9 @@ export class RequestBudget {
   /// The connection closed: the daemon's count went with it. Returns the ids that never went.
   reset(): (number | string)[] {
     for (const timer of this.retries.values()) this.timers.clear(timer);
-    const never = [...this.waiting.map((item) => item.id), ...this.retries.keys()];
+    const never = [...this.waiting.keys(), ...this.retries.keys()];
     this.retries.clear();
-    this.waiting.length = 0;
+    this.waiting.clear();
     this.unanswered.clear();
     return never;
   }
@@ -211,9 +212,10 @@ export class RequestBudget {
   }
 
   private pump(): void {
-    while (this.unanswered.size < this.limit && this.waiting.length) {
-      const next = this.waiting.shift()!;
-      this.start(next.id, next.send);
+    for (const [id, send] of this.waiting) {
+      if (this.unanswered.size >= this.limit) break;
+      this.waiting.delete(id);
+      this.start(id, send);
     }
   }
 }
