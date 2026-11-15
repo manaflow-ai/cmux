@@ -1492,6 +1492,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-app-manifest",
  "cmux-config",
+ "cmux-theme-tokens",
  "fs4",
  "serde",
  "serde_json",
@@ -1549,6 +1550,7 @@ name = "cmux-extension-sdk"
 version = "1.0.0"
 dependencies = [
  "cmux-app-manifest",
+ "cmux-customize",
  "serde_json",
 ]
 
@@ -2292,6 +2294,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml",
+ "toml_edit 0.22.27",
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
