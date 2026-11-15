@@ -384,6 +384,20 @@ fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(
         self.assertIn("-destination 'generic/platform=iOS'", text)
         self.assertIn('CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=7WLXT3NR37', text)
 
+    def test_the_tagged_mac_starts_without_this_shells_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / 'bin'
+            bin_dir.mkdir()
+            (bin_dir / 'open').write_text('#!/bin/sh\nenv > "%s/env"; echo "$@" > "%s/args"\n' % (temp, temp))
+            (bin_dir / 'open').chmod(0o755)
+            r = bash(f'''source "{REVIEW}"; MAC_APP="/x/cmux DEV t.app"; MAC_OPEN="{bin_dir}/open"
+mac_open''', {'CMUX_NEXT_CLOUD_ENV': 'prod', 'CMUX_NEXT_CLOUD_BACKEND': 'https://cloud-api.cmux.dev'})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            seen = (Path(temp) / 'env').read_text()
+            args = (Path(temp) / 'args').read_text()
+        self.assertNotIn('CMUX_NEXT_CLOUD', seen)
+        self.assertIn('-g --env CMUX_NEXT_NO_ACTIVATE=1 /x/cmux DEV t.app', args)
+
     def test_review_never_builds_or_boots_a_simulator_here(self):
         text = REVIEW.read_text()
         for word in ('xcodebuild', 'simctl', 'swift build', 'cargo '):

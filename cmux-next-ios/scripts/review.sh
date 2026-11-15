@@ -237,11 +237,20 @@ mac_install() {
   MAC_SOCKET="$(mac_py socket "$MAC_APP")" || MAC_SOCKET="$(cmux_attach_socket_path "$SLUG")"
 }
 
+# `open -g` hands the launching shell's environment to the app. An agent's shell inside the person's
+# cmux carries that app's CMUX_NEXT_CLOUD_ENV=prod (and the rest of its CMUX_* values), which the
+# tagged build takes as its Cloud environment: it then never signs in to the dev account
+# (seen 2026-11-14). The tag's own LSEnvironment is all it needs, so it starts from an empty one.
+mac_open() {
+  env -i HOME="$HOME" USER="${USER:-}" LOGNAME="${LOGNAME:-}" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    TMPDIR="${TMPDIR:-/tmp}" "${MAC_OPEN:-/usr/bin/open}" -g --env CMUX_NEXT_NO_ACTIVATE=1 "$MAC_APP"
+}
+
 # Launch it in the background (never frontmost) unless it runs, and wait for the personal account.
 mac_start() {
   if ! mac_py wait-socket "$MAC_SOCKET" --timeout 2; then
     echo "==> launching the tagged Mac app in the background"
-    open -g --env CMUX_NEXT_NO_ACTIVATE=1 "$MAC_APP" ||
+    mac_open ||
       { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app did not launch"; return 1; }
     mac_py wait-socket "$MAC_SOCKET" --timeout 120 ||
       { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app never answered on its control socket"; return 1; }
