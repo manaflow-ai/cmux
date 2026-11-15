@@ -717,14 +717,14 @@ mod tests {
         ] {
             let e: Box<dyn std::error::Error + Send + Sync> =
                 HubError { status: 403, code: code.into(), message: "m".into() }.into();
-            let fatal = Fatal::from_hub(&e).unwrap_or_else(|| panic!("{code} is not fatal"));
+            let fatal = Fatal::from_hub(&*e).unwrap_or_else(|| panic!("{code} is not fatal"));
             assert!(fatal.to_string().contains(next), "{code}: {fatal}");
             let boxed: Box<dyn std::error::Error + Send + Sync> = fatal.into();
             assert_eq!(exit_code(&*boxed), EXIT_NEEDS_SETUP);
         }
         let transient: Box<dyn std::error::Error + Send + Sync> =
             HubError { status: 503, code: "unavailable".into(), message: "m".into() }.into();
-        assert!(Fatal::from_hub(&transient).is_none());
+        assert!(Fatal::from_hub(&*transient).is_none());
         assert_eq!(exit_code(&*transient), 1);
         assert_ne!(EXIT_NEEDS_SETUP, 1);
         assert_ne!(EXIT_NEEDS_SETUP, 2);
