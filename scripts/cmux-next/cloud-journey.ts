@@ -1480,6 +1480,8 @@ export function publicError(text: string, secrets: string[] = []): string {
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<id>")
     .replace(/\b\d{1,3}(\.\d{1,3}){3}\b/g, "<addr>")
     .replace(/[0-9a-f]{16,}/gi, "<hex>")
+    // A bare host name (a guest's stderr, an error body): any dotted name with a letter in its last label.
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z][a-z0-9-]*\b/gi, "<host>")
     .slice(0, 200);
 }
 
@@ -2599,6 +2601,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
+    // The runner kills the job about 10 s after a cancel; the facts reads (up to 27 s) would lose the delete. A
+    // cancel deletes first and reads no facts.
+    factsRead = true;
     for (const dial of carrierDials) dial.kill("SIGTERM");
     for (const dir of carrierStateDirs) rmSync(dir, { recursive: true, force: true });
     void cleanup().finally(() => {

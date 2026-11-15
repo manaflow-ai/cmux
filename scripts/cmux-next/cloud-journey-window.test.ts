@@ -121,6 +121,8 @@ describe("probe.json says whether the row was a spare hit", () => {
 
   test("only counts and reason tokens get through", () => {
     expect(publicError('exec: HTTP 503 "vm_unavailable" on vm_01JABCDEF9 at https://x.invalid/v1 from 10.1.2.3')).toBe('exec: HTTP 503 "vm_unavailable" on <id> at <url> from <addr>');
+    // A guest's stderr names hosts with no scheme; daemon versions (1.0.0+abc) are not hosts.
+    expect(publicError("exit 1 dial relay.example-host.internal: refused (daemon 1.0.0)")).toBe("exit 1 dial <host>: refused (daemon 1.0.0)");
     expect(spareFields({ spare_fallback: "no_spare", spare_skips: { restarting: 2, "vm_abc host": 1, image: -1, stale: 1.5 } })).toEqual({ spare_fallback: "no_spare", spare_skips: { restarting: 2 } });
     expect(spareFields({ spare_fallback: "vm_0123 was lost", spare_skips: ["restarting"] })).toEqual({ spare_fallback: null, spare_skips: null });
     expect(spareFields({ spare_fallback: null, spare_skips: {} })).toEqual({ spare_fallback: null, spare_skips: {} });
