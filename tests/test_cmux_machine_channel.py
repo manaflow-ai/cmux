@@ -459,6 +459,7 @@ class LinuxReleasePoint(unittest.TestCase):
         for d in (self.repo / "scripts/ci", self.repo / "scripts/cmux-next", self.r2, self.bin):
             d.mkdir(parents=True)
         shutil.copy(ROOT / "scripts/ci/cmux-machine-channel-point.sh", self.repo / "scripts/ci/")
+        shutil.copy(ROOT / "scripts/ci/timeout.sh", self.repo / "scripts/ci/")
         shutil.copy(ROOT / "scripts/cmux-next/web-ota-pointer.py", self.repo / "scripts/cmux-next/")
         republish.Sandbox._exe(self.repo / "scripts/ci/upload-r2-object.py", FAKE_CAS_UPLOADER)
         republish.Sandbox._exe(self.bin / "curl", republish.FAKE_CURL)

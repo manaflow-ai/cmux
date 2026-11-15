@@ -47,10 +47,12 @@ if [[ -n "$same_tree" && "$purpose" != cmux-cloud-machine-update ]]; then
 fi
 tree_key_of() { # COMMIT: its v2 tree key, fetching the commit when this checkout lacks it; empty when unknown
   local tk=scripts/ci/cmux_tui_tree_key.py key
-  key="$(timeout 90 python3 "$tk" --version v2 "$1" 2>/dev/null)" || key=""
+  key="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 "$1" 2>/dev/null)" || key=""
   if [[ ! "$key" =~ ^[0-9a-f]{40}$ ]]; then
-    timeout 60 git fetch --no-tags --depth=1 origin "$1" >/dev/null 2>&1 || true
-    key="$(timeout 90 python3 "$tk" --version v2 "$1" 2>/dev/null)" || key=""
+    local depth=()  # --depth only in an already-shallow checkout, so a full clone stays full
+    [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1)
+    scripts/ci/timeout.sh 60 git fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$1" >/dev/null 2>&1 || true
+    key="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 "$1" 2>/dev/null)" || key=""
   fi
   [[ "$key" =~ ^[0-9a-f]{40}$ ]] && printf '%s' "$key"
   return 0
