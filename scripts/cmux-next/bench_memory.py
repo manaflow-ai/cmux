@@ -690,9 +690,14 @@ def cef_page_count(app: App) -> int | None:
 
 
 def heap_summary(pages: list, replies: dict) -> dict:
-    """--js-heap (pure): each cmux page's V8 heap from its `Runtime.getHeapUsage` reply, and the sums
-    by page path (the agent chat page, New Tab, Home...), so a sample says how much of the renderers'
-    footprint is JavaScript and on which page. `replies` maps a page's browser id to its parsed reply.
+    """--js-heap (pure): the V8 heap of the renderers that host cmux's pages, from each page's
+    `Runtime.getHeapUsage` reply. `replies` maps a page's browser id to its parsed reply.
+
+    The reply is the page's renderer's whole isolate, not the page's own share: cmux pages share a
+    renderer per site (CEFSwitches `cmux-process-per-site-schemes`), so every page of one renderer
+    answers the same numbers. Summing pages counted that isolate once per page (a fleet Mac run at
+    10 chats read 2,562 MB of "heap" from a 632 MB renderer). The totals count each renderer once (by
+    its `renderer_clients`); a page with none is its own. `by_path` counts pages only.
     A page whose read failed is counted under `errors`, never as 0 MB."""
     rows, errors = [], []
     for page in pages:
@@ -703,17 +708,31 @@ def heap_summary(pages: list, replies: dict) -> dict:
         if not isinstance(used, (int, float)) or not isinstance(total, (int, float)):
             errors.append(str(reply.get("error") or "no heap in the reply")[:120])
             continue
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
         rows.append({"browser": page.get("browser"), "path": str(page.get("path") or "/"), "hidden": bool(page.get("hidden")),
+                     "renderer": clients[0] if clients else None,
                      "used_mb": round(used / MB, 1), "total_mb": round(total / MB, 1)})
-    by_path = {}
+    renderers: dict = {}
     for row in rows:
-        entry = by_path.setdefault(row["path"], {"pages": 0, "used_mb": 0.0, "total_mb": 0.0})
+        key = ("renderer", row["renderer"]) if row["renderer"] is not None else ("page", row["browser"])
+        entry = renderers.setdefault(key, {"renderer": row["renderer"], "pages": 0, "hidden_pages": 0,
+                                           "used_mb": 0.0, "total_mb": 0.0})
         entry["pages"] += 1
-        entry["used_mb"] = round(entry["used_mb"] + row["used_mb"], 1)
-        entry["total_mb"] = round(entry["total_mb"] + row["total_mb"], 1)
-    return {"pages": len(rows), "used_mb": round(sum(r["used_mb"] for r in rows), 1),
-            "total_mb": round(sum(r["total_mb"] for r in rows), 1),
-            "by_path": dict(sorted(by_path.items(), key=lambda item: -item[1]["total_mb"])),
+        entry["hidden_pages"] += int(row["hidden"])
+        # One isolate: its pages read it at slightly different moments; the largest read stands.
+        entry["used_mb"] = max(entry["used_mb"], row["used_mb"])
+        entry["total_mb"] = max(entry["total_mb"], row["total_mb"])
+    by_path: dict = {}
+    for row in rows:
+        entry = by_path.setdefault(row["path"], {"pages": 0, "hidden_pages": 0})
+        entry["pages"] += 1
+        entry["hidden_pages"] += int(row["hidden"])
+    isolates = sorted(renderers.values(), key=lambda r: -r["total_mb"])
+    return {"pages": len(rows), "hidden_pages": sum(int(r["hidden"]) for r in rows), "renderers": len(isolates),
+            "used_mb": round(sum(r["used_mb"] for r in isolates), 1),
+            "total_mb": round(sum(r["total_mb"] for r in isolates), 1),
+            "by_renderer": isolates[:12],
+            "by_path": dict(sorted(by_path.items(), key=lambda item: -item[1]["pages"])),
             "per_page": sorted(rows, key=lambda r: -r["total_mb"])[:40], "errors": errors[:5], "error_count": len(errors)}
 
 
@@ -1293,8 +1312,9 @@ def main():
         if args.js_heap:
             result["js_heap"] = js_heaps(app)
             heap = result["js_heap"]
-            print(f"   JS heap: {heap.get('pages', 0)} cmux pages, used {heap.get('used_mb', 0)} MB, "
-                  f"total {heap.get('total_mb', 0)} MB {json.dumps(heap.get('by_path') or heap.get('error'))[:400]}", flush=True)
+            print(f"   JS heap: {heap.get('pages', 0)} cmux pages ({heap.get('hidden_pages', 0)} hidden) in "
+                  f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
+                  f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]

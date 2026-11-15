@@ -23,8 +23,8 @@ Claude Code or Codex CLI be. N counts the launch workspace: N=10 is 9 chat works
 
 So every run also says where the memory is (report.json `breakdown`, and report-only rows under
 memory.app_agents.breakdown., perf-cron.py REPORT_ONLY_ROW_RE): the footprint per process kind empty and at each full
-count, each kind's cost per chat workspace ((N - empty) / (N - 1)), the largest processes, and each cmux page's V8 heap
-summed by page path (bench_memory --js-heap).
+count, each kind's cost per chat workspace ((N - empty) / (N - 1)), the largest processes, and the V8 heap of the renderers
+that host cmux's pages, each renderer once (bench_memory --js-heap).
 """
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ def sample_view(sample: dict, keep: set[str], top: int = 8) -> dict:
                     for p in (sample.get("processes") or [])[:top] if isinstance(p, dict)]}
     heap = sample.get("js_heap")
     if isinstance(heap, dict):
-        view["js_heap"] = {k: heap[k] for k in ("pages", "used_mb", "total_mb", "by_path", "error", "error_count") if k in heap}
+        view["js_heap"] = {k: heap[k] for k in ("pages", "hidden_pages", "renderers", "used_mb", "total_mb", "by_renderer", "by_path", "error", "error_count") if k in heap}
     return view
 
 

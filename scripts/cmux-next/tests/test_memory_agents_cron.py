@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """memory-agents-cron.py says where the app's memory is: per process kind empty and with N chats, each kind's cost
 per chat workspace (N - 1: the launch workspace counts in N), and the cmux pages' V8 heap; those rows are shown, never
-judged (perf-cron.py REPORT_ONLY_ROW_RE). bench_memory.heap_summary sums Runtime.getHeapUsage replies by page path.
+judged (perf-cron.py REPORT_ONLY_ROW_RE). bench_memory.heap_summary counts each renderer's V8 isolate once (every page of a renderer answers the whole isolate).
 Pure functions only: no app, runs on Linux."""
 
 from __future__ import annotations
@@ -121,19 +121,25 @@ class BreakdownTests(unittest.TestCase):
 
 
 class HeapSummaryTests(unittest.TestCase):
-    def test_sums_by_path_and_counts_errors(self):
-        pages = [{"browser": 1, "origin": "cmux-page://agent", "path": "/chat", "hidden": True},
-                 {"browser": 2, "origin": "cmux-page://agent", "path": "/chat", "hidden": False},
-                 {"browser": 3, "origin": "cmux-page://home", "path": "/"},
-                 {"browser": 4, "origin": "cmux-page://agent", "path": "/chat"},
-                 {"browser": 5, "origin": "https://example.com"}]
-        replies = {1: {"usedSize": 10 * MB, "totalSize": 16 * MB}, 2: {"usedSize": 12 * MB, "totalSize": 20 * MB},
-                   3: {"usedSize": 5 * MB, "totalSize": 8 * MB}, 4: {"error": "no live page 4"}}
+    def test_counts_each_renderer_isolate_once_and_counts_errors(self):
+        # Pages 1 and 2 share renderer 7 (process-per-site): each answers the renderer's whole isolate.
+        pages = [{"browser": 1, "origin": "cmux-page://agent", "path": "/chat", "hidden": True, "renderer_clients": [7]},
+                 {"browser": 2, "origin": "cmux-page://agent", "path": "/chat", "hidden": False, "renderer_clients": [7]},
+                 {"browser": 3, "origin": "cmux-page://home", "path": "/", "renderer_clients": [9]},
+                 {"browser": 4, "origin": "cmux-page://agent", "path": "/chat", "renderer_clients": [7]},
+                 {"browser": 6, "origin": "cmux-page://agent", "path": "/chat"},
+                 {"browser": 5, "origin": "https://example.com", "renderer_clients": [7]}]
+        replies = {1: {"usedSize": 190 * MB, "totalSize": 200 * MB}, 2: {"usedSize": 192 * MB, "totalSize": 200 * MB},
+                   3: {"usedSize": 5 * MB, "totalSize": 8 * MB}, 4: {"error": "no live page 4"},
+                   6: {"usedSize": 3 * MB, "totalSize": 4 * MB}}
         got = bm.heap_summary(pages, replies)
-        self.assertEqual(got["pages"], 3)
-        self.assertEqual(got["used_mb"], 27.0)
-        self.assertEqual(got["total_mb"], 44.0)
-        self.assertEqual(got["by_path"]["/chat"], {"pages": 2, "used_mb": 22.0, "total_mb": 36.0})
+        self.assertEqual(got["pages"], 4)
+        self.assertEqual(got["hidden_pages"], 1)
+        self.assertEqual(got["renderers"], 3, "renderer 7, renderer 9 and the page with no renderer id")
+        self.assertEqual(got["used_mb"], 192.0 + 5.0 + 3.0)
+        self.assertEqual(got["total_mb"], 200.0 + 8.0 + 4.0, "the shared isolate counts once, not once per page")
+        self.assertEqual(got["by_renderer"][0], {"renderer": 7, "pages": 2, "hidden_pages": 1, "used_mb": 192.0, "total_mb": 200.0})
+        self.assertEqual(got["by_path"]["/chat"], {"pages": 3, "hidden_pages": 1})
         self.assertEqual(list(got["by_path"]), ["/chat", "/"])
         self.assertEqual(got["error_count"], 1)
         self.assertEqual(got["errors"], ["no live page 4"])
