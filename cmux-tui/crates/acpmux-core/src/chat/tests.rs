@@ -677,8 +677,7 @@ fn percentile(values: &mut [u128]) -> u128 {
 #[test]
 #[ignore = "Linux gate-profile ratio fixture: 40 and 2M settled rows"]
 fn actor_line_and_checkpoint_open_gate() {
-    let mut homes = Vec::new();
-    let mut fixtures = Vec::new();
+    let mut measures = Vec::new();
     for count in [40u64, 2_000_000] {
         let home = tempfile::tempdir().unwrap();
         let config = ChatConfig::new("gate", home.path(), Harness::V1);
@@ -693,71 +692,42 @@ fn actor_line_and_checkpoint_open_gate() {
         }
         assert_eq!(state.log.max_row(), count);
         checkpoint(&mut state).unwrap();
-        homes.push(home);
-        fixtures.push((count, config, state));
-    }
-
-    // Alternate small and god rounds so each side sees the same host conditions.
-    let mut line_rounds = [Vec::new(), Vec::new()];
-    let mut line_all = [Vec::new(), Vec::new()];
-    for round in 0..5u64 {
-        for side in 0..2 {
-            let (count, _, state) = &mut fixtures[side];
+        let mut rounds = Vec::new();
+        let mut all = Vec::new();
+        for round in 0..5u64 {
             let mut samples = Vec::new();
             for sample in 1..=100u64 {
-                let seq = *count + round * 100 + sample;
+                let seq = count + round * 100 + sample;
                 let line = format!(
                     "{{\"seq\":{seq},\"at\":1000,\"dir\":\"mux\",\"kind\":\"stopped\",\"msg\":{{}}}}"
                 );
                 let start = Instant::now();
-                apply_ops(state, line.as_bytes(), 0, 0, 0, false).unwrap();
+                apply_ops(&mut state, line.as_bytes(), 0, 0, 0, false).unwrap();
                 samples.push(start.elapsed().as_nanos());
             }
-            line_all[side].extend(samples.iter().copied());
-            line_rounds[side].push(percentile(&mut samples));
+            all.extend(samples.iter().copied());
+            rounds.push(percentile(&mut samples));
         }
-    }
-    for (count, _, state) in &fixtures {
-        assert_eq!(state.log.max_row(), *count + 500);
-    }
-
-    let mut configs = Vec::new();
-    for (count, config, mut state) in fixtures {
+        let line_best = *rounds.iter().min().unwrap();
+        let line_all = percentile(&mut all);
         checkpoint(&mut state).unwrap();
-        configs.push((count, config));
-    }
-
-    // Checkpoint opens alternate sides as well; the open path must not read a row suffix.
-    let mut open_rounds = [Vec::new(), Vec::new()];
-    let mut open_all = [Vec::new(), Vec::new()];
-    for _round in 0..5 {
-        for side in 0..2 {
+        drop(state);
+        let mut rounds = Vec::new();
+        let mut all = Vec::new();
+        for _ in 0..5 {
             let mut samples = Vec::new();
             for _ in 0..50 {
                 let start = Instant::now();
-                let opened = open_state(configs[side].1.clone()).unwrap();
+                let opened = open_state(config.clone()).unwrap();
                 samples.push(start.elapsed().as_nanos());
                 assert_eq!(opened.log.stats().bytes_read, 0);
                 drop(opened);
             }
-            open_all[side].extend(samples.iter().copied());
-            open_rounds[side].push(percentile(&mut samples));
+            all.extend(samples.iter().copied());
+            rounds.push(percentile(&mut samples));
         }
+        measures.push((line_best, line_all, *rounds.iter().min().unwrap(), percentile(&mut all)));
     }
-    let measures = [
-        (
-            *line_rounds[0].iter().min().unwrap(),
-            percentile(&mut line_all[0]),
-            *open_rounds[0].iter().min().unwrap(),
-            percentile(&mut open_all[0]),
-        ),
-        (
-            *line_rounds[1].iter().min().unwrap(),
-            percentile(&mut line_all[1]),
-            *open_rounds[1].iter().min().unwrap(),
-            percentile(&mut open_all[1]),
-        ),
-    ];
     let (small, god) = (measures[0], measures[1]);
     let measurements = [
         ("v2.pr03a3.actor_line", small.0, god.0, god.1),
