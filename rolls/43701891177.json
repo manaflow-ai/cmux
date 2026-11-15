@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43701891177",
+  "recorded_at": "2026-11-15T10:14:43Z",
+  "reason": "cmux-tui afbc4c6998ba changes the image's cmux-tui (pinned c218ad377f1f)",
+  "dry_run": false,
+  "cmux_tui": "afbc4c6998ba099c116f5016724f89bd55ac8cda",
+  "fixes": [
+    {
+      "sha": "afbc4c6998ba099c116f5016724f89bd55ac8cda",
+      "mergedAt": "2026-11-15T01:43:46-08:00",
+      "subject": "acpmux v2 3c: queue_window's small side fills its heads' read (HEAD_READ); a probe prints 1 KB to 1 MB (#43553)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T10:14:43Z",
+    "snapshot_id": "sh-55b414fe0a234b47be85eac69a22c983",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43701891177): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5f7df770afb930496888cec6b86d89e112a5e485",
+    "image": "cloud-native-auto-afbc4c69-43701891177-1",
+    "revision": "ci-43701891177-1",
+    "at": "2026-11-15T10:14:43Z"
+  },
+  "rolled_back": false
+}
