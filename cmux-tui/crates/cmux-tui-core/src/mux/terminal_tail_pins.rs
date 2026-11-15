@@ -369,7 +369,7 @@ impl Mux {
         }
     }
 
-    fn workspace_public_id_of_surface(&self, view: SurfaceId) -> Option<String> {
+    pub(crate) fn workspace_public_id_of_surface(&self, view: SurfaceId) -> Option<String> {
         let workspace = self.surface_workspace(view)?;
         self.with_state(|state| {
             let index = state.workspace_index(workspace)?;
