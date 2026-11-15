@@ -39,6 +39,18 @@ pub(super) struct Inputs {
     pub components: Map<String, Value>,
     /// `{name, version, build}` of the operating system.
     pub os: Value,
+    /// The customize layers that are on (`cmux customize library status
+    /// --json`'s `layers`), `null` with no home.
+    pub customize: Value,
+}
+
+/// The customize layers that are on, read from the library's files: no app
+/// needed, so a report from a cmux that a layer broke still says which.
+fn customize_facts() -> Value {
+    cmux_customize::Customize::from_env()
+        .ok()
+        .and_then(|customize| serde_json::to_value(customize.layers()).ok())
+        .unwrap_or(Value::Null)
 }
 
 /// `cmux version`: gathers [`Inputs`] and prints the report.
@@ -76,6 +88,7 @@ pub(super) fn run(global: &GlobalArgs) -> i32 {
         updates,
         components,
         os: os_facts(),
+        customize: customize_facts(),
     };
     let value = report(&inputs);
     match global.output {
@@ -115,6 +128,7 @@ pub(super) fn report(inputs: &Inputs) -> Value {
         "updates": inputs.updates.as_ref().map(update_facts),
         "components": inputs.components,
         "os": inputs.os,
+        "customize": inputs.customize,
     })
 }
 
@@ -335,6 +349,10 @@ pub(super) fn human(report: &Value, labels: &crate::localization::VersionLabels)
     }
     let os = &report["os"];
     line(&field(os, "name"), format!("{} ({})", field(os, "version"), field(os, "build")));
+    // `customize: 2 on: pr-43496 @dbb1e3e (web), theme-dusk`, label aligned.
+    if let Some(summary) = report["customize"].get_nonempty_str("line") {
+        line("customize", summary.strip_prefix("customize: ").unwrap_or(summary).to_owned());
+    }
     out
 }
 
