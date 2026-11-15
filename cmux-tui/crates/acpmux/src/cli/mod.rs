@@ -60,6 +60,7 @@ pub mod process;
 pub mod race;
 pub mod resolve;
 pub mod resume_here;
+pub mod resume_here_ask;
 pub mod retry;
 pub mod run;
 pub(crate) mod select;

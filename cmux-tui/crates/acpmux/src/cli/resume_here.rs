@@ -62,6 +62,8 @@ pub async fn run(client: Arc<Client>, key: &str, print: bool, json_out: bool) ->
         release.await
     } else {
         // Both on this task: the stream ends when the release answers (it is dropped then).
+        // A permission the turn waits on is asked and answered here (`resume_here_ask.rs`).
+        let _asked = crate::cli::resume_here_ask::start(&id);
         let shown = crate::cli::output::plain_attach(client.clone(), &id);
         tokio::pin!(release, shown);
         let answer = tokio::select! {
