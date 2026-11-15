@@ -49,7 +49,10 @@ ARMS = ("fresh-copy", "same-copy", "warm")
 #                   (Sparkle's installer moves its staged copy into place: a rename on one volume)
 #   prewarm-home    the copy runs once to Home in a staging folder (every helper and the daemon), renamed, launched
 #   spctl           `spctl --assess --type execute` on the copy (the system's own assessment), then the launch
-EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-home", "spctl")
+#   gktool          `gktool scan` on the copy (what Sparkle 2 runs on a staged update when its Autoupdate has the
+#                   update's team), then the launch
+#   gktool-moved    as gktool, in a staging folder, then renamed into place (Sparkle's install of a scanned update)
+EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
 # The unified log around a fresh copy's launch: who works on a new executable before main.
 FIRST_EXEC_LOG = ('process == "syspolicyd" OR process == "amfid" OR process == "XProtect" OR process == "trustd" '
                   'OR process == "kernel" OR subsystem == "com.apple.dyld" OR subsystem BEGINSWITH "com.apple.syspolicy" '
@@ -99,6 +102,11 @@ def facts(app: Path, executable: str, copy_s: float) -> dict:
         "codesign": [line for line in run_text(["codesign", "-dv", str(exe)]).splitlines()
                      if not line.startswith("Executable=")],
         "codesign_verify_exe_s": round(verify_s, 2), "codesign_verify": verify or "ok",
+        # Sparkle runs `gktool scan` on a staged update only when its Autoupdate has the update's team (SUPlainInstaller).
+        "autoupdate_codesign": [line for line in run_text(["codesign", "-dv", str(frameworks / "Sparkle.framework" / "Versions" / "B" / "Autoupdate")]).splitlines()
+                                if line.startswith(("TeamIdentifier", "Authority", "Identifier"))],
+        "bundled_bin": sorted(p.name for p in (app / "Contents" / "Resources" / "bin").iterdir())
+                       if (app / "Contents" / "Resources" / "bin").is_dir() else [],
         "macos": run_text(["sw_vers", "-productVersion"]), "chip": run_text(["sysctl", "-n", "machdep.cpu.brand_string"]),
     }
 
@@ -263,7 +271,11 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                 started = time.monotonic()
                 before = {"spctl": run_text(["spctl", "--assess", "--type", "execute", "-vv", str(app)], timeout=600)[:400],
                           "seconds": round(time.monotonic() - started, 3)}
-            if arm in ("prewarm-moved", "prewarm-home"):
+            elif arm in ("gktool", "gktool-moved"):
+                started = time.monotonic()
+                before = {"gktool": run_text(["/usr/bin/gktool", "scan", str(app)], timeout=900)[-400:],
+                          "seconds": round(time.monotonic() - started, 3)}
+            if arm in ("prewarm-moved", "prewarm-home", "gktool-moved"):
                 placed = root / "placed"
                 placed.mkdir()
                 os.rename(app.parent, placed / "app")
