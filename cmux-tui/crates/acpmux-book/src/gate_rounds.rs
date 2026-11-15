@@ -1,4 +1,4 @@
-//! The rounds of a best-of-rounds gate, compared with each other (cmuxterm-hq#11207).
+//! The rounds of a best-of-rounds gate, compared with each other (the handoff issue).
 //!
 //! A v2 gate that reports "best p95 of five rounds" hides a round that did different work
 //! from the rest: cmux#43438's replay-append gate at `a59587e5` applied the same rows in
