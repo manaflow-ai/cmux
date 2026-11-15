@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43702575980",
+  "recorded_at": "2026-11-15T10:22:18Z",
+  "reason": "cmux-tui 46e42bfd8686 changes the image's cmux-tui (pinned afbc4c6998ba)",
+  "dry_run": false,
+  "cmux_tui": "46e42bfd86862e12a9936100cf62143dcc472621",
+  "fixes": [
+    {
+      "sha": "46e42bfd86862e12a9936100cf62143dcc472621",
+      "mergedAt": "2026-11-15T01:51:49-08:00",
+      "subject": "acpmux: an unregistered Claude Code chat sends, then registers so the receiver can reply (#43445)"
+    },
+    {
+      "sha": "25bb504f4a1cac4f66410029ef425cca152e41fb",
+      "mergedAt": "2026-11-15T01:51:26-08:00",
+      "subject": "Keep a running terminal at a daemon start when its terminal holder answers late (#43414)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T10:22:18Z",
+    "snapshot_id": "sh-7415ca7ac2b54d92a4f39e16361b2d20",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43702575980): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6460b8fa555fb15eb0ea13b4cc4c7bdc63bc27b8",
+    "image": "cloud-native-auto-46e42bfd-43702575980-1",
+    "revision": "ci-43702575980-1",
+    "at": "2026-11-15T10:22:18Z"
+  },
+  "rolled_back": false
+}
