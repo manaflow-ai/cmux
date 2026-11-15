@@ -3,6 +3,7 @@ use super::agent_session_link::list_gate::SessionListFilter;
 use super::*;
 use crate::panic_free::JsonFields;
 use cmux_json::JsonSet as _;
+use std::sync::atomic::AtomicU64;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect_and_attach(
