@@ -37,6 +37,8 @@ pub(crate) struct AppControlMessages {
     pub agents_waiting_progress: &'static str,
     /// A request past its read window while the app still answers: it is busy, not gone (#32724).
     pub app_busy_waiting: &'static str,
+    /// `cmux remote-host share on|access` past its wait: the dialog in cmux stays open and still counts.
+    pub remote_confirm_still_open: &'static str,
     pub closed: &'static str,
     pub invalid_response: &'static str,
     pub root_scopes: &'static str,
@@ -170,6 +172,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     waiting_progress: "waiting for the cmux app to run {what} ({elapsed} s of {total} s)",
     agents_waiting_progress: "waiting for {what} ({elapsed} s of {total} s)",
     app_busy_waiting: "the cmux app is busy; still waiting for {what} ({elapsed} s)",
+    remote_confirm_still_open: "no answer yet in cmux: the dialog stays open there, and Allow still makes the change. `cmux remote-host status` shows whether it did.",
     closed: "the cmux app closed the connection without an answer",
     invalid_response: "the cmux app sent an answer this cmux cannot read",
     acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
@@ -279,6 +282,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     waiting_progress: "cmux アプリが {what} を実行するのを待っています ({total} 秒中 {elapsed} 秒経過)",
     agents_waiting_progress: "{what} を待っています ({total} 秒中 {elapsed} 秒経過)",
     app_busy_waiting: "cmux アプリが混み合っています。{what} を引き続き待っています ({elapsed} 秒経過)",
+    remote_confirm_still_open: "cmux でまだ応答がありません。ダイアログは開いたままで、そこで許可すると変更されます。反映されたかは `cmux remote-host status` で確認できます。",
     closed: "cmux アプリが応答せずに接続を閉じました",
     invalid_response: "cmux アプリの応答を読み取れません",
     acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
