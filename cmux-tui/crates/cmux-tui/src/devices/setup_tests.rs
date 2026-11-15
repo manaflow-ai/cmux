@@ -31,8 +31,8 @@ impl Default for Mac {
     fn default() -> Self {
         Self {
             os: "Darwin",
-            user: "leo",
-            console: "leo",
+            user: "me",
+            console: "me",
             version: String::new(),
             running: false,
             plist: None,
@@ -75,13 +75,13 @@ impl FakeMac {
 
 impl Remote for FakeMac {
     fn host(&self) -> &str {
-        "leo@air-blue"
+        "me@studio-mac"
     }
 
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> anyhow::Result<RemoteOut> {
         self.sent.borrow_mut().push((script.to_owned(), stdin.map(<[u8]>::to_vec)));
         if !self.reachable {
-            return Ok(failed("", "ssh: connect to host air-blue port 22: Connection refused"));
+            return Ok(failed("", "ssh: connect to host studio-mac port 22: Connection refused"));
         }
         let mut mac = self.mac.borrow_mut();
         let input = stdin.map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default();
@@ -120,7 +120,7 @@ impl Remote for FakeMac {
             ok("ready=1\n")
         } else if script == WHOAMI {
             if mac.signed_in {
-                ok("rc=0\n{\"email\":\"leo@manaflow.ai\"}\n")
+                ok("rc=0\n{\"email\":\"me@example.com\"}\n")
             } else {
                 ok("rc=3\n{\"ok\":false,\"error\":{\"code\":\"not_signed_in\"}}\n")
             }
@@ -203,7 +203,7 @@ impl Asking for Asker {
     }
 }
 
-/// A world of one Mac (`air-blue`) and this asking side, recording its audit lines.
+/// A world of one Mac (`studio-mac`) and this asking side, recording its audit lines.
 struct FakeWorld {
     mac: FakeMac,
     asker: Asker,
@@ -236,8 +236,8 @@ impl Remote for Borrowed<'_> {
 
 impl World for FakeWorld {
     fn lookup(&self, target: &str) -> Result<(String, String), String> {
-        if target == "air-blue" {
-            Ok(("air-blue".into(), "leo@air-blue".into()))
+        if target == "studio-mac" {
+            Ok(("studio-mac".into(), "me@studio-mac".into()))
         } else {
             Err(format!("no device named {target}"))
         }
@@ -274,7 +274,7 @@ fn feed(newest: u64) -> String {
 }
 
 fn setup(mac: &FakeMac, asker: &Asker) -> Run {
-    run_device("air-blue", mac, asker, Mode::Setup, false, &mut |_| {})
+    run_device("studio-mac", mac, asker, Mode::Setup, false, &mut |_| {})
 }
 
 fn state(run: &Run, step: &str) -> StepState {
@@ -399,7 +399,7 @@ fn no_gui_session_warns_and_starts_nothing() {
     let mac = FakeMac::new(Mac { version: "2100".into(), console: "root", ..Mac::default() });
     let run = setup(&mac, &Asker::default());
     assert_eq!(state(&run, "start"), StepState::Warn);
-    assert_eq!(detail(&run, "start"), "nobody is logged in on air-blue; it starts at next login");
+    assert_eq!(detail(&run, "start"), "nobody is logged in on studio-mac; it starts at next login");
     assert!(detail(&run, "login-item").contains("next login"));
     assert!(mac.sent_script(START).is_empty());
     assert_eq!(state(&run, "sign-in"), StepState::Skip);
@@ -443,7 +443,7 @@ fn an_unreachable_mac_fails_reach_with_the_fix() {
     assert_eq!(run.failed(), ["reach"]);
     let line = &run.lines[0];
     assert!(line.detail.contains("Connection refused"), "{line:?}");
-    assert!(line.fix.contains("cmux device add air-blue"), "{line:?}");
+    assert!(line.fix.contains("cmux device add studio-mac"), "{line:?}");
 }
 
 #[test]
@@ -457,7 +457,10 @@ fn sign_in_without_the_handoff_verb_asks_for_a_newer_cmux() {
     let asker = Asker { mint: Err(AskError::Unsupported), ..Asker::default() };
     let run = setup(&mac, &asker);
     assert_eq!(state(&run, "sign-in"), StepState::Warn);
-    assert_eq!(detail(&run, "sign-in"), "sign in on air-blue: sign-in handoff needs a newer cmux");
+    assert_eq!(
+        detail(&run, "sign-in"),
+        "sign in on studio-mac: sign-in handoff needs a newer cmux"
+    );
     assert!(mac.sent_script(REDEEM).is_empty());
 
     let old_target = FakeMac::new(Mac {
@@ -468,13 +471,16 @@ fn sign_in_without_the_handoff_verb_asks_for_a_newer_cmux() {
         ..Mac::default()
     });
     let run = setup(&old_target, &Asker::default());
-    assert_eq!(detail(&run, "sign-in"), "sign in on air-blue: sign-in handoff needs a newer cmux");
+    assert_eq!(
+        detail(&run, "sign-in"),
+        "sign in on studio-mac: sign-in handoff needs a newer cmux"
+    );
 }
 
 #[test]
 fn start_runs_reach_login_item_and_start_only() {
     let mac = FakeMac::new(Mac { version: "1".into(), ..Mac::default() });
-    let run = run_device("air-blue", &mac, &Asker::default(), Mode::Start, false, &mut |_| {});
+    let run = run_device("studio-mac", &mac, &Asker::default(), Mode::Start, false, &mut |_| {});
     let order: Vec<_> = run.lines.iter().map(|l| l.step).collect();
     assert_eq!(order, ["reach", "login-item", "start"]);
     assert!(mac.sent_script(INSTALL).is_empty(), "start never installs");
@@ -484,7 +490,7 @@ fn start_runs_reach_login_item_and_start_only() {
 #[test]
 fn a_dry_run_changes_nothing() {
     let mac = FakeMac::new(Mac { signed_in: false, grants: (false, true), ..Mac::default() });
-    let run = run_device("air-blue", &mac, &Asker::default(), Mode::Setup, true, &mut |_| {});
+    let run = run_device("studio-mac", &mac, &Asker::default(), Mode::Setup, true, &mut |_| {});
     assert!(run.changed.is_empty(), "{run:?}");
     for script in [INSTALL, KEEPALIVE, START, REDEEM, OPEN_SETTINGS] {
         assert!(mac.sent_script(script).is_empty());
@@ -501,15 +507,15 @@ fn json_lines_have_the_contract_shape() {
         fix: String::new(),
     };
     assert_eq!(
-        line.json("air-blue"),
-        json!({"device": "air-blue", "step": "app", "state": "changed",
+        line.json("studio-mac"),
+        json!({"device": "studio-mac", "step": "app", "state": "changed",
                "detail": "installed NIGHTLY 2100 (was 2000)", "fix": ""})
     );
     let mut emitted = Vec::new();
     let mac = FakeMac::new(Mac::default());
     let run =
-        run_device("air-blue", &mac, &Asker::default(), Mode::Setup, false, &mut |l: &Line| {
-            emitted.push(l.json("air-blue"));
+        run_device("studio-mac", &mac, &Asker::default(), Mode::Setup, false, &mut |l: &Line| {
+            emitted.push(l.json("studio-mac"));
         });
     assert_eq!(emitted.len(), run.lines.len());
     for line in &emitted {
@@ -523,9 +529,9 @@ fn json_lines_have_the_contract_shape() {
         );
     }
     let summary = run.summary_json();
-    assert_eq!(summary["device"], "air-blue");
+    assert_eq!(summary["device"], "studio-mac");
     assert_eq!(summary["changed"], json!(["app none->2100", "login-item", "started"]));
-    assert!(summary["summary"].as_str().unwrap().starts_with("air-blue: changed app none->2100"));
+    assert!(summary["summary"].as_str().unwrap().starts_with("studio-mac: changed app none->2100"));
 }
 
 fn device(id: &str, name: &str, kind: Kind, os: Option<&str>, via: Via) -> Device {
@@ -550,11 +556,17 @@ fn all_selects_routed_macs_and_skips_phones_cloud_pool_and_unrouted_devices() {
     let listing = Listing {
         network: NetworkStatus { kind: NetworkKind::Tailscale, up: true, this: None, detail: None },
         devices: vec![
-            device("peer:air-blue", "air-blue", Kind::Computer, Some("macOS"), peer("air-blue")),
-            device("peer:cmux16", "cmux16", Kind::Computer, None, peer("cmux16")),
+            device(
+                "peer:studio-mac",
+                "studio-mac",
+                Kind::Computer,
+                Some("macOS"),
+                peer("studio-mac"),
+            ),
+            device("peer:mini-2", "mini-2", Kind::Computer, None, peer("mini-2")),
             device(
                 "paired:p",
-                "leo-iphone",
+                "my-iphone",
                 Kind::Phone,
                 Some("iOS"),
                 Via::Paired { id: "p".into() },
@@ -582,8 +594,8 @@ fn all_selects_routed_macs_and_skips_phones_cloud_pool_and_unrouted_devices() {
     };
     let sources = Sources {
         peers: json!({"peers": [
-            {"name": "air-blue", "url": "ssh://leo@air-blue.tail1234.ts.net"},
-            {"name": "cmux16", "url": "ssh://cmux16:47811"},
+            {"name": "studio-mac", "url": "ssh://me@studio-mac.tail1234.ts.net"},
+            {"name": "mini-2", "url": "ssh://mini-2:47811"},
             {"name": "ci-linux-pool-3fa17bde", "url": "ssh://pool"},
             {"name": "build-box", "url": "ssh://build-box"},
             {"name": "sandbox", "url": "ws://127.0.0.1:47811"}
@@ -593,9 +605,9 @@ fn all_selects_routed_macs_and_skips_phones_cloud_pool_and_unrouted_devices() {
     let picks = select(&listing, &sources);
     assert_eq!(picks.len(), listing.devices.len(), "one line per device");
     let of = |name: &str| picks.iter().find(|(n, _)| n == name).unwrap().1.clone();
-    assert_eq!(of("air-blue"), Ok("leo@air-blue.tail1234.ts.net".into()));
-    assert_eq!(of("cmux16"), Ok("cmux16".into()), "the URL's port is the daemon's, not ssh's");
-    assert_eq!(of("leo-iphone"), Err("a phone".into()));
+    assert_eq!(of("studio-mac"), Ok("me@studio-mac.tail1234.ts.net".into()));
+    assert_eq!(of("mini-2"), Ok("mini-2".into()), "the URL's port is the daemon's, not ssh's");
+    assert_eq!(of("my-iphone"), Err("a phone".into()));
     assert!(of("cloud-vm").unwrap_err().contains("Cloud"));
     assert!(of("ci-linux-pool-3fa17bde").unwrap_err().contains("pool"));
     assert_eq!(of("build-box"), Err("not a Mac (linux)".into()));
@@ -624,12 +636,12 @@ fn the_device_usage_lists_setup_and_start() {
     }
     let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
     assert_eq!(
-        super::super::device_args(&words(&["device", "setup", "air-blue"])),
-        Some(words(&["setup", "air-blue"]))
+        super::super::device_args(&words(&["device", "setup", "studio-mac"])),
+        Some(words(&["setup", "studio-mac"]))
     );
     assert_eq!(
-        super::super::device_args(&words(&["device", "start", "air-blue"])),
-        Some(words(&["start", "air-blue"]))
+        super::super::device_args(&words(&["device", "start", "studio-mac"])),
+        Some(words(&["start", "studio-mac"]))
     );
 }
 
@@ -662,7 +674,7 @@ fn scripts_carry_no_data_and_no_sudo() {
 #[test]
 fn the_daemon_op_and_the_cli_print_the_same_step_lines() {
     let request = cmux_tui_core::device_setup::DeviceSetupRequest {
-        device: "air-blue".into(),
+        device: "studio-mac".into(),
         start_only: false,
         allow_agents: false,
         dry_run: false,
@@ -673,7 +685,7 @@ fn the_daemon_op_and_the_cli_print_the_same_step_lines() {
     let cli_world = FakeWorld::new(mac.clone());
     let mut cli = Vec::new();
     let run =
-        run_one(&cli_world, "air-blue", Mode::Setup, Options::default(), &mut |device, line| {
+        run_one(&cli_world, "studio-mac", Mode::Setup, Options::default(), &mut |device, line| {
             cli.push(serde_json::from_str::<Value>(&cli_line(device, line, true)).unwrap());
         });
     let cli_summary = run.summary_json();
@@ -710,14 +722,14 @@ fn a_device_with_no_route_fails_reach_in_the_shared_run() {
 #[test]
 fn allow_agents_turns_the_permission_on_and_without_it_setup_only_reports() {
     let world = FakeWorld::new(Mac { version: "2100".into(), running: true, ..Mac::default() });
-    let run = run_one(&world, "air-blue", Mode::Setup, Options::default(), &mut |_, _| {});
+    let run = run_one(&world, "studio-mac", Mode::Setup, Options::default(), &mut |_, _| {});
     let agents = run.lines.iter().find(|l| l.step == "agents").unwrap();
     assert_eq!(agents.state, StepState::Ok);
     assert!(agents.detail.ends_with("is off"), "{agents:?}");
     assert_eq!(*world.asker.allow_calls.borrow(), 0, "never on without --allow-agents");
 
     let options = Options { allow_agents: true, ..Options::default() };
-    let run = run_one(&world, "air-blue", Mode::Setup, options, &mut |_, _| {});
+    let run = run_one(&world, "studio-mac", Mode::Setup, options, &mut |_, _| {});
     let agents = run.lines.iter().find(|l| l.step == "agents").unwrap();
     assert_eq!(agents.state, StepState::Changed);
     assert_eq!(*world.asker.allow_calls.borrow(), 1);
@@ -735,6 +747,6 @@ fn allow_agents_turns_the_permission_on_and_without_it_setup_only_reports() {
     assert_eq!(share_policy_step(&fresh, true, true).state, StepState::Skip);
     assert_eq!(*fresh.allow_calls.borrow(), 0);
     // `start` never touches the permission.
-    let run = run_one(&world, "air-blue", Mode::Start, options, &mut |_, _| {});
+    let run = run_one(&world, "studio-mac", Mode::Start, options, &mut |_, _| {});
     assert!(run.lines.iter().all(|l| l.step != "agents"));
 }

@@ -2428,7 +2428,7 @@ fn device_tools_are_listed_and_check_their_arguments() {
     }
     for (name, arguments) in [
         (device_tools::SETUP, json!({})),
-        (device_tools::SETUP, json!({"device": "air-blue", "all": true})),
+        (device_tools::SETUP, json!({"device": "studio-mac", "all": true})),
         (device_tools::SETUP, json!({"device": "--all"})),
         (device_tools::START, json!({})),
     ] {
@@ -2441,12 +2441,12 @@ fn device_tools_are_listed_and_check_their_arguments() {
     let words =
         |name: &str, arguments: Value| device_tools::words(name, arguments.as_object().unwrap());
     assert_eq!(
-        words(device_tools::SETUP, json!({"device": "air-blue"})).unwrap(),
-        ["setup", "air-blue"]
+        words(device_tools::SETUP, json!({"device": "studio-mac"})).unwrap(),
+        ["setup", "studio-mac"]
     );
     assert_eq!(words(device_tools::SETUP, json!({"all": true})).unwrap(), ["setup", "--all"]);
     assert_eq!(
-        words(device_tools::START, json!({"device": "air-blue"})).unwrap(),
-        ["start", "air-blue"]
+        words(device_tools::START, json!({"device": "studio-mac"})).unwrap(),
+        ["start", "studio-mac"]
     );
 }

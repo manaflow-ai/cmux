@@ -64,11 +64,11 @@ mod tests {
 
     #[test]
     fn a_step_line_streams_as_its_event_with_every_field() {
-        let line = json!({"device": "air-blue", "step": "app", "state": "ok",
+        let line = json!({"device": "studio-mac", "step": "app", "state": "ok",
                           "detail": "NIGHTLY 2100 is current", "fix": ""});
         assert_eq!(
             step_event(line),
-            json!({"event": "device-setup-step", "device": "air-blue", "step": "app",
+            json!({"event": "device-setup-step", "device": "studio-mac", "step": "app",
                    "state": "ok", "detail": "NIGHTLY 2100 is current", "fix": ""})
         );
     }
