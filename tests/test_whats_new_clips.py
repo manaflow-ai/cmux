@@ -341,10 +341,8 @@ class NightlyTourTests(unittest.TestCase):
         repo = self.history(tmp)
         t0 = 1_800_000_000
         self.commit(repo, "root", t0, {"README": "r\n"})
-        files = {}
-        for name in ("f1", "f2", "f3", "f4"):
-            files.update(self.highlight(name))
-        self.commit(repo, "four failing", t0 + day, files)
+        for index, name in enumerate(("f1", "f2", "f3", "f4")):
+            self.commit(repo, f"failing {name}", t0 + day + 60 * index, self.highlight(name))
         self.commit(repo, "newer", t0 + 2 * day, self.highlight("newer"))
         previous = self.commit(repo, "previous tip", t0 + 2 * day + 60, {"README": "p\n"})
         tip = self.commit(repo, "tip", t0 + 3 * day, {"README": "t\n"})
@@ -394,7 +392,9 @@ class NightlyTourTests(unittest.TestCase):
                 self.assertEqual(sorted(markers), ["whats-new/better/clip-auto-after.failed.json",
                                                    "whats-new/better/clip-auto-before.failed.json"])
                 marker = json.loads(markers["whats-new/better/clip-auto-after.failed.json"].read_text())
-        self.assertEqual(marker, {"tip": "c" * 40, "spec": clips.spec_digest("better", specs)})
+            digest = clips.spec_digest("better", specs)
+        self.assertEqual(len(digest), 64)
+        self.assertEqual(marker, {"tip": "c" * 40, "spec": digest})
         self.assertEqual(clips.failed_url("better", "after"),
                          clips.URL_PREFIX + "better/clip-auto-after.failed.json")
 
