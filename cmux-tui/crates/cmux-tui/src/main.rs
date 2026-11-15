@@ -1828,6 +1828,11 @@ fn warm_seeded_deps(folder: &Path) {
 pub fn main() -> std::process::ExitCode {
     // A measurement build's heap profile (`dhat-heap`); nothing otherwise.
     heap_profile::start();
+    // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
+    // SAFETY: the first statements of main: no other thread runs yet.
+    unsafe {
+        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+    }
     // The browser host and the app host are this binary under their own names
     // (links beside bin/cmux). They run before anything else here: the app
     // host sandboxes itself while it is the only thread, and neither takes
