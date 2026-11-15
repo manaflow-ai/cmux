@@ -1485,7 +1485,7 @@ jobs:
           FRESH_SLOT_JOBS: cmux-scheme-compile release-compile
           # Why: docs/ci/cmux-next-workflow-notes.md#note-348
           LIGHT_SPILL_JOBS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'swift-canary daemon-test generated-files' || '' }}
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-353
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-348
           LIGHT_FIT_JOBS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'fast-tier daemon-test generated-files' || '' }}
           # The build-fleet compiles' gateway, taken (or a wider class of it) only while a runner is
           # idle (gateway_runner). With none idle, swift-canary-fleet does not run and swift-canary
