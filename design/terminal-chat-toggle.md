@@ -91,5 +91,7 @@ permission card (`PermissionCard.tsx`), and in the terminal it is plain text.
   dialog (Claude Code's "Do you want to proceed?", Codex's "Would you like to run the following command?") is read
   off the terminal's screen while its agent state is Blocked (`cmux-window-rules` `tabs::approval`,
   `TerminalChatApproving`) and drawn as the chat's permission card. A click picks that option in the terminal with
-  the arrow keys and Enter, only while the terminal still asks that question with that option.
+  the arrow keys and Enter, only while the terminal still shows that very dialog (its id covers the question, the
+  command and every row, so the same question about another command is another dialog) with that option, and only
+  while the harness is still in the foreground (each key a `send` naming it, so an exited harness's shell gets none).
 - Gallery: `agent-pane.terminal-approval` (Claude three options, Codex, a long command, Claude's edit).

@@ -2665,7 +2665,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => childAsks([...(snapshot.asks ?? []), ...(snapshot.groupedAsks ?? [])], snapshot.sessions, snapshot.sessionId),
     [snapshot.asks, snapshot.groupedAsks, snapshot.sessions, snapshot.sessionId],
   );
-  const childAsk = individualPermission ? undefined : belowAsks[0];
+  // One card at a time takes the answer keys: a sub-session's ask waits behind this chat's and the terminal's.
+  const childAsk = individualPermission || terminalAsk ? undefined : belowAsks[0];
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;

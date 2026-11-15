@@ -9,6 +9,7 @@ import {
 
 /// What the host pushes for Claude Code's Bash dialog (cmux-window-rules tabs::approval).
 const claude = {
+  id: "6f1c2a9e0b4d7735",
   question: "Do you want to proceed?",
   header: "Bash command",
   command: "touch /tmp/w4i-perm",
@@ -40,17 +41,18 @@ describe("terminalApproval", () => {
       },
       { id: "3", name: "No, and tell Claude what to do differently", allow: false, kind: "reject_once" },
     ]);
-    // A click sends the option and what the card showed, so the host checks the screen still asks it.
+    // A click sends the option and the dialog the card showed, so the host checks the screen still shows it.
     expect(terminalApprovalAnswer(approval, "3")).toEqual({
       key: 3,
       label: "No, and tell Claude what to do differently",
-      question: "Do you want to proceed?",
+      id: "6f1c2a9e0b4d7735",
     });
     expect(terminalApprovalAnswer(approval, "9")).toBeNull();
   });
 
   test("Codex's reason is what the call does; a dialog without a heading is titled by its question", () => {
     const approval = parseTerminalApproval({
+      id: "a03e5d7c912b4f60",
       question: "Would you like to run the following command?",
       command: "touch /tmp/w4i-perm",
       detail: ["Reason: Create the marker file outside the workspace"],
@@ -67,14 +69,17 @@ describe("terminalApproval", () => {
   test("a new dialog is a new card; anything malformed or null clears it", () => {
     setTerminalApproval(claude);
     const first = terminalApprovalPermission(terminalApproval()!).permissionId;
-    setTerminalApproval({ ...claude, question: "Do you want to make this edit to main.rs?" });
+    // The same question about another command is another dialog: its id differs.
+    setTerminalApproval({ ...claude, id: "0d4c6b2a19e87f53", command: "rm -rf ~/work" });
     expect(terminalApprovalPermission(terminalApproval()!).permissionId).not.toBe(first);
-    setTerminalApproval({ question: "Proceed?", options: [{ key: 1, label: "Yes" }] });
+    setTerminalApproval({ id: "1", question: "Proceed?", options: [{ key: 1, label: "Yes" }] });
+    expect(terminalApproval()).toBeNull();
+    setTerminalApproval({ ...claude, id: "" });
     expect(terminalApproval()).toBeNull();
     setTerminalApproval(claude);
     setTerminalApproval(null);
     expect(terminalApproval()).toBeNull();
-    expect(parseTerminalApproval({ question: "", options: claude.options })).toBeNull();
+    expect(parseTerminalApproval({ id: "1", question: "", options: claude.options })).toBeNull();
     expect(
       parseTerminalApproval({
         ...claude,

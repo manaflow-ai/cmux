@@ -27,9 +27,10 @@ import CmuxNextWindowRules
 extension AgentPaneView: TerminalApprovalChat {
     public func showTerminalApproval(_ approval: WindowRules.TerminalApproval?,
                                      answer: @escaping @MainActor (Int, String, String) async -> Bool) {
-        model.onTerminalApproval = { await answer($0.key, $0.label, $0.question) }
+        model.onTerminalApproval = { await answer($0.key, $0.label, $0.id) }
         AgentPaneTerminalApproval.show(approval.map { shown in
-            AgentPaneTerminalApproval(question: shown.question, header: shown.header, command: shown.command, detail: shown.detail,
+            AgentPaneTerminalApproval(id: shown.id, question: shown.question, header: shown.header, command: shown.command,
+                                      detail: shown.detail,
                                       options: shown.options.map { .init(key: $0.key, label: $0.label, kind: $0.kind) })
         }, on: self)
     }

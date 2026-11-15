@@ -6,6 +6,9 @@ import Foundation
 extension WindowRules {
     /// A harness's numbered approval dialog read off a terminal's screen.
     public nonisolated struct TerminalApproval: Codable, Equatable, Sendable {
+        /// What the dialog asks, whole (its question, heading, command, body and options, not the cursor):
+        /// a click names it, and types nothing once the terminal shows another dialog.
+        public var id: String
         public var question: String
         /// The dialog's heading ("Bash command", "Edit file").
         public var header: String?
@@ -31,7 +34,9 @@ extension WindowRules {
             }
         }
 
-        public init(question: String, header: String? = nil, command: String? = nil, detail: [String] = [], options: [Option]) {
+        public init(id: String, question: String, header: String? = nil, command: String? = nil, detail: [String] = [],
+                    options: [Option]) {
+            self.id = id
             self.question = question
             self.header = header
             self.command = command
@@ -42,7 +47,7 @@ extension WindowRules {
 
     private struct Screen: Encodable { var screen: String }
     private struct Read: Decodable { var approval: TerminalApproval? }
-    private struct Answer: Encodable { var screen: String; var key: Int; var label: String; var question: String }
+    private struct Answer: Encodable { var screen: String; var key: Int; var label: String; var id: String }
     private struct Keys: Decodable { var keys: [String]? }
 
     /// The approval dialog at the bottom of `screen` (a terminal's viewport, one line per row), or nil.
@@ -50,10 +55,9 @@ extension WindowRules {
         call("window_tabs_terminal_approval", Screen(screen: screen), as: Read.self)?.approval
     }
 
-    /// The keys that pick option `key` (labelled `label`) of the dialog asking `question` on `screen` now,
+    /// The keys that pick option `key` (labelled `label`) of dialog `id` (``TerminalApproval/id``) on `screen` now,
     /// arrows then Enter; nil when the screen no longer shows that dialog with that option.
-    public func terminalApprovalKeys(screen: String, key: Int, label: String, question: String) -> [String]? {
-        call("window_tabs_terminal_approval_keys", Answer(screen: screen, key: key, label: label, question: question),
-             as: Keys.self)?.keys
+    public func terminalApprovalKeys(screen: String, key: Int, label: String, id: String) -> [String]? {
+        call("window_tabs_terminal_approval_keys", Answer(screen: screen, key: key, label: label, id: id), as: Keys.self)?.keys
     }
 }

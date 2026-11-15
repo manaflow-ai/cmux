@@ -7,7 +7,7 @@ public import Foundation
 /// terminal. The App reads that dialog off the terminal's screen (cmux-window-rules `tabs::approval`)
 /// and shows it here; the page draws it as the chat's own permission card (`terminalApproval` event,
 /// webviews terminalApproval/terminalApproval.ts) and a click comes back as
-/// `chat.terminalApproval.answer {key, label, question}`, which the host takes only with a real
+/// `chat.terminalApproval.answer {key, label, id}`, which the host takes only with a real
 /// gesture in the pane and only for the dialog it shows, then the App picks that option in the terminal.
 public nonisolated struct AgentPaneTerminalApproval: Hashable, Sendable {
     public struct Option: Hashable, Sendable {
@@ -23,19 +23,23 @@ public nonisolated struct AgentPaneTerminalApproval: Hashable, Sendable {
         }
     }
 
-    /// The person's pick: the option and the dialog it answers.
+    /// The person's pick: the option and the dialog it answers (its ``id``).
     public struct Pick: Hashable, Sendable {
         public var key: Int
         public var label: String
-        public var question: String
+        /// ``AgentPaneTerminalApproval/id`` of the card clicked.
+        public var id: String
 
-        public init(key: Int, label: String, question: String) {
+        public init(key: Int, label: String, id: String) {
             self.key = key
             self.label = label
-            self.question = question
+            self.id = id
         }
     }
 
+    /// What the dialog asks, whole (cmux-window-rules `TerminalApproval::id`): a pick names it, so a click on a
+    /// card answers only that dialog, never another asking the same question about another command.
+    public var id: String
     public var question: String
     public var header: String?
     public var command: String?
@@ -44,8 +48,9 @@ public nonisolated struct AgentPaneTerminalApproval: Hashable, Sendable {
     /// The terminal's harness (`claude`, `codex`), for the card's look.
     public var harness: String?
 
-    public init(question: String, header: String? = nil, command: String? = nil, detail: [String] = [],
+    public init(id: String, question: String, header: String? = nil, command: String? = nil, detail: [String] = [],
                 options: [Option], harness: String? = nil) {
+        self.id = id
         self.question = question
         self.header = header
         self.command = command
@@ -54,12 +59,12 @@ public nonisolated struct AgentPaneTerminalApproval: Hashable, Sendable {
         self.harness = harness
     }
 
-    /// The longest question or label a pick names, in UTF-8 bytes.
+    /// The longest label or id a pick names, in UTF-8 bytes.
     static let maximumText = 2048
 
     var json: JSONValue {
         var object: [String: JSONValue] = [
-            "question": .string(question), "detail": .array(detail.map(JSONValue.string)),
+            "id": .string(id), "question": .string(question), "detail": .array(detail.map(JSONValue.string)),
             "options": .array(options.map { ["key": .number(Double($0.key)), "label": .string($0.label), "kind": .string($0.kind)] }),
         ]
         if let header { object["header"] = .string(header) }
@@ -68,13 +73,13 @@ public nonisolated struct AgentPaneTerminalApproval: Hashable, Sendable {
         return .object(object)
     }
 
-    /// `chat.terminalApproval.answer {key, label, question}`, nil when the params break the contract.
+    /// `chat.terminalApproval.answer {key, label, id}`, nil when the params break the contract.
     static func pick(_ params: [String: Any]?) -> Pick? {
-        guard let params, Set(params.keys) == ["key", "label", "question"],
+        guard let params, Set(params.keys) == ["key", "label", "id"],
               let key = (params["key"] as? NSNumber)?.intValue, (1...99).contains(key),
-              let label = params["label"] as? String, let question = params["question"] as? String,
-              !label.isEmpty, label.utf8.count <= maximumText, !question.isEmpty, question.utf8.count <= maximumText else { return nil }
-        return Pick(key: key, label: label, question: question)
+              let label = params["label"] as? String, let id = params["id"] as? String,
+              !label.isEmpty, label.utf8.count <= maximumText, !id.isEmpty, id.utf8.count <= maximumText else { return nil }
+        return Pick(key: key, label: label, id: id)
     }
 }
 
@@ -104,7 +109,7 @@ extension AgentPaneTerminalApproval {
     /// pane (page script cannot make one), then the App's answer (``AgentPaneModel/onTerminalApproval``),
     /// which fails when the terminal no longer shows that dialog.
     @MainActor static func respond(_ pick: Pick, in model: AgentPaneModel) async -> [String: Any] {
-        guard let answer = model.onTerminalApproval, let shown = model.terminalApproval, shown.question == pick.question,
+        guard let answer = model.onTerminalApproval, let shown = model.terminalApproval, shown.id == pick.id,
               shown.options.contains(where: { $0.key == pick.key && $0.label == pick.label }) else {
             return AgentPaneModel.unsupported("chat.terminalApproval.answer")
         }

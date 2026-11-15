@@ -9,15 +9,17 @@ import Testing
 /// these hold ``TerminalChatApproving`` reading and answering over the FFI.
 @MainActor @Suite
 struct TerminalChatApprovalTests {
-    static let dialog = [
-        " Bash command", "", "   touch /tmp/w4i-perm", "   Create an empty marker file", "",
-        " Do you want to proceed?", " ❯ 1. Yes", "   2. Yes, and don't ask again for touch commands in /private/tmp",
-        "   3. No, and tell Claude what to do differently (esc)", "", " Esc to cancel · Tab to amend",
-    ].joined(separator: "\n")
+    static func dialog(_ command: String = "touch /tmp/w4i-perm") -> String {
+        [
+            " Bash command", "", "   \(command)", "   Create an empty marker file", "",
+            " Do you want to proceed?", " ❯ 1. Yes", "   2. Yes, and don't ask again for touch commands in /private/tmp",
+            "   3. No, and tell Claude what to do differently (esc)", "", " Esc to cancel · Tab to amend",
+        ].joined(separator: "\n")
+    }
 
     @MainActor @Observable final class Terminal: TerminalApprovalTerminal {
         var blocked = false
-        var screen: String? = TerminalChatApprovalTests.dialog
+        var screen: String? = TerminalChatApprovalTests.dialog()
         @ObservationIgnored var reads = 0
         @ObservationIgnored var pressed: [[String]] = []
         @ObservationIgnored var refuses = false
@@ -55,7 +57,7 @@ struct TerminalChatApprovalTests {
         #expect(shown.options.map(\.key) == [1, 2, 3])
         #expect(shown.options.map(\.kind) == ["allow_once", "allow_always", "reject_once"])
         // The third option: two down from the cursor, then Enter; the card goes at once.
-        let answered = await chat.answer?(3, "No, and tell Claude what to do differently", "Do you want to proceed?")
+        let answered = await chat.answer?(3, "No, and tell Claude what to do differently", shown.id)
         #expect(answered == true)
         #expect(terminal.pressed == [["down", "down", "enter"]])
         #expect(chat.shown.count == 2 && chat.shown.last! == nil)
@@ -66,17 +68,29 @@ struct TerminalChatApprovalTests {
         terminal.blocked = true
         let approving = TerminalChatApproving(terminal: terminal, chat: chat)
         await approving.refresh()
+        let touch = try #require(chat.shown.last ?? nil)
         // Answered in the terminal meanwhile: the prompt box is back.
         terminal.screen = "⏺ Done.\n\n❯ \n"
-        let answered = await chat.answer?(1, "Yes", "Do you want to proceed?")
-        #expect(answered == false)
+        #expect(await chat.answer?(1, "Yes", touch.id) == false)
         #expect(terminal.pressed.isEmpty)
         #expect(chat.shown.last! == nil, "the stale card is taken down")
-        // A refused key press keeps the card.
-        terminal.screen = Self.dialog
+        // The same question and options about another command, with the agent Blocked all along (queued tool
+        // calls): a click on the card that showed `touch` types nothing, and the card shows the new command.
+        terminal.screen = Self.dialog()
+        await approving.refresh()
+        terminal.screen = Self.dialog("rm -rf ~/work")
+        #expect(await chat.answer?(1, "Yes", touch.id) == false)
+        #expect(terminal.pressed.isEmpty)
+        #expect((chat.shown.last ?? nil)?.command == "rm -rf ~/work")
+        // An agent no longer Blocked, or a refused key press: nothing typed.
+        let rm = try #require(chat.shown.last ?? nil)
+        terminal.blocked = false
+        #expect(await chat.answer?(1, "Yes", rm.id) == false)
+        #expect(terminal.pressed.isEmpty)
+        terminal.blocked = true
         await approving.refresh()
         terminal.refuses = true
-        #expect(await chat.answer?(1, "Yes", "Do you want to proceed?") == false)
+        #expect(await chat.answer?(1, "Yes", rm.id) == false)
         #expect(chat.shown.last! != nil)
     }
 
@@ -95,8 +109,22 @@ struct TerminalChatApprovalTests {
         #expect(chat.shown.count == 2, "a stopped watch reads nothing")
     }
 
-    private func wait(_ done: @MainActor () -> Bool) async throws {
-        for _ in 0..<200 where !done() {
+    /// The hook can report Blocked before the harness draws its dialog: a Blocked screen with none is read
+    /// again shortly after, a bounded number of times.
+    @Test func aBlockedScreenWithoutTheDialogYetIsReadAgain() async throws {
+        let terminal = Terminal(), chat = Chat()
+        terminal.blocked = true
+        terminal.screen = "⏺ Bash(touch /tmp/w4i-perm)\n"
+        let approving = TerminalChatApproving(terminal: terminal, chat: chat)
+        approving.start()
+        try await wait { terminal.reads >= 1 }
+        terminal.screen = Self.dialog()
+        try await wait(limit: 400) { chat.shown.last.flatMap { $0 } != nil }
+        approving.stop()
+    }
+
+    private func wait(limit: Int = 200, _ done: @MainActor () -> Bool) async throws {
+        for _ in 0..<limit where !done() {
             // wakeup-allow: a test waits for the watch's own hop
             try await Task.sleep(for: .milliseconds(5))
         }

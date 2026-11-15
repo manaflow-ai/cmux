@@ -19,6 +19,7 @@ const labels = {
 
 /// Claude Code's Bash dialog: Yes, Yes and don't ask again, No.
 const claudeThree: TerminalApproval = {
+  id: "6f1c2a9e0b4d7735",
   question: "Do you want to proceed?",
   header: "Bash command",
   command: "touch /tmp/w4i-perm",
@@ -33,6 +34,7 @@ const claudeThree: TerminalApproval = {
 
 /// Codex's command approval: the question first, then its reason and command.
 const codex: TerminalApproval = {
+  id: "a03e5d7c912b4f60",
   question: "Would you like to run the following command?",
   command: "cargo test -p acpmux resume_here",
   detail: ["Reason: Run the tests outside the sandbox"],
@@ -46,6 +48,7 @@ const codex: TerminalApproval = {
 
 /// A long command: clamped to its first line, the whole one a click away.
 const longCommand: TerminalApproval = {
+  id: "4b8d0e2f6a1c9357",
   question: "Do you want to proceed?",
   header: "Bash command",
   command:
@@ -60,6 +63,7 @@ const longCommand: TerminalApproval = {
 
 /// Claude Code's edit dialog: no command, the file as what it touches.
 const claudeEdit: TerminalApproval = {
+  id: "d92f7a3c5e081b46",
   question: "Do you want to make this edit to main.rs?",
   header: "Edit file",
   detail: ["src/main.rs"],

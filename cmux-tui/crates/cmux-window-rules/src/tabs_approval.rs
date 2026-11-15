@@ -32,21 +32,25 @@ pub struct ApprovalScreen {
     pub screen: String,
 }
 
-/// A click on the chat's card: the option it picked, with the question and label the card showed,
-/// against the terminal's viewport read again now.
+/// A click on the chat's card: the option it picked, with its label and the [`TerminalApproval::id`]
+/// of the dialog the card showed, against the terminal's viewport read again now.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ApprovalAnswer {
     pub screen: String,
     pub key: u32,
     pub label: String,
-    pub question: String,
+    pub id: String,
 }
 
 /// A harness's approval dialog on the terminal's screen.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalApproval {
+    /// What the dialog asks, whole: its question, heading, command, every body row (before any
+    /// clip) and its options, but not where the cursor is. Two dialogs that ask the same question
+    /// about different commands differ here, so a card's click never answers a dialog it did not show.
+    pub id: String,
     /// "Do you want to proceed?", "Would you like to run the following command?".
     pub question: String,
     /// The dialog's heading row above its body ("Bash command", "Edit file"), when it has one.
@@ -257,25 +261,57 @@ pub fn terminal_approval(facts: &ApprovalScreen) -> Option<TerminalApproval> {
             _ => detail.push(row.text.clone()),
         }
     }
+    let options: Vec<ApprovalOption> = found.into_iter().map(|(_, o)| o).collect();
+    let id = dialog_id(&question.text, header.as_deref(), command.as_deref(), &detail, &options);
     let clip = |t: String| {
         if t.chars().count() > DETAIL_CHARS { t.chars().take(DETAIL_CHARS).collect() } else { t }
     };
     detail.truncate(DETAIL_ROWS);
     Some(TerminalApproval {
+        id,
         question: question.text.clone(),
         header,
         command: command.map(clip),
         detail: detail.into_iter().map(clip).collect(),
-        options: found.into_iter().map(|(_, o)| o).collect(),
+        options,
     })
 }
 
+/// [`TerminalApproval::id`]: FNV-1a (64-bit) over the dialog's parts, each ended by a separator
+/// no row holds, so moving text between parts changes it too.
+fn dialog_id(
+    question: &str,
+    header: Option<&str>,
+    command: Option<&str>,
+    detail: &[String],
+    options: &[ApprovalOption],
+) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut part = |text: &str| {
+        for byte in text.bytes().chain([0x1f]) {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    part(question);
+    part(header.unwrap_or("\u{1e}"));
+    part(command.unwrap_or("\u{1e}"));
+    detail.iter().for_each(|row| part(row));
+    part("\u{1d}");
+    for option in options {
+        part(&option.key.to_string());
+        part(&option.label);
+        part(option.hint.as_deref().unwrap_or(""));
+    }
+    format!("{hash:016x}")
+}
+
 /// The keys that pick option `key` of the dialog on `screen` now: the cursor moves to it and
-/// Enter picks it. None when the screen no longer shows that question with that option (answered
-/// in the terminal meanwhile, or another dialog), so a click never answers what it did not show.
+/// Enter picks it. None when the screen no longer shows that dialog (its [`TerminalApproval::id`]:
+/// answered in the terminal meanwhile, or another dialog, even one asking the same question about
+/// another command) with that option, so a click never answers what it did not show.
 pub fn answer_keys(answer: &ApprovalAnswer) -> Option<Vec<&'static str>> {
     let shown = terminal_approval(&ApprovalScreen { screen: answer.screen.clone() })?;
-    if shown.question != answer.question {
+    if answer.id.is_empty() || shown.id != answer.id {
         return None;
     }
     let target =

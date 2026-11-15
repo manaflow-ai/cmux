@@ -787,6 +787,8 @@ fn toggle_terminal_and_chat_approval_answers_over_the_channel() {
     let (code, body) = call_json(c"window_tabs_terminal_approval", &json!({"screen": screen}));
     assert_eq!(code, OK);
     assert_eq!(body["approval"]["question"], "Do you want to proceed?");
+    let id = body["approval"]["id"].as_str().expect("an id").to_owned();
+    assert_eq!(id.len(), 16);
     assert_eq!(body["approval"]["command"], "touch /tmp/x");
     assert_eq!(
         body["approval"]["options"],
@@ -797,12 +799,10 @@ fn toggle_terminal_and_chat_approval_answers_over_the_channel() {
     );
     let (_, body) = call_json(c"window_tabs_terminal_approval", &json!({"screen": "❯ "}));
     assert_eq!(body, json!({"approval": null}));
-    let answer =
-        json!({"screen": screen, "key": 2, "label": "No", "question": "Do you want to proceed?"});
+    let answer = json!({"screen": screen, "key": 2, "label": "No", "id": id});
     let (_, body) = call_json(c"window_tabs_terminal_approval_keys", &answer);
     assert_eq!(body, json!({"keys": ["down", "enter"]}));
-    let stale =
-        json!({"screen": "❯ ", "key": 2, "label": "No", "question": "Do you want to proceed?"});
+    let stale = json!({"screen": "❯ ", "key": 2, "label": "No", "id": id});
     let (_, body) = call_json(c"window_tabs_terminal_approval_keys", &stale);
     assert_eq!(body, json!({"keys": null}));
 }

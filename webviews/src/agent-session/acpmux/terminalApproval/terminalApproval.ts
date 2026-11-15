@@ -5,8 +5,8 @@
 // following command?"). The host reads that dialog off the terminal's screen (cmux-window-rules
 // `tabs::approval`) and pushes it here (`terminalApproval`, CmuxNextAgentPane
 // AgentPaneTerminalApproval); the chat draws it as its own permission card, and a click asks the
-// host to pick that option in the terminal (`chat.terminalApproval.answer {key, label,
-// question}`). A module store like toolCards/toolCardStore.ts, so a push that arrives before the
+// host to pick that option in the terminal (`chat.terminalApproval.answer {key, label, id}`).
+// A module store like toolCards/toolCardStore.ts, so a push that arrives before the
 // dock mounts is kept.
 import { useSyncExternalStore } from "react";
 import type { AcpmuxPermission } from "../model";
@@ -20,6 +20,9 @@ export type TerminalApprovalOption = {
 };
 
 export type TerminalApproval = {
+  /// What the dialog asks, whole (cmux-window-rules `TerminalApproval::id`): a click names it, so it
+  /// answers only this dialog, never another asking the same question about another command.
+  id: string;
   question: string;
   /// The dialog's heading ("Bash command", "Edit file").
   header?: string;
@@ -42,8 +45,9 @@ const text = (value: unknown) => (typeof value === "string" ? value.slice(0, MAX
 export function parseTerminalApproval(value: unknown): TerminalApproval | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
+  const id = text(raw.id).trim();
   const question = text(raw.question).trim();
-  if (!question || !Array.isArray(raw.options)) return null;
+  if (!id || !question || !Array.isArray(raw.options)) return null;
   const options: TerminalApprovalOption[] = [];
   for (const entry of raw.options as unknown[]) {
     if (!entry || typeof entry !== "object") continue;
@@ -64,6 +68,7 @@ export function parseTerminalApproval(value: unknown): TerminalApproval | null {
   const command = text(raw.command).trim();
   const harness = text(raw.harness).trim();
   return {
+    id,
     question,
     ...(header ? { header } : {}),
     ...(command ? { command } : {}),
@@ -80,7 +85,7 @@ export function terminalApprovalPermission(approval: TerminalApproval): AcpmuxPe
   const reason = approval.detail[0]?.replace(/^Reason:\s*/i, "").trim();
   const kind = toolKind(approval);
   return {
-    permissionId: `terminal:${approval.question}:${approval.options.map((o) => `${o.key}.${o.label}`).join("|")}`,
+    permissionId: `terminal:${approval.id}`,
     title: approval.header ?? approval.question,
     description: reason || approval.question,
     ...(approval.command ? { command: approval.command } : {}),
@@ -105,12 +110,12 @@ function toolKind(approval: TerminalApproval): string | undefined {
   return undefined;
 }
 
-/// What a click on option `optionId` sends the host: the option and what the card showed, so the
+/// What a click on option `optionId` sends the host: the option and the dialog the card showed, so the
 /// host types nothing when the terminal shows another dialog by then.
 export function terminalApprovalAnswer(approval: TerminalApproval, optionId: string) {
   const option = approval.options.find((o) => String(o.key) === optionId);
   if (!option) return null;
-  return { key: option.key, label: option.label, question: approval.question };
+  return { key: option.key, label: option.label, id: approval.id };
 }
 
 let current: TerminalApproval | null = null;
