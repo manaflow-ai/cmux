@@ -609,6 +609,24 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: Control (and screen) from this Mac on an owned machine on or off, then re-read the
+   * host lists. Answers the line to show under the row: the host's refusal, or the failed call's sentence. */
+  async setRemoteControl(id: string, on: boolean): Promise<string | null> {
+    const reply = await this.request("cmux.settings.devices.remote_control", { id, on });
+    await this.refreshHost();
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value.error ?? null;
+  }
+
+  /** Settings > Devices on the target Mac: trust another Mac's key (its one-time ask), or remove or
+   * dismiss it, then re-read the host lists. Answers the line to show, like `setRemoteControl`. */
+  async setGrantorTrust(id: string, trusted: boolean): Promise<string | null> {
+    const reply = await this.request("cmux.settings.devices.grantor_trust", { id, trusted });
+    await this.refreshHost();
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value.error ?? null;
+  }
+
   /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
   async setMachineVmHost(id: string, on: boolean): Promise<void> {
     await this.request("cmux.settings.machines.vm_host", { id, on });

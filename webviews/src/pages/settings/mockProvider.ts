@@ -26,6 +26,9 @@ import {
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
+  type DevicesControlState,
+  type DevicesGrantor,
+  type DevicesGrantorAsk,
   type DevicesJoinState,
   type DevicesRelay,
   type CloudEnvironmentsRun,
@@ -87,6 +90,10 @@ export type MockOptions = {
   themeOverrides?: ThemeOverride[];
   /** This Mac joined to a team (the host lists' `devices_join`); absent: not joined. */
   devicesJoin?: DevicesJoinState;
+  /** Control from this Mac (the host lists' `devices_control`); absent: not shown (not joined, or an older host). */
+  devicesControl?: DevicesControlState;
+  /** Machines that have not trusted this Mac's key yet: an on there waits for their one-time ask. */
+  devicesControlAsk?: string[];
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
 };
@@ -116,6 +123,90 @@ export const mockDevicesJoin: DevicesJoinState = {
     },
   ],
 };
+
+/** This Mac's key as four words (the mock's; the app derives them from the key). */
+const mockThisMacWords = ["maple", "orbit", "lantern", "quiet"];
+
+/** Control from this Mac: one owned machine on, one off, one offline and one whose status failed. */
+export const mockDevicesControl: DevicesControlState = {
+  title: "Control from this Mac",
+  help: "Turn on Control and screen sharing on your other machines from here. Each machine asks once, on itself, to trust this Mac.",
+  this_mac_words: mockThisMacWords,
+  error: null,
+  rows: [
+    {
+      id: "m_mini",
+      name: "mini-7",
+      platform: "macos",
+      online: true,
+      on: true,
+      busy: false,
+      status: "on",
+      detail: "Turned on from this Mac · 5 min ago",
+      words: null,
+      log: [
+        { time: "5 min ago", what: "Turned on from this Mac" },
+        { time: "Yesterday", what: "Turned off on mini-7" },
+      ],
+    },
+    {
+      id: "m_studio",
+      name: "studio",
+      platform: "macos",
+      online: true,
+      on: false,
+      busy: false,
+      status: "off",
+      detail: "Off",
+      words: null,
+      log: [],
+    },
+    {
+      id: "m_air",
+      name: "travel-air",
+      platform: "macos",
+      online: false,
+      on: false,
+      busy: false,
+      status: "offline",
+      detail: "Offline · seen 2 hr ago",
+      words: null,
+      log: [],
+    },
+    {
+      id: "m_lab",
+      name: "lab-mac",
+      platform: "macos",
+      online: true,
+      on: false,
+      busy: false,
+      status: "error",
+      detail: "lab-mac did not answer. Try again.",
+      words: null,
+      log: [],
+    },
+  ],
+};
+
+/** On the target Mac: the one-time ask from the owner's Mac to trust its key. */
+export const mockGrantorAsk: DevicesGrantorAsk = {
+  id: "mac-0011223344556677",
+  title: "MacBook Pro wants to turn on Control here",
+  help: "Allow only if MacBook Pro shows the same four words in Settings > Devices.",
+  words: mockThisMacWords,
+  allow: "Allow",
+  dismiss: "Not now",
+};
+
+/** On the target Mac: a Mac whose key it trusts. */
+export const mockGrantors: DevicesGrantor[] = [
+  {
+    id: "mac-8899aabbccddeeff",
+    title: "Studio Mac",
+    subtitle: "Can turn Control on or off here · trusted Nov 2",
+    remove: "Remove",
+  },
+];
 
 export const mockDomains: Domains = {
   themes: [
@@ -238,6 +329,8 @@ export class MockSettingsProvider {
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
+    if (options.devicesControl) this.host = { ...this.host, devices_control: options.devicesControl };
+    this.controlAsk = new Set(options.devicesControlAsk ?? []);
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -296,6 +389,66 @@ export class MockSettingsProvider {
               switches: join.switches.map((s) => (s.surface === params.surface ? { ...s, on: params.on === true } : s)),
             },
           });
+        return {};
+      },
+      "cmux.settings.devices.remote_control": (params) => {
+        const control = this.host.devices_control;
+        if (!control) return {};
+        const on = params.on === true;
+        const ask = on && this.controlAsk.has(String(params.id));
+        const words = control.this_mac_words;
+        this.setHost({
+          ...this.host,
+          devices_control: {
+            ...control,
+            rows: control.rows.map((r) => {
+              if (r.id !== params.id) return r;
+              if (ask)
+                return {
+                  ...r,
+                  on: false,
+                  status: "ask_pending",
+                  detail: `Allow once on ${r.name}: check the words ${(words ?? []).join(" ")}`,
+                  words,
+                };
+              return {
+                ...r,
+                on,
+                status: on ? "on" : "off",
+                detail: on ? "Turned on from this Mac · now" : "Off",
+                words: null,
+              };
+            }),
+          },
+        });
+        return {};
+      },
+      "cmux.settings.devices.grantor_trust": (params) => {
+        const join = this.host.devices_join;
+        if (!join) return {};
+        const ask = join.grantor_ask ?? null;
+        const trusted = params.trusted === true;
+        const pinned = trusted && ask?.id === params.id ? ask : null;
+        this.setHost({
+          ...this.host,
+          devices_join: {
+            ...join,
+            grantor_ask: ask?.id === params.id ? null : ask,
+            grantors: [
+              ...(join.grantors ?? []).filter((g) => trusted || g.id !== params.id),
+              ...(pinned
+                ? [
+                    {
+                      id: pinned.id,
+                      title: pinned.title,
+                      subtitle: "Can turn Control on or off here",
+                      remove: "Remove",
+                    },
+                  ]
+                : []),
+            ],
+          },
+        });
         return {};
       },
       "cmux.settings.devices.full_access": (params) => {
@@ -687,6 +840,8 @@ export class MockSettingsProvider {
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
       "cmux.settings.devices.join_consent",
+      "cmux.settings.devices.remote_control",
+      "cmux.settings.devices.grantor_trust",
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
@@ -876,6 +1031,8 @@ export class MockSettingsProvider {
 
   /** What `cmux customize` is trying on; Keep and Revert Now end it. */
   tryOn: CustomizeTryOn | null = null;
+  /** Machines whose Control on waits for their one-time ask (options.devicesControlAsk). */
+  controlAsk = new Set<string>();
   /** Every try-on verb the page ran but status, in order (tests). */
   customizeVerbs: string[] = [];
 
