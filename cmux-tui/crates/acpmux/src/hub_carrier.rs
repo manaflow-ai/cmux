@@ -598,7 +598,12 @@ impl HubCarrier {
             match self.tickets.register().await {
                 Ok(answer) => break answer,
                 Err(e) => {
-                    tracing::debug!("hub carrier: no register ticket yet: {e}");
+                    // The first refusal is the start's answer; the retries after it stay quiet.
+                    if wait == Duration::from_secs(1) {
+                        tracing::warn!("hub carrier: no register ticket yet, retrying: {e}");
+                    } else {
+                        tracing::debug!("hub carrier: no register ticket yet: {e}");
+                    }
                     tokio::time::sleep(wait).await;
                     wait = (wait * 2).min(Duration::from_secs(60));
                 }
@@ -1137,12 +1142,23 @@ pub async fn start_configured(
     websocket: Option<SocketAddr>,
     held: Option<Arc<cmux_link::key_holder::KeyHolder>>,
 ) -> Option<HubServe> {
-    let config = hub.config.read().await.mesh_relay.clone()?;
+    // Every way out says why, so a start's log always holds the carrier's state.
+    let Some(config) = hub.config.read().await.mesh_relay.clone() else {
+        tracing::info!(
+            "hub carrier off: this machine is not joined (config.json has no meshRelay)"
+        );
+        return None;
+    };
     if config.credential.as_deref() != Some("join") {
+        tracing::info!("hub carrier off: meshRelay's credential is not the machine join");
         return None;
     }
+    let Some(websocket) = websocket else {
+        tracing::warn!("hub carrier off: the daemon has no loopback WebSocket listener");
+        return None;
+    };
     // Only this daemon's loopback listener, whose tokens stay mandatory, as WireGuard's bridge.
-    let websocket = match crate::wireguard::local_websocket(websocket?) {
+    let websocket = match crate::wireguard::local_websocket(websocket) {
         Ok(websocket) => websocket,
         Err(e) => {
             tracing::warn!("hub carrier off: {e:#}");
