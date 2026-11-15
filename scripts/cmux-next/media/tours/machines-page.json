@@ -5,6 +5,6 @@
     {"title": "Sample Cloud, SSH and server machines", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "machines.section.fixture", "value": true}}, "shot": false, "optional": "debug.tunables is DEBUG only"},
     {"title": "Joined machines; studio-mini (a Mac signed in to this account) with its controls shown", "rpc": {"method": "debug.joined_machines", "params": {"menu": "m_mini"}}, "wait": 1, "shot": false, "optional": "debug.joined_machines is DEBUG only"},
     {"title": "Machines in Sidebar on (Add to Sidebar: Machines)", "rpc": {"method": "action.run", "params": {"action": "sidebar.item.add", "args": {"item": "machines"}}}, "wait": 1.5},
-    {"title": "The Machines item opens the page on top: this Mac, Cloud, SSH, Servers and Joined; studio-mini shows New Workspace", "rpc": {"method": "action.run", "params": {"action": "machines.show"}}, "wait": 3}
+    {"title": "Cmd-3 selects the Machines item as a click does and opens the page on top: this Mac, Cloud, SSH, Servers and Joined; studio-mini shows New Workspace", "rpc": {"method": "action.run", "params": {"action": "selectWorkspaceByNumber", "args": {"index": 3}}}, "wait": 3}
   ]
 }
