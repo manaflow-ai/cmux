@@ -6,6 +6,8 @@
 #   infinite-items-linux.sh before=own-exe ...: first runs the same build with no cmux-tui-host beside its daemon (a
 #     copy of cmux-tui alone), so every terminal host re-execs the daemon's own file as before host_exe/linux.rs: the
 #     slim host's before (BEFORE lines) and after from one build on one runner in one job.
+#   infinite-items-linux.sh before=hosts ...: first runs the same build with CMUX_TUI_TERMINAL_HOST_MODEL=hosts (a
+#     cmux-tui-host per terminal, the Linux default before CMUX-571), then the product default (one holder).
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
 set -euo pipefail
 counts="10,100,1000"
@@ -66,8 +68,13 @@ if [[ "$before" == own-exe ]]; then
   python3 scripts/measure/infinite-items.py --acpmux "$target/release/acpmux" --tui "$own_dir/cmux-tui" \
     --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/BEFORE /' || status=$?
   rm -rf "$own_dir"
+elif [[ "$before" == hosts ]]; then
+  echo "INFINITE-AB before=hosts after=product head=$(git rev-parse HEAD)"
+  python3 scripts/measure/infinite-items.py --acpmux "$target/release/acpmux" --tui "$target/release/cmux-tui" \
+    --terminal-host-model=hosts --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 \
+    | sed -u 's/^/BEFORE /' || status=$?
 elif [ -n "$before" ]; then
-  echo "infinite-items-linux.sh: unknown before=$before (own-exe)" >&2
+  echo "infinite-items-linux.sh: unknown before=$before (own-exe, hosts)" >&2
   exit 2
 fi
 python3 scripts/measure/infinite-items.py --acpmux "$target/release/acpmux" --tui "$target/release/cmux-tui" \

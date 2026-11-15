@@ -30,8 +30,8 @@ PERF_ROW-style JSON line per headline, and --out JSON with every sample. Headlin
   per_day          the least-squares slope over the simulated days (MB, disk MB) after creation.
 INFINITE-PERITEM lines give each role at each N: procs, threads, PSS MB and its MB per item over the empty
 pair, and idle wakeups/s. INFINITE-DISKGROW lines name the files whose bytes grow most per simulated day (paths
-with their ids folded to *, so a file per chat is one line), the next disk slope to bound. --terminal-host-model=holder runs the same counts with every terminal in the one
-holder process (CMUX_TUI_TERMINAL_HOST_MODEL=holder, off in the product) instead of a host per terminal.
+with their ids folded to *, so a file per chat is one line), the next disk slope to bound. --terminal-host-model=hosts runs the same counts with a terminal host per terminal
+process (CMUX_TUI_TERMINAL_HOST_MODEL=hosts) instead of the one holder process, the Linux default.
 --browser-tabs adds a browser tab to each workspace: headless cmux-tui keeps only its model (the page and
 its renderer are the app's), so it measures the daemon's share of a browser tab and no renderer.
 Measurement only: it signals and reads only the processes it started (its two daemons' trees).
@@ -378,10 +378,11 @@ class Run:
             ACPMUX_SESSION_CPU_CLASS="normal",
             CMUX_TUI_CONFIG=os.path.join(self.tui_root, "config.json"),
         )
-        # The terminal model under test, never the caller's: hosts (the product default) or the holder.
+        # The terminal model under test, never the caller's: the product default (the holder on Linux),
+        # a host per terminal, or the holder.
         env.pop("CMUX_TUI_TERMINAL_HOST_MODEL", None)
-        if self.args.terminal_host_model == "holder":
-            env["CMUX_TUI_TERMINAL_HOST_MODEL"] = "holder"
+        if self.args.terminal_host_model != "product":
+            env["CMUX_TUI_TERMINAL_HOST_MODEL"] = self.args.terminal_host_model
         # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
         return env
@@ -850,8 +851,9 @@ def main():
     p.add_argument("--root-dir", default=None)
     p.add_argument("--keep", action="store_true")
     p.add_argument("--acpmux-log", default="warn", help="acpmux --log; at info, its hibernations are summarized")
-    p.add_argument("--terminal-host-model", choices=("hosts", "holder"), default="hosts",
-                   help="hosts: a __terminal-host per terminal (the product default); holder: "
+    p.add_argument("--terminal-host-model", choices=("product", "hosts", "holder"), default="product",
+                   help="product: the build's default (the holder on Linux since CMUX-571); hosts: "
+                        "CMUX_TUI_TERMINAL_HOST_MODEL=hosts, a terminal host per terminal; holder: "
                         "CMUX_TUI_TERMINAL_HOST_MODEL=holder, one holder process for every terminal")
     p.add_argument("--agent-holder", choices=("off", "on"), default="on",
                    help="on (the product default): ACPMUX_AGENT_HOLDER=1, the daemon keeps a copy of each harness's stdio and "
