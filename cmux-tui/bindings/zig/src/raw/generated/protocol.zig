@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294";
+pub const ir_sha256 = "b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3739,6 +3739,7 @@ pub const AttachSurfaceRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_terminal_id: wire.Field([]const u8) = .absent,
     mode: wire.Field(AttachSurfaceRequestMode) = .absent,
+    output_coalesce_ms: wire.Field(u32) = .absent,
     replay_history_rows: wire.Field(u32) = .absent,
     replay_history_start: wire.Field(u64) = .absent,
     rows: wire.Field(u16) = .absent,
@@ -3769,6 +3770,7 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "expected_generation", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "expected_terminal_id", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "mode", .since = 7, .capability = null },
+                .{ .name = "output_coalesce_ms", .since = null, .capability = "attach-output-coalesce-v1" },
                 .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
                 .{ .name = "replay_history_start", .since = null, .capability = "attach-replay-history-window-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },

@@ -805,8 +805,8 @@ def main():
     p.add_argument("--terminal-host-model", choices=("hosts", "holder"), default="hosts",
                    help="hosts: a __terminal-host per terminal (the product default); holder: "
                         "CMUX_TUI_TERMINAL_HOST_MODEL=holder, one holder process for every terminal")
-    p.add_argument("--agent-holder", choices=("off", "on"), default="off",
-                   help="on: ACPMUX_AGENT_HOLDER=1, the daemon keeps a copy of each harness's stdio and "
+    p.add_argument("--agent-holder", choices=("off", "on"), default="on",
+                   help="on (the product default): ACPMUX_AGENT_HOLDER=1, the daemon keeps a copy of each harness's stdio and "
                         "replaces a host that dies (acpmux agent_host/custody.rs)")
     p.add_argument("--browser-tabs", action="store_true", help="a browser tab in each workspace too (model only)")
     p.add_argument("--out")

@@ -50,6 +50,12 @@ const PROFILE = process.env.PROFILE;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
 const CASES = process.env.CASES ?? "all";
+// CPU settle: once a launch's chats are loaded or grown, its renderers are sampled every second until two samples in
+// a row are at most SETTLE_PCT of a core (a 1 s sample counts 10 ms ticks, so a 1 % threshold would be one tick of
+// noise) or SETTLE_MAX_S pass. That time is the row cpu_settle_s, kept out of ratio_max, and the idle windows start
+// after it: a burst's drain is read as a time, not folded into the idle CPU.
+const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
+const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
 if (!["all", "main", "grown-many"].includes(CASES)) {
@@ -129,7 +135,7 @@ const median = (values: number[]) => {
 const pssMB = (pid: number) =>
   Number(/^Pss:\s+(\d+) kB/m.exec(fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"))?.[1] ?? 0) / 1024;
 
-type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number };
+type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number; settleS: number };
 
 const releases: (() => unknown)[] = [];
 const release = async () => {
@@ -428,8 +434,34 @@ try {
           `  ${name}: grew ${grow} turns a chat live in ${((performance.now() - began) / 1000).toFixed(1)} s`,
         );
       }
-      // The pages' own settling (read-ahead, fonts, the first paints) is not idle.
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const window = async (seconds: number, during?: () => Promise<void>) => {
+        const pids = renderers(root);
+        const from = cpuTicks(pids);
+        const began = performance.now();
+        if (during) await during();
+        else await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+        const elapsed = (performance.now() - began) / 1000;
+        return ((cpuTicks(pids) - from) / TICK_HZ / elapsed) * 100;
+      };
+      // The pages' own settling (read-ahead, fonts, the first paints, and after a burst its drain) is not idle: it is
+      // timed from the last record in to the first of two quiet seconds.
+      const settleFrom = performance.now();
+      const settleSamples: number[] = [];
+      let settleS = SETTLE_MAX_S;
+      for (let quietSince = -1; (performance.now() - settleFrom) / 1000 < SETTLE_MAX_S;) {
+        const sampleFrom = performance.now();
+        const pct = await window(1);
+        settleSamples.push(pct);
+        if (pct > SETTLE_PCT) quietSince = -1;
+        else if (quietSince < 0) quietSince = sampleFrom;
+        else {
+          settleS = (quietSince - settleFrom) / 1000;
+          break;
+        }
+      }
+      console.log(
+        `  ${name}: CPU settled in ${settleS.toFixed(1)} s${settleS >= SETTLE_MAX_S ? " (cap)" : ""}; samples ${settleSamples.map((v) => v.toFixed(1)).join(", ")}`,
+      );
       for (const { page } of pages) await settledAt(page).catch(() => undefined);
       if (HIDDEN) {
         // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app.
@@ -441,15 +473,6 @@ try {
           });
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
-      const window = async (seconds: number, during?: () => Promise<void>) => {
-        const pids = renderers(root);
-        const from = cpuTicks(pids);
-        const began = performance.now();
-        if (during) await during();
-        else await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-        const elapsed = (performance.now() - began) / 1000;
-        return ((cpuTicks(pids) - from) / TICK_HZ / elapsed) * 100;
-      };
       const shownProfiler = pages.at(-1)!.cdp;
       // Each reading is the median of REPEAT windows, so one noisy window on a shared runner cannot set the run's max
       // (single windows swung the worst ratio 3.1x to 15.8x between runs of the same commit). Only the first window of
@@ -527,7 +550,8 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const pids = renderers(root);
       const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
-      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length };
+      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length, settleS };
+      perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settleS, p95: settleS, unit: "s" });
       console.log(`${name} | ${row.renderers} | ${idlePct.toFixed(2)} | ${streamPct.toFixed(2)} | ${mb.toFixed(1)}`);
       perfRow({ name: `${ROW}.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
       perfRow({
@@ -580,6 +604,19 @@ try {
   console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);
   const maxRow = `${ROW}.ratio_max`;
   perfRow({ name: maxRow, p50: max, p95: max, unit: "x", target: 1.2, floor: 0.05 });
+  // The longest CPU settle of a long, grown or running launch, beside the empty launches' own: a number of its own,
+  // read against its own target in the goal record, never in ratio_max.
+  const [slowest, settleMax] = pairs
+    .map(([label, big]) => [label, big.settleS] as [string, number])
+    .reduce((a, b) => (b[1] > a[1] ? b : a));
+  const emptySettle = Math.max(...pairs.map(([, , base]) => base.settleS));
+  console.log(
+    `chat-100k-flat: longest CPU settle ${settleMax.toFixed(1)} s (${slowest}); empty ${emptySettle.toFixed(1)} s`,
+  );
+  perfRow({ name: `${ROW}.cpu_settle_s_max`, p50: settleMax, p95: settleMax, unit: "s" });
+  // What a long chat adds to the empty chats' own settle, the number the goal reads (target 2 s).
+  const excess = Math.max(0, settleMax - emptySettle);
+  perfRow({ name: `${ROW}.cpu_settle_excess_s`, p50: excess, p95: excess, unit: "s", target: 2 });
 } finally {
   await release();
 }
