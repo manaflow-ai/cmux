@@ -223,13 +223,6 @@ async fn append_replay_sample(
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
-            while !copy_go_thread.load(Ordering::Acquire) {
-                if copy_stop.load(Ordering::Acquire) {
-                    return;
-                }
-                std::thread::yield_now();
-            }
-            copy_go_thread.store(false, Ordering::Release);
             let Some(RawRead::Span(span)) =
                 receiver.try_next_raw(Some(target), MAX_REPLAY_FRAME_BYTES)
             else {
@@ -384,6 +377,13 @@ async fn append_replay_unobserved_sample(
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
+            while !copy_go_thread.load(Ordering::Acquire) {
+                if copy_stop.load(Ordering::Acquire) {
+                    return;
+                }
+                std::thread::yield_now();
+            }
+            copy_go_thread.store(false, Ordering::Release);
             let Some(RawRead::Span(span)) =
                 receiver.try_next_raw(Some(target), MAX_REPLAY_FRAME_BYTES)
             else {
@@ -451,6 +451,13 @@ async fn append_foreign_hub_sample(
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
+            while !copy_go_thread.load(Ordering::Acquire) {
+                if copy_stop.load(Ordering::Acquire) {
+                    return;
+                }
+                std::thread::yield_now();
+            }
+            copy_go_thread.store(false, Ordering::Release);
             let Some(RawRead::Span(span)) =
                 receiver.try_next_raw(Some(foreign_target), MAX_REPLAY_FRAME_BYTES)
             else {
