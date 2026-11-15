@@ -2,7 +2,7 @@
 // An in-memory Machines host for the browser dev loop (`/machines/?mock`) and the gallery: this Mac,
 // one machine of each kind and state (MachineSectionRow.fixtures), and the hub's joined machines.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { MachinesOps, type MachineRow, type MachinesSnapshot } from "./types";
+import { MachinesOps, type JoinedDialAnswer, type MachineRow, type MachinesSnapshot } from "./types";
 
 export const thisMac: MachineRow = {
   id: "local",
@@ -75,6 +75,9 @@ export class MockMachinesProvider implements PageClient {
   private listeners = new Set<(snapshot: MachinesSnapshot) => void>();
   readonly calls: { op: string; params: unknown }[] = [];
 
+  /** What `openJoined` answers, in turn; the last one repeats (the other Mac shows its card and
+   * nobody answers yet). */
+  dialAnswers: JoinedDialAnswer[] = [{ state: "consent_required" }];
   /** What `remove` answers (a test sets false for a refused Remove). */
   removeAnswer = true;
   /** Holds `remove`'s answer until `release` (a test reads the list while the host is still busy). */
@@ -102,6 +105,10 @@ export class MockMachinesProvider implements PageClient {
         return { ran: true } as R;
       case MachinesOps.menu:
         return {} as R;
+      case MachinesOps.openJoined:
+        return ((this.dialAnswers.length > 1 ? this.dialAnswers.shift() : this.dialAnswers[0]) ?? {
+          state: "unavailable",
+        }) as R;
       case MachinesOps.remove:
         await this.hold;
         return { removed: this.removeAnswer } as R;

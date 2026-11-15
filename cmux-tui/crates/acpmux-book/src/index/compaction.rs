@@ -102,7 +102,10 @@ impl Compaction {
             0,
             None,
             self.covered_generation,
-            index.origins().cloned().collect(),
+            super::snapshot::SnapshotMeta {
+                origins: index.origins().cloned().collect(),
+                marks: index.mirror_marks().collect(),
+            },
             index.merged_rows().filter_map(|row| {
                 if cancelled.load(Ordering::Acquire) {
                     return Some(Err(io::Error::new(

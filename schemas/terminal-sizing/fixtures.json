@@ -1165,6 +1165,139 @@
       ]
     },
     {
+      "name": "smallest never gives a counting phone a grid narrower than itself",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 120,
+              "rows": 40
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 54,
+              "rows": 40
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 40,
+          "owners": [
+            "mac",
+            "phone"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "report",
+          "id": "mac",
+          "cols": 39,
+          "rows": 26
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 26,
+          "owners": [
+            "mac",
+            "phone"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "tablet",
+            "user_id": "u2",
+            "device_kind": "ipad",
+            "viewport": {
+              "cols": 50,
+              "rows": 30
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 50,
+          "rows": 26,
+          "owners": [
+            "mac",
+            "tablet"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "detach",
+          "id": "tablet"
+        },
+        {
+          "op": "set_counts",
+          "id": "phone",
+          "counts_override": false
+        },
+        {
+          "op": "expect",
+          "cols": 39,
+          "rows": 26,
+          "owners": [
+            "mac"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "set_counts",
+          "id": "phone",
+          "counts_override": null
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 26,
+          "owners": [
+            "mac",
+            "phone"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "clear_viewport",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 39,
+          "rows": 26,
+          "owners": [
+            "mac"
+          ],
+          "reason": "smallest"
+        }
+      ]
+    },
+    {
       "name": "attach clamps a zero viewport to the smallest grid",
       "initial": {
         "cols": 80,

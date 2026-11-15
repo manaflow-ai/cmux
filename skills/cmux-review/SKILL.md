@@ -45,13 +45,10 @@ fixes, do not revert.
 Post the verdict as a PR comment whose first line is the receipt, and put nothing
 before it: `Review (<reviewer>): SHIP at <full 40-character head sha>` (or `BLOCK`,
 `FIX`). Findings go below that line. A SHIP counts only for the exact head it
-names. Every agent posts as the PR author's GitHub account, so a receipt from that
-account must name the reviewer agent and the agent that started it:
-`Review (<reviewer agent id>, started by <agent id>): SHIP at <sha>`. The PR body
-names its author agent on one line, `Author-agent: <agent id>`. Such a SHIP does not
-count when either id is the author agent or the PR body has no `Author-agent:` line;
-a BLOCK always counts (`scripts/ci/risk_tier.py`). So the author agent never
-starts its own reviewer: the lead (or another agent) starts it. A receipt that carries an older head's SHIP to a new head across a base
+names. A SHIP counts from any reviewer, any model family, the PR's own agent
+included (Leo, 2026-11-14, on "need a review from a model family other than":
+"this is no longer a requirement"); a BLOCK at the head still refuses
+(`scripts/ci/risk_tier.py`). A receipt that carries an older head's SHIP to a new head across a base
 merge is not a review. Mark it in the reviewer label:
 `Review (<reviewer>; carried): SHIP at <new head sha>`. next-autoland and
 `scripts/ci/review_receipt.py` (on main) treat a first line as carried when the label says carried, or

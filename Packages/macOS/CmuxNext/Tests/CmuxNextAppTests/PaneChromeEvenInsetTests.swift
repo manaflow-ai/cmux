@@ -80,17 +80,17 @@ import Testing
     }
 
     @Test(arguments: Density.allCases)
-    func theMoreButtonSitsOnThePanesTrailingControlColumn(density: Density) {
+    func theTrailingButtonSitsOnThePanesTrailingControlColumn(density: Density) {
         defer { reset() }
         load(.floating, density: density)
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 120, height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2)))
-        toolbar.show(more: true, lit: false)
+        toolbar.show(zoomed: true)
         toolbar.layoutSubtreeIfNeeded()
-        // The fixed trailing slot, at rest and throughout the hover fade.
-        let more = toolbar.moreFrame()
-        let center = toolbar.bounds.maxX - more.midX
-        #expect(more.minY > 0)
+        // The fixed trailing slot (Exit Zoom, or the last pin), at rest and throughout the hover fade.
+        let slot = toolbar.zoomButton.frame
+        let center = toolbar.bounds.maxX - slot.midX
+        #expect(slot.minY > 0)
         #expect(abs(center - Metrics.paneTrailingControlCenter) <= 0.01,
-                "\(density): \"…\" centered \(center) pt from the trailing edge, the column is \(Metrics.paneTrailingControlCenter) pt")
+                "\(density): the trailing button centered \(center) pt from the trailing edge, the column is \(Metrics.paneTrailingControlCenter) pt")
     }
 }

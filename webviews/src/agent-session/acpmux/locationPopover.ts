@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UiVirtualAnchor } from "../../ui/Popover";
 import type { UiPopupFlip, UiPopupSide } from "../../ui/openSide";
 import { resolveUiSide } from "../../ui/anchor";
+import { interfaceScale, viewOf } from "../../ui/interfaceScale";
 import { registerPicker } from "./pickerOpeners";
 
 /// The composer a location control heads: the chat pane's form, or the New Tab page's composer.
@@ -60,19 +61,35 @@ export function locationMenuSide(
   const rect = control?.getBoundingClientRect();
   if (!rect) return undefined;
   const away = sideAwayFromChat(control, viewportHeight);
+  const { tallest, shortest } = locationMenuHeights(interfaceScale(viewOf(control)));
   const resolved = away
-    ? resolveUiSide(rect, LOCATION_MENU_MIN_HEIGHT, viewportHeight, { side: away === "top" ? "above" : "below" })
-    : resolveUiSide(rect, LOCATION_MENU_HEIGHT, viewportHeight, { side: "below" });
+    ? resolveUiSide(rect, shortest, viewportHeight, { side: away === "top" ? "above" : "below" })
+    : resolveUiSide(rect, tallest, viewportHeight, { side: "below" });
   return resolved === "above" ? "top" : "bottom";
 }
 
-/// A location menu at its tallest: the folder list's cap (composerLocation.css), a field or
-/// Choose folder…, and the menu's padding.
-const LOCATION_MENU_HEIGHT = 320;
+/// The folder list's cap (`.acpmux-location-folders`, composerLocation.css): a fixed height its rows
+/// scroll in, at any Text Size.
+const LOCATION_FOLDERS_CAP = 260;
 
-/// A location menu at its shortest useful size: the search field, the pinned actions (Add folder…,
-/// No folder and the like), two folder rows and the menu's padding.
+/// What a location menu draws around its folder list at the default Text Size: a field or Choose
+/// folder… and the menu's padding. Rows and padding follow Text Size.
+const LOCATION_MENU_CHROME = 60;
+
+/// A location menu at its shortest useful size at the default Text Size: the search field, the
+/// pinned actions (Add folder…, No folder and the like), two folder rows and the menu's padding.
+/// All rows, so all of it follows Text Size.
 const LOCATION_MENU_MIN_HEIGHT = 220;
+
+/// The heights that pick a location menu's side at interface scale `scale`, CSS px: at its tallest
+/// (the list at its cap) and at its shortest useful size. The rows grow with Text Size, so a side
+/// with room for the menu at 12 pt can be short of it at 16 (Leo, 2026-11-12: "it doesn't follow").
+export function locationMenuHeights(scale: number): { tallest: number; shortest: number } {
+  return {
+    tallest: LOCATION_FOLDERS_CAP + LOCATION_MENU_CHROME * scale,
+    shortest: LOCATION_MENU_MIN_HEIGHT * scale,
+  };
+}
 
 /// Automation opens a location menu by its stable name (`openPicker`: "Computer", "Location"),
 /// as a click does: the focus leaves the prompt, then the menu opens. A label (a started chat)

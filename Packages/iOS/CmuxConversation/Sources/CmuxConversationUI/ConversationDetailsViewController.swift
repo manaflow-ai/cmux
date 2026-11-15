@@ -21,6 +21,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     /// Messages' backdrop: the transcript blurred at radius 16 under a 60 %
     /// wash of the background color (`ConversationVeilBlur.details`).
     private let blur = UIVisualEffectView(effect: nil)
+    // motion: allow static blur, a paused animator that only holds the blur amount and never runs
     private var blurAnimator: UIViewPropertyAnimator?
     private let wash = UIView()
     private let pages = UIScrollView()
@@ -192,6 +193,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     private func applyBlur() {
         guard blurAnimator == nil else { return }
         let veil = ConversationVeilBlur.details(dark: traitCollection.userInterfaceStyle == .dark)
+        // motion: allow static blur, a paused animator that only holds the blur amount and never runs
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear)
         animator.addAnimations { [blur] in blur.effect = UIBlurEffect(style: .systemUltraThinMaterial) }
         animator.pausesOnCompletion = true
@@ -302,6 +304,8 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     }
 
     func showPage(_ index: Int, animated: Bool) {
+        // Under Reduce Motion the page and the tab capsule land at once.
+        let animated = animated && !UIView.reducesMotion
         tabBar?.select(index, animated: animated)
         pages.setContentOffset(CGPoint(x: CGFloat(index) * pages.bounds.width, y: 0), animated: animated)
         UIAccessibility.post(notification: .layoutChanged, argument: index == 0 ? infoPage.table : backgroundsPage?.scroll)
@@ -617,7 +621,7 @@ final class ConversationDetailsTabBar: UIView {
     /// response 0.435 s) and settles from its lift on the same spring.
     func select(_ index: Int, animated: Bool) {
         selectedIndex = index
-        guard animated, window != nil else {
+        guard animated, !UIView.reducesMotion, window != nil else {
             selectionMove = nil
             liftMove = nil
             selection = CGFloat(index)
@@ -629,6 +633,12 @@ final class ConversationDetailsTabBar: UIView {
     }
 
     private func moveLift(to target: CGFloat, spring: SendMenuGeometry.Spring) {
+        // Under Reduce Motion the capsule takes its lift at once, no spring.
+        guard !UIView.reducesMotion else {
+            liftMove = nil
+            lift = target
+            return
+        }
         liftMove = (lift, target, CACurrentMediaTime(), spring)
         startLink()
     }

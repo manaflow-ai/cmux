@@ -281,6 +281,20 @@ fn git_files_joins_the_query_and_takes_a_limit() {
 }
 
 #[test]
+fn git_fingerprint_takes_a_scope_of_a_work_tree_only() {
+    assert_eq!(
+        sent(&["git", "fingerprint", "--path", "/repo"]),
+        ("git.fingerprint".into(), json!({"path": "/repo", "scope": "uncommitted"}))
+    );
+    assert_eq!(
+        sent(&["git", "fingerprint", "--path", "/repo", "--scope", "branch"]),
+        ("git.fingerprint".into(), json!({"path": "/repo", "scope": "branch"}))
+    );
+    assert!(rejects(&["git", "fingerprint", "--scope", "commits"]).contains("--scope"));
+    assert!(rejects(&["git", "fingerprint", "--scope", "committed"]).contains("--scope"));
+}
+
+#[test]
 fn git_comments_are_keyed_by_the_root_and_never_by_a_repository_target() {
     let here = std::env::current_dir().unwrap().to_string_lossy().into_owned();
     assert_eq!(

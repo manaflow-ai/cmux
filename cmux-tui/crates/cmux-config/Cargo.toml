@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 cmux-json.workspace = true
+cmux-theme-tokens.workspace = true
 base64.workspace = true
 notify.workspace = true
 plist = "1"

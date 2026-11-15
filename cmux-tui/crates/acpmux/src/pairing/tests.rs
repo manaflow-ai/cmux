@@ -214,6 +214,7 @@ fn the_read_only_gate_allows_reads_and_nothing_else() {
         MUX_TAG,
         MUX_VIEW,
         MUX_MARK_UNREAD,
+        MUX_MARK_READ,
         MUX_DRAFT_SET,
         MUX_MAIL_SEND,
         MUX_PROCESS_KILL,

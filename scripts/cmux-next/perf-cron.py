@@ -167,6 +167,15 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
+    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
+    {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
+    # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
+    # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
+    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals.
+    {"name": "throughput", "args": [*MEASURE, "--suite=terminal-throughput"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput"},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -182,6 +191,23 @@ PARTS = [
     # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
     # six benches take about 13 minutes.
     {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god"},
+    # Infinite items (scripts/measure/infinite-items.py, CMUX-571): a release acpmux and headless cmux-tui with 10, 100
+    # and 1,000 workspaces (a terminal tab and an agent chat each) through simulated days; memory vs empty, idle CPU
+    # and growth per day, the rows behind goal infinite-items-flat in cmuxterm-hq's NOW.
+    {"name": "infinite-items", "where": "linux", "kind": "webui", "needs": "infinite-items"},
+    # A 1,000,000-event chat (webviews/bench/million-event-chat.bench.ts, CMUX-571, cmux#37713): the pane client's open,
+    # one older page and its heap, for long turns and for 4-record turns. Its own part (about 2 minutes).
+    {"name": "web-ui-million", "where": "linux", "kind": "webui", "needs": "web-ui-million"},
+    # A chat at any length (webviews/bench/chat-100k-flat.bench.ts, goal chats-flat-at-any-length in cmuxterm-hq's NOW):
+    # a 100k-row chat opened and grown live, one and 20 at once, against empty chats: renderer idle CPU, streaming CPU
+    # and PSS, and the worst of those ratios (chat_100k_flat.ratio_max). Its own part, under the 30-minute run cap.
+    {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
+    {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
+    # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
+    # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
+    {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -189,11 +215,21 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
-    (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.", "web-ui"),
+    (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.infinite_items\.", "infinite-items"),
+    (r"^webui\.million_event_chat\.", "web-ui-million"),
+    (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
+    (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.chat_disk\.", "chat-disk"),
+    (r"^webui\.", "web-ui"),
 ]
+# Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
+# here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
+# memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged.
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -788,6 +824,23 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-god":
         only = ",".join(GOD_BENCHES + [f"{b}-god" for b in GOD_BENCHES])
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-million":
+        only = "million-event-chat,million-event-chat-short"
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-flat":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-flat-grown":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
+                          os.path.join(root, "webviews"), {})}
+    if part == "chat-disk":
+        script = os.path.join(root, CHAT_DISK)
+        return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "infinite-items":
+        # The release build first, in a run of its own: a cold one takes about 15 minutes, and each run has its own
+        # 30-minute cap. The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
+        script = os.path.join(root, INFINITE_ITEMS)
+        return {"build": (["bash", script, "build-only"], root or ".", {}),
+                "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -829,7 +882,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
     over its target, with base None and why NO_REFERENCE: it has no culprit range, but it is not a silent pass."""
     skipped = (set(refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms)) | set(os_changed(rows, base_rows))
                | set(version_changed(rows, base_rows)))
-    rows = {n: r for n, r in rows.items() if n not in skipped}
+    rows = {n: r for n, r in rows.items() if n not in skipped and not REPORT_ONLY_ROW_RE.match(base_row(n))}
     listed = [{"name": n, "p95": r["p95"], "floor": row_floor(n, r)} for n, r in rows.items()]
     worse = {r["name"]: r for r in budgets_mod.compare(listed, {n: b["p95"] for n, b in base_rows.items() if b.get("p95") is not None})}
     out = []
@@ -1113,8 +1166,10 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     # runs no CI job (it is a controller worker only), so a part there takes nothing: a measurement not pinned to
     # another host goes to it. From 2026-11-13 16:43Z to 11-14 02:29Z a nightly job was queued for a signing runner
     # at every tick, and no Mac part ran while the bench host could have taken each one.
+    # A bench host the measurement gave up for its silence (give_up_host) is still asked here: the give-up is for
+    # trying another host, and this rule leaves none. 2026-11-15 00:54Z to 02:54Z: no Mac part was asked for.
     bench_only = bool(github_busy and fleet and cur.get("host") in (None, BENCH_WORKER)
-                      and not host_avoided(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
+                      and not host_unreachable(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
     if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
@@ -1279,6 +1334,28 @@ RATE_LIMITED = "RATE_LIMITED"
 class RateLimited(Exception):
     """GitHub refused a call for the rate limit (403 or 429 with no calls left, a Retry-After, or that message)."""
 
+    # Seconds until GitHub says it takes calls again (Retry-After, or the reset time of a spent limit); None when
+    # the refusal does not say.
+    wait = None
+
+
+def limit_wait(error):
+    headers = getattr(error, "headers", None) or {}
+    try:
+        if headers.get("retry-after"):
+            return max(0, int(headers.get("retry-after")))
+        if headers.get("x-ratelimit-remaining") == "0" and headers.get("x-ratelimit-reset"):
+            return max(0, int(headers.get("x-ratelimit-reset")) - int(time.time()))
+    except ValueError:
+        pass
+    return None
+
+
+def refused_for_the_limit(what, error):
+    refused = RateLimited(f"{what}: HTTP {error.code}")
+    refused.wait = limit_wait(error)
+    return refused
+
 
 def rate_limited(error):
     if not isinstance(error, urllib.error.HTTPError) or error.code not in (403, 429):
@@ -1310,7 +1387,7 @@ def gh_request(path, method="GET", body=None, raw=False, timeout=30):
             payload = r.read()
     except urllib.error.HTTPError as error:
         if rate_limited(error):
-            raise RateLimited(f"{method} {gh_shape(path)}: HTTP {error.code}") from error
+            raise refused_for_the_limit(f"{method} {gh_shape(path)}", error) from error
         raise
     return payload if raw else (json.loads(payload) if payload else {})
 
@@ -1421,7 +1498,7 @@ def download_redirected(url, timeout=120):
             return r.read()
     except urllib.error.HTTPError as error:
         if rate_limited(error):
-            raise RateLimited(f"GET {gh_shape(url)}: HTTP {error.code}") from error
+            raise refused_for_the_limit(f"GET {gh_shape(url)}", error) from error
         if error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
             raise
         location = error.headers["Location"]
@@ -1604,7 +1681,19 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
         elif need == "web-ui-growth":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
-        elif need in ("perf-gate", "launch"):
+        elif need == "web-ui-flat":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
+        elif need == "web-ui-million":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{MILLION_EVENT_BENCH}"], capture_output=True).returncode == 0
+        elif need == "infinite-items":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
+        elif need == "chat-disk":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "terminal-throughput":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            ok = "--suite=terminal-throughput" in text
+        elif need in ("perf-gate", "launch", "memory-agents"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
@@ -1644,6 +1733,10 @@ DIFF_LEGACY_VERSION = 1
 WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
 UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
+MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
+FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
+CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
 GOD_FIXTURE = "webviews/bench/godFixture.ts"
@@ -1727,10 +1820,14 @@ ON_BRANCH_KEEP = 300  # commits the state remembers as verified on the branch (e
 
 def commit_on_branch(repo, tip, known=()):
     """ok(sha): the sha is 40 hex characters and an ancestor of tip (or tip). The plan's checkout is shallow, so a
-    commit it does not have is asked of the GitHub compare API ('ahead' or 'identical': on the branch), once: known
-    holds the commits a trusted earlier tick verified (feat-cmux-next is never rewritten). ok.verified lists every
-    commit found on the branch, for the state. A rate-limit refusal is raised, never read as 'not on the branch' (that
-    would drop the state's commits)."""
+    commit it cannot place under tip is asked of the GitHub compare API ('ahead' or 'identical': on the branch), once:
+    known holds the commits a trusted earlier tick verified (feat-cmux-next is never rewritten). ok.verified lists
+    every commit found on the branch, for the state. A rate-limit refusal is raised, never read as 'not on the branch'
+    (that would drop the state's commits).
+
+    Only the checkout's yes counts. It is a partial clone too, so asking for a commit older than its depth fetches
+    that one commit with no path to tip, and 'not an ancestor' is then true of every such commit: on 2026-11-14 each
+    tick dropped its bisect step at 281f9aa9680d that way and started it again (15:20Z to 17:27Z, 0 of 3 parts)."""
     cache = {sha: True for sha in known if is_sha(sha)}
 
     def ok(sha):
@@ -1738,8 +1835,8 @@ def commit_on_branch(repo, tip, known=()):
             return False
         if sha not in cache:
             have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0
-            if have:
-                cache[sha] = is_ancestor(sha, tip)
+            if have and is_ancestor(sha, tip):
+                cache[sha] = True
             else:
                 try:
                     cache[sha] = gh_request(f"/repos/{repo}/compare/{sha}...{tip}").get("status") in ("ahead", "identical")
@@ -2495,9 +2592,25 @@ def write_outputs(path, values):
             f.write(f"{k}={v}\n")
 
 
+# Past the time GitHub names, before the state is read again.
+LIMIT_WAIT_SLACK_S = 5
+
+
 def cmd_fetch_state(o):
+    # A result run (--wait-limit) carries the controller's result of a part that ran on the bench: doing nothing
+    # drops it and the next tick asks for the same part again (2026-11-14: the build of babcb18cd895 ran twice and
+    # both results met a spent limit). It waits for the limit's reset, once, and reads the state then.
+    limit = getattr(o, "wait_limit", 0) or 0
     try:
-        fetch_state(o.repo, o.dir)
+        try:
+            fetch_state(o.repo, o.dir)
+        except RateLimited as error:
+            if error.wait is None or error.wait > limit:
+                raise
+            print(f"perf-cron: GitHub rate limit ({error}); waiting {error.wait} s for its reset to keep this run's result",
+                  flush=True)
+            time.sleep(error.wait + LIMIT_WAIT_SLACK_S)
+            fetch_state(o.repo, o.dir)
     except RateLimited as error:
         # No state read: the plan must not start from an empty one. It and the report see the mark and do nothing.
         os.makedirs(o.dir, exist_ok=True)
@@ -3438,6 +3551,8 @@ def main(argv=None):
     s = sub.add_parser("fetch-state", help="download the newest perf-cron-state artifact")
     s.add_argument("--repo", required=True)
     s.add_argument("--dir", required=True)
+    s.add_argument("--wait-limit", type=int, default=0,
+                   help="wait at most this many seconds for a rate limit's reset, then read the state again (0: never)")
     s = sub.add_parser("plan", help="pick this tick's work (Linux)")
     s.add_argument("--repo", required=True)
     s.add_argument("--dir", required=True)

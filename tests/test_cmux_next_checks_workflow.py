@@ -1488,7 +1488,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
-        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files", "path_route",
+        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "dev-landing-compile", "fast-tier", "generated-files", "path_route",
                                            "release-compile", "request-nightly-next",
                                            "swift-canary", "swift-test", "web-bundles"])
 
@@ -2582,7 +2582,8 @@ FAST_TIER_REPORT_CLAUSE = (
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
-    "needs.fast-tier-fleet.outputs.verdict == 'queued' && fromJSON(vars.RUNNER_POOLS).macos_26 || "
+    "needs.fast-tier-fleet.outputs.verdict == 'queued' && (vars.CI_BLACKSMITH_MACOS != 'on' && "
+    "vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || "
 )
 
 
@@ -2597,8 +2598,10 @@ class FastTierRunner(unittest.TestCase):
         self.assertLess(runs_on.index(FAST_TIER_FORK_CLAUSE), runs_on.index("outputs.fast_runner"))
         self.assertTrue(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE) == runs_on.index(FAST_LANE_CLAUSE))
         self.assertIn(FAST_LANE_CLAUSE + FAST_TIER_REPORT_CLAUSE, runs_on)
-        self.assertLess(runs_on.index("outputs.retry_runner"), runs_on.index("vars.CI_SIDE_LANE_RUNNER"))
-        self.assertLess(runs_on.index("outputs.deferred_runner"), runs_on.index("vars.CI_SIDE_LANE_RUNNER"))
+        # The owned side lane route; the Blacksmith off switch (note-350) reads the variable earlier as well.
+        side = runs_on.index("vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER")
+        self.assertLess(runs_on.index("outputs.retry_runner"), side)
+        self.assertLess(runs_on.index("outputs.deferred_runner"), side)
         self.assertIn("outputs.owned_jobs", runs_on)
         self.assertIn("outputs.retry_runner", runs_on)
         # No env value mirrors runs-on with the old route.
@@ -2741,7 +2744,8 @@ def evaluate(expression: str, context: dict):
     text = text.replace("&&", " and ").replace("||", " or ")
     text = re.sub(r"!(?!=)", " not ", text)
     text = re.sub(r"(?<!')\btrue\b(?!')", "True", text)
-    eval_context = {"vars.RUNNER_POOLS": DEFAULT_RUNNER_POOLS, **context}
+    # Blacksmith macOS on unless a test says otherwise (docs/ci/cmux-next-workflow-notes.md#note-350).
+    eval_context = {"vars.RUNNER_POOLS": DEFAULT_RUNNER_POOLS, "vars.CI_BLACKSMITH_MACOS": "on", **context}
     names = {
         "_ctx": _UnsetIsEmpty(eval_context),
         "always": lambda: True,
@@ -3959,7 +3963,41 @@ esac
                     self.assertIn(f"--ref {self.REF}", line)
                     self.assertIn("--script scripts/ci/package-test-lane.sh", line)
                     self.assertIn("--arg=suite", line)
+            if scenario.get("FFI_REPIN") == "true" and client:
+                submitted = calls.read_text().splitlines()
+                self.assertEqual(len(submitted), 1, "a re-pin submits only the handler suite")
+                self.assertIn("--arg=Packages/macOS/CmuxNext --arg=HandlerCoverageTests", submitted[0])
             return done.returncode, output, done.stdout + done.stderr
+
+    def test_a_repin_runs_handler_coverage_and_preserves_its_failure(self):
+        for nxt, expected in (("pass", (0, "pass")), ("fail", (1, "fail")),
+                              ("other", (1, "unavailable")), ("queued", (0, "queued"))):
+            with self.subTest(next=nxt):
+                status, output, log = self.run_client(
+                    {"FFI_REPIN": "true", "FAKE_HOME": "fail", "FAKE_NEXT": nxt})
+                self.assertEqual((status, self.verdict(output)), expected, log)
+
+    def test_the_mac_runner_selects_only_handler_coverage_for_a_repin(self):
+        step = next(s for s in self.jobs()["fast-tier"]["steps"] if s.get("id") == "fast-tier-run")
+        fingerprint = next(s for s in self.jobs()["fast-tier"]["steps"] if s.get("id") == "reuse-key")
+        scope = re.search(r'--extra "suite_scope=(.*?)"', fingerprint["run"]).group(1)
+        for repin in ("true", "false", ""):
+            with self.subTest(repin=repin), tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(evaluate(scope, {"needs.path_route.outputs.ffi_repin": repin}),
+                                 "handlers" if repin == "true" else "all")
+                root = Path(tmp)
+                fake = root / "python3"
+                fake.write_text('#!/bin/bash\nprintf "%s\\n" "$@" > "$ARGS_FILE"\n')
+                fake.chmod(0o755)
+                script = re.sub(r"\$\{\{.*?\}\}", tmp, step["run"])
+                env = git_fixture_env.fixture_env({"PATH": tmp, "RUNNER_TEMP": tmp,
+                      "ARGS_FILE": str(root / "args"), "FFI_REPIN": repin})
+                subprocess.run(["/bin/bash", "-eu", "-c", script], env=env, check=True,
+                               capture_output=True, text=True, timeout=10)
+                args = (root / "args").read_text().splitlines()
+                self.assertEqual("--only" in args, repin == "true")
+                if repin == "true":
+                    self.assertEqual(args[args.index("--only") + 1], "app handler coverage")
 
     def verdict(self, output: str) -> str:
         return dict(line.split("=", 1) for line in output.splitlines() if "=" in line).get("verdict", "")

@@ -15,11 +15,15 @@ public nonisolated struct SidebarCustomSection: Hashable, Sendable {
     public var id: String
     public var title: String?
     public var showsTitle: Bool
+    /// The document band that owns this section. Projection customization
+    /// reorders only inside this band, preserving fixed app/sidebar regions.
+    public var region: SidebarRegion
 
-    public init(id: String, title: String? = nil, showsTitle: Bool = false) {
+    public init(id: String, title: String? = nil, showsTitle: Bool = false, region: SidebarRegion = .middle) {
         self.id = id
         self.title = title
         self.showsTitle = showsTitle
+        self.region = region
     }
 }
 

@@ -96,12 +96,21 @@ pathlib.Path(sys.argv[sys.argv.index("-o") + 1]).touch()
 
 
 class ShippingFeatureTests(unittest.TestCase):
-    def flags(self, manifest, target):
+    def flags(self, manifest, target, *dep):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "Cargo.toml"
             path.write_text(manifest)
             return subprocess.check_output([str(ROOT / "scripts/ci/acpmux-build-features.sh"),
-                                            str(path), target], text=True).strip()
+                                            str(path), target, *dep], text=True).strip()
+
+    def test_standalone_build_names_the_acpmux_dependency(self):
+        # The macOS legs build acpmux-standalone, which turns the shipping features on through its
+        # acpmux dependency; a bare `--features=tailnet` would name a feature it does not have.
+        manifest = "[features]\ntailnet = []\nhub-carrier = []\n"
+        self.assertEqual(self.flags(manifest, "aarch64-apple-darwin", "acpmux"),
+                         "--features=acpmux/tailnet,acpmux/hub-carrier")
+        self.assertEqual(self.flags(manifest, "x86_64-pc-windows-gnu", "acpmux"), "")
+        self.assertEqual(self.flags(manifest, "aarch64-apple-darwin"), "--features=tailnet,hub-carrier")
 
     def test_mac_ships_tailnet_when_supported(self):
         for target in ["aarch64-apple-darwin", "x86_64-apple-darwin"]:

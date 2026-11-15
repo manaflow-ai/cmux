@@ -148,7 +148,7 @@
      wallpaper's color into the row text, 70% read solid). Before, only the model menus had it and
      every other popup was clear, so the model picker and the context card read as two materials
      side by side (gallery ui.menu-material). */
-  --host-glass-fill: color-mix(in srgb, var(--glass-surface) 40%, transparent);
+  --host-glass-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-veil, 40%), transparent);
 }
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);

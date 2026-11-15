@@ -10,6 +10,7 @@ use acpmux_book::index::{
     Summary, SummaryIndex, replay_generation_logs,
 };
 use arc_swap::ArcSwap;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,7 +20,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
 use tokio::sync::Notify;
 
-use crate::wire::{Frame, FrameError, FrameKind, Origin, Sub};
+use crate::wire::{Frame, FrameError, FrameKind, Origin, PageSide, Position, Sub};
 mod compaction;
 mod disk;
 #[cfg(test)]
@@ -31,10 +32,22 @@ mod folder_tests;
 mod folders;
 mod history;
 mod keyed_page;
+mod mirror;
+#[cfg(test)]
+mod mirror_gates;
+#[cfg(test)]
+mod mirror_tests;
 mod origins;
+pub use acpmux_book::index::MirrorMark;
+#[cfg(test)]
+mod peer_tests;
 pub use compaction::CompactionStats;
-use history::History;
-pub use origins::{Source, refused_held_rows};
+use history::{History, PeerHistory};
+pub use mirror::{
+    MAX_FRAME_CHANGES, MAX_TURN_UNIT_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit,
+    TakeoverTurns, UnitChange,
+};
+pub use origins::{MAX_ORIGINS, Source, refused_held_rows};
 
 pub use crate::wire::{DeltaFrame, Window};
 
@@ -75,6 +88,7 @@ enum PendingUpdate {
     Gone { source: Source },
     Origin { record: OriginRecord },
     Takeover { origin: String, source: Source },
+    Unit { source: Source, unit: Box<MirrorUnit> },
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
@@ -88,6 +102,8 @@ enum UpdateKey {
 struct Pending {
     rows: HashMap<(RowKey, Source), PendingUpdate>,
     controls: std::collections::BTreeMap<UpdateKey, std::collections::VecDeque<PendingUpdate>>,
+    /// Origins whose unit failed its append and waits in the writer's retry.
+    retrying: std::collections::HashSet<Arc<str>>,
 }
 
 impl Pending {
@@ -160,6 +176,23 @@ impl UpdateQueue {
                         slot.clear();
                         slot.push_back(update);
                     }
+                } else if let UpdateKey::Source(origin) = &key {
+                    // Units and takeovers keep their order in the origin's
+                    // slot. Only a takeover right behind another replaces it.
+                    let unit = matches!(update, PendingUpdate::Unit { .. });
+                    if unit && pending.retrying.contains(origin) {
+                        return Err(HubError::UnitQueueFull);
+                    }
+                    let slot = pending.controls.entry(key).or_default();
+                    if unit
+                        && slot.iter().any(|queued| matches!(queued, PendingUpdate::Unit { .. }))
+                    {
+                        return Err(HubError::UnitQueueFull);
+                    }
+                    if !unit && matches!(slot.back(), Some(PendingUpdate::Takeover { .. })) {
+                        slot.pop_back();
+                    }
+                    slot.push_back(update);
                 } else {
                     let slot = pending.controls.entry(key).or_default();
                     slot.clear();
@@ -179,20 +212,37 @@ impl UpdateQueue {
 
     #[cfg(test)]
     fn take_batch(&self) -> Vec<(UpdateKey, PendingUpdate)> {
-        self.take_batch_limit(256)
+        self.take_batch_limit(256, MAX_TURN_UNIT_CHANGES)
     }
 
-    fn take_batch_limit(&self, limit: usize) -> Vec<(UpdateKey, PendingUpdate)> {
+    /// At most `limit` updates, and units of at most `unit_changes` changes
+    /// together (one unit at least): an origin's unit past that count waits in
+    /// its slot, with what queued behind it, for the next turn.
+    fn take_batch_limit(
+        &self,
+        limit: usize,
+        unit_changes: usize,
+    ) -> Vec<(UpdateKey, PendingUpdate)> {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
         let mut batch = Vec::new();
+        let mut changes = 0;
+        let mut waiting = Vec::new();
         while batch.len() < limit {
             let Some((key, mut updates)) = pending.controls.pop_first() else { break };
+            if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
+                if changes > 0 && changes + unit.changes.len() > unit_changes {
+                    waiting.push((key, updates));
+                    continue;
+                }
+                changes += unit.changes.len();
+            }
             let Some(update) = updates.pop_front() else { continue };
             if !updates.is_empty() {
                 pending.controls.insert(key.clone(), updates);
             }
             batch.push((key, update));
         }
+        pending.controls.extend(waiting);
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
         batch.extend(keys.into_iter().filter_map(|key| {
             pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
@@ -225,6 +275,8 @@ pub struct ListReceiver {
     subscriber: Arc<Subscriber>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    replay_snapshot: Option<Arc<history::HistorySnapshot>>,
+    peer_history: Option<Arc<Mutex<Option<PeerHistory>>>>,
     folders: bool,
     folder_state: Arc<Mutex<folders::FolderState>>,
     published: Arc<ArcSwap<SummaryIndex>>,
@@ -244,6 +296,18 @@ impl Drop for ListReceiver {
 }
 
 impl ListReceiver {
+    #[cfg(test)]
+    pub(crate) fn replay_snapshot_probe(&self) -> Option<std::sync::Weak<dyn Send + Sync>> {
+        self.replay_snapshot.as_ref().map(|snapshot| {
+            let snapshot: Arc<dyn Send + Sync> = snapshot.clone();
+            Arc::downgrade(&snapshot)
+        })
+    }
+
+    pub(crate) fn clear_replay_snapshot(&mut self) {
+        self.replay_snapshot = None;
+    }
+
     pub fn advance_to(&self, cursor: u64) {
         if let Ok(mut state) = self.subscriber.state.lock() {
             state.cursor = state.cursor.max(cursor);
@@ -348,7 +412,30 @@ impl ListReceiver {
             }
             state.cursor
         };
-        let span = {
+        let span = if let Some(peer_history) = self.peer_history.as_ref() {
+            let history = peer_history.lock().ok()?;
+            let Some(history) = history.as_ref() else { return Some(RawRead::Lagged) };
+            // A wake can come before the writer appends the op it names: the
+            // index is published first. Read only what the peer history has
+            // committed, or an empty span would carry the cursor past an op
+            // appended a moment later.
+            let last = history.last_seq();
+            let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
+            if cursor >= target {
+                return None;
+            }
+            history.after_frame(cursor, target, max_bytes)
+        } else if let (Some(through), Some(snapshot)) = (through, self.replay_snapshot.as_deref()) {
+            let target = through.min(snapshot.last_seq().unwrap_or(through));
+            if cursor >= target {
+                return None;
+            }
+            if snapshot.first_seq().is_some_and(|first| cursor.saturating_add(1) < first) {
+                None
+            } else {
+                snapshot.after_frame(cursor, target, max_bytes)
+            }
+        } else {
             let history = self.history.lock().ok()?;
             let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
             // A live pump consumes exactly one operation. A replay captures
@@ -357,7 +444,7 @@ impl ListReceiver {
             if cursor >= target {
                 return None;
             }
-            if history.first_seq().is_some_and(|first| cursor.saturating_add(1) < first) {
+            if history.first_seq().is_some_and(|seq| cursor.saturating_add(1) < seq) {
                 None
             } else {
                 history.after_frame(cursor, target, max_bytes)
@@ -416,11 +503,18 @@ pub struct Hub {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    peer_history: Arc<Mutex<Option<PeerHistory>>>,
     folder_state: Arc<Mutex<folders::FolderState>>,
     page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
+    rebuild_fenced: Arc<AtomicU64>,
+    /// Moves when the writer drops an origin's source or record: a slot may be free.
+    origin_slots_freed: Arc<AtomicU64>,
+    /// Moves when the writer refuses an origin past [`MAX_ORIGINS`] (`admit_origin`).
+    origins_refused: Arc<AtomicU64>,
+    mirror: Arc<mirror::Counters>,
 }
 
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
@@ -431,6 +525,18 @@ pub trait PageProvider: Send + Sync {
 /// Explicit name for the published summary hub used by later actors.
 pub type SummaryHub = Hub;
 
+struct PeerRow<'a>(&'a Summary);
+
+impl Serialize for PeerRow<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if let Some(raw) = self.0.peer_form.as_ref() {
+            raw.serialize(serializer)
+        } else {
+            self.0.serialize(serializer)
+        }
+    }
+}
+
 /// The sole owner that mutates the index. It can be driven by a tokio task via
 /// [`HubWriter::run`], or synchronously in deterministic unit tests with
 /// [`HubWriter::apply`].
@@ -438,6 +544,10 @@ pub struct HubWriter {
     hydrated: tokio::sync::watch::Sender<disk::HydrationState>,
     #[cfg(test)]
     turn_measure: disk::TurnMeasure,
+    /// Runs in a turn after the index is published and before its op is in
+    /// the histories: where a wake can reach a reader first.
+    #[cfg(test)]
+    before_record: Mutex<Option<RecordHook>>,
     compaction: Option<compaction::Job>,
     retirement: Option<tokio::task::JoinHandle<()>>,
     maintenance: Option<compaction::Maintenance>,
@@ -449,6 +559,7 @@ pub struct HubWriter {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    peer_history: Arc<Mutex<Option<PeerHistory>>>,
     folder_state: Arc<Mutex<folders::FolderState>>,
     log: Option<IndexLog>,
     log_dirty: bool,
@@ -460,6 +571,9 @@ pub struct HubWriter {
     directory: Option<PathBuf>,
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
+    origin_slots_freed: Arc<AtomicU64>,
+    origins_refused: Arc<AtomicU64>,
+    mirror: mirror::WriterMirror,
 }
 
 #[derive(Debug, Error)]
@@ -490,6 +604,16 @@ pub enum HubError {
     OriginLimit,
     #[error("origin held row limit exceeded")]
     HeldRowLimit,
+    #[error("a mirror unit for this origin is already waiting")]
+    UnitQueueFull,
+    #[error("mirror unit over {MAX_UNIT_CHANGES} changes")]
+    UnitRowLimit,
+    #[error("mirror unit row names origin {0:?}, not the unit's")]
+    ForgedOrigin(String),
+    #[error("mirror unit refused while its origin is leaving")]
+    UnitHeld,
+    #[error("mirror unit does not follow its origin's mark")]
+    UnitOutOfOrder,
 }
 
 impl HubError {
@@ -521,6 +645,7 @@ impl Hub {
         random: impl FnOnce() -> u32,
     ) -> Result<(Self, HubWriter), HubError> {
         fs::create_dir_all(directory)?;
+        let random_value = random();
         let snapshot_path = directory.join("index.snap");
         let mut rebuild = false;
         let disk = match DiskSnapshot::open(&snapshot_path) {
@@ -540,20 +665,34 @@ impl Hub {
             Err(error) => return Err(error.into()),
         };
         if rebuild {
-            quarantine_index(directory)?;
-            let edition = IndexEdition::open_rebuild(directory, boot, random)?;
-            let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+            let quarantined = quarantine_index(directory).is_ok();
+            let edition = IndexEdition::open_rebuild(directory, boot, || random_value)
+                .unwrap_or(IndexEdition { edition: random_value.max(2), boot, writes: 0 });
+            let log = quarantined
+                .then(|| IndexLog::open_at(directory.join("index.log"), 0).ok())
+                .flatten();
             let index = SummaryIndex::empty_with_edition(edition.edition);
-            return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+            let (hub, writer) = Self::with_log_state(index, log, Some(directory), 1);
+            if !quarantined || writer.log.is_none() {
+                writer.log_errors.fetch_add(1, Ordering::Relaxed);
+            }
+            return Ok((hub, writer));
         }
         let log = match IndexLog::open_with_snapshot(directory.join("index.log"), disk.as_deref()) {
             Ok(log) => log,
             Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
-                quarantine_index(directory)?;
-                let edition = IndexEdition::open_rebuild(directory, boot, random)?;
-                let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+                let quarantined = quarantine_index(directory).is_ok();
+                let edition = IndexEdition::open_rebuild(directory, boot, || random_value)
+                    .unwrap_or(IndexEdition { edition: random_value.max(2), boot, writes: 0 });
+                let log = quarantined
+                    .then(|| IndexLog::open_at(directory.join("index.log"), 0).ok())
+                    .flatten();
                 let index = SummaryIndex::empty_with_edition(edition.edition);
-                return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+                let (hub, writer) = Self::with_log_state(index, log, Some(directory), 1);
+                if !quarantined || writer.log.is_none() {
+                    writer.log_errors.fetch_add(1, Ordering::Relaxed);
+                }
+                return Ok((hub, writer));
             }
             Err(error) => return Err(error.into()),
         };
@@ -561,7 +700,7 @@ impl Hub {
             directory,
             boot,
             disk.as_ref().is_some_and(|disk| !disk.is_empty()) || log.next_seq() != 0,
-            random,
+            || random_value,
         )?;
         let covered = disk.as_ref().map_or(0, |disk| disk.covered_generation());
         let index = match replay_generation_logs(
@@ -572,11 +711,18 @@ impl Hub {
             Ok(index) => index,
             Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
                 drop(log);
-                quarantine_index(directory)?;
-                let edition = IndexEdition::open_rebuild(directory, boot, || 2)?;
-                let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+                let quarantined = quarantine_index(directory).is_ok();
+                let edition = IndexEdition::open_rebuild(directory, boot, || random_value)
+                    .unwrap_or(IndexEdition { edition: random_value.max(2), boot, writes: 0 });
+                let log = quarantined
+                    .then(|| IndexLog::open_at(directory.join("index.log"), 0).ok())
+                    .flatten();
                 let index = SummaryIndex::empty_with_edition(edition.edition);
-                return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+                let (hub, writer) = Self::with_log_state(index, log, Some(directory), 1);
+                if !quarantined || writer.log.is_none() {
+                    writer.log_errors.fetch_add(1, Ordering::Relaxed);
+                }
+                return Ok((hub, writer));
             }
             Err(error) => return Err(error.into()),
         };
@@ -607,17 +753,28 @@ impl Hub {
             disk::HydrationState::Loading
         };
         let (hydrated_tx, hydrated_rx) = tokio::sync::watch::channel(state);
-        let sources = Arc::new(ArcSwap::from_pointee(HashMap::new()));
+        // Decision 264: a stored mark is the record of who held the origin.
+        // Every takeover as v1 writes it off before a v1 row goes in, so an
+        // origin whose mark is on opens as the mirror's: v1's tee stands aside
+        // for it, and the first dial resumes from the mark.
+        let sources: HashMap<String, Source> =
+            index.mirror_marks().map(|mark| (mark.origin, Source::Mirror)).collect();
+        let sources = Arc::new(ArcSwap::from_pointee(sources));
         let rebuild_requested = Arc::new(AtomicBool::new(false));
         let rebuild_count = Arc::new(AtomicU64::new(rebuilds));
+        let rebuild_fenced = Arc::new(AtomicU64::new(0));
+        let origin_slots_freed = Arc::new(AtomicU64::new(0));
+        let origins_refused = Arc::new(AtomicU64::new(0));
         let has_disk = index.disk().is_some();
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
         let subscribers = Arc::new(Mutex::new(Vec::with_capacity(EVENT_CAPACITY)));
         let history = Arc::new(Mutex::new(History::new()));
+        let peer_history = Arc::new(Mutex::new(None));
         let folder_state = Arc::new(Mutex::new(folders::FolderState::default()));
         let log_errors = Arc::new(AtomicU64::new(0));
         let compaction_counters = Arc::new(compaction::Counters::default());
+        let mirror = Arc::new(mirror::Counters::default());
         compaction_counters
             .oldest_seq
             .store(log.as_ref().map_or(1, IndexLog::oldest_seq), Ordering::Release);
@@ -628,16 +785,23 @@ impl Hub {
             updates: updates.clone(),
             subscribers: subscribers.clone(),
             history: history.clone(),
+            peer_history: peer_history.clone(),
             folder_state: folder_state.clone(),
             page_provider: Arc::new(Mutex::new(None)),
             sources: sources.clone(),
             rebuild_requested: rebuild_requested.clone(),
             rebuild_count: rebuild_count.clone(),
+            rebuild_fenced,
+            origin_slots_freed: origin_slots_freed.clone(),
+            origins_refused: origins_refused.clone(),
+            mirror: mirror.clone(),
         };
         let mut writer = HubWriter {
             hydrated: hydrated_tx,
             #[cfg(test)]
             turn_measure: disk::TurnMeasure::default(),
+            #[cfg(test)]
+            before_record: Mutex::new(None),
             compaction: None,
             retirement: None,
             maintenance: None,
@@ -654,6 +818,7 @@ impl Hub {
             updates,
             subscribers,
             history,
+            peer_history,
             folder_state,
             log,
             log_dirty: false,
@@ -665,6 +830,9 @@ impl Hub {
             directory: directory.map(Path::to_path_buf),
             rebuild_requested,
             rebuild_count,
+            origin_slots_freed,
+            origins_refused,
+            mirror: mirror::WriterMirror::new(mirror),
         };
         if has_disk {
             writer.start_hydration();
@@ -695,12 +863,47 @@ impl Hub {
         self.rebuild_count.load(Ordering::Acquire)
     }
 
+    /// How many times this hub's writer dropped an origin's source or record (`origins.rs`): a
+    /// slot of [`MAX_ORIGINS`] may be free since a source last read it. A source that kept the
+    /// origins refused at the bound offers them again when it moves (decision 261).
+    pub fn origin_slots_freed(&self) -> u64 {
+        self.origin_slots_freed.load(Ordering::Acquire)
+    }
+
+    /// How many submits this hub's writer refused at [`MAX_ORIGINS`] (`admit_origin`): the
+    /// process-wide [`refused_origins`] counted per hub. A source that tells its refusals from
+    /// the index it reads learns here of one it could not see.
+    pub fn origins_refused(&self) -> u64 {
+        self.origins_refused.load(Ordering::Acquire)
+    }
+
+    /// The origins the writer counts toward [`MAX_ORIGINS`] that a reader can see: every record,
+    /// and each source with none yet. The writer also counts a record waiting on a log retry.
+    pub fn origins_counted(&self) -> usize {
+        let index = self.snapshot();
+        let sources = self.sources.load();
+        index.origins().count() + sources.keys().filter(|id| index.origin(id).is_none()).count()
+    }
+
     /// Ends a source's rebuild walk. An incomplete walk leaves existing list
     /// subscribers untouched; only a whole local walk fences each sid to one
     /// fresh window through the connection's existing lagged-resume path.
-    pub fn source_walk_finished(&self, source: Source, complete: bool) {
-        if source != Source::Local || !complete {
+    pub fn source_walk_finished(&self, source: Source, rebuild: u64, complete: bool) {
+        if source != Source::Local || !complete || rebuild == 0 {
             return;
+        }
+        loop {
+            let fenced = self.rebuild_fenced.load(Ordering::Acquire);
+            if fenced == rebuild {
+                return;
+            }
+            if self
+                .rebuild_fenced
+                .compare_exchange(fenced, rebuild, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                break;
+            }
         }
         let Ok(subscribers) = self.subscribers.lock() else { return };
         for subscriber in subscribers.iter() {
@@ -799,6 +1002,38 @@ impl Hub {
         self.history.lock().map_or(0, |history| history.raw_copies())
     }
 
+    #[cfg(test)]
+    pub(crate) fn history_raw_copy_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        self.history.lock().map_or_else(
+            |_| (Arc::new(AtomicBool::new(true)), Arc::new(AtomicBool::new(false))),
+            |history| history.raw_copy_control(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history_snapshot_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        self.history.lock().map_or_else(
+            |_| (Arc::new(AtomicBool::new(true)), Arc::new(AtomicBool::new(false))),
+            |history| history.snapshot_open_control(),
+        )
+    }
+
+    /// Copies one bounded replay span while holding the history mutex.
+    ///
+    /// This is test-only instrumentation for the replay cause probe: it models
+    /// the old lock-coupled copier so the probe can show the cost of sharing
+    /// the writer's history lock. Production replay never calls this path.
+    #[cfg(test)]
+    pub(crate) fn probe_history_locked_copy(
+        &self,
+        cursor: u64,
+        through: u64,
+        max_bytes: usize,
+    ) -> Option<u64> {
+        let history = self.history.lock().ok()?;
+        history.after_frame(cursor, through, max_bytes).map(|span| span.last_seq)
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);
@@ -817,6 +1052,26 @@ impl Hub {
         Ok(Some(target))
     }
 
+    /// Ops encoded in peer form since the peer history was made: one per local change, read
+    /// by the peer link's gates against the number of peers sent to.
+    pub fn peer_encodes(&self) -> u64 {
+        self.peer_history
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(PeerHistory::encodes))
+            .unwrap_or(0)
+    }
+
+    pub fn peer_resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
+        let slot = self.peer_history.lock().map_err(|_| HubError::WriterGone)?;
+        let Some(history) = slot.as_ref() else { return Ok(None) };
+        let target = history.last_seq();
+        if cursor > target || !history.can_resume(cursor) {
+            return Ok(None);
+        }
+        Ok(Some(target))
+    }
+
     /// Wakes a writer task and prevents any later submit from waiting for it.
     pub fn close(&self) {
         self.updates.close();
@@ -826,7 +1081,26 @@ impl Hub {
         self.subscribers.lock().map(|subscribers| subscribers.len()).unwrap_or(0)
     }
 
+    /// Lazily allocates the sparse peer projection ring. Local-only hubs never
+    /// pay for this storage.
+    pub fn enable_peer_history(&self) {
+        if let Ok(mut slot) = self.peer_history.lock()
+            && slot.is_none()
+        {
+            *slot = Some(PeerHistory::new(self.published.load().seq()));
+        }
+    }
+
     pub fn subscribe(&self, sub: &Sub) -> Result<ListSubscription, HubError> {
+        self.subscribe_inner(sub, false)
+    }
+
+    pub fn subscribe_peer(&self, sub: &Sub) -> Result<ListSubscription, HubError> {
+        self.enable_peer_history();
+        self.subscribe_inner(sub, true)
+    }
+
+    fn subscribe_inner(&self, sub: &Sub, peer: bool) -> Result<ListSubscription, HubError> {
         if sub.stream.as_str() != "list" {
             return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
         }
@@ -844,7 +1118,11 @@ impl Hub {
         } else {
             index.seq()
         };
-        let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
+        let frame = if peer {
+            self.peer_window_at(sub, &index)?
+        } else {
+            self.window_frame_at_cursor(sub, &index, resume_cursor)?
+        };
         let resume_cursor = if folders::is_folders(sub.view) {
             frame.decode_json::<crate::wire::FolderWindow>()?.cursor
         } else {
@@ -859,6 +1137,8 @@ impl Hub {
                 subscriber,
                 subscribers: self.subscribers.clone(),
                 history: self.history.clone(),
+                replay_snapshot: None,
+                peer_history: peer.then(|| self.peer_history.clone()),
                 folder_state: self.folder_state.clone(),
                 folders: folders::is_folders(sub.view),
                 published: self.published.clone(),
@@ -870,6 +1150,20 @@ impl Hub {
     /// window. Resume callers use this path when the first response is a raw
     /// ring span; a window is built only on a fresh or lagged resume.
     pub fn subscribe_replay(&self, sub: &Sub, cursor: u64) -> Result<ListReceiver, HubError> {
+        self.subscribe_replay_inner(sub, cursor, false)
+    }
+
+    pub fn subscribe_replay_peer(&self, sub: &Sub, cursor: u64) -> Result<ListReceiver, HubError> {
+        self.enable_peer_history();
+        self.subscribe_replay_inner(sub, cursor, true)
+    }
+
+    fn subscribe_replay_inner(
+        &self,
+        sub: &Sub,
+        cursor: u64,
+        peer: bool,
+    ) -> Result<ListReceiver, HubError> {
         if sub.stream.as_str() != "list" {
             return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
         }
@@ -877,12 +1171,21 @@ impl Hub {
         if folders::is_folders(sub.view) {
             return Err(HubError::InvalidParams("folders always starts with a window".into()));
         }
+        let replay_snapshot = if peer {
+            None
+        } else {
+            Some(Arc::new(
+                self.history.lock().map_err(|_| HubError::WriterGone)?.snapshot_after(cursor),
+            ))
+        };
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListReceiver {
             subscriber,
             subscribers: self.subscribers.clone(),
             history: self.history.clone(),
+            replay_snapshot,
+            peer_history: peer.then(|| self.peer_history.clone()),
             folder_state: self.folder_state.clone(),
             folders: folders::is_folders(sub.view),
             published: self.published.clone(),
@@ -898,6 +1201,110 @@ impl Hub {
         validate_window(sub)?;
         let index = self.snapshot();
         self.window_frame_at_cursor(sub, &index, index.seq())
+    }
+
+    /// Builds the peer projection directly from the published index. Rows use
+    /// their producer-owned raw peer form, so the send path never parses or
+    /// re-encodes `extra` and never materialises a local wire row first.
+    pub fn peer_window(&self, sub: &Sub) -> Result<Frame, HubError> {
+        let index = self.snapshot();
+        self.peer_window_at(sub, &index)
+    }
+
+    fn peer_window_at(&self, sub: &Sub, index: &SummaryIndex) -> Result<Frame, HubError> {
+        if sub.stream.as_str() != "list" || sub.view != Some(crate::wire::ListView::Live) {
+            return Err(HubError::InvalidParams("peer links serve the live list only".into()));
+        }
+        let requested = validate_window(sub)?;
+        let (key, side) = match sub.anchor.as_ref() {
+            Some(crate::wire::Anchor::List { key, side }) => (
+                Some(book_key(key)),
+                match side {
+                    crate::wire::AnchorSide::Before => ReadSide::Before,
+                    crate::wire::AnchorSide::After => ReadSide::After,
+                    crate::wire::AnchorSide::Around => ReadSide::Around,
+                },
+            ),
+            _ => (None, ReadSide::After),
+        };
+        let page = index
+            .read_local_live_page(
+                key.as_ref(),
+                side,
+                true,
+                requested,
+                crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+            )
+            .map_err(|error| self.page_error(error))?;
+        let window = Window {
+            sid: sub.sid.clone(),
+            cursor: index.seq(),
+            rows: page.rows.iter().map(|row| PeerRow(row.as_ref())).collect::<Vec<_>>(),
+            has_before: page.has_before,
+            has_after: page.has_after,
+            edition: index.edition(),
+            origins: Vec::new(),
+            before_key: page.before_key.map(wire_key),
+            after_key: page.after_key.map(wire_key),
+        };
+        let frame = Frame::json(FrameKind::Window, &window)?;
+        if frame.encoded_len() > crate::wire::MAX_PAGE_BYTES {
+            return Err(HubError::InvalidWindow);
+        }
+        Ok(frame)
+    }
+
+    pub fn peer_page(&self, request: &crate::wire::Page) -> Result<Frame, HubError> {
+        if request.stream.as_str() != "list"
+            || request.view != Some(crate::wire::ListView::Live)
+            || request.filter.is_some()
+            || request.keys.is_some()
+        {
+            return Err(HubError::InvalidPage);
+        }
+        let max = request.max_bytes as usize;
+        if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
+            return Err(HubError::InvalidPage);
+        }
+        let (key, side) = match request.side() {
+            Some((side, Position::List(key))) => (
+                Some(book_key(key)),
+                match side {
+                    PageSide::Before => ReadSide::Before,
+                    PageSide::After => ReadSide::After,
+                },
+            ),
+            None if request.before.is_none() && request.after.is_none() => (None, ReadSide::After),
+            _ => return Err(HubError::InvalidPage),
+        };
+        let index = self.snapshot();
+        let page = index
+            .read_local_live_page(
+                key.as_ref(),
+                side,
+                false,
+                MAX_WINDOW_ROWS,
+                max - 8192 - request.sid.len(),
+            )
+            .map_err(|error| self.page_error(error))?;
+        let reply = crate::wire::PageResult {
+            sid: request.sid.clone(),
+            rows: page.rows.iter().map(|row| PeerRow(row.as_ref())).collect::<Vec<_>>(),
+            has_before: page.has_before,
+            has_after: page.has_after,
+            cold_unread: page.cold_unread,
+            deeper: page.deeper.into_iter().map(wire_key).collect(),
+            before_key: page.before_key.map(wire_key),
+            after_key: page.after_key.map(wire_key),
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        let frame = Frame::json(FrameKind::Page, &reply)?;
+        if frame.encoded_len() > max {
+            return Err(HubError::InvalidPage);
+        }
+        Ok(frame)
     }
 
     fn window_frame_at_cursor(
@@ -957,10 +1364,7 @@ impl Hub {
                     id: origin.id.clone(),
                     state: origin.state,
                     since: origin.since,
-                    extra: origin
-                        .extra
-                        .as_ref()
-                        .and_then(|extra| serde_json::from_str(extra.get()).ok()),
+                    extra: origin.extra.as_ref().and_then(|extra| parse_extra(extra)),
                 })
                 .collect(),
             before_key: page.before_key.map(wire_key),
@@ -1018,11 +1422,11 @@ impl Hub {
             return self.keyed_page(request, keys);
         }
         let (key, side) = match request.side() {
-            Some((side, crate::wire::Position::List(key))) => (
+            Some((side, Position::List(key))) => (
                 Some(book_key(key)),
                 match side {
-                    crate::wire::PageSide::Before => ReadSide::Before,
-                    crate::wire::PageSide::After => ReadSide::After,
+                    PageSide::Before => ReadSide::Before,
+                    PageSide::After => ReadSide::After,
                 },
             ),
             // A bounded page without an anchor starts a mirror walk at the
@@ -1080,6 +1484,25 @@ impl Hub {
         }
         HubError::page_error(error)
     }
+}
+
+/// What a test runs between a turn's publish and its history record.
+#[cfg(test)]
+type RecordHook = Box<dyn FnMut(u64) + Send>;
+
+static EXTRA_PARSES: AtomicU64 = AtomicU64::new(0);
+
+/// Every `extra` the list's path parses: an origin record's, for a local window. Nothing that
+/// sends to a peer parses one; the peer link's gates read this.
+pub fn extra_parses() -> u64 {
+    EXTRA_PARSES.load(Ordering::Relaxed)
+}
+
+pub(crate) fn parse_extra<T: serde::de::DeserializeOwned>(
+    extra: &serde_json::value::RawValue,
+) -> Option<T> {
+    EXTRA_PARSES.fetch_add(1, Ordering::Relaxed);
+    serde_json::from_str(extra.get()).ok()
 }
 
 fn book_key(key: &crate::wire::ListKey) -> SortKey {
@@ -1324,11 +1747,46 @@ impl HubWriter {
     }
 
     fn record_history(&self, item: ListItem) {
+        #[cfg(test)]
+        if let Ok(mut hook) = self.before_record.lock()
+            && let Some(hook) = hook.as_mut()
+        {
+            hook(match &item {
+                ListItem::Summary(event) => event.seq,
+                ListItem::Gone { seq, .. }
+                | ListItem::Origin { seq, .. }
+                | ListItem::Folders { seq, .. }
+                | ListItem::Lagged { cursor: seq } => *seq,
+            });
+        }
         if let Ok(mut history) = self.history.lock()
             && history.append(&item).is_err()
         {
             self.log_errors.fetch_add(1, Ordering::Relaxed);
         }
+        if let Ok(mut slot) = self.peer_history.lock()
+            && let Some(history) = slot.as_mut()
+        {
+            let result = match &item {
+                ListItem::Summary(event) => history.append(event.seq, Some(event.summary.as_ref())),
+                ListItem::Gone { seq, origin, chat_id } => {
+                    history.append_gone(*seq, origin, chat_id)
+                }
+                ListItem::Origin { seq, .. }
+                | ListItem::Folders { seq, .. }
+                | ListItem::Lagged { cursor: seq } => history.append(*seq, None),
+            };
+            if result.is_err() {
+                self.log_errors.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// One writer turn, for a caller that drives the writer itself in place
+    /// of [`Self::run`]: a test that orders the writer's turns against other
+    /// work (a dialer's takeover and an origin's removal in one turn).
+    pub fn turn(&mut self) {
+        self.process_batch();
     }
 
     /// Disk writes, group syncs and hydration run off runtime workers.
@@ -1395,6 +1853,7 @@ impl HubWriter {
             if result.is_err()
                 || (self.retry_log.is_empty()
                     && self.origins.retry.is_empty()
+                    && !self.mirror.retry_pending()
                     && self.maintenance.is_none()
                     && !self.origin_work_pending())
             {
@@ -1730,7 +2189,9 @@ mod tests {
         match &batch[0].1 {
             PendingUpdate::Summary { summary, .. } => assert_eq!(summary.last_activity, 10_999),
             PendingUpdate::Gone { .. } => panic!("summary slot was replaced by a removal"),
-            PendingUpdate::Origin { .. } | PendingUpdate::Takeover { .. } => {
+            PendingUpdate::Origin { .. }
+            | PendingUpdate::Takeover { .. }
+            | PendingUpdate::Unit { .. } => {
                 panic!("origin update occupied summary slot")
             }
         }

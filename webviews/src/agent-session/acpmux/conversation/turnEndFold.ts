@@ -124,15 +124,21 @@ const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":
 
 /// Reads the rows `thread` draws now, before `after` replaces them: undefined when the fold would
 /// not show (no motion, or the running turn's line is not drawn, the turn's end out of view).
+/// `held`: the swap closes an ended turn's Worked for that was held open while the reader was
+/// scrolled up (App.tsx `heldWorked`), which has no live line left to look for.
 export function captureTurnEnd(
   thread: HTMLElement | null,
   scroller: HTMLElement | null,
   after: readonly AcpmuxRow[],
   sessionId: string | undefined,
+  held = false,
 ): TurnEndCapture | undefined {
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
-  if (!nodes.some((node) => node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`)))
+  if (
+    !held &&
+    !nodes.some((node) => node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`))
+  )
     return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(

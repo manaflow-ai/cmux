@@ -96,8 +96,9 @@ impl Waiting {
 }
 
 /// The queue order: each prompt's place, from the last reorder and the prompts that led ahead
-/// of it since (`lost_start.rs`). A prompt with no place goes after every placed one.
-#[derive(Default)]
+/// of it since (`lost_start.rs`). A prompt with no place goes after every placed one. A restore
+/// point keeps it whole (`restore_point.rs`).
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct Order {
     place: HashMap<String, (i64, u64)>,
     /// How many times the prompts that left the queue for a turn that has not started went to
@@ -268,6 +269,11 @@ impl Digests {
     }
 
     /// Where a message stands among its digest's messages, which share the digest's place.
+    /// Whether every digest's turn started or it left: none still holds the messages it took.
+    pub(super) fn settled(&self) -> bool {
+        self.list.iter().all(|d| !d.waits)
+    }
+
     pub(super) fn rank(&self, prompt_id: Option<&Value>) -> u64 {
         let id = prompt_id.and_then(Value::as_str);
         id.and_then(|id| self.owner.get(id)).map_or(0, |&(_, rank, _)| rank)

@@ -229,6 +229,22 @@ inline std::vector<std::pair<std::string, std::string>> PageResponseHeaders(cons
   };
 }
 
+// Whether a bundled page file's request names its content (`?h=` and 8 to 64 hex digits, written by
+// the page's build: build-agent-pane-web.sh's pane.css): that URL never names other bytes, so the
+// answer may be kept (`Cache-Control: max-age=31536000, immutable`). Blink then hands every page of
+// the renderer that links it the sheet it parsed once, where an answer it may not keep is fetched
+// and parsed again per page (about 2 MB a chat page for the agent pane's sheet). Any other query, or
+// none, is answered as before: a file without its hash may change under a live web loop.
+inline bool IsContentHashedQuery(const std::string& query) {
+  if (query.size() < 2 + 8 || query.size() > 2 + 64 || query.compare(0, 2, "h=") != 0) return false;
+  for (size_t at = 2; at < query.size(); ++at) {
+    const char c = query[at];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+  }
+  return true;
+}
+inline constexpr char kImmutableCacheControl[] = "max-age=31536000, immutable";
+
 // A header value from the page host: empty when it holds a CR or LF, so an answer cannot split a
 // header (cmux_shim_page_resource_respond_page's CSP).
 inline std::string PageHeaderValue(const std::string& value) {

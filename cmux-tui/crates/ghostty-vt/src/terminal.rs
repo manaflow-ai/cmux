@@ -28,6 +28,9 @@ use vt_boundary::*;
 
 mod replay_rows;
 
+mod window_replay;
+pub use window_replay::VtReplayWindow;
+
 mod settled_replay;
 
 mod alternate_replay;
@@ -84,6 +87,8 @@ const _: () = assert!(
 );
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 const MOUSE_DEC_MODES: [u16; 8] = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
+/// DEC private mode 2026, synchronized output.
+const SYNCHRONIZED_OUTPUT_MODE: u16 = 2026;
 
 /// Per-terminal Kitty resource limits that every byte-stream emulator must
 /// share to make admission and eviction deterministic.
@@ -731,6 +736,15 @@ impl Terminal {
     /// flags cannot represent when several format modes are flagged at once.
     pub fn active_mouse_format(&self) -> MouseWireFormat {
         self.active_mouse_format
+    }
+
+    /// How many synchronized updates (DEC private mode 2026) the program may
+    /// have started so far, counted as the parser meets each `CSI ? 2026 h`.
+    /// A reader that looks at the mode only now and then compares it with
+    /// the count it last saw: a change means a new update began since, even
+    /// when the last one ended and this one started between two looks.
+    pub fn synchronized_update_starts(&self) -> u64 {
+        self.mouse_mode_change_detector.synchronized_update_starts
     }
 
     fn current_mouse_mode_bits(&self) -> u8 {
@@ -1988,6 +2002,26 @@ impl Terminal {
             selection: ptr::null(),
         };
         Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())
+    }
+
+    /// Bounded plain text of the active screen and its retained history.
+    /// `None` means the formatter would exceed `max_bytes`; it never builds
+    /// an unbounded output buffer first.
+    pub fn plain_text_bounded(&mut self, max_bytes: usize) -> Result<Option<String>> {
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
+            unwrap: false,
+            trim: true,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                ..Default::default()
+            },
+            selection: ptr::null(),
+        };
+        Ok(self
+            .format_bounded(opts, max_bytes)?
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned()))
     }
 
     /// Replay of the terminal's current state.
@@ -3274,6 +3308,10 @@ mod prompt_clear_tests;
 #[cfg(test)]
 #[path = "alternate_replay_tests.rs"]
 mod alternate_replay_tests;
+
+#[cfg(test)]
+#[path = "window_replay_tests.rs"]
+mod window_replay_tests;
 
 #[path = "terminal_history.rs"]
 mod history;

@@ -396,6 +396,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-list",
     "apps-logs",
     "apps-mount",
+    "apps-open-link",
     // The provider's change notice is the verified local app's, as its register and its result:
     // a Remote connection ends at `apps.local` (server/apps.rs), so the carrier does not take it.
     "apps-provider-changed",

@@ -1,6 +1,7 @@
 use super::*;
 use acpmux_book::index::SortedSnapshot;
 use std::fs;
+#[cfg(target_os = "linux")]
 use std::path::Path;
 
 fn closed(id: &str) -> Summary {

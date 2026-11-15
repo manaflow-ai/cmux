@@ -138,8 +138,8 @@ enum RoomHandlers {
             // A person's delete gets the Reopen toast; automation does not.
             let toast = moveTo == nil && invocation.origin == .user
             services.machines.local.send("delete-profile") { connection in
+                // With `moveTo` the daemon also moves the space's sidebar pins and groups, in the same commit.
                 let response = try await connection.deleteProfile(id, moveTo: moveTo)
-                if let moveTo { await MainActor.run { services.sidebarDoc.store?.moveSpace(id.rawValue, into: moveTo.rawValue) } }
                 guard toast, let closedID = response.closedID else { return }
                 await RoomConfirmation.showDeleted(name, closedID: closedID, services: services)
             }

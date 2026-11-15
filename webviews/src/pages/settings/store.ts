@@ -63,6 +63,7 @@ import {
   type HostLists,
   type IntegrationsRun,
   type IntegrationsState,
+  type JoinConsentSurface,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -74,6 +75,7 @@ import {
   type WireError,
   type WorkspaceBackground,
   SETTINGS_SENTENCES,
+  type CustomizeTryOn,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -200,6 +202,7 @@ export class SettingsStore {
   private readonly unsubscribers: Array<() => void> = [];
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
   private disposed = false;
+  private openingThemeFile = false;
   private themeColorsRequested = false;
   /** The last composed state and what it was composed from (getSnapshot answers it while equal). */
   private composed: { ui: UiState; cache: CacheView; state: SettingsState } | null = null;
@@ -400,6 +403,25 @@ export class SettingsStore {
     void this.request("cmux.settings.theme.overrides.open", {});
   }
 
+  /** Open Theme File: the host opens the active theme file, making one from the current look first;
+   * a failure shows on the Theme File row as "Could not open the theme file." ("could not be changed"
+   * would be wrong for an open), the CLI's reason as its detail. */
+  async openThemeFile(): Promise<void> {
+    // One at a time: a second click before the first answers would race it for the same new name
+    // (`my-look`) and report "exists" for a file the first one made and opened.
+    if (this.openingThemeFile) return;
+    this.openingThemeFile = true;
+    try {
+      const reply = await this.request("cmux.settings.theme.file.open", {});
+      this.setError(
+        "appearance.themeFile",
+        reply.ok ? null : { ...rowError(reply.error), message: t("settingsPage.theme.file.openFailed") },
+      );
+    } finally {
+      this.openingThemeFile = false;
+    }
+  }
+
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
   private async themeFileSaved(reply: Reply<{ name?: string }>): Promise<Reply<{ name?: string }>> {
     if (reply.ok && reply.value.name) await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);
@@ -576,8 +598,8 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
-  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
-  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists. */
+  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<void> {
     await this.request("cmux.settings.devices.join_consent", { surface, on });
     await this.refreshHost();
   }
@@ -770,6 +792,14 @@ export class SettingsStore {
     const state = await this.environments();
     if (!reply.ok) return { state, error: userMessage(reply.error, SETTINGS_SENTENCES) };
     return { state, error: reply.value?.error ?? null };
+  }
+
+  /** The customization being tried on, after running `verb` (Keep, Revert Now); null when none is,
+   * or the host has no CLI. A status read is also the look that reverts a try-on whose time is up. */
+  async customize(verb: "status" | "keep" | "revert"): Promise<CustomizeTryOn | null> {
+    if (verb !== "status") await this.request("cmux.settings.customize.run", { verb });
+    const reply = await this.request("cmux.settings.customize.run", { verb: "status" });
+    return reply.ok ? (reply.value?.try_on ?? null) : null;
   }
 
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has

@@ -3,7 +3,7 @@
 //! Snapshot records have a trailing frame length, so a backward page needs no
 //! dense row-offset table. Sparse entries have a fixed width and are searched
 //! on disk; neither opening nor writing a snapshot materializes its directory.
-use super::{OriginRecord, RowKey, SortKey, Summary, codec};
+use super::{MarkRecord, OriginRecord, RowKey, SortKey, Summary, codec};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
@@ -176,7 +176,25 @@ pub struct DiskSnapshot {
     file: File,
     pub(super) head: Head,
     origins: Vec<OriginRecord>,
+    marks: Vec<MarkRecord>,
 }
+
+/// Origins and the mirror's marks share the snapshot's origins section; a
+/// mark is the newest one per origin at the captured sequence.
+#[derive(Default)]
+pub struct SnapshotMeta {
+    pub origins: Vec<OriginRecord>,
+    pub marks: Vec<MarkRecord>,
+}
+
+impl From<Vec<OriginRecord>> for SnapshotMeta {
+    fn from(origins: Vec<OriginRecord>) -> Self {
+        Self { origins, marks: Vec::new() }
+    }
+}
+
+/// 256 origins of at most 1 KiB and 256 marks of at most 289 bytes.
+pub(super) const MAX_ORIGINS_BYTES: u64 = 512 * 1024;
 
 /// One bounded physical piece, including its progress when filtering yields no rows.
 pub struct SnapshotPiece {
@@ -275,6 +293,9 @@ impl DiskSnapshot {
     pub fn origins(&self) -> impl Iterator<Item = &OriginRecord> {
         self.origins.iter()
     }
+    pub fn marks(&self) -> impl Iterator<Item = &MarkRecord> {
+        self.marks.iter()
+    }
     pub fn rows(self: &Arc<Self>) -> SnapshotRows {
         SnapshotRows {
             snapshot: self.clone(),
@@ -338,9 +359,10 @@ impl DiskSnapshot {
         {
             return Err(codec::invalid("snapshot extent"));
         }
-        if head.origins_bytes > 256 * 1024 {
+        if head.origins_bytes > MAX_ORIGINS_BYTES {
             return Err(codec::invalid("snapshot origins too large"));
         }
+        let mut marks = Vec::new();
         let origins = if head.origins_bytes == 0 {
             Vec::new()
         } else {
@@ -351,12 +373,28 @@ impl DiskSnapshot {
             let mut input = io::Cursor::new(bytes.as_slice());
             let mut origins = Vec::new();
             let mut ids = std::collections::HashSet::new();
+            let mut marked = std::collections::HashSet::new();
             while (input.position() as usize) < bytes.len() {
                 let Some((record, _)) = codec::read_any(&mut input)? else {
                     return Err(codec::invalid("snapshot origins"));
                 };
-                let codec::LogRecord::Origin(origin) = record else {
-                    return Err(codec::invalid("snapshot origins record"));
+                let origin = match record {
+                    codec::LogRecord::Origin(origin) => origin,
+                    codec::LogRecord::Mark(mark) => {
+                        if mark.mark.is_none()
+                            || mark.origin == "local"
+                            || mark.seq > head.seq
+                            || !marked.insert(mark.origin.clone())
+                            || marks.len() >= 256
+                        {
+                            return Err(codec::invalid("snapshot mark record"));
+                        }
+                        marks.push(mark);
+                        continue;
+                    }
+                    codec::LogRecord::Row(_) => {
+                        return Err(codec::invalid("snapshot origins record"));
+                    }
                 };
                 if !ids.insert(origin.id.clone()) {
                     return Err(codec::invalid("duplicate snapshot origin"));
@@ -374,7 +412,7 @@ impl DiskSnapshot {
         if origins.len() > 256 {
             return Err(codec::invalid("snapshot origin limit"));
         }
-        Ok(Some(Arc::new(Self { file, head, origins })))
+        Ok(Some(Arc::new(Self { file, head, origins, marks })))
     }
 
     pub fn log_offset(&self) -> u64 {

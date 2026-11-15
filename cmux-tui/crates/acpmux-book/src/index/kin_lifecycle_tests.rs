@@ -62,12 +62,49 @@ fn assert_kin(
     parents: &BTreeSet<RowKey>,
     forks: &BTreeSet<RowKey>,
     folders: &BTreeSet<FolderKey>,
-) {
-    let mut rebuilt = KinTables::new();
-    for row in index.iter() {
-        rebuilt.insert(row.as_ref());
+) -> bool {
+    let rebuilt = KinTables::from_rows(index.iter());
+    let has_cycle = index.iter().any(|row| parent_cycle(index, &row.key()));
+    if !has_cycle {
+        assert_eq!(index.kin(), &rebuilt, "kin mismatch at lifecycle step {step}");
     }
-    assert_eq!(index.kin(), &rebuilt, "kin mismatch at lifecycle step {step}");
+    let mut expected_children = BTreeMap::<RowKey, BTreeSet<RowKey>>::new();
+    for row in index.iter() {
+        if let Some(parent) = row.parent.as_ref() {
+            expected_children.entry(parent.clone()).or_default().insert(row.key());
+        }
+    }
+    let actual_parents = index.kin().parent_keys().cloned().collect::<BTreeSet<_>>();
+    assert_eq!(actual_parents, expected_children.keys().cloned().collect::<BTreeSet<_>>());
+    for parent in actual_parents {
+        let actual = index
+            .kin()
+            .children(&parent)
+            .into_iter()
+            .flat_map(ChildSet::keys)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual, expected_children.get(&parent).cloned().unwrap_or_default());
+    }
+    for row in index.iter() {
+        if let Some(parent) = row.parent.as_ref() {
+            if parent_cycle(index, &row.key()) {
+                continue;
+            }
+            let parent_handle = index.kin().child_set(parent, &row.key());
+            let own_handle = index.kin().children(&row.key());
+            assert!(
+                match (parent_handle, own_handle) {
+                    (None, None) => true,
+                    (Some(parent), Some(own)) => parent == own,
+                    (Some(parent), None) => parent.is_empty(),
+                    (None, Some(_)) => false,
+                },
+                "child handle mismatch for {} at lifecycle step {step}",
+                row.chat_id,
+            );
+        }
+    }
     for parent in parents {
         assert!(index.kin().children(parent).is_none_or(|rows| !rows.is_empty()));
     }
@@ -109,6 +146,101 @@ fn assert_kin(
         index.folders().iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
     let expected = rebuilt.iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
     assert_eq!(actual, expected, "folder projection mismatch at lifecycle step {step}");
+    !has_cycle
+}
+
+fn parent_cycle(index: &SummaryIndex, start: &RowKey) -> bool {
+    let mut seen = BTreeSet::new();
+    let mut current = start.clone();
+    for _ in 0..=MAX_KIN_DEPTH {
+        if !seen.insert(current.clone()) {
+            return true;
+        }
+        let Some(row) = index.get_row(&current) else { return false };
+        let Some(parent) = row.parent.as_ref() else { return false };
+        current = parent.clone();
+    }
+    false
+}
+
+fn plain_family(index: &SummaryIndex, root: &RowKey) -> Vec<RowKey> {
+    let mut children = BTreeMap::<RowKey, Vec<RowKey>>::new();
+    for row in index.iter() {
+        if let Some(parent) = row.parent.as_ref() {
+            children.entry(parent.clone()).or_default().push(row.key());
+        }
+    }
+    for rows in children.values_mut() {
+        rows.sort();
+    }
+    fn walk(
+        key: &RowKey,
+        root: &RowKey,
+        depth: usize,
+        children: &BTreeMap<RowKey, Vec<RowKey>>,
+        visited: &mut BTreeSet<RowKey>,
+        output: &mut Vec<RowKey>,
+    ) {
+        if depth >= MAX_KIN_DEPTH {
+            return;
+        }
+        for child in children.get(key).into_iter().flatten() {
+            if child == root || !visited.insert(child.clone()) {
+                continue;
+            }
+            output.push(child.clone());
+            walk(child, root, depth + 1, children, visited, output);
+        }
+    }
+    let mut output = Vec::new();
+    let mut visited = BTreeSet::new();
+    walk(root, root, 0, &children, &mut visited, &mut output);
+    output
+}
+
+fn assert_independent_kin_oracle(index: &SummaryIndex) {
+    let keys = index.iter().map(|row| row.key()).collect::<Vec<_>>();
+    for root in &keys {
+        let expected = plain_family(index, root);
+        let actual = index
+            .read_page(
+                None,
+                ReadSide::After,
+                false,
+                expected.len() + 1,
+                snapshot::PAGE_BYTES,
+                Some(&ListFilter::family(root.clone())),
+            )
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.key())
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected, "family oracle mismatch for {root:?}");
+
+        let mut expected_forks = keys
+            .iter()
+            .filter_map(|key| index.get_row(key))
+            .filter(|row| row.fork_of.as_ref().is_some_and(|fork| fork.key == *root))
+            .map(|row| row.key())
+            .collect::<Vec<_>>();
+        expected_forks.sort();
+        let actual_forks = index
+            .read_page(
+                None,
+                ReadSide::After,
+                false,
+                expected_forks.len() + 1,
+                snapshot::PAGE_BYTES,
+                Some(&ListFilter::forks(root.clone())),
+            )
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.key())
+            .collect::<Vec<_>>();
+        assert_eq!(actual_forks, expected_forks, "fork oracle mismatch for {root:?}");
+    }
 }
 
 fn compact(
@@ -147,7 +279,7 @@ pub(super) fn randomized_hot_lifecycle() {
         index = index.apply_summary(n + 1, row);
     }
     let (mut index, mut snapshot_rows) = compact(&index, &directory, 0);
-    assert_kin(&index, 0, &parents, &forks, &folders);
+    let mut full_equality_steps = usize::from(assert_kin(&index, 0, &parents, &forks, &folders));
 
     let mut attempted = [0usize; 9];
     let mut successful = [0usize; 9];
@@ -260,7 +392,11 @@ pub(super) fn randomized_hot_lifecycle() {
             }
             _ => unreachable!(),
         }
-        assert_kin(&index, step + 1, &parents, &forks, &folders);
+        full_equality_steps +=
+            usize::from(assert_kin(&index, step + 1, &parents, &forks, &folders));
+        if step % 1_000 == 999 {
+            assert_independent_kin_oracle(&index);
+        }
     }
 
     assert!(attempted.iter().all(|count| *count > 0), "every operation must run: {attempted:?}");
@@ -270,9 +406,123 @@ pub(super) fn randomized_hot_lifecycle() {
     assert!(successful[6] > 0, "no warm hydration succeeded");
     assert!(successful[7] > 0, "no delete succeeded");
     assert!(successful[8] > 0, "no origin cleanup succeeded");
+    eprintln!("kin lifecycle full table equality steps: {full_equality_steps}");
+    assert_independent_kin_oracle(&index);
 }
 
 #[test]
 fn deterministic_lifecycle_keeps_kin_tables_equal_to_hot_rows() {
     randomized_hot_lifecycle();
+}
+
+#[test]
+fn child_before_parent_and_parent_cycle_keep_child_handles_bounded() {
+    let empty_parents = BTreeSet::new();
+    let empty_forks = BTreeSet::new();
+    let empty_folders = BTreeSet::new();
+    let root = row("late-root", 1);
+    let mut child = row("early-child", 2);
+    child.parent = Some(root.key());
+    let mut index = SummaryIndex::new().apply(1, child.clone());
+    assert_kin(&index, 0, &empty_parents, &empty_forks, &empty_folders);
+    index = index.apply(2, root.clone());
+    assert_kin(&index, 1, &empty_parents, &empty_forks, &empty_folders);
+    assert!(index.kin().child_set(&root.key(), &child.key()).is_some_and(ChildSet::is_empty));
+    assert!(index.kin().children(&child.key()).is_none());
+
+    let mut first = row("cycle-a", 3);
+    let mut second = row("cycle-b", 4);
+    first.parent = Some(second.key());
+    second.parent = Some(first.key());
+    index = index.apply(3, first.clone()).apply(4, second);
+    assert_kin(&index, 2, &empty_parents, &empty_forks, &empty_folders);
+    let page = index
+        .read_page(
+            None,
+            ReadSide::After,
+            false,
+            16,
+            64 * 1024,
+            Some(&ListFilter::family(first.key())),
+        )
+        .unwrap();
+    assert!(page.rows.len() <= 2);
+}
+
+#[test]
+fn deep_handle_refresh_matches_a_fresh_table_at_the_64_level_edge() {
+    let root = row("deep-root", 0);
+    let mut chain = vec![root.clone()];
+    let mut parent = root;
+    for depth in 0..66 {
+        let mut child = row(format!("deep-{depth:02}"), depth + 1);
+        child.parent = Some(parent.key());
+        parent = child.clone();
+        chain.push(child);
+    }
+    let mut leaf = row("deep-leaf", 100);
+    leaf.parent = Some(parent.key());
+
+    let mut index = SummaryIndex::new();
+    for (seq, row) in chain.iter().cloned().enumerate() {
+        index = index.apply(seq as u64 + 1, row);
+    }
+    index = index.apply(chain.len() as u64 + 1, leaf.clone());
+
+    let mut fresh = SummaryIndex::new();
+    for (seq, row) in std::iter::once(leaf).chain(chain.iter().rev().cloned()).enumerate() {
+        fresh = fresh.apply(seq as u64 + 1, row);
+    }
+
+    for depth in [2, 1, 0] {
+        let key = RowKey::new("local", format!("deep-{depth:02}"));
+        let filter = ListFilter::family(key);
+        let actual =
+            index.read_page(None, ReadSide::After, false, 128, 256 * 1024, Some(&filter)).unwrap();
+        let expected =
+            fresh.read_page(None, ReadSide::After, false, 128, 256 * 1024, Some(&filter)).unwrap();
+        assert_eq!(
+            actual.rows.iter().map(|row| row.key()).collect::<Vec<_>>(),
+            expected.rows.iter().map(|row| row.key()).collect::<Vec<_>>(),
+            "stale handle at chain depth {depth}",
+        );
+        assert_eq!(actual.deeper, expected.deeper, "deeper mismatch at chain depth {depth}");
+    }
+}
+
+#[test]
+fn removing_a_last_child_keeps_hot_ancestors_in_the_family_table() {
+    let root = row("remove-root", 0);
+    let a = parent_row("remove-a", 1, &root);
+    let b = parent_row("remove-b", 2, &a);
+    let c = parent_row("remove-c", 3, &b);
+    let mut index = SummaryIndex::new();
+    for (seq, row) in [root.clone(), a.clone(), b.clone(), c.clone()].into_iter().enumerate() {
+        index = index.apply(seq as u64 + 1, row);
+    }
+    index = index.remove_row(5, &c.key()).unwrap();
+
+    let page = index
+        .read_page(
+            None,
+            ReadSide::After,
+            false,
+            16,
+            64 * 1024,
+            Some(&ListFilter::family(root.key())),
+        )
+        .unwrap();
+    assert_eq!(
+        page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+        ["remove-a", "remove-b"],
+    );
+
+    let oracle = SummaryIndex::new().apply(1, root).apply(2, a).apply(3, b);
+    assert_eq!(index.kin(), oracle.kin());
+}
+
+fn parent_row(id: &str, activity: u64, parent: &Summary) -> Summary {
+    let mut row = row(id, activity);
+    row.parent = Some(parent.key());
+    row
 }
