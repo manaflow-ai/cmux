@@ -108,6 +108,10 @@ pub fn wrapped(
                 continue;
             };
             disabled.extend(disabled_in(project));
+            // A local-scope server (`projects.<dir>.mcpServers`) of a project server's name is
+            // the one Claude starts: the project's entry is left alone, never wrapped over it.
+            let local = project.get("mcpServers").and_then(Value::as_object);
+            disabled.extend(local.into_iter().flat_map(|servers| servers.keys().cloned()));
         }
     }
     // A name a closer folder declares is its own, whatever its type: a parent's server of the

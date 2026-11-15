@@ -127,6 +127,20 @@ fn a_closer_server_of_another_type_keeps_its_name() {
     assert_eq!(names(&world.wrapped(&web)), ["root"]);
 }
 
+/// A local-scope server in `.claude.json` takes a project server's name: the project's is not
+/// wrapped over it.
+#[test]
+fn a_local_server_of_the_same_name_is_left_alone() {
+    let world = World::new();
+    world.servers(&world.repo, json!({"shared": stdio("project"), "kept": stdio("k")}));
+    let key = world.repo.to_str().unwrap();
+    world.write(
+        &world.top.join(".claude.json"),
+        json!({"projects": {key: {"mcpServers": {"shared": stdio("local")}}}}),
+    );
+    assert_eq!(names(&world.wrapped(&world.repo)), ["kept"]);
+}
+
 /// A server a project settings file above the checkout disables is never wrapped.
 #[test]
 fn settings_above_the_checkout_disable_too() {
