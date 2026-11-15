@@ -61,6 +61,7 @@ pub mod race;
 pub(crate) mod reply_address;
 pub mod resolve;
 pub mod resume_here;
+pub mod resume_here_ask;
 pub mod retry;
 pub mod run;
 pub(crate) mod select;

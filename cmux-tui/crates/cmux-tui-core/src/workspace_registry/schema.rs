@@ -280,15 +280,28 @@ fn skipped_by_open_check(table: &str) -> bool {
 /// One `PRAGMA foreign_key_check` row: `(table, rowid, parent, foreign key index)`.
 pub(crate) type ForeignKeyViolation = (String, i64, Option<String>, i64);
 
+#[cfg(test)]
+thread_local! {
+    static STATE_FOREIGN_KEY_CHECKS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Calls of [`first_state_foreign_key_violation`] on this thread (test hook).
+#[cfg(test)]
+pub(crate) fn state_foreign_key_checks_on_this_thread() -> usize {
+    STATE_FOREIGN_KEY_CHECKS.with(Cell::get)
+}
+
 /// The first row of a registry state table whose foreign key names a missing
 /// parent: `(table, rowid, parent, foreign key index)`. The open migrates
-/// state tables with foreign keys off and validates the resource topology, so
-/// both check them; an unscoped `PRAGMA foreign_key_check` also walked every
-/// receipt ledger (about 4 s cold on a 41 GB registry) while the daemon's
-/// socket waited.
+/// the state tables of an existing file with foreign keys off, so it checks
+/// them once, after the migrations, when foreign keys are on again; an
+/// unscoped `PRAGMA foreign_key_check` also walked every receipt ledger
+/// (about 4 s cold on a 41 GB registry) while the daemon's socket waited.
 pub(crate) fn first_state_foreign_key_violation(
     connection: &Connection,
 ) -> anyhow::Result<Option<ForeignKeyViolation>> {
+    #[cfg(test)]
+    STATE_FOREIGN_KEY_CHECKS.with(|checks| checks.set(checks.get() + 1));
     let tables = {
         let mut statement = connection.prepare(
             "SELECT DISTINCT m.name FROM sqlite_master AS m, pragma_foreign_key_list(m.name)

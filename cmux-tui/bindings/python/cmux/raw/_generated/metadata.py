@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2'
+IR_SHA256 = 'dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5'
 
 
 @dataclass(frozen=True)
@@ -4134,6 +4134,7 @@ EVENTS = {
     'screen-added': EventMetadata('screen-added', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-changed': EventMetadata('screen-changed', 12, 'screen-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'screen-device-changed': EventMetadata('screen-device-changed', 12, 'screen-device-identity-v1', ('subscribe',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'selection-changed': EventMetadata('selection-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),
