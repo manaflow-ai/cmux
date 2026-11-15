@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43686004703",
+  "recorded_at": "2026-11-15T06:44:30Z",
+  "reason": "cmux-tui 9cd626dce6da changes the image's cmux-tui (pinned db28414ec2cf)",
+  "dry_run": false,
+  "cmux_tui": "9cd626dce6da07e3e3123150c36bf34ebd3198dc",
+  "fixes": [
+    {
+      "sha": "9cd626dce6da07e3e3123150c36bf34ebd3198dc",
+      "mergedAt": "2026-11-14T22:18:33-08:00",
+      "subject": "acpmux: a refused ssh login waits minutes between attempts, and no open chat cuts the wait (#43471)"
+    },
+    {
+      "sha": "2c58afdd5f8ac95146fed0cc3c472aee5af31562",
+      "mergedAt": "2026-11-14T22:13:56-08:00",
+      "subject": "cmux-tui: send a byte viewer's terminal output at most once per frame (attach-output-coalesce-v1) (#43373)"
+    },
+    {
+      "sha": "02e03f1691a5d64cc96bbe5e0663abccd4350c09",
+      "mergedAt": "2026-11-14T22:08:54-08:00",
+      "subject": "acpmux: agent holder on by default (#43413)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T06:44:30Z",
+    "snapshot_id": "sh-a7312b5bde0e494e9d18876e26597d2b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43686004703): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d899ec0959ff4d5071481fdd9d0d1bfd1c77f006",
+    "image": "cloud-native-auto-9cd626dc-43686004703-1",
+    "revision": "ci-43686004703-1",
+    "at": "2026-11-15T06:44:30Z"
+  },
+  "rolled_back": false
+}
