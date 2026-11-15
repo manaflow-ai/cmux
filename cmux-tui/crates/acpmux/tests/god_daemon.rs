@@ -477,22 +477,23 @@ impl Daemon {
         Self { child, socket, spawned, socket_connect_us }
     }
 
-    /// `VmRSS` and `VmHWM` of the daemon, in bytes.
     /// The daemon's CPU time so far, user and system, in seconds (`/proc/PID/stat`).
     #[cfg(target_os = "linux")]
     fn cpu_seconds(&self) -> f64 {
         let stat =
             std::fs::read_to_string(format!("/proc/{}/stat", self.child.id())).unwrap_or_default();
-        // The fields after the command name, which is in parentheses and may hold spaces.
+        // The fields after the command name, which is in parentheses and may hold spaces, taken
+        // by position: some before utime are negative (`tpgid` is -1 with no terminal).
         let rest = stat.rsplit_once(')').map_or("", |(_, r)| r);
-        let ticks: Vec<u64> = rest.split_whitespace().filter_map(|f| f.parse().ok()).collect();
-        // utime and stime (fields 14 and 15): the 11th and 12th numbers after the state letter.
-        let used = ticks.get(10).zip(ticks.get(11)).map_or(0, |(u, s)| u + s);
+        let fields: Vec<&str> = rest.split_whitespace().collect();
+        // utime and stime are fields 14 and 15; `rest` starts at field 3, the state.
+        let field = |n: usize| fields.get(n - 3).and_then(|f| f.parse::<u64>().ok()).unwrap_or(0);
         // SAFETY: sysconf reads a constant.
         let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1);
-        used as f64 / hz as f64
+        (field(14) + field(15)) as f64 / hz as f64
     }
 
+    /// `VmRSS` and `VmHWM` of the daemon, in bytes.
     fn rss(&self) -> (u64, u64) {
         let status = std::fs::read_to_string(format!("/proc/{}/status", self.child.id()))
             .unwrap_or_default();
