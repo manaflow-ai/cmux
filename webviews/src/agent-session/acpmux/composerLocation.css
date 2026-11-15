@@ -1934,3 +1934,16 @@
   width: calc(var(--ui-ghost-icon-size) * 1.25);
   height: var(--ui-ghost-icon-size);
 }
+/* A chat a cmux terminal runs: in place of the model and mode chips, where they are set (App.tsx
+   `TerminalPickersNote`), quiet and on one line like the chips it stands for. */
+.acpmux-composer-bar .acpmux-terminal-pickers {
+  min-width: 0;
+  overflow: hidden;
+  padding-inline: var(--acpmux-row-inset);
+  color: var(--agent-muted);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -35,6 +35,9 @@ impl Terminal {
             .env("FAKE_LOG", &log)
             .env("FAKE_TURN_MS", turn_ms.to_string())
             .current_dir(root.join("project"))
+            // Not in a cmux terminal unless a test says so (the runner may be in one).
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
             .stdin(std::process::Stdio::piped());
         if let Some((sock, chat)) = hand_off {
             cmd.env("FAKE_DAEMON_SOCK", sock).env("FAKE_CHAT", chat);
@@ -121,6 +124,16 @@ fn mono_ns() -> u64 {
 async fn handed_to_terminal(
     turn_ms: u64,
 ) -> (Arc<Hub>, String, std::path::PathBuf, Terminal, std::path::PathBuf, String) {
+    handed_to_terminal_with(turn_ms, false, false).await
+}
+
+/// [`handed_to_terminal`], in a cmux terminal (`cmux`: the fake is also its session daemon, and
+/// the hand-off names that terminal), with or without an inbox.
+async fn handed_to_terminal_with(
+    turn_ms: u64,
+    cmux: bool,
+    no_inbox: bool,
+) -> (Arc<Hub>, String, std::path::PathBuf, Terminal, std::path::PathBuf, String) {
     let (hub, sid, file, gate, turn, text, root) = chat_mid_turn().await;
     std::fs::write(&gate, "go").unwrap();
     turn.await.unwrap().unwrap();
@@ -130,7 +143,17 @@ async fn handed_to_terminal(
     // `resume-here` asks for the hand-off over the daemon's unix socket as the process that then
     // becomes Claude Code: the daemon binds the pid the kernel gives it.
     let sock = listen(&hub, &root).await;
-    let terminal = Terminal::start(&root, &asid, &file, turn_ms, Some((&sock, &sid)), &[]).await;
+    let mut env = Vec::new();
+    if cmux {
+        // The cmux terminal it runs in, as the session daemon sets it on every terminal.
+        env.push(("FAKE_CMUX", "1".to_owned()));
+        env.push(("CMUX_TUI_SOCKET", root.join("c.sock").display().to_string()));
+        env.push(("CMUX_TUI_TERMINAL_ID", "term_toggle".to_owned()));
+    }
+    if no_inbox {
+        env.push(("FAKE_NO_INBOX", "1".to_owned()));
+    }
+    let terminal = Terminal::start(&root, &asid, &file, turn_ms, Some((&sock, &sid)), &env).await;
     let released = terminal.texts("RELEASED");
     assert_eq!(released.len(), 1, "refused: {:?}", terminal.texts("REFUSED"));
     let released: Value = serde_json::from_str(&released[0]).unwrap();
@@ -408,5 +431,131 @@ async fn many_prompts_typed_mid_turn_each_show_once() {
     want.extend(typed);
     assert_eq!(prompts(&hub, &sid), want, "each once, in order");
     drop(terminal);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The chat's turn records, in order: (kind, stopReason or promptId).
+fn turn_ends(hub: &Hub, sid: &str) -> Vec<String> {
+    hub.events(sid, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "turn_end")
+        .map(|e| e.msg["stopReason"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// Leo, 2026-11-15: "what is our terminal/gui switch lol its not good enough to ship as is it
+/// doesnt have the composer or anything?" The chat's Stop stops the turn its terminal runs: Esc
+/// into that very terminal (bound by the pid the kernel gave and the terminal its environment
+/// named), and the chat's turn ends as stopped. A Stop while nothing runs types nothing.
+#[tokio::test]
+async fn the_chats_stop_interrupts_the_terminals_turn() {
+    let (hub, sid, _file, mut terminal, root, _) =
+        handed_to_terminal_with(5_000, true, false).await;
+    let mut c = connect(&hub).await;
+    // Idle: nothing to stop, nothing typed (an Esc would clear what the person is typing).
+    c.request(method::SESSION_CANCEL, json!({"sessionId": sid})).await.unwrap();
+    assert!(terminal.texts("SEND").is_empty(), "nothing typed while idle");
+    terminal.type_line("a long job");
+    assert_eq!(terminal.until("RUN", 1).await, ["a long job"]);
+    // The watch shows the turn before the Stop can reach it.
+    for _ in 0..500 {
+        if hub.resolve(&sid).unwrap().meta().watching.unwrap().open.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let at = std::time::Instant::now();
+    c.request(method::SESSION_CANCEL, json!({"sessionId": sid})).await.unwrap();
+    assert_eq!(terminal.until("CUT", 1).await, ["a long job"], "the terminal's turn stopped");
+    let sent: Value = serde_json::from_str(&terminal.texts("SEND")[0]).unwrap();
+    assert_eq!(sent["bytes"], "Gw==", "Esc: {sent}");
+    assert_eq!(sent["surface"], 7, "the bound terminal's surface");
+    assert!(sent["expect_foreground"].is_string(), "only while the harness holds it: {sent}");
+    for _ in 0..500 {
+        if turn_ends(&hub, &sid).last().map(String::as_str) == Some("cancelled") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(turn_ends(&hub, &sid).last().map(String::as_str), Some("cancelled"));
+    println!("stop: chat Stop to the chat's turn ended {} ms", at.elapsed().as_millis());
+    assert!(terminal.texts("END").is_empty(), "the stopped turn never answered");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A chat send's images and files reach the terminal's Claude Code with it, through its inbox,
+/// as a normal chat send carries them: one message, the text, the file and the image.
+#[tokio::test]
+async fn a_chat_sends_attachments_reach_the_terminals_harness() {
+    let (hub, sid, _file, terminal, root, _) = handed_to_terminal(300).await;
+    let p = json!({"sessionId": sid, "_meta": {"acpmux": {"promptId": "with-image"}}, "prompt": [
+        {"type": "text", "text": "what is this"},
+        {"type": "resource_link", "uri": "file:///tmp/notes.md", "name": "notes.md"},
+        {"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo="},
+    ]});
+    let mut c = connect(&hub).await;
+    let answer =
+        tokio::time::timeout(Duration::from_secs(20), c.request(method::SESSION_PROMPT, p))
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(answer["_meta"]["acpmux"]["answered"], true, "{answer}");
+    assert_eq!(terminal.texts("RECV"), ["what is this\n\n@/tmp/notes.md\n\n[image image/png]"]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A terminal whose Claude Code takes no inbox message (cross-session messaging off): the chat's
+/// prompt is typed into that terminal (a bracketed paste, then Return), only while its agent waits
+/// at its prompt. Mid-turn it waits for the turn's end, so none is lost, each runs once and in
+/// order, and the chat shows each once under its id.
+#[tokio::test]
+async fn with_no_inbox_a_chat_send_is_typed_into_the_terminal_once_idle() {
+    let (hub, sid, _file, mut terminal, root, first) =
+        handed_to_terminal_with(700, true, true).await;
+    // Idle: typed at once.
+    let at = std::time::Instant::now();
+    let idle = send(&hub, &sid, "typed for me", "t-idle");
+    assert_eq!(terminal.until("RUN", 1).await, ["typed for me"]);
+    println!("no inbox: chat send to the terminal's turn running {} ms", at.elapsed().as_millis());
+    let idle = tokio::time::timeout(Duration::from_secs(20), idle).await.unwrap().unwrap().unwrap();
+    assert_eq!(idle["_meta"]["acpmux"]["answered"], true, "{idle}");
+    // Mid-turn: two sends wait, then run after the turn, in order.
+    terminal.type_line("the person's own");
+    assert_eq!(terminal.until("RUN", 2).await[1], "the person's own");
+    let one = send(&hub, &sid, "queued 1", "t-1");
+    let two = send(&hub, &sid, "queued 2", "t-2");
+    let one = tokio::time::timeout(Duration::from_secs(30), one).await.unwrap().unwrap().unwrap();
+    let two = tokio::time::timeout(Duration::from_secs(30), two).await.unwrap().unwrap().unwrap();
+    assert_eq!(one["_meta"]["acpmux"]["answered"], true, "{one}");
+    assert_eq!(two["_meta"]["acpmux"]["answered"], true, "{two}");
+    let ran = terminal.lines("RUN");
+    let ended = terminal.lines("END");
+    assert_eq!(
+        ran.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>(),
+        ["typed for me", "the person's own", "queued 1", "queued 2"],
+        "each once, in order"
+    );
+    assert!(ran[2].0 > ended[1].0, "typed only once the running turn ended");
+    let typed: Vec<Value> = terminal
+        .texts("SEND")
+        .iter()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .filter(|s: &Value| s["paste"] == true)
+        .collect();
+    assert!(typed.iter().all(|s| s["submit"] == true && s["expect_agent"]["session"].is_string()));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        prompts(&hub, &sid),
+        [first.as_str(), "typed for me", "the person's own", "queued 1", "queued 2"]
+    );
+    let ids: Vec<String> = hub
+        .events(&sid, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "user_message")
+        .map(|e| e.msg["promptId"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert!(["t-idle", "t-1", "t-2"].iter().all(|id| ids.iter().any(|i| i == id)), "{ids:?}");
     let _ = std::fs::remove_dir_all(&root);
 }

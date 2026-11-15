@@ -1436,7 +1436,32 @@ export function ChatComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
 /// The host closes a New Tab page (`AgentPaneView.discardUnsentChat`).
 const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
 
-function DefaultComposerChips({
+/// The composer row's chips. A chat a cmux terminal runs (Toggle Terminal and Chat, `terminal`)
+/// keeps Send, Stop and its attachments: each goes into that terminal's harness (acpmux
+/// `hub/bridge.rs`, `hub/terminal_input.rs`). Its model, effort and mode chips cannot apply there:
+/// the terminal's Claude Code or Codex runs its own and takes no change of them from outside its
+/// terminal, and a pick here would start this chat's own harness (acpmux refuses that while the
+/// terminal runs it). The row says where they are set instead.
+function DefaultComposerChips(props: {
+  snapshot: AcpmuxSnapshot;
+  cwd?: string;
+  onAddAgent?(): void;
+  startsChat?: boolean;
+}) {
+  if (!props.startsChat && props.snapshot.summary?.terminal === true) return <TerminalPickersNote />;
+  return <PickerChips {...props} />;
+}
+
+function TerminalPickersNote() {
+  const t = useT();
+  return (
+    <span className="acpmux-terminal-pickers" data-terminal-pickers="">
+      {t("watch.terminalPickers")}
+    </span>
+  );
+}
+
+function PickerChips({
   snapshot,
   cwd,
   onAddAgent,

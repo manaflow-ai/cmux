@@ -23,6 +23,17 @@ from its own process, so the daemon binds the pid the kernel gives it at accept:
 and FAKE_CHAT it sends `_acpmux/release_to_watch {sessionId, terminalPid: its pid}` over that unix
 socket and logs `RELEASED` with the answer (or `REFUSED` with the error).
 
+With FAKE_CMUX=1 it is also the cmux session daemon its terminal runs under, as far as the
+chat's keys go (`hub/terminal_input.rs`): it listens on CMUX_TUI_SOCKET and answers `resolve-terminal` for CMUX_TUI_TERMINAL_ID, and
+`send` as the terminal: a bracketed paste with `submit` and `expect_agent` is a prompt typed at its
+prompt, refused with `agent not waiting` while a turn runs; the bytes of Esc interrupt the running
+turn (`[Request interrupted by user]`, no answer), logged `INTERRUPT`. Each `send` is logged `SEND`
+with its params. acpmux finds that terminal by this process's environment, as it finds the one
+`resume-here` runs in.
+
+An inbox message whose content is blocks (text and images) runs as its text, with `[image MIME]`
+for each image, and is logged so.
+
 Environment: FAKE_CONFIG (the Claude store), FAKE_SESSION, FAKE_TRANSCRIPT, FAKE_LOG,
 FAKE_TURN_MS (default 600), FAKE_NO_INBOX=1 (no inbox, as with cross-session messaging off),
 FAKE_DAEMON_SOCK and FAKE_CHAT (the hand-off), FAKE_NAMED_PID (a pid to name instead of its own).
@@ -49,6 +60,7 @@ work = queue.Queue()
 pending = []  # [(kind, text, uuid)] waiting for the turn to end
 typed_mid_turn = []  # texts typed during the running turn, before its tool boundary
 state = {"busy": False, "boundary": False}
+cut = threading.Event()  # Esc: the running turn stops at once
 
 
 def now_iso():
@@ -70,6 +82,19 @@ def write(record):
         f.flush()
 
 
+def plain(content):
+    """An inbox message's content as one text: blocks joined, an image as `[image MIME]`."""
+    if isinstance(content, str):
+        return content
+    out = []
+    for b in content:
+        if b.get("type") == "text":
+            out.append(b["text"])
+        elif b.get("type") == "image":
+            out.append("[image %s]" % b["source"]["media_type"])
+    return "\n\n".join(out)
+
+
 def user_line(text, line_uuid=None, peer=False):
     rec = {"type": "user", "uuid": line_uuid or str(uuid.uuid4()),
            "message": {"role": "user", "content": text}}
@@ -79,11 +104,16 @@ def user_line(text, line_uuid=None, peer=False):
 
 
 def run_turn(text):
-    log("RUN", text)
+    log("RUN", plain(text))
     tool = "toolu_" + uuid.uuid4().hex[:12]
     write({"type": "assistant", "message": {"role": "assistant", "stop_reason": "tool_use",
            "content": [{"type": "tool_use", "id": tool, "name": "Bash", "input": {"command": "work"}}]}})
-    time.sleep(TURN)
+    if cut.wait(TURN):
+        cut.clear()
+        write({"type": "user", "message": {"role": "user", "content": [
+            {"type": "text", "text": "[Request interrupted by user]"}]}})
+        log("CUT", plain(text))
+        return
     write({"type": "user", "message": {"role": "user", "content": [
         {"type": "tool_result", "tool_use_id": tool, "content": "done"}]}})
     # The tool boundary: prompts typed meanwhile go into this turn.
@@ -99,10 +129,10 @@ def run_turn(text):
             "type": "queued_command", "prompt": t, "source_uuid": source,
             "commandMode": "prompt", "origin": {"kind": "human"}}})
         log("RUN", t)
-    answer = "ANSWER " + " + ".join([text] + absorbed)
+    answer = "ANSWER " + " + ".join([plain(text)] + absorbed)
     write({"type": "assistant", "message": {"role": "assistant", "stop_reason": "end_turn",
            "content": [{"type": "text", "text": answer}]}})
-    for t in [text] + absorbed:
+    for t in [plain(text)] + absorbed:
         log("END", t)
 
 
@@ -134,13 +164,13 @@ def worker():
 
 def take(kind, text, line_uuid=None):
     """A prompt typed (`typed`) or from the inbox (`inbox`)."""
-    log("RECV", text)
+    log("RECV", plain(text))
     with lock:
         if not state["busy"]:
             state["busy"] = True
             work.put((kind, text, line_uuid))
             return
-        write({"type": "queue-operation", "operation": "enqueue", "content": text})
+        write({"type": "queue-operation", "operation": "enqueue", "content": plain(text)})
         if kind == "typed" and not state["boundary"]:
             typed_mid_turn.append(text)
         else:
@@ -166,6 +196,59 @@ def serve_inbox(server):
                 take("inbox", msg["message"]["content"], msg.get("uuid"))
 
 
+def serve_cmux(server):
+    """The cmux session daemon's `resolve-terminal` and `send`, for this terminal only."""
+    terminal = os.environ["CMUX_TUI_TERMINAL_ID"]
+    while True:
+        conn, _ = server.accept()
+        threading.Thread(target=cmux_conn, args=(conn, terminal), daemon=True).start()
+
+
+def cmux_conn(conn, terminal):
+    f = conn.makefile("rwb")
+    for line in f:
+        req = json.loads(line)
+        rid = req.get("id")
+
+        def reply(ok, data=None, error=None):
+            msg = {"id": rid, "ok": ok}
+            if ok:
+                msg["data"] = data or {}
+            else:
+                msg["error"] = error
+            f.write((json.dumps(msg) + "\n").encode())
+            f.flush()
+        cmd = req.get("cmd")
+        if cmd == "resolve-terminal":
+            if req.get("terminal_id") == terminal:
+                reply(True, {"surface": 7, "terminal_id": terminal})
+            else:
+                reply(False, error="terminal_not_found")
+            continue
+        if cmd != "send" or req.get("surface") != 7:
+            reply(False, error="bad request")
+            continue
+        log("SEND", json.dumps({k: v for k, v in req.items() if k != "id"}, sort_keys=True))
+        if req.get("bytes") == "Gw==":
+            log("INTERRUPT", "")
+            with lock:
+                if state["busy"]:
+                    cut.set()
+            reply(True)
+            continue
+        agent = req.get("expect_agent") or {}
+        if req.get("paste") and req.get("submit") and agent.get("session") == SESSION:
+            with lock:
+                busy = state["busy"]
+            if busy:
+                reply(False, error="agent not waiting: the terminal's agent is working, asking, or another session")
+                continue
+            take("typed", req.get("text", ""))
+            reply(True)
+            continue
+        reply(False, error="bad request")
+
+
 def release():
     """The hand-off `acpmux resume-here` asks for, as this process."""
     sock_path = os.environ.get("FAKE_DAEMON_SOCK")
@@ -186,7 +269,8 @@ def release():
             if msg.get("id") == rid:
                 return msg
     call(1, "initialize", {"protocolVersion": 1, "clientInfo": {"name": "resume-here"}})
-    answer = call(2, "_acpmux/release_to_watch", {"sessionId": os.environ["FAKE_CHAT"], "terminalPid": pid})
+    params = {"sessionId": os.environ["FAKE_CHAT"], "terminalPid": pid}
+    answer = call(2, "_acpmux/release_to_watch", params)
     conn.close()
     if "result" in answer:
         log("RELEASED", json.dumps(answer["result"]))
@@ -216,6 +300,11 @@ def main():
     with open(os.path.join(sessions, "%d.json" % pid), "w") as f:
         json.dump(entry, f)
     threading.Thread(target=worker, daemon=True).start()
+    if os.environ.get("FAKE_CMUX") == "1":
+        cmux = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        cmux.bind(os.environ["CMUX_TUI_SOCKET"])
+        cmux.listen(16)
+        threading.Thread(target=serve_cmux, args=(cmux,), daemon=True).start()
     release()
     log("READY", "")
     for line in sys.stdin:
