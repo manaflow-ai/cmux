@@ -165,6 +165,8 @@ cmux-cloud-codex-holder.workspace = true
 # unix files and processes, so the crate does not build for Windows.
 cmux-automations.workspace = true
 cmux-holder.workspace = true
+# `cmux carrier supervise`: the serve socket's lease between supervisors (carrier/supervise.rs).
+cmux-file-lock.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
 cmux-vnc.workspace = true
 flate2.workspace = true
