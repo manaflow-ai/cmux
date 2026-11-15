@@ -60,6 +60,10 @@ public final class MacScreenStore {
     @ObservationIgnored let removeLinkPairings: @Sendable () -> Void
     @ObservationIgnored private var linkPairingsRemoved = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// The file was read, so a save cannot overwrite it with the empty state from before.
+    @ObservationIgnored private var fileRead = false
+    /// A change came before the file was read; `load()` saves it once the two are merged.
+    @ObservationIgnored private var savePending = false
 
     /// `removeLinkPairings` deletes the Keychain items earlier builds kept for link pairing.
     public init(file: URL, removeLinkPairings: @escaping @Sendable () -> Void = {}) {
@@ -97,6 +101,7 @@ public final class MacScreenStore {
                     // A share marked while the file was read stays marked.
                     hasSharedBefore = hasSharedBefore || stored.hasSharedBefore
                 }
+                fileRead = true
                 if stored?.linkPairingsRemoved != true {
                     // One time: the Keychain items of link pairing (every saved Mac's room
                     // secret and this Mac's own link) and the file's old fields go.
@@ -105,6 +110,7 @@ public final class MacScreenStore {
                     save()
                 } else {
                     linkPairingsRemoved = true
+                    if savePending { save() }
                 }
                 isLoaded = true
             }
@@ -139,8 +145,10 @@ public final class MacScreenStore {
         return true
     }
 
-    /// Writes the file off the main thread, in order.
+    /// Writes the file off the main thread, in order; before the file is read, only notes that a save is due.
     private func save() {
+        guard fileRead else { savePending = true; return }
+        savePending = false
         let contents = File(hubDeviceName: hubDeviceName, deviceNames: deviceNames, hasSharedBefore: hasSharedBefore,
                             linkPairingsRemoved: linkPairingsRemoved)
         guard let data = try? JSONEncoder().encode(contents) else { return }
