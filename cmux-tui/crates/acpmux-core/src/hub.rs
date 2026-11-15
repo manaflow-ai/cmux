@@ -43,8 +43,8 @@ pub use acpmux_book::index::MirrorMark;
 mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
-pub use mirror::{MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, UnitChange};
-pub use origins::{Source, refused_held_rows};
+pub use mirror::{MAX_FRAME_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, UnitChange};
+pub use origins::{MAX_ORIGINS, Source, refused_held_rows};
 
 pub use crate::wire::{DeltaFrame, Window};
 
@@ -586,6 +586,8 @@ pub enum HubError {
     ForgedOrigin(String),
     #[error("mirror unit refused while its origin is leaving")]
     UnitHeld,
+    #[error("mirror unit does not follow its origin's mark")]
+    UnitOutOfOrder,
 }
 
 impl HubError {
