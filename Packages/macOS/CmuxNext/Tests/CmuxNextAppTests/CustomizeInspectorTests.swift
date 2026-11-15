@@ -77,7 +77,7 @@ struct CustomizeInspectorTests {
     }
 
     @Test func theButtonsRunTheRegisteredActionsWithTheElement() throws {
-        let registry = ActionRegistry()
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
         var opened: [ActionInvocation] = []
         #expect(registry.bindAgentPane { opened.append($0) })
         let element = try #require(CustomizeElement.named("chatComposer"))
@@ -98,7 +98,7 @@ struct CustomizeInspectorTests {
 
     @Test func rightClickCustomizeIsHiddenUntilTheSettingIsOn() {
         var on = false
-        let registry = ActionRegistry()
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
         #expect(registry.bindAgentPane(customizeRows: { on }) { _ in })
         let id = ActionID(rawValue: CustomizeElement.openActionID)
         #expect(ActionRegistry.locate(id, in: registry.makeContextMenu(for: .tabStrip)) == nil)
@@ -107,7 +107,7 @@ struct CustomizeInspectorTests {
     }
 
     @Test func aRightClickCustomizeRowNamesItsMenusElement() throws {
-        let registry = ActionRegistry()
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
         var opened: [ActionInvocation] = []
         #expect(registry.bindAgentPane(customizeRows: { true }) { opened.append($0) })
         let menu = registry.makeContextMenu(for: .tabStrip)
