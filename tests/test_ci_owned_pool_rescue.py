@@ -2523,6 +2523,23 @@ class RerunInput(unittest.TestCase):
             run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
             self.assertIn("rerun-failed", api.calls)
 
+    def test_a_job_a_runner_takes_before_the_cancel_keeps_the_run(self):
+        clock = Clock()
+        api = RerunAPI(clock)
+        reads = {"count": 0}
+        original = api.jobs
+
+        def jobs(run_id, attempt):
+            reads["count"] += 1
+            found = original(run_id, attempt)
+            if reads["count"] > 1:
+                found[1].update(status="in_progress", runner_name="mini-3")
+            return found
+        api.jobs = jobs
+        _, summary = run_rerun(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("started before the cancel", summary)
+
     def test_a_running_job_a_moved_head_or_another_workflow_is_left_alone(self):
         clock = Clock()
         running = {**job("cmux-next swift test", status="in_progress", labels=[SIDE], runner="mini-1"), "id": 3}

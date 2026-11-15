@@ -5373,6 +5373,10 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
     # The jobs the re-run runs again: those still waiting (the cancel stops them) and the failed and cancelled ones.
     again = [job for job in jobs if job.get("status") != "completed"
              or job.get("conclusion") in ("failure", "cancelled", "timed_out")]
+    if not again:
+        return f"not re-run: attempt {attempt} of run {run_id} has no failed, cancelled or waiting job"
+    if not pulls and run.get("event") in ("pull_request", "pull_request_target"):
+        return f"not re-run: pull request run {run_id} names no pull request, so its head cannot be checked"
     plan: PlacementRerun | None = None
     if path == CMUX_NEXT_WORKFLOW_PATH and following <= CMUX_NEXT_LAST_PLACED_ATTEMPT:
         try:
@@ -5402,8 +5406,20 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
         if deeper:
             return f"not re-run: attempt {following} takes {side_label}, but {deeper}"
     if run.get("status") != "completed":
+        def still_waiting() -> None:
+            # Read last, right before the cancel goes out: a runner that took a job since keeps the run.
+            now_jobs = read(lambda: api.jobs(run_id, attempt), sleep, log)
+            taken = sorted(str(job.get("name") or job.get("id")) for job in now_jobs if job_running(job))
+            if taken:
+                raise StallCleared(f"{', '.join(taken)} started before the cancel")
         log(f"cancelling run {run_id} attempt {attempt} to re-run it as the bot")
-        api.cancel(run_id)
+        try:
+            api.cancel(run_id, before_send=still_waiting)
+        except StallCleared as cleared:
+            return f"not re-run: {cleared}, and a cancel would kill it"
+        # The re-run to follow, for a successor if this job stops first (rerun_intended()).
+        tail = ONE_JOB.format(plan.job_id) if plan is not None else ""
+        log(f"{CANCEL_SENT} run {run_id} attempt {attempt}{tail}")
         waited, forced = 0, False
         while True:
             sleep(POLL_SECONDS)
@@ -5421,6 +5437,7 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
                     log(f"force-cancel of run {run_id} answered {error}; waiting for the cancel to settle")
             if waited >= CANCEL_WAIT_SECONDS:
                 return f"cancelled run {run_id}, not re-run: it had not finished after {CANCEL_WAIT_SECONDS}s"
+        log(f"{CANCEL_SETTLED} run {run_id} attempt {attempt}")
     if plan is not None:
         api.rerun_job(run_id, plan.job_id, following)
         return (f"re-ran {plan.placement_job} of run {run_id} and every job that needs it as attempt "
