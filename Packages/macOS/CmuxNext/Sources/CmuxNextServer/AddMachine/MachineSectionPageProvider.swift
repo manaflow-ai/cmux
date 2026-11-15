@@ -196,6 +196,7 @@ public final class MachineSectionPageProvider: PageProvider {
             "isLocal": .bool(row.isLocal), "isConnected": .bool(row.isConnected), "isConnecting": .bool(row.isConnecting),
         ]
         if let state = row.serverState { fields["serverState"] = .string(state.rawValue) }
+        if let symbol = row.symbol { fields["symbol"] = .string(symbol) }
         if let health = row.health {
             let word: String = switch health {
             case .ok: "ok"

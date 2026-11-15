@@ -80,13 +80,18 @@ impl App {
             })
             // A NIGHTLY stamps a short commit; [`App::full_commit`] resolves it.
             .filter(|commit| is_hex_commit(commit));
-        let abi = std::fs::read(path.join(APP_ABI))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .and_then(|value| value.get("abi").and_then(Value::as_u64))
-            .map(|abi| abi as u32);
+        let abi = web_abi_of(&path);
         App { path: Some(path), commit, abi }
     }
+}
+
+/// The web ABI app `bundle`'s own pages need (pages/web-abi.json).
+pub(super) fn web_abi_of(bundle: &Path) -> Option<u32> {
+    std::fs::read(bundle.join(APP_ABI))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|value| value.get("abi").and_then(Value::as_u64))
+        .map(|abi| abi as u32)
 }
 
 impl App {
