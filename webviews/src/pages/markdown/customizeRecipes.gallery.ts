@@ -2,8 +2,8 @@
 // The Customize recipes guide (docs/cmux-next/customize-recipes.md, written into the customize state
 // folder by `cmux customize recipes --open`) in the Markdown page, where each recipe's shell block
 // gets a Run button: the one-click Try it. Three layouts of the same ten recipes; the docs page is
-// the chosen one ("grouped"). References: Cursor's Customize plugin browser (one action per item),
-// Codex's automation templates (the wish as an editable starting point), Raycast's store.
+// the chosen one ("grouped"). References: extension browsers with one action per item, and Codex's
+// automation templates (the wish as an editable starting point).
 import { markdownPageEntry } from "../../gallery/format";
 
 const DIR = "/Users/you/.local/state/cmux/customize/recipes";

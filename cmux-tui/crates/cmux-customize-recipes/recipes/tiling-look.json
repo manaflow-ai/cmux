@@ -9,6 +9,6 @@
     "appearance.focusIndicator": "border",
     "sidebar.style": "rail",
     "ui.animationSpeed": "off",
-    "layout.paneGap": 6
+    "layout.panePadding": 4
   }
 }
