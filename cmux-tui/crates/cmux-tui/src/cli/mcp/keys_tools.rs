@@ -167,11 +167,12 @@ impl<B: Backend> Server<B> {
                     Ok(found) => found,
                     Err(message) => return failed(message),
                 };
-                if record["hosts"].as_array().is_some_and(|hosts| !hosts.is_empty()) {
+                let hosts = local::hosts_of(&record);
+                if !hosts.is_empty() {
                     // An app shows no host to check: a key scoped to hosts fills only web pages.
                     return failed(format!(
                         "key {key} is for web hosts only ({}): fill it with target browser",
-                        record["hosts"]
+                        hosts.join(", ")
                     ));
                 }
                 cua.insert(field.to_owned(), json!(value.as_str()));
@@ -184,7 +185,7 @@ impl<B: Backend> Server<B> {
                 let answered = job.run(self.call_cap);
                 drop(cua);
                 let masked = local::mask_json(&answered, &[&value]);
-                if !masked["isError"].as_bool().unwrap_or(false) {
+                if !local::field(&masked, "isError").as_bool().unwrap_or(false) {
                     let place = format!("app:{tool}");
                     if let Err(message) = local::record(paths, &key, &place, false) {
                         return failed(message);

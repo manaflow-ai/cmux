@@ -57,11 +57,12 @@ impl Sinks for RecordingSinks {
 }
 
 type Answer = Result<Result<Value, Value>, String>;
+type Answerer<'a> = Box<dyn Fn(&str, &Value) -> Answer + 'a>;
 
 /// The cmux app: answers from `answer`, records every call.
 struct FakeApp<'a> {
     calls: RefCell<Vec<(String, Value)>>,
-    answer: Box<dyn Fn(&str, &Value) -> Answer + 'a>,
+    answer: Answerer<'a>,
 }
 
 impl<'a> FakeApp<'a> {
@@ -534,7 +535,7 @@ fn request_asks_the_app_and_answers_the_record_the_person_stored() {
             asked_by: params["requester"].as_str().map(str::to_owned),
             from_person: true,
         };
-        store(&f.paths, &f.vault, &put, VALUE, "person").map_err(|e| e.to_string())?;
+        store(&f.paths, &f.vault, &put, VALUE, "person")?;
         Ok(Ok(json!({"stored": true, "name": "EVAL_API_KEY"})))
     });
     let reply = f.run("request EVAL_API_KEY --purpose evals", &app).unwrap();

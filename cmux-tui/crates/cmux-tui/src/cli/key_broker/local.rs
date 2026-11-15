@@ -48,8 +48,10 @@ mod files;
 mod fill;
 mod parse;
 
-use exec::*;
-use files::*;
+#[cfg(test)]
+use exec::Masker;
+#[cfg(test)]
+use files::set_env_line;
 use fill::*;
 
 pub(in crate::cli) use exec::{mask_json, mask_text, run_use};
@@ -238,7 +240,7 @@ fn check_value(value: &str) -> Result<(), String> {
 fn generate(bytes: usize, format: Format) -> Result<Zeroizing<String>, String> {
     use base64::Engine as _;
     let mut raw = Zeroizing::new(vec![0u8; bytes]);
-    getrandom::fill(&mut raw[..]).map_err(|e| format!("the OS random source failed: {e}"))?;
+    getrandom::fill(raw.as_mut_slice()).map_err(|e| format!("the OS random source failed: {e}"))?;
     Ok(Zeroizing::new(match format {
         Format::Base64Url => base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&*raw),
         Format::Hex => raw.iter().map(|b| format!("{b:02x}")).collect(),
@@ -249,13 +251,15 @@ fn generate(bytes: usize, format: Format) -> Result<Zeroizing<String>, String> {
             let mut out = String::with_capacity(bytes);
             let mut pool = Zeroizing::new(vec![0u8; 64]);
             while out.len() < bytes {
-                getrandom::fill(&mut pool[..])
+                getrandom::fill(pool.as_mut_slice())
                     .map_err(|e| format!("the OS random source failed: {e}"))?;
                 for &b in pool.iter().filter(|&&b| b < 248) {
                     if out.len() == bytes {
                         break;
                     }
-                    out.push(ALPHABET[usize::from(b % 62)] as char);
+                    if let Some(&symbol) = ALPHABET.get(usize::from(b % 62)) {
+                        out.push(char::from(symbol));
+                    }
                 }
             }
             out
@@ -263,7 +267,7 @@ fn generate(bytes: usize, format: Format) -> Result<Zeroizing<String>, String> {
     }))
 }
 
-fn is_local(record: &Value) -> bool {
+pub(in crate::cli) fn is_local(record: &Value) -> bool {
     record.get("provider").and_then(Value::as_str) == Some("local")
 }
 
@@ -308,9 +312,33 @@ pub(super) fn listed(record: &mut Value, now: u64) {
     }
 }
 
+/// Field `key` of `value`, or null: a read that cannot panic.
+pub(in crate::cli) fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    static NULL: Value = Value::Null;
+    value.get(key).unwrap_or(&NULL)
+}
+
+/// Sets field `key` of an object; anything that is not an object is left as it is.
+pub(in crate::cli) fn set(value: &mut Value, key: &str, to: Value) {
+    if let Some(fields) = value.as_object_mut() {
+        fields.insert(key.to_owned(), to);
+    }
+}
+
+/// The hosts a key is scoped to (none: any).
+pub(in crate::cli) fn hosts_of(record: &Value) -> Vec<String> {
+    field(record, "hosts")
+        .as_array()
+        .map(|h| h.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+pub(in crate::cli) fn array_mut<'a>(value: &'a mut Value, key: &str) -> Option<&'a mut Vec<Value>> {
+    value.get_mut(key).and_then(Value::as_array_mut)
+}
+
 fn find_local<'a>(audit: &'a mut Value, name: &str) -> Option<&'a mut Value> {
-    audit["keys"]
-        .as_array_mut()?
+    array_mut(audit, "keys")?
         .iter_mut()
         .find(|k| is_local(k) && k.get("name").and_then(Value::as_str) == Some(name))
 }
@@ -356,15 +384,15 @@ fn store(
         "asked_by": put.asked_by,
         "revoked_at": Value::Null,
     });
-    let keys = audit["keys"].as_array_mut().ok_or("bad audit")?;
+    let keys = array_mut(&mut audit, "keys").ok_or("bad audit")?;
     if let Some(index) = keys
         .iter()
         .position(|k| is_local(k) && k.get("name").and_then(Value::as_str) == Some(&put.name))
     {
         // A new value: copies written from the old one are listed until written again.
         let old = keys.remove(index);
-        record["replaced_at"] = json!(rfc3339(now));
-        record["stale_stores"] = old.get("stores").cloned().unwrap_or(json!([]));
+        set(&mut record, "replaced_at", json!(rfc3339(now)));
+        set(&mut record, "stale_stores", old.get("stores").cloned().unwrap_or(json!([])));
     }
     keys.push(record.clone());
     write_audit(&paths.audit, &audit)
@@ -388,7 +416,7 @@ pub(in crate::cli) fn value_of(
         "expired" => {
             return Err(format!(
                 "key {name} expired at {}: store a fresh value with cmux keys put {name} --replace",
-                record["expires_at"].as_str().unwrap_or("?")
+                field(&record, "expires_at").as_str().unwrap_or("?")
             ));
         }
         _ => {}
@@ -411,7 +439,7 @@ pub(in crate::cli) fn record(
     let now = now_secs();
     let Some(key) = find_local(&mut audit, name) else { return Ok(()) };
     if copy {
-        let stores = key["stores"].as_array_mut().ok_or("bad audit record")?;
+        let stores = array_mut(key, "stores").ok_or("bad audit record")?;
         if !stores.iter().any(|s| s == target) {
             stores.push(json!(target));
         }
@@ -420,21 +448,24 @@ pub(in crate::cli) fn record(
         }
     }
     if !key.get("uses").is_some_and(Value::is_array) {
-        key["uses"] = json!([]);
+        set(key, "uses", json!([]));
     }
-    let uses = key["uses"].as_array_mut().ok_or("bad audit record")?;
-    match uses.iter_mut().find(|u| u["target"] == target) {
+    let uses = array_mut(key, "uses").ok_or("bad audit record")?;
+    match uses.iter_mut().find(|u| field(u, "target") == target) {
         Some(found) => {
-            found["count"] = json!(found["count"].as_u64().unwrap_or(0) + 1);
-            found["last_used_at"] = json!(rfc3339(now));
-            found["by"] = json!(requester());
+            let count = field(found, "count").as_u64().unwrap_or(0).saturating_add(1);
+            set(found, "count", json!(count));
+            set(found, "last_used_at", json!(rfc3339(now)));
+            set(found, "by", json!(requester()));
         }
         None => uses.push(
             json!({"target": target, "count": 1, "last_used_at": rfc3339(now), "by": requester()}),
         ),
     }
     if uses.len() > MAX_USES {
-        uses.sort_by(|a, b| b["last_used_at"].as_str().cmp(&a["last_used_at"].as_str()));
+        uses.sort_by(|a, b| {
+            field(b, "last_used_at").as_str().cmp(&field(a, "last_used_at").as_str())
+        });
         uses.truncate(MAX_USES);
     }
     write_audit(&paths.audit, &audit)
@@ -447,8 +478,8 @@ pub(super) fn revoke(paths: &Paths, vault: &dyn KeyVault, name: &str) -> Result<
     let key =
         find_local(&mut audit, name).ok_or_else(|| format!("no key {name} (cmux keys ls)"))?;
     vault.delete(&item(name))?;
-    key["revoked_at"] = json!(rfc3339(now_secs()));
-    let stores = key["stores"].clone();
+    set(key, "revoked_at", json!(rfc3339(now_secs())));
+    let stores = field(key, "stores").clone();
     write_audit(&paths.audit, &audit)?;
     Ok(json!({
         "removed": name,
@@ -456,8 +487,6 @@ pub(super) fn revoke(paths: &Paths, vault: &dyn KeyVault, name: &str) -> Result<
         "next": "the copies under copies_still_live hold the value still: rotate it at its provider",
     }))
 }
-
-/// The host of an `http(s)` URL, lower case.
 
 /// Asks the person, in the cmux app, for key `put.name`; the app stores what they paste with
 /// `cmux keys put --from-person` and answers once it is stored.

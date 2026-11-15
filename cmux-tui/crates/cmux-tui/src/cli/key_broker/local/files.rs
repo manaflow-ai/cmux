@@ -152,10 +152,7 @@ pub(in crate::cli) fn write(
     targets: &[Target],
 ) -> Result<Value, String> {
     let (record, value) = value_of(paths, vault, name)?;
-    let hosts: Vec<String> = record["hosts"]
-        .as_array()
-        .map(|h| h.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-        .unwrap_or_default();
+    let hosts = hosts_of(&record);
     let mut written = Vec::new();
     for target in targets {
         let label = target_label(target);

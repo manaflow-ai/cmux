@@ -756,7 +756,7 @@ pub(super) fn list(paths: &Paths) -> Result<Value, String> {
     let _lock = AuditLock::take(&paths.audit)?;
     let mut audit = read_audit(&paths.audit)?;
     let now = now_secs();
-    for key in audit["keys"].as_array_mut().into_iter().flatten() {
+    for key in local::array_mut(&mut audit, "keys").into_iter().flatten() {
         local::listed(key, now);
     }
     Ok(audit)
@@ -774,9 +774,12 @@ pub(super) fn run(
         Command::Ls => list(paths),
         Command::Local(_) => Err("a stored key's command: local::run".into()),
         Command::Revoke { id }
-            if read_audit(&paths.audit)?["keys"].as_array().is_some_and(|keys| {
-                keys.iter().any(|k| k["provider"] == "local" && k["name"] == id.as_str())
-            }) =>
+            if read_audit(&paths.audit)?.get("keys").and_then(Value::as_array).is_some_and(
+                |keys| {
+                    keys.iter()
+                        .any(|k| local::is_local(k) && local::field(k, "name") == id.as_str())
+                },
+            ) =>
         {
             local::revoke(paths, vault, &id)
         }

@@ -27,13 +27,10 @@ pub(in crate::cli) fn fill(
     fill: &Fill,
 ) -> Result<Value, String> {
     let (key, value) = value_of(paths, vault, &fill.name)?;
-    let hosts: Vec<String> = key["hosts"]
-        .as_array()
-        .map(|h| h.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-        .unwrap_or_default();
+    let hosts = hosts_of(&key);
     let mut target = json!({});
     if let Some(tab) = &fill.tab {
-        target["tab"] = json!(tab);
+        set(&mut target, "tab", json!(tab));
     }
     let state = app
         .call("browser.page.state", target.clone(), None)?
@@ -54,10 +51,10 @@ pub(in crate::cli) fn fill(
         }
     }
     let mut params = target.clone();
-    params["selector"] = json!(fill.selector);
-    params["text"] = json!(value.as_str());
-    params["secret"] = json!(true);
-    params["secret_hosts"] = json!(hosts);
+    set(&mut params, "selector", json!(fill.selector));
+    set(&mut params, "text", json!(value.as_str()));
+    set(&mut params, "secret", json!(true));
+    set(&mut params, "secret_hosts", json!(hosts));
     let method = if fill.typing { "browser.page.type" } else { "browser.page.fill" };
     let answer = app.call(method, params, None)?;
     let answer = match answer {

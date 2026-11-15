@@ -317,7 +317,8 @@ pub(super) fn parse_use(args: &[String]) -> Result<Use, UsageError> {
     let split = args.iter().position(|a| a == "--").ok_or_else(|| {
         UsageError::new("use needs -- before the command: cmux keys use NAME -- CMD")
     })?;
-    let (spec, argv) = (&args[..split], &args[split + 1..]);
+    let (spec, rest) = args.split_at(split);
+    let argv = rest.get(1..).unwrap_or_default();
     if argv.is_empty() {
         return Err(UsageError::new("use needs a command after --"));
     }
@@ -355,7 +356,7 @@ pub(super) fn parse_use(args: &[String]) -> Result<Use, UsageError> {
     }
     let mut vars: Vec<&str> = keys.iter().map(|(_, v)| v.as_str()).collect();
     vars.sort_unstable();
-    if vars.windows(2).any(|w| w[0] == w[1]) {
+    if vars.windows(2).any(|w| matches!(w, [a, b] if a == b)) {
         return Err(UsageError::new("two keys go into one env var"));
     }
     Ok(Use { keys, mask, argv: argv.to_vec() })

@@ -47,44 +47,35 @@ impl Masker {
     /// The bytes of `piece` (after what came before) that are safe to print now.
     pub(in crate::cli) fn push(&mut self, piece: &[u8]) -> Vec<u8> {
         self.pending.extend_from_slice(piece);
-        let mut out = Vec::with_capacity(self.pending.len());
-        let mut i = 0;
         // Only a start that leaves `keep` bytes after it can be decided now.
         let decidable = self.pending.len().saturating_sub(self.keep);
-        while i < decidable {
-            if let Some(len) = self.match_at(i) {
-                out.extend_from_slice(MASK.as_bytes());
-                i += len;
-            } else {
-                out.push(self.pending[i]);
-                i += 1;
-            }
-        }
-        let rest = self.pending[i.min(self.pending.len())..].to_vec();
-        self.pending = Zeroizing::new(rest);
-        out
+        self.drain(decidable)
     }
 
     /// What is left at the end of the stream.
     pub(in crate::cli) fn finish(&mut self) -> Vec<u8> {
-        let mut out = Vec::new();
-        let mut i = 0;
-        while i < self.pending.len() {
-            if let Some(len) = self.match_at(i) {
-                out.extend_from_slice(MASK.as_bytes());
-                i += len;
-            } else {
-                out.push(self.pending[i]);
-                i += 1;
-            }
-        }
-        self.pending = Zeroizing::new(Vec::new());
-        out
+        self.drain(self.pending.len())
     }
 
-    fn match_at(&self, i: usize) -> Option<usize> {
-        let rest = &self.pending[i..];
-        self.needles.iter().find(|n| rest.starts_with(n)).map(|n| n.len())
+    /// Masks and takes the pending bytes that start before `upto`; the rest stays pending.
+    fn drain(&mut self, upto: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.pending.len());
+        let mut i = 0;
+        while i < upto {
+            let rest = self.pending.get(i..).unwrap_or_default();
+            if let Some(len) = self.needles.iter().find(|n| rest.starts_with(n)).map(|n| n.len()) {
+                out.extend_from_slice(MASK.as_bytes());
+                i += len;
+            } else if let Some(&byte) = rest.first() {
+                out.push(byte);
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        let rest = self.pending.get(i..).unwrap_or_default().to_vec();
+        self.pending = Zeroizing::new(rest);
+        out
     }
 }
 
@@ -96,7 +87,7 @@ pub(super) fn pump(mut from: impl std::io::Read, mut to: impl std::io::Write, va
         match from.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
-                let out = masker.push(&buf[..n]);
+                let out = masker.push(buf.get(..n).unwrap_or_default());
                 if to.write_all(&out).and_then(|()| to.flush()).is_err() {
                     break;
                 }
@@ -124,22 +115,22 @@ pub(in crate::cli) fn run_use(
         let (_, value) = value_of(paths, vault, name)?;
         values.push((name.clone(), var.clone(), value));
     }
-    let program = Path::new(&run.argv[0])
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("command")
-        .to_owned();
+    let Some((first, rest)) = run.argv.split_first() else {
+        return Err("no command after --".to_owned());
+    };
+    let program =
+        Path::new(first).file_name().and_then(|n| n.to_str()).unwrap_or("command").to_owned();
     for (name, var, _) in &values {
         record(paths, name, &format!("env:{var} for {program}"), false)?;
     }
-    let mut command = cmux_process::Command::new(&run.argv[0]);
-    command.args(&run.argv[1..]);
+    let mut command = cmux_process::Command::new(first);
+    command.args(rest);
     for (_, var, value) in &values {
         command.env(var, value.as_str());
     }
     if !run.mask {
         command.stdin(cmux_process::Stdio::inherit());
-        let mut child = command.spawn().map_err(|e| format!("cannot run {}: {e}", run.argv[0]))?;
+        let mut child = command.spawn().map_err(|e| format!("cannot run {first}: {e}"))?;
         drop(values);
         return child.wait().map(exit_code).map_err(|e| e.to_string());
     }
@@ -147,7 +138,7 @@ pub(in crate::cli) fn run_use(
         .stdin(cmux_process::Stdio::inherit())
         .stdout(cmux_process::Stdio::piped())
         .stderr(cmux_process::Stdio::piped());
-    let mut child = command.spawn().map_err(|e| format!("cannot run {}: {e}", run.argv[0]))?;
+    let mut child = command.spawn().map_err(|e| format!("cannot run {first}: {e}"))?;
     let secrets: Vec<Zeroizing<String>> = values.into_iter().map(|(_, _, v)| v).collect();
     let out = child.stdout.take();
     let err = child.stderr.take();
