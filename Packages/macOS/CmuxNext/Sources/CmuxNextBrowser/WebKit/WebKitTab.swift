@@ -189,9 +189,14 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         }
     }
 
-    /// WebKit draws in-view and throttles hidden views itself; a page shown after a memory end
-    /// takes its one automatic reload (`exitRecovery`).
+    /// The web view itself hides with its tab, as a Chromium page is told it is hidden
+    /// (`CEFTab.setContentVisible`), so WebKit stops rendering it and throttles its timers whatever
+    /// its ancestors do. Relying on a hidden ancestor (a parked chrome, a terminal shown in the pane)
+    /// left parked pages drawing their own updates: ~11 wakeups/s per hidden page and ~30 GPU-process
+    /// messages/s each (perf bench, budget-idle-wakeups). A page shown after a memory end takes its
+    /// one automatic reload (`exitRecovery`).
     public func setContentVisible(_ visible: Bool) {
+        if webView.isHidden == visible { webView.isHidden = !visible }
         if visible { reloadOwedAfterExit() }
     }
 

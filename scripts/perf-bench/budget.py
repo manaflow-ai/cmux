@@ -139,6 +139,7 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
         if terminals:
             run.record(name, round_no, "budget-memory-per-terminal", (after - before) / terminals,
                        before_mb=before, after_mb=after, count=terminals)
+        tab_ids: dict[str, list[str]] = {}
         for kind, action, count in kinds:
             for row, tabs in ((f"budget-memory-first-{kind}-tab", 1), (f"budget-memory-per-{kind}-tab", count)):
                 if not tabs:
@@ -147,6 +148,7 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
                 unpainted = 0
                 for _ in range(tabs):
                     tab_id = run.tab_id("b")
+                    tab_ids.setdefault(kind, []).append(tab_id)
                     t0 = time.time() * 1000
                     browser.act(action, url=run.server.url("idle", tab_id))
                     if not run.server.wait("fcp", tab_id, after=t0, timeout=30):
@@ -180,6 +182,16 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
         writers = _file_writes(files_before, _file_states(profile))
         for path, grew in writers[:15]:
             log(f"  tabs-hidden idle wrote: {grew:>10,} B  {path}")
+        for kind, ids in tab_ids.items():
+            # Each idle page beacons its visibilityState on every change (pages.py): a hidden tab whose
+            # page still says "visible" is drawn by its engine though nobody sees it.
+            last = {}
+            with run.server.cond:
+                for event in run.server.events:
+                    if event.get("id") in ids and event.get("vis"):
+                        last[event["id"]] = event["vis"]
+            hidden = sum(1 for tab in ids if last.get(tab) == "hidden")
+            log(f"  tabs-hidden {kind}: {hidden} of {len(ids)} pages report visibilityState hidden")
         mem = browser.instance.memory(per_pid=True)
         cpu = {row["pid"]: row for row in got.pop("pids")}
         table = []
