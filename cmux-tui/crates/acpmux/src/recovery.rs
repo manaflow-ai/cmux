@@ -87,15 +87,8 @@ pub fn annotate_peer(e: &mut RpcError, peer: &str) {
     if !is_disk_full(&e.message) {
         return;
     }
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return };
-            data
-        }
-    };
+    object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return };
     if data.contains_key("errorKind") {
         return;
     }
@@ -124,15 +117,8 @@ pub fn dead_process(e: &RpcError) -> bool {
 /// message (a full disk) still wins.
 pub fn annotate_as(e: &mut RpcError, near: Option<&Path>, dead: bool) {
     let dead = dead || e.message.starts_with("agent process closed");
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return };
-            data
-        }
-    };
+    let wrapped = object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return };
     if data.contains_key("errorKind") {
         return;
     }
@@ -143,6 +129,35 @@ pub fn annotate_as(e: &mut RpcError, near: Option<&Path>, dead: bool) {
     }
     if data.is_empty() {
         e.data = None;
+    } else if wrapped && data.len() == 1 {
+        // Nothing typed it: the agent's own data goes back as it sent it.
+        e.data = data.remove(AGENT_DATA);
+    }
+}
+
+/// The key an agent's own error `data` moves under when it is not an object ([`object_data`]).
+pub const AGENT_DATA: &str = "agentData";
+
+/// Make `e.data` an object this module can type: none (or null) becomes empty, and an agent's
+/// own data that is not an object (grok 1.0.77 answers `session/new` with "Authentication
+/// required" and the string data "no auth method id provided") moves under [`AGENT_DATA`], so
+/// typing never fails for the shape of what the agent sent. Returns whether it moved it.
+fn object_data(e: &mut RpcError) -> bool {
+    match e.data.take() {
+        Some(Value::Object(data)) => {
+            e.data = Some(Value::Object(data));
+            false
+        }
+        None | Some(Value::Null) => {
+            e.data = Some(Value::Object(Map::new()));
+            false
+        }
+        Some(other) => {
+            let mut data = Map::new();
+            data.insert(AGENT_DATA.into(), other);
+            e.data = Some(Value::Object(data));
+            true
+        }
     }
 }
 
@@ -445,15 +460,8 @@ pub fn start_sign_in(e: &mut RpcError, harness: &str) -> bool {
         }
         None => return false,
     };
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return false,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return false };
-            data
-        }
-    };
+    object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return false };
     data.insert("reason".into(), json!(SIGN_IN_REQUIRED));
     data.insert("errorKind".into(), json!(kind));
     data.insert(
@@ -726,7 +734,7 @@ mod tests {
         let data = e.data.unwrap();
         assert_eq!(data["reason"], SIGN_IN_REQUIRED);
         assert_eq!(data["details"]["harness"], "grok");
-        assert_eq!(data["agentData"], "no auth method id provided");
+        assert_eq!(data[AGENT_DATA], "no auth method id provided");
 
         // The same class in the other typers: a turn error or a peer's full disk with an agent's
         // string data is still typed, and an untyped one keeps the agent's data as it was.
@@ -735,7 +743,7 @@ mod tests {
         annotate_peer(&mut full, "box");
         let data = full.data.unwrap();
         assert_eq!(data["errorKind"], kind::DISK_FULL);
-        assert_eq!(data["agentData"], "write failed");
+        assert_eq!(data[AGENT_DATA], "write failed");
 
         let mut full = RpcError::new(-32603, "No space left on device (os error 28)");
         full.data = Some(json!(["write failed"]));
