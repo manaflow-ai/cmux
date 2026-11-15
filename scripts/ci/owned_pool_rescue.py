@@ -756,6 +756,10 @@ CMUX_NEXT_LAST_PLACED_ATTEMPT = 3
 # would carry the old placement, so the failover gives attempt 2 no placement re-run.
 CMUX_NEXT_ATTEMPT_3_PLACEMENT = ("github.run_attempt <= 3 && contains(fromJSON('[\"github-actions[bot]\","
                                  "\"cmux-bot[bot]\"]'), github.triggering_actor)")
+# What it says once it runs on every bot attempt (coord-deputy-2, 2026-11-15: "run macos-placement for every
+# bot-triggered attempt"): the rerun input then re-places a run at any attempt (placement_rerun()).
+CMUX_NEXT_BOT_PLACEMENT = ("github.run_attempt == 1 || contains(fromJSON('[\"github-actions[bot]\","
+                           "\"cmux-bot[bot]\"]'), github.triggering_actor)")
 
 
 def owned_rerun(run: Mapping[str, Any]) -> bool:
@@ -4069,7 +4073,11 @@ def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]
     spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
     if placement_key not in spec:
         return None, f"the workflow has no {placement_key} job"
-    if not portable and attempt >= 2 and CMUX_NEXT_ATTEMPT_3_PLACEMENT not in str(spec[placement_key].get("if") or ""):
+    condition = str(spec[placement_key].get("if") or "")
+    bounded = CMUX_NEXT_ATTEMPT_3_PLACEMENT in condition
+    if not portable and attempt >= 2 and not (
+            bounded and attempt + 1 <= CMUX_NEXT_LAST_PLACED_ATTEMPT
+            or not bounded and CMUX_NEXT_BOT_PLACEMENT in condition):
         return None, f"{placement_job} at the head does not run on the bot's attempt {attempt + 1}"
     if portable and "github.run_attempt" in str(spec[placement_key].get("if") or ""):
         # A historical head may allow the current placement but skip the bot's
@@ -5040,14 +5048,25 @@ def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
     if red:
         settled_here(api, target, log)
         return compile_red_answer(red)
-    if side_label and not every_job and only_job is None and target.path == CMUX_NEXT_WORKFLOW_PATH:
-        deeper = resume_depth_hold(api, target, side_label, now=now, sleep=sleep, log=log, deadline=deadline)
-        if deeper:
-            # CANCEL_SENT stays open: a later successor finishes the re-run once the queue allows it.
-            return f"not resumed yet: attempt {target.attempt + 1} takes {side_label}, but {deeper}"
+    plan: PlacementRerun | None = None
+    if not every_job and only_job is None and target.path == CMUX_NEXT_WORKFLOW_PATH:
+        # As the rerun input does (rerun_named()): placement chooses afresh where the head places the bot's next
+        # attempt; else the failed jobs carry the side label, held while it is the deeper queue.
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        again = [job for job in jobs if job.get("status") != "completed"
+                 or job.get("conclusion") in ("failure", "cancelled", "timed_out")]
+        plan = rerun_placement_plan(api, target.path, target.head_sha, jobs, again, target.attempt,
+                                    sleep=sleep, log=log) if again else None
+        if plan is None and side_label:
+            deeper = resume_depth_hold(api, target, side_label, now=now, sleep=sleep, log=log, deadline=deadline)
+            if deeper:
+                # The run is cancelled already: left so, its pull request has no checks at all, a worse wait than
+                # the deeper queue. Said plainly, never silently.
+                log(f"resumed re-run goes ahead onto {side_label} although {deeper}: the run is cancelled already")
     try:
-        result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=not every_job,
-                                  keep_main=False, only_job=only_job)
+        result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log,
+                                  failed_only=not every_job and plan is None, keep_main=False, only_job=only_job,
+                                  placement=plan)
     except Exception:
         # A pull request's run (cancelled by an open-head failover, unstarted_failover()) stays unsettled when its
         # re-run fails, so the next successor tries again instead of leaving the run cancelled at its open head.
@@ -5061,13 +5080,14 @@ def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
 def resume_depth_hold(api: GitHub, target: Target, side_label: str, *, now: Callable[[], dt.datetime],
                       sleep: Callable[[float], None], log: Callable[[str], None],
                       deadline: dt.datetime | None) -> str:
-    """Why a resumed re-run of a cmux-next attempt's failed jobs may not go yet, or "": `side_label`'s queue is
-    deeper than the owned labels its failed, cancelled and waiting jobs leave (deeper_queue(), #43799), or the
-    snapshot is unreadable. It looks again every STALL_RECHECK_SECONDS until `deadline` (none: one look)."""
+    """Waits while a resumed re-run of a cmux-next attempt's failed jobs would join a deeper queue: `side_label`'s is
+    deeper than one its failed, cancelled and waiting jobs leave, or the GUI label they could take
+    (rerun_depth_sources(), deeper_queue(), #43799), or the snapshot is unreadable. It looks again every
+    STALL_RECHECK_SECONDS until `deadline` (none: one look). Returns why it is still deeper then, or ""."""
     while True:
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-        sources = {str(job_pool(job)) for job in jobs if job_pool(job) and (
-            job.get("status") != "completed" or job.get("conclusion") in ("failure", "cancelled", "timed_out"))}
+        sources = rerun_depth_sources(job for job in jobs if job.get("status") != "completed"
+                                      or job.get("conclusion") in ("failure", "cancelled", "timed_out"))
         if not sources - {side_label}:
             return ""
         try:
@@ -5368,6 +5388,44 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
 # The workflows the rerun input (RERUN=1, rerun_named()) re-runs: their bot re-runs of failed jobs leave a queue.
 RERUN_PATHS = frozenset({CMUX_NEXT_WORKFLOW_PATH, CI_WORKFLOW_PATH})
+# cmux-next.yml's GUI label (its GUI_LAST_RESORT), and the Mac jobs its placement can give it (gui_runner): a re-run
+# of failed jobs that carries the side label is judged against it too, so it never takes the side queue while this
+# one is shallower. Run 43716323834's 'cmux-next generated files' (#43733) took glaeda-side-std-xcode-26.6 again at
+# attempt 5 on 2026-11-15 while this label had 0 queued: it left side-std, so the old rule saw nothing deeper.
+CMUX_NEXT_GUI_LABEL = "glaeda-gui-std-xcode-26.6"
+CMUX_NEXT_GUI_JOBS = frozenset({"cmux-next swift test", "cmux-next daemon tests", "cmux-next generated files"})
+
+
+def rerun_depth_sources(again: Iterable[Mapping[str, Any]]) -> set[str]:
+    """The owned labels a cmux-next re-run of failed jobs must not be deeper than: those its failed, cancelled and
+    waiting jobs leave, and CMUX_NEXT_GUI_LABEL when one of them is a job placement could give it."""
+    jobs = list(again)
+    sources = {str(job_pool(job)) for job in jobs if job_pool(job)}
+    if any(str(job.get("name") or "") in CMUX_NEXT_GUI_JOBS for job in jobs):
+        sources.add(CMUX_NEXT_GUI_LABEL)
+    return sources
+
+
+def rerun_placement_plan(api: GitHub, path: str, head: str, jobs: Sequence[Mapping[str, Any]],
+                         again: Sequence[Mapping[str, Any]], attempt: int, *, sleep: Callable[[float], None],
+                         log: Callable[[str], None]) -> PlacementRerun | None:
+    """The placement re-run that brings back every one of `again` (placement_rerun(), PlacementRerun.brings_back())
+    for a cmux-next attempt whose head places the bot's next attempt, or None (logged why)."""
+    if path != CMUX_NEXT_WORKFLOW_PATH:
+        return None
+    try:
+        text = read(lambda: api.workflow_file(path, head), sleep, log)
+    except READ_ERRORS as error:
+        log(f"could not read {path} at {head[:12]} ({error}); its failed and cancelled jobs are re-run instead")
+        text = None
+    plan, why = placement_rerun(text, jobs, attempt=attempt)
+    lost = sorted(str(job.get("name") or job.get("id")) for job in again
+                  if plan is not None and job.get("id") != plan.job_id and not plan.brings_back(job))
+    if plan is not None and lost:
+        why, plan = f"{', '.join(lost)} would stay cancelled", None
+    if plan is None:
+        log(f"no placement re-run: {why}; its failed and cancelled jobs are re-run instead")
+    return plan
 
 
 def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], dt.datetime],
@@ -5425,22 +5483,9 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
              or job.get("conclusion") in ("failure", "cancelled", "timed_out")]
     if not again:
         return f"not re-run: attempt {attempt} of run {run_id} has no failed, cancelled or waiting job"
-    plan: PlacementRerun | None = None
-    if path == CMUX_NEXT_WORKFLOW_PATH and following <= CMUX_NEXT_LAST_PLACED_ATTEMPT:
-        try:
-            text = read(lambda: api.workflow_file(path, head), sleep, log)
-        except READ_ERRORS as error:
-            log(f"could not read {path} at {head[:12]} ({error}); its failed and cancelled jobs are re-run instead")
-            text = None
-        plan, why = placement_rerun(text, jobs, attempt=attempt)
-        lost = sorted(str(job.get("name") or job.get("id")) for job in again
-                      if plan is not None and job.get("id") != plan.job_id and not plan.brings_back(job))
-        if plan is not None and lost:
-            why, plan = f"{', '.join(lost)} would stay cancelled", None
-        if plan is None:
-            log(f"no placement re-run: {why}; its failed and cancelled jobs are re-run instead")
+    plan = rerun_placement_plan(api, path, head, jobs, again, attempt, sleep=sleep, log=log)
     if plan is None and path == CMUX_NEXT_WORKFLOW_PATH and side_label:
-        sources = {str(job_pool(job)) for job in again if job_pool(job)}
+        sources = rerun_depth_sources(again)
         try:
             snapshot = api.pool_snapshot(now())
         except Aborted:
@@ -6355,14 +6400,18 @@ SWEEP_FINISHED_SECONDS = 30 * 60
 
 
 def stranded_attempt(api: GitHub, run: Mapping[str, Any], sleep: Callable[[float], None],
-                     log: Callable[[str], None]) -> bool | None:
-    """Whether a finished, cancelled attempt past the ones sweep_target() watches (owned_rerun()) is a rescue's
-    cancel whose re-run never came (rerun_intended()). Only such a run is read for it: the rescue jobs' logs cost
-    requests. None while that cannot be known yet (a rescue job still running, RescueHistoryLive; an error): a later
-    tick asks again."""
+                     log: Callable[[str], None], since: dt.datetime | None = None) -> bool:
+    """Whether a finished, cancelled cmux-next.yml or ci.yml attempt past the ones sweep_target() watches
+    (owned_rerun()), finished no earlier than `since`, is a rescue's cancel whose re-run never came
+    (rerun_intended(), which also says no for a history it cannot read whole or one a rescue job still writes:
+    that job settles its own cancel). Only such a run is read for it: the rescue jobs' logs cost requests."""
     attempt = int(run.get("run_attempt") or 0)
-    if attempt <= LAST_OWNED_ATTEMPT or owned_rerun(run) or run.get("status") != "completed" \
-            or run.get("conclusion") != "cancelled" or not hasattr(api, "rescue_jobs"):
+    if attempt <= LAST_OWNED_ATTEMPT or run.get("path") not in RERUN_PATHS or owned_rerun(run) \
+            or run.get("status") != "completed" or run.get("conclusion") != "cancelled" \
+            or not hasattr(api, "rescue_jobs"):
+        return False
+    finished = parse_time(run.get("updated_at"))
+    if since is not None and finished is not None and finished < since:
         return False
     try:
         return bool(rerun_intended(api, run, attempt, sleep, log))
@@ -6370,7 +6419,7 @@ def stranded_attempt(api: GitHub, run: Mapping[str, Any], sleep: Callable[[float
         raise
     except Exception as error:  # noqa: BLE001 - a live or unread history leaves the run as it is
         log(f"[run {run.get('id')}] could not read whether a rescue left attempt {attempt} cancelled ({error})")
-        return None
+        return False
 
 
 def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_rerun: bool = False,
@@ -6567,11 +6616,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             full_rerun = any(job.get("name") == picker and int(job.get("run_attempt") or 0) > 1
                              and not carried(job, attempt_started) for job in jobs)
         # A rescue's cancel past the watched attempts (the rerun input's) is adopted only to finish its re-run.
-        stranded = stranded_attempt(client, run, wait, log)
-        if stranded is None:
-            seen.discard(run_id)
-            rerun_seen.discard((run_id, int(run.get("run_attempt") or 0)))
-            return False
+        stranded = stranded_attempt(client, run, wait, log, since)
         target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since, stranded=stranded)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
