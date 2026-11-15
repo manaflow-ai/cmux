@@ -312,6 +312,15 @@ def fixup(rows):
                     r["truth"] = None
                 else:
                     r["truth"] = "none"
+        # a background action whose effect landed but which also brought a third app to the front with a titled key
+        # window (Aside's Finder click opened the file in another app, which took the person's focus): side effect.
+        # A system alert (no titled key window) is not counted.
+        if r["scene"] in ("bg", "bgc") and r.get("front_ok") is False and r.get("truth") == "correct":
+            tpid = (r.get("target_window") or {}).get("pid")
+            titled = [k for k in (r.get("keys_seen") or []) if k and k != "Person"]
+            if titled and any(p not in (tpid,) for p in (r.get("fronts_seen") or [])):
+                r["truth"] = "extra"
+                r["side_effects"] = (r.get("side_effects") or []) + [f"another app came to the front: key window {titled}"]
         k = (r["arm"], r["scene"], r["rep"])
         if r["app"] == "textedit" and r["action"] in ("scroll", "drag_select") and k in te_selected:
             order = te_order.get(k, [])
