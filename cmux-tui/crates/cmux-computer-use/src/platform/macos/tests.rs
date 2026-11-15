@@ -2393,3 +2393,16 @@ fn only_command_a_alone_is_select_all() {
     assert!(!roles::is_select_all(&combo("ctrl+a")));
     assert!(!roles::is_select_all(&combo("a")));
 }
+
+/// A drag on a slider sets the value under its end: the fraction along the
+/// track (bottom to top when the slider stands), within the range.
+#[test]
+fn a_slider_drag_sets_the_value_under_its_end() {
+    let wide = Rect { x: 100.0, y: 50.0, width: 200.0, height: 20.0 };
+    let at = |x, y| Point { x, y };
+    assert_eq!(actions::slider_value_at(&wide, 0.0, 100.0, at(220.0, 60.0)), 60.0);
+    assert_eq!(actions::slider_value_at(&wide, 0.0, 100.0, at(400.0, 60.0)), 100.0);
+    assert_eq!(actions::slider_value_at(&wide, 10.0, 20.0, at(50.0, 60.0)), 10.0);
+    let tall = Rect { x: 0.0, y: 0.0, width: 20.0, height: 100.0 };
+    assert_eq!(actions::slider_value_at(&tall, 0.0, 1.0, at(10.0, 25.0)), 0.75);
+}

@@ -606,6 +606,58 @@ fn select_drag(d: &MacDesktop, t: &Target, from: Point, to: Point) -> Option<Act
     Some(out.showing("selection").at(to))
 }
 
+/// The slider at `p`: the hit element, or the slider its knob belongs to.
+fn slider_at(app: &Ax, win: &Ax, p: Point) -> Option<Ax> {
+    let hit = app.element_at(p.x, p.y)?;
+    if !hit.element("AXWindow").is_some_and(|w| w.same(win)) || in_web_area(&hit) {
+        return None;
+    }
+    if hit.string("AXRole").as_deref() == Some("AXSlider") {
+        return Some(hit);
+    }
+    hit.element("AXParent").filter(|p| p.string("AXRole").as_deref() == Some("AXSlider"))
+}
+
+/// A slider's value at a point along it: its fraction of the track times
+/// the range (left to right, or bottom to top for a vertical slider).
+pub(super) fn slider_value_at(frame: &Rect, min: f64, max: f64, p: Point) -> f64 {
+    let fraction = if frame.width >= frame.height {
+        (p.x - frame.x) / frame.width
+    } else {
+        (frame.y + frame.height - p.y) / frame.height
+    };
+    min + fraction.clamp(0.0, 1.0) * (max - min)
+}
+
+/// A left drag from a slider (its track or knob) sets the value under the
+/// end point through accessibility, as the drag would (an AppKit slider
+/// jumps to a pressed track point and follows the pointer); read back.
+/// Posted drags do not reach a background AppKit slider on macOS 27.0.1.
+fn slider_drag(d: &MacDesktop, t: &Target, from: Point, to: Point) -> Option<ActionOutcome> {
+    let (app, win) = d.ax_window(t).ok()?;
+    let slider = slider_at(&app, &win, from)?;
+    if !slider.settable("AXValue") {
+        return None;
+    }
+    let (min, max) = (slider.number("AXMinValue")?, slider.number("AXMaxValue")?);
+    let frame = slider.frame()?;
+    if max <= min || frame.width < 2.0 || frame.height < 2.0 {
+        return None;
+    }
+    let wanted = slider_value_at(&frame, min, max, to);
+    let before = slider.number("AXValue");
+    slider.set("AXValue", &Cf::number_f64(wanted)?).ok()?;
+    let after = slider.number("AXValue");
+    // A slider with tick marks snaps: the read value is near the wanted one.
+    let step = (max - min) / 100.0;
+    let out = if after.is_some_and(|a| (a - wanted).abs() <= step.max(1.0)) && after != before {
+        ActionOutcome::confirmed("ax_slider")
+    } else {
+        ActionOutcome::delivered("ax_slider")
+    };
+    Some(out.showing("value").at(to))
+}
+
 /// Points per scroll line for a scroll done through the scroll bars.
 const LINE_POINTS: f64 = 16.0;
 
@@ -1569,7 +1621,7 @@ pub(super) fn drag(
     if delivery == Delivery::Background
         && button == Button::Left
         && roles::hit_usable(t.window.on_screen, true)
-        && let Some(out) = select_drag(d, &t, from, to)
+        && let Some(out) = select_drag(d, &t, from, to).or_else(|| slider_drag(d, &t, from, to))
     {
         return Ok(out);
     }
