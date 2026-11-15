@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43736064383",
+  "recorded_at": "2026-11-15T16:42:37Z",
+  "reason": "cmux-tui d51faead6012 changes the image's cmux-tui (pinned 62926a4991af)",
+  "dry_run": false,
+  "cmux_tui": "d51faead601295d1a35e3fae287b88f374c3fbd1",
+  "fixes": [
+    {
+      "sha": "d51faead601295d1a35e3fae287b88f374c3fbd1",
+      "mergedAt": "2026-11-15T16:15:52Z",
+      "subject": "cmux-tui: Linux terminal hosts run from the slim cmux-tui-host (4.3 to 0.6 MB per terminal; infinite items n1000 51x to 19x) (#43758)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T16:42:37Z",
+    "snapshot_id": "sh-20275eb2d2e54bc08e44b4cae707533f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43736064383): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4818534d46836eef2a19936b2efa997f91d2e6d2",
+    "image": "cloud-native-auto-d51faead-43736064383-1",
+    "revision": "ci-43736064383-1",
+    "at": "2026-11-15T16:42:37Z"
+  },
+  "rolled_back": false
+}
