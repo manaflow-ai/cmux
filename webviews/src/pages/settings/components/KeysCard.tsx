@@ -22,13 +22,13 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
   const query = useQuery(keysQuery(store));
   const state = query.data ?? null;
   const card = useRef<HTMLElement>(null);
-  const asks = useRef<HTMLElement>(null);
+  const requestsCard = useRef<HTMLElement>(null);
   const drawn = query.isFetched;
   const requests = keyRequestRows(state);
   const asking = requests.length > 0;
   // The deep link (a request's notification) lands on the requests when any wait, else on the keys.
   useLayoutEffect(() => {
-    if (drawn && reveal) (asking ? asks : card).current?.scrollIntoView?.({ block: "start" });
+    if (drawn && reveal) (asking ? requestsCard : card).current?.scrollIntoView?.({ block: "start" });
   }, [drawn, reveal, asking]);
   const [now] = useState(() => Date.now());
   const rows = keyRows(state, now);
@@ -37,7 +37,7 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
   return (
     <>
       {asking && (
-        <section className="group" data-card="keyRequests" ref={asks}>
+        <section className="group" data-card="keyRequests" ref={requestsCard}>
           <h3 className="group-title">{t("settingsPage.keys.requestsTitle")}</h3>
           <div className="rows">
             {requests.map((request) => (
