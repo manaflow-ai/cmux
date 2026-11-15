@@ -76,6 +76,7 @@ class HotApplyRust(unittest.TestCase):
         self.publish(self.new_body, self.new)
         self.env = dict(os.environ, CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
                         CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
+                        CMUX_HOT_KEYS_BASE=(self.tmp / "hot-keys").as_uri(),  # none published: plan diffs
                         CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
 
     def tearDown(self):
@@ -400,6 +401,138 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(self.sha(), self.old)
 
 
+class HotKeys(unittest.TestCase):
+    """`plan` from both commits' published hot keys: no checkout, no diff, no key computed here."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [FIX], depth=2)
+        cls.base = run_git("rev-parse", f"{FIX}^").stdout.strip()
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-keys-"))
+        (self.tmp / "keys").mkdir()
+        (self.tmp / "empty").mkdir()
+        self.env = dict(os.environ, CMUX_HOT_KEYS_BASE=(self.tmp / "keys").as_uri(),
+                        CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"),
+                        CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri())
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def publish(self, sha, **changed):
+        keys = {"schema": 1, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
+                "shell": "3" * 64, "ffi": "4" * 64, "helpers": "5" * 64, **changed}
+        (self.tmp / "keys" / f"{sha}.json").write_text(json.dumps(keys))
+
+    def plan(self, *extra):
+        # --repo is an empty folder: nothing here can diff or key either commit.
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app",
+                               str(self.tmp / "none"), "--repo", str(self.tmp / "empty"), *extra],
+                              capture_output=True, text=True, env=self.env)
+        return done.returncode, json.loads(done.stdout) if done.stdout.startswith("{") else None, done.stderr
+
+    def test_the_two_commits_keys_say_what_the_diff_says(self):
+        keys = {}
+        for sha in (self.base, FIX):
+            done = subprocess.run([sys.executable, str(SCRIPT), "keys", sha], capture_output=True, text=True, env=self.env)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            keys[sha] = json.loads(done.stdout)
+            (self.tmp / "keys" / f"{sha}.json").write_text(done.stdout)
+        # cmux#37155 changed cmux-wg only: the daemon and the mobile host's inputs, nothing the app links.
+        self.assertNotEqual(keys[FIX]["tree_key"], keys[self.base]["tree_key"])
+        self.assertNotEqual(keys[FIX]["helpers"], keys[self.base]["helpers"])
+        for same in ("shell", "ffi", "web", "web_key", "web_abi"):
+            self.assertEqual(keys[FIX][same], keys[self.base][same], same)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["via"], "published keys")
+        self.assertEqual(plan["parts"], ["rust"])
+        self.assertEqual(list(plan["left"]), ["bundled helpers (cmux-mobile-host, ...)"])
+        self.assertEqual(plan["tree_key"], key_of(FIX))
+
+    def test_a_swift_change_is_left_and_a_web_change_applies(self):
+        self.publish(self.base)
+        self.publish(FIX, shell="6" * 64, web="b" * 64, web_key="7" * 64)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["parts"], ["web"])
+        self.assertEqual(plan["web_key"], "7" * 64)
+        self.assertEqual(list(plan["left"]), ["Swift, resources and manifests"])
+
+    def test_a_new_web_abi_keeps_the_web(self):
+        self.publish(self.base)
+        self.publish(FIX, web="b" * 64, web_key="a" * 64, web_abi=4)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 3, err)
+        self.assertEqual(plan["parts"], [])
+        self.assertEqual(list(plan["left"]), ["web ABI"])
+
+    def test_an_ffi_change_is_planned_from_the_diff(self):
+        # The app FFI may swap warm (cmux#43548), and which files changed decides it: the keys hand the pair over.
+        self.publish(self.base)
+        self.publish(FIX, tree_key="8" * 40, ffi="9" * 64)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertNotIn("via", plan)
+        self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff: no FFI file
+
+    def test_equal_keys_are_a_no_op(self):
+        self.publish(self.base)
+        self.publish(FIX)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual((plan["parts"], plan["left"]), ([], {}))
+
+    def test_a_missing_or_malformed_key_file_falls_back_to_the_diff(self):
+        self.publish(self.base)
+        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps({"schema": 1, "commit": FIX}))
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertNotIn("via", plan)
+        self.assertEqual(plan["parts"], ["rust"])
+
+    def test_a_record_without_web_abi_or_a_broken_kept_one_falls_back(self):
+        # Review of #43558 (F1): a record missing web_abi was taken and kept, and a web change then raised KeyError.
+        self.publish(self.base)
+        self.publish(FIX, web="b" * 64, web_key="7" * 64)
+        record = json.loads((self.tmp / "keys" / f"{FIX}.json").read_text())
+        del record["web_abi"]
+        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps(record))
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("via", json.loads(done.stdout))
+        self.assertFalse((self.tmp / "state" / "keys" / "hot" / f"{FIX}.json").exists())
+        # A kept record that is not whole (an older hot-apply wrote it) is not read either.
+        kept = self.tmp / "state" / "keys" / "hot" / f"{FIX}.json"
+        kept.write_text(json.dumps(record))
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("via", json.loads(done.stdout))
+
+    def test_a_miss_is_asked_once_then_kept(self):
+        self.publish(self.base)  # FIX has none yet
+        code, plan, err = self.plan()
+        self.assertNotEqual(plan and plan.get("via"), "published keys", err)
+        self.assertTrue((self.tmp / "state" / "keys" / "hot" / f"{FIX}.missing").exists())
+        # CI publishes FIX's keys now: within the hour the kept miss stands, and nothing is fetched.
+        self.publish(FIX, web="b" * 64, web_key="7" * 64)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertNotIn("via", json.loads(done.stdout), done.stderr)
+        # Past the hour it is asked again and taken.
+        os.utime(self.tmp / "state" / "keys" / "hot" / f"{FIX}.missing", (0, 0))
+        code, plan, err = self.plan()
+        self.assertEqual(plan["via"], "published keys", err)
+        self.assertEqual(plan["parts"], ["web"])
+
+
 SHIM = "a3bead27e6599480e2d2654816f9ecdff99ecaf2"  # cmux#43239's remote browser host: Rust plus csrc/rb_shim.mm and .h
 
 
@@ -457,7 +590,7 @@ class OtherSessions(unittest.TestCase):
         self.new.write_bytes(b"new")
         self.want = hashlib.sha256(b"new").hexdigest()
         self.pids = {self.APP_SOCK: 100, self.CHIEF_SOCK: 200}
-        self.restarted, self.restart_works, self.surfaces = [], True, []
+        self.restarted, self.restart_works, self.surfaces, self.state_dirs = [], True, [], []
         test = self
 
         class Swapper:
@@ -482,9 +615,13 @@ class OtherSessions(unittest.TestCase):
                 sock = argv[argv.index("--socket") + 1]
                 test.restarted.append(sock)
                 test.surfaces.append(Path(argv[0]).name)
-                if test.restart_works:
+                test.state_dirs.append((kwargs.get("env") or {}).get("CMUX_TUI_STATE_DIR"))
+                if test.restart_works is True:
                     test.pids[sock] += 1
-                return subprocess.CompletedProcess(argv, 0 if test.restart_works else 1, "{}", "")
+                elif test.restart_works == "gone":
+                    del test.pids[sock]
+                return subprocess.CompletedProcess(argv, 0 if test.restart_works is True else 1, "{}",
+                                                   '{"code":"server.different_state"}')
             return real_run(argv, **kwargs)
 
         self.hot.load = lambda name, file: type("rust_live", (), {"Swapper": Swapper})
@@ -492,9 +629,26 @@ class OtherSessions(unittest.TestCase):
         self.hot.subprocess.run = run
         self.addCleanup(setattr, self.hot.subprocess, "run", real_run)
         self.hot.outside_login_session = lambda: False
+        # The Chief's daemon keeps its session in its own state dir, as on Leo's NIGHTLY.
+        self.real_owner_state_dir = self.hot.owner_state_dir
+        self.hot.owner_state_dir = lambda pid: "/u/.cmux/chief/default/tui" if pid == 200 else None
 
     def tearDown(self):
         subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def test_the_restart_runs_in_the_daemon_s_own_state_dir(self):
+        # Without it the restart's ensure read the default root and refused (server.different_state, 8568ebc).
+        self.swap(True)
+        self.assertEqual(self.state_dirs, ["/u/.cmux/chief/default/tui"])
+
+    def test_owner_state_dir_reads_the_value_up_to_the_next_variable(self):
+        real_run = self.hot.subprocess.run
+        self.hot.subprocess.run = lambda argv, **kw: subprocess.CompletedProcess(
+            argv, 0, "/A/cmux --headless --session c HOME=/u CMUX_TUI_STATE_DIR=/u/.cmux/chief/a b/tui TERM=x\n", "")
+        try:
+            self.assertEqual(self.real_owner_state_dir(1), "/u/.cmux/chief/a b/tui")
+        finally:
+            self.hot.subprocess.run = real_run
 
     def swap(self, sessions):
         return self.hot.swap_cmux(self.target.parents[3], self.new, self.want, None, self.tmp / "state", sessions)
@@ -523,8 +677,19 @@ class OtherSessions(unittest.TestCase):
         self.assertIn("ssh", step["left_on_old_build_why"])
         self.assertEqual(self.restarted, [])
 
-    def test_a_restart_that_leaves_no_new_owner_raises_so_the_apply_puts_back(self):
-        self.restart_works = False
+    def test_a_refused_restart_still_served_is_left_and_named_the_rest_moves(self):
+        # A Chief whose owner serves another state directory refuses (server.different_state, cmux bf0d3da):
+        # its owner still serves, so it keeps its build and the apply goes on.
+        self.restart_works = "refuse"
+        step = self.swap(True)
+        self.assertEqual(step["left_on_old_build"], [self.CHIEF_SOCK])
+        self.assertIn("refused", step["left_on_old_build_why"])
+        self.assertIn("server.different_state", step["sessions"][0]["left"])
+        self.assertEqual(self.pids[self.CHIEF_SOCK], 200)
+        self.assertEqual((step["old_pid"], step["new_pid"]), (100, 101))
+
+    def test_a_restart_that_leaves_no_owner_raises_so_the_apply_puts_back(self):
+        self.restart_works = "gone"
         with self.assertRaises(RuntimeError) as caught:
             self.swap(True)
         self.assertIn(self.CHIEF_SOCK, str(caught.exception))
@@ -760,8 +925,9 @@ class FindSocket(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, "".join(
                     f"{pid} {exe}{' ' + args if full else ''}\n" for pid, (exe, args, _) in procs.items()), "")
             if argv[0] == "lsof":
-                pid = argv[argv.index("-p") + 1]
-                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid][2]}\n", "")
+                # One lsof for every process (-p a,b,...): each pid's line, then its sockets.
+                asked = argv[argv.index("-p") + 1].split(",")
+                return subprocess.CompletedProcess(argv, 0, "".join(f"p{pid}\nn{procs[pid][2]}\n" for pid in asked), "")
             sock = argv[argv.index("--socket") + 1]
             if "acpmux" in sock:
                 raise subprocess.TimeoutExpired(argv, 10)
@@ -794,8 +960,8 @@ class FindSocket(unittest.TestCase):
             if argv[0] == "ps":
                 return subprocess.CompletedProcess(argv, 0, "".join(f"{pid} {prefix}/cmux-tui --headless\n" for pid in procs), "")
             if argv[0] == "lsof":
-                pid = argv[argv.index("-p") + 1]
-                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid]}\n", "")
+                asked = argv[argv.index("-p") + 1].split(",")  # one lsof for every process
+                return subprocess.CompletedProcess(argv, 0, "".join(f"p{pid}\nn{procs[pid]}\n" for pid in asked), "")
             sock = argv[argv.index("--socket") + 1]
             return subprocess.CompletedProcess(argv, 0, '{"pid": %s}' % next(p for p, n in procs.items() if n == sock), "")
         self.hot.subprocess.run = run
@@ -810,8 +976,8 @@ class FindSocket(unittest.TestCase):
             if argv[0] == "ps":
                 return subprocess.CompletedProcess(argv, 0, "".join(f"{pid} {prefix}/cmux-tui --headless\n" for pid in procs), "")
             if argv[0] == "lsof":
-                pid = argv[argv.index("-p") + 1]
-                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid]}\n", "")
+                asked = argv[argv.index("-p") + 1].split(",")  # one lsof for every process
+                return subprocess.CompletedProcess(argv, 0, "".join(f"p{pid}\nn{procs[pid]}\n" for pid in asked), "")
             if "cmux-app" in argv[argv.index("--socket") + 1]:
                 raise subprocess.TimeoutExpired(argv, 10)
             return subprocess.CompletedProcess(argv, 0, '{"pid": 3001}', "")
@@ -916,8 +1082,8 @@ class RunningAcpmux(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, "".join(
                     f"{pid} {exe}{' ' + args if full else ''}\n" for pid, (exe, args, _) in self.procs.items()), "")
             if argv[0] == "lsof":
-                pid = argv[argv.index("-p") + 1]
-                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{self.procs[pid][2]}\n", "")
+                asked = argv[argv.index("-p") + 1].split(",")  # one lsof for every process
+                return subprocess.CompletedProcess(argv, 0, "".join(f"p{pid}\nn{self.procs[pid][2]}\n" for pid in asked), "")
             if argv[1:] == ["--json", "daemon", "status"]:
                 home = env.get("ACPMUX_HOME") or str(Path(env["ACPMUX_SOCKET"]).parent)
                 if home not in self.status:

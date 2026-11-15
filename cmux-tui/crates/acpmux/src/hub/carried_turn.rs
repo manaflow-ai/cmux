@@ -247,6 +247,12 @@ impl Hub {
         let prompt_id = first.cloned().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let mut turn = TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control);
         turn.trigger = trigger;
+        // The agent's own next turn goes on for the device that drove the one it follows. The
+        // lines it reads were steers into that turn, which already narrowed its device
+        // (`check_steer`).
+        turn.device = from
+            .filter(|t| t.control == Control::Web && control == Control::Web)
+            .and_then(|t| t.device.clone());
         (turn.shown_as(&line), continues)
     }
 
