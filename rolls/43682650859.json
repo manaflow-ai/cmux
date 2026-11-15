@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43682650859",
+  "recorded_at": "2026-11-15T05:55:42Z",
+  "reason": "cmux-tui cba04933e368 changes the image's cmux-tui (pinned 9e154548dd5e)",
+  "dry_run": false,
+  "cmux_tui": "cba04933e368db9c81d233b18caf139289fedc3e",
+  "fixes": [
+    {
+      "sha": "cba04933e368db9c81d233b18caf139289fedc3e",
+      "mergedAt": "2026-11-14T21:32:42-08:00",
+      "subject": "acpmux: only a revoke owed for this join stops its Cloud tunnel (#43531)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T05:55:42Z",
+    "snapshot_id": "sh-36ce0d3ab541428facb766131b9c959b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43682650859): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "161da95038cfc3f4a78d998aefdae7abc86411b4",
+    "image": "cloud-native-auto-cba04933-43682650859-1",
+    "revision": "ci-43682650859-1",
+    "at": "2026-11-15T05:55:42Z"
+  },
+  "rolled_back": false
+}
