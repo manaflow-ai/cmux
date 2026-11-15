@@ -8,7 +8,7 @@ import { usePaneLanguage, useT } from "../../i18n";
 import type { AcpmuxRow } from "../../model";
 import { planDone, type SessionInfoPlan } from "../progressSectionModel";
 import { postNative } from "../../native";
-import { useScreenSharing } from "../screenSharing";
+import { screenSharingKind, useScreenSharing } from "../screenSharing";
 import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
 import { useNow } from "../../subagents/subagentGroupModel";
@@ -197,7 +197,10 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const language = usePaneLanguage();
   const state = useSessionInfoState();
   const { shown, summary, onShowUsage } = props;
-  const screenSharing = useScreenSharing(summary?.sessionId);
+  const screenSharing = useScreenSharing(
+    summary?.sessionId,
+    screenSharingKind(chatMachine(summary, props.machineName, props.peerKinds, props.place)),
+  );
   const imessage = useIMessage(shown);
   const imessageStatus = imessage?.data.status;
   useEffect(() => {
@@ -365,6 +368,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           onOpenFolder: props.onOpenFolder,
           onOpenUrl: props.onOpenUrl,
           onShareScreen: screenSharing.run,
+          screenShareKind: screenSharing.kind,
           screenShareNote: screenSharing.note,
         },
         actions,
