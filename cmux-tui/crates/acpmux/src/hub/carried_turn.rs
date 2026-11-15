@@ -33,6 +33,9 @@ pub(super) struct SteerSent {
     pub(super) needs_withdrawal: bool,
     /// What a continuation of the turn it starts needs (`auto_resume.rs`).
     pub(super) continues: Continues,
+    /// The paired device that sent it (`PromptOptions::full_access_device`), for the turn it
+    /// starts if its agent reads it after the turn it was checked against ended.
+    pub(super) device: Option<String>,
 }
 
 /// What a cut carried turn's continuation needs, as a prompt's own turn has it (`turns.rs`
@@ -728,6 +731,7 @@ mod tests {
             control: Control::Local,
             needs_withdrawal: false,
             continues: Continues { reports, ..Continues::default() },
+            device: None,
         };
         {
             let mut now = s.steer_now.lock().unwrap();
@@ -770,6 +774,7 @@ mod tests {
             control: Control::Local,
             needs_withdrawal: false,
             continues: Continues { asked, ..Continues::default() },
+            device: None,
         };
         {
             let mut now = lane.steer_now.lock().unwrap();
@@ -788,6 +793,41 @@ mod tests {
             let turn = lane.meta().turn_count;
             assert_eq!(hub.lane_turn_subagent(&lane.id, turn).as_ref(), want, "{ids:?}");
             from = next;
+        }
+    }
+
+    /// The agent's own next turn after the phone's turn stays the phone's only when every steer
+    /// it carries is the phone's too. Another client's steer, checked against an earlier turn
+    /// and read only now, makes it no one device's (post-merge review of cmux#43251, follow-up 1).
+    #[tokio::test]
+    async fn a_carried_turn_with_another_clients_steer_is_no_one_devices() {
+        let (hub, s) = chat().await;
+        let sent = |device: Option<&str>| SteerSent {
+            client: "test".into(),
+            text: "steer".into(),
+            line: "steer".into(),
+            control: Control::Web,
+            needs_withdrawal: false,
+            continues: Continues::default(),
+            device: device.map(str::to_owned),
+        };
+        {
+            let mut now = s.steer_now.lock().unwrap();
+            now.sent.insert("p-phone".into(), sent(Some("phone-1")));
+            now.sent.insert("p-dashboard".into(), sent(None));
+        }
+        let mut from = TurnInfo::prompted("phone", "work", "t-0", "p-0", Control::Web);
+        from.device = Some("phone-1".into());
+        let cases: [(&[&str], Option<&str>); 3] = [
+            (&[], Some("phone-1")),
+            (&["p-phone"], Some("phone-1")),
+            (&["p-phone", "p-dashboard"], None),
+        ];
+        for (seq, (ids, want)) in cases.into_iter().enumerate() {
+            let prompt_ids = ids.iter().map(|p| p.to_string()).collect();
+            let carried = Carried { seq: seq as u64, prompt_ids };
+            let (next, _) = hub.carried_turn(&s, Some(&from), &carried);
+            assert_eq!(next.device.as_deref(), want, "{ids:?}");
         }
     }
 
