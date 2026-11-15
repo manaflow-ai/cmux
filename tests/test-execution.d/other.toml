@@ -434,6 +434,11 @@ path = "tests/test_mobile_stability_soak_attach_contract.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_native_sidebar_gallery.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Runs the native gallery workflow and helper against fleet receipt failures; run via cmux-ci test -- python3 tests/test_native_sidebar_gallery.py when either entrypoint changes."
+
+[[test]]
 path = "tests/test_needs_verdict.py"
 lane = "linux-guard"
 
