@@ -2406,7 +2406,7 @@ button.menu-disclosure {
 }
 
 [data-library-entry]:hover .library-order,
-[data-library-entry]:focus-within .library-order,
+[data-library-entry]:has(:focus-visible) .library-order,
 [data-library-entry]:has([data-popup-open]) .library-order {
   opacity: 1;
   transition: var(--cmux-hover-reveal-in-transition);
