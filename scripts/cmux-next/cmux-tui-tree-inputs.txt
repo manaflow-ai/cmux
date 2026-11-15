@@ -129,3 +129,4 @@ blob skills/cmux-customization/templates/clock-weather/cmux-app.json
 blob skills/cmux-customization/templates/clock-weather/main.js
 blob skills/cmux-customization/templates/my-prs/cmux-app.json
 blob skills/cmux-customization/templates/my-prs/main.js
+blob schemas/build-identity/vectors.json
