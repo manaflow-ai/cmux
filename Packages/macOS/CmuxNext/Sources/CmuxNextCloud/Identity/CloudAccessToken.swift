@@ -36,8 +36,12 @@ public struct CloudAccessToken: Sendable, Equatable {
         case clientTooOld(minimumVersion: String?)
         /// The owner did not answer.
         case unreachable
-        /// The owner answered something this client will not use.
-        case badReply
+        /// The owner answered something this client will not use; the detail says what (`unexpected_challenge`,
+        /// `malformed_reply`).
+        case badReply(String)
+        /// This Mac could not mint: the Keychain refused the install key, the mint was cancelled, or the app's own
+        /// rules did not answer. The detail names the cause (`keychain(-25244: …)`), never a token.
+        case local(String)
         /// The device is restricted to a managed team (`RestrictToManagedTeam`) and the ask
         /// names another team, or the managed team is not the active one.
         case managed
@@ -52,15 +56,17 @@ public struct CloudAccessToken: Sendable, Equatable {
             case .clientTooOld: "client_too_old"
             case .unreachable: "unavailable"
             case .badReply: "bad_reply"
+            case .local: "local_failure"
             case .managed: "managed"
             }
         }
 
-        /// The owner's refusal code, or the minimum app version, when there is one.
+        /// The owner's refusal code, the minimum app version, or what went wrong, when there is one.
         public var detail: String? {
             switch self {
             case .refused(let code): String(code.prefix(80))
             case .clientTooOld(let minimum): minimum
+            case .badReply(let why), .local(let why): why
             default: nil
             }
         }
@@ -92,7 +98,9 @@ public struct CloudAccessToken: Sendable, Equatable {
         struct Reply: Decodable { var team: String?, refusal: String? }
         let request = Request(requested: requested, activeStackTeam: activeStackTeam, managedStackTeam: managedStackTeam,
                               stackProjectId: stackProjectID)
-        guard let reply = CloudStartCore().call("cloud_identity_mint_team", request, as: Reply.self) else { throw Failure.badReply }
+        guard let reply = CloudStartCore().call("cloud_identity_mint_team", request, as: Reply.self) else {
+            throw Failure.local("cloud_identity_mint_team: the app's Rust rules did not answer")
+        }
         if reply.refusal != nil { throw Failure.managed }
         return reply.team
     }
@@ -105,19 +113,27 @@ public struct CloudAccessToken: Sendable, Equatable {
         return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
     }
 
-    /// The failure an install mint threw, as one of ours.
+    /// The failure an install mint threw, as one of ours. Every other error is ``Failure/local(_:)`` naming its cause
+    /// (a Keychain status, a cancellation), never a bare bad reply (probe cloud-signed-in-after-update-production,
+    /// 2026-11-15: a Keychain refusal read "cmux Cloud sent an answer cmux can't use").
     static func failure(_ error: any Error) -> Failure {
         if let failure = error as? Failure { return failure }
         if error as? MacInstallIdentity.Failure == .signedOut { return .signedOut }
-        guard let install = error as? InstallAuthError else { return .badReply }
+        if error is CancellationError { return .local("cancelled") }
+        guard let install = error as? InstallAuthError else { return .local(cause(error)) }
         switch install {
         case .noSession, .userMismatch: return .signedOut
         case .refused(let code): return isTransient(code) ? .unreachable : .refused(code)
         case .clientTooOld(let minimum): return .clientTooOld(minimumVersion: minimum)
         case .transport: return .unreachable
-        case .invalidPublicKey, .unexpectedChallenge, .malformedReply: return .badReply
+        case .unexpectedChallenge: return .badReply("unexpected_challenge")
+        case .malformedReply: return .badReply("malformed_reply")
+        case .invalidPublicKey: return .local(install.description)
         }
     }
+
+    /// An error's own words, cut to 160 characters: what a failed mint names. No error a mint throws carries a token.
+    static func cause(_ error: any Error) -> String { String(String(describing: error).prefix(160)) }
 
     /// A refusal that is the service's trouble, not the account's (Rust's `identity::is_transient`: a 5xx or 429 with
     /// no owner code, or a rate limit). The caller retries those; it never reads them as "not a member of the team".
@@ -164,7 +180,7 @@ extension CloudAuth {
             team = try accessTokenTeam(requested: requested)
             return try await identity.accessToken(team: team)
         } catch {
-            let failure = error as? CloudAccessToken.Failure ?? .badReply
+            let failure = CloudAccessToken.failure(error)
             if team == nil, let own = try? await identity.installToken() { team = MacInstallIdentity.team(ofToken: own) }
             throw CloudAccessToken.Refusal(failure: failure, team: team)
         }

@@ -524,6 +524,49 @@ struct MacScreenHubPushTests {
         return MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
     }
 
+    /// A viewer's session starting marks that this Mac has viewed another; a ticket for no tab marks nothing.
+    @Test func aStartedViewerEndsTheFirstUseGuide() throws {
+        let pages = makePages()
+        pages.hub = testHub()
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        pages.handle(.sessionTicket(ticket("s9")))
+        #expect(!pages.store.hasViewedBefore)
+        viewer.phase = .waitingForApproval(sessionID: "s1", scope: .view)
+        pages.handle(.sessionTicket(ticket("s1", scope: .view)))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .view))
+        #expect(pages.store.hasViewedBefore)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// Every path to streaming marks it, also a ticket the viewer takes itself (the hub's answer found it held).
+    @Test func aViewerThatAcceptsOnItsOwnAlsoEndsTheFirstUseGuide() throws {
+        let pages = makePages()
+        pages.hub = testHub()
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        viewer.phase = .waitingForApproval(sessionID: "s1", scope: .view)
+        viewer.accept(ticket("s1", scope: .view))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .view))
+        #expect(pages.store.hasViewedBefore)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// The hub's sharing bit for this Mac marks the first share, wherever it was turned on; drawing the page does not.
+    @Test func sharingOnMarksTheFirstShare() {
+        let pages = makePages()
+        pages.hostSharingChanged(false)
+        #expect(!pages.store.hasSharedBefore)
+        pages.hostSharingChanged(true)
+        #expect(pages.store.hasSharedBefore)
+    }
+
     @Test func pushesReachTheTabOfTheirSession() throws {
         let pages = makePages()
         pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
