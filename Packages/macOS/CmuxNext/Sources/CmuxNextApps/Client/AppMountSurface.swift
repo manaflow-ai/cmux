@@ -3,7 +3,9 @@
 /// the app pane (``AppManifest/scenePane`` of an active app, as the app's page opens it), a sidebar
 /// section (``AppManifest/sceneSection(_:)`` of a visible app, as ``AppSectionProvider`` resolves
 /// it), the hover card (only the user's own `local/customize` app, as
-/// ``SidebarCustomizationService`` resolves it) and a Session Info section of a visible app. The raw
+/// ``SidebarCustomizationService`` resolves it), a Session Info section of a visible app, and a
+/// visible app's whole New Tab page (`cmux.newtab/1`; the page asks only for the app the person
+/// named in `tabs.newTabApp`). The raw
 /// value is the mount's `surface` in its context.
 public nonisolated enum AppMountSurface: String, Sendable, Hashable, CaseIterable {
     case pane
@@ -13,6 +15,8 @@ public nonisolated enum AppMountSurface: String, Sendable, Hashable, CaseIterabl
     /// The app's `cmux.pane/1` scene in a floating panel over the window (`presentation.overlay`),
     /// opened by the person's own gesture only (``AppOverlayPresenter``).
     case overlay
+    /// The whole New Tab page body, when the person named the app in `tabs.newTabApp`.
+    case newTab
 
     /// `record`'s implementation for this surface (`id` names a section; the pane and the hover card
     /// have one each and ignore it), or nil when the app shows nothing here.
@@ -33,6 +37,9 @@ public nonisolated enum AppMountSurface: String, Sendable, Hashable, CaseIterabl
         case .overlay:
             guard record.isVisible, record.manifest.presentation?.overlay != nil else { return nil }
             return record.manifest.scenePane
+        case .newTab:
+            guard record.isVisible else { return nil }
+            return record.manifest.sceneImplementation(interface: AppImplementation.newTab)
         }
     }
 }
