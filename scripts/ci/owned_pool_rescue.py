@@ -2954,7 +2954,16 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 why = open_head_failover(api, target, now=now, sleep=sleep, log=log, first_seen=first_seen).why
                 if why:
                     return "failover", why
-            if look.action == "refused" and not finished and seen_at < deadline and not target.main:
+            # A sibling with work a cancel would kill: one a runner holds (in its setup or running), or any
+            # unfinished job of a nightly (its started work is never cancelled).
+            busy = [job for job in jobs if job.get("status") != "completed" and (job_running(job) or target.nightly)]
+            if look.action == "refused" and not finished and seen_at < deadline and not target.main and not busy:
+                # Every other unfinished job only waits for a runner: a cancel kills no work, so the refused job is
+                # re-run now (cancel, then its failed and cancelled jobs) instead of after the run ends. Run
+                # 43716323834 (#43733, 2026-11-15): 'cmux-next generated files' was refused at 14:32Z while the
+                # fast tier waited for a runner until 15:33Z; it was re-run at 15:47Z, once the run had ended.
+                log(f"look {looks}: {look.reason}; no other job of the run is running, so it is re-run now")
+            elif look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
                 # the run to re-run it killed every healthy sibling (run
