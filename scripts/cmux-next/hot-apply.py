@@ -399,12 +399,22 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
             "ffi": set_digest(blobs, linked_rust(repo, daemon)), "helpers": set_digest(blobs, helper_rust(repo, daemon))}
 
 
+def valid_keys(keys, sha: str) -> bool:
+    """KEYS is a whole hot-keys record of SHA: every field `keys_plan` reads, well formed."""
+    return (isinstance(keys, dict) and keys.get("schema") == HOT_KEYS_SCHEMA and keys.get("commit") == sha
+            and type(keys.get("web_abi")) is int
+            and all(HEX.fullmatch(str(keys.get(k))) for k in ("tree_key", "web", "web_key", "shell", "ffi", "helpers")))
+
+
 def published_keys(sha: str) -> dict | None:
-    """SHA's hot keys as CI published them (cmux-next-hot-keys.yml), kept under state/keys/hot; None when CI
-    has not (a commit before the workflow, a run that failed): `plan` then diffs the two commits."""
+    """SHA's hot keys as CI published them (cmux-tui-artifacts.yml, mark-tree-commits), kept under
+    state/keys/hot; None when CI has not (a commit before the step, a run that failed) or the record is not
+    whole: `plan` then diffs the two commits."""
     path = state_dir() / "keys" / "hot" / f"{sha}.json"
     with contextlib.suppress(OSError, ValueError):
-        return json.loads(path.read_text())
+        kept = json.loads(path.read_text())
+        if valid_keys(kept, sha):
+            return kept
     # A miss is kept for an hour, so the apply after a prefetch (or a commit from before the keys) asks no
     # second time; CI may still publish a new commit's keys after that.
     missing = path.with_suffix(".missing")
@@ -414,8 +424,7 @@ def published_keys(sha: str) -> dict | None:
     keys = None
     with PHASES("key"), contextlib.suppress(urllib.error.URLError, OSError, ValueError):
         keys = json.loads(fetch(f"{HOT_KEYS_BASE}/{sha}.json", timeout=10))  # the diff is the fallback: wait little
-    if not isinstance(keys, dict) or keys.get("schema") != HOT_KEYS_SCHEMA or keys.get("commit") != sha or not all(
-            HEX.fullmatch(str(keys.get(k))) for k in ("tree_key", "web", "web_key", "shell", "ffi", "helpers")):
+    if not valid_keys(keys, sha):
         write_atomic(missing, b"")
         return None
     write_atomic(path, json.dumps(keys).encode())

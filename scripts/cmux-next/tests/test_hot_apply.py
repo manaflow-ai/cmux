@@ -484,6 +484,26 @@ class HotKeys(unittest.TestCase):
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])
 
+    def test_a_record_without_web_abi_or_a_broken_kept_one_falls_back(self):
+        # Review of #43558 (F1): a record missing web_abi was taken and kept, and a web change then raised KeyError.
+        self.publish(self.base)
+        self.publish(FIX, web="b" * 64, web_key="7" * 64)
+        record = json.loads((self.tmp / "keys" / f"{FIX}.json").read_text())
+        del record["web_abi"]
+        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps(record))
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("via", json.loads(done.stdout))
+        self.assertFalse((self.tmp / "state" / "keys" / "hot" / f"{FIX}.json").exists())
+        # A kept record that is not whole (an older hot-apply wrote it) is not read either.
+        kept = self.tmp / "state" / "keys" / "hot" / f"{FIX}.json"
+        kept.write_text(json.dumps(record))
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("via", json.loads(done.stdout))
+
     def test_a_miss_is_asked_once_then_kept(self):
         self.publish(self.base)  # FIX has none yet
         code, plan, err = self.plan()
