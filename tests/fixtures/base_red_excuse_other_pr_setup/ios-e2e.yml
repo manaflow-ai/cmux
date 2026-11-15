@@ -528,7 +528,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          pkill -f "DerivedData/cmux-${CMUX_E2E_TAG}/.*/cmux DEV" 2>/dev/null || true
+          : # fixture copy: the recorded workflow's stop command for the tagged app is left out here
 
       - name: Delete simulator
         if: always()
