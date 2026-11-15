@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowserTabs
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Observation
