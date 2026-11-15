@@ -6,7 +6,7 @@
     reason = "fault injection and test assertions"
 )]
 use super::*;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
 const SEED: &str = include_str!("../../../acpmux-book/src/translate/fixtures/seed-turn.ndjson");
