@@ -23,6 +23,7 @@ pub use deferred::{Deferral, Keep};
 mod cold;
 pub(crate) mod cold_segments;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
+pub use cold_segments::{ColdMoved, SealHook, StagedColdSegments};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
@@ -1459,6 +1460,34 @@ pub trait Store: Send + Sync {
     /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
     /// own that a store caller may hold. Set once.
     fn on_rehydrate(&self, _hook: RehydrateHook) {}
+    /// Writes and checks the archives of at most `max` of `id`'s sealed segments still hot, at
+    /// zstd `level`, beside them (`store/cold_segments.rs`). None: nothing to move, or a store
+    /// that keeps no segments.
+    fn stage_cold_segments(
+        &self,
+        _id: &str,
+        _max: usize,
+        _level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        Ok(None)
+    }
+    /// Readies the store for a cold segments' commit, with no lock of the chat held: the journal
+    /// store's checkpoint must cover every line of them. False: not now.
+    fn prepare_cold_segments(&self, _id: &str, _staged: &StagedColdSegments) -> Result<bool> {
+        Ok(true)
+    }
+    /// Puts staged archives in place of their segments, each unless it changed since. The caller
+    /// holds the chat's append lock. What it moved.
+    fn commit_cold_segments(&self, _id: &str, _staged: StagedColdSegments) -> Result<ColdMoved> {
+        Ok(ColdMoved::default())
+    }
+    /// Finishes what a crash left of a move of `id`'s segments (`store/cold_segments.rs`).
+    fn settle_cold_segments(&self, _id: &str) -> Result<()> {
+        Ok(())
+    }
+    /// Called with a chat's id when its log seals a segment (rolls over to the next), under the
+    /// store's writers' lock: it may only note the id and wake a worker. Set once.
+    fn on_segment_sealed(&self, _hook: SealHook) {}
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1595,6 +1624,8 @@ pub struct LocalStore {
     cold: Mutex<()>,
     /// [`Store::on_rehydrate`].
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
+    /// [`Store::on_segment_sealed`].
+    seal_hook: std::sync::OnceLock<SealHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
     #[cfg(test)]
@@ -1653,6 +1684,7 @@ impl LocalStore {
             unlisted: Default::default(),
             cold: Default::default(),
             rehydrate_hook: Default::default(),
+            seal_hook: Default::default(),
             parts: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
@@ -1714,6 +1746,7 @@ impl LocalStore {
     fn listed_files(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
         let dir = self.dir(id).join("events");
         let mut out = Vec::new();
+        let mut cold = Vec::new();
         let mut cut_pending = false;
         let Ok(rd) = std::fs::read_dir(&dir) else {
             return Ok((out, false));
@@ -1727,13 +1760,19 @@ impl LocalStore {
                 && let Ok(idx) = stem.parse::<u32>()
             {
                 out.push((idx, entry.path()));
+            } else if let Some(idx) = cold_segments::idx_index(&name) {
+                cold.push(idx);
             }
         }
-        // PROTOTYPE (`store/cold_segments.rs`): a segment whose archive is committed reads from it.
-        let cold = cold_segments::listed(&self.dir(id));
+        // A sealed segment that went cold (`store/cold_segments.rs`) reads from its archive once
+        // only its index is left: while its `.ndjson` is there, that is the segment.
         if !cold.is_empty() {
-            out.retain(|(idx, _)| !cold.iter().any(|(c, _)| c == idx));
-            out.extend(cold);
+            let session = self.dir(id);
+            for index in cold {
+                if !out.iter().any(|(i, _)| *i == index) {
+                    out.push((index, cold_segments::zst_path(&session, index)));
+                }
+            }
         }
         out.sort();
         Ok((out, cut_pending))
@@ -1850,7 +1889,11 @@ impl LocalStore {
         // Never segment `000000`: it holds only a fork's history, written whole and renamed in
         // place (`history_writer`), which would replace a record appended to it (review of
         // #37020). A log whose only segment it is goes on in `000001`.
+        // Nor a cold segment's archive (`store/cold_segments.rs`): the log goes on in the next.
         let (index, path) = match segs.last().filter(|(i, _)| *i > 0) {
+            Some((i, p)) if cold_segments::is_cold(p) => {
+                (i + 1, dir.join(format!("{:06}.ndjson", i + 1)))
+            }
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
@@ -1927,16 +1970,14 @@ impl LocalStore {
         if full && let Some(old) = writers.open.remove(id) {
             // The full segment closes before the next one opens (rare: once per segment).
             let index = old.index + 1;
-            let sealed = old.index;
             old.close(id, &self.sync_failed);
-            if cold_segments::enabled() {
-                cold_segments::spawn_move(self.dir(id), sealed);
-            }
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
             let file = open_private_append(&path)?;
             writers
                 .open
                 .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
+            // Segment `index - 1` is sealed: a worker may move it cold (`store/cold_segments.rs`).
+            self.note_sealed(id);
         }
         let Some(w) = writers.open.get_mut(id) else {
             anyhow::bail!("no segment writer for session {id}");
@@ -2510,6 +2551,31 @@ impl Store for LocalStore {
 
     fn on_rehydrate(&self, hook: RehydrateHook) {
         let _ = self.rehydrate_hook.set(hook);
+    }
+
+    fn stage_cold_segments(
+        &self,
+        id: &str,
+        max: usize,
+        level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        LocalStore::stage_cold_segments(self, id, max, level)
+    }
+
+    fn prepare_cold_segments(&self, _id: &str, _staged: &StagedColdSegments) -> Result<bool> {
+        Ok(true)
+    }
+
+    fn commit_cold_segments(&self, id: &str, staged: StagedColdSegments) -> Result<ColdMoved> {
+        LocalStore::commit_cold_segments(self, id, staged)
+    }
+
+    fn settle_cold_segments(&self, id: &str) -> Result<()> {
+        LocalStore::settle_cold_segments(self, id)
+    }
+
+    fn on_segment_sealed(&self, hook: SealHook) {
+        let _ = self.seal_hook.set(hook);
     }
 
     fn seal(&self) {

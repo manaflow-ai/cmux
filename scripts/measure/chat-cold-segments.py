@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""PROTOTYPE pricing bench: an open chat's sealed segments go cold (`store/cold_segments.rs`), local vs cold MB/h and page-back cost.
+"""Bench: an open chat's sealed segments go cold (`store/cold_segments.rs`), local vs cold MB/h and page-back cost.
 
-Sibling of chat-disk-growth.py (same daemon, agent, turns and clock; that script's long chat is the "before"). Here one
-release acpmux daemon runs with ACPMUX_COLD_SEGMENTS=1: each sealed 8 MiB segment of the live chat moves to
+Sibling of chat-disk-growth.py (same daemon, agent, turns and clock). Here one release acpmux daemon runs with the
+setting agents.chats.coldSegments on at agents.chats.coldSegmentsLevel --level (3 by default), written to its own
+settings file (CMUX_NEXT_CONFIG_FILE); --off runs the same chat with the setting off, the "before": every byte
+local, the same page-back walk from the open segment's first seq. With it on, each sealed 8 MiB segment of the live
+chat moves to
 <session>/cold-segments/NNNNNN.zst (zstd frames of ~128 KiB raw, cut at line ends), its chunk index
 events/NNNNNN.cold.idx stays local, and only the open segment plus indexes stay on the hot path.
 
@@ -12,12 +15,13 @@ events/NNNNNN.cold.idx stays local, and only the open segment plus indexes stay 
 2. Page-back: from beforeSeq = the oldest local record's seq, `_acpmux/events {beforeSeq, limit: 400, maxBytes 1 MiB,
    kinds: [transcript]}` page after page back to seq 1, timed from the request's send to the reply's last byte.
    Cold cache: every file of the chat dir synced and dropped from the page cache (posix_fadvise DONTNEED) before each
-   page; warm: the same walk again. Then the daemon stops, the originals (moved aside by ACPMUX_COLD_SEGMENTS_KEEP, out
-   of the home) go back to events/, the archives go, and the daemon starts again without the flag: the same pages all
+   page; warm: the same walk again. Then the daemon stops, raw copies of the moved segments (decoded from each
+   archive into ACPMUX_COLD_SEGMENTS_KEEP, out of the home, as it went cold) go back to events/, the archives go, and
+   the daemon starts again with the setting off: the same pages all
    local, cold cache and warm. Every page must equal its all-local twin (asserted).
 3. RAM: the daemon's VmRSS sampled every 2 ms during each walk (max, and its rise over the walk's start), and VmHWM.
 
-  chat-cold-segments.py --acpmux BIN [--rows 100000] [--turn-secs 30] [--sample-turns 250] [--out result.json]
+  chat-cold-segments.py --acpmux BIN [--rows 100000] [--level 3] [--off] [--turn-secs 30] [--sample-turns 250] [--out result.json]
 Measurement only: it signals and reads only the processes it started.
 """
 
@@ -50,9 +54,12 @@ class ColdDaemon(base.Daemon):
 
     def env(self):
         env = super().env()
+        settings = os.path.join(self.root, "cmux-next.json")
+        with open(settings, "w") as f:
+            json.dump({"agents.chats.coldSegments": self.cold, "agents.chats.coldSegmentsLevel": self.args.level}, f)
+        env.update(CMUX_NEXT_CONFIG_FILE=settings)
         if self.cold:
-            env.update(ACPMUX_COLD_SEGMENTS="1", ACPMUX_COLD_SEGMENTS_KEEP=self.kept,
-                       ACPMUX_COLD_SEGMENTS_LEVEL=str(self.args.level))
+            env.update(ACPMUX_COLD_SEGMENTS_KEEP=self.kept)
         return env
 
     def halt(self):
@@ -209,6 +216,66 @@ def stats(pages):
             "mean_kb": round(sum(p["bytes"] for p in pages) / max(1, len(pages)) / 1024, 1)}
 
 
+def main_off(args, turns, hours_of):
+    """The before: the same chat with the setting off, every byte local; the page-back walk from the open
+    segment's first seq, as the cold run walks."""
+    d = ColdDaemon(args, "off")
+    d.cold = False
+    samples = []
+    try:
+        d.start()
+        acp = base.Acp(d.sock)
+        sid = d.new_chat(acp)
+        t0 = time.monotonic()
+
+        def take(turn):
+            d.find_chat_dir()
+            s = {"turn": turn, "sim_hours": hours_of(turn), **(split(d.chat_dir) if d.chat_dir else {})}
+            samples.append(s)
+            return s
+
+        take(0)
+        for turn in range(1, turns + 1):
+            acp.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": f"coord: {turn}"}]})
+            if turn % args.sample_turns == 0 or turn == turns:
+                take(turn)
+        wall = time.monotonic() - t0
+        end = take(turns)
+        segs = ndjson(d.chat_dir)
+        assert not os.path.exists(os.path.join(d.chat_dir, COLD_DIR)), "the setting is off: nothing goes cold"
+        oldest_local = first_seq(os.path.join(d.chat_dir, "events", f"{segs[-1]:06d}.ndjson"))
+        acp.close()
+        d.halt()
+        d.start()
+        acp = base.Acp(d.sock)
+        local_cold, rss_lc = walk(acp, d, sid, oldest_local, True, args.max_pages)
+        local_warm, rss_lw = walk(acp, d, sid, oldest_local, False, args.max_pages)
+        acp.close()
+    finally:
+        d.stop()
+    steady = [s for s in samples if s["turn"] >= turns * 0.1]
+    hrs = [s["sim_hours"] for s in steady]
+    local_slope = base.slope(hrs, [s["local"] for s in steady])
+    print(f"CHATCOLD off: {turns} turns, {end['sim_hours']:.1f} simulated hours in {wall:.0f} s wall; {len(segs)} segments",
+          flush=True)
+    print(f"CHATCOLD off end: local {end['local'] / MB:.2f} MB, cold {end['cold'] / MB:.2f} MB", flush=True)
+    print(f"CHATCOLD off slopes: local {local_slope / MB:.3f} MB/h", flush=True)
+    base.perf_row("chat_disk.off.local_mb", end["local"] / MB, "MB")
+    base.perf_row("chat_disk.off.local_mb_per_hour", local_slope / MB, "MB/h")
+    for name, (pages, rss) in {"local_cold_cache": (local_cold, rss_lc), "local_warm": (local_warm, rss_lw)}.items():
+        st = stats(pages)
+        print(f"CHATCOLD off walk {name}: {json.dumps(st)} rss {json.dumps(rss)}", flush=True)
+        row = {"name": f"chat_cold.off.page_back.{name}", "p50": st["p50_ms"], "p95": st["p95_ms"], "max": st["max_ms"],
+               "unit": "ms"}
+        base.ROWS.append(row)
+        print("PERF_ROW " + json.dumps(row), flush=True)
+    print("PERF_REPORT " + json.dumps({"rows": base.ROWS}), flush=True)
+    if args.out:
+        with open(args.out, "w") as f:
+            json.dump({"args": vars(args), "samples": samples, "rows": base.ROWS}, f)
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--agent", action="store_true", help=argparse.SUPPRESS)
@@ -216,7 +283,8 @@ def main():
     p.add_argument("--rows", type=int, default=100_000)
     p.add_argument("--turn-secs", type=float, default=30.0)
     p.add_argument("--sample-turns", type=int, default=250)
-    p.add_argument("--level", type=int, default=19)
+    p.add_argument("--level", type=int, default=3)
+    p.add_argument("--off", action="store_true", help="the setting off: the before")
     p.add_argument("--max-pages", type=int, default=100_000)
     p.add_argument("--root-dir", default=None)
     p.add_argument("--out")
@@ -230,6 +298,8 @@ def main():
     hours_of = lambda t: t * args.turn_secs / 3600.0
     base.log(f"{turns} turns, {hours_of(turns):.1f} simulated hours, cold segments at zstd {args.level}")
 
+    if args.off:
+        return main_off(args, turns, hours_of)
     d = ColdDaemon(args, "cold")
     samples, out = [], {}
     try:

@@ -48,6 +48,8 @@ const THAW_DIR: &str = "cold-thaw.tmp";
 /// Where a commit renames `events/` before removing it, and a rehydrate any `events/` without a
 /// segment that was there.
 const DROP_DIR: &str = "events.cold-drop";
+/// Where a commit renames `cold-segments/` (`store/cold_segments.rs`) before removing it.
+const COLD_SEGMENTS_DROP_DIR: &str = "cold-segments.cold-drop";
 /// The header's schema.
 const SCHEMA: &str = "acpmux.cold.v1";
 /// zstd's strongest level that needs no large window to decode (19). Event logs are JSON lines
@@ -207,7 +209,8 @@ fn decode(
 fn log_holds(archive: &Path, events: &Path) -> Result<bool> {
     let (header, hashes) = decode(archive, &mut |_| Ok(None))?;
     for (entry, archived) in header.files.iter().zip(&hashes) {
-        let Ok(file) = crate::home_fs::private_state_file(events.join(&entry.name)) else {
+        // A segment that went cold since reads from its archive (`store/cold_segments.rs`).
+        let Ok(file) = super::cold_segments::open_segment(&events.join(&entry.name)) else {
             return Ok(false);
         };
         let mut hash = Sha256::new();
@@ -217,6 +220,17 @@ fn log_holds(archive: &Path, events: &Path) -> Result<bool> {
         }
     }
     Ok(true)
+}
+
+/// A file of the log opened to archive, and its length: a cold segment's raw bytes and raw length
+/// through its archive (`store/cold_segments.rs`), any other file as it is.
+fn open_log_file(path: &Path) -> Result<(u64, Box<dyn Read>)> {
+    if super::cold_segments::is_cold(path) {
+        let file = super::cold_segments::open_segment(path)?;
+        return Ok((file.len()?, Box::new(file)));
+    }
+    let file = crate::home_fs::private_state_file(path)?;
+    Ok((file.metadata()?.len(), Box::new(file)))
 }
 
 /// Removes the tree at `path` when there is one, through the held home (`home_fs`): a home
@@ -246,16 +260,34 @@ impl LocalStore {
     /// segment, or a file a log does not hold (a retention rewrite's copy, a fork's history being
     /// written), which leaves the chat as it is for now.
     /// Listed in the held home (`home_fs`): the commit renames that `events/` aside.
+    /// A cold segment (`store/cold_segments.rs`) is in the list under its segment's name, read from
+    /// its archive: the archive holds its raw bytes like any other segment's, and a rehydrate
+    /// brings it back as a plain segment.
     fn log_files(&self, id: &str) -> Result<Option<Vec<(String, PathBuf)>>> {
-        let events = self.dir(id).join("events");
+        let session = self.dir(id);
+        let events = session.join("events");
         let Ok(rd) = crate::home_fs::read_dir(&events) else { return Ok(None) };
         let mut out = Vec::new();
+        let mut cold = Vec::new();
         for entry in rd {
             let name = entry.name.to_string_lossy().into_owned();
+            if entry.is_file
+                && name.is_empty()
+                && let Some(index) = super::cold_segments::idx_index(&name)
+            {
+                cold.push(index);
+                continue;
+            }
             if !entry.is_file || !log_file(&name) {
                 return Ok(None);
             }
             out.push((name, events.join(&entry.name)));
+        }
+        for index in cold {
+            let name = format!("{index:06}.ndjson");
+            if !out.iter().any(|(n, _)| *n == name) {
+                out.push((name, super::cold_segments::zst_path(&session, index)));
+            }
         }
         out.sort();
         if !out.iter().any(|(name, _)| name != super::compact::MARKER) {
@@ -269,11 +301,10 @@ impl LocalStore {
     fn held_has_segment(&self, id: &str) -> Result<bool> {
         match crate::home_fs::read_dir(self.dir(id).join("events")) {
             Ok(entries) => Ok(entries.iter().any(|entry| {
-                entry
-                    .name
-                    .to_str()
-                    .and_then(|name| name.strip_suffix(".ndjson"))
-                    .is_some_and(|stem| stem.parse::<u32>().is_ok())
+                entry.name.to_str().is_some_and(|name| {
+                    name.strip_suffix(".ndjson").is_some_and(|stem| stem.parse::<u32>().is_ok())
+                        || super::cold_segments::idx_index(name).is_some()
+                })
             })),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
             Err(e) => Err(e.into()),
@@ -300,7 +331,7 @@ impl LocalStore {
     /// store is sealed, since the next daemon may already own the home. `try_read`: an append
     /// holds the read side already, and a second read on the same thread may wait forever behind
     /// a seal that waits for the first; a seal under way refuses it too.
-    fn unsealed(&self, id: &str) -> Result<std::sync::RwLockReadGuard<'_, bool>> {
+    pub(super) fn unsealed(&self, id: &str) -> Result<std::sync::RwLockReadGuard<'_, bool>> {
         let sealed = match self.sealed.try_read() {
             Ok(sealed) => sealed,
             Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
@@ -364,8 +395,7 @@ impl LocalStore {
         // since is not in the archive, and the commit refuses the log.
         let mut opened = Vec::with_capacity(files.len());
         for (name, path) in files {
-            let file = crate::home_fs::private_state_file(&path)?;
-            let len = file.metadata()?.len();
+            let (len, file) = open_log_file(&path)?;
             opened.push((Entry { name, len }, file));
         }
         let mut staged = StagedCold {
@@ -380,7 +410,7 @@ impl LocalStore {
         serde_json::to_writer(&mut encoder, &header)?;
         encoder.write_all(b"\n")?;
         let mut hashes = Vec::with_capacity(opened.len());
-        for (entry, file) in &opened {
+        for (entry, file) in &mut opened {
             let mut hash = Sha256::new();
             let copied = copy_hashed(&mut Read::take(file, entry.len), &mut encoder, &mut hash)?;
             anyhow::ensure!(
@@ -419,8 +449,7 @@ impl LocalStore {
                 now.len() == staged.files.len()
                     && now.iter().zip(&staged.files).all(|((name, path), entry)| {
                         *name == entry.name
-                            && crate::home_fs::private_state_file(path)
-                                .is_ok_and(|f| f.metadata().is_ok_and(|m| m.len() == entry.len))
+                            && open_log_file(path).is_ok_and(|(len, _)| len == entry.len)
                     })
             });
             if !unchanged {
@@ -438,9 +467,19 @@ impl LocalStore {
             let aside = dir.join(DROP_DIR);
             remove_dir_if_there(&aside)?;
             crate::home_fs::rename(dir.join("events"), &aside)?;
+            // The cold segments' archives go with it: the archive holds their raw bytes. One a
+            // crash leaves before this has no index any more, and the next settle of the
+            // rehydrated log removes it (`LocalStore::settle_cold_segments`).
+            let cold_segments = dir.join(super::cold_segments::COLD_DIR);
+            if crate::home_fs::try_exists_nofollow(&cold_segments)? {
+                let cold_aside = dir.join(COLD_SEGMENTS_DROP_DIR);
+                remove_dir_if_there(&cold_aside)?;
+                crate::home_fs::rename(&cold_segments, &cold_aside)?;
+            }
             sync_directory(&dir)?;
         }
         let _ = crate::home_fs::remove_dir_all(dir.join(DROP_DIR));
+        let _ = crate::home_fs::remove_dir_all(dir.join(COLD_SEGMENTS_DROP_DIR));
         let _ = crate::home_fs::remove_dir_all(dir.join(super::kind_index::DIR));
         let _ = crate::home_fs::remove_dir_all(dir.join(super::text_index::DIR));
         Ok(true)

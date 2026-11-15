@@ -222,6 +222,7 @@ pub(super) fn offset_of_seq<F: Read + std::io::Seek + ?Sized>(
 /// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
 /// returns false: a tail costs its own bytes, not the segment's.
 pub(super) fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+    // A cold segment reads back through its archive (`store/cold_segments.rs`).
     for_each_line_rev_from(&mut crate::config::private_state_file(path)?, u64::MAX, visit)
 }
 
@@ -293,8 +294,11 @@ pub(super) fn for_each_line_rev_between<F: Read + std::io::Seek + ?Sized>(
 
 pub(super) fn first_seq(path: &Path) -> Result<Option<u64>> {
     let file = super::cold_segments::open_segment(path)?;
-    if let super::cold_segments::SegmentFile::Cold(cold) = &file {
-        return Ok(cold.first_seq());
+    // A cold segment's index names it, nothing decoded (unless its first line had none).
+    if let super::cold_segments::SegmentFile::Cold(cold) = &file
+        && let Some(seq) = cold.first_seq()
+    {
+        return Ok(Some(seq));
     }
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();

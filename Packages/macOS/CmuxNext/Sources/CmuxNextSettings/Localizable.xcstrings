@@ -793,6 +793,530 @@
         }
       }
     },
+    "settings.chats.coldSegments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضغط سجل الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažmi historiju razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer chathistorik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatverlauf komprimieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compress Chat History"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir el historial del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresser l'historique des discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimi la cronologia della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット履歴を圧縮"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាប់ប្រវត្តិជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 기록 압축"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer chatthistorikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompresuj historię czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir histórico do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжимать историю чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บีบอัดประวัติแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet geçmişini sıkıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стискати історію чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nén lịch sử trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩聊天记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壓縮聊天記錄"
+          }
+        }
+      }
+    },
+    "settings.chats.coldSegments.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُضغط الأجزاء الأقدم من الدردشة الطويلة على القرص كلما كبرت. لا يُحذف شيء، ويمكن التمرير للخلف في الدردشة كما من قبل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stariji dijelovi dugog razgovora sažimaju se na disku kako razgovor raste. Ništa se ne briše, a razgovor se pomiče unazad kao i prije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ældre dele af en lang chat komprimeres på disken, efterhånden som den vokser. Intet fjernes, og chatten kan rulles tilbage som før."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ältere Teile eines langen Chats werden auf der Festplatte komprimiert, während er wächst. Nichts wird entfernt, und der Chat lässt sich wie bisher zurückscrollen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Older parts of a long chat are compressed on disk as it grows. Nothing is removed, and the chat scrolls back as before."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las partes más antiguas de un chat largo se comprimen en el disco a medida que crece. No se elimina nada y el chat se desplaza hacia atrás como antes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les parties les plus anciennes d'une longue discussion sont compressées sur le disque à mesure qu'elle grandit. Rien n'est supprimé et la discussion défile vers l'arrière comme avant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le parti più vecchie di una chat lunga vengono compresse su disco man mano che cresce. Non viene rimosso nulla e la chat scorre all'indietro come prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長いチャットの古い部分は、チャットが増えるにつれてディスク上で圧縮されます。何も削除されず、これまでどおり遡って表示できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្នែកចាស់ៗនៃការជជែកវែងត្រូវបានបង្ហាប់នៅលើថាស នៅពេលវាកើនឡើង។ គ្មានអ្វីត្រូវបានលុបទេ ហើយការជជែកអាចរំកិលត្រឡប់ក្រោយដូចមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "긴 채팅의 오래된 부분은 채팅이 길어질수록 디스크에서 압축됩니다. 아무것도 삭제되지 않으며 이전처럼 거슬러 올라가 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eldre deler av en lang chat komprimeres på disken etter hvert som den vokser. Ingenting fjernes, og chatten kan rulles tilbake som før."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starsze części długiego czatu są kompresowane na dysku w miarę jego wzrostu. Nic nie jest usuwane, a czat przewija się wstecz jak dotąd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As partes mais antigas de um chat longo são comprimidas no disco à medida que ele cresce. Nada é removido, e o chat rola para trás como antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Более старые части длинного чата сжимаются на диске по мере его роста. Ничего не удаляется, и чат прокручивается назад, как раньше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนที่เก่ากว่าของแชทที่ยาวจะถูกบีบอัดบนดิสก์เมื่อแชทเติบโตขึ้น ไม่มีสิ่งใดถูกลบ และเลื่อนย้อนกลับในแชทได้เหมือนเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun bir sohbetin eski bölümleri sohbet büyüdükçe diskte sıkıştırılır. Hiçbir şey silinmez ve sohbet eskisi gibi geriye kaydırılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Старіші частини довгого чату стискаються на диску в міру його зростання. Нічого не видаляється, і чат прокручується назад, як і раніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các phần cũ hơn của một cuộc trò chuyện dài được nén trên ổ đĩa khi nó lớn dần. Không có gì bị xóa và bạn vẫn cuộn ngược lại như trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长聊天中较早的部分会随着聊天增长在磁盘上压缩。不会删除任何内容，聊天仍可像以前一样向上翻阅。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長聊天中較早的部分會隨著聊天增長在磁碟上壓縮。不會刪除任何內容，聊天仍可像以前一樣向上捲動。"
+          }
+        }
+      }
+    },
+    "settings.chats.coldSegmentsLevel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستوى ضغط سجل الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nivo sažimanja historije razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimeringsniveau for chathistorik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimierungsstufe des Chatverlaufs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat History Compression Level"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nivel de compresión del historial del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niveau de compression de l'historique des discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Livello di compressione della cronologia della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット履歴の圧縮レベル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតបង្ហាប់ប្រវត្តិជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 기록 압축 수준"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimeringsnivå for chatthistorikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poziom kompresji historii czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nível de compressão do histórico do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уровень сжатия истории чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระดับการบีบอัดประวัติแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet geçmişi sıkıştırma düzeyi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рівень стиснення історії чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức nén lịch sử trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天记录压缩级别"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天記錄壓縮等級"
+          }
+        }
+      }
+    },
+    "settings.chats.coldSegmentsLevel.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم المستويات الأعلى مساحة أقل من القرص وتستغرق وقتًا أطول في الضغط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viši nivoi zauzimaju manje prostora na disku i duže se sažimaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Højere niveauer bruger mindre diskplads og tager længere tid at komprimere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Höhere Stufen belegen weniger Speicherplatz und komprimieren langsamer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higher levels use less disk and take longer to compress."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los niveles más altos ocupan menos disco y tardan más en comprimir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les niveaux plus élevés occupent moins de disque et compressent plus lentement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I livelli più alti occupano meno disco e richiedono più tempo per comprimere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レベルが高いほどディスク使用量は減り、圧縮に時間がかかります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតខ្ពស់ប្រើថាសតិចជាង ហើយចំណាយពេលបង្ហាប់យូរជាង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수준이 높을수록 디스크를 덜 쓰고 압축에 더 오래 걸립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Høyere nivåer bruker mindre diskplass og tar lengre tid å komprimere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyższe poziomy zajmują mniej miejsca na dysku i dłużej kompresują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Níveis mais altos usam menos disco e levam mais tempo para comprimir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Более высокие уровни занимают меньше места на диске, но сжимают дольше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระดับที่สูงขึ้นใช้พื้นที่ดิสก์น้อยลงและใช้เวลาบีบอัดนานขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha yüksek düzeyler daha az disk kullanır ve sıkıştırması daha uzun sürer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вищі рівні займають менше місця на диску, але стискають довше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức cao hơn dùng ít dung lượng đĩa hơn và nén lâu hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "级别越高，占用的磁盘空间越少，压缩耗时越长。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等級越高，占用的磁碟空間越少，壓縮耗時越長。"
+          }
+        }
+      }
+    },
     "settings.chats.coldArchive": {
       "extractionState": "manual",
       "localizations": {
