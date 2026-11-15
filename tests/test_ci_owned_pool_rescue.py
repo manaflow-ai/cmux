@@ -2461,6 +2461,18 @@ def rerun_workflow():
         + rescue.CMUX_NEXT_ATTEMPT_3_PLACEMENT + ") }}\n", 1)
 
 
+def gui_workflow(*, gui=True):
+    """rerun_workflow() with cmux-next.yml's generated-files job, whose runs-on reads placement's gui_runner (as on
+    feat-cmux-next) unless `gui` is off."""
+    route = "needs.macos-placement.outputs.gui_runner || " if gui else ""
+    return rerun_workflow() + (
+        "  generated-files:\n"
+        "    name: cmux-next generated files\n"
+        "    needs: [macos-placement]\n"
+        f"    runs-on: ${{{{ {route}'macos-26' }}}}\n"
+        "    steps: [{run: \"true\"}]\n")
+
+
 def placed_jobs(label=SIDE, status="queued", conclusion=None):
     """A cmux-next attempt: its placement succeeded, and its swift test (which needs it) waits on `label`."""
     waiting = {**job("cmux-next swift test", labels=[label], created=0, status=status), "id": WAITING_ID}
@@ -2657,23 +2669,39 @@ class RerunInput(unittest.TestCase):
         # while gui-std had 0 queued. It left side-std, so no label it left was shallower; the GUI label was.
         clock = Clock()
         generated = [{**job("cmux-next generated files", labels=[SIDE], created=0), "id": WAITING_ID}]
-        api = RerunAPI(clock, attempt=4, jobs=generated,
+        api = RerunAPI(clock, attempt=4, jobs=generated, workflow=gui_workflow(),
                        snapshot=depth_snapshot(source=0, source_oldest=0, destination=42, destination_oldest=47))
         code, summary = run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
         self.assertEqual(code, 0)
         self.assertNotIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
-        self.assertIn(f"not re-run: attempt 5 takes {SIDE}, but {SIDE} has 42 queued (oldest 47 min), deeper than "
+        self.assertIn(f"not re-run: attempt 5 takes {SIDE}, but {SIDE} has 41 queued (oldest 47 min), deeper than "
                       f"{GUI}'s 0 queued", summary)
 
     def test_the_run_s_own_waiting_jobs_do_not_make_the_side_queue_deeper(self):
         # Its one job waiting on side-std is that queue's only job: re-running it there joins no deeper queue.
         clock = Clock()
         generated = [{**job("cmux-next generated files", labels=[SIDE], created=0), "id": WAITING_ID}]
-        api = RerunAPI(clock, attempt=4, jobs=generated,
+        api = RerunAPI(clock, attempt=4, jobs=generated, workflow=gui_workflow(),
                        snapshot=depth_snapshot(source=0, source_oldest=0, destination=1, destination_oldest=47))
         run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
         self.assertIn("rerun-failed", api.calls)
+
+    def test_a_job_whose_head_never_gives_it_the_gui_label_is_not_judged_against_it(self):
+        # The GUI label counts only for a job whose runs-on at the head reads placement's gui_runner.
+        clock = Clock()
+        generated = [{**job("cmux-next generated files", labels=[SIDE], created=0), "id": WAITING_ID}]
+        api = RerunAPI(clock, attempt=4, jobs=generated, workflow=gui_workflow(gui=False),
+                       snapshot=depth_snapshot(source=0, source_oldest=0, destination=42, destination_oldest=47))
+        run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_a_head_whose_placement_stops_at_attempt_three_is_not_re_placed_past_it(self):
+        plan, why = rescue.placement_rerun(rerun_workflow(), placed_jobs(), attempt=3)
+        self.assertIsNone(plan)
+        self.assertIn("does not run on the bot's attempt 4", why)
+        plan, _ = rescue.placement_rerun(rerun_workflow(), placed_jobs(), attempt=2)
+        self.assertIsNotNone(plan)
 
     def test_a_head_that_places_every_bot_attempt_is_re_placed_at_attempt_five(self):
         # cmux-next.yml's placement for every bot attempt (coord-deputy-2, 2026-11-15): the rerun input re-runs the
@@ -5287,6 +5315,45 @@ class Sweeper(unittest.TestCase):
                 return {(job_id, 4): "sent" if job_id == 9 else "settled"}
         watched, _ = self.sweep(API([stopped, settled], picker=[9, 10]))
         self.assertEqual([entry[:2] for entry in watched], [(9, 4)])
+
+    def test_an_adopted_stranded_attempt_four_is_re_run(self):
+        # End to end from adoption: the watch of a cmux-next bot attempt 4 a rescue cancelled and never re-ran finds
+        # its unsettled mark and finishes the re-run at once. The side queue is deeper than the GUI one, but the
+        # cancel already gave up the job's place in line, so holding the re-run would gain nothing.
+        run = listed(RUN_ID, path=rescue.CMUX_NEXT_WORKFLOW_PATH, run_attempt=4, status="completed",
+                     conclusion="cancelled", updated_at=stamp(0), triggering_actor={"login": CMUX_BOT})
+        cancelled = {**job("cmux-next generated files", labels=[SIDE], created=0, status="completed"), "id": 3,
+                     "conclusion": "cancelled", "steps": []}
+
+        class API(FakeAPI):
+            def run(self, run_id):
+                self.calls.append("run")
+                return run if self.attempt == 4 else {**run, "status": "queued", "conclusion": None,
+                                                      "run_attempt": self.attempt}
+
+            def jobs(self, run_id, attempt):
+                self.calls.append(f"jobs:{attempt}")
+                return [dict(cancelled)] if attempt == 4 else []
+
+            def annotations(self, job_id, *, final=False):
+                return [{"annotation_level": "failure", "message": f"The run was canceled by @{CMUX_BOT}."}]
+
+            def rescue_jobs(self, earliest_end, run_id=0):
+                return [7001]
+
+            def job_marks(self, job_id):
+                return rescue.cancel_marks([f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 4"])
+        clock = Clock()
+        api = API(clock, lambda seconds: [], workflow=gui_workflow(),
+                  snapshot=depth_snapshot(source=0, source_oldest=0, destination=42, destination_oldest=47))
+        api.attempt = 4
+        target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False, stranded=True)
+        self.assertNotIsInstance(target, str)
+        with unittest.mock.patch.object(rescue, "SETTLED_HERE", set()):
+            rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                          log=lambda text: None, side_label=SIDE)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertLess(clock.seconds, rescue.STALL_RECHECK_SECONDS)
 
     def test_light_rescue_starts_once_and_hands_over_even_when_the_app_budget_is_spent(self):
         import hosted_light_rescue
