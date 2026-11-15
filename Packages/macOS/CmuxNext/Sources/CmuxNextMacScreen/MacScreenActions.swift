@@ -1,5 +1,6 @@
 public import CmuxNextActions
 import CmuxNextDaemonService
+public import CmuxNextPalette
 import Foundation
 
 /// AppKit bindings shared by menus, the palette and CLI. The app supplies only tab placement
@@ -22,7 +23,9 @@ public struct MacScreenActions {
         self.refusal = refusal
     }
 
-    public func bind(into registry: ActionRegistry) {
+    /// - Parameter paletteRows: Adds a root palette provider: one "Screen Sharing: <device>" row per device.
+    public func bind(into registry: ActionRegistry, paletteRows: ((AsyncPaletteProvider) -> Void)? = nil) {
+        paletteRows?(MacScreenPaletteRows.provider(pages: pages, registry: registry))
         registry.bindEffect("macScreen.open", effect: { invocation in
             if let target = invocation.target, target.kind != .pane && target.kind != .tab { return .refused(Self.noPane) }
             do { try open({ try Self.record(invocation, pages: pages) }, invocation, Self.isPerson(invocation)) }

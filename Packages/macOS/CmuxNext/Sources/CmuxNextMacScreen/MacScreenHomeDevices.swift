@@ -162,6 +162,14 @@ struct MacScreenHomeSnapshot: Equatable {
     }
 }
 
+extension MacScreenPages {
+    /// The devices Screen Sharing lists to view, as its home page lists them; empty while signed out.
+    /// The palette offers one row for each ("Screen Sharing: air-blue").
+    public var viewableDevices: [HubDevice] {
+        hub.map { MacScreenHomeSnapshot.listed($0.otherDevices) } ?? []
+    }
+}
+
 /// The home page's Your Devices section: the user's other devices that
 /// share Mac Screen, online state and this Mac's access to each, Connect
 /// with View Only or Full Control, Change Access. Allow Mac Screen on This
