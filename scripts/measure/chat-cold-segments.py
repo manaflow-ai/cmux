@@ -145,7 +145,8 @@ class RssSampler(threading.Thread):
     def done(self):
         self.stop_flag.set()
         self.join()
-        return {"start_kb": self.start_kb, "peak_kb": max(self.peak, rss_kb(self.pid)),
+        peak = max(self.peak, rss_kb(self.pid))
+        return {"start_kb": self.start_kb, "peak_kb": peak, "rise_kb": peak - self.start_kb,
                 "hwm_kb": rss_kb(self.pid, "VmHWM")}
 
 
@@ -237,8 +238,21 @@ def main():
         sid = d.new_chat(acp)
         t0 = time.monotonic()
 
+        mover_wait = [0.0]
+
+        def settle_movers(limit):
+            """Waits for the daemon's mover to finish every sealed segment. A segment seals every
+            ~5.5 simulated hours, real hours in a live chat, and its move takes seconds; the bench
+            streams those hours in seconds, so without this a sample would count the mover's lag
+            as local bytes."""
+            started = time.monotonic()
+            while d.chat_dir and len(ndjson(d.chat_dir)) > 1 and time.monotonic() - started < limit:
+                time.sleep(0.2)  # bench: waiting for the daemon's mover thread
+            mover_wait[0] += time.monotonic() - started
+
         def take(turn):
             d.find_chat_dir()
+            settle_movers(120)
             s = {"turn": turn, "sim_hours": hours_of(turn), **(split(d.chat_dir) if d.chat_dir else {})}
             samples.append(s)
             return s
@@ -251,11 +265,8 @@ def main():
                 if turn % (args.sample_turns * 8) == 0 or turn == turns:
                     base.log(f"turn {turn} sim {s['sim_hours']:.1f} h local {s['local'] / MB:.1f} MB cold "
                              f"{s['cold'] / MB:.1f} MB (raw {s['raw'] / MB:.1f} MB)")
-        wall = time.monotonic() - t0
-        # The last sealed segment's move runs on its own thread: wait for every sealed one.
-        deadline = time.monotonic() + 600
-        while len(ndjson(d.chat_dir)) > 1 and time.monotonic() < deadline:
-            time.sleep(0.5)  # bench: waiting for the daemon's mover thread
+        wall = time.monotonic() - t0 - mover_wait[0]
+        settle_movers(600)
         local_segs = ndjson(d.chat_dir)
         assert len(local_segs) == 1, f"sealed segments still local: {local_segs}"
         end = take(turns)
@@ -269,6 +280,12 @@ def main():
         oldest_local = first_seq(os.path.join(d.chat_dir, "events", f"{local_segs[0]:06d}.ndjson"))
         base.log(f"open segment {local_segs[0]:06d} starts at seq {oldest_local}; {len(idx)} cold segments")
 
+        # A fresh daemon for each store, so the two walks' RSS start from the same place (the
+        # streaming daemon's heap is not the paging's).
+        acp.close()
+        d.halt()
+        d.start()
+        acp = base.Acp(d.sock)
         cold_cold, rss_cc = walk(acp, d, sid, oldest_local, True, args.max_pages)
         cold_warm, rss_cw = walk(acp, d, sid, oldest_local, False, args.max_pages)
         rss_idle = rss_kb(d.proc.pid)
@@ -346,6 +363,7 @@ def main():
         base.ROWS.append(row)
         print("PERF_ROW " + json.dumps(row), flush=True)
         base.perf_row(f"chat_cold.rss_peak_mb.{name}", rss["peak_kb"] / 1024.0, "MB")
+        base.perf_row(f"chat_cold.rss_rise_mb.{name}", rss["rise_kb"] / 1024.0, "MB")
     print("PERF_REPORT " + json.dumps({"rows": base.ROWS}), flush=True)
     if args.out:
         with open(args.out, "w") as f:
