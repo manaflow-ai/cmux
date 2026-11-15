@@ -1437,6 +1437,8 @@ export const settingsPageActions = [
   "importFromBrowser",
   // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).
   "palette.auth.signIn",
+  // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
+  "customize.open",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];
