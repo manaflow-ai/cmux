@@ -652,6 +652,7 @@ pub(crate) fn start_v2_tee(
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
         let mut slots_seen = v2.hub.origin_slots_freed();
+        let mut refusals_seen = v2.hub.origins_refused();
         let (mut expiries, initial_complete) = reconcile(&v1, &v2, &state).await;
         let mut rebuild_seen = v2.hub.rebuild_count();
         if rebuild_seen != 0 {
@@ -691,6 +692,13 @@ pub(crate) fn start_v2_tee(
             if state.remote_ready.load(Ordering::Acquire) && !remote_reconciled {
                 reconcile_remote(&v1, &v2, &state).await;
                 remote_reconciled = true;
+            }
+            // One atomic load a turn: the writer refused a submit since the last, so a refusal
+            // the tee could not tell holds the next freed slot's whole reconcile (`refused.rs`).
+            let refusals = v2.hub.origins_refused();
+            if refusals != refusals_seen {
+                refusals_seen = refusals;
+                refused::moved(&v2.hub, &state);
             }
             // One atomic load a turn: the writer dropped an origin's source or record since the
             // last, so the origins the index refused are offered again (`refused.rs`).
