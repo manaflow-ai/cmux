@@ -222,7 +222,19 @@ fn a_branch_switch_with_no_event_gets_the_whole_tree() {
     };
     assert!(is_whole(&switched), "a branch switch kept the old tree: {switched}");
     assert_eq!(branch(&switched), json!("feature"), "{switched}");
-    let known = known_of(&switched);
+    // The background refresh moves the revision for the HEAD and again for the tab's delta, so
+    // a tree from between the two is held again until a request finds nothing new.
+    let mut held = switched;
+    for _ in 0..100 {
+        let again = list_since(&mux, &known_of(&held));
+        if again["unchanged"] == json!(true) {
+            break;
+        }
+        held = again;
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(branch(&held), json!("feature"), "{held}");
+    let known = known_of(&held);
     assert_unchanged(&list_since(&mux, &known), &known);
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&root);
