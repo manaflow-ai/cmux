@@ -168,9 +168,12 @@ final class RemoteChildLifetime: Sendable {
     }
 }
 
-/// One kernel exit reaper for every tracked child of this process: a one-shot kqueue
-/// `EVFILT_PROC`/`NOTE_EXIT` watch per child and one thread blocked in `kevent`, so waiting
-/// costs no thread per child and no periodic wakeup. Reaping stays behind each lifetime's gate.
+/// One kernel exit reaper for every tracked child of this process: one thread blocked in
+/// `kevent` on a SIGCHLD watch (`EVFILT_SIGNAL`), so waiting costs no thread per child and no
+/// periodic wakeup. SIGCHLD is posted only once a child can be waited for; a per-child
+/// `NOTE_EXIT` can arrive while `waitpid` still finds the child running, and re-arming it then
+/// may never fire again. Signals coalesce, so each one sweeps every waiting child, and each
+/// reap stays behind its lifetime's gate.
 private final class ChildReaper: Sendable {
     struct Waiter: Sendable {
         let lifetime: RemoteChildLifetime
@@ -183,8 +186,12 @@ private final class ChildReaper: Sendable {
     private let waiting = OSAllocatedUnfairLock(initialState: [pid_t: Waiter]())
 
     private init() {
-        guard queue >= 0 else {
-            logger.error("remote child reaper has no kqueue (errno \(errno, privacy: .public)); children stay tracked")
+        var change = Darwin.kevent()
+        change.ident = UInt(SIGCHLD)
+        change.filter = Int16(EVFILT_SIGNAL)
+        change.flags = UInt16(EV_ADD | EV_ENABLE)
+        guard queue >= 0, kevent(queue, &change, 1, nil, 0, nil) == 0 else {
+            logger.error("remote child reaper has no SIGCHLD watch (errno \(errno, privacy: .public)); children stay tracked")
             return
         }
         let thread = Thread { [self] in run() }
@@ -192,10 +199,11 @@ private final class ChildReaper: Sendable {
         thread.start()
     }
 
-    /// A PID is reused only after its child was reaped, so a stored waiter for the same PID
-    /// belongs to an already reaped child whose own settle still holds it: replacing it is safe.
+    /// A PID is reused only after its child was reaped, and settle removes a reaped child's
+    /// waiter in that same step, so this insert never replaces a live child's watch.
     func watch(_ waiter: Waiter) {
         waiting.withLock { $0[waiter.child.pid] = waiter }
+        // After the insert: an exit before it is reaped here, a later exit's SIGCHLD finds it.
         settle(waiter.child.pid)
     }
 
@@ -203,8 +211,8 @@ private final class ChildReaper: Sendable {
         var event = Darwin.kevent()
         while true {
             let count = kevent(queue, nil, 0, &event, 1, nil)
-            if count == 1, event.filter == Int16(EVFILT_PROC) {
-                settle(pid_t(event.ident))
+            if count == 1, event.filter == Int16(EVFILT_SIGNAL) {
+                for pid in waiting.withLock({ Array($0.keys) }) { settle(pid) }
             } else if count < 0, errno != EINTR {
                 logger.error("remote child reaper stopped (errno \(errno, privacy: .public)); children stay tracked")
                 return
@@ -212,28 +220,16 @@ private final class ChildReaper: Sendable {
         }
     }
 
-    /// Reaps `pid` if it has exited, else arms its exit watch. Registration fails only while the
-    /// child is exiting (ESRCH), and then the reap is retried; any other failure leaves it tracked.
+    /// Reaps `pid` when it has exited; a running child waits for the next SIGCHLD. Lookup, reap
+    /// and removal are one step under the waiter lock (then the lifetime's gate): two sweeps
+    /// never report one child twice, and only the reaped generation's waiter is removed, so a
+    /// child that reuses the PID keeps its watch.
     private func settle(_ pid: pid_t) {
-        while let waiter = waiting.withLock({ $0[pid] }) {
-            if let status = waiter.lifetime.reap(waiter.child) {
-                // Once reaped, the PID can belong to a new child whose waiter replaced this one.
-                waiting.withLock { stored in
-                    if stored[pid]?.child.lifetimeID == waiter.child.lifetimeID { stored[pid] = nil }
-                }
-                waiter.onExit(status)
-                return
-            }
-            var change = Darwin.kevent()
-            change.ident = UInt(pid)
-            change.filter = Int16(EVFILT_PROC)
-            change.flags = UInt16(EV_ADD | EV_ONESHOT)
-            change.fflags = UInt32(NOTE_EXIT)
-            if queue >= 0, kevent(queue, &change, 1, nil, 0, nil) == 0 { return }
-            guard queue >= 0, errno == ESRCH else {
-                logger.error("remote child pid=\(pid, privacy: .public) has no exit watch; it stays tracked")
-                return
-            }
+        let exited = waiting.withLock { stored -> (Waiter, Int32)? in
+            guard let waiter = stored[pid], let status = waiter.lifetime.reap(waiter.child) else { return nil }
+            stored[pid] = nil
+            return (waiter, status)
         }
+        if let (waiter, status) = exited { waiter.onExit(status) }
     }
 }

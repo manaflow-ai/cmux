@@ -29,7 +29,7 @@ Every child launch (including permission probes) has its own generation token.
 Reaping one token cannot remove a different child after PID reuse. A failed
 `waitpid` never establishes exit. The drain has a 15-second deadline and cleanup
 cannot delete while a tracked writer remains. One reaper thread serves every
-tracked child: a one-shot kqueue `NOTE_EXIT` watch per child, then the gated
+tracked child: it wakes on SIGCHLD (a kqueue `EVFILT_SIGNAL` watch), then the gated
 nonblocking `waitpid`, with no per-child thread and no periodic wakeup.
 When the host itself exits (drain, features off, no daemon adopted it), a
 stamped child still tracked 15 s after SIGTERM gets SIGKILL and the host exits,
