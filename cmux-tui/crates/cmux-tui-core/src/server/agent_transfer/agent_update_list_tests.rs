@@ -187,7 +187,7 @@ fn v2_pr07c_update_plan() {
         small_bytes.push(sb);
         god_wall.push(gw);
         god_bytes.push(gb);
-        list_daemon::assert_fds_given_back("v2.pr07c.update_plan", fds);
+        list_daemon::assert_fds_given_back("v2.pr07c.update_plan_wall", fds);
     }
     let name = "v2.pr07c.update_plan_bytes";
     let (small, god) = emit(name, &small_bytes, &god_bytes, "bytes");

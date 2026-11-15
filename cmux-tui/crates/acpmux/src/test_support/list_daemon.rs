@@ -252,7 +252,9 @@ pub fn open_fds() -> Option<usize> {
 }
 
 /// The descriptors a gate may hold past its first round's start, after any round: room for
-/// the runtime's own, never for a sample's connections (7 each).
+/// the runtime's own and descriptors still closing after [`Counted::settled`] returns (the
+/// client's reader task, the in-process daemon's halves), never for a sample's connections
+/// (7 each). Keep that slack: at 0 the assert fails on closes still in flight.
 pub const FDS_PAST_A_ROUND: usize = 6;
 
 /// Fails `name` if this process holds more than [`FDS_PAST_A_ROUND`] descriptors beyond
