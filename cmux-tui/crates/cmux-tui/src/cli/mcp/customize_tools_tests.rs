@@ -45,6 +45,16 @@ fn customize_tool_arguments_become_the_cli_words() {
         .iter()
         .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
         .collect();
-    assert_eq!(names.len(), 13);
+    assert_eq!(
+        w("customize_try", json!({"profile": "night", "minutes": 2})).unwrap(),
+        ["try", "night", "--minutes", "2"]
+    );
+    assert_eq!(w("customize_try", json!({})).unwrap(), ["try"]);
+    assert_eq!(w("customize_keep", json!({})).unwrap(), ["keep"]);
+    assert_eq!(w("customize_revert", json!({})).unwrap(), ["revert"]);
+    assert!(w("customize_try", json!({"minutes": 0})).is_err());
+    assert!(w("customize_try", json!({"minutes": "5"})).is_err());
+    assert!(w("customize_keep", json!({"minutes": 5})).is_err());
+    assert_eq!(names.len(), 16);
     assert!(names.iter().all(|name| name.starts_with("customize_")));
 }
