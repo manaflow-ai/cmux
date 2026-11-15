@@ -99,9 +99,12 @@ def evaluate(app, browser: int, expression: str) -> tuple[str | None, str | None
 def crash(app) -> dict:
     """Marks every chat page, kills the renderer with the most chat pages, and reads the marks again."""
     pages = chat_pages(app)
-    if len(pages) < MIN_PAGES or any(p["renderer"] is None for p in pages):
+    # The victim must be a renderer the report names. A page it cannot place still counts: if it reloads,
+    # it sat in another renderer or made the victim hold more than CAP pages, and both fail.
+    unmapped = sum(1 for p in pages if p["renderer"] is None)
+    if len(pages) < MIN_PAGES or unmapped == len(pages):
         print(f"chat-renderer-crash: setup: {len(pages)} live chat pages (need {MIN_PAGES}), "
-              f"{sum(1 for p in pages if p['renderer'] is None)} with no renderer pid", file=sys.stderr)
+              f"{unmapped} with no renderer pid", file=sys.stderr)
         return {"setup_failed": True, "pages": pages, "pass": False}
     mark = uuid.uuid4().hex
     for page in pages:
@@ -111,7 +114,8 @@ def crash(app) -> dict:
             return {"setup_failed": True, "pages": pages, "pass": False}
     counts: dict[int, int] = {}
     for page in pages:
-        counts[page["renderer"]] = counts.get(page["renderer"], 0) + 1
+        if page["renderer"] is not None:
+            counts[page["renderer"]] = counts.get(page["renderer"], 0) + 1
     victim = max(counts, key=lambda pid: counts[pid])
     print(f"CHAT-RENDERERS phase=kill pages={len(pages)} renderers={len(counts)} victim_pid={victim} "
           f"victim_pages={counts[victim]} pages_per_renderer={sorted(counts.values(), reverse=True)}", flush=True)
@@ -126,7 +130,7 @@ def crash(app) -> dict:
         if page["renderer"] != victim:
             elsewhere.append({"browser": page["browser"], "renderer": page["renderer"], "read": value, "error": error})
     result = {"pages": len(pages), "renderers": len(counts), "victim_pid": victim, "victim_pages": counts[victim],
-              "reloaded": len(reloaded), "kept": len(pages) - len(reloaded), "reloaded_outside_victim": elsewhere,
+              "unmapped_pages": unmapped, "reloaded": len(reloaded), "kept": len(pages) - len(reloaded), "reloaded_outside_victim": elsewhere,
               "pages_after": len(chat_pages(app)), "cap": CAP}
     result["pass"] = len(reloaded) <= CAP and not elsewhere
     print(f"CHAT-RENDERERS phase=crash pages={len(pages)} reloaded={len(reloaded)} kept={result['kept']} cap={CAP} "
