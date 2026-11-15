@@ -252,8 +252,10 @@ else:
 # same check runs again as nightly-next-one's first step after the claim, and a run that leaves skips every build
 # and publish step (LEFT_SLOT in the job's env): it ends green, nothing is cancelled. Main's tick does not count a
 # run in that step as building (nightly_next_rolling.LEAVE_ONE_STEP), so it promotes the newest commit meanwhile.
+# CLEANUP steps run after a leave and must pass with nothing built. "Finish the signed-app checks" is not one: with
+# no start it exits 1 ("the signed-app checks were never started"), which turned left run 43672208506 red.
 LEAVE_ONE_STEP = "Leave the push slot to a newer nightly-next push"
-CLEANUP = {"Delete signing keychain before runtime checks", "Finish the signed-app checks",
+CLEANUP = {"Delete signing keychain before runtime checks",
            "Delete signing keychain after the DMG signature", "Release the nightly-next publish lease",
            "Bound the kept Rust target directories (warm nightly-next builder)", "Stop the helper builds still running",
            "Cleanup keychain", "Wipe this job's credentials and temp files"}
