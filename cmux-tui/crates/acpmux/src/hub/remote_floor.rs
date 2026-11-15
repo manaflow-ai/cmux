@@ -34,10 +34,6 @@ pub(crate) struct FloorState {
     /// The last turn was a Web turn: an agent request between turns is
     /// held to the floor.
     pub(super) last_turn_web: AtomicBool,
-    /// The paired device that sent the last Web turn, while every Web prompt and steer in it
-    /// came from that one device (`Hub::owner_phone_full_access` reads it again); None for a
-    /// turn another client touched and for one recovered after a restart.
-    pub(super) turn_device: StdMutex<Option<String>>,
     /// The active Web turn was started by the native Cloud mobile relay.
     /// Unlike an ordinary Web client, it may not use Codex's any-mode bridge.
     pub(super) cloud_mobile_turn: AtomicBool,
@@ -105,7 +101,8 @@ impl Hub {
     /// cancelled this turn, its Web control ended (the sticky flag), or its
     /// current mode does not ask.
     pub(super) fn remote_floor_breach(&self, session: &Session) -> Option<&'static str> {
-        let turn = session.turn().map(|t| t.turn_id);
+        let (turn, device) = session.turn().map(|t| (t.turn_id, t.device)).unzip();
+        let device = device.flatten();
         if turn.is_some()
             && *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == turn
         {
@@ -116,8 +113,8 @@ impl Hub {
         }
         // The owner's own phone with Full access on drives the chat in the mode it has
         // (`Hub::owner_phone_full_access`), read again here, so removing the phone or turning
-        // its setting off holds the turn at its next request.
-        let device = session.floor.turn_device.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        // its setting off holds the turn at its next request. The device is the turn's own,
+        // read with its id (`TurnInfo::device`).
         if self.owner_phone_full_access(device.as_deref()) {
             return None;
         }

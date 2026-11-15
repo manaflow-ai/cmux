@@ -803,6 +803,8 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // Its sender, set with the turn so no steer and no read sees the turn without it.
+        turn.device = run.full_access_device.clone().filter(|_| control == Control::Web);
         // A queued prompt was accepted when it was queued; any other is, once its checks pass.
         turn.accepted = waiting;
         // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
@@ -980,8 +982,6 @@ impl Hub {
         let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
         if control == Control::Web || !family {
             session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
-            *session.floor.turn_device.lock().unwrap_or_else(|e| e.into_inner()) =
-                run.full_access_device.clone().filter(|_| control == Control::Web);
         }
         session
             .floor

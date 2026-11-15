@@ -247,6 +247,12 @@ impl Hub {
         let prompt_id = first.cloned().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let mut turn = TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control);
         turn.trigger = trigger;
+        // The agent's own next turn goes on for the device that drove the one it follows. The
+        // lines it reads were steers into that turn, which already narrowed its device
+        // (`check_steer`).
+        turn.device = from
+            .filter(|t| t.control == Control::Web && control == Control::Web)
+            .and_then(|t| t.device.clone());
         (turn.shown_as(&line), continues)
     }
 
@@ -327,8 +333,6 @@ impl Hub {
     /// not start, or in a mode only a machine's Full-access setting allows, does not go on.
     pub(super) fn recovered_floor(&self, session: &Session, control: Control) {
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
-        // Which device sent it is not kept across a restart.
-        *session.floor.turn_device.lock().unwrap_or_else(|e| e.into_inner()) = None;
         if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
             self.remote_floor_cancel(session, "remote.unsandboxed_agent");
         }

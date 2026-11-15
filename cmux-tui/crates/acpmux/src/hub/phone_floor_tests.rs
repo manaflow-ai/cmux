@@ -37,9 +37,10 @@ fn fixture() -> (Arc<Hub>, Arc<Session>, String) {
         notice: false,
         persons: false,
         accepted: true,
+        device: None,
     });
     let (device, _) = hub.pairing.issue_phone("phone-iphone").unwrap();
-    *session.floor.turn_device.lock().unwrap() = Some(device.id.clone());
+    session.turn.lock().unwrap().as_mut().unwrap().device = Some(device.id.clone());
     (hub, session, device.id)
 }
 
@@ -78,7 +79,7 @@ async fn full_access_off_ends_the_phones_running_turn_in_a_chat_no_policy_holds(
 }
 
 /// A phone's steer and a dashboard's steer into the same Local turn, at once: the turn becomes
-/// a Web turn and, as two clients touched it, no one device's (`FloorState::turn_device`), in
+/// a Web turn and, as two clients touched it, no one device's (`TurnInfo::device`), in
 /// every interleaving. Run many rounds: before the turn's control and its sender changed under
 /// one lock, a phone that promoted the turn could write its device after the dashboard's steer
 /// cleared it (review of cmux#43251 at 8b9e2f5d, P1-F1).
@@ -113,8 +114,8 @@ fn concurrent_steers_from_the_phone_and_another_client_leave_no_one_devices_turn
             notice: false,
             persons: false,
             accepted: true,
+            device: None,
         });
-        *session.floor.turn_device.lock().unwrap() = None;
         let start = std::sync::Barrier::new(2);
         std::thread::scope(|s| {
             let a = s.spawn(|| {
@@ -128,7 +129,7 @@ fn concurrent_steers_from_the_phone_and_another_client_leave_no_one_devices_turn
             a.join().unwrap().expect("the phone steers");
             b.join().unwrap().expect("the dashboard steers");
         });
-        if session.floor.turn_device.lock().unwrap().is_some() {
+        if session.turn().and_then(|t| t.device).is_some() {
             mixed += 1;
         }
     }

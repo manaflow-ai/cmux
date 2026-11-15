@@ -906,12 +906,12 @@ impl Hub {
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
                         accepted: true,
+                        device: None,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);
                     }
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
-                    *session.floor.turn_device.lock().unwrap_or_else(|e| e.into_inner()) = None;
                     // A Web turn in flight in an agent the sandbox did not
                     // start does not go on (tools that do not ask).
                     if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
