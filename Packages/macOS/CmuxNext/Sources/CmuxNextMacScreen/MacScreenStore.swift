@@ -17,23 +17,27 @@ public final class MacScreenStore {
         var hubDeviceName: String?
         var deviceNames: [String: String] = [:]
         var hasSharedBefore = false
+        var hasViewedBefore = false
         /// The link-pairing Keychain items were deleted (the one-time cleanup ran).
         var linkPairingsRemoved = false
 
-        init(hubDeviceName: String?, deviceNames: [String: String], hasSharedBefore: Bool, linkPairingsRemoved: Bool) {
+        init(hubDeviceName: String?, deviceNames: [String: String], hasSharedBefore: Bool, hasViewedBefore: Bool,
+             linkPairingsRemoved: Bool) {
             self.hubDeviceName = hubDeviceName
             self.deviceNames = deviceNames
             self.hasSharedBefore = hasSharedBefore
+            self.hasViewedBefore = hasViewedBefore
             self.linkPairingsRemoved = linkPairingsRemoved
         }
 
-        enum CodingKeys: String, CodingKey { case hubDeviceName, deviceNames, hasSharedBefore, linkPairingsRemoved }
+        enum CodingKeys: String, CodingKey { case hubDeviceName, deviceNames, hasSharedBefore, hasViewedBefore, linkPairingsRemoved }
 
         init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             hubDeviceName = try? c.decodeIfPresent(String.self, forKey: .hubDeviceName)
             deviceNames = (try? c.decodeIfPresent([String: String].self, forKey: .deviceNames)) ?? [:]
             hasSharedBefore = (try? c.decodeIfPresent(Bool.self, forKey: .hasSharedBefore)) ?? false
+            hasViewedBefore = (try? c.decodeIfPresent(Bool.self, forKey: .hasViewedBefore)) ?? false
             linkPairingsRemoved = (try? c.decodeIfPresent(Bool.self, forKey: .linkPairingsRemoved)) ?? false
         }
 
@@ -42,6 +46,7 @@ public final class MacScreenStore {
             try c.encodeIfPresent(hubDeviceName, forKey: .hubDeviceName)
             try c.encode(deviceNames, forKey: .deviceNames)
             try c.encode(hasSharedBefore, forKey: .hasSharedBefore)
+            try c.encode(hasViewedBefore, forKey: .hasViewedBefore)
             try c.encode(linkPairingsRemoved, forKey: .linkPairingsRemoved)
         }
     }
@@ -54,6 +59,10 @@ public final class MacScreenStore {
     public private(set) var deviceNames: [String: String] = [:]
     /// True after this Mac has successfully been enabled as a screen host once.
     public private(set) var hasSharedBefore = false
+    /// True after this Mac has viewed or controlled another Mac once.
+    public private(set) var hasViewedBefore = false
+    /// The first-use guide is done: this Mac has shared its screen or seen another's.
+    public var hasUsedBefore: Bool { hasSharedBefore || hasViewedBefore }
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private let file: URL
     /// Deletes every link-pairing Keychain item of this build (tests replace it).
@@ -100,6 +109,7 @@ public final class MacScreenStore {
                     deviceNames = stored.deviceNames.merging(deviceNames) { _, new in new }
                     // A share marked while the file was read stays marked.
                     hasSharedBefore = hasSharedBefore || stored.hasSharedBefore
+                    hasViewedBefore = hasViewedBefore || stored.hasViewedBefore
                 }
                 fileRead = true
                 if stored?.linkPairingsRemoved != true {
@@ -135,6 +145,13 @@ public final class MacScreenStore {
         save()
     }
 
+    /// Records the first time this Mac viewed or controlled another Mac (a local hint for the home-page guide).
+    public func markViewedBefore() {
+        guard !hasViewedBefore else { return }
+        hasViewedBefore = true
+        save()
+    }
+
     /// Keeps the names the hub lists now (a device's last name stays after it goes away). True when a name changed.
     @discardableResult
     public func rememberDeviceNames(_ names: [String: String]) -> Bool {
@@ -150,7 +167,7 @@ public final class MacScreenStore {
         guard fileRead else { savePending = true; return }
         savePending = false
         let contents = File(hubDeviceName: hubDeviceName, deviceNames: deviceNames, hasSharedBefore: hasSharedBefore,
-                            linkPairingsRemoved: linkPairingsRemoved)
+                            hasViewedBefore: hasViewedBefore, linkPairingsRemoved: linkPairingsRemoved)
         guard let data = try? JSONEncoder().encode(contents) else { return }
         let file = file, previous = saveTask
         saveTask = Task.detached {
