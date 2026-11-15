@@ -23,6 +23,8 @@ struct NewTabCloseInterleaveOrderTests {
 
     /// The strip as letters, one entry per change: `a`, `b`, `c` for the three tabs, `N` for the new one
     /// (stand-in or daemon's); the pane's other tabs (its first terminal) are left out.
+    @MainActor final class SentAfters { var lines: [String] = [] }
+
     @MainActor final class StripFrames {
         let names: [String: String]
         let earlier: Set<String>
@@ -188,6 +190,13 @@ struct NewTabCloseInterleaveOrderTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-close-first-new-interleave")
             let (pane, _, recorder) = try await Self.threeTabs(services, connection)
             let known = Set(pane.pane.tabs.map(\.id))
+            // Each creation's `after` as it is sent, with the pane's tabs then (a failure reports them).
+            let sent = SentAfters(), create = services.agentTabs.create
+            services.agentTabs.create = { [weak pane] target, daemon, record, key, transaction, split, after in
+                let tabs = pane?.pane.tabs ?? []
+                sent.lines.append("after \(after.flatMap { surface in tabs.first { $0.surface == surface }.map { recorder.names[$0.id] ?? "N" } } ?? after.map { "unlisted \($0)" } ?? "nil") among \(tabs.map { recorder.names[$0.id] ?? "N" }.joined())")
+                return try await create(target, daemon, record, key, transaction, split, after)
+            }
             #expect(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)))
             recorder.sample(pane)
             let first = try #require(pane.stripModel.selectedID, "the first new tab is selected")
@@ -211,7 +220,7 @@ struct NewTabCloseInterleaveOrderTests {
                 let now = state()
                 try await Task.sleep(for: .seconds(12))
                 recorder.sample(pane)
-                Issue.record("settled at \(frames.last?.joined() ?? "-"); \(seen); store: \(now); 12 s later: \(state()), strip \(recorder.frames.last?.joined() ?? "-")")
+                Issue.record("settled at \(frames.last?.joined() ?? "-"); \(seen); store: \(now); 12 s later: \(state()), strip \(recorder.frames.last?.joined() ?? "-"); sent: \(sent.lines)")
             }
             let selected = try #require(pane.stripModel.selectedID)
             #expect(!known.contains(selected.rawValue), "the selection left the second new tab for \(selected.rawValue)")
