@@ -128,6 +128,12 @@ fn write_snapshot(directory: &Path, n: u8, days_ago: u64, replay: &[u8]) {
     file.write_all(&encoder.finish().unwrap()).unwrap();
 }
 
+/// The pass as the writer runs it, with a disk that is not low: over a scan of the snapshots of `parked`.
+fn pass_over(directory: &Path, parked: &HashSet<TerminalPublicId>) -> Pass {
+    let snapshots = super::super::snapshot::scan(directory, |terminal| parked.contains(terminal));
+    run_with(directory, &snapshots, parked, NOW, u64::MAX, false)
+}
+
 #[test]
 fn the_pass_trims_parked_files_and_leaves_running_ones() {
     let directory = directory("run");
@@ -136,7 +142,7 @@ fn the_pass_trims_parked_files_and_leaves_running_ones() {
     write_snapshot(&directory, 2, 3, &replay);
     write_snapshot(&directory, 3, 40, &replay);
     let parked: HashSet<_> = [id(1), id(3)].into();
-    run_with(&directory, &parked, NOW, u64::MAX, false);
+    pass_over(&directory, &parked);
     let (trimmed, _, _) = super::super::snapshot::read(&directory, &id(1)).unwrap();
     assert!(rows_of(&trimmed.bytes).0 <= WEEK_LINES);
     let header =
@@ -156,7 +162,7 @@ fn the_pass_trims_parked_files_and_leaves_running_ones() {
     // A second pass in the same tier rewrites nothing.
     let before =
         fs::metadata(super::super::snapshot::path(&directory, &id(1))).unwrap().modified().unwrap();
-    run_with(&directory, &parked, NOW, u64::MAX, false);
+    pass_over(&directory, &parked);
     let after =
         fs::metadata(super::super::snapshot::path(&directory, &id(1))).unwrap().modified().unwrap();
     assert_eq!(before, after);

@@ -29,7 +29,7 @@
 //! `CMUXSNAP1\n` + one JSON line (`generation`, `stream_end`, `cols`, `rows`,
 //! `written_at_ms`) + gzip of the replay bytes.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
@@ -801,19 +801,34 @@ pub(super) fn read_header(file: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(line.strip_suffix(b"\n")?).ok()
 }
 
-/// The stream end each snapshot recorded, by terminal: (generation, end).
-pub(super) fn stream_ends(directory: &Path) -> HashMap<TerminalPublicId, (String, u64)> {
-    let Ok(entries) = list(directory) else { return Default::default() };
+/// One snapshot file as [`scan`] read it: its terminal and its header.
+#[derive(Debug)]
+pub(super) struct Scanned {
+    pub(super) terminal_id: TerminalPublicId,
+    pub(super) header: serde_json::Value,
+    entry: fs::DirEntry,
+}
+
+impl Scanned {
+    /// The size of the file on disk.
+    pub(super) fn bytes(&self) -> Option<u64> {
+        Some(self.entry.metadata().ok()?.len())
+    }
+}
+
+/// One list of the directory and one read of the header of each snapshot file whose terminal is `wanted`. A
+/// file with no readable header is not in it.
+pub(super) fn scan(directory: &Path, wanted: impl Fn(&TerminalPublicId) -> bool) -> Vec<Scanned> {
+    let Ok(entries) = list(directory) else { return Vec::new() };
     entries
         .flatten()
         .filter_map(|entry| {
             let path = entry.path();
             (path.extension()? == SUFFIX).then_some(())?;
             let terminal_id = TerminalPublicId::parse(path.file_stem()?.to_str()?).ok()?;
+            wanted(&terminal_id).then_some(())?;
             let header = read_header(&path)?;
-            let generation = header.get("generation")?.as_str()?.to_owned();
-            let end = header.get("stream_end")?.as_u64()?;
-            Some((terminal_id, (generation, end)))
+            Some(Scanned { terminal_id, header, entry })
         })
         .collect()
 }

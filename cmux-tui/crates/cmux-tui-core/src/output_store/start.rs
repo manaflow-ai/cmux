@@ -24,10 +24,12 @@ impl OutputStore {
     /// modes drop the files of terminals no longer in the session, and each
     /// terminal's stream continues at the offset its snapshot recorded.
     ///
-    /// `parts` gets 3 entries of the start log, each timed here: the prune
-    /// without its parked trim, the parked trim with the count of its
-    /// rewrites, and the scans for the stream ends. A part that did not run
-    /// (memory mode has no parked trim) has 0.
+    /// `parts` gets 4 entries of the start log, each timed here: the prune
+    /// without its reads of the snapshot files, the one scan of the snapshot
+    /// headers with the count of the headers it read, the parked trim with
+    /// the count of its rewrites, and the stream ends (from the scanned
+    /// headers, the tails and the segments). A part that did not run (memory
+    /// mode has no parked trim) has 0.
     pub(crate) fn start(&self, mux: &Arc<Mux>, parts: &mut StartupTimings) -> anyhow::Result<()> {
         let Some(directory) = self.directory.as_deref() else { return Ok(()) };
         let policy = PersistencePolicy::current(mux);
@@ -46,10 +48,15 @@ impl OutputStore {
             let _pass = self.lock_pass();
             prune_at_start(mux, self, policy)
         };
-        let trim = reads.trim;
+        let (scan, trim) = (reads.scan, reads.trim);
         parts.record(
             "mux.build.output_store.prune",
-            pruning.elapsed().saturating_sub(trim.took + reads.ends_took),
+            pruning.elapsed().saturating_sub(scan.took + trim.took + reads.ends_took),
+        );
+        parts.record_rows(
+            "mux.build.output_store.snapshot_scan".to_owned(),
+            scan.took,
+            u64::try_from(scan.headers).unwrap_or(u64::MAX),
         );
         parts.record_rows(
             "mux.build.output_store.parked_trim".to_owned(),
@@ -76,6 +83,14 @@ impl OutputStore {
     }
 }
 
+/// The one scan of the snapshot files at the start ([`snapshot::scan`]): how long it took and how many headers
+/// it read.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct ScanLap {
+    pub(super) took: Duration,
+    pub(super) headers: usize,
+}
+
 /// The parked trim of the start's prune ([`prune_at_start`]): how long it took
 /// and how many rewrites of a snapshot file it ran. Zero also when the prune
 /// did not come to it.
@@ -88,15 +103,44 @@ pub(super) struct ParkedTrimLap {
 /// What the start reads from the snapshot files.
 #[derive(Debug, Default)]
 pub(super) struct StartReads {
+    pub(super) scan: ScanLap,
     pub(super) trim: ParkedTrimLap,
-    /// How long the read of the stream ends took.
+    /// How long it took to make the stream ends from the scanned headers.
     pub(super) ends_took: Duration,
     /// The stream end each snapshot recorded, by terminal: (generation, end).
     pub(super) stream_ends: HashMap<TerminalPublicId, (String, u64)>,
 }
 
-/// The parked trim of the snapshots of `parked`, then the stream end of each snapshot that stays. `low`: the
-/// free-disk guard (`parked_trim::disk_low`).
+/// One list of the directory and one read of each snapshot header.
+fn scan_all(directory: &Path) -> (ScanLap, Vec<snapshot::Scanned>) {
+    let scanning = Instant::now();
+    let snapshots = snapshot::scan(directory, |_| true);
+    (ScanLap { took: scanning.elapsed(), headers: snapshots.len() }, snapshots)
+}
+
+/// The stream end that each of `snapshots` recorded, without the terminals of `removed`: a snapshot that the
+/// trim removed gives no stream end. A trim keeps the generation and the stream end of its header, so the header
+/// that was scanned before the trim gives the end of a trimmed file.
+fn stream_ends_of(
+    snapshots: &[snapshot::Scanned],
+    removed: &[TerminalPublicId],
+) -> HashMap<TerminalPublicId, (String, u64)> {
+    let mut ends: HashMap<_, _> = snapshots
+        .iter()
+        .filter_map(|snapshot| {
+            let generation = snapshot.header.get("generation")?.as_str()?.to_owned();
+            let end = snapshot.header.get("stream_end")?.as_u64()?;
+            Some((snapshot.terminal_id.clone(), (generation, end)))
+        })
+        .collect();
+    for terminal_id in removed {
+        ends.remove(terminal_id);
+    }
+    ends
+}
+
+/// One scan of the snapshot files, then the parked trim of the snapshots of `parked` and the stream end of each
+/// snapshot that stays, both from the scanned headers. `low`: the free-disk guard (`parked_trim::disk_low`).
 pub(super) fn trim_parked_and_read_ends(
     directory: &Path,
     parked: &HashSet<TerminalPublicId>,
@@ -104,12 +148,13 @@ pub(super) fn trim_parked_and_read_ends(
     max_total_bytes: u64,
     low: bool,
 ) -> StartReads {
+    let (scan, snapshots) = scan_all(directory);
     let trimming = Instant::now();
-    let rewrites = parked_trim::run_with(directory, parked, now_ms, max_total_bytes, low);
-    let trim = ParkedTrimLap { took: trimming.elapsed(), rewrites };
+    let pass = parked_trim::run_with(directory, &snapshots, parked, now_ms, max_total_bytes, low);
+    let trim = ParkedTrimLap { took: trimming.elapsed(), rewrites: pass.rewrites };
     let reading = Instant::now();
-    let stream_ends = snapshot::stream_ends(directory);
-    StartReads { trim, ends_took: reading.elapsed(), stream_ends }
+    let stream_ends = stream_ends_of(&snapshots, &pass.removed);
+    StartReads { scan, trim, ends_took: reading.elapsed(), stream_ends }
 }
 
 /// The start's prune: [`snapshot::remove_unowned`], then the parked trim and where each snapshot's stream ends.
@@ -118,9 +163,15 @@ pub(super) fn trim_parked_and_read_ends(
 fn prune_at_start(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) -> StartReads {
     let Some(directory) = store.directory() else { return StartReads::default() };
     let Some(parked) = snapshot::remove_unowned(mux, store, directory, policy) else {
+        let (scan, snapshots) = scan_all(directory);
         let reading = Instant::now();
-        let stream_ends = snapshot::stream_ends(directory);
-        return StartReads { ends_took: reading.elapsed(), stream_ends, ..StartReads::default() };
+        let stream_ends = stream_ends_of(&snapshots, &[]);
+        return StartReads {
+            scan,
+            ends_took: reading.elapsed(),
+            stream_ends,
+            ..StartReads::default()
+        };
     };
     let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
     // The read of the free disk is a part of the trim's lap.

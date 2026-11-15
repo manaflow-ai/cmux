@@ -57,9 +57,11 @@ pub struct StartupTimings {
 }
 
 /// One lap: its name, how long it took and, for a lap over table rows, how
-/// many rows it changed. The parked trim of the output store
-/// (`mux.build.output_store.parked_trim`) has no table: its count is the
-/// rewrites of a snapshot file that the pass ran.
+/// many rows it changed. 2 laps of the output store have no table: the count
+/// of its scan (`mux.build.output_store.snapshot_scan`) is the snapshot
+/// headers that it read, and the count of its parked trim
+/// (`mux.build.output_store.parked_trim`) is the rewrites of a snapshot file
+/// that the pass ran.
 #[derive(Debug, Clone)]
 struct Step {
     name: Cow<'static, str>,
