@@ -65,7 +65,8 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         let font = fontSize.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.fontSizeRange).rounded()) : nil } ?? densityFont
         barHeight = max(requested, Self.minimumBarHeight(fontSize: font))
         self.fontSize = font
-        buttonSize = row
+        // A density's one chrome button size (the Density Lab's `chromeButtonSize`) sizes the buttons, not the bar.
+        buttonSize = tokens.tokens[ChromeLabToken.buttonSize.rawValue].map { CGFloat($0) } ?? row
         // The chip is the bar less 2 pt on each side. Its glyph draws at `iconRowSize`, about 1.2
         // times this point size (13 -> 16 at Standard), and keeps 2 pt inside the chip, so a short
         // bar shrinks it (a suggestion row centers the glyph on the chip's center).
@@ -84,8 +85,12 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     /// an Observation-tracked scope (`DensityBinding`) re-applies on a density or override change.
     @MainActor public static var current: OmnibarMetrics {
         let overrides = OmnibarGlassAppearance.current
-        return OmnibarMetrics(tokens: Metrics.tokens, height: overrides.height, fontSize: overrides.fontSize,
-                              textScale: Typography.userScale, rowHeight: Metrics.chromeRowHeight, glyphSide: Metrics.toolbarGlyphSize)
+        var metrics = OmnibarMetrics(tokens: Metrics.tokens, height: overrides.height, fontSize: overrides.fontSize,
+                                     textScale: Typography.userScale, rowHeight: Metrics.chromeRowHeight, glyphSide: Metrics.toolbarGlyphSize)
+        // The one chrome button size (the top row's and the tab bar's too), at the interface scale.
+        metrics.buttonSize = Metrics.chromeButtonSize
+        metrics.toolbarIconSize = min(metrics.toolbarIconSize, metrics.buttonSize)
+        return metrics
     }
 
     private static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {

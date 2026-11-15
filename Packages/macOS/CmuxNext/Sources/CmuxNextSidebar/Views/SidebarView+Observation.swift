@@ -107,7 +107,8 @@ extension SidebarViewComponents {
             pinnedRowLeading = SidebarPinnedRowLeading.tunable.value
             rowTuning = SidebarRowTuning.signature
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
-                           Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
+                           Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3,
+                           TopRowSpacing.groupGap, TopRowSpacing.glyphExtent]
             switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
             // The line also follows the card's reach (#38054): the gutter, the pane padding, floating panes and the strip's tokens.
             topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)",

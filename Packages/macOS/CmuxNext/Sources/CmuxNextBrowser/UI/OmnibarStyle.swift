@@ -82,7 +82,7 @@ enum OmnibarStyle {
     /// Between neighboring toolbar buttons (navigation, extensions, trailing
     /// buttons): Helium's `kToolbarIconDefaultMargin`, the base padding, which
     /// the toolbar's FlexLayout collapses to one gap.
-    static var buttonSpacing: CGFloat { basePadding }
+    static var buttonSpacing: CGFloat { ChromeLabToken.toolbarGap.value ?? basePadding }
     /// Gap between the reload button and the omnibox, and the omnibox and
     /// the extension slot: Helium's `kLocationBarMargin` (twice the base padding).
     static var barMargin: CGFloat { 2 * basePadding }

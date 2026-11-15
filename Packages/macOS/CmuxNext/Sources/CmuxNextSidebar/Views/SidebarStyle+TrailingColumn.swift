@@ -16,7 +16,7 @@ extension SidebarStyle {
                        leadingInset: LayoutGrid.sidebarLead - contentInset,
                        trailingCenterInset: trailingCenterInset, minIconBox: iconBox,
                        minTrailingCenterInset: minTrailingCenterInset,
-                       iconBoxOverride: SidebarRowTuning.iconColumn.tunable.override, gap: SidebarRowTuning.glyphGap.value)
+                       iconBoxOverride: SidebarRowTuning.explicit(SidebarRowTuning.iconColumn), gap: SidebarRowTuning.glyphGap.value)
     }
 
     static var trailingSlotSide: CGFloat { controlSize }

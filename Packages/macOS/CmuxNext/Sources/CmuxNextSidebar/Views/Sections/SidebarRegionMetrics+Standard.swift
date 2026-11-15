@@ -14,7 +14,7 @@ extension SidebarRegionMetrics {
     /// row, not the app's one-line 24 pt under 37 pt list rows (Lawrence 2026-11-04).
     @MainActor static func standard(minimal: Bool) -> SidebarRegionMetrics {
         standard(rowHeight: minimal ? SidebarLayoutMetrics.standard.minimal.rowHeight
-                    : SidebarRowTuning.rowHeight.tunable.override ?? SidebarRowTokens.current.band.listRowHeight)
+                    : SidebarRowTuning.explicit(SidebarRowTuning.rowHeight) ?? SidebarRowTokens.current.band.listRowHeight)
     }
 
     @MainActor private static func standard(rowHeight row: CGFloat) -> SidebarRegionMetrics {

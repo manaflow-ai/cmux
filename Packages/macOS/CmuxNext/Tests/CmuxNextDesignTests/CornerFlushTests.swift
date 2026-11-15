@@ -3,32 +3,39 @@ import AppKit
 import CmuxNextDesignTokens
 import Testing
 
-/// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): `flush`, no goo, by default, and the card's wedge on
-/// the sidebar's side goes while the selected first tab rises from that corner.
+/// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): the pill (`off`) by default, `flush` or the folder tab
+/// (`flush-goo`) when picked, and the card's wedge on the sidebar's side goes while the selected first tab rises from that corner.
 @MainActor @Suite(.serialized) struct CornerFlushTests {
-    /// Leo, 2026-11-13: "lawrence wanted no goo by default". The flush frame stays; goo is a Debug Settings choice.
-    @Test func flushWithoutGooIsTheDefault() {
-        #expect(CornerFlush.tunable.defaultValue == .flush)
+    /// Lawrence, 2026-11-12: "make leo's chrome ui tabbar stuff non-default". Flush and goo are Debug Settings choices.
+    @Test func offIsTheDefault() {
+        #expect(CornerFlush.tunable.defaultValue == .off)
         #expect(CornerFlush.tunable.defaultValue.feetRadius == 0)
         #expect(CornerFlush.goo.isOn)
         #expect(!CornerFlush.off.isOn)
         #expect(CornerFlush.flush.isOn && CornerFlush.tight.isOn)
     }
 
-    /// The default density (Default, the `cozy` preset) over the shipped chrome style draws the flush
-    /// corner, no goo; compact density and a chrome the flush corner does not fit (floating panes) keep the pill.
-    @Test func theDefaultChromeDrawsTheFlushCorner() {
+    /// The default density (Default, the `cozy` preset) over the shipped chrome style draws the pill; a Debug pick of
+    /// `flush` draws the flush corner, and compact density keeps the pill under that pick too.
+    @Test func theDefaultChromeDrawsThePillUntilFlushIsPicked() {
         let design = DesignSettings.shared
         let before = (design.densityTokens, design.chromeStyle)
-        defer { (design.densityTokens, design.chromeStyle) = before }
+        let store = TunableStore.shared
+        store.register([CornerFlush.tunable.descriptor])
+        if !store.isActive { store.activate(file: nil) }
+        let previous = store.override(CornerFlush.tunable.key)
+        defer {
+            (design.densityTokens, design.chromeStyle) = before
+            store.set(CornerFlush.tunable.key, previous)
+        }
+        store.set(CornerFlush.tunable.key, nil)
         design.densityTokens = DensityPreset.cozy.tokens
         for style in [ChromeStyle.flat, .default] {
             design.chromeStyle = style
-            #expect(CornerFlush.current == .flush, "\(style)")
+            #expect(CornerFlush.current == .off, "\(style)")
         }
-        design.chromeStyle = .floating
-        #expect(CornerFlush.current == .off, "floating panes keep their cards")
-        design.chromeStyle = .flat
+        store.set(CornerFlush.tunable.key, .choice(CornerFlush.flush.rawValue))
+        #expect(CornerFlush.current == .flush, "a Debug pick draws the flush corner")
         design.densityTokens = .compact
         #expect(CornerFlush.current == .off, "compact keeps the pill")
     }

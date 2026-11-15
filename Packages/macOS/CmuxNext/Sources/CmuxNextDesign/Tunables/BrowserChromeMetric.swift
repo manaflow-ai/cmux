@@ -33,7 +33,7 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
     }
 
     /// The Debug Settings label (developer text, as every tunable's).
-    var label: String {
+    public var label: String {
         switch self {
         case .rowHeight: "Row height"
         case .rowGap: "Row gap"
@@ -48,7 +48,7 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
     }
 
     /// The Debug Settings help line, with the Helium value it defaults to at Default.
-    var help: String {
+    public var help: String {
         switch self {
         case .rowHeight: "Tab pill and omnibar height. Helium: 28."
         case .rowGap: "Gap above the tabs, between tabs and omnibar, and under the omnibar. Helium: 3."
@@ -63,7 +63,7 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
     }
 
     /// The slider's range in points (percent for ``closeHoverOpacity``).
-    var range: ClosedRange<Double> {
+    public var range: ClosedRange<Double> {
         switch self {
         case .rowHeight: 16...48
         case .rowGap: 0...12

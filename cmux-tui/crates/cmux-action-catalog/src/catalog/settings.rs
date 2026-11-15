@@ -964,6 +964,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "debug.densityLab",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.densityLab", "Density Lab"),
+        keywords: &["density", "densities", "lab", "custom density", "sidebar icons", "icon size", "button size", "roundness", "corners", "spacing", "tune", "debug"],
+        category: "settings",
+        symbol: "slider.horizontal.3",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-density-lab",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "debug.sidebarRowTuner",
         group: GROUP,
         title: t("ActionCatalog", "action.debug.sidebarRowTuner", "Sidebar Row Tuner"),

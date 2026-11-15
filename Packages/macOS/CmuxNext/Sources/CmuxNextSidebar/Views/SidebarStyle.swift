@@ -208,7 +208,7 @@ enum SidebarStyle {
     /// and every title in the primary text color ("All titles primary"):
     /// unread shows by the badge, selection by the fill.
     static var titleFont: NSFont {
-        tuned(derivedTitleFont, size: SidebarRowTuning.titleSize.tunable.override, weight: SidebarRowTuning.titleWeight)
+        tuned(derivedTitleFont, size: SidebarRowTuning.explicit(SidebarRowTuning.titleSize), weight: SidebarRowTuning.titleWeight)
     }
     /// ``titleFont`` before the Sidebar Row Tuner (`sidebarRows.titleSize`'s default).
     static var derivedTitleFont: NSFont { sized(Typography.body, weight: .regular) }
@@ -321,7 +321,7 @@ enum SidebarStyle {
     /// secondary ink, not a smaller semibold label. The Codex heading measures 13 px over 13 px rows, about 59% of
     /// the way from its ground to white, which `textSecondary` (62%) matches.
     static var headerFont: NSFont {
-        tuned(derivedHeaderFont, size: SidebarRowTuning.headingSize.tunable.override, weight: SidebarRowTuning.headingWeight)
+        tuned(derivedHeaderFont, size: SidebarRowTuning.explicit(SidebarRowTuning.headingSize), weight: SidebarRowTuning.headingWeight)
     }
     /// ``headerFont`` before the Sidebar Row Tuner (`sidebarRows.headingSize`'s default).
     static var derivedHeaderFont: NSFont { sized(Typography.body, weight: .regular) }

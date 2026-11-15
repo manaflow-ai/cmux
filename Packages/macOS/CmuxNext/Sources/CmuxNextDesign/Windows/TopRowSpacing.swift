@@ -17,10 +17,10 @@ public struct TopRowSpacing {
     public init() {}
 
     /// Every top-row button's height and largest width: the band's toggle, Back and Forward, and the sidebar's +.
-    public static var buttonSide: CGFloat { Metrics.sidebarHeaderHeight }
+    public static var buttonSide: CGFloat { Metrics.chromeButtonSize }
 
     /// Classic's 6 pt between its 20 pt buttons, three tenths of a button on the half-point grid.
-    public static var groupGap: CGFloat { (buttonSide * 0.3 * 2).rounded() / 2 }
+    public static var groupGap: CGFloat { ChromeLabToken.topRowGap.value ?? (buttonSide * 0.3 * 2).rounded() / 2 }
 
     /// The one ink gap between the lights and the toggle's glyph and between consecutive glyphs: classic's
     /// button gap plus two margins of an arrow (``glyphExtent``) in its button.
@@ -28,7 +28,7 @@ public struct TopRowSpacing {
 
     /// The top row's one glyph height (Lucas 2026-11-11: the toggle, the arrows and the + were three sizes, "make
     /// them proportional/same size, especially the arrows"): the +'s extent, so every glyph's ink is this tall.
-    public static var glyphExtent: CGFloat { Metrics.addGlyphExtent }
+    public static var glyphExtent: CGFloat { ChromeLabToken.iconInk.value ?? Metrics.addGlyphExtent }
     /// The box Chrome's arrows draw in: their ink is 0.6 of it (design/icons/chromium manifest, 14.4 of the 24 grid).
     public static var arrowIconSize: CGFloat { (glyphExtent / 0.6 * 2).rounded() / 2 }
     /// The panel toggle's point size: its ink stands about 0.95 of it tall (SidebarToggleGlyph).

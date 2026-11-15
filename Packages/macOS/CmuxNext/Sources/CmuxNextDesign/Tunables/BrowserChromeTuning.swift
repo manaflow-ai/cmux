@@ -41,10 +41,18 @@ public nonisolated struct BrowserChromeTuning {
     public static var descriptors: [TunableDescriptor] { all.map(\.descriptor) }
 
     /// The override of `metric` for the density `tokens` draws, if it is a tunable one and has one.
+    /// A density's own token for `metric` (the Density Lab's `browserChrome.<metric>`) counts as set too, for any
+    /// density, a custom one included.
     public static func override(_ metric: BrowserChromeMetric, tokens: DensityTokens, store: TunableStore = .shared) -> CGFloat? {
-        guard let density = DensityPreset(rawValue: tokens.id), densities.contains(density) else { return nil }
-        return store.override(key(metric, density: density))?.number.map { CGFloat($0) }
+        if let density = DensityPreset(rawValue: tokens.id), densities.contains(density),
+           let tuned = store.override(key(metric, density: density))?.number {
+            return CGFloat(tuned)
+        }
+        return tokens.tokens[densityKey(metric)].map { CGFloat($0) }
     }
+
+    /// The key of `metric` in a density's own tokens (`DensityTokens.tokens`).
+    public static func densityKey(_ metric: BrowserChromeMetric) -> String { "browserChrome.\(metric.rawValue)" }
 
     /// The override of `metric` at the density chrome draws in now.
     @MainActor public static func override(_ metric: BrowserChromeMetric) -> CGFloat? {

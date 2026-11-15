@@ -355,7 +355,7 @@ public final class PaneToolbarView: NSView {
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
         let reservedWidth = CGFloat(max(0, count - allButtons.count)) * TitlebarBandButton.side // pins another tab shows, the zoom button
-        let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
+        let gaps = CGFloat(max(count - 1, 0)) * Self.buttonGap
         return NSSize(width: buttonWidth + reservedWidth + gaps + Self.trailingGap, height: NSView.noIntrinsicMetric)
     }
 
@@ -369,7 +369,7 @@ public final class PaneToolbarView: NSView {
     public var tabRowWidth: CGFloat {
         let allButtons = buttons + nativeButtons
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
-        let gaps = CGFloat(max(shownCount - 1, 0)) * Metrics.space1 / 2
+        let gaps = CGFloat(max(shownCount - 1, 0)) * Self.buttonGap
         return buttonWidth + (zoomed ? TitlebarBandButton.side : 0) + gaps + Self.trailingGap
     }
 
@@ -404,7 +404,7 @@ public final class PaneToolbarView: NSView {
     public func tabRowWidth(fitting limit: CGFloat) -> CGFloat {
         let full = tabRowWidth
         guard full > limit else { return full }
-        let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
+        let side = TitlebarBandButton.side, gap = Self.buttonGap
         let allButtons = buttons + nativeButtons
         // The same walk as layout(), at the capped width: a button shows only in a whole slot; creation buttons fold
         // together once the bar is capped (`alwaysVisible`, the cap being why we are here).
@@ -424,7 +424,7 @@ public final class PaneToolbarView: NSView {
 
     override public func layout() {
         super.layout()
-        let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
+        let side = TitlebarBandButton.side, gap = Self.buttonGap
         // Fixed slots from the trailing end: Exit Zoom in the last while the pane is zoomed, the buttons
         // before it in order, so fewer pins leave room only at the leading end.
         let y = buttonTop
@@ -469,7 +469,11 @@ public final class PaneToolbarView: NSView {
 
     /// The last button's gap to the trailing edge: its center on the pane's trailing control column,
     /// above the browser toolbar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).
-    static var trailingGap: CGFloat { max(0, Metrics.paneTrailingControlCenter - TitlebarBandButton.side / 2) }
+    static var trailingGap: CGFloat {
+        ChromeLabToken.tabTrailing.value ?? max(0, Metrics.paneTrailingControlCenter - TitlebarBandButton.side / 2)
+    }
+    /// The gap between the bar's buttons: a density's `tabButtonGap`, else half a `space1`.
+    static var buttonGap: CGFloat { ChromeLabToken.tabButtonGap.value ?? Metrics.space1 / 2 }
 
     /// The buttons' gap above them in a bar `height` tall, which is also the trailing button's gap to
     /// the trailing edge, so it rests evenly in the pane's corner as the first tab does.

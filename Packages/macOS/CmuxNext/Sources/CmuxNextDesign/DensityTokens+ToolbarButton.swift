@@ -25,7 +25,8 @@ extension DensityTokens {
     /// size: 13 pt at Default, Helium's ink for Back, Forward and Reload (Lawrence 2026-11-13: the omnibar's
     /// arrows were bigger than Helium's).
     public var toolbarGlyphSize: CGFloat {
-        Self.toolbarGlyphInk(smallIcon: resolveGlyph(compact: 12, comfortable: 14, token: "smallIconSize")) / Self.toolbarGlyphInkRatio
+        if let ink = tokens[ChromeLabToken.iconInk.rawValue] { return CGFloat(ink) / Self.toolbarGlyphInkRatio }
+        return Self.toolbarGlyphInk(smallIcon: resolveGlyph(compact: 12, comfortable: 14, token: "smallIconSize")) / Self.toolbarGlyphInkRatio
     }
 
     /// The toolbar glyphs' ink box for a small icon size: one point under it.
@@ -36,7 +37,8 @@ extension Metrics {
     /// ``DensityTokens/toolbarGlyphSize`` as chrome draws it: the side whose ink box is one point under the live
     /// ``smallIconSize`` (Interface Size and a set `smallIconSize` included).
     public static var toolbarGlyphSize: CGFloat {
-        DensityTokens.toolbarGlyphInk(smallIcon: smallIconSize) / DensityTokens.toolbarGlyphInkRatio
+        if let ink = ChromeLabToken.iconInk.value { return ink / DensityTokens.toolbarGlyphInkRatio }
+        return DensityTokens.toolbarGlyphInk(smallIcon: smallIconSize) / DensityTokens.toolbarGlyphInkRatio
     }
 
     /// The point size of the SF Symbols on the window's top controls: the toolbar band (sidebar
@@ -48,4 +50,10 @@ extension Metrics {
     /// The one SF Symbol weight of those controls: regular, the weight whose stroke matches the
     /// pack's line glyphs at these sizes.
     public static let toolbarSymbolWeight: NSFont.Weight = .regular
+
+    /// The one side of every square chrome button at the density chrome draws (Lawrence 2026-11-15: "all button sizes
+    /// should match in all density levels (like sidebar button, sidebar back/forward, plus, etc)"): the browser toolbar
+    /// button's side, the chrome row (``chromeRowHeight``) unless a density sets it, which the top row
+    /// (`TopRowSpacing.buttonSide`), the tab bar's buttons and the browser toolbar (`OmnibarMetrics.current`) all take.
+    public static var chromeButtonSize: CGFloat { ChromeLabToken.buttonSize.value ?? chromeRowHeight }
 }

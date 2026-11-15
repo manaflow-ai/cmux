@@ -71,7 +71,7 @@ public final class TabStripView: NSView {
     var showsTypeChooser: Bool { showsNewTabMenuButton && trailingButtons.showsTypeChooser }
     /// The room between the last tab and the + (Lucas 2026-11-11: the split +'s fill touched the last
     /// tab; then 2 px less, so 2 pt at Default).
-    var newTabLeadingGap: CGFloat { Metrics.space1 }
+    var newTabLeadingGap: CGFloat { metrics.newTabGap }
     var newTabControlsWidth: CGFloat {
         guard showsTypeChooser else { return metrics.newTabButtonWidth }
         // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.
@@ -595,7 +595,7 @@ public final class TabStripView: NSView {
         let leading = CornerFlush.current.isOn ? 0 : padding
         windowControlsInset = computeWindowControlsInset()
         appliedTabTop = computeTabTop()
-        let viewport = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))
+        let viewport = max(0, bounds.width - leading - metrics.trailingPadding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))
         tabsClip.frame = CGRect(x: leading + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs

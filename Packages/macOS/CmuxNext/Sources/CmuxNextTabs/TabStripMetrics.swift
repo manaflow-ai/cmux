@@ -51,6 +51,11 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var tabHeight: CGFloat
     /// Horizontal inset of the strip content from its bounds.
     public var stripHorizontalPadding: CGFloat
+    /// The room after the + (or the last tab), before the bar's trailing buttons (the ⋮): the strip padding unless a
+    /// density sets `tabSpaceAfterPlus` (the Density Lab).
+    public var trailingPadding: CGFloat = 0
+    /// The gap from the last tab to the +: `space1` unless a density sets `tabNewTabGap`.
+    public var newTabGap: CGFloat = 0
     public var newTabButtonWidth: CGFloat
     /// Length of the fade on a scrolled edge.
     public var scrollFadeWidth: CGFloat
@@ -196,7 +201,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
         // The first and last pills keep the gap above them to the strip's ends (the chrome line).
-        stripHorizontalPadding = Metrics.paneChromeInset
+        stripHorizontalPadding = ChromeLabToken.tabStripPadding.value ?? Metrics.paneChromeInset
+        trailingPadding = ChromeLabToken.spaceAfterPlus.value ?? stripHorizontalPadding
+        newTabGap = ChromeLabToken.newTabGap.value ?? Metrics.space1
         stripTopOutset = Metrics.stripTopOutset
         // The chrome's one button size (`TitlebarBandButton.side`), as the pane's tools beside it.
         newTabButtonWidth = TitlebarBandButton.side

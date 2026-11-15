@@ -69,6 +69,7 @@ extension Metrics {
     /// tab's height. The sidebar's workspace rows and the omnibar read this radius too, so a row and
     /// the bar are as round as a tab.
     public static var tabCornerRadius: CGFloat {
+        if let set = ChromeLabToken.tabRadius.value { return min(set, tabHeight / 2) }
         let corners = Metrics.corners
         // Chrome's ratio at every density, whether or not the card rounds from the tabs (Lucas 2026-11-13: the same
         // roundness, in proportion, at every density; a large density's card capped at the window's radius made the
