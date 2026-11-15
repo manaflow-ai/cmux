@@ -784,6 +784,56 @@
   flex: 1 1 0;
   min-width: 0;
 }
+/* The icon column's arms (iconColumn.experiment.ts; the gallery's agent-pane.new-tab-icon-column).
+   Each keeps the folder glyph, + and the shield on one center line (newtab-icon-column.test.ts) and
+   changes only what carries the chips, so the arms read apart at a glance (Leo 2026-11-15: "those
+   all look the same to me"). pad, the shipped arm, is the bare text above: no rule here.
+   - tray: the strip sits in a filled tray inset by --nt-tray-inset from the box's sides and tucked
+     --nt-tray-tuck under its top edge, the box raised over it (Codex's desktop composer). The strip
+     steps back out by the inset, so its glyphs stay on the column. */
+.nt-composer[data-icon-column="tray"] {
+  --nt-tray-inset: var(--ds-space-2);
+  --nt-tray-tuck: calc(var(--ds-space-3) + 6px);
+}
+.nt-composer[data-icon-column="tray"] .nt-box { z-index: var(--layer-raised, 1); }
+.nt-composer[data-icon-column="tray"] .nt-above {
+  position: relative;
+  z-index: var(--layer-base, 0);
+  margin: 0 var(--nt-tray-inset) calc(-1 * var(--nt-tray-tuck));
+  padding: var(--ds-space-1) 0 var(--nt-tray-tuck);
+  border-radius: var(--nt-box-radius) var(--nt-box-radius) 0 0;
+  background: var(--acpmux-composer-tray);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
+}
+:root .nt-screen .nt-composer[data-icon-column="tray"] .nt-above .acpmux-composer-strip {
+  margin-inline: calc(-1 * var(--nt-tray-inset));
+}
+/* - pills: every chip, over the box and under it, is a filled capsule with a hairline rim. Fill and
+     rim only, so no glyph moves off the column. */
+.nt-composer[data-icon-column="pills"] :is(
+    .nt-above .acpmux-location-button,
+    .nt-foot .acpmux-access-trigger,
+    .nt-foot .acpmux-model .acpmux-picker-button,
+    .nt-foot .acpmux-effort .acpmux-picker-button
+  ) {
+  border-radius: var(--ds-radius-control);
+  background: var(--acpmux-pill-fill);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge);
+}
+/* - icons: the chips drop their names and chevrons, leaving a bare column of glyphs. The names stay
+     in the accessibility tree (clipped to nothing, not display: none), so the buttons keep their names. */
+.nt-composer[data-icon-column="icons"] :is(.nt-above .acpmux-location-label, .nt-foot .acpmux-mode-text) {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nt-composer[data-icon-column="icons"] :is(
+    .nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child),
+    .nt-foot .acpmux-access-trigger > .acpmux-icon:last-child:not(:first-child)
+  ) {
+  display: none;
+}
 /* A top strip variant (Debug Settings) draws the strip as the card's own top, spanning it. */
 :root[data-top-strip] .nt-above {
   flex-direction: column;

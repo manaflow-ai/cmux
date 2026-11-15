@@ -6,6 +6,7 @@
 use super::size_state_for_client;
 use crate::panic_free::RecoverPoison;
 
+use super::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 use super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY;
 use super::AttachWireShape;
 use super::AttachWorkerCommit;
@@ -18,6 +19,8 @@ use super::RenderClientState;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VtStateMessage;
+use super::attach_output_coalesce;
+use super::attach_output_coalesce::OutputCoalescer;
 use super::attach_overflow_json;
 use super::attach_response;
 use super::browser_state_message;
@@ -37,6 +40,7 @@ use super::require_pty;
 use super::rollback_failed_attach;
 use super::send_browser_attach_update;
 use super::spawn_attach_notification_stream;
+use super::spawn_attach_notification_stream_coalesced;
 use super::terminal_colors_json;
 use super::terminal_snapshot;
 use super::wait_for_initial_browser_resize;
@@ -49,6 +53,7 @@ use crate::resource::TerminalPublicId;
 use crate::sizing_policy::TerminalDetachActor;
 use crate::sizing_policy::detach_reason;
 use crate::stream_interrupt::StreamInterrupt;
+use crate::surface::AttachFrame;
 use crate::surface::AttachLifecycle;
 use serde_json::Value;
 use serde_json::json;
@@ -177,6 +182,7 @@ pub(super) fn attach_surface(
     expected_generation: Option<String>,
     expected_terminal_id: Option<String>,
     replay_history_rows: Option<u32>,
+    output_coalesce_ms: Option<u32>,
     replay_history_start: Option<u64>,
     snapshot: terminal_snapshot::SnapshotAttachParams,
 ) -> anyhow::Result<Value> {
@@ -251,6 +257,16 @@ pub(super) fn attach_surface(
     {
         return snapshot.attach(mux, client, surface, writer, initial_size);
     }
+    // Only the plain byte attach coalesces; render mode keeps its own frames.
+    let coalesce_interval =
+        if surface.kind() == SurfaceKind::Pty && mode.as_deref().unwrap_or("bytes") == "bytes" {
+            attach_output_coalesce::attach_interval(
+                mux.control_clients.supports_capability(client, ATTACH_OUTPUT_COALESCE_CAPABILITY),
+                output_coalesce_ms,
+            )?
+        } else {
+            None
+        };
     let lifecycle = AttachLifecycle::default();
     let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
     let render_mode = match mode.as_deref().unwrap_or("bytes") {
@@ -522,12 +538,13 @@ pub(super) fn attach_surface(
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
     }
-    if let Err(error) = spawn_attach_notification_stream(
+    if let Err(error) = spawn_attach_notification_stream_coalesced(
         mux.clone(),
         surface_id,
         writer.clone(),
         lifecycle.clone(),
         outbound_stream.clone(),
+        coalesce_interval,
     ) {
         lifecycle.cancel();
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
@@ -549,25 +566,58 @@ pub(super) fn attach_surface(
         outbound_stream.register_interrupt(&interrupt);
         attach.lifecycle.register_interrupt(&interrupt);
         attach.stream.wake_on(&interrupt);
-        while writer.is_open() && outbound_stream.is_open() && !attach.lifecycle.is_canceled() {
-            let frame = match attach.stream.recv_interruptible(&interrupt, None) {
-                Ok(frame) => frame,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    attach.lifecycle.cancel();
-                    if writer.is_open() {
-                        let _ = writer.send_stream_backpressured(
-                            &json!({"event": "detached", "surface": surface_id}),
-                            &outbound_stream,
-                        );
+        // `attach-output-coalesce-v1`: `output` at most once per interval;
+        // `None` sends each frame as it comes, as before.
+        let mut coalescer = coalesce_interval.map(OutputCoalescer::new);
+        let mut ready: Vec<AttachFrame> = Vec::new();
+        'stream: while writer.is_open()
+            && outbound_stream.is_open()
+            && !attach.lifecycle.is_canceled()
+        {
+            let deadline = coalescer.as_ref().and_then(OutputCoalescer::due);
+            let received = attach.stream.recv_interruptible(&interrupt, deadline);
+            let now = std::time::Instant::now();
+            let ended = match received {
+                Ok(frame) => {
+                    match coalescer.as_mut() {
+                        Some(coalescer) => coalescer.push(frame, now, &mut ready),
+                        None => ready.push(frame),
                     }
-                    break;
+                    false
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if let Some(coalescer) = coalescer.as_mut() {
+                        coalescer.flush_due(now, &mut ready);
+                    }
+                    false
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    // The terminal's last bytes reach the viewer before its end.
+                    if let Some(coalescer) = coalescer.as_mut() {
+                        coalescer.flush(now, &mut ready);
+                    }
+                    true
                 }
             };
-            if let Err(error) =
-                writer.send_attach_frame_backpressured(surface_id, &frame, shape, &outbound_stream)
-            {
-                handle_attach_send_error(&attach.lifecycle, &error);
+            for frame in ready.drain(..) {
+                if let Err(error) = writer.send_attach_frame_backpressured(
+                    surface_id,
+                    &frame,
+                    shape,
+                    &outbound_stream,
+                ) {
+                    handle_attach_send_error(&attach.lifecycle, &error);
+                    break 'stream;
+                }
+            }
+            if ended {
+                attach.lifecycle.cancel();
+                if writer.is_open() {
+                    let _ = writer.send_stream_backpressured(
+                        &json!({"event": "detached", "surface": surface_id}),
+                        &outbound_stream,
+                    );
+                }
                 break;
             }
         }
