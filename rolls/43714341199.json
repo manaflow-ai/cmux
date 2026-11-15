@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43714341199",
+  "recorded_at": "2026-11-15T12:41:49Z",
+  "reason": "cmux-tui c144c01f3559 changes the image's cmux-tui (pinned fcd50f439039)",
+  "dry_run": false,
+  "cmux_tui": "c144c01f355925af9901ef1ff43b6d0b2817ffc6",
+  "fixes": [
+    {
+      "sha": "c144c01f355925af9901ef1ff43b6d0b2817ffc6",
+      "mergedAt": "2026-11-15T12:16:22Z",
+      "subject": "acpmux-core: separate actor and checkpoint gate results (#43467)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T12:41:49Z",
+    "snapshot_id": "sh-4fa3a18b1ea04748b01b5fa7dfcd8b00",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43714341199): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a59689d572d76a92ca5fa3c4def326cb811c5a8e",
+    "image": "cloud-native-auto-c144c01f-43714341199-1",
+    "revision": "ci-43714341199-1",
+    "at": "2026-11-15T12:41:49Z"
+  },
+  "rolled_back": false
+}
