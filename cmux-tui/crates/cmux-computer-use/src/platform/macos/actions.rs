@@ -659,7 +659,8 @@ pub(super) fn click(
         if let Some(why) = prime_block_of(&el, None) {
             return Err(DesktopError::Unsupported(why.into()));
         }
-        roles::primed_click(true, has_press).map_err(|why| DesktopError::Unsupported(why.into()))?;
+        roles::primed_click(true, has_press)
+            .map_err(|why| DesktopError::Unsupported(why.into()))?;
         // Readable here: prime_block_of blocks an unreadable title.
         title_before = el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
         let (key, short) = enable_menu_item(d, &t, &el, element_id)?;
@@ -991,7 +992,8 @@ pub(super) fn press_keys(
                             }
                             let mut m = m0.clone();
                             m.enabled = el.bool("AXEnabled") == Some(true);
-                            let title = el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
+                            let title =
+                                el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
                             if roles::same_item(Some(&m0.title), title.as_deref()).is_err() {
                                 m.blocked = true;
                             }
@@ -1154,9 +1156,11 @@ const TYPE_CHUNK: usize = 16;
 /// other routes post at once.
 fn unprimed(route: Route, post: impl FnOnce() -> DResult<()>) -> DResult<()> {
     match route {
-        Route::Pid { pid, .. } => super::activation::post_unprimed(pid, post).unwrap_or_else(|| {
-            Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
-        }),
+        Route::Pid { pid, .. } => {
+            super::activation::post_unprimed(pid, post).unwrap_or_else(|| {
+                Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
+            })
+        }
         _ => post(),
     }
 }

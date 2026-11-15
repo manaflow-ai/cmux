@@ -262,7 +262,12 @@ impl Registry {
     /// the post happen under the posting lock that entering a scope takes.
     /// While a scope is open the lock is let go and the check repeats, at
     /// most `bound`; `None` when a scope stayed open (nothing was posted).
-    pub(super) fn post_unprimed<T>(&self, pid: i32, bound: Duration, post: impl FnOnce() -> T) -> Option<T> {
+    pub(super) fn post_unprimed<T>(
+        &self,
+        pid: i32,
+        bound: Duration,
+        post: impl FnOnce() -> T,
+    ) -> Option<T> {
         let start = Instant::now();
         loop {
             {
