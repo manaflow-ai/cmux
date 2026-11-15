@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43724723181",
+  "recorded_at": "2026-11-15T14:39:01Z",
+  "reason": "cmux-tui 64821ccc5111 changes the image's cmux-tui (pinned 9b3849a59448)",
+  "dry_run": false,
+  "cmux_tui": "64821ccc5111b9eefa9d9fd87d5c448e987a1e86",
+  "fixes": [
+    {
+      "sha": "64821ccc5111b9eefa9d9fd87d5c448e987a1e86",
+      "mergedAt": "2026-11-15T06:14:11-08:00",
+      "subject": "perf(cmux-tui): a terminal host's PTY reader sends a flood in 16 KiB frames, not one per 1 KiB read (CMUX-571) (#43663)"
+    },
+    {
+      "sha": "513906249a737807d1f2df0c2d7f2ee4df220ec3",
+      "mergedAt": "2026-11-15T06:12:49-08:00",
+      "subject": "acpmux: run Codex app-server harnesses at normal CPU class (#43674)"
+    },
+    {
+      "sha": "dbf26782ff1f375bdc4d951dad330641bf74125d",
+      "mergedAt": "2026-11-15T14:12:25Z",
+      "subject": "Cloud Codex: the Mac's login reaches a team machine; a missing key says sign in (#43672)"
+    },
+    {
+      "sha": "8691ef8738a90fd4e4338228bb7b2012b7117b78",
+      "mergedAt": "2026-11-15T14:11:59Z",
+      "subject": "v2 peer mirror: dial follow-ups (each inbox's bytes, stored mark opens as the mirror's, refused takeover, gates in the row's shape) (#43614)"
+    },
+    {
+      "sha": "170d1567c69e78bfe1f518156e65a01c25c42382",
+      "mergedAt": "2026-11-15T06:10:05-08:00",
+      "subject": "Spaces: New Space gets Ctrl-Opt-Cmd-N (catalog, step A)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T14:39:01Z",
+    "snapshot_id": "sh-0b901327cad74c01b727b377c62a8131",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43724723181): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3be1db99b94a59fceb3b86f35c8fc7ff1fa7d927",
+    "image": "cloud-native-auto-64821ccc-43724723181-1",
+    "revision": "ci-43724723181-1",
+    "at": "2026-11-15T14:39:01Z"
+  },
+  "rolled_back": false
+}
