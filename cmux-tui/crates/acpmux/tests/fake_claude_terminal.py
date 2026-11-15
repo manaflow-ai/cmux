@@ -18,8 +18,14 @@ Each turn: an assistant `tool_use` line, FAKE_TURN_MS of work, the tool result, 
 `ANSWER <prompt>` with stop reason `end_turn`. FAKE_LOG gets `RECV`, `RUN` and `END` lines with a
 monotonic time in ns, so a test reads what the harness got, when, and in which order.
 
+Before it reads its terminal it asks the daemon for the hand-off as `acpmux resume-here` does,
+from its own process, so the daemon binds the pid the kernel gives it at accept: with FAKE_DAEMON_SOCK
+and FAKE_CHAT it sends `_acpmux/release_to_watch {sessionId, terminalPid: its pid}` over that unix
+socket and logs `RELEASED` with the answer (or `REFUSED` with the error).
+
 Environment: FAKE_CONFIG (the Claude store), FAKE_SESSION, FAKE_TRANSCRIPT, FAKE_LOG,
-FAKE_TURN_MS (default 600), FAKE_NO_INBOX=1 (no inbox, as with cross-session messaging off).
+FAKE_TURN_MS (default 600), FAKE_NO_INBOX=1 (no inbox, as with cross-session messaging off),
+FAKE_DAEMON_SOCK and FAKE_CHAT (the hand-off), FAKE_NAMED_PID (a pid to name instead of its own).
 """
 import hashlib
 import json
@@ -160,6 +166,34 @@ def serve_inbox(server):
                 take("inbox", msg["message"]["content"], msg.get("uuid"))
 
 
+def release():
+    """The hand-off `acpmux resume-here` asks for, as this process."""
+    sock_path = os.environ.get("FAKE_DAEMON_SOCK")
+    if not sock_path:
+        return
+    pid = int(os.environ.get("FAKE_NAMED_PID") or os.getpid())
+    conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.connect(sock_path)
+    f = conn.makefile("rwb")
+    def call(rid, method, params):
+        f.write((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n").encode())
+        f.flush()
+        while True:
+            line = f.readline()
+            if not line:
+                return {"error": {"message": "closed"}}
+            msg = json.loads(line)
+            if msg.get("id") == rid:
+                return msg
+    call(1, "initialize", {"protocolVersion": 1, "clientInfo": {"name": "resume-here"}})
+    answer = call(2, "_acpmux/release_to_watch", {"sessionId": os.environ["FAKE_CHAT"], "terminalPid": pid})
+    conn.close()
+    if "result" in answer:
+        log("RELEASED", json.dumps(answer["result"]))
+    else:
+        log("REFUSED", json.dumps(answer.get("error")))
+
+
 def main():
     pid = os.getpid()
     sessions = os.path.join(CONFIG, "sessions")
@@ -182,6 +216,7 @@ def main():
     with open(os.path.join(sessions, "%d.json" % pid), "w") as f:
         json.dump(entry, f)
     threading.Thread(target=worker, daemon=True).start()
+    release()
     log("READY", "")
     for line in sys.stdin:
         line = line.rstrip("\n")
