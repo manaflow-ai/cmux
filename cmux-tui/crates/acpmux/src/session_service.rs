@@ -167,6 +167,40 @@ impl SessionGate for ConfiguredSessionGate {
     }
 }
 
+/// This consent as the Share This Mac approval's [`SameAccountGrant`]
+/// (`share_approval.rs`): an approval the owner confirmed on another of their devices is
+/// admitted only when [`decide`] admits, the same gate the session circuit uses, and only for an
+/// asker signed in to the account this machine is joined as. A Share This Mac approval adds no
+/// grant of its own.
+///
+/// [`SameAccountGrant`]: crate::share_approval::SameAccountGrant
+pub struct SignedInMachinesGrant {
+    consent: Value,
+    account: Option<String>,
+}
+
+impl SignedInMachinesGrant {
+    /// This machine's consent status (`_acpmux/machine_consent_get`'s answer) and the account
+    /// (hub user id) it is joined as, read now.
+    pub fn read() -> Self {
+        Self::new(
+            crate::cli::cloud_join::consent_status_for(&json!({})),
+            crate::cli::cloud_join::machine_user_id(),
+        )
+    }
+
+    pub fn new(consent: Value, account: Option<String>) -> Self {
+        Self { consent, account }
+    }
+}
+
+impl crate::share_approval::SameAccountGrant for SignedInMachinesGrant {
+    fn covers(&self, asker: &crate::share_approval::Asker<'_>) -> bool {
+        self.account.as_deref() == Some(asker.account)
+            && decide(&self.consent, self.account.as_deref()) == Decision::Admit
+    }
+}
+
 #[cfg(test)]
 #[path = "session_service_tests.rs"]
 mod tests;

@@ -102,6 +102,9 @@ extension CmuxRemoteActionEnvironment {
                     throw ControlError.invalidParams("action must be share, or access with device and scope (none, ask, view, full)")
                 }
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
+                if action == "share", !device.isEmpty {
+                    return try Self.confirmShareOther(device, hub: hub, window: environment.window())
+                }
                 let name = hub.devices.first { $0.id == device }?.name ?? device
                 let (title, body) = action == "share" ? CmuxRemoteStrings.confirmShare()
                     : CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
@@ -114,6 +117,27 @@ extension CmuxRemoteActionEnvironment {
                 }
             }.withDeadline(.fixed(.seconds(130))),
         ]
+    }
+
+    /// `remote.confirm {action: share, device}`: share another Mac of this account. The person
+    /// confirms here; only then does this device sign the approval the target Mac admits
+    /// (`acpmux::share_approval`). Nothing turns on here: the target makes its own hub call.
+    static func confirmShareOther(_ device: String, hub: DeviceHub, window: NSWindow?) throws -> ControlReply {
+        guard let target = hub.otherDevices.first(where: { $0.id == device || $0.name.caseInsensitiveCompare(device) == .orderedSame }) else {
+            throw ControlError.invalidParams(CmuxRemoteStrings.notYourDevice(device))
+        }
+        let (title, body) = CmuxRemoteStrings.confirmShareOther(device: target.name)
+        let unsigned = CmuxRemoteShareApproval(target: target.id, targetName: target.name, asker: hub.identity.id,
+                                               askerName: hub.thisDevice?.name ?? hub.deviceName, confirmedBy: hub.me?.userId ?? "",
+                                               confirmedAt: 0, nonce: UUID().uuidString.lowercased())
+        let identity = hub.identity
+        return .followUp {
+            guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
+            var approval = unsigned
+            approval.confirmedAt = Int(Date().timeIntervalSince1970)
+            let signed = try approval.signed(by: identity)
+            return .object(["ok": true, "approval": signed.json])
+        }
     }
 
     /// The person's answer to one dialog (false without a window).
