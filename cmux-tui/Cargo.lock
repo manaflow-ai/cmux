@@ -2224,6 +2224,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-customize",
  "cmux-customize-recipes",
+ "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
