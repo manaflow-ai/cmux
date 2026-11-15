@@ -117,6 +117,24 @@ import Testing
                               isUtteranceFinal: true) == "A B. C.")
     }
 
+    @Test func cumulativeUntimedPartialAfterFinishedPhraseKeepsOnlyNewWords() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "Hello world.", startTime: 0, endTime: 2,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "Hello world. More words",
+                              startTime: nil, endTime: nil) == "Hello world. More words")
+        #expect(merger.merged(base: "", transcript: "Hello world. More words now",
+                              startTime: nil, endTime: nil) == "Hello world. More words now")
+    }
+
+    @Test func untimedExactRepeatAfterFinishedPhraseIsKept() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "Thank you.", startTime: 0, endTime: 1,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "Thank you.", startTime: nil, endTime: nil)
+            == "Thank you. Thank you.")
+    }
+
     @Test func untimedCorrectionCannotKeepStaleTimingAndDuplicateItself() {
         var merger = ComposerDictationTextMerger()
         _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1.5)
