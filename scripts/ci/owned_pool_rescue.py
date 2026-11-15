@@ -3057,7 +3057,7 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
         looked = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
         turned_away = [job for job in looked if refused(job)]
         # The owned labels the moved jobs leave: a re-run never sends them to a deeper queue (deeper_queue()).
-        sources = {str(job_pool(job)) for job in looked if job_pool(job) and job.get("status") != "completed"}
+        sources = {str(job_pool(job)) for job in looked if job_pool(job) and waiting_for_runner(job)}
         if turned_away:
             # The refusal path re-runs the failed jobs whether or not the run has finished by the time
             # rescue() reads it (a queued sibling may still run meanwhile); a queue rescue would skip a
@@ -3299,8 +3299,8 @@ def nightly_retry_destinations(api: GitHub, target: Target, sleep: Callable[[flo
     return found
 
 
-# cmux-next.yml's Mac fallback for a bot re-run through REFUSAL_RESCUE_ATTEMPT while vars.CI_BLACKSMITH_MACOS is not
-# `on`: `startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-...'`.
+# The side label rerun_side_label() judges when SIDE_LANE_RUNNER is unset (a test, a local run): cmux-next.yml's
+# default side label. The re-run then takes RUNNER_POOLS, so judging this label only holds a job more often.
 CMUX_NEXT_SIDE_FALLBACK = "glaeda-side-std-xcode-26.6"
 
 
@@ -3314,7 +3314,7 @@ def rerun_side_label(env: Mapping[str, str]) -> str:
     if (env.get("STALL_BLACKSMITH_MACOS") or "").strip() == "on":
         return ""
     side = (env.get("SIDE_LANE_RUNNER") or "").strip()
-    return side if side.startswith("glaeda-side-") else CMUX_NEXT_SIDE_FALLBACK
+    return side or CMUX_NEXT_SIDE_FALLBACK
 
 
 def pool_depth(snapshot: Mapping[str, Any], label: str) -> tuple[int, int] | None:
