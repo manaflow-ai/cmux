@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43670504954",
+  "recorded_at": "2026-11-15T03:09:38Z",
+  "reason": "cmux-tui 4360b11fa4e8 changes the image's cmux-tui (pinned 6860c55ae863)",
+  "dry_run": false,
+  "cmux_tui": "4360b11fa4e84dfb4b75c8ebc778f55362620f7a",
+  "fixes": [
+    {
+      "sha": "4360b11fa4e84dfb4b75c8ebc778f55362620f7a",
+      "mergedAt": "2026-11-14T18:46:15-08:00",
+      "subject": "codec-bench: Windows encoder settings matrix; OpenH264 frame skipping stays on (#43335)"
+    },
+    {
+      "sha": "2d7bfe48c026a2382c834b04007492dd92c88e3b",
+      "mergedAt": "2026-11-14T18:45:55-08:00",
+      "subject": "cmux-layout-reducer: the ports a workspace's hover card opens (workspace_port_links, step A) (#43400)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T03:09:38Z",
+    "snapshot_id": "sh-b78fefa3c10d4556995ea360742dc4eb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43670504954): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6a43adcdfd2e2c7b208d8e4876a3ebf196d467eb",
+    "image": "cloud-native-auto-4360b11f-43670504954-1",
+    "revision": "ci-43670504954-1",
+    "at": "2026-11-15T03:09:38Z"
+  },
+  "rolled_back": false
+}
