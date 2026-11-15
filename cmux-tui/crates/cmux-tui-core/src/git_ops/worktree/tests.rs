@@ -300,6 +300,112 @@ fn own_tree_the_check_of_a_setup_folder_is_of_the_folder_that_the_setup_opened()
     assert!(!of_the_repository, "the check was of the folder that the path names later");
 }
 
+/// The record of the git folder of a new work tree is read in the folder that the setup opened.
+/// 2 folders in the repository's `worktrees` folder: the first has the record of a different
+/// work tree, the second has the record of this work tree. The path of a place names the first
+/// when the place opens it, and the second after that. The place is not of the repository. A
+/// place that opened the second is of the repository.
+#[cfg(unix)]
+#[test]
+fn own_tree_the_record_of_a_setup_folder_is_of_the_folder_that_the_setup_opened() {
+    let top = new_folder("setup-opened-record");
+    let (common, root, other) = (top.join("main/.git"), top.join("new"), top.join("other"));
+    let (first, second) = (common.join("worktrees/first"), common.join("worktrees/second"));
+    let named = common.join("worktrees/named");
+    for folder in [&first, &second, &root, &other] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    record_of(&first, &other);
+    record_of(&second, &root);
+    std::os::unix::fs::symlink(&first, &named).unwrap();
+    let opened_first = worktree_setup::Place::new(root.clone(), None, &named, &common);
+    std::fs::remove_file(&named).unwrap();
+    std::os::unix::fs::symlink(&second, &named).unwrap();
+    let opened_second = worktree_setup::Place::new(root, None, &named, &common);
+
+    let of_the_repository = (opened_first.is_of(&common), opened_second.is_of(&common));
+
+    drop((opened_first, opened_second));
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!(of_the_repository, (false, true), "the record was of the folder of the path");
+}
+
+/// A git folder that is there and that the place cannot open keeps the kind of the error of its
+/// open. The folder here has the rights to search it and to write to it, and no right to read
+/// it. A user that has each right (root) opens it, and then there is no error to keep. A folder
+/// that is not there keeps that it was not found.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_folder_that_is_not_opened_keeps_the_error_of_its_open() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let top = new_folder("setup-not-opened");
+    let (common, root) = (top.join("main/.git"), top.join("new"));
+    let (closed, none) = (common.join("worktrees/closed"), common.join("worktrees/none"));
+    for folder in [&closed, &root] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o300)).unwrap();
+    let is_read = std::fs::read_dir(&closed).is_ok();
+
+    let kinds = [&closed, &none].map(|git_dir| {
+        worktree_setup::Place::new(root.clone(), None, git_dir, &common).not_opened()
+    });
+
+    // The old rights, before the result is looked at: the folder can be removed.
+    std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::remove_dir_all(top).unwrap();
+    let of_closed = (!is_read).then_some(std::io::ErrorKind::PermissionDenied);
+    assert_eq!(kinds, [of_closed, Some(std::io::ErrorKind::NotFound)]);
+}
+
+/// `git ARGUMENTS` in `folder`, with no configuration of the user or of the system. git starts
+/// no maintenance of its own: a maintenance that a commit starts can write to the git folder
+/// when the test removes it.
+fn git(folder: &Path, arguments: &[&str]) {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(folder)
+        .args(["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false"])
+        .args(["-c", "maintenance.auto=false", "-c", "gc.auto=0"])
+        .args(arguments)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "git {arguments:?}: {stderr}");
+}
+
+/// A folder that a run before made is the work tree of a create only when it is a work tree of
+/// the repository of the create. 2 repositories, made by git: each has a work tree on the
+/// branch of the create. For the first repository its own work tree is made, and the work tree
+/// of the second repository is not.
+#[test]
+fn own_tree_a_made_work_tree_is_a_work_tree_of_the_repository_of_the_create() {
+    let top = new_folder("made-place");
+    let (main, other) = (top.join("main"), top.join("other"));
+    let (own, of_other) = (top.join("own"), top.join("of-other"));
+    for (repository, work_tree) in [(&main, &own), (&other, &of_other)] {
+        std::fs::create_dir_all(repository).unwrap();
+        git(repository, &["init", "-q", "-b", "main"]);
+        git(repository, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        let work_tree = work_tree.to_string_lossy();
+        git(repository, &["worktree", "add", "-q", "-b", "cmux/new", &*work_tree]);
+    }
+    let attempt = |root: PathBuf| {
+        let (branch, base) = ("cmux/new".to_string(), "main".to_string());
+        Attempt { root, branch, base, base_commit: String::new() }
+    };
+    let common = main.join(".git");
+
+    let found = (made(&attempt(own), &common), made(&attempt(of_other), &common));
+
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!(found, (true, false), "the made work tree is of a different repository");
+}
+
 /// No setup starts in a folder that is not directly in the `worktrees` folder of the
 /// repository's git folder: a folder in the `worktrees` folder of a different repository, the
 /// repository's git folder, its `worktrees` folder, a folder below the git folder of a work
