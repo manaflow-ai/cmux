@@ -120,7 +120,7 @@ jobs:
         with:
           name: guard-report
           path: ${{ runner.temp }}/guard-report.json
-          retention-days: 14
+          retention-days: 7
 
   report:
     environment:

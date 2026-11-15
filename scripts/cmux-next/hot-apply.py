@@ -3,7 +3,7 @@
 
     hot-apply.py plan SHA [--app APP] [--repo DIR]
     hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
-                       [--restart-acpmux]
+                       [--restart-acpmux] [--dry-run] [--base COMMIT]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
 
@@ -65,6 +65,26 @@ Replacing bin/cmux breaks the app bundle's seal until `rollback` puts the same b
 next update replaces the bundle. The running app is not affected; macOS checks the seal again only
 when it assesses the app (a first launch from a quarantined download).
 
+Every receipt carries `phases`, the wall seconds of each phase of the run, and stderr prints them
+(`hot-apply: apply 41.2 s: key 30.4, fetch 6.1, ...`). The phases are exclusive (one entered inside
+another pauses it), so they add up to the run:
+
+  plan      reading the app's commit and sorting the diff (live_apply.py)
+  key       SHA's cmux-tui tree key and web source key (the web key checks SHA out sparsely)
+  fetch     downloads from files.cmux.com (the web bundle's own sha256 check is inside it)
+  verify    the sha256 checks of what was fetched and of what was put in place
+  backup    the copies of what the app had, kept for `rollback`
+  find      the daemons running from the app (ps, lsof, `server status`)
+  swap      the files renamed into place; the web overlay installed
+  reload    the daemon handoff until a new owner answers; the acpmux daemons restarted. The app's
+            own reload of its pages (on the overlay's manifest.json) is not seen from here.
+  rollback  putting back what was there after a failed check
+
+`apply --dry-run` plans, fetches and verifies every part and stops before `backup`: nothing in the
+app changes, and the receipt (action `dry-run`) goes only to history.jsonl, never to last.json
+(`rollback` never reads it). --base COMMIT stands in for the app's commit (its web ABI is read from
+COMMIT's tree), so a host with no app can plan or dry-run.
+
 Exit 0: applied and checked (or nothing to apply). 1: a check failed (rolled back). 2: usage.
 3: nothing here can apply SHA (an unpublished artifact, an unrelated commit, only `left` parts).
 """
@@ -72,6 +92,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -111,6 +132,38 @@ SHA = re.compile(r"[0-9a-f]{40}")
 # What a temporary checkout of SHA needs to compute its web source key (web-bundle-key.py reads
 # the files): everything but the large folders no web bundle imports.
 WEB_KEY_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghostty/"]
+
+
+class Phases:
+    """Wall seconds per phase of one run, exclusive: a phase entered inside another pauses the outer one,
+    so the phases add up to the time they cover."""
+
+    def __init__(self) -> None:
+        self.seconds: dict[str, float] = {}
+        self.stack: list[str] = []
+        self.mark = time.monotonic()
+
+    def _flush(self) -> None:
+        now = time.monotonic()
+        if self.stack:
+            self.seconds[self.stack[-1]] = self.seconds.get(self.stack[-1], 0.0) + now - self.mark
+        self.mark = now
+
+    @contextlib.contextmanager
+    def __call__(self, name: str):
+        self._flush()
+        self.stack.append(name)
+        try:
+            yield
+        finally:
+            self._flush()
+            self.stack.pop()
+
+    def rounded(self) -> dict[str, float]:
+        return {name: round(secs, 3) for name, secs in self.seconds.items()}
+
+
+PHASES = Phases()
 
 
 def load(name: str, file: str):
@@ -166,7 +219,7 @@ def sha256_file(path: Path) -> str:
 def fetch(url: str) -> bytes:
     # files.cmux.com answers Python's default user agent (Python-urllib/...) with 403.
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
-    with urllib.request.urlopen(request, timeout=300) as answer:
+    with PHASES("fetch"), urllib.request.urlopen(request, timeout=300) as answer:
         return answer.read()
 
 
@@ -200,6 +253,11 @@ def app_abi(app: Path) -> int | None:
 
 
 def tree_key(repo: Path, sha: str) -> str:
+    with PHASES("key"):
+        return _tree_key(repo, sha)
+
+
+def _tree_key(repo: Path, sha: str) -> str:
     done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/cmux_tui_tree_key.py"), "--version", "v2", sha],
                           cwd=repo, capture_output=True, text=True)
     key = done.stdout.strip()
@@ -225,8 +283,21 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
-def plan(repo: Path, app: Path, sha: str, branch: bool = False) -> dict:
-    base = app_commit(app, repo)
+def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None = None) -> dict:
+    with PHASES("plan"):
+        return _plan(repo, app, sha, branch, base)
+
+
+def abi_at(repo: Path, commit: str) -> int | None:
+    """The web ABI of COMMIT's tree (--base: no app to read it from)."""
+    try:
+        return json.loads(git(repo, "show", f"{commit}:webviews/src/web-abi.json"))["abi"]
+    except (RuntimeError, ValueError, KeyError):
+        return None
+
+
+def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None) -> dict:
+    base = given_base or app_commit(app, repo)
     for commit in (base, sha):
         if not have_commit(repo, commit):
             raise RuntimeError(f"{commit} is not in {repo} (fetch feat-cmux-next)")
@@ -259,7 +330,7 @@ def plan(repo: Path, app: Path, sha: str, branch: bool = False) -> dict:
         out["left"]["web (not published for a branch)"] = web
     elif web:
         want = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
-        have = app_abi(app)
+        have = abi_at(repo, base) if given_base else app_abi(app)
         if have == want:
             out["parts"].append("web")
         else:
@@ -296,6 +367,12 @@ def published(key: str) -> bool:
         return False
 
 
+def cached(copy: Path, want: str) -> bool:
+    """A copy fetched before (state/builds/SHA256/) that still hashes to its name: no download."""
+    with PHASES("verify"):
+        return copy.is_file() and sha256_file(copy) == want
+
+
 def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     """SHA's cmux binary for this host, checked against the tree's completion.json and .sha256."""
     name = f"cmux-tui-{triple()}"
@@ -307,10 +384,11 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     if not want or want != published:
         raise RuntimeError(f"{name}: completion.json says {want}, {name}.sha256 says {published}")
     copy = state / "builds" / want / "cmux"
-    if not copy.is_file() or sha256_file(copy) != want:
+    if not cached(copy, want):
         body = fetch(f"{TUI_BASE}/{key}/{name}")
-        if hashlib.sha256(body).hexdigest() != want:
-            raise RuntimeError(f"{TUI_BASE}/{key}/{name} does not hash to {want}")
+        with PHASES("verify"):
+            if hashlib.sha256(body).hexdigest() != want:
+                raise RuntimeError(f"{TUI_BASE}/{key}/{name} does not hash to {want}")
         copy.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
             part.write(body)
@@ -334,10 +412,11 @@ def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None
             out[file] = None
             continue
         copy = state / "builds" / want / file
-        if not copy.is_file() or sha256_file(copy) != want:
+        if not cached(copy, want):
             body = fetch(f"{COMMIT_BASE}/{owner}/{asset}")
-            if hashlib.sha256(body).hexdigest() != want:
-                raise RuntimeError(f"{COMMIT_BASE}/{owner}/{asset} does not hash to {want}")
+            with PHASES("verify"):
+                if hashlib.sha256(body).hexdigest() != want:
+                    raise RuntimeError(f"{COMMIT_BASE}/{owner}/{asset} does not hash to {want}")
             copy.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
                 part.write(body)
@@ -356,6 +435,11 @@ def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | 
 def place_companions(app: Path, companions: dict[str, tuple[Path, str] | None], state: Path) -> dict:
     """Puts each companion beside bin/cmux, or removes the app's when the build has none; returns
     what was there before, by file (None: absent), for put_back."""
+    with PHASES("swap"):
+        return _place_companions(app, companions, state)
+
+
+def _place_companions(app: Path, companions: dict[str, tuple[Path, str] | None], state: Path) -> dict:
     prior: dict = {}
     for file, new in companions.items():
         target = app / BIN / file
@@ -370,8 +454,9 @@ def place_companions(app: Path, companions: dict[str, tuple[Path, str] | None], 
         shutil.copy2(new[0], staged)
         staged.chmod(0o755)
         os.replace(staged, target)
-        if sha256_file(target) != new[1]:
-            raise RuntimeError(f"{target} does not hash to {new[1]}")
+        with PHASES("verify"):
+            if sha256_file(target) != new[1]:
+                raise RuntimeError(f"{target} does not hash to {new[1]}")
     return prior
 
 
@@ -391,12 +476,13 @@ def restore_companions(app: Path, prior: dict) -> None:
 
 def keep(state: Path, path: Path) -> tuple[Path, str]:
     """A copy of `path` by its sha256 under the state folder, so a rollback has its bytes."""
-    digest = sha256_file(path)
-    copy = state / "builds" / digest / "cmux"
-    if not copy.is_file():
-        copy.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, copy)
-    return copy, digest
+    with PHASES("backup"):
+        digest = sha256_file(path)
+        copy = state / "builds" / digest / "cmux"
+        if not copy.is_file():
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, copy)
+        return copy, digest
 
 
 # The names bin/cmux runs as that serve `server status`. acpmux is the same file under another name
@@ -489,7 +575,8 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) 
     target = (app / BIN / "cmux").resolve()
     swapper_cls = load("rust_live", "rust-live.py").Swapper
     try:
-        running = find_sockets(app, target)
+        with PHASES("find"):
+            running = find_sockets(app, target)
     except RuntimeError:
         if not socket:
             raise
@@ -503,25 +590,29 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) 
     t0 = time.monotonic()
     if socket is None:
         # No daemon runs from this app: the file alone, which the app's next ensure runs.
-        staged = target.with_name(f".{target.name}.hot-apply")
-        shutil.copy2(new, staged)
-        staged.chmod(0o755)
-        os.replace(staged, target)
+        with PHASES("swap"):
+            staged = target.with_name(f".{target.name}.hot-apply")
+            shutil.copy2(new, staged)
+            staged.chmod(0o755)
+            os.replace(staged, target)
         step["daemon"] = "none running; the next start runs it"
     else:
         swapper = swapper_cls(None, socket, state=state / "handoff")
-        owner = swapper.owner(target)
+        with PHASES("find"):
+            owner = swapper.owner(target)
         if owner is None:
             raise RuntimeError(f"no daemon answers on {socket}")
         if swapper.app_file(owner[1]) != target:
             raise RuntimeError(f"the daemon on {socket} runs {owner[1]}, not {target}: not this app's")
-        swapper.app_handoff(new, owner[0], target)
-        now = swapper.owner(target, timeout=10)
+        with PHASES("reload"):  # the rename over target, SIGTERM, until the app's next owner answers
+            swapper.app_handoff(new, owner[0], target)
+            now = swapper.owner(target, timeout=10)
         step.update(old_pid=owner[0], new_pid=now[0] if now else None, daemon="app handoff")
         if not now or now[0] == owner[0]:
             raise RuntimeError(f"no new daemon owner answered on {socket} after the handoff")
     step["seconds"] = round(time.monotonic() - t0, 3)
-    have = sha256_file(target)
+    with PHASES("verify"):
+        have = sha256_file(target)
     step["running_sha256"] = have
     if have != want:
         raise RuntimeError(f"{target} hashes to {have}, not {want}")
@@ -628,6 +719,12 @@ def outside_login_session() -> bool:
 
 def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = None,
                    sockets: dict[str, str] | None = None) -> list[dict]:
+    with PHASES("reload"):
+        return _restart_acpmux(app, homes, before, sockets)
+
+
+def _restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None,
+                    sockets: dict[str, str] | None) -> list[dict]:
     """`acpmux daemon restart` in each home; hosted sessions are kept and resume. The new daemon starts from
     the CLI that runs the restart, so the restart runs with the running daemon's own launch environment
     (its Chief home, Computer Use socket, agent launch policy: everything its owner started it with), read
@@ -671,6 +768,11 @@ def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = 
 
 def web_key(repo: Path, sha: str) -> str:
     """SHA's web source key, from a temporary sparse checkout of SHA (web-bundle-key.py reads files)."""
+    with PHASES("key"):
+        return _web_key(repo, sha)
+
+
+def _web_key(repo: Path, sha: str) -> str:
     scratch = Path(tempfile.mkdtemp(prefix="hot-apply-web-"))
     tree = scratch / "tree"
     try:
@@ -715,54 +817,79 @@ def overlay_commit(live) -> str | None:
         return None
 
 
+def fetch_web(key: str, out: Path) -> None:
+    """The bundles published for web source KEY, unpacked into OUT and checked against their manifest."""
+    with PHASES("fetch"):  # fetch-web-bundles.sh checks the archive's sha256 itself
+        fetched = subprocess.run([str(ROOT / "scripts/cmux-next/fetch-web-bundles.sh"), "--key", key, "--out", str(out)],
+                                 stdout=subprocess.PIPE, stderr=sys.stderr, text=True)
+    if fetched.returncode != 0:
+        raise RuntimeError(f"web bundles for key {key} not fetched (exit {fetched.returncode}; 3 is unpublished)")
+
+
 def apply_web(repo: Path, sha: str, live) -> dict:
     key = web_key(repo, sha)
     out = Path(tempfile.mkdtemp(prefix="hot-apply-bundles-"))
     try:
-        fetched = subprocess.run([str(ROOT / "scripts/cmux-next/fetch-web-bundles.sh"), "--key", key, "--out", str(out / "b")],
-                                 stdout=subprocess.PIPE, stderr=sys.stderr, text=True)
-        if fetched.returncode != 0:
-            raise RuntimeError(f"web bundles for key {key} not fetched (exit {fetched.returncode}; 3 is unpublished)")
-        installed = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "install", str(out / "b"), "--commit", sha],
-                                   stdout=sys.stderr, stderr=sys.stderr)
+        fetch_web(key, out / "b")
+        with PHASES("swap"):
+            installed = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "install", str(out / "b"),
+                                        "--commit", sha], stdout=sys.stderr, stderr=sys.stderr)
         if installed.returncode != 0:
             raise RuntimeError(f"web-overlay.sh install exited {installed.returncode}")
     finally:
         shutil.rmtree(out, ignore_errors=True)
-    if overlay_commit(live) != sha:
-        raise RuntimeError(f"the overlay's manifest names {overlay_commit(live)}, not {sha}")
+    with PHASES("verify"):
+        if overlay_commit(live) != sha:
+            raise RuntimeError(f"the overlay's manifest names {overlay_commit(live)}, not {sha}")
     return {"key": key, "commit": sha, "generation": live.generation()}
 
 
 # ---------------------------------------------------------------- commands
 
 
-def record(state: Path, receipt: dict) -> None:
+def record(state: Path, receipt: dict, last: bool = True) -> None:
+    """Writes the receipt, with the run's phases, to history.jsonl (and last.json unless LAST is false, as for a
+    dry run), prints it as the last line on stdout and the phases on stderr."""
+    receipt["phases"] = PHASES.rounded()
     state.mkdir(parents=True, exist_ok=True)
     line = json.dumps(receipt)
-    (state / "last.json").write_text(line + "\n")
+    if last:
+        (state / "last.json").write_text(line + "\n")
     with open(state / "history.jsonl", "a") as handle:
         handle.write(line + "\n")
+    log(timings(receipt))
     print(line)
 
 
+def timings(receipt: dict) -> str:
+    """One line: the run's seconds, then each phase's, largest first."""
+    phases = sorted(receipt.get("phases", {}).items(), key=lambda kv: -kv[1])
+    return f"{receipt.get('action', '?')} {receipt.get('seconds', 0):.1f} s: " + (
+        ", ".join(f"{name} {secs:.1f}" for name, secs in phases) or "no phases")
+
+
 def command_plan(args) -> int:
-    out = plan(Path(args.repo), Path(args.app), args.sha, args.branch)
+    out = plan(Path(args.repo), Path(args.app), args.sha, args.branch, args.base)
     print(json.dumps(out, indent=2))
     return 0 if out["parts"] or not out["left"] else 3
 
 
 def command_apply(args) -> int:
     repo, app, state = Path(args.repo), Path(args.app), state_dir()
+    if args.base and not args.dry_run:
+        print("hot-apply: --base stands in for an app only in plan and apply --dry-run", file=sys.stderr)
+        return 2
     t0 = time.monotonic()
-    planned = plan(repo, app, args.sha, args.branch)
+    planned = plan(repo, app, args.sha, args.branch, args.base)
     parts = [p for p in planned["parts"] if p in args.parts.split(",")]
-    receipt = {"action": "apply", **planned, "applied": [], "rolled_back": False, "steps": {},
-               "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    receipt = {"action": "dry-run" if args.dry_run else "apply", **planned, "applied": [], "rolled_back": False,
+               "steps": {}, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     if not parts:
         receipt["seconds"] = round(time.monotonic() - t0, 3)
-        record(state, receipt)
+        record(state, receipt, last=not args.dry_run)
         return 0 if not planned["left"] else 3
+    if args.dry_run:
+        return dry_run(repo, args, planned, parts, receipt, state, t0)
     live = load("live_apply_loop", "live-apply.py")
     target = (app / BIN / "cmux").resolve()
     undo: dict = {}
@@ -811,7 +938,8 @@ def command_apply(args) -> int:
     except Exception as error:  # noqa: BLE001 - any failed step puts back what ran before
         receipt["error"] = str(error)
         receipt["rolled_back"] = True
-        receipt["rollback"] = put_back(app, undo, args.socket, state, live)
+        with PHASES("rollback"):
+            receipt["rollback"] = put_back(app, undo, args.socket, state, live)
         # A part that did not go back stays in `undo`, so `rollback` can try it again.
         receipt["undo"] = {part: undo[part] for part, step in receipt["rollback"].items() if not step.get("ok")}
         receipt["seconds"] = round(time.monotonic() - t0, 3)
@@ -820,6 +948,32 @@ def command_apply(args) -> int:
     receipt["undo"] = undo
     receipt["seconds"] = round(time.monotonic() - t0, 3)
     record(state, receipt)
+    return 0
+
+
+def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, state: Path, t0: float) -> int:
+    """What `apply` would fetch and verify, fetched and verified; nothing in the app changes."""
+    try:
+        if "rust" in parts and not args.binary:
+            new, want = fetch_cmux(planned["tree_key"], state)
+            companions = fetch_companions(planned["tree_key"], state)
+            receipt["steps"]["rust"] = {"to": want, "copy": str(new)}
+            receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
+        if "web" in parts:
+            key = web_key(repo, args.sha)
+            out = Path(tempfile.mkdtemp(prefix="hot-apply-bundles-"))
+            try:
+                fetch_web(key, out / "b")
+            finally:
+                shutil.rmtree(out, ignore_errors=True)
+            receipt["steps"]["web"] = {"key": key, "commit": args.sha}
+    except Exception as error:  # noqa: BLE001 - the receipt says what failed; nothing to put back
+        receipt["error"] = str(error)
+        receipt["seconds"] = round(time.monotonic() - t0, 3)
+        record(state, receipt, last=False)
+        return 1
+    receipt["seconds"] = round(time.monotonic() - t0, 3)
+    record(state, receipt, last=False)
     return 0
 
 
@@ -873,7 +1027,8 @@ def command_rollback(args) -> int:
         return 3
     app = Path(args.app or last["app"])
     t0 = time.monotonic()
-    done = put_back(app, last["undo"], args.socket, state, load("live_apply_loop", "live-apply.py"))
+    with PHASES("rollback"):
+        done = put_back(app, last["undo"], args.socket, state, load("live_apply_loop", "live-apply.py"))
     receipt = {"action": "rollback", "of": last["sha"], "app": str(app), "steps": done,
                "undo": {part: last["undo"][part] for part, step in done.items() if not step.get("ok")},
                "ok": all(step.get("ok") for step in done.values()), "seconds": round(time.monotonic() - t0, 3),
@@ -900,6 +1055,7 @@ def main(argv=None) -> int:
         p.add_argument("--repo", default=str(ROOT))
         p.add_argument("--branch", action="store_true",
                        help="SHA is a branch head (a pull request) that may predate the app's commit")
+        p.add_argument("--base", help="stand in for the app's commit (plan, apply --dry-run): no app needed")
         if name == "apply":
             p.add_argument("--parts", default="web,rust")
             p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
@@ -907,6 +1063,8 @@ def main(argv=None) -> int:
             p.add_argument("--acpmux-home", action="append", default=[])
             p.add_argument("--restart-acpmux", action="store_true",
                            help="also restart every acpmux daemon running from the app's bin folder (sessions resume)")
+            p.add_argument("--dry-run", action="store_true",
+                           help="plan, fetch and verify every part; change nothing in the app (receipt: history.jsonl)")
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")
