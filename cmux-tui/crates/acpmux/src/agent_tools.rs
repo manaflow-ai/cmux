@@ -90,9 +90,16 @@ pub const SWITCH_ENV: &str = "ACPMUX_AGENT_TOOLS";
 pub const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
 
 /// Caller ids an agent must not inherit from the daemon's own environment
-/// (a daemon an agent started carries that agent's session too).
-pub const INHERITED_CALLER_ENV: [&str; 4] =
-    ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID", AGENT_SESSION_ENV];
+/// (a daemon an agent started carries that agent's session too, and a
+/// terminal Claude's answer to cmux's tools, [`TOOLS_ANSWER_ENV`]; a chat's own
+/// answer comes from its session env, applied after).
+pub const INHERITED_CALLER_ENV: [&str; 5] = [
+    "CMUX_TUI_TERMINAL_ID",
+    "CMUX_SURFACE_ID",
+    "CMUX_PANEL_ID",
+    AGENT_SESSION_ENV,
+    TOOLS_ANSWER_ENV,
+];
 
 /// The agent memory server's name (`optchat-chief agent-memory mcp`).
 pub const MEMORY_SERVER_NAME: &str = "cmux-agent-memory";
@@ -559,19 +566,25 @@ pub fn person_entry_env(
     if !crate::codex_cmux_entry::stdio_cmux_entry(&args, launch.cwd, &getenv) {
         return None;
     }
-    // A session cut off from cmux's tools (`ACPMUX_AGENT_TOOLS=0`, or a profile or preset whose
-    // servers leave `cmux` out) gets the off server from the person's entry too.
-    let kept = env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
-    let cut_off = env.get(SWITCH_ENV).is_some_and(|v| v == "0")
-        || kept.is_some_and(|keep| !keep.split(',').any(|name| name.trim() == CMUX_SERVER));
+    // A session cut off from cmux's tools gets the off server from the person's entry too.
     let answer = match env.get(TOOLS_ANSWER_ENV).map(String::as_str) {
-        _ if cut_off => "off",
+        _ if cut_off(env) => "off",
         Some("on") => "on",
         Some(_) => "off",
         None if agents_get_cmux(crate::user_settings::text().as_deref()) => "on",
         None => "off",
     };
     Some(json!({CMUX_SERVER: {AGENT_SESSION_ENV: session_id, TOOLS_ANSWER_ENV: answer}}))
+}
+
+/// Whether a session whose profile, preset and session env is `env` is cut off from cmux's
+/// tools: `ACPMUX_AGENT_TOOLS=0` ([`SWITCH_ENV`]), or a server list ([`SERVERS_ENV`]) that leaves
+/// `cmux` out. A person's own `cmux` entry such a session starts gets the answer `off`
+/// ([`person_entry_env`] for Codex; the harness env for Claude Code, `hub/spawn.rs`).
+pub fn cut_off(env: &BTreeMap<String, String>) -> bool {
+    let kept = env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
+    env.get(SWITCH_ENV).is_some_and(|v| v == "0")
+        || kept.is_some_and(|keep| !keep.split(',').any(|name| name.trim() == CMUX_SERVER))
 }
 
 /// Puts [`person_entry_env`]'s keys on ACP session params as `_meta.cmux.mcpServerEnv`.

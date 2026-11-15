@@ -96,7 +96,9 @@ impl Client {
             .flatten()
             .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
             .collect();
-        let env: Value = serde_json::from_str(&text).unwrap_or_else(|_| panic!("{text}"));
+        // The `envs:` reply is the last JSON object streamed (a dispatched brief's reply comes first).
+        let json = text.rfind('{').map(|at| &text[at..]).unwrap_or(&text);
+        let env: Value = serde_json::from_str(json).unwrap_or_else(|_| panic!("{text}"));
         env["CMUX_AGENT_TOOLS_ANSWER"].as_str().unwrap_or_default().to_owned()
     }
 }

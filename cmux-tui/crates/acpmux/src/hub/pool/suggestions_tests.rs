@@ -90,8 +90,8 @@ fn a_change_to_cmux_tools_leaves_a_pooled_key_unmatched() {
     let env = std::collections::BTreeMap::new();
     let on = tool_servers(tools(r#"{"agents": {"cmuxMcp": "on"}}"#), &env, None);
     let off = tool_servers(tools(r#"{"agents": {"cmuxMcp": "off"}}"#), &env, None);
-    assert_eq!(on, "cmux");
-    assert_eq!(off, "");
+    assert_eq!(on, "cmux,answer:on");
+    assert_eq!(off, "answer:off");
     // Through the pool: a spare started with `cmux` is discarded once the answer is off, and the
     // other way round; the same servers are served.
     let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
@@ -148,13 +148,13 @@ fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     )
     .unwrap();
     let after = tool_servers(tools(), &env, codex());
-    assert_eq!(before, "cmux");
-    assert_eq!(after, "");
+    assert_eq!(before, "cmux,answer:on");
+    assert_eq!(after, "answer:on");
     // Through the pool: the spare started before the entry is discarded, not served.
     let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
     assert!(!served(with(&before), &with(&after)));
     // Not Codex: the person's Codex config does not matter.
-    assert_eq!(tool_servers(tools(), &env, None), "cmux");
+    assert_eq!(tool_servers(tools(), &env, None), "cmux,answer:on");
 }
 
 /// A Codex spare started before the person added their own stdio `cmux` entry got no env keys for
@@ -180,9 +180,9 @@ fn a_persons_stdio_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
         .unwrap();
     let off = tool_servers(tools(), &env("off"), codex());
     let on = tool_servers(tools(), &env("on"), codex());
-    assert_eq!(before, "");
-    assert_eq!(off, "cmux-entry-env:off");
-    assert_eq!(on, "cmux-entry-env:on");
+    assert_eq!(before, "answer:off");
+    assert_eq!(off, "answer:off,cmux-entry-env:off");
+    assert_eq!(on, "answer:on,cmux-entry-env:on");
     let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
     assert!(!served(with(&before), &with(&off)));
     assert!(!served(with(&off), &with(&on)));
@@ -191,6 +191,19 @@ fn a_persons_stdio_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     let mut cut = env("on");
     cut.insert(crate::agent_tools::SWITCH_ENV.to_owned(), "0".to_owned());
     let cut_off = tool_servers(tools(), &cut, codex());
-    assert_eq!(cut_off, "cmux-entry-env:off");
+    assert_eq!(cut_off, "answer:off,cmux-entry-env:off");
     assert!(!served(with(&on), &with(&cut_off)));
+}
+
+/// A Claude spare when no `cmux` server resolves (no cmux CLI here): its key still carries the
+/// answer it started under, so one started before the answer changed is discarded.
+#[test]
+fn the_answer_is_in_the_key_when_no_cmux_server_resolves() {
+    let none = crate::agent_tools::AgentTools { cmux_for_agents: true, ..Default::default() };
+    let off_now = crate::agent_tools::AgentTools::default();
+    let env = std::collections::BTreeMap::new();
+    let (on, off) = (tool_servers(none, &env, None), tool_servers(off_now, &env, None));
+    assert_eq!((on.as_str(), off.as_str()), ("answer:on", "answer:off"));
+    let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
+    assert!(!served(with(&on), &with(&off)));
 }

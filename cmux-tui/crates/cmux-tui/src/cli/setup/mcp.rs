@@ -419,6 +419,8 @@ struct Request {
     dry_run: bool,
     /// `--remove CLIENT`: take that agent's leftover `cmux` entry out.
     remove: Option<Client>,
+    /// `--confirm`: the person asked for `--remove` (Settings' Remove button passes it).
+    confirm: bool,
 }
 
 /// `--remove CLIENT`: takes out the `cmux` entry in `client`'s own config
@@ -537,6 +539,7 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
     for arg in args {
         match arg.as_str() {
             "--remove" => removing = true,
+            "--confirm" => request.confirm = true,
             // Nothing is written by a report either way; with --remove, only the plan.
             "--dry-run" => request.dry_run = true,
             flag if flag.starts_with('-') => {
@@ -558,6 +561,18 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
         }
     }
     if removing {
+        // A person's act only: at a terminal, or Settings' Remove button (`--confirm`). An agent
+        // (the Chief, a script) never runs it on its own; `--dry-run` only plans.
+        use std::io::IsTerminal as _;
+        let person = request.confirm || std::io::stdin().is_terminal();
+        if !person && !request.dry_run {
+            return Err(Refusal::Usage(
+                "cmux: setup mcp: --remove changes an agent's own settings, so a person runs it: \
+                 in a terminal, or with Settings > Agents' Remove button. Show the person the \
+                 report's leftover instead"
+                    .into(),
+            ));
+        }
         let [client] = request.named.as_slice() else {
             return Err(Refusal::Usage(
                 "cmux: setup mcp: --remove takes one agent, claude or codex: it takes out the \
@@ -575,7 +590,11 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
 /// credentials ([`redact_url_credentials`]); the value of a flag whose name says secret
 /// (`--token=V`, `--api-key V`, `--password`, `--secret`, `--auth…`, `--credential…`); and a
 /// `NAME=VALUE` whose value is a long random-looking string (20 or more characters of letters
-/// and digits, both present, and nothing but `-_.+/=`), as an `env`-style key=token.
+/// and digits, both present, and nothing but `-_.+/=`), as an `env`-style key=token; an HTTP
+/// header with credentials (`Authorization: Bearer …`, `X-Api-Key: …`, `Cookie: …`, or any
+/// `Name: Bearer|Basic|Token …`, alone or after `--header=`); and a bare positional token (24 or
+/// more characters of letters and digits, both present, and nothing but `-_+`, so no path,
+/// package or version).
 fn redact_secrets(args: &[String]) -> Vec<String> {
     const SECRET_WORDS: [&str; 7] =
         ["token", "key", "secret", "password", "passwd", "auth", "credential"];
@@ -589,6 +608,26 @@ fn redact_secrets(args: &[String]) -> Vec<String> {
             && value.chars().any(|c| c.is_ascii_digit())
             && value.chars().any(|c| c.is_ascii_alphabetic())
     };
+    // `Name: value` with credentials: the name and `<redacted>`.
+    let header = |text: &str| -> Option<String> {
+        let (name, value) = text.split_once(':')?;
+        let name = name.trim();
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return None;
+        }
+        let lower = name.to_ascii_lowercase();
+        let scheme = value.split_whitespace().next().unwrap_or_default().to_ascii_lowercase();
+        let secret = SECRET_WORDS.iter().any(|word| lower.contains(word))
+            || matches!(lower.as_str(), "cookie" | "proxy-authorization")
+            || matches!(scheme.as_str(), "bearer" | "basic" | "token" | "digest");
+        (secret && !value.trim().is_empty()).then(|| format!("{name}: <redacted>"))
+    };
+    let bare = |value: &str| {
+        value.len() >= 24
+            && value.chars().all(|c| c.is_ascii_alphanumeric() || "-_+".contains(c))
+            && value.chars().any(|c| c.is_ascii_digit())
+            && value.chars().any(|c| c.is_ascii_alphabetic())
+    };
     let mut out = Vec::with_capacity(args.len());
     let mut next_is_secret = false;
     for arg in args {
@@ -597,6 +636,21 @@ fn redact_secrets(args: &[String]) -> Vec<String> {
             continue;
         }
         let arg = redact_url_credentials(arg);
+        if let Some(shown) = header(&arg) {
+            out.push(shown);
+            continue;
+        }
+        if let Some((flag, value)) = arg.split_once('=')
+            && flag.starts_with('-')
+            && let Some(shown) = header(value)
+        {
+            out.push(format!("{flag}={shown}"));
+            continue;
+        }
+        if !arg.starts_with('-') && bare(&arg) {
+            out.push("<redacted>".to_owned());
+            continue;
+        }
         match arg.split_once('=') {
             Some((flag, _)) if names_secret(flag) => out.push(format!("{flag}=<redacted>")),
             Some((name, value))
@@ -711,11 +765,27 @@ mod tests {
             r(&["KEY=sk9f8a7d6s5f4g3h2j1k0l", "https://u:p@h/x"]),
             ["KEY=<redacted>", "https://<redacted>@h/x"]
         );
+        assert_eq!(
+            r(&["--header", "Authorization: Bearer abc.def", "-H", "X-Api-Key: k1"]),
+            ["--header", "Authorization: <redacted>", "-H", "X-Api-Key: <redacted>"]
+        );
+        assert_eq!(
+            r(&["--header=Authorization: Basic dXNlcjpw"]),
+            ["--header=Authorization: <redacted>"]
+        );
+        assert_eq!(r(&["X-Custom: Token t0k3n"]), ["X-Custom: <redacted>"]);
+        assert_eq!(r(&["mcp", "ghp1a2b3c4d5e6f7g8h9i0j1k2l3m4n"]), ["mcp", "<redacted>"]);
         for plain in [
             &["npx", "-y", "cmux", "mcp", "serve"][..],
             &["/Applications/cmux.app/Contents/Resources/bin/cmux", "mcp", "serve", "--all-tools"],
             &["--registry=https://npm.example/", "--keep-alive", "LANG=en_US.UTF-8"],
             &["MODE=aaaaaaaaaaaaaaaaaaaaaaaaa"],
+            &["lib/node_modules/cmux-tui-linux-x64/bin/cmux-tui", "mcp", "serve"],
+            &[
+                "cmux@1.2.3-beta.4",
+                "Content-Type: application/json",
+                "abcdefghijklmnopqrstuvwxyzab",
+            ],
         ] {
             assert_eq!(r(plain), strings(plain), "{plain:?}");
         }

@@ -90,7 +90,10 @@ acp() { "$CMUX" acp "$@"; }
 answer() { echo "{\"agents\": {\"cmuxMcp\": \"$1\"}}" > "$CMUX_NEXT_CONFIG_FILE"; }
 answer on
 "$CMUX" setup trust "$D/work" >/dev/null 2>&1
-acp daemon run > "$D/daemon.log" 2>&1 &
+# Started as from a terminal Claude's shell, which carries that Claude's answer to cmux's tools
+# (the `claude` shim): a stale `on` the daemon must not pass on. The off and ask checks below then
+# show that the live setting decides.
+CMUX_AGENT_TOOLS_ANSWER=on acp daemon run > "$D/daemon.log" 2>&1 &
 daemon=$!
 trap 'acp daemon shutdown --end-agents >/dev/null 2>&1; kill "$daemon" 2>/dev/null' EXIT
 for _ in $(seq 1 60); do acp daemon status >/dev/null 2>&1 && break; perl -e 'select(undef,undef,undef,0.5)'; done
@@ -389,7 +392,7 @@ json.dump(cfg, open(path, "w"))
 PY
 # A reads its peers as it starts: restart it on its new config.
 acp daemon shutdown --end-agents > /dev/null 2>&1; wait "$daemon" 2>/dev/null
-acp daemon run > "$D/daemon2.log" 2>&1 &
+CMUX_AGENT_TOOLS_ANSWER=on acp daemon run > "$D/daemon2.log" 2>&1 &
 daemon=$!
 for _ in $(seq 1 60); do acp daemon status >/dev/null 2>&1 && break; perl -e 'select(undef,undef,undef,0.5)'; done
 for _ in $(seq 1 40); do acp machine ls 2>/dev/null | grep -qi "^b .*\(connected\|online\|up\)" && break; perl -e 'select(undef,undef,undef,0.5)'; done

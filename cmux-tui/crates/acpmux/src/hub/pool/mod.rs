@@ -265,12 +265,22 @@ fn tool_servers(
     env: &std::collections::BTreeMap<String, String>,
     codex: Option<crate::agent_tools::CodexLaunch<'_>>,
 ) -> String {
+    // The answer a session of this shape starts under, whether or not a `cmux` server resolves
+    // (no cmux CLI here): a spare's harness env and its person's entry carry it.
+    let answer = match env.get(crate::agent_tools::TOOLS_ANSWER_ENV).map(String::as_str) {
+        _ if crate::agent_tools::cut_off(env) => "off",
+        Some("on") => "on",
+        Some(_) => "off",
+        None if tools.cmux_for_agents => "on",
+        None => "off",
+    };
     let tools = tools.scoped(env);
     let tools = match codex {
         Some(launch) => tools.without_cmux_beside_an_http_entry(launch, env),
         None => tools,
     };
     let mut names: Vec<String> = tools.servers.iter().map(|s| s.name.clone()).collect();
+    names.push(format!("answer:{answer}"));
     // The env keys a Codex chat sends the person's own stdio `cmux` entry
     // (`agent_tools::person_entry_env`), with the answer they carry: a spare started before the
     // entry appeared, or under another answer, is never served.

@@ -48,7 +48,7 @@ public final class AgentToolsCLISource: AgentToolsSource {
 
     public func removeLeftoverEntry(_ id: String) async -> AgentToolsRemoval {
         guard ["claude", "codex"].contains(id), let cli = await cli(),
-              let data = await Self.setupMCP(cli, ["--remove", id]) else { return .failed }
+              let data = await Self.setupMCP(cli, ["--remove", id, "--confirm"]) else { return .failed }
         return AgentToolsRemoval(removeReport: data)
     }
 

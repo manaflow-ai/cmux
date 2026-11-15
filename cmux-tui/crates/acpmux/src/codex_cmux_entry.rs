@@ -269,17 +269,18 @@ pub fn stdio_cmux_entry(
 /// The `.codex/config.toml` files Codex loads for a launch in `folder`: those in
 /// `folder` and each folder above it up to the project root (the nearest one
 /// with a `.git`, else `folder`), when the user config `user` marks that root
-/// trusted (`[projects."<root>"] trust_level = "trusted"`, the path as written
-/// or resolved). None for a project it does not mark trusted, or `untrusted`.
+/// trusted (`[projects."<root>"] trust_level = "trusted"`), keyed by the root's
+/// resolved path, as Codex looks it up: a key with the path as written (a
+/// link, `..`) is one Codex ignores, so it does not count. None for a project
+/// it does not mark trusted, or `untrusted`.
 fn trusted_project_files(user: &Path, folder: &Path) -> Vec<PathBuf> {
     let Ok(text) = std::fs::read_to_string(user) else { return Vec::new() };
     let Ok(config) = text.parse::<toml::Table>() else { return Vec::new() };
     let trusted = |root: &Path| {
-        let resolved = root.canonicalize().ok();
+        let Ok(resolved) = root.canonicalize() else { return false };
         config.get("projects").and_then(toml::Value::as_table).is_some_and(|projects| {
             projects.iter().any(|(path, entry)| {
-                let path = Path::new(path);
-                (path == root || resolved.as_deref() == Some(path))
+                Path::new(path) == resolved
                     && entry.get("trust_level").and_then(toml::Value::as_str) == Some("trusted")
             })
         })
@@ -461,6 +462,19 @@ mod tests {
             std::fs::write(&user, &trust).unwrap();
             assert_eq!(stdio_cmux_entry(&[], &work, &getenv), counts, "{trust}");
         }
+        // A key with a path that is not the resolved one (through a link): Codex ignores it.
+        let link = root.join("work-link");
+        std::os::unix::fs::symlink(&work, &link).unwrap();
+        std::fs::write(
+            &user,
+            format!("[projects.{:?}]\ntrust_level = \"trusted\"\n", link.to_str().unwrap()),
+        )
+        .unwrap();
+        assert!(!stdio_cmux_entry(&[], &link, &getenv), "a key with the linked path");
+        assert!(
+            !stdio_cmux_entry(&[], &work, &getenv),
+            "a key with the linked path, from the real folder"
+        );
         // In a git repository, the root is the repository: a file above it never loads.
         let (repo, sub) = (root.join("repo"), root.join("repo/sub"));
         std::fs::create_dir_all(repo.join(".git")).unwrap();

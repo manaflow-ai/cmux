@@ -282,6 +282,13 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // A Claude Code cut off from cmux's tools passes the answer `off` to its own stdio servers
+        // (a person's `cmux` entry), as a Codex one does (`agent_tools::person_entry_env`).
+        if crate::agent_tools::is_claude_code(&meta.harness, &p)
+            && crate::agent_tools::cut_off(&p.env)
+        {
+            p.env.insert(crate::agent_tools::TOOLS_ANSWER_ENV.to_owned(), "off".to_owned());
+        }
         // cmux-harness writes its durable journal into acpmux's session store.
         // Bind this after profile and session env so a profile cannot redirect
         // the journal into an arbitrary path; MemoryStore intentionally has no
