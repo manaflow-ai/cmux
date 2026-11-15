@@ -3,31 +3,36 @@ import { defineExperiment, experimentArm } from "../../../experiments/experiment
 
 /// The New Tab composer's icon column (Leo 2026-11-07: the projects and their icons "should be sort
 /// of like center aligned with the bypass permissions symbols"): the folder chip's icon over the box,
-/// the + glyph in it and the permission mode's shield under it on one vertical center line. Compare
-/// the arms in the gallery (agent-pane.new-tab-icon-column); test/newtab-icon-column.test.ts
-/// measures each arm's three centers.
+/// the + glyph in it and the permission mode's shield under it on one vertical center line. Every arm
+/// keeps that line; the arms differ in what carries the chips around it, so they read apart at a
+/// glance (Leo 2026-11-15, shown four arms about a pixel apart: "those all look the same to me").
+/// Compare the arms in the gallery (agent-pane.new-tab-icon-column); test/newtab-icon-column.test.ts
+/// measures each arm's three centers. The arms' looks are newtab/screen.css's `data-icon-column` rules.
 export const newTabIconColumn = defineExperiment({
   id: "new-tab-icon-column",
   title: "New Tab icon column",
-  description: "Where the folder chip's icon, the + glyph and the permission shield line up.",
+  description:
+    "What carries the folder, machine and permission chips on the icon column: bare text, a tray, capsules or glyphs alone.",
   arms: {
     pad: {
-      label: "Derived padding",
+      label: "Bare text",
       description:
-        "The project badge's leading padding is the ghost icon's center less half the badge: the badge centers on the icon column, the hover pill keeps its edge.",
+        "The chips are muted text over and under the box with no fill; the icon column is the only structure (shipped).",
     },
-    shift: {
-      label: "Shift the chip",
+    tray: {
+      label: "Tray",
       description:
-        "The chip keeps its full inset and moves out by the badge's extra half width; its hover pill moves with it.",
+        "The folder and machine chips sit in a filled tray tucked under the box's top edge, as Codex's desktop composer.",
     },
-    shrink: {
-      label: "Shrink the badge",
-      description: "The project badge draws at the 14 px ghost icon's size, so the button's icon padding centers it.",
+    pills: {
+      label: "Capsules",
+      description:
+        "Every chip over and under the box is its own filled capsule (the button corner) with a hairline rim.",
     },
-    current: {
-      label: "Before",
-      description: "The ghost button's full inset before the badge: its center 4.5 px right of + and the shield.",
+    icons: {
+      label: "Glyphs only",
+      description:
+        "The chips drop their names and chevrons: a bare column of glyphs (folder, +, shield); the names stay in the accessible name.",
     },
   },
   defaultArm: "pad",

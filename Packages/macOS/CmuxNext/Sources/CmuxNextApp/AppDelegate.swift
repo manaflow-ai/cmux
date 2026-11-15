@@ -333,6 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
         // Before any page asks: cmux Live off ignores web-dev.json from the first request.
         WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
+        if LaunchIdentity.ignoresCustomizations(keysHeld: NSEvent.modifierFlags.isSuperset(of: [.option, .shift])) { WebDevOverride.ignoreThisRun() }
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
