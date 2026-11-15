@@ -93,14 +93,16 @@ impl Hub {
     /// order's next read. Costs the live chats, the rows changed since the order's last read
     /// and those of the last day, never a walk of every chat.
     fn usage_candidates(&self, now: u64) -> Vec<Arc<Session>> {
-        let mut seen = HashSet::new();
-        let mut candidates = Vec::new();
-        let recent = self.own_rows_since(now.saturating_sub(DAY_MS));
-        for session in self.live_session_handles().into_iter().chain(recent) {
-            if seen.insert(session.id.clone()) {
-                candidates.push(session);
-            }
-        }
+        let mut candidates = self.live_session_handles();
+        let live: HashSet<&str> = candidates.iter().map(|s| s.id.as_str()).collect();
+        // A recent row that is live is already a candidate: one lookup, no id copied.
+        let recent: Vec<Arc<Session>> = self
+            .own_rows_since(now.saturating_sub(DAY_MS))
+            .into_iter()
+            .filter(|s| !live.contains(s.id.as_str()))
+            .collect();
+        drop(live);
+        candidates.extend(recent);
         candidates
     }
 
