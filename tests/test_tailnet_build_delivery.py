@@ -2,6 +2,7 @@
 """Exercise build-script Go invocations without downloading or compiling Go."""
 import importlib.util
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -116,6 +117,41 @@ class ShippingFeatureTests(unittest.TestCase):
 
     def test_dependency_name_does_not_enable_feature(self):
         self.assertEqual(self.flags("[dependencies]\ntailnet = {}\n", "aarch64-apple-darwin"), "")
+
+
+class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
+    """The Linux package's acpmux is acpmux-standalone (#42682), built with no features until this test: the published
+    x86_64-unknown-linux-musl acpmux had no hub carrier at all (gcp-agent-lane-6, 2026-11-15)."""
+    STANDALONE = ROOT / "cmux-tui/crates/acpmux-standalone/Cargo.toml"
+    WORKFLOW = ROOT / ".github/workflows/cmux-tui-build-package.yml"
+
+    def flags(self, manifest, target):
+        return subprocess.check_output([str(ROOT / "scripts/ci/acpmux-build-features.sh"), str(manifest), target],
+                                       text=True).strip()
+
+    def test_standalone_gets_the_hub_carrier_on_every_shipped_unix_target(self):
+        for target in ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "x86_64-unknown-linux-gnu"]:
+            self.assertEqual(self.flags(self.STANDALONE, target), "--features=hub-carrier", target)
+        self.assertEqual(self.flags(self.STANDALONE, "aarch64-apple-darwin"), "--features=tailnet,hub-carrier")
+
+    def test_standalone_passes_each_feature_to_acpmux(self):
+        import tomllib
+        features = tomllib.loads(self.STANDALONE.read_text())["features"]
+        acpmux = tomllib.loads((ROOT / "cmux-tui/crates/acpmux/Cargo.toml").read_text())["features"]
+        for name in ["tailnet", "hub-carrier"]:
+            self.assertIn(name, acpmux)
+            self.assertEqual(features.get(name), [f"acpmux/{name}"], name)
+
+    def test_every_shipped_unix_acpmux_build_passes_the_shipping_features(self):
+        lines = self.WORKFLOW.read_text().splitlines()
+        builds = [(n, line) for n, line in enumerate(lines, 1)
+                  if re.search(r"-p acpmux(-standalone)? --bin", line) and "windows" not in line]
+        self.assertGreaterEqual(len(builds), 3, builds)
+        for n, line in builds:
+            text = line + (lines[n] if line.rstrip().endswith("\\") else "")
+            self.assertIn("acpmux_features", text, f"{self.WORKFLOW.name}:{n} builds acpmux without its features")
+        script = "\n".join(lines)
+        self.assertIn("acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml", script)
 
 
 class TreeKeyTests(unittest.TestCase):
