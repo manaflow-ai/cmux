@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 /// How long a send waits for the daemon's answer: the first step's proof runs `codesign` once.
+// timeout: a cap on a side step, not on the send: past it the send goes on and the daemon still delivers the code.
 const WAIT: Duration = Duration::from_secs(3);
 
 /// What a send from an unregistered chat's shell asks the daemon to register.
@@ -75,7 +76,8 @@ pub fn of_this_process(named: bool) -> Option<AutoRegister> {
 }
 
 /// How long a send waits for the first step: none when the daemon does not take `auto` (an
-/// older one delivers a code on every send), and never past the send's own `--timeout`.
+/// older one delivers a code on every send), and at most half of what is left of the send's own
+/// `--timeout`, so the send itself always keeps the other half.
 fn wait_for(
     lists_auto: bool,
     deadline: Option<tokio::time::Instant>,
@@ -84,8 +86,8 @@ fn wait_for(
     if !lists_auto {
         return None;
     }
-    let left = deadline.map_or(WAIT, |d| d.saturating_duration_since(now));
-    Some(left.min(WAIT)).filter(|w| !w.is_zero())
+    let half = deadline.map_or(WAIT, |d| d.saturating_duration_since(now) / 2);
+    Some(half.min(WAIT)).filter(|w| !w.is_zero())
 }
 
 /// Starts `want` on `client` and says on stderr what the chat must do, within [`wait_for`].
@@ -269,14 +271,17 @@ mod tests {
     }
 
     /// Repro: an older daemon ignores `auto` and delivers a code on every send. A daemon that
-    /// does not list the feature is not asked; the wait never runs past the send's deadline.
+    /// does not list the feature is not asked; the wait takes at most half of what is left before
+    /// the send's deadline, so a short `--timeout` send still has time to go out.
     #[test]
     fn only_a_daemon_that_takes_auto_is_asked_and_never_past_the_deadline() {
         let now = tokio::time::Instant::now();
         assert_eq!(wait_for(false, None, now), None, "an older daemon");
         assert_eq!(wait_for(true, None, now), Some(WAIT));
         let soon = now + Duration::from_millis(500);
-        assert_eq!(wait_for(true, Some(soon), now), Some(Duration::from_millis(500)));
+        assert_eq!(wait_for(true, Some(soon), now), Some(Duration::from_millis(250)));
+        let two = now + Duration::from_secs(2);
+        assert_eq!(wait_for(true, Some(two), now), Some(Duration::from_secs(1)), "--timeout 2");
         assert_eq!(wait_for(true, Some(now + Duration::from_secs(60)), now), Some(WAIT));
         assert_eq!(wait_for(true, Some(now), now), None, "the deadline passed");
     }
