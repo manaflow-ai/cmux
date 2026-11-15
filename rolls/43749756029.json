@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43749756029",
+  "recorded_at": "2026-11-15T19:08:28Z",
+  "reason": "cmux-tui b327574c21be changes the image's cmux-tui (pinned 1e86b363fe91)",
+  "dry_run": false,
+  "cmux_tui": "b327574c21be0e4419f5667919d01c9ec7fb15af",
+  "fixes": [
+    {
+      "sha": "b327574c21be0e4419f5667919d01c9ec7fb15af",
+      "mergedAt": "2026-11-15T10:40:53-08:00",
+      "subject": "Agent chat: record rows for offers, approvals, agent pairs and background tasks (v2 row 2c, PR 3) (#43218)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T19:08:28Z",
+    "snapshot_id": "sh-02de4691a51847b3805ba2f5dacb9826",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43749756029): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f27d27cdf9460c8fca56af07c926caba990cedb0",
+    "image": "cloud-native-auto-b327574c-43749756029-1",
+    "revision": "ci-43749756029-1",
+    "at": "2026-11-15T19:08:28Z"
+  },
+  "rolled_back": false
+}
