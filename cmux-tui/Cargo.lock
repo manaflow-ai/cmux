@@ -2222,6 +2222,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-customize",
  "cmux-device-kind",
+ "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
  "cmux-holder",

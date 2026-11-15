@@ -799,6 +799,15 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "6c",
+        name: "v2.pr06.page_store_text",
+        done_when: "p95 for the page's row store to take one batch holding one text op on an open row whose body is 200 KB, within 1.2x of one whose body is 1 KB.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "6c",
         name: "v2.pr06.page_store_held",
         done_when: "The rows and row bytes the page's row store holds after paging through a chat of 20,000 rows against one of 200: at the store's cap or under it.",
         measured: false,
@@ -923,13 +932,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         ratio_all: None,
         god_max: None,
     },
+    // Best round, with every sample's p95 beside it: a round is 20 runs over a socket (about
+    // 0.6 ms each), and a shared runner's one slow round is not the list's.
     GateRow {
         pr: "7c",
         name: "v2.pr07c.update_plan_wall",
-        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
+        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, best p95 of five rounds 1.2x, every sample's p95 2x.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {

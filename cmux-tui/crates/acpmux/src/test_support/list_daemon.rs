@@ -262,8 +262,31 @@ pub fn p95(values: &mut [u128]) -> u128 {
 pub fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128, u128) {
     let best = |rounds: &[Vec<u128>]| rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap_or(0);
     let (small_p95, god_p95) = (best(small), best(god));
-    let line =
-        json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit}).to_string();
+    write_line(json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit}));
+    (small_p95, god_p95)
+}
+
+/// [`emit`] and, beside the best rounds, the god side's p95 over every sample of every round
+/// (`god_p95_all`, a row's `ratio_all`): a slow round the best one hides still shows. The
+/// best p95s and that one.
+pub fn emit_with_all(
+    name: &str,
+    small: &[Vec<u128>],
+    god: &[Vec<u128>],
+    unit: &str,
+) -> (u128, u128, u128) {
+    let best = |rounds: &[Vec<u128>]| rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap_or(0);
+    let (small_p95, god_p95) = (best(small), best(god));
+    let mut all: Vec<u128> = god.iter().flatten().copied().collect();
+    let god_p95_all = if all.is_empty() { 0 } else { p95(&mut all) };
+    write_line(json!({"name": name, "small_p95": small_p95, "god_p95": god_p95,
+        "god_p95_all": god_p95_all, "unit": unit}));
+    (small_p95, god_p95, god_p95_all)
+}
+
+/// One gate line, printed and appended to `V2_GATE_OUT`.
+fn write_line(line: Value) {
+    let line = line.to_string();
     eprintln!("{line}");
     if let Some(path) = std::env::var_os("V2_GATE_OUT") {
         use std::io::Write;
@@ -271,5 +294,4 @@ pub fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (
             let _ = writeln!(file, "{line}");
         }
     }
-    (small_p95, god_p95)
 }
