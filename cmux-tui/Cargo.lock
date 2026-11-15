@@ -30,6 +30,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-command-class",
  "cmux-config",
+ "cmux-device-kind",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1198,6 +1199,7 @@ dependencies = [
  "base64",
  "chacha20poly1305",
  "cmux-json",
+ "cmux-process",
  "getrandom 0.3.4",
  "hmac",
  "libc",
@@ -1531,6 +1533,15 @@ name = "cmux-daemon-launch-core"
 version = "0.1.0"
 dependencies = [
  "cmux-local-auth",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-device-kind"
+version = "0.1.0"
+dependencies = [
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -2210,8 +2221,10 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-app-host",
  "cmux-app-manifest",
  "cmux-automations",
+ "cmux-browser-host",
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-cloud-api",
@@ -2225,6 +2238,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-customize",
+ "cmux-device-kind",
  "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
@@ -2352,6 +2366,7 @@ dependencies = [
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
+ "cmux-device-kind",
  "cmux-feed-core",
  "cmux-file-lock",
  "cmux-flow-trace",
