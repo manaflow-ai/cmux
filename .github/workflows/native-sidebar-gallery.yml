@@ -5,11 +5,17 @@ on:
     branches: [feat-cmux-next]
     paths:
       - 'Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/**'
+      - 'Packages/macOS/CmuxNext/Sources/CmuxNextDesign/**'
+      - 'Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/**'
+      - 'Packages/Shared/CmuxTheme/**'
+      - 'Resources/cmux-themes/**'
+      - 'Resources/ghostty/themes/**'
       - 'Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NativeSidebarGalleryTests.swift'
       - 'Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AANestedGroupsGalleryTests.swift'
       - 'Packages/macOS/CmuxNext/Tests/Fixtures/SidebarGallery/**'
       - 'webviews/src/sidebar/SidebarNativeGallery.gallery.ts'
       - 'scripts/ci/native-sidebar-gallery.sh'
+      - 'scripts/ci/package-test-lane.sh'
       - '.github/workflows/native-sidebar-gallery.yml'
 
 permissions: {}
