@@ -117,6 +117,22 @@ KNOWN_BLOCKERS_FILE = "cmux-next-ios/AppStoreReview/known-blockers.json"
 # The agent pass is a model's judgement: it can say something different on the
 # same build, so it informs every run and fails only a submission.
 UNPINNED_SOURCES = ("agent reviewer pass",)
+# Blockers that say the gate's own CI could not judge, not that the app fails:
+# the agent pass's model account out of quota (agent.api-unavailable, gate run
+# 43660691021: a weekly usage limit, HTTP 429) or its token or tools missing
+# (agent.unavailable). They still block, since an unjudged build is never a
+# YES; the verdict names them apart so the fix (the account, the secret) is plain.
+INFRASTRUCTURE_RULES = frozenset({"agent.api-unavailable", "agent.unavailable"})
+
+
+def infrastructure_reason(finding: dict) -> str:
+    """One line on why the gate's CI could not judge, for the verdict."""
+    api = finding.get("api") if isinstance(finding.get("api"), dict) else {}
+    if api.get("usage_limit"):
+        limit = f"{api.get('limit') or 'usage'} usage limit"
+        until = f" until {api['resets']}" if api.get("resets") else ""
+        return f"the agent pass could not run: {limit}{until} on its model account"
+    return str(finding.get("message", ""))[:200]
 # The public App Store build: project.yml's AppStore configuration, bundle
 # com.cmux.app (the record the classic app used; NEXT replaces it as an update).
 APPSTORE_CONFIG = "AppStore"
@@ -1114,13 +1130,24 @@ def ratchet(findings: list[dict], known: set[str]) -> tuple[list[dict], list[str
     return [f for f in pinned if blocker_key(f) not in known], sorted(known - seen)
 
 
+def infrastructure_note(blockers: list[dict]) -> str:
+    """The verdict's tail when some blockers are the gate's CI, not the app."""
+    infra = [f for f in blockers if f.get("rule") in INFRASTRUCTURE_RULES]
+    if not infra:
+        return ""
+    reasons = "; ".join(dict.fromkeys(infrastructure_reason(f) for f in infra))
+    return (f" {len(infra)} of the {len(blockers)} blocking is CI infrastructure, not the app ({reasons}):"
+            " fix the account or secret and rerun; it still blocks until the pass runs.")
+
+
 def render(findings: list[dict], lint: dict | None, asc: list[dict] | None, tests: list[str]) -> str:
     findings = sorted(findings, key=lambda f: (SEVERITY_ORDER.get(f["severity"], 9), f.get("guideline", ""), f.get("rule", "")))
     blockers = [f for f in findings if f["severity"] == "blocker"]
     lines = ["## Would Apple accept this build right now?", ""]
     lines.append(f"**{'NO' if blockers else 'YES'}**: {len(blockers)} blocking, "
                  f"{sum(f['severity'] == 'warning' for f in findings)} warnings, "
-                 f"{sum(f['severity'] == 'info' for f in findings)} notes.")
+                 f"{sum(f['severity'] == 'info' for f in findings)} notes."
+                 + infrastructure_note(blockers))
     lines.append("")
     if findings:
         lines += ["| # | Severity | Guideline | Source | Finding | Where |", "|---|---|---|---|---|---|"]
