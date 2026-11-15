@@ -178,6 +178,12 @@ impl Manifest {
         self.implement("cmux.pane/1", export, title, symbol, None)
     }
 
+    /// A whole New Tab page (`cmux.newtab/1`) drawn by the script's `export`. It shows only once
+    /// the person names the extension in `tabs.newTabApp`; otherwise cmux draws its own page.
+    pub fn new_tab(self, export: &str, title: &str, symbol: &str) -> Self {
+        self.implement("cmux.newtab/1", export, title, symbol, None)
+    }
+
     /// Appends `entry` to the list `list` in the options of the data-only place `interface`
     /// (no script runs for it, so it adds no activation).
     fn append_data(mut self, interface: &str, list: &str, entry: Value) -> Self {
