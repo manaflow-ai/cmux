@@ -13,8 +13,10 @@
 //! any turn. Nothing is started and nothing is written to the transcript by acpmux.
 //!
 //! A chat handed to a cmux terminal (`release_to_watch.rs`, `acpmux resume-here`) is bridged by
-//! that terminal, whatever the setting says (Leo, 2026-11-14: "this is obviously what we need",
-//! on the chat writable in both directions while the terminal drives the session). The daemon
+//! that terminal, whatever `agents.desktopBridge.enabled` says, while Write to a chat a terminal
+//! runs (`agents.chats.terminalChatWritable`, off by default) is on (Leo, 2026-11-14: "this is
+//! obviously what we need", on the chat writable in both directions while the terminal drives the
+//! session; 2026-11-15: "these are opt-in settings"). Off, that chat is a View Only watch. The daemon
 //! recorded the terminal's process (`Watching::terminal`: `resume-here` becomes the harness, same
 //! pid); a prompt goes to the Claude Code session registered under that pid for this conversation
 //! (its inbox, opened with the peer key), or to the Codex thread a running Codex holds (its
@@ -478,7 +480,9 @@ impl Hub {
         let agent_session_id = session.meta().agent_session_id?;
         // A chat handed to a cmux terminal (`release_to_watch.rs`) goes into that terminal's
         // harness, bound by its process: the daemon's own record, never a tag.
-        let terminal = watching.terminal.clone();
+        // Only while Write to a chat a terminal runs is on (`release_to_watch.rs`); off, the
+        // binding is let go of, and a chat that still had one is read-only meanwhile.
+        let terminal = watching.terminal.clone().filter(|_| self.terminal_chat_writable());
         // The terminal's harness asks its permissions in that terminal, under the person's own
         // settings there, not through acpmux: the remote floor (the asking-mode table, D13) cannot
         // hold, so a paired device (Web control) never sends into it. The Mac and the terminal do.

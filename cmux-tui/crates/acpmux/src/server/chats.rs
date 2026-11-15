@@ -448,6 +448,7 @@ pub(super) async fn route(
             hub.apply_full_access_push(forced).await;
             hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
             hub.set_session_recap(settings.session_recap);
+            hub.set_terminal_chat_writable(settings.terminal_chat_writable).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
@@ -625,7 +626,10 @@ pub(super) async fn release_to_watch(
 ) -> Result<Value, RpcError> {
     use crate::sender_harness::SocketPeer;
     let s = hub.resolve(super::session_key(params)?)?;
-    let terminal = match params.get("terminalPid").filter(|v| !v.is_null()) {
+    // Write to a chat a terminal runs off (the default): `terminalPid` is not read at all, and the
+    // chat becomes a View Only watch as before.
+    let named = params.get("terminalPid").filter(|v| !v.is_null() && hub.terminal_chat_writable());
+    let terminal = match named {
         None => None,
         Some(named) => {
             let named = named.as_u64().and_then(|p| u32::try_from(p).ok());

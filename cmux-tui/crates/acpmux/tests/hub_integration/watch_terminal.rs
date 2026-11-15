@@ -134,7 +134,17 @@ async fn handed_to_terminal_with(
     cmux: bool,
     no_inbox: bool,
 ) -> (Arc<Hub>, String, std::path::PathBuf, Terminal, std::path::PathBuf, String) {
+    handed_to_terminal_as(turn_ms, true).await
+}
+
+/// [`handed_to_terminal`], with Write to a chat a terminal runs (`agents.chats.terminalChatWritable`)
+/// `writable` or off (its default).
+async fn handed_to_terminal_as(
+    turn_ms: u64,
+    writable: bool,
+) -> (Arc<Hub>, String, std::path::PathBuf, Terminal, std::path::PathBuf, String) {
     let (hub, sid, file, gate, turn, text, root) = chat_mid_turn().await;
+    hub.set_terminal_chat_writable(writable).await;
     std::fs::write(&gate, "go").unwrap();
     turn.await.unwrap().unwrap();
     let project = root.join("project");
@@ -269,6 +279,7 @@ async fn a_prompt_typed_in_the_terminal_shows_in_the_chat_at_once() {
 #[tokio::test]
 async fn a_terminal_harness_with_no_inbox_refuses_with_why() {
     let (hub, sid, file, gate, turn, _, root) = chat_mid_turn().await;
+    hub.set_terminal_chat_writable(true).await;
     std::fs::write(&gate, "go").unwrap();
     turn.await.unwrap().unwrap();
     let asid = file.file_stem().unwrap().to_string_lossy().into_owned();
@@ -303,6 +314,7 @@ async fn a_terminal_harness_with_no_inbox_refuses_with_why() {
 #[tokio::test]
 async fn a_terminal_pid_the_kernel_did_not_give_releases_nothing() {
     let (hub, sid, file, gate, turn, _, root) = chat_mid_turn().await;
+    hub.set_terminal_chat_writable(true).await;
     std::fs::write(&gate, "go").unwrap();
     turn.await.unwrap().unwrap();
     let not_watching = |hub: &Arc<Hub>| hub.resolve(&sid).unwrap().meta().watching.is_none();
@@ -557,5 +569,74 @@ async fn with_no_inbox_a_chat_send_is_typed_into_the_terminal_once_idle() {
         .map(|e| e.msg["promptId"].as_str().unwrap_or_default().to_owned())
         .collect();
     assert!(["t-idle", "t-1", "t-2"].iter().all(|id| ids.iter().any(|i| i == id)), "{ids:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The chat's terminal tags, as a client reads them (`via`, `bridge`).
+fn terminal_tags(hub: &Arc<Hub>, sid: &str) -> (Value, Value) {
+    let tags = hub.session_summary(&hub.resolve(sid).unwrap())["tags"].clone();
+    (
+        tags.get("via").cloned().unwrap_or(Value::Null),
+        tags.get("bridge").cloned().unwrap_or(Value::Null),
+    )
+}
+
+/// Write to a chat a terminal runs is off by default (Leo, 2026-11-15: "these are opt-in
+/// settings"): a chat handed to a terminal is a View Only watch, as before. Nothing is bound, no
+/// tag says otherwise, a send is refused as `watch.read_only` and never reaches the terminal's
+/// harness, and what the person types in the terminal still shows in the chat.
+#[tokio::test]
+async fn with_the_setting_off_a_chat_handed_to_a_terminal_is_view_only() {
+    let (hub, sid, _file, mut terminal, root, first) = handed_to_terminal_as(300, false).await;
+    assert!(hub.resolve(&sid).unwrap().meta().watching.unwrap().terminal.is_none(), "bound");
+    assert_eq!(terminal_tags(&hub, &sid), (Value::Null, Value::Null));
+    let mut c = connect(&hub).await;
+    let refused = c.request(method::SESSION_PROMPT, prompt(&sid, "from the chat", None)).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("watch.read_only")), "{refused:?}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(terminal.texts("RECV").is_empty(), "the harness got a prompt with the setting off");
+    terminal.type_line("typed in the terminal");
+    assert_eq!(until_prompts(&hub, &sid, 2).await, [first.as_str(), "typed in the terminal"]);
+    drop(terminal);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Turning the setting off mid-turn (recovery): the chat is a View Only watch at once (binding
+/// and tags gone, a new send refused as `watch.read_only`), and nothing is cut or lost. The
+/// terminal's turn runs to its end and shows; a send the harness already took (its inbox) runs
+/// after it, once, and its sender gets its answer; each prompt shows once. Turned on again, a new
+/// hand-off is writable again.
+#[tokio::test]
+async fn turning_the_setting_off_mid_turn_makes_the_chat_view_only_and_loses_nothing() {
+    let (hub, sid, _file, mut terminal, root, first) = handed_to_terminal(1200).await;
+    terminal.type_line("typed in the terminal");
+    assert_eq!(terminal.until("RUN", 1).await, ["typed in the terminal"]);
+    let sent = send(&hub, &sid, "sent before off", "before-off");
+    assert_eq!(terminal.until("RECV", 2).await[1], "sent before off");
+    // Off, mid-turn.
+    hub.set_terminal_chat_writable(false).await;
+    assert!(terminal.texts("END").is_empty(), "the turn still runs");
+    assert!(hub.resolve(&sid).unwrap().meta().watching.unwrap().terminal.is_none(), "still bound");
+    assert_eq!(terminal_tags(&hub, &sid), (Value::Null, Value::Null), "still tagged writable");
+    let mut c = connect(&hub).await;
+    let refused = c.request(method::SESSION_PROMPT, prompt(&sid, "sent after off", None)).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("watch.read_only")), "{refused:?}");
+    // The running turn ends as it would, then the send the harness already held runs, once.
+    let sent = tokio::time::timeout(Duration::from_secs(20), sent).await.unwrap().unwrap().unwrap();
+    assert_eq!(sent["_meta"]["acpmux"]["answered"], true, "{sent}");
+    let ran = terminal.texts("RUN");
+    assert_eq!(ran, ["typed in the terminal", "sent before off"], "each once, none cut");
+    assert_eq!(terminal.texts("RECV").len(), 2, "nothing reached the harness after off");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        prompts(&hub, &sid),
+        [first.as_str(), "typed in the terminal", "sent before off"],
+        "each once"
+    );
+    let k = kinds(&hub, &sid);
+    let started = k.iter().filter(|k| *k == "turn_started").count();
+    let ended = k.iter().filter(|k| *k == "turn_end").count();
+    assert_eq!(started, ended, "a turn left open: {k:?}");
+    drop(terminal);
     let _ = std::fs::remove_dir_all(&root);
 }
