@@ -266,7 +266,7 @@ struct TerminalChatToggleControl: View {
                 .background(lit ? Color.primary.opacity(0.12) : .clear, in: .capsule)
                 .contentShape(.capsule)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(label)
         .accessibilityAddTraits(lit ? [.isSelected] : [])
         .accessibilityIdentifier(chat ? "tab.terminalChatToggle.chat" : "tab.terminalChatToggle.terminal")
