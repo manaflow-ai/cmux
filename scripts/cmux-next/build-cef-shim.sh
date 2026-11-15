@@ -120,20 +120,6 @@ link_exe() {
 link_exe cmux-cef-helper helper_main.mm
 link_exe cmux-rb-host-helper rb_host_helper_main.mm
 link_exe cmux-chromium-host browser_host_main.mm -framework QuartzCore
-# SIZE-EXPERIMENT (removed before review): the same helper links without -dead_strip.
-for pair in cmux-cef-helper:helper_main.mm cmux-rb-host-helper:rb_host_helper_main.mm; do
-  exe="${pair%%:*}" main="${pair#*:}"
-  "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
-    -o "$OUT_DIR/$exe.before" "$OUT_DIR/obj/shim/$main.o" \
-    "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
-  for f in "$exe.before" "$exe"; do
-    { cp "$OUT_DIR/$f" "$OUT_DIR/$f.stripped" && strip -S -x "$OUT_DIR/$f.stripped"; } || true
-    echo "SIZE-EXPERIMENT $ARCH $f linked=$(stat -f %z "$OUT_DIR/$f") stripped=$(stat -f %z "$OUT_DIR/$f.stripped")" >&2
-    size -m "$OUT_DIR/$f" | grep -E 'Section __text|Section __cstring|Section __const' | sed "s/^/SIZE-EXPERIMENT $ARCH $f /" >&2 || true
-    rm -f "$OUT_DIR/$f.stripped"
-  done
-  rm -f "$OUT_DIR/$exe.before"
-done
 
 rm -rf "$OUT_DIR/obj"
 printf '%s' "$key" > "$OUT_DIR/.build-key"
