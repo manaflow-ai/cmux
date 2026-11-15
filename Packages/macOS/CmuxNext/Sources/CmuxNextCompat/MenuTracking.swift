@@ -33,6 +33,30 @@ public final class MenuTracking {
         subscribers.append(handler)
     }
 
+    /// Runs `work` once, at the first menu that begins tracking from now on, on the main actor's next turn (served
+    /// while the menu tracks), so the menu is not held up by it: work made ahead of something a menu item opens (the
+    /// app's web overlay pages, made on this sign of intent and not at launch). Later menus cost one check.
+    public func onFirstMenu(_ work: @escaping @MainActor () -> Void) {
+        var pending: (@MainActor () -> Void)? = work
+        subscribe { change in
+            guard case .began = change, let run = pending else { return }
+            pending = nil
+            // task-owner: one ordering hop past the menu's begin-tracking post; it ends with `work`
+            Task { @MainActor in run() }
+        }
+    }
+
+    /// Runs `work` at each menu that begins tracking, on the main actor's next turn (as ``onFirstMenu(_:)``): work made
+    /// ahead of something a menu item opens that is freed again when unused (the app's web overlay pages), so `work`
+    /// makes it again or keeps it, and costs little when it is already made.
+    public func onMenus(_ work: @escaping @MainActor () -> Void) {
+        subscribe { change in
+            guard case .began = change else { return }
+            // task-owner: one ordering hop past the menu's begin-tracking post; it ends with `work`
+            Task { @MainActor in work() }
+        }
+    }
+
     private func send(_ change: Change) {
         for subscriber in subscribers { subscriber(change) }
     }

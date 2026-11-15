@@ -2504,6 +2504,7 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "cmux-next-dev-daily.yml sign: runs-on[0]",
         "cmux-next-dev-daily.yml sign-blacksmith: runs-on[0]",
         "cmux-next-dev-daily.yml verify: runs-on[0]",
+        "cmux-tui-team-signed.yml sign: runs-on[0]",
         "ios-appstore-upload.yml upload: runs-on[0]",
         "ios-e2e.yml mac-ios-e2e: runs-on[0]",
         "ios-internal-nightly.yml archive: runs-on[0]",
@@ -2735,6 +2736,125 @@ class RerunPastTheAttemptCap(unittest.TestCase):
         self.assertEqual(rerun_route_at(fast_tier, 5, ""), SIDE)
         # The switch `on` keeps #22565's overflow: the bot's attempt 4 leaves the side pool for Blacksmith.
         self.assertEqual(rerun_route_at(fast_tier, 5, "on"), SMALL)
+
+
+# vars.CI_BLACKSMITH_MACOS=pr-rescue (hq#11523): Blacksmith macOS for cmux-next.yml's pull-request jobs only.
+# 2026-11-15 17:32Z glaeda-side-std-xcode-26.6 had 76 jobs queued, the oldest 150 min, and `on` would also have
+# moved the nightly, promote, signing and release jobs, which stay off Blacksmith.
+RESCUE = cascade.PR_RESCUE
+CMUX_NEXT_REF = "manaflow-ai/cmux/.github/workflows/cmux-next.yml@refs/pull/43039/merge"
+# The workflows that must read pr-rescue as off: nightly, promote, signing and release.
+RESCUE_IGNORED = ("nightly.yml", "nightly-sign.yml", "nightly-next-train.yml", "nightly-next-canary.yml",
+                  "nightly-next-launch-smoke.yml", "nightly-next-cua-signed-host.yml", "stable-next.yml",
+                  "signing-keychain-macos.yml", "app-ffi-release.yml", "release.yml")
+SWITCH_READ = re.compile(r"vars\.CI_BLACKSMITH_MACOS(?!\s*\}\})")
+SWITCH_COMPARED = re.compile(r"vars\.CI_BLACKSMITH_MACOS\s*(?:==|!=)\s*'on'")
+
+
+def route_at(expression: str, event: str, attempt: int, switch: str, placed: int = 1,
+             actor: str = RERUN_BOT) -> object:
+    """rerun_route_at() for any event and triggering actor."""
+    context = github_context(event, CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
+                             CI_BLACKSMITH_MACOS=switch, MACOS_RUNNER_26=SMALL)
+    pull = {"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}},
+                             "author_association": "MEMBER", "labels": []}}
+    context["github"].update(run_attempt=str(attempt), triggering_actor=actor, repository="manaflow-ai/cmux",
+                             event=pull if event == "pull_request" else {})
+    context["needs"] = _RerunPlacedNeeds(placed)
+    return evaluate(expression, context)
+
+
+def rescue_env(**overrides: str) -> dict:
+    return env(**{"CI_BLACKSMITH_MACOS": RESCUE, "GITHUB_EVENT_NAME": "pull_request",
+                  "GITHUB_WORKFLOW_REF": CMUX_NEXT_REF, **overrides})
+
+
+class BlacksmithPrRescue(unittest.TestCase):
+    maxDiff = None
+
+    def test_only_a_cmux_next_pull_request_run_honors_it(self):
+        self.assertTrue(cascade.pr_rescue(rescue_env()))
+        for event in ("push", "schedule", "workflow_dispatch", "workflow_run", "merge_group"):
+            with self.subTest(event=event):
+                self.assertFalse(cascade.pr_rescue(rescue_env(GITHUB_EVENT_NAME=event)))
+        for name in RESCUE_IGNORED:
+            with self.subTest(workflow=name):
+                ref = f"manaflow-ai/cmux/.github/workflows/{name}@refs/heads/feat-cmux-next"
+                self.assertFalse(cascade.pr_rescue(rescue_env(GITHUB_WORKFLOW_REF=ref)))
+                self.assertFalse(cascade.blacksmith_on(rescue_env(GITHUB_WORKFLOW_REF=ref)))
+        # pr-rescue never turns the repository-wide switch on.
+        self.assertFalse(cascade.blacksmith_on(rescue_env()))
+
+    def test_placement_overflows_only_past_the_owned_route_threshold_under_the_cap(self):
+        full, busy = DeadEndRoute.FULL, DeadEndRoute.BUSY_SMALL
+        seen = DeadEndRoute.INCIDENT
+        jobs = " fast-tier swift-canary cmux-scheme-compile release-compile "
+        starved = cascade.place(rescue_env(CASCADE_RUNS=jobs), (), full, busy, seen, saturated=True,
+                                route_wait=150.0)
+        self.assertEqual(len(starved.jobs[SMALL]), cascade.MAX_PER_RUN)
+        self.assertFalse(starved.jobs[LARGE])
+        under = cascade.place(rescue_env(CASCADE_RUNS=jobs), (), full, busy, seen, saturated=True,
+                              route_wait=cascade.RESCUE_ROUTE_MINUTES - 1)
+        self.assertEqual(under.jobs, none_placed())
+        self.assertIn(RESCUE, under.why)
+        for name, overrides in (("push", {"GITHUB_EVENT_NAME": "push"}),
+                                ("app-ffi-release", {"GITHUB_WORKFLOW_REF": "manaflow-ai/cmux/.github/workflows/"
+                                                                            "app-ffi-release.yml@refs/heads/main"})):
+            with self.subTest(name):
+                result = cascade.place(rescue_env(CASCADE_RUNS=jobs, **overrides), (), full, busy, seen,
+                                       saturated=True, route_wait=150.0)
+                self.assertEqual(result.jobs, none_placed())
+                self.assertEqual((result.retry_runner, result.retry_jobs), ("", ()))
+
+    def test_nightly_promote_signing_and_release_workflows_read_it_as_off(self):
+        for name in RESCUE_IGNORED:
+            path = WORKFLOWS / name
+            with self.subTest(workflow=name):
+                text = path.read_text()
+                self.assertNotIn(RESCUE, text)
+                code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+                reads = SWITCH_READ.findall(code)
+                self.assertEqual(len(reads), len(SWITCH_COMPARED.findall(code)),
+                                 f"{name} reads vars.CI_BLACKSMITH_MACOS other than as == / != 'on'")
+                for where, expression in rerun_routes(path).items():
+                    for event, attempt in itertools.product(("push", "schedule", "workflow_dispatch",
+                                                             "pull_request"), (1, 2, 4)):
+                        try:
+                            off = route_at(expression, event, attempt, "")
+                        except Exception:  # noqa: BLE001 - an expression this evaluator cannot read
+                            break
+                        self.assertEqual(route_at(expression, event, attempt, RESCUE), off,
+                                         f"{where} {event} attempt {attempt}")
+
+    def test_cmux_next_only_pull_request_reruns_take_blacksmith(self):
+        routes = rerun_routes(WORKFLOW)
+        moved = set()
+        for where, expression in routes.items():
+            try:
+                first = route_at(expression, "pull_request", 1, "")
+            except Exception:  # noqa: BLE001 - an expression this evaluator cannot read
+                continue
+            with self.subTest(where=where):
+                # Attempt 1 without a placement that opened the rescue is unchanged.
+                self.assertEqual(route_at(expression, "pull_request", 1, RESCUE), first)
+                for event in ("push", "schedule", "workflow_dispatch"):
+                    for attempt in (1, 2, 4):
+                        self.assertEqual(route_at(expression, event, attempt, RESCUE),
+                                         route_at(expression, event, attempt, ""), f"{event} attempt {attempt}")
+                rerun = route_at(expression, "pull_request", 2, RESCUE)
+                if isinstance(rerun, str) and RERUN_BLACKSMITH_MACOS.match(rerun):
+                    moved.add(where.split(" ", 2)[1].rstrip(":"))
+        for job in ("fast-tier", "swift-test", "daemon-test", "cmux-scheme-compile"):
+            self.assertIn(job, moved)
+
+    def test_the_target_scheme_compile_rerun_takes_blacksmith(self):
+        """cmux#43039's cmux app scheme compile (Debug), job 132871933209, 84 min on the side lane at 17:32Z."""
+        job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]
+        expression = runs_on_of(job)
+        self.assertEqual(route_at(expression, "pull_request", 1, RESCUE), SIDE)
+        self.assertEqual(route_at(expression, "pull_request", 2, RESCUE), SMALL)
+        self.assertEqual(route_at(expression, "pull_request", 2, ""), SIDE)
+        self.assertEqual(route_at(expression, "push", 2, RESCUE), route_at(expression, "push", 2, ""))
 
 
 if __name__ == "__main__":
