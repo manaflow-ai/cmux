@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43772057231",
+  "recorded_at": "2026-11-15T23:07:40Z",
+  "reason": "cmux-tui bcd73daa5a78 changes the image's cmux-tui (pinned 5f9ffecdcf02)",
+  "dry_run": false,
+  "cmux_tui": "bcd73daa5a785782a6f145285cfb69117b70040c",
+  "fixes": [
+    {
+      "sha": "bcd73daa5a785782a6f145285cfb69117b70040c",
+      "mergedAt": "2026-11-15T14:39:32-08:00",
+      "subject": "cmux-remote: a daemon's relay registration renews its ticket make-before-break, and its open circuits outlive the control socket (#43954)"
+    },
+    {
+      "sha": "9750ac9e9926cfe6e9131c56ecd7c1efb22e391f",
+      "mergedAt": "2026-11-15T14:10:53-08:00",
+      "subject": "cmux-tui: acpmux-cgu-sweep.sh, acpmux release rebuild time, size and pipe numbers per codegen-units count (#43926)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T23:07:40Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
