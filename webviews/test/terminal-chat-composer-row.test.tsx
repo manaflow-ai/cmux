@@ -146,11 +146,18 @@ async function render(snapshot: Snapshot) {
 
 const pickers = () => host.querySelectorAll(".acpmux-model, .acpmux-access, .acpmux-effort").length;
 const note = () => host.querySelector("[data-terminal-pickers]")?.textContent ?? "";
+const why = () => host.querySelector("[data-terminal-pickers]")?.getAttribute("title") ?? "";
 
 test("a chat its terminal runs says where its model and mode are set, with no pick that fails", async () => {
   await render(await chat({ watching: "claude", bridged: true, terminal: true }));
   expect(pickers()).toBe(0);
-  expect(note()).toBe("Model and mode are set in the terminal running this chat");
+  // The picked look (TerminalPickersNote.tsx): a short badge, the whole sentence its tooltip and
+  // accessible description.
+  expect(note()).toBe("Set in terminal");
+  expect(why()).toBe("Model and mode are set in the terminal running this chat");
+  const badge = host.querySelector("[data-terminal-pickers]");
+  expect(badge?.getAttribute("aria-description")).toBe(why());
+  expect(badge?.closest("button")).toBeNull();
 });
 
 test("a chat acpmux runs, or a desktop bridge watch, keeps its model and mode chips", async () => {
