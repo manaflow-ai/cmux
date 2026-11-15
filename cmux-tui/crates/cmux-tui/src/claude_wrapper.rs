@@ -81,6 +81,14 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         drop_cmux_plugin(&mut command);
     }
     if should_inject(args, |name| std::env::var_os(name)) {
+        // The answer the person's own servers (a `cmux` entry of theirs) follow, as in an agent
+        // chat: Claude passes its environment to a stdio server (agent_mcp_choice.rs).
+        command.env(
+            acpmux::agent_tools::TOOLS_ANSWER_ENV,
+            crate::agent_mcp_choice::tools_answer(
+                cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+            ),
+        );
         match prepare_hooks(args) {
             Ok((injected, helper)) => {
                 launch_args = injected;

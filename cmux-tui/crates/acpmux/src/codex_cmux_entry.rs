@@ -227,11 +227,12 @@ fn names_stdio_cmux_override(overrides: &[String]) -> bool {
 
 /// Whether this Codex launch surely loads a stdio server of the person's own
 /// named `cmux`, with no HTTP one beside it ([`http_cmux_entry`]): in their
-/// own `-c` values, the user config or the `--profile` file. A project's
-/// `.codex/config.toml` is not counted: Codex loads it only for a project it
-/// trusts, and env keys sent for an entry Codex does not load would make a
-/// server with no command, which Codex refuses. Where this says yes, a launch
-/// that gives no `cmux` of its own may send the entry env keys only
+/// own `-c` values, the user config, the `--profile` file, or a project's
+/// `.codex/config.toml` Codex loads ([`trusted_project_files`]). Env keys sent
+/// for an entry Codex does not load would make a server with no command, which
+/// Codex refuses, so a project file of a project the user config does not
+/// mark trusted is not counted. Where this says yes, a launch that gives no
+/// `cmux` of its own may send the entry env keys only
 /// (`mcp_servers.cmux.env.KEY`), which Codex merges into it.
 pub fn stdio_cmux_entry(
     args: &[OsString],
@@ -253,13 +254,45 @@ pub fn stdio_cmux_entry(
     else {
         return false;
     };
-    let mut files = vec![codex_home.join("config.toml")];
+    let user = codex_home.join("config.toml");
+    let mut files = vec![user.clone()];
     if let Some(profile) = &config.profile {
         let mut name = profile.clone();
         name.push(".config.toml");
         files.push(codex_home.join(name));
     }
+    let folder = launch_folder(cwd, config.cd.as_deref(), home.as_deref());
+    files.extend(trusted_project_files(&user, &folder));
     files.iter().any(|file| names_stdio_cmux(file))
+}
+
+/// The `.codex/config.toml` files Codex loads for a launch in `folder`: those in
+/// `folder` and each folder above it up to the project root (the nearest one
+/// with a `.git`, else `folder`), when the user config `user` marks that root
+/// trusted (`[projects."<root>"] trust_level = "trusted"`, the path as written
+/// or resolved). None for a project it does not mark trusted, or `untrusted`.
+fn trusted_project_files(user: &Path, folder: &Path) -> Vec<PathBuf> {
+    let Ok(text) = std::fs::read_to_string(user) else { return Vec::new() };
+    let Ok(config) = text.parse::<toml::Table>() else { return Vec::new() };
+    let trusted = |root: &Path| {
+        let resolved = root.canonicalize().ok();
+        config.get("projects").and_then(toml::Value::as_table).is_some_and(|projects| {
+            projects.iter().any(|(path, entry)| {
+                let path = Path::new(path);
+                (path == root || resolved.as_deref() == Some(path))
+                    && entry.get("trust_level").and_then(toml::Value::as_str) == Some("trusted")
+            })
+        })
+    };
+    let root = folder.ancestors().find(|dir| dir.join(".git").exists()).unwrap_or(folder);
+    if !trusted(root) {
+        return Vec::new();
+    }
+    folder
+        .ancestors()
+        .take_while(|dir| dir.starts_with(root))
+        .map(|dir| dir.join(".codex/config.toml"))
+        .collect()
 }
 
 #[cfg(all(test, unix))]
@@ -408,6 +441,50 @@ mod tests {
         assert!(!stdio_cmux_entry(&[], &work, &getenv), "no entry");
         std::fs::write(work.join(".codex/config.toml"), stdio).unwrap();
         assert!(!stdio_cmux_entry(&[], &work, &getenv), "a project file alone");
+        // A project the user config marks trusted: its file loads, so it counts; `untrusted`
+        // or another folder's trust does not.
+        let user = codex_home.join("config.toml");
+        for (trust, counts) in [
+            (
+                format!("[projects.{:?}]\ntrust_level = \"untrusted\"\n", work.to_str().unwrap()),
+                false,
+            ),
+            (
+                format!(
+                    "[projects.{:?}]\ntrust_level = \"trusted\"\n",
+                    root.join("elsewhere").to_str().unwrap()
+                ),
+                false,
+            ),
+            (format!("[projects.{:?}]\ntrust_level = \"trusted\"\n", work.to_str().unwrap()), true),
+        ] {
+            std::fs::write(&user, &trust).unwrap();
+            assert_eq!(stdio_cmux_entry(&[], &work, &getenv), counts, "{trust}");
+        }
+        // In a git repository, the root is the repository: a file above it never loads.
+        let (repo, sub) = (root.join("repo"), root.join("repo/sub"));
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(sub.join(".codex")).unwrap();
+        std::fs::write(sub.join(".codex/config.toml"), stdio).unwrap();
+        std::fs::write(
+            &user,
+            format!("[projects.{:?}]\ntrust_level = \"trusted\"\n", repo.to_str().unwrap()),
+        )
+        .unwrap();
+        assert!(stdio_cmux_entry(&[], &sub, &getenv), "a trusted repository's file below the root");
+        std::fs::remove_file(sub.join(".codex/config.toml")).unwrap();
+        std::fs::create_dir_all(root.join(".codex")).unwrap();
+        std::fs::write(root.join(".codex/config.toml"), stdio).unwrap();
+        for trusted in [&root, &repo] {
+            std::fs::write(
+                &user,
+                format!("[projects.{:?}]\ntrust_level = \"trusted\"\n", trusted.to_str().unwrap()),
+            )
+            .unwrap();
+            assert!(!stdio_cmux_entry(&[], &sub, &getenv), "a file above the repository root");
+        }
+        std::fs::remove_file(root.join(".codex/config.toml")).unwrap();
+        std::fs::remove_file(&user).unwrap();
         std::fs::write(codex_home.join("config.toml"), stdio).unwrap();
         assert!(stdio_cmux_entry(&[], &work, &getenv), "the user config");
         std::fs::write(work.join(".codex/config.toml"), "[mcp_servers.cmux]\nurl = \"http://x\"\n")

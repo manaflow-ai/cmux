@@ -737,6 +737,19 @@ fn a_persons_own_stdio_cmux_entry_learns_which_chat_starts_it() {
         None,
         "cmux gives its own"
     );
+    // A session cut off from cmux's tools: off, whatever the answer.
+    let answer_of = |env: &std::collections::BTreeMap<String, String>| {
+        super::person_entry_env(&without, launch, env, "s-3").unwrap()["cmux"]["CMUX_AGENT_TOOLS_ANSWER"]
+            .clone()
+    };
+    for (key, value) in [(super::SWITCH_ENV, "0"), (super::SERVERS_ENV, "acpmux,cmux-forum")] {
+        let mut cut = env.clone();
+        cut.insert(key.to_owned(), value.to_owned());
+        assert_eq!(answer_of(&cut), "off", "{key}={value}");
+    }
+    let mut kept = env.clone();
+    kept.insert(super::SERVERS_ENV.to_owned(), "cmux".to_owned());
+    assert_eq!(answer_of(&kept), "on");
     std::fs::write(&config, "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n").unwrap();
     assert_eq!(
         super::person_entry_env(&without, launch, &env, "s-1"),

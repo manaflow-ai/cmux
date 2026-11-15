@@ -536,8 +536,9 @@ pub fn acp_servers_for(
 /// `mcp_servers.cmux.env.*` overrides that Codex merges into that entry. Codex passes a stdio
 /// server only its own env and an allowlist, so without them the entry's `cmux mcp serve` cannot
 /// tell it runs in a chat, and counts as a caller outside cmux (cmux-tui `cli/mcp.rs`
-/// `refusal`). The answer is the session's own (a chat another Mac started,
-/// `TOOLS_ANSWER_ENV`), else this machine's. `None` where no such entry surely loads
+/// `refusal`). The answer is `off` for a session cut off from cmux's tools,
+/// else the session's own (a chat another Mac started, `TOOLS_ANSWER_ENV`),
+/// else this machine's. The pool key carries it (`hub/pool` `tool_servers`). `None` where no such entry surely loads
 /// ([`crate::codex_cmux_entry::stdio_cmux_entry`]): keys with no entry to merge into would be a
 /// server with no command, which Codex refuses.
 pub fn person_entry_env(
@@ -558,7 +559,13 @@ pub fn person_entry_env(
     if !crate::codex_cmux_entry::stdio_cmux_entry(&args, launch.cwd, &getenv) {
         return None;
     }
+    // A session cut off from cmux's tools (`ACPMUX_AGENT_TOOLS=0`, or a profile or preset whose
+    // servers leave `cmux` out) gets the off server from the person's entry too.
+    let kept = env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
+    let cut_off = env.get(SWITCH_ENV).is_some_and(|v| v == "0")
+        || kept.is_some_and(|keep| !keep.split(',').any(|name| name.trim() == CMUX_SERVER));
     let answer = match env.get(TOOLS_ANSWER_ENV).map(String::as_str) {
+        _ if cut_off => "off",
         Some("on") => "on",
         Some(_) => "off",
         None if agents_get_cmux(crate::user_settings::text().as_deref()) => "on",

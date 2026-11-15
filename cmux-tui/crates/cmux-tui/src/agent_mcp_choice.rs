@@ -13,6 +13,17 @@ use std::path::Path;
 
 use cmux_tui_core::user_settings::AgentsCmuxMcp;
 
+/// The answer an agent started in a cmux terminal carries for its own MCP
+/// servers (`CMUX_AGENT_TOOLS_ANSWER`, `acpmux::agent_tools::TOOLS_ANSWER_ENV`):
+/// `on` with the person's yes, else `off`. Claude Code passes its environment
+/// to a stdio server, so a `cmux` entry of the person's own that a terminal
+/// Claude starts gets it and its `cmux mcp serve` follows the answer, as in an
+/// agent chat (cli/mcp.rs `refusal`); the `codex` shim gives it to such an
+/// entry as an env override (codex_wrapper.rs).
+pub(crate) fn tools_answer(choice: AgentsCmuxMcp) -> &'static str {
+    if choice.injects() { "on" } else { "off" }
+}
+
 /// Claude Code's `--mcp-config` value for this launch, or `None` until the
 /// person said yes to cmux's tools in their agents.
 pub(crate) fn claude_mcp_config(

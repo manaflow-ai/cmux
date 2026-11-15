@@ -30,7 +30,14 @@
 #      entry gets no server and Codex still starts;
 #   6. agents.cmuxMcp off or unanswered: neither shim passes a server;
 #   7. cmux setup mcp with the real claude and codex installed writes nothing
-#      to their configs, names the manual lines, and refuses --remove.
+#      to their configs, names the manual lines, and refuses --remove;
+#   8. agents.cmuxMcp off with "mcp": {"enabled": true} and the person's own
+#      stdio cmux entry in Claude's user config: a real Claude through the
+#      claude shim starts it with CMUX_AGENT_TOOLS_ANSWER=off, and it is the
+#      off server (as a GUI Claude chat's is: mcp-gui-check.sh case 10);
+#   9. the same with the entry in Codex's user config: the codex shim gives
+#      only `-c mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER="off"`, a real
+#      Codex starts, and the entry is the off server.
 # JSON is read from stdout only: an agent may warn on stderr.
 # Prints PASS or FAIL per check and exits 1 on any FAIL.
 set -u
@@ -241,6 +248,65 @@ if [ -n "$CMUX" ]; then
     check "agents.cmuxMcp $value: neither shim passes a cmux server" $?
   done
   rm -f "$D/bin/claude" "$D/bin/codex"
+
+  # 8 and 9. Off with "mcp": {"enabled": true} (which serves a caller outside cmux), and the
+  # person's own stdio `cmux` entry: a wrapper that records the env it starts with, then runs this
+  # build's `cmux mcp serve`. A terminal agent's entry must get the answer, off, and so be the off
+  # server, as in an agent chat.
+  echo '{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}' > "$settings"
+  mkdir -p "$D/entry"
+  printf '#!/bin/sh
+env | grep -E "^(CMUX_AGENT_SESSION|CMUX_AGENT_TOOLS_ANSWER|CMUX_MCP_TOOLS)=" > %s
+exec %s mcp serve
+' \
+    "$(sq "$D/entry.env")" "$(sq "$CLI")" > "$D/entry/cmux"
+  chmod +x "$D/entry/cmux"
+  serve_as() { # ENV FILE: "off" when `cmux mcp serve` with those keys and the settings is the off server
+    python3 - "$CLI" "$1" "$settings" <<'PY'
+import json, os, subprocess, sys
+cmux, envfile, settings = sys.argv[1:]
+pairs = dict(line.strip().split("=", 1) for line in open(envfile) if "=" in line)
+env = {"HOME": os.environ["HOME"], "PATH": os.environ["PATH"], "CMUX_NEXT_CONFIG_FILE": settings, **pairs}
+p = subprocess.Popen([cmux, "mcp", "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, text=True)
+def ask(i, method, params):
+    p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n"); p.stdin.flush()
+    while True:
+        m = json.loads(p.stdout.readline())
+        if m.get("id") == i: return m
+ask(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "launch-check", "version": "1"}})
+p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"); p.stdin.flush()
+tools = [t["name"] for t in ask(2, "tools/list", {})["result"]["tools"]]
+p.kill()
+print("off" if tools == ["cmux_tools_off"] else "on")
+PY
+  }
+  # 8. A real Claude through the `claude` shim, the entry in its user config (the GUI side is
+  # mcp-gui-check.sh case 10).
+  rm -f "$D/entry.env"
+  printf '{"mcpServers":{"cmux":{"type":"stdio","command":"%s","args":[],"env":{}}}}' "$D/entry/cmux" \
+    > "$CLAUDE_CONFIG_DIR/.claude.json"
+  ANTHROPIC_API_KEY=sk-dummy ANTHROPIC_BASE_URL=http://127.0.0.1:9 timeout 90 env "${shim_env[@]}" PATH="$base_path" \
+    "$CMUX" agent claude-wrapper -p "say hi" >/dev/null 2>&1
+  got=$( [ -s "$D/entry.env" ] && serve_as "$D/entry.env" )
+  keys=$(tr '\n' ' ' < "$D/entry.env" 2>/dev/null)
+  grep -qx "CMUX_AGENT_TOOLS_ANSWER=off" "$D/entry.env" 2>/dev/null && [ "$got" = off ]
+  rc=$?; check "claude shim, answer off, mcp.enabled true, the person's own stdio cmux entry: it starts with the answer ($keys) and is the off server ($got)" $rc
+  echo '{}' > "$CLAUDE_CONFIG_DIR/.claude.json"
+  # 9. A real Codex with the shim's env-only -c, the entry in its user config.
+  rm -f "$D/entry.env"
+  printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = []\n' "$D/entry/cmux" > "$CODEX_HOME/config.toml"
+  printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' "$(sq "$D/codex-args")" > "$D/bin/codex"
+  chmod +x "$D/bin/codex"
+  record "$P/sub" exec "say hi"
+  rm -f "$D/bin/codex"
+  given=$(grep '^mcp_servers\.' "$D/codex-args" | tr '\n' ' ')
+  result=$(replay "$P/sub")
+  got=$( [ -s "$D/entry.env" ] && serve_as "$D/entry.env" )
+  keys=$(tr '\n' ' ' < "$D/entry.env" 2>/dev/null)
+  [ "$given" = 'mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER="off" ' ] && [ "$result" = "|0|1" ] \
+    && grep -qx "CMUX_AGENT_TOOLS_ANSWER=off" "$D/entry.env" 2>/dev/null && [ "$got" = off ]
+  rc=$?; check "codex shim, answer off, the person's stdio cmux entry in the user config: only the env key goes in ($given), Codex starts ($result), the entry starts with the answer ($keys) and is the off server ($got)" $rc
+  : > "$CODEX_HOME/config.toml"
   answer on
 
   # 7. cmux setup mcp, with the real agents installed: a report, no write.

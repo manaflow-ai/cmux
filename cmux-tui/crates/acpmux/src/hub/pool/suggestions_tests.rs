@@ -186,4 +186,11 @@ fn a_persons_stdio_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
     assert!(!served(with(&before), &with(&off)));
     assert!(!served(with(&off), &with(&on)));
+    // A session cut off from cmux's tools carries `off` whatever the answer: a spare started
+    // without the cut-off is not served to one with it.
+    let mut cut = env("on");
+    cut.insert(crate::agent_tools::SWITCH_ENV.to_owned(), "0".to_owned());
+    let cut_off = tool_servers(tools(), &cut, codex());
+    assert_eq!(cut_off, "cmux-entry-env:off");
+    assert!(!served(with(&on), &with(&cut_off)));
 }

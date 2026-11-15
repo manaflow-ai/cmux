@@ -36,6 +36,10 @@
 #      chat no `cmux`, Codex starts the person's entry, and cmux tells it the
 #      chat's CMUX_AGENT_SESSION and CMUX_AGENT_TOOLS_ANSWER=off: it is the
 #      off server;
+#  10. the same off with "mcp": {"enabled": true}, and the person's own stdio
+#      `cmux` entry in Claude Code's user config: a real Claude chat starts it
+#      with the chat's CMUX_AGENT_SESSION, and it is the off server, as a
+#      terminal Claude's is (mcp-launch-check.sh case 8);
 #   9. a second daemon in the scratch folder, linked as a peer: its own answer
 #      is off (with "mcp": {"enabled": true}) and its Codex config has the
 #      person's stdio entry; a Codex chat this daemon (answer on) starts there
@@ -336,6 +340,23 @@ keys=$(tr '\n' ' ' < "$D/manual.env")
 grep -q "^CMUX_AGENT_TOOLS_ANSWER=off$" "$D/manual.env" && [ "$got" = off ]
 check "agent chat [codex], answer off, mcp.enabled true, the person's own stdio cmux entry: it gets the chat's keys ($keys) and is the off server ($got)" $?
 cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
+# 10. Still off with "mcp": {"enabled": true}: a real Claude chat over the person's own stdio entry
+# in Claude Code's user config, a wrapper that records the env it starts with and runs this build's
+# `cmux mcp serve`.
+mkdir -p "$D/entry"
+printf '#!/bin/sh\nenv | grep -E "^(CMUX_AGENT_SESSION|CMUX_AGENT_TOOLS_ANSWER|CMUX_MCP_TOOLS)=" > "%s"\nexec "%s" mcp serve\n' \
+  "$D/entry.env" "$CMUX" > "$D/entry/cmux"
+chmod +x "$D/entry/cmux"
+printf '{"mcpServers":{"cmux":{"type":"stdio","command":"%s","args":[],"env":{}}}}' "$D/entry/cmux" \
+  > "$CLAUDE_CONFIG_DIR/.claude.json"
+rm -f "$D/entry.env"
+start_chat gui-claude-manual claude
+for _ in $(seq 1 60); do [ -s "$D/entry.env" ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
+got=$( [ -s "$D/entry.env" ] && python3 "$D/serve-as.py" "$CMUX" "$D/entry.env" "$CMUX_NEXT_CONFIG_FILE" 2>&1 )
+keys=$(tr '\n' ' ' < "$D/entry.env" 2>/dev/null)
+grep -q "^CMUX_AGENT_SESSION=$(session_id gui-claude-manual)$" "$D/entry.env" 2>/dev/null && [ "$got" = off ]
+rc=$?; check "agent chat [claude], answer off, mcp.enabled true, the person's own stdio cmux entry: it starts with the chat's keys ($keys) and is the off server ($got)" $rc
+rm -f "$CLAUDE_CONFIG_DIR/.claude.json"
 cp "$D/settings-on.json" "$CMUX_NEXT_CONFIG_FILE"
 
 # 9. A second daemon (B), linked to this one (A) as a peer: B's own answer is off with

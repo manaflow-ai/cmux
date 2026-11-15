@@ -181,10 +181,13 @@ impl Client {
                 .filter(|(k, v)| !RESTORABLE_ENV.contains(&k.as_str()) || !v.is_string())
                 .map(|(k, _)| format!("env {k}")),
         );
-        // A URL with credentials (`npx --registry https://user:token@host/…`): shown redacted, and
-        // the entry is kept, as for a token in `env` (cmux could not put the secret back).
-        if args.iter().any(|arg| redact_url_credentials(arg) != *arg) {
-            unrestorable.push("args (a URL with credentials)".to_owned());
+        // A secret in its command or args (a URL with credentials, `--token=…`, `key=<long random
+        // value>`): shown redacted, and the entry is kept, as for a token in `env` (cmux could
+        // not put the secret back).
+        let line: Vec<String> =
+            std::iter::once(command.to_owned()).chain(args.iter().cloned()).collect();
+        if redact_secrets(&line) != line {
+            unrestorable.push("command or args (a secret)".to_owned());
         }
         let stdio = entry.get("type").is_none_or(|t| t == "stdio");
         let manual = stdio
@@ -217,8 +220,12 @@ impl Client {
         if self == Self::Claude {
             args.extend(["--scope".to_owned(), "user".to_owned()]);
         }
-        args.extend([SERVER.to_owned(), "--".to_owned(), leftover.command.clone()]);
-        args.extend(leftover.args.iter().cloned());
+        // Never a secret: an entry with one is kept, so this runs only for one without; redacted
+        // all the same, so no path can print one.
+        args.extend([SERVER.to_owned(), "--".to_owned()]);
+        let mut line = vec![leftover.command.clone()];
+        line.extend(leftover.args.iter().cloned());
+        args.extend(redact_secrets(&line));
         self.line(&args)
     }
 
@@ -251,9 +258,9 @@ impl Leftover {
     fn json(&self, client: Client) -> Value {
         json!({
             "config": self.config,
-            "command": redact_url_credentials(&self.command),
-            "args": self.args.iter().map(|arg| redact_url_credentials(arg)).collect::<Vec<_>>(),
-            "runs": self.runs,
+            "command": redact_secrets(std::slice::from_ref(&self.command))[0],
+            "args": redact_secrets(&self.args),
+            "runs": redact_secrets(std::slice::from_ref(&self.runs))[0],
             "remove": client.line(&client.remove_args()),
         })
     }
@@ -564,6 +571,52 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
     Ok(request)
 }
 
+/// `args` (a command line) with each secret-shaped value replaced by `<redacted>`: a URL's
+/// credentials ([`redact_url_credentials`]); the value of a flag whose name says secret
+/// (`--token=V`, `--api-key V`, `--password`, `--secret`, `--auth…`, `--credential…`); and a
+/// `NAME=VALUE` whose value is a long random-looking string (20 or more characters of letters
+/// and digits, both present, and nothing but `-_.+/=`), as an `env`-style key=token.
+fn redact_secrets(args: &[String]) -> Vec<String> {
+    const SECRET_WORDS: [&str; 7] =
+        ["token", "key", "secret", "password", "passwd", "auth", "credential"];
+    let names_secret = |flag: &str| {
+        let name = flag.trim_start_matches('-').to_ascii_lowercase();
+        flag.starts_with('-') && SECRET_WORDS.iter().any(|word| name.contains(word))
+    };
+    let random = |value: &str| {
+        value.len() >= 20
+            && value.chars().all(|c| c.is_ascii_alphanumeric() || "-_.+/=".contains(c))
+            && value.chars().any(|c| c.is_ascii_digit())
+            && value.chars().any(|c| c.is_ascii_alphabetic())
+    };
+    let mut out = Vec::with_capacity(args.len());
+    let mut next_is_secret = false;
+    for arg in args {
+        if std::mem::take(&mut next_is_secret) {
+            out.push("<redacted>".to_owned());
+            continue;
+        }
+        let arg = redact_url_credentials(arg);
+        match arg.split_once('=') {
+            Some((flag, _)) if names_secret(flag) => out.push(format!("{flag}=<redacted>")),
+            Some((name, value))
+                if !name.is_empty()
+                    && !name.contains('/')
+                    && !name.contains(':')
+                    && random(value) =>
+            {
+                out.push(format!("{name}=<redacted>"));
+            }
+            None if names_secret(&arg) => {
+                next_is_secret = true;
+                out.push(arg);
+            }
+            _ => out.push(arg),
+        }
+    }
+    out
+}
+
 /// `value` with the credentials of each URL in it (`scheme://user:pass@host`) replaced by
 /// `<redacted>`, as in `--registry=https://<redacted>@registry.example/`.
 fn redact_url_credentials(value: &str) -> String {
@@ -642,6 +695,31 @@ fn switch(settings: &Path, unreadable: Option<&str>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::redact_url_credentials as redact;
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| (*a).to_owned()).collect()
+    }
+
+    /// Secret-shaped values are redacted; a plain command line stays as it is.
+    #[test]
+    fn secret_shaped_args_are_redacted() {
+        let r = |args: &[&str]| super::redact_secrets(&strings(args));
+        assert_eq!(r(&["--token=abc", "x"]), ["--token=<redacted>", "x"]);
+        assert_eq!(r(&["--api-key", "abc", "mcp"]), ["--api-key", "<redacted>", "mcp"]);
+        assert_eq!(r(&["--password=hunter2"]), ["--password=<redacted>"]);
+        assert_eq!(
+            r(&["KEY=sk9f8a7d6s5f4g3h2j1k0l", "https://u:p@h/x"]),
+            ["KEY=<redacted>", "https://<redacted>@h/x"]
+        );
+        for plain in [
+            &["npx", "-y", "cmux", "mcp", "serve"][..],
+            &["/Applications/cmux.app/Contents/Resources/bin/cmux", "mcp", "serve", "--all-tools"],
+            &["--registry=https://npm.example/", "--keep-alive", "LANG=en_US.UTF-8"],
+            &["MODE=aaaaaaaaaaaaaaaaaaaaaaaaa"],
+        ] {
+            assert_eq!(r(plain), strings(plain), "{plain:?}");
+        }
+    }
 
     #[test]
     fn url_credentials_are_redacted_and_nothing_else_changes() {
