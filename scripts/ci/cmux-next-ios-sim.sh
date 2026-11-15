@@ -143,6 +143,13 @@
 # deletes the set when it ends. The artifact holds the screenshots, each
 # benchmark's flood-bench.json, the app log, the test summary, SUMMARY.md, the
 # built app (zipped) and the PTY recordings with their replay rates.
+#
+# Slim simulators (scripts/ci/simslim/README.md): every simulator the step
+# creates is slimmed with SimSlim before its first boot (~4x less memory) and
+# gated with `simslim doctor --requires push,storekit,universal-links` once
+# booted; simslim/ in the artifact holds the profile, gate and memory receipts.
+# CMUX_SIM_FULL=1 boots stock simulators; CMUX_SIM_KEEP=photos,search,...
+# keeps more (both pass through `cmux-ci run --env`).
 set -euo pipefail
 trap 'echo "cmux-next-ios-sim.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
@@ -436,6 +443,11 @@ note "- commit: $(git rev-parse HEAD)"
 note "- host: $(hostname -s), $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, macOS $(sw_vers -productVersion)"
 note "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
 note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
+if [[ "$mode" != release-build ]]; then
+  # shellcheck source-path=SCRIPTDIR source=simslim/simslim.sh
+  source "$root/scripts/ci/simslim/simslim.sh"
+  cmux_simslim_init "$work" "$out"
+fi
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
@@ -603,8 +615,10 @@ sims="$work/sims"
 mkdir -p "$sims"
 simctl() { xcrun simctl --set "$sims" "$@"; }
 udid="$(simctl create cmux-next-ios-sim "$device_type" "$runtime")"
+cmux_simslim_prepare "$udid" "$sims"
 simctl boot "$udid"
 simctl bootstatus "$udid" -b >/dev/null
+cmux_simslim_gate "$udid" "$sims"
 simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
 note "- simulator: ${device_type##*.} on ${runtime##*.}"
 simctl install "$udid" "$app"
@@ -612,6 +626,7 @@ simctl launch "$udid" "$bundle_id" >/dev/null
 # A bounded wait for the first screen to draw; the launch itself has no signal to wait on.
 sleep 8
 simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
+cmux_simslim_measure "$udid" launch "$sims"
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
 
@@ -652,6 +667,11 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   # xcodebuild sees only the default device set: the tests get their own new
   # iPhone there, deleted by its UDID afterwards (never another step's device).
   test_udid="$(xcrun simctl create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  # Booted here so its slim state is gated before the tests; xcodebuild uses the booted device.
+  cmux_simslim_prepare "$test_udid"
+  xcrun simctl boot "$test_udid"
+  xcrun simctl bootstatus "$test_udid" -b >/dev/null
+  cmux_simslim_gate "$test_udid"
   set +e
   (cd cmux-next-ios/CmuxMobileKit && env ${kit_env[@]+"${kit_env[@]}"} xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
@@ -824,11 +844,12 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   # default device set (xcodebuild sees no other), deleted by its UDID after.
   ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   recorder=""
-  if [[ $ui_video -eq 1 || $ui_profile -eq 1 ]]; then
-    # Booted first so the recording covers the whole run; the test run uses the booted device.
-    xcrun simctl boot "$ui_udid"
-    xcrun simctl bootstatus "$ui_udid" -b >/dev/null
-  fi
+  # Booted first so its slim state is gated and a recording covers the whole run; the test
+  # run uses the booted device.
+  cmux_simslim_prepare "$ui_udid"
+  xcrun simctl boot "$ui_udid"
+  xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+  cmux_simslim_gate "$ui_udid"
   ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui"
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
@@ -873,6 +894,7 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     ui_profile_finish
   fi
   set -e
+  cmux_simslim_measure "$ui_udid" ui-end
   xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
   ui_udid=""
@@ -884,6 +906,10 @@ fi
 # --- Chief layout benchmark -------------------------------------------------
 if [[ "$mode" == chief-live-perf || "$mode" == chief-live-perf-baseline ]]; then
   perf_udid="$(xcrun simctl create "cmux-chief-perf-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  cmux_simslim_prepare "$perf_udid"
+  xcrun simctl boot "$perf_udid"
+  xcrun simctl bootstatus "$perf_udid" -b >/dev/null
+  cmux_simslim_gate "$perf_udid"
   perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited)')
   if [[ "$mode" == chief-live-perf-baseline ]]; then
     perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CHIEF_LIVE_BASELINE')
