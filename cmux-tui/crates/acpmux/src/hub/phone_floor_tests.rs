@@ -76,3 +76,61 @@ async fn full_access_off_ends_the_phones_running_turn_in_a_chat_no_policy_holds(
     let off = hub.answer_tool_gate(&session, tool_call(&session)).await;
     assert_eq!(off["decision"], "deny", "{off}");
 }
+
+/// A phone's steer and a dashboard's steer into the same Local turn, at once: the turn becomes
+/// a Web turn and, as two clients touched it, no one device's (`FloorState::turn_device`), in
+/// every interleaving. Run many rounds: before the turn's control and its sender changed under
+/// one lock, a phone that promoted the turn could write its device after the dashboard's steer
+/// cleared it (review of cmux#43251 at 8b9e2f5d, P1-F1).
+#[test]
+fn concurrent_steers_from_the_phone_and_another_client_leave_no_one_devices_turn() {
+    let mut cfg = Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    // A chat no D13 rule covers, in no declared mode: a dashboard may steer it.
+    let meta: SessionMeta = serde_json::from_value(json!({"schema": META_SCHEMA, "id": "mixed",
+        "name": "mixed", "harness": "fake", "cwd": "/tmp", "status": "idle",
+        "createdAt": 1, "updatedAt": 1}))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let hub = Hub::new(cfg, store);
+    let session = hub.resolve("mixed").unwrap();
+    let (phone, _) = hub.pairing.issue_phone("phone-iphone").unwrap();
+    let phone = phone.id;
+    let mut mixed = 0;
+    for round in 0..2000 {
+        *session.turn.lock().unwrap() = Some(TurnInfo {
+            trigger: false,
+            started_at: 1,
+            client: "local".into(),
+            prompt_preview: String::new(),
+            masked_preview: String::new(),
+            turn_id: format!("turn-{round}"),
+            prompt_id: format!("prompt-{round}"),
+            turn_seq: 1,
+            control: Control::Local,
+            doing: Default::default(),
+            notice: false,
+            persons: false,
+            accepted: true,
+        });
+        *session.floor.turn_device.lock().unwrap() = None;
+        let start = std::sync::Barrier::new(2);
+        std::thread::scope(|s| {
+            let a = s.spawn(|| {
+                start.wait();
+                hub.check_steer(&session, Control::Web, Some(&phone))
+            });
+            let b = s.spawn(|| {
+                start.wait();
+                hub.check_steer(&session, Control::Web, None)
+            });
+            a.join().unwrap().expect("the phone steers");
+            b.join().unwrap().expect("the dashboard steers");
+        });
+        if session.floor.turn_device.lock().unwrap().is_some() {
+            mixed += 1;
+        }
+    }
+    assert_eq!(mixed, 0, "rounds whose mixed turn kept the phone's device");
+}

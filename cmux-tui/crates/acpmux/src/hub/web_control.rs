@@ -270,20 +270,23 @@ impl Hub {
         if control != Control::Web {
             return Ok(());
         }
+        // The turn's control and its sender change together, under the turn lock (then the
+        // sender's: no path takes them the other way round), so two steers into one turn
+        // never interleave: the turn stays the one device's only while every Web steer into
+        // it is that device's (`FloorState::turn_device`). A steer that promoted the turn and
+        // wrote its device after another device's steer cleared it would leave a mixed turn the
+        // phone exception still covers (review of cmux#43251 at 8b9e2f5d, P1-F1).
         let raised = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(|t| {
             let was_web = t.control == Control::Web;
             t.control = Control::Web;
-            (t.turn_id.clone(), was_web)
-        });
-        if let Some((turn_id, was_web)) = raised {
-            session.floor.last_turn_web.store(true, Ordering::SeqCst);
-            // The turn stays the one device's only while every Web steer into it is that device's
-            // (`FloorState::turn_device`).
             let mut sender = session.floor.turn_device.lock().unwrap_or_else(|e| e.into_inner());
             if !was_web || sender.as_deref() != device {
                 *sender = (!was_web).then(|| device.map(str::to_owned)).flatten();
             }
-            drop(sender);
+            t.turn_id.clone()
+        });
+        if let Some(turn_id) = raised {
+            session.floor.last_turn_web.store(true, Ordering::SeqCst);
             // Read back when a host is adopted (`hosts.rs`).
             self.append(
                 session,

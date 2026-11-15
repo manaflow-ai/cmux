@@ -60,14 +60,21 @@ fn hub(d: &Path) -> Arc<Hub> {
 
 /// A connection, and the `_meta.acpmux.via` its requests carry (a paired
 /// machine forwarding for its own Web client says `web`).
-struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64, Option<&'static str>);
+/// Replies that came in while another was awaited are kept for their own `reply`.
+struct Client(
+    mpsc::Sender<String>,
+    mpsc::Receiver<String>,
+    i64,
+    Option<&'static str>,
+    std::collections::HashMap<i64, Value>,
+);
 
 impl Client {
     fn new(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
-        Client(in_tx, out_rx, 0, None)
+        Client(in_tx, out_rx, 0, None, Default::default())
     }
 
     /// A connection that presented the paired credential `token`, served as
@@ -78,7 +85,7 @@ impl Client {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_device(hub.clone(), in_rx, out_tx, proof));
-        Client(in_tx, out_rx, 0, via_web.then_some("web"))
+        Client(in_tx, out_rx, 0, via_web.then_some("web"), Default::default())
     }
 
     async fn call(&mut self, m: &str, params: Value) -> Value {
@@ -100,14 +107,21 @@ impl Client {
     }
 
     async fn reply(&mut self, id: i64) -> Value {
+        if let Some(v) = self.4.remove(&id) {
+            return v;
+        }
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
                 .unwrap()
                 .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
-            if v.get("id") == Some(&json!(id)) {
-                return v;
+            match v.get("id").and_then(Value::as_i64) {
+                Some(got) if got == id => return v,
+                Some(got) if v.get("method").is_none() => {
+                    self.4.insert(got, v);
+                }
+                _ => {}
             }
         }
     }
