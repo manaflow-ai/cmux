@@ -966,7 +966,7 @@ class PrePushGateTests(unittest.TestCase):
         """(the git dir, its worktree) of a wt mirror: a bare clone of the remote with a linked worktree, whose
         hooks the installer run there puts in the bare clone (its common dir), as repo_publish's mirror has them."""
         mirror, tree = self.root / "mirror.git", self.root / "mirror-tree"
-        subprocess.run(["git", "clone", "--quiet", "--bare", str(self.origin), str(mirror)], env=self.env, check=True)
+        git_fixture_env.clone_repo(self.origin, mirror, "--bare", env=self.env)
         for args in (("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"),
                      ("fetch", "--quiet", "origin"),
                      ("worktree", "add", "--quiet", str(tree), "feat-cmux-next")):
