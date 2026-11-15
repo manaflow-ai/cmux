@@ -63,11 +63,29 @@ artifact's run, pulls/<n>). A marker that a fork pull request's run uploaded
 (it runs the fork's workflow file, so it can write any marker) starts and
 cancels nothing; the fork keeps its pull_request run.
 
+A notify that cannot read GitHub is never silent (TREE_NOTIFY_NEVER_SILENT;
+2026-11-14, cmux#43241: the publish of tree 88496a2f read "HTTP 403" on its
+first marker lookup, the workflow token's hourly budget spent; the step printed
+a warning in a green job, no same-tree run started, and the PR's required
+`cmux-next daemon tests (same-tree)` status never posted. A re-run of the
+failed jobs re-ran only the red hand-off job, not the green publish, so it
+could not help):
+- a call refused for the rate limit (a 429, or a 403 naming it or with
+  x-ratelimit-remaining 0) moves to GH_TOKEN_SPARE, once, when it holds another
+  token; and
+- with --strict, a notify that could not run exits 1 with an ::error. The
+  publish pass runs it --strict under continue-on-error (its tree is good, so
+  the publish stays green) and exports the step's outcome; rerun-deferred-commits
+  runs it again, --strict and red, when that outcome is a failure, so the PR
+  gets a red job that a re-run of the failed jobs retries, never a status that
+  does not post.
+
 Usage: cmux_next_tree_notify.py --repo OWNER/NAME --key KEY --state ready|failed
-       [--reason TEXT]
+       [--reason TEXT] [--strict]
 Needs GH_TOKEN with actions: write (dispatch, delete markers, cancel runs), contents: read
-and pull-requests: read. Exits 0 when the API fails: a notify problem must not
-turn a good publication red; it prints a ::warning:: instead.
+and pull-requests: read. GH_TOKEN_SPARE, optional: a second token with the same access
+and its own rate limit. Without --strict it exits 0 when the API fails and prints a
+::warning:: instead.
 """
 
 from __future__ import annotations
@@ -136,9 +154,13 @@ class GitHub:
     # Every call's whole-request bound (deadline_http.request); a test sets a fraction of a second.
     timeout: float = REQUEST_TIMEOUT_S
 
-    def __init__(self, token: str, api_url: str = "https://api.github.com"):
+    def __init__(self, token: str, api_url: str = "https://api.github.com", spare: str = "",
+                 log: Callable[[str], None] = print):
         self.token = token
         self.api_url = api_url.rstrip("/")
+        # The token a rate-limited call moves to, once (TREE_NOTIFY_NEVER_SILENT, module docstring).
+        self.spare = spare if spare and spare != token else ""
+        self.log = log
 
     def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
         """One call, with its response headers. RequestTimeout past self.timeout."""
@@ -153,7 +175,13 @@ class GitHub:
         return deadline_http.request(request, self.timeout)
 
     def _request(self, method: str, url: str, body: dict | None = None):
-        status, payload, _ = self._send(method, url, body)
+        status, payload, headers = self._send(method, url, body)
+        if self.spare and rate_limited(status, payload, headers):
+            # One switch for the whole notify: the spare is now the token, so a second refusal is final.
+            self.log("::notice title=tree notify token::GH_TOKEN is rate limited; the notify continues on "
+                     "GH_TOKEN_SPARE")
+            self.token, self.spare = self.spare, ""
+            status, payload, headers = self._send(method, url, body)
         return status, payload
 
     def get(self, path: str):
@@ -173,6 +201,19 @@ class GitHub:
 
     def delete(self, path: str) -> int:
         return self._request("DELETE", f"{self.api_url}/{path}")[0]
+
+
+RATE_LIMIT_TEXT = re.compile(rb"rate limit|too many requests", re.IGNORECASE)
+
+
+def rate_limited(status: int, payload: bytes, headers) -> bool:
+    """GitHub refused the call for a rate limit: a 429, or a 403 whose budget is spent or whose answer
+    names the limit (the primary and the secondary limit both answer 403)."""
+    if status == 429:
+        return True
+    if status != 403:
+        return False
+    return (headers or {}).get("x-ratelimit-remaining") == "0" or bool(RATE_LIMIT_TEXT.search(payload or b""))
 
 
 def fetch_completion(key: str) -> object | None:
@@ -605,15 +646,18 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--key", required=True)
     parser.add_argument("--state", choices=("ready", "failed"), required=True)
     parser.add_argument("--reason", default="")
+    parser.add_argument("--strict", action="store_true",
+                        help="exit 1 with an ::error when GitHub could not be read (TREE_NOTIFY_NEVER_SILENT)")
     args = parser.parse_args(argv)
     if not SHA.match(args.key):
         print(f"::warning::not a tree key: {args.key!r}")
         return 0
     token = os.environ.get("GH_TOKEN", "")
     if not token:
-        print("::warning::no GH_TOKEN; cannot start the deferred cmux-next tree jobs")
-        return 0
-    api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
+        print(f"::{'error' if args.strict else 'warning'}::no GH_TOKEN; cannot start the deferred cmux-next tree jobs")
+        return 1 if args.strict else 0
+    api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+                 spare=os.environ.get("GH_TOKEN_SPARE", ""))
     try:
         # This script runs inside the artifacts run that reports: that run is no publisher to wait on.
         own_run = os.environ.get("GITHUB_RUN_ID", "")
@@ -641,6 +685,12 @@ def main(argv: list[str]) -> int:
         notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason,
                exclude_run=run_id, quota_only=safe_quota_only)
     except (RuntimeError, OSError, ValueError) as error:
+        if args.strict:
+            # A same-tree status that nothing starts never posts: say so in red, with the way out.
+            print(f"::error title=same-tree jobs not started::could not start the deferred cmux-next tree jobs "
+                  f"for tree {args.key}: {error}. Their required same-tree status does not post until this "
+                  "notify runs: re-run the failed jobs of this run (gh run rerun RUN --failed).")
+            return 1
         print(f"::warning::could not start the deferred cmux-next tree jobs for tree {args.key}: {error}")
     return 0
 

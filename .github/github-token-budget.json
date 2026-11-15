@@ -148,6 +148,7 @@
     "cmux-tui-artifacts.yml: Report the unpublished tree to the cmux-next runs that wait for it": "baseline 2026-11-04",
     "cmux-tui-artifacts.yml: Request nightly-next promotion on main": "baseline 2026-11-04",
     "cmux-tui-artifacts.yml: Start the cmux-next tree jobs that waited for this tree": "baseline 2026-11-04",
+    "cmux-tui-artifacts.yml: Start the cmux-next tree jobs the publish could not": "only when publish-tree's ready notify failed (TREE_NOTIFY_NEVER_SILENT): one marker listing, then a dispatch and a delete per waiting run; moves to the cmux-bot App's token once the workflow token is rate limited",
     "cmux-tui-artifacts.yml: Wait for the owning tree publisher": "baseline 2026-11-04",
     "cmux-tui-build-package.yml: Attest native npm package binaries": "baseline 2026-11-04",
     "cmux-tui-build-package.yml: Retry native npm package binary attestation": "baseline 2026-11-04",
