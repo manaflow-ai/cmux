@@ -83,7 +83,7 @@ public struct ArtifactsBrowser: View {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 8)], spacing: 8) {
                             ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactTile(artifact: artifact, source: source) }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.cmuxPressFill)
                             }
                         }
                         .padding(.horizontal, 20)
@@ -154,7 +154,7 @@ public struct ArtifactsBrowser: View {
                             .frame(minHeight: 44)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(state.filter == item ? .isSelected : [])
                 }
             }

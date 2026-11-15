@@ -7,6 +7,7 @@
     hot-apply.py prefetch SHA [--app APP | --base COMMIT] [--repo DIR]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
+    hot-apply.py live-from SHA [--repo DIR] [--max N]
 
 Leo, 2026-11-06: "how much of this needs a nightly versus, like, us being able to do the hot swap
 thing?" This puts the parts of a merged commit that need no app build into the app that runs now,
@@ -362,6 +363,42 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
 def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None = None) -> dict:
     with PHASES("plan"):
         return _plan(repo, app, sha, branch, base)
+
+
+LIVE_FROM_MAX = 400  # a NIGHTLY is at most a day of merges behind feat-cmux-next
+
+
+def pins_daemon(repo: Path, commit: str) -> list[str]:
+    """The paths of COMMIT's own change (against its first parent) that tie the daemon to the app: Rust
+    the app links through FFI. `plan` holds the Rust part back for exactly these; Swift, resources and
+    web left for a nightly do not stop it. A root commit pins it."""
+    parent = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^", check=False)
+    if not SHA.fullmatch(parent or ""):
+        return [f"{commit} has no parent here"]
+    files = live_apply.classify_range(str(repo), parent, commit)["files"]
+    # The same files `plan` checks: its daemon part, with cmux-tui's own native sources moved onto it.
+    rust = files.get("daemon", []) + [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
+    return linked_rust(repo, sorted(set(rust)))
+
+
+def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
+    """Every commit whose app can take SHA's daemon build live, newest first: SHA, then its first parents
+    back to the newest commit whose own change pins the daemon to the app (pins_daemon; included: an app
+    built there links that change).
+    At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
+    signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
+        out["live_from"].append(commit)
+        if paths := pins_daemon(repo, commit):
+            out["floor"], out["floor_paths"] = commit, paths[:20]
+            break
+    return out
+
+
+def command_live_from(args) -> int:
+    print(json.dumps(live_from(Path(args.repo), args.sha, args.max)))
+    return 0
 
 
 def abi_at(repo: Path, commit: str) -> int | None:
@@ -1312,6 +1349,10 @@ def main(argv=None) -> int:
                                 "to the new build with `server restart` (terminals kept)")
             p.add_argument("--dry-run", action="store_true",
                            help="plan, fetch and verify every part; change nothing in the app (receipt: history.jsonl)")
+    p = sub.add_parser("live-from", help="the app commits that can take SHA's daemon build live (JSON)")
+    p.add_argument("sha")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--max", type=int, default=LIVE_FROM_MAX)
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")
@@ -1324,7 +1365,7 @@ def main(argv=None) -> int:
             return 2
     try:
         return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "rollback": command_rollback,
-                "status": command_status}[args.command](args)
+                "status": command_status, "live-from": command_live_from}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)
         return 3
