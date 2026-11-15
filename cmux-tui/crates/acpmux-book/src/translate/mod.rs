@@ -38,8 +38,10 @@ pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES
 /// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
 /// 8 KB, held claims 4 KB, the continued notice and the cards (6 KB) came to about 34 KB, past the
 /// 32 KB this was before cards (`every_held_state_full_at_once_fits_the_translators_segment`).
+/// 40 KB leaves about 6 KB for the live turn and still fits the book checkpoint's 64 KB state with
+/// every other part at its bound (`production_caps_fit_separate_checkpoint_budgets_and_roundtrip`).
 /// The book's checkpoint reads this bound too, so the two cannot drift.
-pub const MAX_TRANSLATOR_BYTES: usize = 48 * 1024;
+pub const MAX_TRANSLATOR_BYTES: usize = 40 * 1024;
 const MAX_QUEUE_ENTRIES: usize = crate::checkpoint::MAX_PROMPTS;
 const MAX_KEY_BYTES: usize = 256;
 
