@@ -188,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--measure", default="30")
     parser.add_argument("--app-vm", action="store_true",
                         help="bench_memory --app-vm: the empty app process's vmmap, footprint and heap (report.json app_vm)")
+    parser.add_argument("--app-vm-stacks", metavar="PATTERN", help="bench_memory --app-vm-stacks (a diagnostic run)")
     args, _rest = parser.parse_known_args(argv)  # split-spring's own args (--tag) are not this suite's
     out_dir = args.out or os.path.dirname(os.path.abspath(args.json))
     os.makedirs(out_dir, exist_ok=True)
@@ -195,8 +196,10 @@ def main(argv: list[str] | None = None) -> int:
     cmd = [sys.executable, os.path.join(HERE, "bench_memory.py"), "--app", args.app, "--workspaces", args.agents,
            "--mix", "terminal+chat", "--fake-agent", os.path.join(ROOT, FAKE_AGENT), "--settle", args.settle,
            "--measure", args.measure, "--top", "8", "--js-heap", "--out", raw]
-    if args.app_vm:
+    if args.app_vm or args.app_vm_stacks:
         cmd.append("--app-vm")
+    if args.app_vm_stacks:
+        cmd += ["--app-vm-stacks", args.app_vm_stacks]
     status = subprocess.run(cmd, cwd=ROOT).returncode
     try:
         with open(raw) as f:
