@@ -524,6 +524,27 @@ class OtherSessions(unittest.TestCase):
             self.swap(True)
         self.assertIn(self.CHIEF_SOCK, str(caught.exception))
 
+ADOPTED = "b6236a4e4ea648236cef9d0ca2ffa4ed78fe0693"  # before #43477 added a tree input
+ADOPTED_KEY = "b3a5a6a29766bec348f384673782f35495bc794b"  # files.cmux.com/cmux-tui/<ADOPTED>/manifest.json treeKey
+
+
+class TreeKey(unittest.TestCase):
+    """A commit's tree key is the one CI published it under: its own key script over its own inputs list,
+    whatever this checkout's say. With this checkout's (#43477 added an input), ADOPTED keyed to a tree
+    nothing was published under, and hot-apply found no build for any commit before it."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [ADOPTED], depth=2)
+
+    def test_a_commit_before_an_inputs_change_keys_as_ci_published_it(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_key_under_test", SCRIPT)
+        hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_key_under_test"] = hot
+        spec.loader.exec_module(hot)
+        self.assertEqual(hot._tree_key(ROOT, ADOPTED), ADOPTED_KEY)
+
+
 class WebCache(unittest.TestCase):
     """web_bundles(): a web key's bundles fetched once, checked on each use, bounded."""
 
