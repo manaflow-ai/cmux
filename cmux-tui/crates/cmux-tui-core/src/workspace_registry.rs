@@ -8,9 +8,7 @@ mod open;
 mod schema;
 mod session_reset;
 
-pub(crate) use schema::{
-    AutoVacuumMigration, ForeignKeyViolation, first_state_foreign_key_violation,
-};
+pub(crate) use schema::{AutoVacuumMigration, first_state_foreign_key_violation};
 use schema::{
     backfill_workspace_public_ids, check_registry_integrity, checkpoint_and_truncate_wal,
     create_terminal_schema, create_workspace_schema, ensure_session_public_id,
