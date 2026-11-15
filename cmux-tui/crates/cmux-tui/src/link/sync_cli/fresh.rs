@@ -6,7 +6,8 @@
 //! request at a time, for every new folder: five for a new folder below an existing one
 //! (`through_link`, the listing, `mkdir_all`'s two `is_dir` and the `fs.mkdir`), about 500 ms
 //! a folder over a Cloud machine's link. A chat's copy (`cmux link start-chat copy`) always
-//! goes to a new folder, so all of its folders are made this way at one `fs.mkdir` each.
+//! goes to a new folder, so all of its folders are made this way at one `fs.mkdir` each, and
+//! those go [`MKDIR_BATCH`] to a round trip once the push knows every folder ([`Fresh::flush`]).
 //!
 //! Every write still goes as before: a no-follow write is refused by the machine itself when
 //! a symlink is on its path, and a machine without no-follow writes has each file's folders
@@ -24,7 +25,13 @@ pub(super) struct Fresh {
     made: BTreeSet<String>,
     /// Folders known to be there already (the root, and each `mkdir_all` answered).
     there: BTreeSet<String>,
+    /// The `fs.mkdir`s of made folders not sent yet, `(parent, name)`, parents first
+    /// ([`Fresh::flush`]).
+    pending: Vec<(String, String)>,
 }
+
+/// Most `fs.mkdir`s one batch sends.
+const MKDIR_BATCH: usize = 256;
 
 impl Fresh {
     /// Makes `root` (and what is missing above it) and starts the record: the root is this
@@ -32,8 +39,12 @@ impl Fresh {
     pub(super) fn make_root(remote: &mut Remote, root: &str) -> anyhow::Result<Self> {
         let there = remote.kind(root)?.is_some();
         remote.mkdir_all(root)?;
-        let mut fresh =
-            Self { root: root.to_owned(), made: BTreeSet::new(), there: BTreeSet::new() };
+        let mut fresh = Self {
+            root: root.to_owned(),
+            made: BTreeSet::new(),
+            there: BTreeSet::new(),
+            pending: Vec::new(),
+        };
         if there {
             fresh.there.insert(root.to_owned());
         } else {
@@ -76,6 +87,12 @@ impl Fresh {
             return Ok(());
         }
         self.make(remote, parent)?;
+        if below && self.covers(parent) {
+            // Sent with the others in [`Fresh::flush`], after its parent's.
+            self.pending.push((parent.to_owned(), name.to_owned()));
+            self.made.insert(folder.to_owned());
+            return Ok(());
+        }
         match remote.call("fs.mkdir", json!({ "path": parent, "name": name })) {
             Ok(_) => {
                 self.made.insert(folder.to_owned());
@@ -86,6 +103,35 @@ impl Fresh {
                 self.there.insert(folder.to_owned());
             }
             Err(error) => return Err(error),
+        }
+        Ok(())
+    }
+
+    /// Makes the made folders not made yet, [`MKDIR_BATCH`] requests to a round trip: one
+    /// connection runs them in order, so a folder's parent is made before it. One that is
+    /// there already is taken as [`Remote::mkdir_all`] takes it (a folder is used, anything
+    /// else refused).
+    pub(super) fn flush(&mut self, remote: &mut Remote) -> anyhow::Result<()> {
+        let pending = std::mem::take(&mut self.pending);
+        for chunk in pending.chunks(MKDIR_BATCH) {
+            let requests = chunk
+                .iter()
+                .map(|(parent, name)| ("fs.mkdir", json!({ "path": parent, "name": name })))
+                .collect();
+            let called = remote.call_batch(requests);
+            if let Some(error) = called.failed {
+                return Err(error);
+            }
+            for ((parent, name), answer) in chunk.iter().zip(called.answers) {
+                match answer {
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) if remote::refusal_code(&error) == Some("fs.exists") => {
+                        remote.mkdir_all(&format!("{parent}/{name}"))?;
+                    }
+                    Some(Err(error)) => return Err(error),
+                    None => anyhow::bail!("the machine did not answer making {parent}/{name}"),
+                }
+            }
         }
         Ok(())
     }
