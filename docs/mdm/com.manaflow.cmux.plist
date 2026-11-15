@@ -277,7 +277,7 @@
 			<key>pfm_default</key>
 			<string>hover</string>
 			<key>pfm_description</key>
-			<string>On Hover shows each tab bar's + only while the pointer is over that tab bar.</string>
+			<string>In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows.</string>
 			<key>pfm_name</key>
 			<string>tabs.plusButton</string>
 			<key>pfm_range_list</key>
@@ -5676,7 +5676,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.</string>
+			<string>The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on.</string>
 			<key>pfm_name</key>
 			<string>sidebar.controlsOnHover</string>
 			<key>pfm_title</key>
@@ -5700,7 +5700,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Workspace rows show only their icon, name and unread mark, and section titles become thin lines.</string>
+			<string>The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines.</string>
 			<key>pfm_name</key>
 			<string>sidebar.minimal</string>
 			<key>pfm_title</key>

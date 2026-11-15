@@ -41,6 +41,11 @@ smoltcp. It needs no root access, TUN device or system routes. The existing
 listener token, peer token, and permission rules still apply; a WireGuard key
 alone does not grant access to sessions or app-only operations.
 
+`transport.wireguard: true` needs the `wireguardStatic` block below. Without
+it the daemon refuses to start, and `acpmux config --set transport.wireguard=true`
+refuses to write it. The hub carrier (`cmux remote ... --via-machine`) does not
+need this transport. A joined machine runs the carrier on its node key alone.
+
 Configure each side in its private `config.json`, with different node keys and
 virtual addresses. The endpoint is the other machine's UDP address; `address`
 is its virtual service address, used only inside acpmux:
