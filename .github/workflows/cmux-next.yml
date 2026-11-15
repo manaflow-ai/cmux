@@ -3293,9 +3293,7 @@ jobs:
             echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; native gallery capture did not run."
             exit 127
           fi
-          "$client" run --class light --display \
-            --script scripts/ci/native-sidebar-gallery.sh --ref "$REF" \
-            --timeout 2400 --artifact artifacts/native-sidebar-gallery.tar
+          CMUX_CI_CLIENT="$client" scripts/ci/native-sidebar-gallery.sh "$REF"
 
       - name: Upload native sidebar gallery artifact
         if: always()
@@ -3304,6 +3302,7 @@ jobs:
           name: native-sidebar-gallery-${{ github.sha }}
           path: artifacts/native-sidebar-gallery.tar
           if-no-files-found: warn
+          retention-days: 3
 
   # The fast tier's queued hand-back, placed again (side_lane_placement.handback()). When fast-tier-fleet hands
   # Why: docs/ci/cmux-next-workflow-notes.md#note-37

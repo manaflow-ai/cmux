@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import CmuxTheme
@@ -24,8 +25,7 @@ import Testing
 
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    static let repoRoot = packageRoot.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    static let fixtureRoot = packageRoot.appending(path: "Fixtures/SidebarGallery")
+    static let fixtureRoot = packageRoot.appending(path: "Tests/Fixtures/SidebarGallery")
 
     static func fixture(_ name: String) throws -> SidebarGalleryFixture {
         let url = fixtureRoot.appending(path: name + ".json")
@@ -92,9 +92,16 @@ import Testing
 
     static func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
 
+    @Test(arguments: SidebarGalleryFixture.Scenario.allCases)
+    func loadFixture(_ scenario: SidebarGalleryFixture.Scenario) throws {
+        let fixture = try Self.fixture(scenario.rawValue)
+        #expect(fixture.scenario == scenario)
+        #expect(!fixture.snapshot.rowIDs.isEmpty)
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
-        let out = packageRoot.appending(path: "native-sidebar-gallery")
+        let out = Self.packageRoot.appending(path: "native-sidebar-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let names = ["session-tree-deep", "sidebar-customization", "needs-you"]
@@ -111,7 +118,7 @@ import Testing
         try manifest.write(to: out.appending(path: "manifest.json"))
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        tar.currentDirectoryURL = packageRoot
+        tar.currentDirectoryURL = Self.packageRoot
         tar.arguments = ["cf", "native-sidebar-gallery.tar", "native-sidebar-gallery"]
         try tar.run()
         tar.waitUntilExit()
