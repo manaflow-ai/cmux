@@ -144,15 +144,16 @@ _TEMP = re.compile(r"(?:/tmp|/var/folders)/\S*|\btmp[\w-]{4,}")
 _HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
 _NUMBER = re.compile(r"\d+")
 _NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
-# A Python warning names nothing that failed, and comes and goes from run to run (hq#11346: CPython's shutdown
-# `sys:1: ResourceWarning: unclosed file <...>` read as the name `sys:0`, charging a step red on both sides to the
-# change). warnings.formatwarning writes `<file>:<line>: <Category>: <message>`, where the file is a path, `sys` or
+# A Python warning names nothing that failed, and comes and goes from run to run (hq#11346, cmux#43507: CPython's
+# shutdown `sys:1: ResourceWarning: unclosed file <...>` read as the name `sys:0`, charging a step red on both sides
+# to the change). warnings.formatwarning writes `<file>:<line>: <Category>: <message>`, where the file is a path, `sys` or
 # `<frozen ...>` and the category ends in Warning (dotted for a library's own), often glued to unittest's progress
 # dots; then, for a real file, its source line indented two spaces. CPython's tracemalloc hint is its own line. A
 # category with no location (`FAILED x::test - DeprecationWarning: ...`, a traceback's last line under -W error) is
 # a failure message and stays.
 _WARNING_CATEGORY = r"(?:[A-Za-z_]\w*\.)*[A-Z]\w*Warning: "
-_LOCATED_WARNING = re.compile(r"(?P<file>sys|<[^<>\n]*>|(?:<\w+>)?[\w./\\~+-]*\.pyw?):\d+: " + _WARNING_CATEGORY + ".*")
+_LOCATED_WARNING = re.compile(r"(?P<file>sys|<[^<>\n]*>|(?:<\w+>)?[\w./\\~+-]*\.pyw?):\d+: "
+                              + _WARNING_CATEGORY + ".*")
 _BARE_WARNING = re.compile(r"^\s*ResourceWarning: Enable tracemalloc to get the object allocation traceback\s*$")
 _WARNING_SOURCE = re.compile(r"^  \S")
 
