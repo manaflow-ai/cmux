@@ -312,6 +312,14 @@ impl ProviderError {
     pub fn is_retryable_carrier_failure(&self) -> bool {
         matches!(self, Self::Link(LinkError::Closed | LinkError::Transport(_)))
     }
+
+    /// The far side's refusal, when it refused the route for good ([`LinkError::Refused`]).
+    pub fn refusal(&self) -> Option<&crate::link::Refusal> {
+        match self {
+            Self::Link(error) => error.refusal(),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for ProviderError {

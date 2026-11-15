@@ -1729,6 +1729,18 @@ impl ConnectionError {
             _ => false,
         }
     }
+
+    /// The far side's refusal, when a dial ended on one no redial cures
+    /// ([`LinkError::Refused`]).
+    pub fn refusal(&self) -> Option<&crate::link::Refusal> {
+        match self {
+            Self::Provider(error) => error.refusal(),
+            Self::Link(error)
+            | Self::Crypto(CryptoError::LinkError(error))
+            | Self::Session(SessionError::Link(error)) => error.refusal(),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for ConnectionError {
