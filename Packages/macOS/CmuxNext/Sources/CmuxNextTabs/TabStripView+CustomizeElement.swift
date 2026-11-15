@@ -7,7 +7,7 @@ extension TabStripView: CustomizeElementPointing {
     public func customizeElement(at point: NSPoint) -> CustomizeElementHit? {
         guard bounds.contains(point) else { return nil }
         if let id = tabID(at: point), let cell = cells[id] {
-            return CustomizeElementHit(id: "tab", frame: (cell.superview ?? tabsClip).convert(cell.frame, to: self))
+            return CustomizeElementHit(id: "tab", frame: tabsClip.convert(cell.frame, to: self))
         }
         return CustomizeElementHit(id: "tabBar", frame: bounds)
     }
