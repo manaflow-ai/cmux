@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43693514634",
+  "recorded_at": "2026-11-15T08:21:24Z",
+  "reason": "cmux-tui 8352b832154b changes the image's cmux-tui (pinned 652edf7e7090)",
+  "dry_run": false,
+  "cmux_tui": "8352b832154b73ab5c04ff54b1c0460da359f1d9",
+  "fixes": [
+    {
+      "sha": "8352b832154b73ab5c04ff54b1c0460da359f1d9",
+      "mergedAt": "2026-11-15T07:56:06Z",
+      "subject": "acpmux: a refusal the v2 list tee could not see is released whole too (#43499)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T08:21:24Z",
+    "snapshot_id": "sh-f3bb43f610784d0a96fb8e795694f83a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43693514634): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "815ffbc266fce2dcd0d16ee56c900155c304f749",
+    "image": "cloud-native-auto-8352b832-43693514634-1",
+    "revision": "ci-43693514634-1",
+    "at": "2026-11-15T08:21:24Z"
+  },
+  "rolled_back": false
+}
