@@ -58,6 +58,11 @@ ARMS = ("fresh-copy", "same-copy", "warm")
 EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
 # --arms=prewarm: the pre-warms only (the update path's pre-warm and what it could add), beside the base arms.
 PREWARM_ARMS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-home", "gktool-moved")
+# --arms=adhoc: whether an ad-hoc signed new copy (a tagged build's, dmg=build) pays the first-exec cost a Developer ID
+# signed one does, so a dmg=build A/B's fresh-copy result transfers to the published DMG:
+#   adhoc-copy      a new copy of the same DMG's app re-signed ad hoc (codesign --force --deep --sign -, entitlements
+#                   and flags kept), then the fresh-home launch: the same code on the same Mac, only the signature differs
+ADHOC_ARMS = ("adhoc-copy",)
 PREWARM_BINS = ("cmux", "cmux-tui")
 # The unified log around a fresh copy's launch: who works on a new executable before main.
 FIRST_EXEC_LOG = ('process == "syspolicyd" OR process == "amfid" OR process == "XProtect" OR process == "trustd" '
@@ -294,6 +299,11 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                 started = time.monotonic()
                 before = {"spctl": run_text(["spctl", "--assess", "--type", "execute", "-vv", str(app)], timeout=600)[:400],
                           "seconds": round(time.monotonic() - started, 3)}
+            elif arm == "adhoc-copy":
+                started = time.monotonic()
+                before = {"codesign": run_text(["/usr/bin/codesign", "--force", "--deep", "--sign", "-",
+                                                "--preserve-metadata=entitlements,flags", str(app)], timeout=900)[-400:],
+                          "seconds": round(time.monotonic() - started, 3)}
             elif arm in ("gktool", "gktool-moved"):
                 started = time.monotonic()
                 before = {"gktool": run_text(["/usr/bin/gktool", "scan", str(app)], timeout=900)[-400:],
@@ -359,10 +369,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--rounds", type=int, default=2, choices=range(1, 6))
     parser.add_argument("--seconds", type=float, default=8.0)
-    parser.add_argument("--arms", choices=("base", "extra", "prewarm"), default="base",
+    parser.add_argument("--arms", choices=("base", "extra", "prewarm", "adhoc"), default="base",
                         help="extra: also the EXTRA_ARMS and the unified log around each fresh-copy launch; prewarm: also the PREWARM_ARMS")
     args = parser.parse_args(argv)
-    more = {"extra": EXTRA_ARMS, "prewarm": PREWARM_ARMS}.get(args.arms, ())
+    more = {"extra": EXTRA_ARMS, "prewarm": PREWARM_ARMS, "adhoc": ADHOC_ARMS}.get(args.arms, ())
     os.umask(0o022)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
