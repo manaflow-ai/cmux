@@ -79,8 +79,8 @@ def build(arms, agent_dirs, out, videos):
     # ---- headline per arm
     md.append("### Engine-claim accuracy, every scored action (both scenes, 3 reps)\n")
     md.append(md_table(CONF_HEAD, [conf_row(a, conf(rs)) for a, rs in arms.items()]))
-    SCENES = {"bg": "the person's app frontmost, key and typing; the target app in the background (lab windows not "
-                    "covered, see notes)",
+    SCENES = {"bg": "the Person app frontmost, key and typing; the target app not active (its window was not always "
+                    "below the Person window: z-order was not enforced in this scene)",
               "bgc": "as bg, and the Person window above the target window (covered), checked before every cell",
               "fg": "target app frontmost, target window key"}
     for scene, what in SCENES.items():
