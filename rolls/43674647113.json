@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43674647113",
+  "recorded_at": "2026-11-15T04:07:25Z",
+  "reason": "cmux-tui 6786e2d1b615 changes the image's cmux-tui (pinned b6236a4e4ea6)",
+  "dry_run": false,
+  "cmux_tui": "6786e2d1b615ee0e7d91cfe34d42b297e4ebc4c9",
+  "fixes": [
+    {
+      "sha": "6786e2d1b615ee0e7d91cfe34d42b297e4ebc4c9",
+      "mergedAt": "2026-11-14T19:41:41-08:00",
+      "subject": "cmux-tui-core: a worktree setup file with a second name is not written (#43362)"
+    },
+    {
+      "sha": "b18b2afb0ef38e29c737816038cd61ba207e3de1",
+      "mergedAt": "2026-11-14T19:39:39-08:00",
+      "subject": "acpmux: a machine the v2 list refused past 256 returns whole when a slot frees (#43427)"
+    },
+    {
+      "sha": "b913c330d9a64ea11aa84031a100614ac15b7de7",
+      "mergedAt": "2026-11-14T19:37:08-08:00",
+      "subject": "cloud-resume-no-lost-output: preserve live terminal output across host reconnect (#43185)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T04:07:25Z",
+    "snapshot_id": "sh-76e89aef6b8d466fb5f962b4d8442bb4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43674647113): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d69d8e72dbc7b668753fcc64f858b477e30cd10a",
+    "image": "cloud-native-auto-6786e2d1-43674647113-1",
+    "revision": "ci-43674647113-1",
+    "at": "2026-11-15T04:07:25Z"
+  },
+  "rolled_back": false
+}
