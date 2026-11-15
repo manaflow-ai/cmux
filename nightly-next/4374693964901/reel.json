@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4374693964901",
+  "notes": "notes/4374693964901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43859,
+      "title": "Cloud Grok through the team gateway starts with no sign-in: its key probe and turns go to the gateway (#43857)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43871,
+      "title": "base red (webviews-test-history): draftSettleHold.test.tsx settles React before teardown; the lint names each offender",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43843,
+      "title": "signing: retry codesign when only Apple's timestamp service failed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43873,
+      "title": "cmux NEXT: decode the harness icon list off the main thread",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43653,
+      "title": "acpmux v2: every best-of-rounds gate reports its rounds through gate_rounds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42430,
+      "title": "fix(screen-eval): bind Apple windows and preserve repeat evidence",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43825,
+      "title": "Palette: joined machines' Check, Rotate and Revoke pick a joined machine (before their Rust rows)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43864,
+      "title": "measure: nightly-fresh-launch pre-warm arms, where a new copy's first launch goes (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
