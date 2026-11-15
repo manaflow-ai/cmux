@@ -46,8 +46,15 @@ class WholeUiRunTests(unittest.TestCase):
         full_suite = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
         self.assertFalse(MODULE.is_whole_ui_run(run(display_title=full_suite), "main"))
 
+    def test_another_ref_or_a_package_dispatched_from_main_is_not(self):
+        # A dispatch of `-f ref=my-fix` still starts from main (head_branch main); the title names the ref.
+        other_ref = "iOS tests · my-fix · simulator · cmuxUITests · both · iOS default · on auto"
+        self.assertFalse(MODULE.is_whole_ui_run(run(display_title=other_ref), "main"))
+        package = "iOS tests · main · CMUXMobileKit · cmuxUITests · both · iOS default · on auto"
+        self.assertFalse(MODULE.is_whole_ui_run(run(display_title=package), "main"))
+
     def test_run_name_renders_the_filter_the_selector_reads(self):
-        # The selector depends on test-ios.yml's run-name putting the filter between ` · `.
+        # The selector depends on test-ios.yml's run-name order: ref, package or simulator, filter.
         text = TEST_IOS.read_text()
         self.assertIn("${{ inputs.ref || github.ref_name }} · ${{ inputs.swift_package || 'simulator' }} ·", text)
         self.assertIn("${{ inputs.test_filter || 'full suite' }} ·", text)
@@ -76,7 +83,8 @@ class WiringTests(unittest.TestCase):
         self.assertIn("actions/workflows/test-ios.yml/dispatches", text)
         self.assertIn("-f ref=main -f 'inputs[test_filter]=cmuxUITests'", text)
         self.assertIn("workflows: [iOS simulator tests]", text)
-        self.assertIn("contains(github.event.workflow_run.display_title, ' · cmuxUITests · ')", text)
+        self.assertIn(
+            "startsWith(github.event.workflow_run.display_title, 'iOS tests · main · simulator · cmuxUITests · ')", text)
         self.assertIn('python3 scripts/ci/ios_ui_nightly.py report --run-id "$RUN_ID"', text)
 
     def test_test_ios_names_the_workflow_the_report_listens_to(self):

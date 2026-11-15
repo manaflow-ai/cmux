@@ -38,15 +38,18 @@ MAX_LISTED_JOBS = 20
 def is_whole_ui_run(run: Mapping[str, object], branch: str) -> bool:
     """A dispatch of test-ios.yml on the branch that ran the whole UI target.
 
-    test-ios.yml's run-name puts the filter between ` · ` separators, so the
-    whole target reads ` · cmuxUITests · ` and a class (`cmuxUITests/Foo`) never
+    test-ios.yml's run-name reads `iOS tests · <ref> · <package or simulator> ·
+    <filter> · ...`. A dispatch's head_branch is the branch it started from,
+    not its `ref` input, so the title must name the branch as the ref, the
+    simulator lane and the whole target; a class (`cmuxUITests/Foo`) never
     matches.
     """
     return (
         run.get("path") == WORKFLOW_PATH
         and run.get("event") == "workflow_dispatch"
         and run.get("head_branch") == branch
-        and f" · {UI_TARGET_FILTER} · " in str(run.get("display_title") or "")
+        and str(run.get("display_title") or "").startswith(
+            f"iOS tests · {branch} · simulator · {UI_TARGET_FILTER} · ")
     )
 
 
