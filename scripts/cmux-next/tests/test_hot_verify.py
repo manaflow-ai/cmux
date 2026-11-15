@@ -122,6 +122,73 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["layers"], ["web", "rust"])
         self.assertFalse(planned["needs_build"])
 
+    def advance_base(self, files: dict) -> str:
+        """FILES merged on feat-cmux-next after the app's commit (the nightly lags the branch)."""
+        tip = self.fx.commit(files, "merged after the nightly", parent=self.fx.base)
+        self.fx.git("push", "-q", "origin", f"{tip}:refs/heads/feat-cmux-next")
+        self.fx.git("fetch", "-q", "origin")
+        return tip
+
+    def test_a_change_branched_after_the_app_is_planned_from_its_own_fork(self):
+        # The fleet looked at cmux#43773 (4 Rust files) on a nightly 25 commits behind feat-cmux-next and said
+        # "needs a build" for 33 Swift files merged after that nightly, none of them the PR's.
+        tip = self.advance_base({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
+                                 "struct App {\n    func title() -> String {\n        return \"drift\"\n"
+                                 "    }\n}\n"})
+        head = self.fx.commit({"webviews/src/app.tsx": "export const title = 'Home 3'\n"}, "change", parent=tip)
+        planned = self.plan(head)
+        self.assertEqual(planned["layers"], ["web"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+        self.assertEqual(planned["fork"], tip)
+        self.assertTrue(any("behind" in note for note in planned["notes"]), planned["notes"])
+
+    def test_the_change_s_own_swift_still_needs_a_build_after_drift(self):
+        tip = self.advance_base({"docs/notes.md": "drift\n"})
+        head = self.fx.commit({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
+                               "struct App {\n    func title() -> String {\n        return \"mine\"\n"
+                               "    }\n}\n"}, "change", parent=tip)
+        planned = self.plan(head)
+        self.assertTrue(planned["needs_build"])
+        self.assertIn("Swift", planned["build"])
+
+    def test_a_daemon_change_after_rust_drift_swaps_the_daemon(self):
+        # The change has the drift's cmux-tui changes (it forked later): not "Rust the app has and the change lacks".
+        tip = self.advance_base({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"drift\"); }\n"})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+
+    def test_ffi_drift_still_needs_a_build_for_a_daemon_change(self):
+        # Review of #43811: the head's daemon would speak FFI changes merged after the nightly, which it does not link.
+        tip = self.advance_base({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 2 }\n"})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assertTrue(planned["needs_build"])
+        self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
+        self.assertEqual(planned["layers"], [])
+
+    def test_a_daemon_change_after_resource_drift_swaps_the_daemon(self):
+        # The fleet's looks on cmux#43653 and cmux#43683 crashed here ("module 'hot_apply' has no attribute
+        # 'NATIVE_IN_TUI'", removed by #43797): a resource, manifest or non-live Swift file in the commits the app
+        # lacks lands in classify's rebuild bucket, which the FFI check read with that pattern.
+        tip = self.advance_base({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings":
+                                 "{\"sourceLanguage\": \"en\", \"strings\": {}}\n"})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+
+    def test_drift_that_changes_the_web_abi_still_needs_a_build(self):
+        tip = self.advance_base({"webviews/src/web-abi.json": '{"abi": 4}\n'})
+        head = self.fx.commit({"webviews/src/app.tsx": "export const title = 'x'\n"}, "change", parent=tip)
+        planned = self.plan(head)
+        self.assertTrue(planned["needs_build"])
+        self.assertIn("web ABI", planned["build"])
+
     def test_swift_needs_build(self):
         planned = self.plan(self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
                                             "struct App {\n    func title() -> String {\n        return \"two\"\n"
