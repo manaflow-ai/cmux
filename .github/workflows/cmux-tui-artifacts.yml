@@ -3225,7 +3225,7 @@ jobs:
   # It is also the red retry of publish-tree's ready notify
   # (TREE_NOTIFY_NEVER_SILENT): when that step could not start the waiting
   # cmux-next same-tree runs (tree_notify == 'failure'), this job runs it again
-  # and fails when it fails, so `gh run rerun RUN --failed` retries it. Before,
+  # and fails when it fails, so re-running the failed jobs retries it. Before,
   # a rate-limited notify warned in the green publish job, a re-run of the
   # failed jobs re-ran only this one, and cmux#43241's required
   # `cmux-next daemon tests (same-tree)` status never posted (2026-11-14).
