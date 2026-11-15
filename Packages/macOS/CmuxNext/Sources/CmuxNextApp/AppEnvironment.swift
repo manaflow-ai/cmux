@@ -39,6 +39,7 @@ struct AppEnvironment: Sendable {
     /// (`UpdateRelaunchFocus`): it starts behind the user's app (`InputVerificationService.startNoActivateGuard`). Only the
     /// real app process reads it.
     var relaunchBehind: UpdateRelaunchFocus?
+    var copyPrewarm: Task<Void, Never>? // a new copy's launch pre-warm (CopyFirstLaunchPrewarm); Chromium's framework load waits for it
     /// What every local terminal of this app gets on top of its filtered
     /// login environment: the launch identity (`LaunchIdentity`) and the
     /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),

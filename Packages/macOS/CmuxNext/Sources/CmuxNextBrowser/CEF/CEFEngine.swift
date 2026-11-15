@@ -151,6 +151,12 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.preload(layout: layout)
     }
 
+    /// Makes the framework's load wait for `prewarm`, a new copy's launch pre-warm that loads it in the Chromium
+    /// helpers first (CMUX-571), so this process maps a framework whose first load is paid.
+    public func loadAfter(_ prewarm: Task<Void, Never>?) {
+        CEFRuntime.shared.loadAfter = prewarm
+    }
+
     /// Holds every Chromium start's `CefInitialize` until `gate` opens (the first window frame), so a
     /// framework `preload` mapped at launch never puts `CefInitialize` ahead of that frame (CMUX-571).
     public func initializeAfter(_ gate: FirstFrameGate) {

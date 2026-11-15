@@ -49,15 +49,16 @@ public nonisolated struct CopyFirstLaunchPrewarm: Sendable {
         return StagedUpdatePrewarm.helperRuns(bundle: bundle)
     }
 
-    /// Starts the pre-warm off the main thread and returns at once. Nobody waits for it; each run is stopped
-    /// after `timeout`.
+    /// Starts the pre-warm off the main thread and returns its task at once; each run is stopped after `timeout`.
+    /// The app's own load of the Chromium framework waits for it (`CEFEngine.loadAfter`), so `timeout` bounds that wait.
     /// `mark` names the moments the runs start and end (the app's launch marks).
+    @discardableResult
     public func start(defaults: UserDefaults = .standard, processes: AsyncProcess = AsyncProcess(),
-                      timeout: Duration = .seconds(20), mark: @escaping @Sendable (String) -> Void = { _ in }) {
+                      timeout: Duration = .seconds(5), mark: @escaping @Sendable (String) -> Void = { _ in }) -> Task<Void, Never> {
         let prewarm = self
         // task-owner: one per launch; ends after the last helper exits (each stopped at its timeout). Its own
         // detached task at the start's priority: the point is to finish before Home's first page asks for Chromium.
-        Task.detached(priority: .userInitiated) {
+        return Task.detached(priority: .userInitiated) {
             await prewarm.perform(defaults: defaults, processes: processes, timeout: timeout, mark: mark)
         }
     }
