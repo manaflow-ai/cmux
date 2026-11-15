@@ -326,6 +326,9 @@ th{color:var(--mut);font-weight:600;white-space:nowrap}code{font:12.5px ui-monos
 pre{background:var(--code);padding:10px;border-radius:8px;overflow-x:auto;font:12px ui-monospace,monospace}li{margin:6px 0}
 video{width:100%;max-width:1100px;border:1px solid var(--line);border-radius:8px;background:#000}figure{margin:16px 0}figcaption{color:var(--mut);font-size:13px}
 .mut{color:var(--mut)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:16px 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:12px 14px}.card h4{margin:0 0 6px;font-size:14px}
+.big{font-size:22px;font-weight:650}.bad{color:var(--bad)}.ok{color:var(--ok)}
 """
 
 
@@ -382,9 +385,28 @@ def md_to_html(md):
     return "\n".join(out)
 
 
-def render_html(md_path, out_path, videos, title):
+def cards_html(summary):
+    """One card per arm: false-success rate, false-failure rate, side effects."""
+    out = ["<div class=cards>"]
+    for arm, c in summary.items():
+        fp, fn = c.get("fp_rate"), c.get("fn_rate")
+        out.append(f"<div class=card><h4>{html.escape(arm)}</h4>"
+                   f"<div><span class='big {'bad' if (fp or 0) > 0.05 else 'ok'}'>{pct(fp)}</span> false success "
+                   f"<span class=mut>({c['FP']} of {c['TP'] + c['FP']} success claims)</span></div>"
+                   f"<div><span class='big {'bad' if (fn or 0) > 0.05 else 'ok'}'>{pct(fn)}</span> false failure "
+                   f"<span class=mut>({c['FN']} of {c['FN'] + c['TN']} failure claims)</span></div>"
+                   f"<div class=mut>side effects {c['SIDE']}; scored {c['scored']}; not scored {c['no_action']}</div></div>")
+    out.append("</div>")
+    return "".join(out)
+
+
+def render_html(md_path, out_path, videos, title, summary=None):
     md = open(md_path).read()
     body = md_to_html(md)
+    if summary:
+        i = body.find("</h1>")
+        cards = cards_html(summary)
+        body = body[:i + 5] + cards + body[i + 5:] if i >= 0 else cards + body
     vids = []
     for spec in videos:
         cap, path = spec.split("=", 1)
