@@ -122,6 +122,21 @@ struct MacScreenStoreTests {
         await store.load()
         #expect(store.hasSharedBefore)
     }
+
+    /// A change made before the file is read never overwrites the file with the empty state: the names stay.
+    @Test func aChangeBeforeLoadKeepsTheSavedNames() async throws {
+        let (store, file) = makeStore()
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"hubDeviceName":"Office","deviceNames":{"\#(deviceID)":"Studio"},"linkPairingsRemoved":true}"#.utf8).write(to: file)
+        store.markSharedBefore()
+        await store.flush()
+        await store.load()
+        await store.flush()
+        #expect(store.hubDeviceName == "Office" && store.deviceNames[deviceID] == "Studio" && store.hasSharedBefore)
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hubDeviceName == "Office" && reloaded.deviceNames[deviceID] == "Studio" && reloaded.hasSharedBefore)
+    }
 }
 
 /// A pairing link pasted or typed in an address bar is refused with a word,
