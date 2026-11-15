@@ -78,17 +78,17 @@ async fn full_access_off_ends_the_phones_running_turn_in_a_chat_no_policy_holds(
     assert_eq!(off["decision"], "deny", "{off}");
 }
 
-/// A phone's steer and a dashboard's steer into the same Local turn, at once: the turn becomes
+/// Steers from two of the owner's phones into the same Local turn, at once: the turn becomes
 /// a Web turn and, as two clients touched it, no one device's (`TurnInfo::device`), in
 /// every interleaving. Run many rounds: before the turn's control and its sender changed under
-/// one lock, a phone that promoted the turn could write its device after the dashboard's steer
+/// one lock, a phone that promoted the turn could write its device after the other's steer
 /// cleared it (review of cmux#43251 at 8b9e2f5d, P1-F1).
 #[test]
-fn concurrent_steers_from_the_phone_and_another_client_leave_no_one_devices_turn() {
+fn concurrent_steers_from_two_phones_leave_no_one_devices_turn() {
     let mut cfg = Config::default();
     cfg.store.mode = crate::config::StoreMode::Memory;
     let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-    // A chat no D13 rule covers, in no declared mode: a dashboard may steer it.
+    // A chat no D13 rule covers, in no declared mode.
     let meta: SessionMeta = serde_json::from_value(json!({"schema": META_SCHEMA, "id": "mixed",
         "name": "mixed", "harness": "fake", "cwd": "/tmp", "status": "idle",
         "createdAt": 1, "updatedAt": 1}))
@@ -98,8 +98,9 @@ fn concurrent_steers_from_the_phone_and_another_client_leave_no_one_devices_turn
     let session = hub.resolve("mixed").unwrap();
     let (phone, _) = hub.pairing.issue_phone("phone-iphone").unwrap();
     let phone = phone.id;
+    let other = hub.pairing.issue_phone("phone-ipad").unwrap().0.id;
     let mut mixed = 0;
-    for round in 0..2000 {
+    for round in 0..20000 {
         *session.turn.lock().unwrap() = Some(TurnInfo {
             trigger: false,
             started_at: 1,
@@ -124,14 +125,14 @@ fn concurrent_steers_from_the_phone_and_another_client_leave_no_one_devices_turn
             });
             let b = s.spawn(|| {
                 start.wait();
-                hub.check_steer(&session, Control::Web, None)
+                hub.check_steer(&session, Control::Web, Some(&other))
             });
             a.join().unwrap().expect("the phone steers");
-            b.join().unwrap().expect("the dashboard steers");
+            b.join().unwrap().expect("the other phone steers");
         });
         if session.turn().and_then(|t| t.device).is_some() {
             mixed += 1;
         }
     }
-    assert_eq!(mixed, 0, "rounds whose mixed turn kept the phone's device");
+    assert_eq!(mixed, 0, "rounds whose mixed turn kept one phone's device");
 }
