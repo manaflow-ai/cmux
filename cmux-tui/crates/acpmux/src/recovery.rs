@@ -56,11 +56,18 @@ pub fn auth_kind(message: &str) -> Option<&'static str> {
     }
     if crate::claude_auth::is_expired_credential(message) {
         Some(kind::AUTH_EXPIRED)
-    } else if crate::claude_auth::is_sign_in_failure(message) {
+    } else if crate::claude_auth::is_sign_in_failure(message) || says_missing_openai_key(message) {
         Some(kind::AUTH_SIGNED_OUT)
     } else {
         None
     }
+}
+
+/// Whether `message` is codex's "Missing environment variable: `OPENAI_API_KEY`.": its provider
+/// has no key, so a Codex with no sign-in of its own (own mode with no login, or team mode with
+/// no placeholder) is signed out ([`auth_kind`]), and the chat shows Codex's Sign in card.
+pub fn says_missing_openai_key(message: &str) -> bool {
+    message.to_lowercase().contains("missing environment variable: `openai_api_key`")
 }
 
 /// Free space under this is `disk.low` unless the config sets `diskLowBytes`.
