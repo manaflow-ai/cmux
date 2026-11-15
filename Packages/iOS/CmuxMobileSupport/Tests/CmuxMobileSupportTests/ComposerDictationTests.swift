@@ -153,6 +153,26 @@ import Testing
                               isUtteranceFinal: true) == "A C B")
     }
 
+    @Test func cumulativePartialKeepsCommittedUntimedPrefix() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A B", startTime: 0, endTime: 2)
+            == "A B")
+        #expect(merger.merged(base: "", transcript: "C", startTime: nil, endTime: nil)
+            == "A C")
+    }
+
+    @Test func cumulativeFinalMatchesUntimedPhraseAfterTimedHistory() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "old", startTime: 0, endTime: 1,
+                          isUtteranceFinal: true)
+        _ = merger.merged(base: "", transcript: "new", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "new C", startTime: 0, endTime: 3,
+                              isUtteranceFinal: true) == "new C")
+    }
+
     @Test func untimedCorrectionCannotKeepStaleTimingAndDuplicateItself() {
         var merger = ComposerDictationTextMerger()
         _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1.5)
