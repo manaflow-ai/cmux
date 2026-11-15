@@ -398,7 +398,7 @@ jobs:
   # pointer back (web-ota-pointer.py newer).
   pointer:
     needs: [build, publish]
-    if: ${{ always() && !inputs.pr && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
+    if: ${{ always() && !inputs.pr && !inputs.ref && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
     name: sign the web update pointer
     environment:
       name: artifacts
