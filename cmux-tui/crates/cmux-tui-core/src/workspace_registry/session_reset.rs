@@ -37,16 +37,16 @@ pub(super) fn is_canonical_reset_uuid_v4(value: &str) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PendingSessionResetDir {
-    path: PathBuf,
-    kind: PendingSessionResetKind,
+    pub(super) path: PathBuf,
+    pub(super) kind: PendingSessionResetKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ResetConfirmationSnapshot {
-    confirm_reset: String,
-    session_fingerprint: String,
-    terminal_host_fingerprint: String,
-    pending_reset_dir_fingerprints: Vec<String>,
+    pub(super) confirm_reset: String,
+    pub(super) session_fingerprint: String,
+    pub(super) terminal_host_fingerprint: String,
+    pub(super) pending_reset_dir_fingerprints: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
