@@ -13,7 +13,10 @@ if ! bash -n "$harness" "$apple"; then
 fi
 
 tools_block=$(sed -n '/^if \[\[ "$tools_only" == 1 \]\]; then$/,/^  exit 0$/p' "$harness")
-if [[ "$tools_block" != *'screen-eval-window-id'* || "$tools_block" != *'window-id.swift'* ]]; then
+# Either an explicit compile, or the tools loop that builds screen-eval-$tool from $tool.swift.
+tools_loop=$(grep -E '^  for tool in .* do$' <<<"$tools_block")
+if ! [[ ( "$tools_block" == *'screen-eval-window-id'* && "$tools_block" == *'window-id.swift'* ) ||
+        ( " $tools_loop " == *' window-id '* && "$tools_block" == *'screen-eval-$tool" "$here/$tool.swift"'* ) ]]; then
   echo "FAIL: tools-only does not compile screen-eval-window-id"
   fail=1
 fi
