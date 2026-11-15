@@ -30,6 +30,7 @@ mod code_mode;
 mod computer_use_gate;
 mod config;
 mod cua_recovery;
+mod customize_library_tool;
 mod customize_tools;
 mod keybinding_tools;
 mod live_code_tools;
@@ -851,6 +852,7 @@ impl<B: Backend> Server<B> {
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(automation_tools::descriptors());
         tools.extend(customize_tools::descriptors());
+        tools.push(customize_library_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -1108,6 +1110,9 @@ impl<B: Backend> Server<B> {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_library_tool::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
         if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
