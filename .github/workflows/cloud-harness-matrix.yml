@@ -34,7 +34,7 @@ jobs:
   matrix:
     if: github.repository_owner == 'manaflow-ai' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')
     runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 120
+    timeout-minutes: 90
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -72,7 +72,7 @@ jobs:
         with:
           bun-version: "1.4.4"
       - name: Cloud harness start matrix (staging)
-        timeout-minutes: 90
+        timeout-minutes: 80
         env:
           CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
