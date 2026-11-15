@@ -11,8 +11,10 @@
 //! `projects.<dir>` of `.claude.json` lists in `disabledMcpjsonServers`, approved or not
 //! (measured 2026-11-15: a server in no list, and one left out of `enabledMcpjsonServers`, both
 //! ran; a disabled one did not). A disabled server, one the managed policy denies or does not
-//! allow, and every server when a `managed-mcp.json` takes over, are left alone. So are servers
-//! of another type (`http`, `sse`): they read no checkout.
+//! allow by name, and every server when a `managed-mcp.json` takes over or a managed policy holds
+//! an MCP rule this does not model (or cannot be read as JSON and names MCP), are left alone, as
+//! are servers of another type (`http`, `sse`): they read no checkout. The managed policy is read
+//! from every source Claude reads (cmux-tui `claude_plugin::policy_files`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -53,7 +55,24 @@ impl Claude {
         } else {
             Path::new("/etc/claude-code")
         };
-        let managed = vec![managed_dir.join("managed-settings.json")];
+        // Every place Claude reads policy from (as cmux-tui `claude_plugin::policy_files`):
+        // managed settings and their drop-ins, macOS managed preferences, and each home's cached
+        // remote settings.
+        let mut managed = vec![managed_dir.join("managed-settings.json")];
+        if let Ok(entries) = std::fs::read_dir(managed_dir.join("managed-settings.d")) {
+            let mut dropins: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+            dropins.sort();
+            managed.extend(dropins);
+        }
+        if cfg!(target_os = "macos") {
+            let preferences = Path::new("/Library/Managed Preferences");
+            managed.push(preferences.join("com.anthropic.claudecode.plist"));
+            let user = env.get("USER").cloned().or_else(|| std::env::var("USER").ok());
+            if let Some(user) = user.filter(|user| !user.is_empty()) {
+                managed.push(preferences.join(user).join("com.anthropic.claudecode.plist"));
+            }
+        }
+        managed.extend(homes.iter().map(|home| home.join("remote-settings.json")));
         let mut configs = Vec::new();
         let mut settings = managed.clone();
         for home in homes {
@@ -92,7 +111,21 @@ pub fn wrapped(
         return out;
     }
     let settings: Vec<Value> = claude.settings.iter().filter_map(|file| read(file)).collect();
-    let managed: Vec<Value> = claude.managed.iter().filter_map(|file| read(file)).collect();
+    let mut managed = Vec::new();
+    for file in &claude.managed {
+        let Ok(data) = std::fs::read(file) else { continue };
+        match serde_json::from_slice::<Value>(&data) {
+            // A policy this does not model (only managed servers, say) may stop what Claude starts:
+            // nothing is wrapped.
+            Ok(policy) if unmodeled_mcp_policy(&policy) => return out,
+            Ok(policy) => managed.push(policy),
+            // A policy that is not JSON (a property list) and names MCP at all: nothing is wrapped.
+            Err(_) if data.windows(3).any(|window| window.eq_ignore_ascii_case(b"mcp")) => {
+                return out;
+            }
+            Err(_) => {}
+        }
+    }
     let mut disabled: BTreeSet<String> = settings.iter().flat_map(disabled_in).collect();
     // Every parent's project settings too, also above the checkout, whether Claude reads them in
     // a chat below or not: a server any of them disables is never wrapped.
@@ -186,20 +219,40 @@ fn disabled_in(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The managed policy lets server `name` with command line `line` run: no `deniedMcpServers`
-/// entry names it, and an `allowedMcpServers` list, if any, does.
+/// The managed policy lets server `name` with command line `line` run wrapped: no
+/// `deniedMcpServers` entry names it or its command, and an `allowedMcpServers` list, if any,
+/// names it. An allowance by command alone does not do: Claude would judge the wrapper's command
+/// (`cmux-tui repo mcp-lazy ...`) against it and refuse the server, so it is left to Claude.
 fn permits(policy: &Value, name: &str, line: &[&str]) -> bool {
-    let listed = |key: &str| {
+    let listed = |key: &str, by_command: bool| {
         policy.get(key).and_then(Value::as_array).map(|entries| {
             entries.iter().any(|entry| {
                 entry.get("serverName").and_then(Value::as_str) == Some(name)
-                    || entry.get("serverCommand").and_then(Value::as_array).is_some_and(|words| {
-                        words.iter().map(Value::as_str).eq(line.iter().map(|w| Some(*w)))
-                    })
+                    || (by_command
+                        && entry.get("serverCommand").and_then(Value::as_array).is_some_and(
+                            |words| {
+                                words.iter().map(Value::as_str).eq(line.iter().map(|w| Some(*w)))
+                            },
+                        ))
             })
         })
     };
-    listed("deniedMcpServers") != Some(true) && listed("allowedMcpServers") != Some(false)
+    listed("deniedMcpServers", true) != Some(true)
+        && listed("allowedMcpServers", false) != Some(false)
+}
+
+/// Whether `policy` holds an MCP rule beyond the allow and deny lists [`permits`] reads.
+fn unmodeled_mcp_policy(policy: &Value) -> bool {
+    policy.as_object().is_some_and(|keys| {
+        keys.keys().any(|key| {
+            key.to_ascii_lowercase().contains("mcp")
+                && key != "allowedMcpServers"
+                && key != "deniedMcpServers"
+                && key != "disabledMcpjsonServers"
+                && key != "enabledMcpjsonServers"
+                && key != "enableAllProjectMcpServers"
+        })
+    })
 }
 
 #[cfg(test)]

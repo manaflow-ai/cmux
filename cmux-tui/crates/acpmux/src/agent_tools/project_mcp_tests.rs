@@ -141,6 +141,37 @@ fn a_local_server_of_the_same_name_is_left_alone() {
     assert_eq!(names(&world.wrapped(&world.repo)), ["kept"]);
 }
 
+/// Every managed policy source counts: a drop-in's deny by command keeps its server unwrapped,
+/// an allowance by command alone leaves the server to Claude (the wrapper's command would not
+/// match it), and a policy this cannot read as JSON that names MCP, or an MCP rule it does not
+/// model, wraps nothing.
+#[test]
+fn every_managed_policy_source_counts() {
+    let mut world = World::new();
+    world.servers(&world.repo, json!({"a": stdio("a"), "b": stdio("b"), "c": stdio("c")}));
+    let dropin = world.top.join("managed-settings.d/10-deny.json");
+    world.claude.managed.push(dropin.clone());
+    world.write(&dropin, json!({"deniedMcpServers": [{"serverCommand": ["a", "--stdio"]}]}));
+    assert_eq!(names(&world.wrapped(&world.repo)), ["b", "c"]);
+
+    world.write(
+        &dropin,
+        json!({"allowedMcpServers": [{"serverCommand": ["b", "--stdio"]}, {"serverName": "c"}]}),
+    );
+    assert_eq!(names(&world.wrapped(&world.repo)), ["c"], "an allowance by command alone");
+
+    world.write(&dropin, json!({"allowManagedMcpServersOnly": true}));
+    assert!(world.wrapped(&world.repo).is_empty(), "an MCP rule it does not model");
+
+    std::fs::remove_file(&dropin).unwrap();
+    let plist = world.top.join("com.anthropic.claudecode.plist");
+    world.claude.managed.push(plist.clone());
+    std::fs::write(&plist, "<plist><dict><key>deniedMcpServers</key></dict></plist>").unwrap();
+    assert!(world.wrapped(&world.repo).is_empty(), "a property list that names MCP");
+    std::fs::write(&plist, "<plist><dict><key>model</key></dict></plist>").unwrap();
+    assert_eq!(names(&world.wrapped(&world.repo)), ["a", "b", "c"]);
+}
+
 /// A server a project settings file above the checkout disables is never wrapped.
 #[test]
 fn settings_above_the_checkout_disable_too() {
@@ -163,6 +194,7 @@ fn the_launch_profiles_home_counts() {
     let claude = Claude::of(&env, &world.repo);
     assert!(claude.settings.contains(&home.join(".claude/settings.json")), "{:?}", claude.settings);
     assert!(claude.configs.contains(&home.join(".claude.json")), "{:?}", claude.configs);
+    assert!(claude.managed.contains(&home.join(".claude/remote-settings.json")), "remote settings");
     let dir = world.top.join("config-dir");
     let env = BTreeMap::from([
         ("HOME".to_owned(), home.to_string_lossy().into_owned()),
