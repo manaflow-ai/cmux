@@ -782,6 +782,9 @@ pub(crate) enum Refusal {
     ScopeNotGranted,
     /// A link guest whose share expired or was revoked, or who was removed.
     ShareEnded,
+    /// `agent-session-start`: the agent answered that it is not signed in on this machine
+    /// (acpmux `agent.sign_in_required`); `data` names the harness (hq#11225).
+    SignInRequired,
 }
 
 impl Refusal {
@@ -811,6 +814,7 @@ impl Refusal {
             Self::NotShared => "agent_session.not_shared",
             Self::ScopeNotGranted => "agent_session.scope_not_granted",
             Self::ShareEnded => "agent_session.share_ended",
+            Self::SignInRequired => "agent_session.sign_in_required",
         }
     }
 
@@ -850,6 +854,7 @@ impl Refusal {
             Self::NotShared => "the surface does not show the chat that was shared",
             Self::ScopeNotGranted => "a link guest only watches and writes to the shared chat",
             Self::ShareEnded => "the share ended, or the owner removed this guest",
+            Self::SignInRequired => "the agent is not signed in on this machine",
         }
     }
 

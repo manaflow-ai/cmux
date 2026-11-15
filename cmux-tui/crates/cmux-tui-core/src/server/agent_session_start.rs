@@ -589,7 +589,7 @@ fn run(
     let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
     let result = still_keyed(&link, &params).and_then(|()| {
         start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
-            .map_err(|r| (r, None))
+            .map_err(|StartRefused(refusal, data)| (refusal, data))
     });
     link.close();
     result
@@ -677,6 +677,48 @@ pub(in crate::server) fn restart_with(
 /// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
 /// `timings`: each phase reached, on this machine's clock.
 /// `catalog`: acpmux's catalog for the start's folder ([`ready_catalog`]); `checks`: when the
+/// A start's refusal with its typed facts for `data`, when it has any.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct StartRefused(Refusal, Option<Value>);
+
+impl From<Refusal> for StartRefused {
+    fn from(refusal: Refusal) -> Self {
+        Self(refusal, None)
+    }
+}
+
+impl StartRefused {
+    /// acpmux's answer to `session/new`. An agent that said it is not signed in (acpmux's
+    /// `agent.sign_in_required`) is `sign_in_required` with the harness and the kind of sign-in
+    /// failure, so the app names the agent and offers its sign-in (hq#11225); never the agent's
+    /// own message text. Anything else is [`Refusal::of`].
+    pub(super) fn of_session_new(error: LinkError) -> Self {
+        if let LinkError::Rpc(_, data) = &error
+            && data.get("reason").and_then(Value::as_str) == Some("agent.sign_in_required")
+        {
+            // A profile such as `providers/deepseek` by its last part, as the tab's brand mark.
+            let harness = data
+                .pointer("/details/harness")
+                .and_then(Value::as_str)
+                .and_then(|harness| harness.rsplit('/').next())
+                .filter(|harness| validate_harness(harness).is_ok());
+            let kind = data
+                .get("errorKind")
+                .and_then(Value::as_str)
+                .filter(|kind| matches!(*kind, "auth.signed_out" | "auth.expired"));
+            let mut facts = json!({"reason": "agent.sign_in_required"});
+            if let Some(harness) = harness {
+                facts.insert("harness", json!(harness));
+            }
+            if let Some(kind) = kind {
+                facts.insert("errorKind", json!(kind));
+            }
+            return Self(Refusal::SignInRequired, Some(facts));
+        }
+        Refusal::of(error).into()
+    }
+}
+
 /// checks before the agent began (the readiness wait included); `until`: the start's one ceiling.
 #[allow(clippy::too_many_arguments)]
 fn start_and_bind(
@@ -689,7 +731,7 @@ fn start_and_bind(
     checks: Instant,
     until: Instant,
     timings: &mut StartTimings,
-) -> Result<Value, Refusal> {
+) -> Result<Value, StartRefused> {
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
         .control_clients
@@ -701,7 +743,7 @@ fn start_and_bind(
     // the start answers.
     let table = ask(link, until, "_acpmux/web_modes", json!({})).map_err(Refusal::of)?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
-        return Err(Refusal::NotAsking);
+        return Err(Refusal::NotAsking.into());
     }
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
@@ -711,10 +753,10 @@ fn start_and_bind(
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
     // `cloudMobileAsks` can tell from Codex's adapter (`settle_phone_mode`).
     if !owner_cloud && !phone && refused_family(&table, &family) {
-        return Err(Refusal::NotAsking);
+        return Err(Refusal::NotAsking.into());
     }
     if phone && phone_modes(&family).is_empty() {
-        return Err(Refusal::NotAsking);
+        return Err(Refusal::NotAsking.into());
     }
     // The folder must be trusted before an agent starts there (an agent can
     // run the folder's own hooks and settings at start); this daemon reaches
@@ -727,7 +769,7 @@ fn start_and_bind(
         trust,
     );
     if !folder_trusted(&trust, params.harness.as_deref()) {
-        return Err(Refusal::UntrustedFolder);
+        return Err(Refusal::UntrustedFolder.into());
     }
     // The person's own pick on their own Cloud VM (module docs); never a phone's start, never
     // another host's.
@@ -770,7 +812,7 @@ fn start_and_bind(
                 }
             },
         )
-        .map_err(Refusal::of);
+        .map_err(StartRefused::of_session_new);
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
     let settle = Instant::now();
@@ -794,7 +836,7 @@ fn start_and_bind(
     };
     // The trust answer for the family the session actually runs.
     if !folder_trusted(&trust, Some(&family)) {
-        return Err(end(Refusal::UntrustedFolder));
+        return Err(end(Refusal::UntrustedFolder).into());
     }
     // The agent the session runs, as acpmux answered it (`_meta.acpmux.harness`
     // of `session/new`; a profile such as `providers/deepseek` by its last
@@ -1105,5 +1147,54 @@ mod tests {
             assert_eq!(starts.owner_cloud(true), any_agent, "{host:?}");
             assert!(!starts.owner_cloud(false), "{host:?}");
         }
+    }
+
+    /// An agent that answered `session/new` it is not signed in (acpmux typed it
+    /// `agent.sign_in_required`) refuses the start as `sign_in_required` naming the harness,
+    /// never the bare `refused`; only acpmux's typed facts pass, never its message or a harness
+    /// name that is not one (hq#11225). Any other acpmux error stays `refused`.
+    #[test]
+    fn a_start_whose_agent_is_signed_out_names_the_harness() {
+        let typed = LinkError::Rpc(
+            "Authentication required".into(),
+            json!({
+                "reason": "agent.sign_in_required",
+                "errorKind": "auth.signed_out",
+                "recovery": "cursor is not signed in on this machine.",
+                "details": {"harness": "cursor"},
+            }),
+        );
+        let StartRefused(refusal, data) = StartRefused::of_session_new(typed);
+        assert_eq!(refusal, Refusal::SignInRequired);
+        assert_eq!(refusal.code(), "agent_session.sign_in_required");
+        assert_eq!(
+            data,
+            Some(json!({
+                "reason": "agent.sign_in_required",
+                "harness": "cursor",
+                "errorKind": "auth.signed_out",
+            }))
+        );
+        let odd = LinkError::Rpc(
+            "x".into(),
+            json!({
+                "reason": "agent.sign_in_required",
+                "errorKind": "anything",
+                "details": {"harness": "not a harness!"},
+            }),
+        );
+        let StartRefused(refusal, data) = StartRefused::of_session_new(odd);
+        assert_eq!(refusal, Refusal::SignInRequired);
+        assert_eq!(data, Some(json!({"reason": "agent.sign_in_required"})));
+        for other in [
+            LinkError::Rpc("Authentication required".into(), Value::Null),
+            LinkError::Rpc("x".into(), json!({"reason": "remote.local_claude_session"})),
+        ] {
+            assert_eq!(StartRefused::of_session_new(other), StartRefused(Refusal::Refused, None));
+        }
+        assert_eq!(
+            StartRefused::of_session_new(LinkError::Timeout),
+            StartRefused(Refusal::Timeout, None)
+        );
     }
 }
