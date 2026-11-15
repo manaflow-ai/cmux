@@ -127,7 +127,8 @@ struct TerminalDemoDriver {
         }
         // Opt-in only (not in `all`): the keyboard reversed mid-animation.
         if selected.contains("kbinterrupt") { await keyboardInterrupt() }
-        if selected.contains("kbtui") { await keyboardOverTUI() }
+        if selected.contains("kbtui") { await keyboardOverTUI(command: "vim README.md") }
+        if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -224,8 +225,11 @@ struct TerminalDemoDriver {
     /// `kbtui` (opt-in): vim, then the keyboard key pressed to show and hide
     /// the keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
     /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
-    private func keyboardOverTUI() async {
-        model.controller?.surface.sendText("vim README.md", pressReturn: true)
+    /// `kbclaude` (opt-in): the same with the mock Claude Code screen (its
+    /// header box on the first rows, the cursor in its input box at the
+    /// bottom), whose header stays pinned above the keyboard.
+    private func keyboardOverTUI(command: String) async {
+        model.controller?.surface.sendText(command, pressReturn: true)
         // Past the resize settle (250 ms), so every size before the toggles is counted.
         await wait(2.5)
         guard model.isTUI else {

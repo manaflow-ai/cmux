@@ -19,11 +19,57 @@ import CoreGraphics
 ///   (Auto Layout on the keyboard layout guide), its top is clipped under the
 ///   toolbar, and `keyboardLift` moves it down only as far as the cursor's row
 ///   needs to stay on screen.
+/// - The top exception (Leo, 2026-11-15: "just... add the thing? add the top
+///   exception? why roll the whole thing back"): while the keyboard clips a
+///   full-screen app's top, its first `headerRows` rows (Claude Code's header
+///   box, htop's meters, vim's first lines) stay pinned at the top of the
+///   area, drawn from the same frame, over a body that keeps the cursor's row
+///   in view (`keyboardPlacement`). Nothing is resized: the phone shows the
+///   rows it already has, twice.
 public struct TerminalGridSizing: Equatable, Sendable {
     public var cellHeight: CGFloat
+    /// The app's rows pinned above the body while the keyboard clips its top.
+    /// A fixed count: the header box of Claude Code and Codex is three rows,
+    /// and the phone does not see the app's scroll margins (Ghostty keeps
+    /// them). Capped at a third of the visible rows, so the body keeps two
+    /// thirds of the area.
+    public var headerRows: Int
 
-    public init(cellHeight: CGFloat) {
+    public static let defaultHeaderRows = 3
+
+    public init(cellHeight: CGFloat, headerRows: Int = TerminalGridSizing.defaultHeaderRows) {
         self.cellHeight = cellHeight
+        self.headerRows = headerRows
+    }
+
+    /// Where a full-screen app's grid sits while the keyboard clips it.
+    public struct KeyboardPlacement: Equatable, Sendable {
+        /// How far the grid moves down (points, whole rows or the whole clipped part).
+        public var lift: CGFloat
+        /// The grid's first rows pinned at the top of the area (0: none).
+        public var headerRows: Int
+
+        public init(lift: CGFloat, headerRows: Int) {
+            self.lift = lift
+            self.headerRows = headerRows
+        }
+    }
+
+    /// The top exception: the header rows stay at the top of the area and the
+    /// body under them is lifted only as far as the cursor's row needs. No
+    /// header while the grid fits, while the lift already shows the grid's
+    /// top (the cursor is near it), or when the cursor is in the header rows
+    /// (the grid's top is shown as it is).
+    public func keyboardPlacement(gridRows: Int, visibleHeight: CGFloat, cursorRow: Int?) -> KeyboardPlacement {
+        guard cellHeight > 0, gridRows > 0 else { return KeyboardPlacement(lift: 0, headerRows: 0) }
+        let clipped = CGFloat(gridRows) * cellHeight - max(0, visibleHeight)
+        guard clipped > 0.5 else { return KeyboardPlacement(lift: 0, headerRows: 0) }
+        let header = max(0, min(headerRows, Int(floor(max(0, visibleHeight) / cellHeight)) / 3))
+        if let cursorRow, cursorRow < header { return KeyboardPlacement(lift: clipped, headerRows: 0) }
+        // The header covers the area's first rows: the body is that much shorter.
+        let lift = keyboardLift(gridRows: gridRows, visibleHeight: visibleHeight - CGFloat(header) * cellHeight, cursorRow: cursorRow)
+        guard lift < clipped - 0.5 else { return KeyboardPlacement(lift: clipped, headerRows: 0) }
+        return KeyboardPlacement(lift: lift, headerRows: header)
     }
 
     /// The rows for the PTY: keyboard-down geometry only.

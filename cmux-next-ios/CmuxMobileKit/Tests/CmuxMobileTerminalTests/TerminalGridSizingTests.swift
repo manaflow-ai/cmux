@@ -84,6 +84,31 @@ import Testing
         #expect(sizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 17) == 0)
     }
 
+    /// The top exception (Leo, 2026-11-15: "add the top exception? why roll
+    /// the whole thing back"): 37 rows, 20 visible with the keyboard up.
+    @Test func theHeaderStaysAboveABodyThatKeepsTheCursor() {
+        typealias Placement = TerminalGridSizing.KeyboardPlacement
+        let sizing = TerminalGridSizing(cellHeight: 16)
+        func place(_ cursor: Int?) -> Placement { sizing.keyboardPlacement(gridRows: 37, visibleHeight: 20 * 16, cursorRow: cursor) }
+        // Claude Code: the cursor in its input box on the last row. The
+        // header's 3 rows pin above the bottom 17.
+        #expect(place(36) == Placement(lift: 0, headerRows: 3))
+        #expect(place(20) == Placement(lift: 0, headerRows: 3))
+        // The cursor mid-grid: the body moves down until the cursor's row is
+        // just under the header (row 10 at the body's top).
+        #expect(place(10) == Placement(lift: 10 * 16, headerRows: 3))
+        #expect(place(15) == Placement(lift: 5 * 16, headerRows: 3))
+        // The cursor near the top: the grid's top as it is, no header.
+        #expect(place(3) == Placement(lift: 17 * 16, headerRows: 0))
+        #expect(place(0) == Placement(lift: 17 * 16, headerRows: 0))
+        // Unknown cursor: header over the bottom rows.
+        #expect(place(nil) == Placement(lift: 0, headerRows: 3))
+        // The grid fits: nothing to pin.
+        #expect(sizing.keyboardPlacement(gridRows: 20, visibleHeight: 20 * 16, cursorRow: 19) == Placement(lift: 0, headerRows: 0))
+        // A short area keeps two thirds for the body: 6 visible rows, 2 header rows.
+        #expect(sizing.keyboardPlacement(gridRows: 37, visibleHeight: 6 * 16, cursorRow: 36) == Placement(lift: 0, headerRows: 2))
+    }
+
     @Test func aCursorUnderTheToolbarLiftsTheGridByWholeRows() {
         let sizing = TerminalGridSizing(cellHeight: 16)
         // vim on line 1 with the keyboard up: 17 rows clipped at the top.

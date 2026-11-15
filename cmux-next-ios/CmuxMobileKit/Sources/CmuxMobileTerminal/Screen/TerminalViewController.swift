@@ -62,6 +62,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private let scrollView = TerminalScrollView()
     private let tuiClip = UIView()
     private let tuiHost = UIView()
+    /// The app's first rows pinned above the keyboard-clipped body
+    /// (`TerminalGridSizing.keyboardPlacement`): the surface's presented
+    /// frame again, cropped to those rows. Not the surface: it draws nothing.
+    let tuiHeader = UIView()
+    private let tuiHeaderRule = CALayer()
+    /// Rows `tuiHeader` shows now (0: hidden).
+    private(set) var tuiHeaderRows = 0
     private let bottomStack = UIView()
     private let bottomBacking = UIView()
     /// 24 pt fade above the composer card, shown only while rows are scrolled
@@ -416,6 +423,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiClip.addSubview(tuiHost)
         view.addSubview(tuiClip)
         tuiClip.addGestureRecognizer(tuiHorizontalPan)
+        // The top exception: the app's first rows, drawn from the surface's
+        // own frame, over the area's top while the keyboard clips it.
+        tuiHeader.isHidden = true
+        tuiHeader.isUserInteractionEnabled = false
+        tuiHeader.layer.contentsGravity = .resize
+        tuiHeader.layer.masksToBounds = true
+        tuiHeaderRule.backgroundColor = UIColor.separator.cgColor
+        tuiHeader.layer.addSublayer(tuiHeaderRule)
+        view.insertSubview(tuiHeader, aboveSubview: tuiClip)
         hostGridNote.font = UIFont.preferredFont(forTextStyle: .caption2)
         hostGridNote.adjustsFontForContentSizeCategory = true
         // A Dynamic Type change resizes the note's font: measure the chip and place the note again.
@@ -1128,7 +1144,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
         let grid = surface.grid
-        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(keyboardDock.guide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom)) tuiclip=\(Int(tuiClip.frame.minY))-\(Int(tuiClip.frame.maxY)) tuihost=\(Int(tuiClip.frame.minY + tuiHost.frame.minY))+\(Int(tuiHost.frame.height)) surface.y=\(Int(surface.frame.minY)) shift=\(tuiRowShift) lift=\(Int(tuiKeyboardLift))"
+        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(keyboardDock.guide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom)) tuiclip=\(Int(tuiClip.frame.minY))-\(Int(tuiClip.frame.maxY)) tuihost=\(Int(tuiClip.frame.minY + tuiHost.frame.minY))+\(Int(tuiHost.frame.height)) surface.y=\(Int(surface.frame.minY)) shift=\(tuiRowShift) lift=\(Int(tuiKeyboardLift)) header=\(tuiHeaderRows)"
     }
     #endif
 
@@ -2151,6 +2167,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         // A TUI's screen has no scroll: the held frame goes once the replay drew.
         if model.isTUI, freezeView != nil, heldFrameMayGo() { unfreeze() }
+        // The pinned header shows the frame just presented, in this transaction.
+        if tuiHeaderRows > 0 { applyTUIHeader() }
         guard !model.isTUI, cell.height > 0 else { return }
         let scale = view.window?.screen.scale ?? surface.renderScale
         let rowPixels = Int((cell.height * scale).rounded())
@@ -3464,6 +3482,10 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
                 tuiKeyboardLift = 0
                 tuiClip.bounds.origin.y = 0
             }
+            if tuiHeaderRows != 0 {
+                tuiHeaderRows = 0
+                applyTUIHeader()
+            }
             return
         }
         let layout = hostLayout
@@ -3474,17 +3496,55 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             UIView.performWithoutAnimation { surface.frame.origin = origin }
         }
         // Keyboard up: the grid's bottom rides the stack and its top is
-        // clipped; it moves down only as far as the cursor's row needs. Set
-        // in the layout pass, so inside the keyboard's own animation.
-        let lift = TerminalGridSizing(cellHeight: cell.height)
-            .keyboardLift(gridRows: tuiRows, visibleHeight: tuiClip.bounds.height,
-                          cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
-        if lift != tuiKeyboardLift {
-            tuiKeyboardLift = lift
-            tuiClip.bounds.origin.y = -lift
+        // clipped; the app's first rows stay pinned at the top (the top
+        // exception) and the body moves down only as far as the cursor's row
+        // needs. Set in the layout pass, so inside the keyboard's own animation.
+        let placement = TerminalGridSizing(cellHeight: cell.height)
+            .keyboardPlacement(gridRows: tuiRows, visibleHeight: tuiClip.bounds.height,
+                               cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
+        if placement.lift != tuiKeyboardLift {
+            tuiKeyboardLift = placement.lift
+            tuiClip.bounds.origin.y = -placement.lift
         }
+        tuiHeaderRows = placement.headerRows
+        applyTUIHeader()
         positionHostGridNote()
         if finder.isActive { finder.redraw() }
+    }
+
+    /// The pinned header (the top exception): `tuiHeaderRows` of the TUI
+    /// host's first rows over the top of the area, from the frame the surface
+    /// presented last (its layer's IOSurface, cropped by `contentsRect`). A
+    /// pointer swap per present, no extra draw. Hidden with no header rows.
+    func applyTUIHeader() {
+        let rows = tuiHeaderRows
+        guard rows > 0, !tuiClip.isHidden, cell.height > 0, surface.superview === tuiHost,
+              let frameLayer = surface.layer.sublayers?.first, let contents = frameLayer.contents,
+              frameLayer.bounds.width > 0, frameLayer.bounds.height > 0 else {
+            if !tuiHeader.isHidden { tuiHeader.isHidden = true }
+            tuiHeader.layer.contents = nil
+            return
+        }
+        let width = max(0, tuiClip.frame.width - 2 * Self.sidePadding)
+        let height = CGFloat(rows) * cell.height
+        let frame = CGRect(x: tuiClip.frame.minX + Self.sidePadding, y: tuiClip.frame.minY, width: width, height: height)
+        // The host's first rows, where they would sit unclipped: host point
+        // (x, y) is surface point (x, y) - surface.frame.origin, then the
+        // presented layer's own point.
+        let source = CGRect(x: -surface.frame.minX - frameLayer.frame.minX, y: -surface.frame.minY - frameLayer.frame.minY,
+                            width: width, height: height)
+        let unit = CGRect(x: source.minX / frameLayer.bounds.width, y: source.minY / frameLayer.bounds.height,
+                          width: source.width / frameLayer.bounds.width, height: source.height / frameLayer.bounds.height)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if tuiHeader.frame != frame { tuiHeader.frame = frame }
+        tuiHeader.backgroundColor = surface.backgroundColor
+        tuiHeader.layer.contents = contents
+        tuiHeader.layer.contentsRect = unit
+        let hairline = 1 / (view.window?.screen.scale ?? surface.renderScale)
+        tuiHeaderRule.frame = CGRect(x: 0, y: height - hairline, width: width, height: hairline)
+        CATransaction.commit()
+        if tuiHeader.isHidden { tuiHeader.isHidden = false }
     }
 
     /// The Mac's grid is the phone's own, as sent or still on its way.
