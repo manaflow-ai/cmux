@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43752979307",
+  "recorded_at": "2026-11-15T19:46:51Z",
+  "reason": "cmux-tui d6553233650a changes the image's cmux-tui (pinned f27d27cdf946)",
+  "dry_run": false,
+  "cmux_tui": "d6553233650a95c291ca5e0b2ab93f1af803ccf8",
+  "fixes": [
+    {
+      "sha": "d6553233650a95c291ca5e0b2ab93f1af803ccf8",
+      "mergedAt": "2026-11-15T11:15:28-08:00",
+      "subject": "perf(cmux-tui, acpmux): cap glibc malloc arenas at process start (infinite items) (#43851)"
+    },
+    {
+      "sha": "9fd2f115267bc785259a9973dbee2ec93b5b9e95",
+      "mergedAt": "2026-11-15T11:13:33-08:00",
+      "subject": "cmux-tui packaging: ship cmux-tui-host beside the Linux daemon (artifacts, npm, PyPI) (#43863)"
+    },
+    {
+      "sha": "9f066abb1bd814aa9646a5e2bec9684c17bba268",
+      "mergedAt": "2026-11-15T11:12:13-08:00",
+      "subject": "Sign-in enroll: send a cmux access token, not the sign-in session's (#43841)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T19:46:51Z",
+    "snapshot_id": "sh-3f23e3e8d8ae45448462a0784706ee79",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43752979307): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0a228b1bc7556d2e1969a83cdc8e3a79ba3454f0",
+    "image": "cloud-native-auto-d6553233-43752979307-1",
+    "revision": "ci-43752979307-1",
+    "at": "2026-11-15T19:46:51Z"
+  },
+  "rolled_back": false
+}
