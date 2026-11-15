@@ -393,6 +393,18 @@ nothing at all, not a pong and no other frame, arrived for 20 s after a
 ping. (Before, a ping queued behind megabytes of data on a slow relay and a
 healthy link closed during a 10 MiB transfer.)
 
+Align Keepalives (phone Settings → Transport, off by default; no wire
+change): the phone sends every keepalive on the beats of one grid
+(multiples of the period since the Unix epoch, `cmux-mobile-link`
+`keepalive.rs`), so the radio wakes once for all of them. The link pings on
+every 10 s beat whether or not the last pong came, and its WireGuard tunnel
+sends no persistent keepalive (the ping is a tunnel datagram as often, on the
+same routes); the 20 s timeout above is unchanged. The signaling and presence
+sockets ping on every 10 s beat, the Cloud Chief socket on every 20 s beat,
+and the app's heartbeat probes a link with no traffic (only pings and pongs)
+on its 2.5 s foreground or 10 s background beat. No interval is longer than
+before.
+
 ### Lanes (added with the input lane; backward compatible)
 
 All channels used to share the main stream in FIFO order, so a keystroke,
@@ -791,7 +803,25 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
   of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
   Match Mac theme switch says (that switch is the accent's); a frame without `terminal` (an
-  older Mac) stands in with `theme`'s colors.
+  older Mac) stands in with `theme`'s colors. Since 2026-11-14 a frame may also carry
+  `"look"`, the rest of what the Mac's windows show, every field optional (absent: the
+  phone's own default): `{"chrome_style"?: appearance.chromeStyle (`default`, `card`,
+  `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`,
+  `blocks`), "hue"?: appearance.hue (0...1, 0.5 keeps the theme's), "saturation"?:
+  appearance.saturation (0...2, 1 keeps it), "glass_transparency"?:
+  appearance.glassTransparency (0...1), "sidebar_surface"?: appearance.sidebarSurface
+  (`same` | `separate`), "terminal_font"?: {"family"?, "size"?} (the face and points the
+  terminals draw in: terminal.fontFamily and terminal.fontSize over the Ghostty config's;
+  size 4...96), "chat"?: {"sent"?, "sent_text"?, "received"?, "received_text"?}
+  (home.bubbleColors.*, `#rrggbb`), "groups"?: {"palette"?: sidebar.groupPalette (`glass`,
+  `theme`, `wallpaper`, `grayscale`, `vibrant`, `gradient`, `pictorial`), "gradient"?:
+  sidebar.groupGradient (`sunset`, `aurora`, `lagoon`, `twoTone`)}}`. The Mac app sends the
+  same object on its stdin line (`MobileHostAppearance.Look`); hostd (`appearance.rs`
+  `sanitize_look`) checks each field on its own and drops a bad one (an unknown value, a
+  number out of range, not `#rrggbb`, a family with a control character, `#`, `=` or `"`, or
+  over 120 characters) while the rest and the theme still serve; a nested object with
+  nothing valid is left out, and with nothing valid at all the frame has no `look`, the same
+  bytes an older Mac sends. The phone does not draw these yet.
 - `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
   or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
   `not_found` when it shows none. Machines need the View grant for both. The phone
@@ -1129,6 +1159,40 @@ release and the daemon's size lease.
 | Older phone without `size-lease-v1` | no lease: hostd releases on its close frame, the keepalive + 30 s hold on a drop | 65 s on a drop |
 
 Measured on the rig: cmux-next-ios/verify/size-release-20261021.md.
+
+## Terminal history window (`attach-replay-history-window-v1`; added 2026-11-14)
+
+The Mac keeps a terminal's scrollback; the phone's mirror holds the screen and
+a bounded part of it (cmux-tui `spec/commands.md`, `attach-surface`).
+
+- Attach: the screen alone (`replay_history_rows: 0`,
+  `attach-replay-history-rows-v1`, as before).
+- Scrolling up to the oldest row held: an attach with 2,000 more of the
+  newest rows, up to 10,000. Past them, an attach with a 4,000-row window
+  (`replay_history_rows: 4000, replay_history_start: S`): the Mac sends rows
+  `[S, S+4000)` and the screen, and says how many rows it left out above
+  (`history_rows_omitted`) and between the window and the screen
+  (`history_rows_skipped`). Each step moves the window 1,500 rows up, down to
+  row 0, the oldest row the Mac keeps. The phone never holds more than 10,000
+  history rows, however long the Mac's history is.
+- Scrolling down to the window's last row: the window moves 1,500 rows down.
+  Within 4,000 rows of the screen the Mac sends the rows from `S` down to the
+  screen (no `history_rows_skipped`), and the phone holds the newest rows
+  again. Scrolling up from the screen to the window brings the newest 10,000
+  rows at once.
+- Each such attach replaces the last one; the screen puts the reader back on
+  their rows by text (`TerminalReadingMark`), which a step of 1,500 rows keeps
+  within the 2,000-row search.
+- Resize: the phone declares the capability in `set-client-info`, so each
+  `resized` replay holds the screen and the newest `replay_history_rows` rows
+  of the reflowed terminal (a window becomes the newest 4,000 rows), with
+  `history_rows_omitted`, instead of the whole history.
+
+Compatibility: a daemon without the capability gets no
+`replay_history_start` (the newest rows grow as before, then the whole
+history); a Mac app whose lane refuses the field gets the same attach without
+it; a phone that does not declare the capability keeps getting whole
+`resized` replays.
 
 ## Push notifications (API 0.13.0)
 

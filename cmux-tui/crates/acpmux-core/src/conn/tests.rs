@@ -85,6 +85,10 @@ fn peer_request_allowlist_names_every_refused_shape() {
         }))
         .is_err()
     );
+    let mut turns = keyed.clone();
+    turns.keys = None;
+    turns.turns = true;
+    assert!(validate_peer_request(&Request::Page(turns)).is_err());
     for view in [ListView::All, ListView::Folders] {
         let mut refused = keyed.clone();
         refused.keys = None;

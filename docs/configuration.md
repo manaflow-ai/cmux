@@ -261,6 +261,27 @@ The layout of the New Tab page. On every template but `minimal`, the template do
 
 Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
 
+## `tabs.newTabApp`
+
+An extension that draws the whole New Tab page, by its app id. The extension implements
+`cmux.newtab/1` (see `cmux-tui/crates/cmux-extension-sdk/README.md`). Unset (the default), cmux
+draws its own page, as above.
+
+```json
+{
+  "tabs": { "newTabApp": "local/showcase-newtab" }
+}
+```
+
+- The page shows only the extension's view: its greeting, buttons and lists, in the app's look.
+- If the extension is not installed, is hidden or disabled, or its view fails, cmux draws its own page.
+- Go back to cmux's own page with `cmux settings reset tabs.newTabApp`.
+- The change applies to the next New Tab page. The native New Tab page (`tabs.nativeNewTabPage`)
+  does not use it.
+
+Change it in **Settings > General > Tabs**, in the command palette, or with
+`cmux settings set tabs.newTabApp local/showcase-newtab`.
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.
