@@ -426,6 +426,15 @@ export class ChatClient {
 
   /** Dial, make the chat tab and start the chat in it; the first attach sets the baseline seq. */
   async open(harness: string): Promise<void> {
+    await this.openTab(harness);
+    const started = answerOf(await this.start(harness));
+    this.session = String(started.session ?? "");
+    if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
+    await this.attach(undefined);
+  }
+
+  /** Dial and make the chat tab for `harness`, as the app does for a new Cloud chat, before any start. */
+  async openTab(harness: string): Promise<void> {
     this.dial.start();
     await Promise.race([this.ready, sleep(90_000).then(() => { throw new Error("the client's dial never connected"); })]);
     const id = answerOf(await this.dial.request({ cmd: "identify" }));
@@ -436,10 +445,16 @@ export class ChatClient {
     if (typeof tab.surface !== "number") throw new Error(`new-conversation-tab gave no surface: ${JSON.stringify(tab).slice(0, 200)}`);
     this.surface = tab.surface;
     this.tab = typeof tab.tab_resource_id === "string" ? tab.tab_resource_id : "";
-    const started = answerOf(await this.dial.request({ cmd: "agent-session-start", surface: tab.surface, harness, vm_kind: "owner" }, 120_000));
-    this.session = String(started.session ?? "");
-    if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
-    await this.attach(undefined);
+  }
+
+  /**
+   * The app's start of the tab's chat with `harness` on the caller's own machine (`vm_kind: "owner"`), the daemon's
+   * answer as it came: `ok` with `data.session`, or a refusal with its `error_code` and `data` (a signed-out agent:
+   * `agent_session.sign_in_required` with `data.harness`, hq#11225).
+   */
+  async start(harness: string): Promise<any> {
+    if (this.surface === null) throw new Error("start before openTab");
+    return this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner" }, 120_000);
   }
 
   /**
@@ -463,6 +478,35 @@ export class ChatClient {
   async caughtUp(seq: number, ms: number): Promise<boolean> {
     for (const until = Date.now() + ms; Date.now() < until; await sleep(250)) if (this.held >= seq && this.attached) return true;
     return this.held >= seq;
+  }
+
+  /**
+   * Why a catch-up wait timed out, as a clause for the verdict. It asks `agent-session-events` past the seq held
+   * (the mux Bulk lane, as the chat's own pushes) and then `identify` (the Control lane), and keeps nothing either
+   * answers: the client's view, and so the verdict, stays what the product delivered.
+   */
+  async stallDiagnosis(eventsMs = 10_000, identifyMs = 5_000): Promise<string> {
+    const held = this.held;
+    const asked = async (frame: Record<string, unknown>, ms: number): Promise<{ answer?: any; error?: string }> => {
+      try {
+        return { answer: answerOf(await this.dial.request(frame, ms)) };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    };
+    const events = await asked({ cmd: "agent-session-events", surface: this.surface, after_seq: held, limit: 500 }, eventsMs);
+    const identify = await asked({ cmd: "identify" }, identifyMs);
+    const timedOut = (r: { error?: string }) => /^no answer within/.test(r.error ?? "");
+    const seqs: number[] = (events.answer?.events ?? []).map((e: any) => Number(e?.seq)).filter((s: number) => s > held);
+    const eventsText = events.answer
+      ? seqs.length ? `events answered from seq ${Math.min(...seqs)} (${seqs.length} records)` : "events answered with nothing past it"
+      : timedOut(events) ? `events timed out (${eventsMs / 1000} s)` : `events failed: ${events.error}`;
+    const identifyText = identify.answer ? "identify answered" : timedOut(identify) ? `identify timed out (${identifyMs / 1000} s)` : `identify failed: ${identify.error}`;
+    const verdict = seqs.length ? "attachment dead, transport fine"
+      : timedOut(events) && identify.answer ? "bulk lane stalled"
+      : timedOut(events) && timedOut(identify) ? "carrier dead"
+      : "no conclusion";
+    return `after seq ${held}: ${eventsText}, ${identifyText}: ${verdict}`;
   }
 
   private onLine(m: any): void {
@@ -838,7 +882,8 @@ async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, bas
   const client = slice.map((r) => journalEvent(tag, r.record) ?? { seq: r.seq, ks: [] });
   const reconnects = chat.reconnects.filter((i) => i >= from).map((i) => i - from);
   const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted, injection });
-  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""})`;
+  // A stalled client is asked why before the verdict is written; the diagnosis never changes the verdict.
+  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""}; ${await chat.stallDiagnosis()})`;
   const pages = slice.filter((r) => r.via === "page").length;
   const why = ranNone ? `; ${journalNotesText(notes)}` : "";
   return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)${why}` };

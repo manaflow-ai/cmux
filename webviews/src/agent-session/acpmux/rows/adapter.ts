@@ -32,20 +32,48 @@ export type AdaptedChat = {
   canLoadOlder: boolean;
 };
 
+/// One snapshot's view, adapted whole: the parity test's reading. A page adapts through a
+/// `ChatAdapter`, which keeps the rows that did not change.
 export function adaptChat(snapshot: ChatRowsSnapshot, context: ChatRowsContext): AdaptedChat {
-  const held = new Map<number, ChatRow>();
-  for (const entry of [...snapshot.rows, ...snapshot.apart]) if (entry.row) held.set(entry.id, entry.row);
-  const rows: AcpmuxRow[] = [];
-  for (const entry of [...snapshot.rows, ...snapshot.apart]) rows.push(...adaptRow(entry, held, context));
-  return {
-    rows,
-    // A cut entry's whole text is a `prompt:<id>` blob once read.
-    queue: snapshot.queue.entries.map((entry) => {
-      const whole = snapshot.bodies.get(`prompt:${entry.id}`);
-      return { id: entry.id, prompt: typeof whole === "string" ? whole : entry.text };
-    }),
-    canLoadOlder: snapshot.hasBefore,
-  };
+  return new ChatAdapter(context).adapt(snapshot);
+}
+
+/// One chat's snapshots adapted in turn. A row is adapted again only when its row changed (the
+/// store keeps an unchanged row's object) or, for a turn's end, its group row did; every other row
+/// keeps its view rows' objects, so the view's turn shaping (`turnViewFrom`) keeps the turns before
+/// the first changed one. A new context is a new adapter.
+export class ChatAdapter {
+  readonly #made = new WeakMap<ChatRow, { group: ChatRow | undefined; rows: AcpmuxRow[] }>();
+
+  constructor(readonly context: ChatRowsContext) {}
+
+  adapt(snapshot: ChatRowsSnapshot): AdaptedChat {
+    const held = new Map<number, ChatRow>();
+    for (const entry of snapshot.rows) if (entry.row) held.set(entry.id, entry.row);
+    for (const entry of snapshot.apart) if (entry.row) held.set(entry.id, entry.row);
+    const rows: AcpmuxRow[] = [];
+    for (const entries of [snapshot.rows, snapshot.apart])
+      for (const entry of entries) {
+        const row = entry.row;
+        if (!row) continue;
+        const group = row.kind === "notice" && row.group ? held.get(row.group) : undefined;
+        let made = this.#made.get(row);
+        if (!made || made.group !== group) {
+          made = { group, rows: adaptRow(entry, held, this.context) };
+          this.#made.set(row, made);
+        }
+        rows.push(...made.rows);
+      }
+    return {
+      rows,
+      // A cut entry's whole text is a `prompt:<id>` blob once read.
+      queue: snapshot.queue.entries.map((entry) => {
+        const whole = snapshot.bodies.get(`prompt:${entry.id}`);
+        return { id: entry.id, prompt: typeof whole === "string" ? whole : entry.text };
+      }),
+      canLoadOlder: snapshot.hasBefore,
+    };
+  }
 }
 
 /// One held row as the view's rows: none for a group row (the turn's shape reads it) or a hole.

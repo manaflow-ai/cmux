@@ -17,8 +17,13 @@ export const HOVER_INTENT = {
   tooltipDelay: 450,
   /** After the last tooltip hid, how long the next one still shows at once. */
   tooltipWarm: 500,
-  /** Pointer rest on a row before its hover card shows. */
-  cardDwell: 1000,
+  /**
+   * Pointer rest before any hover card shows: Chrome's 1300 ms for a standard-width tab
+   * (tab_hover_card_controller.cc `GetShowDelay`: `kMaximumTriggerDelay` 800 ms plus
+   * `kTabHoverCardAdditionalMaxWidthDelay` 500 ms), the native `HoverIntentTiming.cardDelay`
+   * (Lawrence 2026-11-15: "copy chrome's delay exactly ... consistent between every thing").
+   */
+  cardDwell: 1300,
   /** How long a card stays after the pointer leaves its target and the card. */
   cardGrace: 200,
   /** How long a pointer heading for a shown card may pause on a target it crosses. */
