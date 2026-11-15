@@ -1003,6 +1003,9 @@ impl Peer {
                             } else {
                                 PeerNotice::Sessions(rows)
                             };
+                            if let Some(bytes) = list.list_bytes() {
+                                crate::gauges::peer_lists().queued(bytes);
+                            }
                             for notice in std::iter::once(list).chain(held) {
                                 if self
                                     .notices

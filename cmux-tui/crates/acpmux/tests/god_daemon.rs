@@ -346,6 +346,8 @@ fn is_response(v: &Value, id: u64) -> bool {
 struct Proxy {
     port: u16,
     links: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
+    /// The listener new connections go to: [`Proxy::repoint`] moves it to a restarted peer.
+    backend: Arc<std::sync::atomic::AtomicU16>,
 }
 
 impl Proxy {
@@ -353,9 +355,11 @@ impl Proxy {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let links: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>> = Arc::default();
-        let held = links.clone();
+        let backend = Arc::new(std::sync::atomic::AtomicU16::new(backend));
+        let (held, to) = (links.clone(), backend.clone());
         tokio::spawn(async move {
             while let Ok((mut client, _)) = listener.accept().await {
+                let backend = to.load(std::sync::atomic::Ordering::SeqCst);
                 let task = tokio::spawn(async move {
                     let Ok(mut server) =
                         tokio::net::TcpStream::connect(("127.0.0.1", backend)).await
@@ -367,7 +371,11 @@ impl Proxy {
                 held.lock().unwrap().push(task.abort_handle());
             }
         });
-        Self { port, links }
+        Self { port, links, backend }
+    }
+
+    fn repoint(&self, backend: u16) {
+        self.backend.store(backend, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn cut(&self) {
@@ -1051,4 +1059,184 @@ async fn restart_to_chat_attach_is_under_two_seconds() {
     assert!(elapsed <= 2_000, "Daemon restart -> chat attach took {elapsed} ms: {result}");
     let shutdown = result["shutdownMs"].as_u64().unwrap_or(u64::MAX);
     assert!(shutdown <= 1_000, "Daemon shutdown took {shutdown} ms: {result}");
+}
+
+/// One peer's hub, restartable: each start is a new daemon run (a new list epoch) over the same
+/// rows and the same peer token, so the link that reconnects to it cannot follow its cursor and
+/// reads the whole list, as from a peer that restarted or an older daemon without the follow.
+struct RestartingPeer {
+    name: String,
+    rows: usize,
+    auth: Arc<PeerAuth>,
+    serving: Option<tokio::task::AbortHandle>,
+}
+
+impl RestartingPeer {
+    /// A new run of the peer's hub on a new port: the port.
+    async fn start(&mut self) -> u16 {
+        if let Some(old) = self.serving.take() {
+            old.abort();
+        }
+        let mut cfg = Config::default();
+        cfg.store.mode = StoreMode::Memory;
+        let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        for i in 0..self.rows {
+            let meta = god_fixture::peer_meta(&self.name, i);
+            store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        }
+        let hub = Hub::new(cfg, store);
+        let listener = bind_ws("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let auth = WsAuth { local_app: None, peer: Some(self.auth.clone()) };
+        self.serving =
+            Some(tokio::spawn(serve_ws_with(hub, listener, "tok".into(), auth)).abort_handle());
+        port
+    }
+}
+
+fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Pins `pid` (0: the calling thread) to the first `cpus` CPUs.
+fn pin(pid: i32, cpus: usize) {
+    // SAFETY: a zeroed cpu_set_t is an empty set; CPU_SET writes within it.
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        for cpu in 0..cpus {
+            libc::CPU_SET(cpu, &mut set);
+        }
+        libc::sched_setaffinity(pid, std::mem::size_of::<libc::cpu_set_t>(), &set);
+    }
+}
+
+/// The hub's notice channel under a peer that cannot follow (2026-11-15, after cmux#42095 closed):
+/// bounded by notices (4,096), not bytes. Each of its links reads its whole list again, and the
+/// hub's one notice loop applies lists one at a time. Measured: the bytes of lists the loop had not
+/// taken yet (`gauges.peerLists`, now and at peak) and the daemon's RSS, while the peer's link is
+/// cut and the peer restarted every `ACPMUX_CHURN_EVERY_MS` for `ACPMUX_CHURN_SECS`, with the
+/// daemon alone pinned to `ACPMUX_CHURN_CPUS` CPUs shared with `ACPMUX_CHURN_BUSY` busy threads
+/// (a starved daemon, as at a load average of 125-256 on Leo's Mac); the peer runs free.
+/// `ACPMUX_CHURN_FOLLOW=1` cuts without a restart, so the link follows: the control.
+/// Manual, on Linux CI:
+/// `cargo test -p acpmux --release --test god_daemon whole_lists -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual: a churn lab; run on Linux CI"]
+async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
+    let rows: usize = env_or("ACPMUX_CHURN_ROWS", 4_000);
+    let secs: u64 = env_or("ACPMUX_CHURN_SECS", 60);
+    let every = Duration::from_millis(env_or("ACPMUX_CHURN_EVERY_MS", 500));
+    let cpus: usize = env_or("ACPMUX_CHURN_CPUS", 1);
+    let busy: usize = env_or("ACPMUX_CHURN_BUSY", 8);
+    let follow = std::env::var("ACPMUX_CHURN_FOLLOW").is_ok_and(|v| v == "1");
+
+    let scratch = std::env::temp_dir().join(format!("god-churn-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let home = scratch.join("acpmux");
+    let claude = daemon_env::home(&scratch).join(".claude");
+    let shape = Shape { peers: 0, ..Shape::small() };
+    god_fixture::write_home(&home, &claude, &scratch.join("work"), &shape).unwrap();
+    let peer_home = scratch.join("peer-0");
+    std::fs::create_dir_all(&peer_home).unwrap();
+    let auth = Arc::new(PeerAuth::create(&peer_home).unwrap());
+    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&peer_home)).unwrap();
+    let mut peer = RestartingPeer { name: "peer00".into(), rows, auth, serving: None };
+    let proxy = Arc::new(Proxy::start(peer.start().await).await);
+    write_config(
+        &home,
+        json!({"peer00": {"url": format!("ws://127.0.0.1:{}", proxy.port), "token": "tok",
+                          "peerToken": token.trim()}}),
+    );
+
+    let mut daemon = Daemon::start(&scratch, &home, None);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "churn-bench"}}))
+        .unwrap();
+    assert!(wait_listed(&mut rpc, 1, rows).is_some(), "the peer was never listed");
+    let (rss_listed, _) = daemon.rss();
+
+    // The daemon starved: pinned with busy threads on its CPUs.
+    pin(daemon.child.id() as i32, cpus);
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let spinners: Vec<_> = (0..busy)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                pin(0, cpus);
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::hint::spin_loop();
+                }
+            })
+        })
+        .collect();
+
+    // The churn: cut (and restart) the peer every `every`; sample the gauge meanwhile.
+    let cuts = {
+        let proxy = proxy.clone();
+        let stop = stop.clone();
+        tokio::spawn(async move {
+            let mut cuts = 0u64;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                if !follow {
+                    proxy.repoint(peer.start().await);
+                }
+                proxy.cut();
+                cuts += 1;
+                tokio::time::sleep(every).await;
+            }
+            (cuts, peer)
+        })
+    };
+    let sampled = tokio::task::spawn_blocking(move || {
+        let started = Instant::now();
+        let (mut peak_bytes, mut peak_lists, mut samples) = (0u64, 0u64, vec![]);
+        while started.elapsed() < Duration::from_secs(secs) {
+            std::thread::sleep(Duration::from_millis(500));
+            let Ok(status) = rpc.call("_acpmux/status", json!({})) else { continue };
+            let lists = &status["gauges"]["peerLists"];
+            peak_bytes = peak_bytes.max(lists["bytes"].as_u64().unwrap_or(0));
+            peak_lists = peak_lists.max(lists["lists"].as_u64().unwrap_or(0));
+            let rss = status["gauges"]["memory"]["rssBytes"].as_u64().unwrap_or(0);
+            samples.push(json!([started.elapsed().as_secs(), lists["lists"], lists["bytes"], rss]));
+        }
+        (rpc, peak_bytes, peak_lists, samples)
+    })
+    .await
+    .unwrap();
+    let (mut rpc, sampled_bytes, sampled_lists, samples) = sampled;
+    let (rss_churned, _) = daemon.rss();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for spinner in spinners {
+        spinner.join().unwrap();
+    }
+    let (cuts, _peer) = cuts.await.unwrap();
+
+    // Unstarved: until every list waiting is taken.
+    let drained = Instant::now();
+    let mut drain_ms = None;
+    while drained.elapsed() < STEP {
+        let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
+        if status["gauges"]["peerLists"]["lists"] == 0 && peers_listed(&mut rpc, 1, rows) {
+            drain_ms = Some(ms(drained));
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
+    let (rss_end, peak_rss) = daemon.rss();
+    drop(rpc);
+    daemon.stop();
+    let lists = &status["gauges"]["peerLists"];
+    let result = json!({
+        "rows": rows, "secs": secs, "everyMs": every.as_millis() as u64, "cpus": cpus,
+        "busy": busy, "follow": follow, "cuts": cuts,
+        "peakLists": lists["peakLists"], "peakBytes": lists["peakBytes"],
+        "sampledPeakLists": sampled_lists, "sampledPeakBytes": sampled_bytes,
+        "drainMs": drain_ms,
+        "rssListed": rss_listed, "rssChurned": rss_churned, "rssEnd": rss_end, "peakRss": peak_rss,
+        "samples": samples,
+    });
+    println!("CHURN {result}");
+    let _ = std::fs::remove_dir_all(&scratch);
 }
