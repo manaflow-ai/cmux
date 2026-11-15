@@ -93,7 +93,7 @@ import PackageDescription
 //   CmuxNextAgentCursorVisibility -> CCmuxAppFFI, AgentCursor (visibility of a cursor target: snapshot in,
 //     visible / hidden anchor / not drawn out, from cmux-focus-core's rules through the typed app FFI call;
 //     no AppKit; the App builds the snapshot from the live models)
-//   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, DesignTokens (hq#1957: the name a workspace takes from a moved
+//   CmuxNextWorkspaceNaming -> Bridge, BrowserCore, Compat, Daemon, DesignTokens (hq#1957: the name a workspace takes from a moved
 //     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
@@ -1173,6 +1173,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextBridge",
+                "CmuxNextBrowserCore",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesignTokens",

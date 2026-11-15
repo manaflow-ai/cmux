@@ -1,6 +1,7 @@
 public import CmuxNextBridge
 public import CmuxNextDaemon
 public import Foundation
+import CmuxNextBrowserCore
 
 /// Reads what `WorkspaceAutoName` needs from the app's live sources: the
 /// setting, the Debug Settings variant and a front tab's names. Reading in an
@@ -182,6 +183,11 @@ public struct WorkspaceAutoNameReader {
         if let name = clean(tab.name) { return name }
         let page = livePage(tab)
         let url = page?.url ?? tab.url.flatMap(URL.init(string:))
+        // The New Tab page is "New Tab", as its tab reads, never its address's host ("newtab"; Lucas 2026-11-14). The live
+        // page's address only when there is one: the saved address lags a navigation by up to 500 ms.
+        if BrowserNewTabPage.isNewTabPage(url) {
+            return NewWorkspaceName.newTabName
+        }
         for candidate in [page?.title, tab.titleText] {
             guard let title = clean(candidate), title != clean(url?.absoluteString), title != clean(tab.url) else { continue }
             return title
