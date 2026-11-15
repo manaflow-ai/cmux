@@ -1614,8 +1614,11 @@ async fn a_peer_link_pages_all_and_keys_of_this_machine_only() {
         local.push(mine.chat_id.clone());
         seq += 1;
         index = index.apply(seq, mine);
-        if n % 50 == 0 {
-            let mut theirs = Summary::new(format!("c-{n:05}"));
+        // A third machine's row now and then, and after the 100th a run of 900 of them,
+        // longer than one page's candidates.
+        let run = if n == 100 { 900 } else { u64::from(n % 50 == 0) };
+        for m in 0..run {
+            let mut theirs = Summary::new(format!("c-{n:05}-{m:03}"));
             theirs.origin = "c-machine".into();
             theirs.last_activity = 1_000_000 - 2 * n - 1;
             remote.push(theirs.chat_id.clone());
@@ -1683,9 +1686,9 @@ async fn a_peer_link_pages_all_and_keys_of_this_machine_only() {
 
     // Refused, each with an error frame and no rows: another origin's key, anchor and filter.
     let mut other_key = keys.clone();
-    other_key.keys = Some(vec![PageKey::Summary(key("c-00000", 999_999, "c-machine"))]);
+    other_key.keys = Some(vec![PageKey::Summary(key("c-00000-000", 999_999, "c-machine"))]);
     let mut other_anchor = all.clone();
-    other_anchor.after = Some(Position::List(key("c-00000", 999_999, "c-machine")));
+    other_anchor.after = Some(Position::List(key("c-00000-000", 999_999, "c-machine")));
     let mut other_filter = all.clone();
     other_filter.filter = Some(acpmux_book::index::ListFilter {
         origin: Some("c-machine".into()),
