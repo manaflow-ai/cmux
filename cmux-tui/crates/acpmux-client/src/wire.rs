@@ -107,6 +107,13 @@ pub struct ListKey {
     pub last_activity: u64,
     pub chat_id: String,
     pub origin: String,
+    /// A position, not a row (decision 290): just past every `local` key at `last_activity`.
+    /// Only a serving side mints it, as the `before` key of a peer's empty `all` page, spelled
+    /// origin `local`, chat id "" and `past` true, and only that page accepts it back; every
+    /// other door answers `InvalidPage`. So a past key never reaches the client's maps keyed
+    /// by `ListKey` (its `Ord` and `Hash` see `past`). False is omitted: today's bytes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub past: bool,
 }
 
 /// Stable position key for the folders view.
@@ -1382,8 +1389,12 @@ mod other_delta_tests {
         });
         let decoded: Page = serde_json::from_value(page).unwrap();
         assert!(matches!(decoded.keys.as_deref(), Some([PageKey::Summary(_)])));
-        let legacy =
-            vec![ListKey { last_activity: 4, chat_id: "c".into(), origin: "local".into() }];
+        let legacy = vec![ListKey {
+            last_activity: 4,
+            chat_id: "c".into(),
+            origin: "local".into(),
+            past: false,
+        }];
         assert_eq!(
             serde_json::to_vec(decoded.keys.as_ref().unwrap()).unwrap(),
             serde_json::to_vec(&legacy).unwrap(),
