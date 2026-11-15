@@ -518,6 +518,16 @@ web bundles by web key (the newest 8). Run it once CI has published SHA, and the
 only checks the kept files and swaps. A part the app already runs is skipped and listed under
 `unchanged`, and an apply that changed nothing leaves `rollback` to the apply before it.
 
+`plan` no longer needs a diff when CI has published both commits' hot keys
+(`files.cmux.com/cmux-next/hot-keys/SHA.json`, written by cmux-tui-artifacts.yml with
+`hot-apply.py keys SHA`). The keys are the tree key, the web key and ABI, and one digest each over
+the files in each bucket the diff would sort: the app shell (Swift, resources and manifests), the Rust
+the app links, the bundled helpers and the served web. Two commits with the same shell and FFI
+digests differ only in what a hot apply swaps, so `plan` compares the two files and says
+`"via": "published keys"`. It skips the fetch of SHA and the tree and web key computation. Nothing in
+the plan reads a checkout, so it is the step a `cmux` CLI command in any build can take next. Commits
+without keys (before this, or a branch) are planned from the diff as before.
+
 ## Every merge, no checkout
 
 Settings > Updates > **Web UI Updates**:

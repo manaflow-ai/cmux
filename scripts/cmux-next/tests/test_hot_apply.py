@@ -399,6 +399,91 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(self.sha(), self.old)
 
 
+class HotKeys(unittest.TestCase):
+    """`plan` from both commits' published hot keys: no checkout, no diff, no key computed here."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [FIX], depth=2)
+        cls.base = run_git("rev-parse", f"{FIX}^").stdout.strip()
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-keys-"))
+        (self.tmp / "keys").mkdir()
+        (self.tmp / "empty").mkdir()
+        self.env = dict(os.environ, CMUX_HOT_KEYS_BASE=(self.tmp / "keys").as_uri(),
+                        CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"),
+                        CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri())
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def publish(self, sha, **changed):
+        keys = {"schema": 1, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
+                "shell": "3" * 64, "ffi": "4" * 64, "helpers": "5" * 64, **changed}
+        (self.tmp / "keys" / f"{sha}.json").write_text(json.dumps(keys))
+
+    def plan(self, *extra):
+        # --repo is an empty folder: nothing here can diff or key either commit.
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app",
+                               str(self.tmp / "none"), "--repo", str(self.tmp / "empty"), *extra],
+                              capture_output=True, text=True, env=self.env)
+        return done.returncode, json.loads(done.stdout) if done.stdout.startswith("{") else None, done.stderr
+
+    def test_the_two_commits_keys_say_what_the_diff_says(self):
+        keys = {}
+        for sha in (self.base, FIX):
+            done = subprocess.run([sys.executable, str(SCRIPT), "keys", sha], capture_output=True, text=True, env=self.env)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            keys[sha] = json.loads(done.stdout)
+            (self.tmp / "keys" / f"{sha}.json").write_text(done.stdout)
+        # cmux#37155 changed cmux-wg only: the daemon and the mobile host's inputs, nothing the app links.
+        self.assertNotEqual(keys[FIX]["tree_key"], keys[self.base]["tree_key"])
+        self.assertNotEqual(keys[FIX]["helpers"], keys[self.base]["helpers"])
+        for same in ("shell", "ffi", "web", "web_key", "web_abi"):
+            self.assertEqual(keys[FIX][same], keys[self.base][same], same)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["via"], "published keys")
+        self.assertEqual(plan["parts"], ["rust"])
+        self.assertEqual(list(plan["left"]), ["bundled helpers (cmux-mobile-host, ...)"])
+        self.assertEqual(plan["tree_key"], key_of(FIX))
+
+    def test_a_swift_change_is_left_and_a_web_change_applies(self):
+        self.publish(self.base)
+        self.publish(FIX, shell="6" * 64, web="b" * 64, web_key="7" * 64)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["parts"], ["web"])
+        self.assertEqual(plan["web_key"], "7" * 64)
+        self.assertEqual(list(plan["left"]), ["Swift, resources and manifests"])
+
+    def test_an_ffi_change_keeps_the_daemon_and_a_new_web_abi_keeps_the_web(self):
+        self.publish(self.base)
+        self.publish(FIX, tree_key="8" * 40, ffi="9" * 64, web="b" * 64, web_key="a" * 64, web_abi=4)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 3, err)
+        self.assertEqual(plan["parts"], [])
+        self.assertEqual(sorted(plan["left"]), ["Rust the app links (FFI)", "web ABI"])
+
+    def test_equal_keys_are_a_no_op(self):
+        self.publish(self.base)
+        self.publish(FIX)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual((plan["parts"], plan["left"]), ([], {}))
+
+    def test_a_missing_or_malformed_key_file_falls_back_to_the_diff(self):
+        self.publish(self.base)
+        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps({"schema": 1, "commit": FIX}))
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertNotIn("via", plan)
+        self.assertEqual(plan["parts"], ["rust"])
+
+
 SHIM = "a3bead27e6599480e2d2654816f9ecdff99ecaf2"  # cmux#43239's remote browser host: Rust plus csrc/rb_shim.mm and .h
 
 
