@@ -417,8 +417,12 @@ final class Scene: NSObject, NSApplicationDelegate {
     }
 }
 
-let app = NSApplication.shared
-app.setActivationPolicy(.regular)
-let scene = Scene()
-app.delegate = scene
-app.run()
+// Top-level code is not main-actor-isolated to the compiler, though it runs on the main thread; Scene is
+// @MainActor, so it is built and run inside that isolation (a nonisolated `Scene()` does not compile).
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+    let scene = Scene()
+    app.delegate = scene
+    app.run()
+}
