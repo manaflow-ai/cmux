@@ -450,7 +450,7 @@ async fn the_257th_hub_machine_is_refused_by_the_index_and_still_in_v1s_list() {
     let index = turn(&v1, index, &state, false).await;
     let last = ("machine-256".to_owned(), "machine-256-1".to_owned());
     assert!(origin(&index, "machine-256").is_none());
-    assert!(index.get_row(&RowKey::new(&last.0, &last.1)).is_none());
+    assert!(index.get_row(&RowKey::new(last.0.as_str(), last.1.as_str())).is_none());
     assert!(!v2_keys(&index).contains(&last));
     assert!(v1_keys(&v1).contains(&last), "v1's list still has the 257th machine's chat");
     assert_eq!(v1_keys(&v1).len(), 257);
@@ -468,7 +468,7 @@ async fn a_refused_machines_warn_lines_follow_the_log_of_its_submits() {
     let index = turn(&v1, SummaryIndex::new(), &state, true).await;
     assert_eq!(state.refused.lock().unwrap().warns, 0, "no line while the index has room");
 
-    let chats = 1000;
+    let chats: u32 = 1000;
     let hosts: BTreeMap<String, u64> = (0..257).map(|n| (format!("machine-{n:03}"), 5)).collect();
     let mut sessions: Vec<BookSession> = (0..256)
         .map(|n| session(&format!("machine-{n:03}"), &format!("machine-{n:03}-1"), "running"))
