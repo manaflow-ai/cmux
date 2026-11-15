@@ -30,11 +30,15 @@ public final class SettingsCustomizeLibrary: PageProvider {
 
     /// `settingsFile` points the CLI at the settings file the app reads (`CMUX_NEXT_CONFIG_FILE`), as
     /// Open Theme File does; nil keeps the CLI's own default.
-    public init(cli: @escaping @MainActor () async -> URL?, settingsFile: @escaping @MainActor () -> URL? = { nil },
-                runCLI: @escaping Runner = SettingsCustomizeLibrary.run) {
+    public init(cli: @escaping @MainActor () async -> URL?, settingsFile: @escaping @MainActor () -> URL?, runCLI: @escaping Runner) {
         self.cli = cli
         self.settingsFile = settingsFile
         self.runCLI = runCLI
+    }
+
+    /// The app's: the bundled CLI run as a child process.
+    public convenience init(cli: @escaping @MainActor () async -> URL?, settingsFile: @escaping @MainActor () -> URL?) {
+        self.init(cli: cli, settingsFile: settingsFile, runCLI: { try await SettingsCustomizeLibrary.run($0, $1, $2) })
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
