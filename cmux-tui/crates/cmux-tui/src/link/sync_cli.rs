@@ -1223,6 +1223,8 @@ fn push_inner(
             small.push(job);
         }
     }
+    // The new folders, several to a round trip, before anything is written in them.
+    fresh.flush(&mut remote)?;
     stages.mark("prepare");
     // Through the store, the machine fetches first; what it did not write
     // goes over the link below, like every other write.
