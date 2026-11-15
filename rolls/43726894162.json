@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43726894162",
+  "recorded_at": "2026-11-15T15:04:58Z",
+  "reason": "cmux-tui 8dfdb346e8b5 changes the image's cmux-tui (pinned 64821ccc5111)",
+  "dry_run": false,
+  "cmux_tui": "8dfdb346e8b5be366364ded6fae28174655e9e81",
+  "fixes": [
+    {
+      "sha": "8dfdb346e8b5be366364ded6fae28174655e9e81",
+      "mergedAt": "2026-11-15T06:38:59-08:00",
+      "subject": "notifications.banners and notifications.open: read and click the app's banners from a release build (#43401)"
+    },
+    {
+      "sha": "7380b46eceb290dc9deea13dfcfed2b60a6c082c",
+      "mergedAt": "2026-11-15T14:34:26Z",
+      "subject": "cloud copy: make a copy's new folders many to a round trip (#43704)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T15:04:58Z",
+    "snapshot_id": "sh-55b3520a94fa4dd5b2ea188ab913a1a0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43726894162): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2741f58e91b93759d42480aea6b6ab5ef1faaa53",
+    "image": "cloud-native-auto-8dfdb346-43726894162-1",
+    "revision": "ci-43726894162-1",
+    "at": "2026-11-15T15:04:58Z"
+  },
+  "rolled_back": false
+}
