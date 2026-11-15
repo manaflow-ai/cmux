@@ -244,6 +244,9 @@ jobs:
       # the xcframework has.
       - name: xcodebuild test (iOS simulator)
         id: ios-sim
+        # About 3x its usual 10 min: a hung simulator ends the step, not the job's
+        # 60 min with a macOS runner held (run 43604565423, 2026-11-14).
+        timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
         run: |
           set -euo pipefail
@@ -309,6 +312,8 @@ jobs:
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
         if: ${{ !cancelled() }}
+        # The same bound as the test step above: a hung simulator ends the step.
+        timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
         env:
           TEST_RUNNER_CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/ios-simulator.jsonl
