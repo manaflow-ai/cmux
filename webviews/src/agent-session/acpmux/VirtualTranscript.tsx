@@ -1975,11 +1975,7 @@ function TranscriptView({
     if (next) heldPlace.current = undefined;
     // Following starting or stopping goes to the host at once, apart from the settled report
     // (`onAnchor`, once per rested scroll): Toggle Terminal and Chat reads it on the next key.
-    if (next !== followingRef.current && onFollowingAnchorRef.current)
-      queueMicrotask(() => {
-        const here = anchorHereRef.current(!next);
-        if (here) onFollowingAnchorRef.current?.(next ? null : here.anchor);
-      });
+    if (next !== followingRef.current && onFollowingAnchor) queueMicrotask(() => reportAnchorRef.current(next));
     followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
@@ -5600,11 +5596,14 @@ function TranscriptView({
         : { rowId: row.id, offset: logicalTop - placed.geometry.topAt(index) };
     return { anchor, deferred };
   };
-  const anchorHereRef = useRef(anchorHere);
-  anchorHereRef.current = anchorHere;
-  const onFollowingAnchorRef = useRef(onFollowingAnchor);
-  onFollowingAnchorRef.current = onFollowingAnchor;
-  const reportAnchor = () => {
+  /// `followingNow`: following just started (true) or stopped (false), reported to
+  /// `onFollowingAnchor` at once and apart from the settled report below.
+  const reportAnchor = (followingNow?: boolean) => {
+    if (followingNow !== undefined) {
+      const here = anchorHere(!followingNow);
+      if (here) onFollowingAnchor?.(followingNow ? null : here.anchor);
+      return;
+    }
     anchorTimer.current = undefined;
     const node = ref.current;
     if (!node || !onAnchor || !didOpenAtLatest.current) return;
