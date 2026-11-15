@@ -11,6 +11,9 @@
 //!            stdin and stdout (src/serve.rs); macOS and Linux
 //!   connect  the viewer side of a hub session: bridges the pane's framed byte stream on a
 //!            private Unix socket to the secure link (src/connect.rs)
+//!   linux-host enable|share on|off|run|requests|approve|deny|status   (Linux) this desktop as a
+//!            device hub screen host a Mac views: its own device key, the hub link and
+//!            consent, driving `serve` per approved session (src/linux_host/)
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
 //!            from Cisco into the per-user data directory (pinned SHA-256) and prints its path
@@ -27,6 +30,7 @@ mod bench;
 mod browser;
 #[cfg(target_os = "linux")]
 mod capture;
+mod capture_backend;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod carrier;
 mod clock;
@@ -47,6 +51,8 @@ mod hybrid;
 mod inject;
 #[cfg(target_os = "linux")]
 mod keymap;
+#[cfg(all(feature = "link", target_os = "linux"))]
+mod linux_host;
 #[cfg(target_os = "macos")]
 mod mac;
 mod marker;
@@ -90,10 +96,15 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|testapp|serve|connect|linux-host|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
+    // Subcommands and positional words of its own (`share on`, `approve SESSION`).
+    #[cfg(all(feature = "link", target_os = "linux"))]
+    if cmd == "linux-host" {
+        return linux_host::run_cli(&args[1..]);
+    }
     let opts = match args::Opts::parse(&args[1..]) {
         Ok(o) => o,
         Err(e) => {

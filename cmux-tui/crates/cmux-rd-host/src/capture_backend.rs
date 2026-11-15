@@ -1,0 +1,125 @@
+//! Which capture backend a Linux session uses, and which X display it names.
+//!
+//! A Linux desktop is either an X11 session (XShm and XDamage, `capture.rs`) or a Wayland
+//! session, where only the compositor can hand out the screen: the xdg-desktop-portal
+//! ScreenCast interface and a PipeWire stream. The choice is a pure function of the
+//! session's environment and an explicit `--capture x11|portal` override, so it is the
+//! same in `cmux-rd serve` and in the Linux screen host that starts it.
+#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+
+/// The capture backend of one session.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CaptureBackend {
+    /// The X server's root window (XShm readback driven by XDamage), with XTest input.
+    #[default]
+    X11,
+    /// The compositor's screen through xdg-desktop-portal ScreenCast and PipeWire.
+    Portal,
+}
+
+impl CaptureBackend {
+    pub fn name(self) -> &'static str {
+        match self {
+            CaptureBackend::X11 => "x11",
+            CaptureBackend::Portal => "portal",
+        }
+    }
+
+    /// `--capture` (or the setup line's `capture`): `x11` or `portal`.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value.trim() {
+            "x11" => Ok(CaptureBackend::X11),
+            "portal" => Ok(CaptureBackend::Portal),
+            other => Err(format!("capture {other}: use x11 or portal")),
+        }
+    }
+
+    /// The backend for a session: the explicit override when given, else `portal` in a
+    /// Wayland session (`XDG_SESSION_TYPE=wayland`) and X11 otherwise.
+    pub fn choose(explicit: Option<&str>, session_type: Option<&str>) -> Result<Self, String> {
+        if let Some(value) = explicit.filter(|v| !v.trim().is_empty()) {
+            return Self::parse(value);
+        }
+        Ok(match session_type.map(str::trim) {
+            Some(kind) if kind.eq_ignore_ascii_case("wayland") => CaptureBackend::Portal,
+            _ => CaptureBackend::X11,
+        })
+    }
+
+    /// [`CaptureBackend::choose`] with this process's `XDG_SESSION_TYPE`.
+    pub fn from_env(explicit: Option<&str>) -> Result<Self, String> {
+        Self::choose(explicit, std::env::var("XDG_SESSION_TYPE").ok().as_deref())
+    }
+
+    /// Whether this build can capture with the backend. The portal backend is its own
+    /// module (`portal.rs`, `pipewire_capture.rs`); until it is built in, a portal session
+    /// fails with [`PORTAL_NOT_BUILT_IN`] instead of streaming a black or wrong screen.
+    pub fn available(self) -> Result<(), String> {
+        match self {
+            CaptureBackend::X11 => Ok(()),
+            CaptureBackend::Portal => Err(PORTAL_NOT_BUILT_IN.to_owned()),
+        }
+    }
+}
+
+/// The reason a Wayland session cannot be shared by this build (shown to the viewer; the
+/// app localizes it by this exact text).
+pub const PORTAL_NOT_BUILT_IN: &str =
+    "portal capture not built in: this cmux cannot share a Wayland screen yet (run an X11 session, or pass --capture x11 with an X display)";
+
+/// The X display a Linux session captures: the session's own (`--display`) when it names
+/// an X display, else `$DISPLAY`, else `:0`. `main` and display indexes are the viewer's
+/// display picker words (macOS); on Linux they mean the session's display.
+pub fn x_display(
+    requested: Option<&str>,
+    option: Option<&str>,
+    env_display: Option<&str>,
+) -> String {
+    let is_x_display = |v: &&str| v.contains(':');
+    requested
+        .map(str::trim)
+        .filter(is_x_display)
+        .or_else(|| option.map(str::trim).filter(is_x_display))
+        .or_else(|| env_display.map(str::trim).filter(is_x_display))
+        .unwrap_or(":0")
+        .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wayland_session_picks_portal_and_x11_otherwise() {
+        assert_eq!(CaptureBackend::choose(None, Some("wayland")), Ok(CaptureBackend::Portal));
+        assert_eq!(CaptureBackend::choose(None, Some("Wayland")), Ok(CaptureBackend::Portal));
+        assert_eq!(CaptureBackend::choose(None, Some("x11")), Ok(CaptureBackend::X11));
+        assert_eq!(CaptureBackend::choose(None, Some("tty")), Ok(CaptureBackend::X11));
+        assert_eq!(CaptureBackend::choose(None, None), Ok(CaptureBackend::X11));
+    }
+
+    #[test]
+    fn explicit_override_wins() {
+        assert_eq!(CaptureBackend::choose(Some("x11"), Some("wayland")), Ok(CaptureBackend::X11));
+        assert_eq!(CaptureBackend::choose(Some("portal"), Some("x11")), Ok(CaptureBackend::Portal));
+        assert_eq!(CaptureBackend::choose(Some(""), Some("wayland")), Ok(CaptureBackend::Portal));
+        assert!(CaptureBackend::choose(Some("vnc"), None).is_err());
+    }
+
+    #[test]
+    fn portal_is_refused_with_a_clear_reason_until_built_in() {
+        assert_eq!(CaptureBackend::X11.available(), Ok(()));
+        let reason = CaptureBackend::Portal.available().unwrap_err();
+        assert!(reason.starts_with("portal capture not built in"), "{reason}");
+    }
+
+    #[test]
+    fn display_defaults_to_the_session_then_display_then_zero() {
+        assert_eq!(x_display(Some(":5"), Some(":99"), Some(":1")), ":5");
+        assert_eq!(x_display(Some("main"), Some(":99"), Some(":1")), ":99");
+        assert_eq!(x_display(Some("0"), None, Some(":1")), ":1");
+        assert_eq!(x_display(None, None, Some("localhost:10.0")), "localhost:10.0");
+        assert_eq!(x_display(None, None, Some("")), ":0");
+        assert_eq!(x_display(None, None, None), ":0");
+    }
+}

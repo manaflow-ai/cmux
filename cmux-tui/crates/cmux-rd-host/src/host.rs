@@ -148,6 +148,8 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
             .transpose()?,
+        // The Cloud host streams its own virtual X display.
+        capture: crate::capture_backend::CaptureBackend::X11,
     })
 }
 
@@ -164,7 +166,7 @@ fn owner_policy(owner: String) -> HostPolicy {
 
 /// `--xauthority PATH`: the X cookie for the display connections (Linux), as `XAUTHORITY`.
 /// Set before any thread or X connection starts.
-fn set_xauthority(opts: &Opts) -> Res<()> {
+pub(crate) fn set_xauthority(opts: &Opts) -> Res<()> {
     let Some(path) = opts.get("xauthority") else {
         return Ok(());
     };

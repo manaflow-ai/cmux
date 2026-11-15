@@ -43,7 +43,17 @@ pub trait Desktop {
 /// The desktop of this OS.
 pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
     #[cfg(target_os = "linux")]
-    return Ok(Box::new(crate::x11::X11Desktop::open(cfg)?));
+    return match cfg.capture {
+        crate::capture_backend::CaptureBackend::X11 => {
+            Ok(Box::new(crate::x11::X11Desktop::open(cfg)?))
+        }
+        // The portal backend (xdg-desktop-portal ScreenCast and PipeWire) plugs in here;
+        // until it is built in, the session ends with a clear reason.
+        backend @ crate::capture_backend::CaptureBackend::Portal => match backend.available() {
+            Ok(()) => Err("portal capture has no desktop yet".into()),
+            Err(reason) => Err(reason.into()),
+        },
+    };
     #[cfg(target_os = "macos")]
     return Ok(Box::new(crate::mac::MacDesktop::open(cfg)?));
 }
