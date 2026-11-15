@@ -31,6 +31,7 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type CustomizeTryOn,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -85,6 +86,8 @@ export type MockOptions = {
   themeOverrides?: ThemeOverride[];
   /** This Mac joined to a team (the host lists' `devices_join`); absent: not joined. */
   devicesJoin?: DevicesJoinState;
+  /** A customization being tried on (`cmux customize try`); absent: none. */
+  tryOn?: CustomizeTryOn;
 };
 
 /** This Mac joined to a team with the one-line join, both consent switches off. */
@@ -221,6 +224,7 @@ export class MockSettingsProvider {
     this.failing = options.failing ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
+    this.tryOn = options.tryOn ?? null;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
@@ -560,6 +564,13 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
       "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
+      "cmux.settings.customize.run": (params) => {
+        const verb = String((params as { verb?: unknown }).verb ?? "");
+        if (verb === "status") return { try_on: this.tryOn };
+        this.customizeVerbs.push(verb);
+        this.tryOn = null;
+        return { settled: [] };
+      },
       "cmux.settings.shares.list": () => this.shares,
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
@@ -683,6 +694,7 @@ export class MockSettingsProvider {
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
       "cmux.settings.environments.run",
+      "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.shares.revoke",
       "cmux.settings.tailnet.state",
@@ -761,6 +773,11 @@ export class MockSettingsProvider {
     this.devices = devices;
     for (const ctx of this.devicesChanged) ctx.emit(devices);
   }
+
+  /** What `cmux customize` is trying on; Keep and Revert Now end it. */
+  tryOn: CustomizeTryOn | null = null;
+  /** Every try-on verb the page ran but status, in order (tests). */
+  customizeVerbs: string[] = [];
 
   /** Settings > Privacy and Security > Shared Links as this Mac's daemon answers it: a guest link with
    * a guest in it, an invite share, and an ended link the card leaves out. */
