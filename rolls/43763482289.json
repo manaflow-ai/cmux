@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43763482289",
+  "recorded_at": "2026-11-15T21:40:56Z",
+  "reason": "cmux-tui 382877a7442b changes the image's cmux-tui (pinned c735c5c9f35c)",
+  "dry_run": false,
+  "cmux_tui": "382877a7442b93b90e716f49c65ca5f1d21cd605",
+  "fixes": [
+    {
+      "sha": "382877a7442b93b90e716f49c65ca5f1d21cd605",
+      "mergedAt": "2026-11-15T13:07:35-08:00",
+      "subject": "acpmux: a joined daemon's start always says whether its hub carrier runs, and why not (#43880)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T21:40:56Z",
+    "snapshot_id": "sh-1f0cd9a9ea4748dcb7a8a96aaf8b039e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43763482289): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b047def558dbef4b6a0db5bb51eb68b1e3582774",
+    "image": "cloud-native-auto-382877a7-43763482289-1",
+    "revision": "ci-43763482289-1",
+    "at": "2026-11-15T21:40:56Z"
+  },
+  "rolled_back": false
+}
