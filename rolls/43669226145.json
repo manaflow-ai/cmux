@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43669226145",
+  "recorded_at": "2026-11-15T02:52:30Z",
+  "reason": "cmux-tui 8ddecc221fcf changes the image's cmux-tui (pinned cd91fdcc7d44)",
+  "dry_run": false,
+  "cmux_tui": "8ddecc221fcf3b9e461dda0131549cdf04dec266",
+  "fixes": [
+    {
+      "sha": "8ddecc221fcf3b9e461dda0131549cdf04dec266",
+      "mergedAt": "2026-11-14T18:28:24-08:00",
+      "subject": "acpmux: a prompt waits for its own chat's adoption, not every agent host's (#43430)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T02:52:30Z",
+    "snapshot_id": "sh-67711477196140be8bb21a9facb1ec9c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43669226145): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "18504e6a2ba3390bc00916905a3e0652fd325338",
+    "image": "cloud-native-auto-8ddecc22-43669226145-1",
+    "revision": "ci-43669226145-1",
+    "at": "2026-11-15T02:52:30Z"
+  },
+  "rolled_back": false
+}
