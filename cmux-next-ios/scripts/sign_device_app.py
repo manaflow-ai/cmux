@@ -5,9 +5,11 @@
 
 The fleet (scripts/ci/cmux-next-ios-sim.sh handoff) builds the device app with
 CODE_SIGNING_ALLOWED=NO, so it carries no signature and no entitlements. This signs it in place
-with this Mac's Apple Development identity and a development provisioning profile already on
-this Mac (Xcode's or a hand-installed one) that names the app (or the team wildcard) and every
-target phone, and whose certificate is in the keychain. Nothing is fetched or registered: a phone
+with this Mac's Apple Development identity. Each bundle (the app and each extension) gets its own
+development provisioning profile already on this Mac (Xcode's or a hand-installed one): one that
+names that bundle's id exactly, else the team wildcard, names every target phone, and has a
+certificate in the keychain. The app's exact-id profile is never put in an extension, whose id it
+does not cover. Nothing is fetched or registered: a phone
 no profile names is reported, never added to the team.
 
 Each bundle's entitlements are its target's own file from the checkout (the exact commit the app
@@ -16,9 +18,10 @@ plus the development keys Xcode adds (application-identifier, team-identifier, g
 Every keychain group must be one the profile allows. Frameworks are signed first, then the
 extensions, then the app; `codesign --verify --deep --strict` must pass.
 
-Prints one JSON line: {"identity": "<sha1>", "profile": "<name>", "uuid": "...", "devices": [...]}.
+Prints one JSON line: {"bundle_id": "...", "devices": [...], "bundles": [{"bundle": ..., "bundle_id": ...,
+"profile": "<name>", "uuid": ..., "identity": "<sha1>"}, ...]}.
 Exit 1 with the reason on stderr when no profile or identity fits.
-Its tests: python3 cmux-next-ios/scripts/test_sign_device_app.py
+Its tests: python3 ios/tests/test_cnx_review.py (SignerTests)
 """
 import argparse
 import datetime
@@ -43,6 +46,16 @@ PROFILE_DIRS = ("~/Library/Developer/Xcode/UserData/Provisioning Profiles", "~/L
 
 class SignError(Exception):
     pass
+
+
+def read_plist(path):
+    with open(path, "rb") as f:
+        return plistlib.load(f)
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 def profile_fits(profile, team, bundle_id, devices, identities, now):
@@ -184,7 +197,7 @@ def codesign(identity, path, ents=None, workdir=None):
 
 
 def sign(a):
-    info = plistlib.load(open(os.path.join(a.app, "Info.plist"), "rb"))
+    info = read_plist(os.path.join(a.app, "Info.plist"))
     app_bundle_id = info.get("CFBundleIdentifier", "")
     if not re.fullmatch(r"dev\.cmux\.mobile\.[a-z0-9][a-z0-9-]*", app_bundle_id):
         raise SignError(f"{app_bundle_id or 'no bundle id'} is not a cmux-next dev build (dev.cmux.mobile.<tag>)")
@@ -194,37 +207,49 @@ def sign(a):
     found = identities()
     if not found:
         raise SignError("no code signing identity in this keychain (an Apple Development certificate of team " + a.team + ")")
-    path, profile = choose_profile(load_profiles(PROFILE_DIRS), a.team, app_bundle_id, a.device, found,
-                                   datetime.datetime.now(datetime.timezone.utc))
-    identity = certificate(profile, found)
-    plan = []
-    for bundle, name in bundles(a.app):
-        if name not in ENTITLEMENTS:
-            raise SignError(f"{name} has no entitlements mapping in sign_device_app.py; add its target's file")
-        bundle_id = plistlib.load(open(os.path.join(bundle, "Info.plist"), "rb")).get("CFBundleIdentifier", "")
-        if bundle != a.app and not bundle_id.startswith(app_bundle_id + "."):
-            raise SignError(f"{name} is {bundle_id}, not under {app_bundle_id}")
-        source = open(os.path.join(a.checkout, ENTITLEMENTS[name]), encoding="utf-8").read()
-        ents = entitlements(source, a.team, bundle_id, app_bundle_id)
-        reason = allowed(ents, profile)
-        if reason:
-            raise SignError(f"{name}: {reason} ({profile.get('Name')})")
-        plan.append((bundle, ents))
+    profiles = load_profiles(PROFILE_DIRS)
+    plan = plan_bundles(a.app, app_bundle_id, a.checkout, a.team, a.device, profiles, found,
+                        datetime.datetime.now(datetime.timezone.utc))
     with tempfile.TemporaryDirectory() as work:
-        for bundle, ents in plan:
-            frameworks = os.path.join(bundle, "Frameworks")
+        for step in plan:
+            frameworks = os.path.join(step["path"], "Frameworks")
             if os.path.isdir(frameworks):
                 for name in sorted(os.listdir(frameworks)):
                     if name.endswith((".framework", ".dylib")):
-                        codesign(identity, os.path.join(frameworks, name))
-            with open(path, "rb") as src, open(os.path.join(bundle, "embedded.mobileprovision"), "wb") as dst:
+                        codesign(step["identity"], os.path.join(frameworks, name))
+            with open(step["profile_path"], "rb") as src, open(os.path.join(step["path"], "embedded.mobileprovision"), "wb") as dst:
                 dst.write(src.read())
-            codesign(identity, bundle, ents, work)
+            codesign(step["identity"], step["path"], step["entitlements"], work)
     check = subprocess.run(["codesign", "--verify", "--deep", "--strict", a.app], capture_output=True, text=True)
     if check.returncode != 0:
         raise SignError("the signed app does not verify: " + check.stderr.strip()[-400:])
-    print(json.dumps({"identity": identity, "profile": profile.get("Name"), "uuid": profile.get("UUID"),
-                      "devices": a.device, "bundle_id": app_bundle_id}))
+    print(json.dumps({"bundle_id": app_bundle_id, "devices": a.device, "bundles": [
+        {"bundle": os.path.basename(step["path"]), "bundle_id": step["bundle_id"], "profile": step["profile"].get("Name"),
+         "uuid": step["profile"].get("UUID"), "identity": step["identity"]} for step in plan]}))
+
+
+def plan_bundles(app, app_bundle_id, checkout, team, devices, profiles, identities_found, now):
+    """What signs each bundle (extensions first, then the app): its own profile, identity and entitlements.
+    Raises SignError naming the bundle that has no fitting profile or whose entitlements the profile refuses."""
+    plan = []
+    for bundle, name in bundles(app):
+        if name not in ENTITLEMENTS:
+            raise SignError(f"{name} has no entitlements mapping in sign_device_app.py; add its target's file")
+        bundle_id = read_plist(os.path.join(bundle, "Info.plist")).get("CFBundleIdentifier", "")
+        if bundle != app and not bundle_id.startswith(app_bundle_id + "."):
+            raise SignError(f"{name} is {bundle_id}, not under {app_bundle_id}")
+        try:
+            path, profile = choose_profile(profiles, team, bundle_id, devices, identities_found, now)
+        except SignError as error:
+            raise SignError(f"{name}: {error}") from None
+        source = read_text(os.path.join(checkout, ENTITLEMENTS[name]))
+        ents = entitlements(source, team, bundle_id, app_bundle_id)
+        reason = allowed(ents, profile)
+        if reason:
+            raise SignError(f"{name}: {reason} ({profile.get('Name')})")
+        plan.append({"path": bundle, "bundle_id": bundle_id, "profile_path": path, "profile": profile,
+                     "identity": certificate(profile, identities_found), "entitlements": ents})
+    return plan
 
 
 def main(argv=None):

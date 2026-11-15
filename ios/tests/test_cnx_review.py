@@ -28,8 +28,13 @@ TAG = 'cnx-test-v1'
 SHA = 'a' * 40
 
 
+# macOS's own bash (3.2) where it exists: review.sh runs under it, and 3.2 aborts on an empty
+# array expanded under set -u, which a newer bash allows.
+BASH = '/bin/bash' if os.path.exists('/bin/bash') else 'bash'
+
+
 def bash(script, env=None, timeout=60):
-    return subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=timeout,
+    return subprocess.run([BASH, '-c', script], capture_output=True, text=True, timeout=timeout,
                           env=dict(os.environ, **(env or {})))
 
 
@@ -57,7 +62,7 @@ class ReviewRunTests(unittest.TestCase):
             script = f'''
 set -euo pipefail
 source "{REVIEW}"
-SLUG={TAG} SHA={SHA} BUNDLE_ID=dev.cmux.mobile.{TAG} STATE="{root}/state"
+SLUG={TAG} SHA={SHA} BUNDLE_ID=dev.cmux.mobile.{TAG} STATE="{root}/state/{SHA}" TAG_STATE="{root}/state"
 PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@example.com
 REVIEW_PHONES_FILE="{root}/config/iphone-device-ids"
 fleet_start_sim() {{ :; }}
@@ -91,13 +96,44 @@ review_run
         self.assertIn(f'iPhone:     iPhone (iPhone 16 Plus, {PHONE}):', r.stdout)
         self.assertIn(f'            Spare (iPhone 16 Plus, {other}):', r.stdout)
 
-    def test_no_connected_phone_fails_before_building(self):
-        r = self.run_review([], 'fleet_start_sim() { echo SUBMITTED; }')
+    def test_no_connected_phone_still_builds_publishes_and_checks_the_simulator(self):
+        r = self.run_review([], '''fleet_start_sim() { echo SIM_STARTED; }
+fleet_finish_mac() { echo MAC_PUBLISHED; REPORT_MAC="fleet job $MAC_JOB, published to HQ"; }
+mac_install() { echo MAC_INSTALLED; }''')
         self.assertEqual(r.returncode, 1)
-        self.assertNotIn('SUBMITTED', r.stdout)
+        self.assertIn('SIM_STARTED', r.stdout)
+        self.assertIn('MAC_PUBLISHED', r.stdout)
+        self.assertNotIn('MAC_INSTALLED', r.stdout)  # no phone to pair: the Mac app is not started
         self.assertIn('found no connected iPhone', r.stderr)
+        self.assertIn('Dev build:  http://127.0.0.1:17320/cnx-test-v1   (fleet job job123, published to HQ', r.stdout)
+        self.assertIn('Simulator:  fleet simulator (aws-m4pro-3', r.stdout)
         self.assertIn(f'iPhone:     BLOCKED: no connected iPhone; connect and unlock one, then rerun: '
                       f'cmux-next-ios/scripts/review.sh --tag {TAG}', r.stdout)
+
+    def test_the_sole_phone_failing_still_prints_the_report(self):
+        # PASSED_PHONES empty: on macOS's bash 3.2 an unguarded "${arr[*]}" under set -u aborted here.
+        r = self.run_review([(PHONE, 'iPhone')], '''
+phone_review() { PHONE_REASON="install failed (locked)"; return 1; }
+mac_restart() { echo MAC_RESTARTED; }''')
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertNotIn('unbound variable', r.stderr)
+        self.assertNotIn('MAC_RESTARTED', r.stdout)
+        self.assertIn('==> Review ready (tag: cnx-test-v1)', r.stdout)
+        self.assertIn(f'iPhone:     iPhone (iPhone 16 Plus, {PHONE}): BLOCKED: install failed (locked); retry:', r.stdout)
+
+    def test_a_requested_phone_that_is_missing_is_a_blocker_and_a_missing_default_a_notice(self):
+        other = '00008150-0005154E0E84401C'
+        r = self.run_review([(PHONE, 'iPhone')], f'REQUESTED_DEVICE_ID={other}')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(f'{other}: BLOCKED, requested with --device-id but not connected', r.stdout)
+        r = self.run_review([(PHONE, 'iPhone')], f'echo {other} > "$(dirname "$REVIEW_PHONES_FILE")/iphone-device-id"')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f'{other} (default): not connected, nothing installed', r.stdout)
+
+    def test_a_new_phone_gets_no_classic_tailnet_note(self):
+        r = self.run_review([(PHONE, 'iPhone')], '')
+        self.assertIn('new iPhone registered: iPhone', r.stdout)
+        self.assertNotIn('tailnet', r.stdout)
 
     def test_a_phone_that_fails_its_gate_is_blocked_with_a_retry(self):
         other = '00008110-000000000000001E'
@@ -165,7 +201,8 @@ if args[:3] == ["devicectl", "device", "process"]:
     open(os.path.join(root, "env"), "w").write(json.dumps(env))
     receipt = dict(schema=1, nonce=env.get("DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE"),
                    client_id=env.get("DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID"), bundle_id="dev.cmux.mobile.{TAG}",
-                   account_email="me@example.com", user_id="u1", written_at="now",
+                   account_email="me@example.com", user_id="u1", written_at="now", git_sha="{SHA}", dev_tag="{TAG}",
+                   phone_device_ids=["link-1", "presence-1"],
                    session_source="auto_login" if env.get("DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL") else "restored")
     receipt.update(json.loads({fields!r}))
     open(os.path.join(root, "receipt.json"), "w").write(json.dumps(receipt))
@@ -179,7 +216,7 @@ else:
             script = f'''
 set -euo pipefail
 source "{REVIEW}"
-BUNDLE_ID=dev.cmux.mobile.{TAG} MAC_DEVICE_ID=mac-tagged CNX_REVIEW_RECEIPT_TIMEOUT=2
+BUNDLE_ID=dev.cmux.mobile.{TAG} MAC_DEVICE_ID=mac-tagged CNX_REVIEW_RECEIPT_TIMEOUT=2 SHA={SHA} SLUG={TAG} STATE="{root}/state"
 PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@example.com
 export DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=ambient-leak
 if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PASS: $PHONE_VERDICT"; else echo "FAIL: $PHONE_REASON"; fi
@@ -241,6 +278,24 @@ class ReceiptCheckTests(unittest.TestCase):
         for key, value in (('account_email', 'x@y.z'), ('bundle_id', 'dev.cmux.mobile.other'), ('client_id', 'd')):
             with self.subTest(key=key):
                 self.assertEqual(self.check({**self.base, key: value}, '--session', 'restored').returncode, 3)
+
+    def test_another_builds_receipt_is_refused(self):
+        receipt = {**self.base, 'git_sha': 'a' * 40, 'dev_tag': 'my-tag'}
+        self.assertEqual(self.check(receipt, '--session', 'restored', '--git-sha', 'a' * 40, '--dev-tag', 'my-tag').returncode, 0)
+        r = self.check(receipt, '--session', 'restored', '--git-sha', 'b' * 40)
+        self.assertEqual(r.returncode, 3)
+        self.assertIn('another build', r.stdout)
+        self.assertEqual(self.check(receipt, '--session', 'restored', '--dev-tag', 'other').returncode, 3)
+
+    def test_phone_ids(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'r.json'
+            path.write_text(json.dumps({'phone_device_ids': ['a', 'b']}))
+            r = subprocess.run(['python3', str(RECEIPT), 'phone-ids', str(path)], capture_output=True, text=True)
+            self.assertEqual(r.stdout.split(), ['a', 'b'])
+            path.write_text(json.dumps({}))
+            r = subprocess.run(['python3', str(RECEIPT), 'phone-ids', str(path)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1)
 
     def test_secret_like_field_is_refused(self):
         self.assertEqual(self.check({**self.base, 'refresh_token': 'x'}, '--session', 'restored').returncode, 3)
@@ -322,6 +377,27 @@ class SignerTests(unittest.TestCase):
         ents = self.s.entitlements(ext, '7WLXT3NR37', 'dev.cmux.mobile.t.notification-service', 'dev.cmux.mobile.t')
         self.assertEqual(ents['keychain-access-groups'], ['7WLXT3NR37.dev.cmux.mobile.t.push'])
 
+    def test_each_bundle_gets_its_own_profile(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = Path(temp) / 'CmuxMobileApp.app'
+            for path, bundle_id in ((app, 'dev.cmux.mobile.t'),
+                                    (app / 'PlugIns/CmuxMobileNotificationService.appex', 'dev.cmux.mobile.t.notification-service'),
+                                    (app / 'PlugIns/CmuxMobileNotificationContent.appex', 'dev.cmux.mobile.t.notification-content')):
+                path.mkdir(parents=True)
+                with open(path / 'Info.plist', 'wb') as f:
+                    plistlib.dump({'CFBundleIdentifier': bundle_id}, f)
+            profiles = [('exact.mobileprovision', self.profile(app_id='7WLXT3NR37.dev.cmux.mobile.t', name='exact')),
+                        ('wild.mobileprovision', self.profile(name='wild'))]
+            plan = self.s.plan_bundles(str(app), 'dev.cmux.mobile.t', str(ROOT), '7WLXT3NR37', [PHONE], profiles, self.ids, self.now)
+            chosen = {Path(step['path']).name: step['profile']['Name'] for step in plan}
+            self.assertEqual(chosen, {'CmuxMobileNotificationContent.appex': 'wild',
+                                      'CmuxMobileNotificationService.appex': 'wild', 'CmuxMobileApp.app': 'exact'})
+            self.assertEqual(Path(plan[-1]['path']).name, 'CmuxMobileApp.app')  # extensions are signed first
+            with self.assertRaises(self.s.SignError) as e:
+                self.s.plan_bundles(str(app), 'dev.cmux.mobile.t', str(ROOT), '7WLXT3NR37', [PHONE],
+                                    profiles[:1], self.ids, self.now)
+            self.assertIn('CmuxMobileNotificationContent.appex', str(e.exception))
+
     def test_a_group_the_profile_does_not_grant_is_refused(self):
         p = self.profile()
         p['Entitlements']['keychain-access-groups'] = ['7WLXT3NR37.dev.cmux.mobile.t']
@@ -400,10 +476,242 @@ mac_open''', {'CMUX_NEXT_CLOUD_ENV': 'prod', 'CMUX_NEXT_CLOUD_BACKEND': 'https:/
 
     def test_review_never_builds_or_boots_a_simulator_here(self):
         text = REVIEW.read_text()
+        self.assertIn('--label ios-agent-signin', text)
         for word in ('xcodebuild', 'simctl', 'swift build', 'cargo '):
             self.assertNotIn(word, text)
         self.assertIn('CMUX_SANCTIONED_IPHONE_INSTALL=1 xcrun devicectl device install app', text)
         self.assertIn('open -g', text)
+
+
+MAC_PY = ROOT / 'cmux-next-ios/scripts/review_mac.py'
+
+
+class PairingCodeTests(unittest.TestCase):
+    """A pairing code is recorded as used only after a phone paired with it."""
+
+    def run_phone_review(self, launch_ok):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'device/CmuxMobileApp.app').mkdir(parents=True)
+            (root / 'bin').mkdir()
+            xcrun = root / 'bin/xcrun'
+            xcrun.write_text('#!/bin/sh\nexit 0\n')
+            xcrun.chmod(0o755)
+            script = f"""
+set -euo pipefail
+source "{REVIEW}"
+BUNDLE_ID=dev.cmux.mobile.{TAG} STATE="{root}" TAG_STATE="{root}" MAC_SOCKET=/nonexistent SLUG={TAG} SHA={SHA}
+REPO_ROOT="{root}"; mkdir -p "$REPO_ROOT/scripts"; printf '#!/bin/sh\\nexit 0\\n' > "$REPO_ROOT/scripts/ios-device-process.sh"; chmod +x "$REPO_ROOT/scripts/ios-device-process.sh"
+mac_py() {{
+  case "$1" in
+    pair-url) echo "cmux-next://pair?mac=m1&t=tok-secret"; ;;
+    mark-used) echo "MARK_USED $(cat)" >> "{root}/calls" ;;
+    *) command /usr/bin/python3 -I "{MAC_PY}" "$@" ;;
+  esac
+}}
+sign_app() {{ echo '{{}}'; }}
+phone_launch_and_check() {{ echo "LAUNCH $3" >> "{root}/calls"; [[ {1 if launch_ok else 0} -eq 1 ]] || {{ PHONE_REASON=x; return 1; }}; PHONE_VERDICT=ok; }}
+mac_sees_phone() {{ return 0; }}
+if phone_review {PHONE} iPhone; then echo PASS; else echo "FAIL $PHONE_REASON"; fi
+"""
+            r = bash(script, {'PATH': f"{root / 'bin'}:{os.environ['PATH']}"})
+            calls = (root / 'calls').read_text() if (root / 'calls').exists() else ''
+            return r, calls
+
+    def test_a_failed_launch_leaves_the_code_unused(self):
+        r, calls = self.run_phone_review(False)
+        self.assertIn('FAIL', r.stdout, r.stderr)
+        self.assertIn('LAUNCH auto_login', calls)
+        self.assertNotIn('MARK_USED', calls)
+
+    def test_a_paired_phone_marks_its_code_used(self):
+        r, calls = self.run_phone_review(True)
+        self.assertIn('PASS', r.stdout, r.stderr)
+        self.assertIn('MARK_USED cmux-next://pair?mac=m1&t=tok-secret', calls)
+        self.assertNotIn('tok-secret', r.stdout + r.stderr)
+
+    def test_pair_url_only_reads_the_used_file_and_mark_used_writes_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            used = Path(temp) / 'used'
+            r = subprocess.run(['python3', str(MAC_PY), 'mark-used', str(used)], input='cmux-next://pair?t=a',
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            import hashlib
+            self.assertEqual(used.read_text().strip(), hashlib.sha256(b'cmux-next://pair?t=a').hexdigest())
+        text = MAC_PY.read_text()
+        pair_block = text[text.index('if a.op == "pair-url":'):text.index('if a.op == "mark-used":')]
+        self.assertNotIn('open(a.used, "a"', pair_block)
+
+
+class FakeMacSocket:
+    """A tagged Mac's control socket answering cmux.mobilePairing.status with VALUE."""
+
+    def __init__(self, path, value):
+        import socket, threading
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.server.bind(path)
+        self.server.listen(8)
+        self.value = value
+        threading.Thread(target=self.serve, daemon=True).start()
+
+    def serve(self):
+        while True:
+            try:
+                conn, _ = self.server.accept()
+            except OSError:
+                return
+            with conn:
+                conn.recv(1 << 16)
+                conn.sendall((json.dumps({'ok': True, 'result': {'value': self.value}}) + '\n').encode())
+
+    def close(self):
+        self.server.close()
+
+
+class MacIdTests(unittest.TestCase):
+    def test_mac_id_comes_from_the_pairing_link(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temp:
+            sock = os.path.join(temp, 's')
+            fake = FakeMacSocket(sock, {'state': 'ready', 'qr': {'url': 'cmux-next://pair?mac=mac-abc&team=t&t=secret-token'}})
+            try:
+                r = subprocess.run(['python3', str(MAC_PY), 'mac-id', sock, '--timeout', '3'], capture_output=True, text=True)
+            finally:
+                fake.close()
+        self.assertEqual(r.stdout.strip(), 'mac-abc')
+        self.assertNotIn('secret-token', r.stdout + r.stderr)
+
+    def test_no_code_says_why(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temp:
+            sock = os.path.join(temp, 's')
+            fake = FakeMacSocket(sock, {'state': 'off', 'allowed': False})
+            try:
+                r = subprocess.run(['python3', str(MAC_PY), 'pair-url', sock, '--timeout', '2'], capture_output=True, text=True)
+            finally:
+                fake.close()
+        self.assertEqual(r.returncode, 3)
+        self.assertIn('iPhone connections are off', r.stderr)
+
+
+class MacSeesPhoneTests(unittest.TestCase):
+    def sees(self, rows):
+        with tempfile.TemporaryDirectory() as temp:
+            phone = Path(temp) / f'phone-{PHONE}'
+            phone.mkdir()
+            (phone / 'receipt.json').write_text(json.dumps({'phone_device_ids': ['LINK-1', 'presence-1']}))
+            script = f"""source "{REVIEW}"; set +e; STATE="{temp}"; MAC_SOCKET=x
+mac_py() {{ echo '{json.dumps({"phones": rows})}'; }}
+seq() {{ echo 1; }}; sleep() {{ :; }}
+mac_sees_phone {PHONE} && echo SEES || echo NOT"""
+            return bash(script).stdout.strip()
+
+    def test_matches_this_phones_id_only(self):
+        self.assertEqual(self.sees([{'id': 'link-1', 'paired': True, 'connected': True}]), 'SEES')
+        self.assertEqual(self.sees([{'id': 'other-phone', 'paired': True, 'connected': True}]), 'NOT')
+        self.assertEqual(self.sees([{'id': 'link-1', 'paired': True, 'connected': False}]), 'NOT')
+
+
+class MacInstallTests(unittest.TestCase):
+    """The tag's Mac app: reused for the same head, replaced for this tool's earlier head, never
+    touched when this tool did not install it."""
+
+    def install(self, record, app_exists=True):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            home = root / 'home'
+            app = home / f'Library/Developer/Xcode/DerivedData/cmux-{TAG}/Build/Products/Debug/cmux DEV {TAG}.app'
+            if app_exists:
+                (app / 'Contents').mkdir(parents=True)
+                (app / 'Contents/old').write_text('old')
+            state = root / 'state' / SHA
+            (state / f'mac/cmux DEV {TAG}.app/Contents').mkdir(parents=True)
+            (state / f'mac/cmux DEV {TAG}.app/Contents/new').write_text('new')
+            if record is not None:
+                (root / 'state/mac-installed').write_text(record)
+            script = f"""set -uo pipefail
+source "{REVIEW}"
+HOME="{home}" SLUG={TAG} SHA={SHA} MAC_JOB=job2 STATE="{state}" TAG_STATE="{root / 'state'}"
+safe_unzip() {{ :; }}
+mac_py() {{ case "$1" in socket) echo /tmp/s ;; *) return 0 ;; esac; }}
+mac_quit_installed() {{ echo QUIT_CALLED; }}
+if mac_install; then echo OK; else echo "BLOCKED $REPORT_MAC"; fi
+ls "$MAC_APP/Contents"; cat "{root / 'state/mac-installed'}" 2>/dev/null"""
+            return bash(script).stdout
+
+    def test_this_tools_earlier_head_is_quit_and_replaced(self):
+        out = self.install('b' * 40 + ' job1\n')
+        self.assertIn('QUIT_CALLED', out)
+        self.assertIn('OK', out)
+        self.assertIn('new', out)
+        self.assertNotIn('old', out)
+        self.assertIn(f'{SHA} job2', out)
+
+    def test_the_same_head_is_reused(self):
+        out = self.install(f'{SHA} job2\n')
+        self.assertNotIn('QUIT_CALLED', out)
+        self.assertIn('old', out)
+
+    def test_an_install_this_tool_did_not_make_is_refused(self):
+        out = self.install(None)
+        self.assertIn('BLOCKED', out)
+        self.assertIn('did not install', out)
+        self.assertNotIn('QUIT_CALLED', out)
+        self.assertIn('old', out)
+
+    def test_a_fresh_tag_installs(self):
+        out = self.install(None, app_exists=False)
+        self.assertIn('OK', out)
+        self.assertIn('new', out)
+
+
+class ManifestAndZipTests(unittest.TestCase):
+    def manifest(self, body):
+        with tempfile.TemporaryDirectory() as temp:
+            f = Path(temp) / 'handoff.json'
+            f.write_text(json.dumps(body))
+            return subprocess.run(['python3', str(RECEIPT), 'read-manifest', str(f), '--tag', TAG, '--sha', SHA,
+                                   '--bundle-id', f'dev.cmux.mobile.{TAG}'], capture_output=True, text=True)
+
+    good = {'kind': 'cmux-next-ios-handoff', 'tag': TAG, 'source_sha': SHA, 'bundle_id': f'dev.cmux.mobile.{TAG}',
+            'host': 'aws-m4pro-2', 'simulator': {'status': 'pass', 'device': 'iPhone-17', 'reason': ''}}
+
+    def test_empty_fields_keep_their_lines(self):
+        r = self.manifest({**self.good, 'host': ''})
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout.split('\n')[:4], ['pass', '', 'iPhone-17', ''])
+
+    def test_a_mismatch_names_the_field(self):
+        r = self.manifest({**self.good, 'source_sha': 'c' * 40})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("source_sha is 'cccc", r.stderr)
+
+    def test_the_report_carries_the_manifest_reason(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'ios').mkdir()
+            (root / 'ios/handoff.json').write_text(json.dumps({**self.good, 'tag': 'other'}))
+            r = bash(f"""source "{REVIEW}"; set +e; SLUG={TAG} SHA={SHA} STATE="{root}" SIM_STEP=step1
+safe_unzip() {{ :; }}
+read_ios_artifact; echo "SIM=$REPORT_SIM\"""")
+        self.assertIn("SIM=BLOCKED: step step1: handoff.json does not match this run: tag is 'other'", r.stdout)
+
+    def zip_with(self, links):
+        import zipfile
+        temp = tempfile.mkdtemp()
+        path = Path(temp) / 'a.zip'
+        with zipfile.ZipFile(path, 'w') as z:
+            z.writestr('App.app/Info.plist', 'x')
+            for name, target in links:
+                info = zipfile.ZipInfo(name)
+                info.external_attr = (0o120777 << 16)
+                z.writestr(info, target)
+        return subprocess.run(['python3', str(RECEIPT), 'check-zip', str(path)], capture_output=True, text=True)
+
+    def test_symlinks_out_of_the_archive_are_refused(self):
+        self.assertEqual(self.zip_with([('App.app/Versions/Current', 'A')]).returncode, 0)
+        self.assertEqual(self.zip_with([('App.app/x', '/etc/passwd')]).returncode, 1)
+        r = self.zip_with([('App.app/x', '../../outside')])
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('symlink out of the archive', r.stderr)
 
 
 if __name__ == '__main__':

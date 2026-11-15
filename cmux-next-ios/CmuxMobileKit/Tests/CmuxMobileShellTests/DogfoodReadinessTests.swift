@@ -27,6 +27,19 @@ import Testing
         #expect(readiness([:]).sessionSource == "restored")
     }
 
+    @Test func devTagDropsTheBundleDot() {
+        #expect(DogfoodReadiness(environment: [:], bundleID: "b", info: ["CmuxMobileTag": ".my-tag"]).devTag == "my-tag")
+        #expect(DogfoodReadiness(environment: [:], bundleID: "b", info: ["CmuxMobileTag": "plain"]).devTag == "plain")
+        #expect(DogfoodReadiness(environment: [:], bundleID: "b", info: [:]).devTag == "")
+    }
+
+    @Test func receiptNamesThePhonesDeviceIDs() throws {
+        let body = readiness([:]).body(nonce: "n", apiBase: base, email: "a@b.c", userID: "u", macs: macs, focus: nil,
+                                       phoneDeviceIDs: ["link-1", "presence-1"], now: Date(timeIntervalSince1970: 0))
+        let json = try #require(try JSONSerialization.jsonObject(with: DogfoodReadiness.encode(body)) as? [String: Any])
+        #expect(json["phone_device_ids"] as? [String] == ["link-1", "presence-1"])
+    }
+
     @Test func linkedOnlyWhenPairedAndConnected() {
         let r = readiness(["CMUX_DOGFOOD_CLIENT_ID": "client"])
         func linked(_ focus: DogfoodReadiness.Focus?) -> [DogfoodReadiness.PairedMac] {

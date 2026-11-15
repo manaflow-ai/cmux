@@ -11,21 +11,34 @@ the receipt must also list that Mac as paired and linked, which a phone that is 
 never paired, or cannot reach the Mac never writes.
 
   handoff_receipt.py check RECEIPT --nonce N --client-id ID --bundle-id B --account EMAIL
-                    --session auto_login|restored [--mac-id ID]
+                    --session auto_login|restored [--mac-id ID] [--git-sha SHA] [--dev-tag TAG]
+      --git-sha / --dev-tag: the receipt must come from the build of this run's head and tag
+      (Info.plist CmuxMobileSourceCommit, CmuxMobileTag), not an older install of the bundle.
       exit 0: valid (prints one line); 1: not this launch's yet (keep waiting);
       3: this launch's receipt, and wrong (stop waiting; prints why)
+  handoff_receipt.py phone-ids RECEIPT
+      the phone's device ids (phone_device_ids), one per line: the ids its Mac lists it by
   handoff_receipt.py env-value FILE KEY
       one KEY=VALUE line of a credentials file, printed (for a child's environment only)
+  handoff_receipt.py check-zip ZIP
+      exit 1 (reason on stderr) for an entry with an absolute path or `..`, or a symlink pointing
+      outside the archive (absolute, or climbing out of it); links inside it are fine
+  handoff_receipt.py read-manifest HANDOFF_JSON --tag T --sha S --bundle-id B
+      the fleet step's handoff.json, checked against this run, as four lines: simulator status, host,
+      simulator device, reason (an empty field is an empty line); exit 1 with the mismatch on stderr
   handoff_receipt.py manifest OUT --tag ... --sha ... --bundle-id ... --host ...
                     --simulator ... --sim-status pass|fail --sim-reason TEXT
       the fleet step's handoff.json
 
-Run its tests: python3 cmux-next-ios/scripts/test_handoff_receipt.py
+Its tests: python3 ios/tests/test_cnx_review.py (ReceiptCheckTests)
 """
 import argparse
 import json
 import os
+import posixpath
+import stat
 import sys
+import zipfile
 
 FORBIDDEN = ("token", "password", "secret", "cookie")
 
@@ -67,6 +80,9 @@ def check(a):
     if receipt["session_source"] != a.session:
         reject(f"the session is {receipt['session_source']}, expected {a.session}"
                + (" (a credential-free relaunch signed in again instead of restoring)" if a.session == "restored" else ""))
+    for key, want in (("git_sha", a.git_sha), ("dev_tag", a.dev_tag)):
+        if want and receipt.get(key) != want:
+            reject(f"the installed app is another build: its {key} is {receipt.get(key)!r}, this run's is {want!r}")
     line = f"signed in ({a.session})"
     if a.mac_id:
         macs = receipt.get("paired_macs")
@@ -80,6 +96,58 @@ def check(a):
             retry("paired with the tagged Mac, not linked yet")
         line += f", paired and linked with {mine[0].get('name') or a.mac_id}"
     print(line)
+    return 0
+
+
+def phone_ids(a):
+    try:
+        ids = json.load(open(a.receipt, encoding="utf-8")).get("phone_device_ids")
+    except (OSError, ValueError, AttributeError):
+        return 1
+    if not isinstance(ids, list) or not all(isinstance(i, str) and i for i in ids) or not ids:
+        return 1
+    print("\n".join(ids))
+    return 0
+
+
+def check_zip(a):
+    try:
+        with zipfile.ZipFile(a.zip) as z:
+            for info in z.infolist():
+                name = info.filename
+                parts = name.split("/")
+                if name.startswith("/") or ".." in parts:
+                    print(f"unsafe path in the archive: {name}", file=sys.stderr)
+                    return 1
+                if stat.S_ISLNK(info.external_attr >> 16):
+                    target = z.read(info).decode("utf-8", "replace")
+                    resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
+                    if target.startswith("/") or resolved == ".." or resolved.startswith("../"):
+                        print(f"symlink out of the archive: {name} -> {target}", file=sys.stderr)
+                        return 1
+    except (OSError, zipfile.BadZipFile) as error:
+        print(f"not a readable zip ({error})", file=sys.stderr)
+        return 1
+    return 0
+
+
+def read_manifest(a):
+    try:
+        m = json.load(open(a.manifest, encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"handoff.json is missing or unreadable ({type(error).__name__})", file=sys.stderr)
+        return 1
+    if not isinstance(m, dict):
+        print("handoff.json is not a JSON object", file=sys.stderr)
+        return 1
+    want = {"kind": "cmux-next-ios-handoff", "tag": a.tag, "source_sha": a.sha, "bundle_id": a.bundle_id}
+    bad = [f"{k} is {m.get(k)!r}, expected {v!r}" for k, v in want.items() if m.get(k) != v]
+    if bad:
+        print("handoff.json does not match this run: " + "; ".join(bad), file=sys.stderr)
+        return 1
+    sim = m.get("simulator") if isinstance(m.get("simulator"), dict) else {}
+    for value in (sim.get("status"), m.get("host"), sim.get("device"), sim.get("reason")):
+        print(" ".join(str(value or "").split()))
     return 0
 
 
@@ -129,15 +197,26 @@ def main(argv=None):
         c.add_argument(flag, required=True)
     c.add_argument("--session", required=True, choices=["auto_login", "restored"])
     c.add_argument("--mac-id", default="")
+    c.add_argument("--git-sha", default="")
+    c.add_argument("--dev-tag", default="")
+    i = sub.add_parser("phone-ids")
+    i.add_argument("receipt")
     e = sub.add_parser("env-value")
     e.add_argument("file")
     e.add_argument("key")
+    z = sub.add_parser("check-zip")
+    z.add_argument("zip")
+    r = sub.add_parser("read-manifest")
+    r.add_argument("manifest")
+    for flag in ("--tag", "--sha", "--bundle-id"):
+        r.add_argument(flag, required=True)
     m = sub.add_parser("manifest")
     m.add_argument("out")
     for flag in ("--tag", "--sha", "--bundle-id", "--host", "--simulator", "--sim-status", "--sim-reason"):
         m.add_argument(flag, default="")
     a = p.parse_args(argv)
-    return {"check": check, "env-value": env_value, "manifest": manifest}[a.op](a)
+    return {"check": check, "phone-ids": phone_ids, "check-zip": check_zip, "read-manifest": read_manifest,
+            "env-value": env_value, "manifest": manifest}[a.op](a)
 
 
 if __name__ == "__main__":

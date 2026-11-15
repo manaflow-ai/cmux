@@ -54,14 +54,18 @@ Never install the app with raw `devicectl`, skip a phone, or replace the phone w
 What it needs:
 
 - iPhone connections on in the person's cmux-next (Settings > Mobile > Allow iPhone connections,
-  `mobile.allowIPhoneConnections`). Only the person turns it on; `review.sh` reports it when off.
+  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux/cmux-next.json`
+  that every build reads, so a fresh tag starts with the person's choice. Only the person turns it
+  on; when it is off, `review.sh` reports that as the blocker.
 - The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux/dev-account` naming
   it, so the tagged Mac signs in to the same account as the phone (`scripts/setup-team-dev.sh`).
-- A development profile on this Mac that names each phone (the team wildcard profile does).
-  A phone it does not name gets a `BLOCKED: signing failed` line; register the phone in the team
-  first. The phone needs Developer Mode, to be unlocked, and to trust this Mac. No Tailscale.
-- A fleet simulator worker with the agent account (`<fleet dir>/secrets/ios-agent-stack.env`).
-  When the simulator line says the worker has none, rerun with `--target-worker` on one that has.
+- A development profile on this Mac for each bundle (the app and its two notification
+  extensions) that names each phone; the team wildcard profile covers all three. A phone no
+  profile names gets a `BLOCKED: signing failed` line: register it in the team first. The phone
+  needs Developer Mode, to be unlocked, and to trust this Mac. No Tailscale.
+- A fleet simulator worker with the agent account (`<host dir>/secrets/ios-agent-stack.env`). The
+  step asks for `--label ios-agent-signin`, which only such workers advertise; with none online it
+  waits in the queue.
 
 Its scripts: `scripts/review.sh` (the command), `scripts/sign_device_app.py` (local signing),
 `scripts/review_mac.py` (the tagged Mac over its control socket), `scripts/handoff_receipt.py`

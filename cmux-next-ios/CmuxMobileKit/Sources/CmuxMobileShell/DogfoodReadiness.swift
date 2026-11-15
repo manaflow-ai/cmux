@@ -19,7 +19,8 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "dogfood-readin
 /// focused Mac with whether its link is paired and connected. The launcher copies it off the
 /// phone (`devicectl device copy from`) or the simulator's container; a receipt from an
 /// earlier launch is deleted first, so it never answers this one. The same keys as the
-/// classic app's receipt (`ios/CmuxiOS/Sources/CmuxiOSAuth/DogfoodReadinessReceipt.swift`).
+/// classic app's receipt (`ios/CmuxiOS/Sources/CmuxiOSAuth/DogfoodReadinessReceipt.swift`), plus
+/// the phone's own device ids (`phone_device_ids`), which the Mac lists it by.
 struct DogfoodReadiness {
     static let relativePath = "Library/Application Support/cmux-dogfood/readiness.json"
     /// How long a launch keeps writing (pairing a fresh code can take a minute on a slow network).
@@ -43,6 +44,7 @@ struct DogfoodReadiness {
         let account_email: String
         let user_id: String
         let session_source: String
+        let phone_device_ids: [String]
         let paired_macs: [PairedMac]
         let written_at: String
     }
@@ -59,15 +61,25 @@ struct DogfoodReadiness {
     let info: [String: Any]
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment, bundle: Bundle = .main) {
+        self.init(environment: environment, bundleID: bundle.bundleIdentifier ?? "", info: bundle.infoDictionary ?? [:])
+    }
+
+    init(environment: [String: String], bundleID: String, info: [String: Any]) {
         self.environment = environment
-        bundleID = bundle.bundleIdentifier ?? ""
-        info = bundle.infoDictionary ?? [:]
+        self.bundleID = bundleID
+        self.info = info
     }
 
     /// The launcher asked for a receipt.
     var nonce: String? {
         guard let nonce = environment["CMUX_DOGFOOD_READINESS_NONCE"], !nonce.isEmpty else { return nil }
         return nonce
+    }
+
+    /// The build's tag, without the bundle-id dot Info.plist `CmuxMobileTag` carries (".my-tag").
+    var devTag: String {
+        let raw = info["CmuxMobileTag"] as? String ?? ""
+        return raw.hasPrefix(".") ? String(raw.dropFirst()) : raw
     }
 
     /// `auto_login` when this launch carried the account's credentials, else `restored`.
@@ -78,7 +90,7 @@ struct DogfoodReadiness {
     /// The receipt for one moment of this launch. `macs` is the account's Macs from the service
     /// (their names); `focus` the coordinator's focused Mac.
     func body(nonce: String, apiBase: URL, email: String, userID: String, macs: [LiveAPI.Mac],
-              focus: Focus?, now: Date) -> Body {
+              focus: Focus?, phoneDeviceIDs: [String] = [], now: Date) -> Body {
         let paired = focus.map { focus in
             [PairedMac(id: focus.id, name: macs.first { $0.deviceId == focus.id }?.name ?? "",
                        linked: focus.paired && focus.connected)]
@@ -87,12 +99,13 @@ struct DogfoodReadiness {
             nonce: nonce,
             client_id: environment["CMUX_DOGFOOD_CLIENT_ID"] ?? "",
             bundle_id: bundleID,
-            dev_tag: info["CmuxMobileTag"] as? String ?? "",
+            dev_tag: devTag,
             git_sha: info["CmuxMobileSourceCommit"] as? String ?? "",
             api_base_url: apiBase.absoluteString,
             account_email: email.lowercased(),
             user_id: userID,
             session_source: sessionSource,
+            phone_device_ids: phoneDeviceIDs,
             paired_macs: paired,
             written_at: ISO8601DateFormatter().string(from: now)
         )
@@ -136,7 +149,7 @@ struct DogfoodReadiness {
                             Focus(id: $0, paired: live.pairingState == .paired, connected: live.link.phase.isConnected)
                         }
                         let next = body(nonce: nonce, apiBase: apiBase, email: email, userID: user.id, macs: macs,
-                                        focus: focus, now: Date())
+                                        focus: focus, phoneDeviceIDs: live.deviceIDs, now: Date())
                         if last == nil || next.paired_macs != last?.paired_macs {
                             await Self.write(next, to: url)
                             last = next

@@ -685,9 +685,14 @@ handoff_sim_status="" handoff_sim_reason=""
 if [[ "$mode" == handoff ]]; then
   t0=$SECONDS
   handoff_check() {
-    local creds="${CMUX_CI_FLEET_DIR:-/Users/Shared/cmux-build-fleet}/secrets/ios-agent-stack.env"
+    # The worker's host dir (the step inherits CMUX_CI_HOST_DIR from the worker); a step with
+    # --label ios-agent-signin lands only on a worker whose file passed the worker's own checks.
+    local creds="${CMUX_CI_HOST_DIR:-${CMUX_CI_FLEET_DIR:-/Users/Shared/cmux-build-fleet}}/secrets/ios-agent-stack.env"
     local receipt client nonce data rec_pid=""
-    [[ -r "$creds" ]] || { handoff_sim_reason="no agent account on $(hostname -s) ($creds); pin the step to a worker that has one with --target-worker"; return 1; }
+    [[ -f "$creds" && ! -L "$creds" && -O "$creds" && -r "$creds" ]] ||
+      { handoff_sim_reason="no agent account this step can read on $(hostname -s) ($creds); send the step with --label ios-agent-signin"; return 1; }
+    [[ "$(stat -f %Lp "$creds")" =~ ^[0-7]00$ ]] ||
+      { handoff_sim_reason="the agent account file on $(hostname -s) is readable by others; it must be 0600"; return 1; }
     local account
     account="$(python3 -I cmux-next-ios/scripts/handoff_receipt.py env-value "$creds" CMUX_UITEST_STACK_EMAIL)" ||
       { handoff_sim_reason="the agent account file has no CMUX_UITEST_STACK_EMAIL"; return 1; }
@@ -720,7 +725,8 @@ if [[ "$mode" == handoff ]]; then
         cp "$data/Library/Application Support/cmux-dogfood/readiness.json" "$receipt" 2>/dev/null || { sleep 2; continue; }
         rc=0
         verdict="$(python3 -I cmux-next-ios/scripts/handoff_receipt.py check "$receipt" --nonce "$nonce" \
-          --client-id "$client" --bundle-id "$bundle_id" --account "$account" --session "$leg" 2>&1)" || rc=$?
+          --client-id "$client" --bundle-id "$bundle_id" --account "$account" --session "$leg" \
+          --git-sha "$(git rev-parse HEAD)" --dev-tag "$handoff_tag" 2>&1)" || rc=$?
         [[ $rc -eq 1 ]] || break
         sleep 2
       done

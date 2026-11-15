@@ -101,6 +101,8 @@ public final class LiveCoordinator {
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let api: LiveAPI
     @ObservationIgnored let identity: DeviceIdentity
+    /// This phone's device ids for the account (link, then presence): the ids a Mac lists the phone by.
+    public var deviceIDs: [String] { [identity.link, identity.presence] }
     /// Where `identity` and the pairing keys are kept (the Keychain; memory in tests).
     @ObservationIgnored let secrets: any DeviceSecretStore
     @ObservationIgnored let userID: String

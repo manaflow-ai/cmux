@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The end-of-task hand-off of the cmux-next iPhone app (AGENTS.md "Finishing a task"): one
-# command, run by an agent at a pushed head, that leaves the task's build on every connected
+# The end-of-task hand-off of the cmux-next iPhone app (new and under verification, see
+# cmux-next-ios/AGENTS.md; the root "Finishing a task" rules are unchanged until it has run end
+# to end): one command, run by an agent at a pushed head, that leaves the task's build on every connected
 # iPhone signed in and paired with the same-tag cmux NEXT Mac build, and proves it.
 #
 #   cmux-next-ios/scripts/review.sh --tag <task-slug> [--device-id <udid>] [--target-worker <worker>]
@@ -13,22 +14,31 @@
 #     developer surface, bundle dev.cmux.mobile.<tag>, display name "cmux <tag>", an unsigned
 #     device app) plus the fleet simulator check: signed in with the worker's agent account, then
 #     relaunched with no credentials and signed in from its own Keychain, with screenshots and a
-#     recording. --target-worker pins that step (a worker with the agent account file).
-#     Job ids are saved: rerunning the same command resumes them.
+#     recording. The step carries --label ios-agent-signin, so only a simulator worker holding
+#     the agent account file takes it; --target-worker pins it further. Job ids are saved:
+#     rerunning the same command resumes them. With no connected phone the fleet legs still run,
+#     and the phone is the reported blocker.
 #  2. This Mac: installs the tagged Mac app where ios-reload.py and verify-iphone-auth.sh look for
-#     it, launches it in the background (`open -g`, never taking focus) and waits until it is
-#     signed in to the `personal` account. iPhone connections must already be on (Settings >
-#     Mobile); this never turns them on.
+#     it (a new head of the same tag replaces this tool's earlier install, quitting it first;
+#     another workflow's install of the tag is never touched), launches it in the background
+#     (`open -g` with an empty environment, never taking focus) and waits until it is signed in
+#     to the `personal` account and its Mobile Pairing page offers a code. iPhone connections
+#     (`mobile.allowIPhoneConnections`) live in the shared ~/.config/cmux/cmux-next.json that every
+#     build reads, so a fresh tag has the person's choice; when it is off this reports it and
+#     never turns it on.
 #  3. Every connected, paired iPhone (scripts/lib/iphone-review-targets.sh; a new phone is
-#     registered in ~/.config/cmux/iphone-device-ids): signs a copy of the app with this Mac's
-#     Apple Development identity and a development profile naming the phone
+#     registered in ~/.config/cmux/iphone-device-ids; a --device-id phone that is missing is a
+#     blocker, a missing default a notice): signs a copy of the app with this Mac's Apple
+#     Development identity and, per bundle, a development profile naming the phone
 #     (sign_device_app.py), installs it through the sanctioned install
 #     (CMUX_SANCTIONED_IPHONE_INSTALL), and launches it with the personal account
 #     (DEVICECTL_CHILD_CMUX_MOBILE_STACK_*) and the Mac's single-use pairing code
 #     (DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL: the code a scan would open; no Allow prompt, no seed).
+#     A code is recorded as used only after a phone paired with it.
 #  4. Proves each phone, from the app's DEBUG readiness receipt (handoff_receipt.py; a fresh nonce
-#     per launch, so an old receipt never passes): signed in and paired and linked with this tag's
-#     Mac (its cmux-mobile-host device id); the Mac lists a paired, connected phone; then a
+#     per launch, so an old receipt never passes; the build's commit and tag must be this run's):
+#     signed in and paired and linked with this tag's Mac (the `mac=` id of its own pairing link);
+#     the Mac lists this phone (one of its device ids) as paired and connected; then a
 #     credential-free relaunch (no account, no code, as the person's own cold launch) comes back
 #     signed in from its own session and linked again; then the tagged Mac app quits as the person
 #     quits it and starts again (`open -g`), and one more credential-free relaunch of each phone is
@@ -42,7 +52,7 @@
 # Tests: python3 ios/tests/test_cnx_review.py
 set -euo pipefail
 
-usage() { sed -n '2,43p' "$0"; }
+usage() { sed -n '2,51p' "$0"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -57,16 +67,24 @@ source "$REPO_ROOT/scripts/lib/dev-secrets.sh"
 source "$REPO_ROOT/scripts/lib/iphone-review-targets.sh"
 
 REVIEW_CALLER="cmux-next-ios/scripts/review.sh"
+# The cmux-next app talks to the public dev mobile service: no tailnet note for a new phone.
+REVIEW_TAILNET_NOTE=0
 REVIEW_PHONES_FILE="${CMUX_CONFIG_DIR:-$HOME/.config/cmux}/iphone-device-ids"
 REVIEW_TARGETS=()
 REVIEW_FAILED=0
 REVIEW_PHONE_STATUS=""
 DEFAULT_DEVICE_ID=""
+# A phone asked for with --device-id (missing, it is a blocker); the configured default only
+# gets a notice (scripts/lib/iphone-review-targets.sh).
+REQUESTED_DEVICE_ID=""
+NO_PHONE=0
 REPORT_MAC="not built"
 REPORT_SIM="not run"
 MAC_JOB="" SIM_STEP="" SHA=""
-STATE="" MAC_APP="" MAC_SOCKET="" MAC_DEVICE_ID=""
-PASSED_PHONES=()
+STATE="" TAG_STATE="" MAC_APP="" MAC_SOCKET="" MAC_DEVICE_ID=""
+# The phones that passed, as " udid udid " (a string, so an empty set needs no array expansion,
+# which aborts under set -u on macOS's bash 3.2).
+PASSED_PHONES=" "
 
 die() { echo "review.sh: $*" >&2; exit 2; }
 
@@ -82,17 +100,24 @@ review_report() {
     [[ -n "$line" ]] || continue
     if [[ $first -eq 1 ]]; then printf 'iPhone:     %s\n' "$line"; first=0; else printf '            %s\n' "$line"; fi
   done <<<"$REVIEW_PHONE_STATUS"
-  [[ $first -eq 0 ]] || printf 'iPhone:     BLOCKED: no connected iPhone; connect and unlock one, then rerun: %s\n' "$(retry_command)"
+  if [[ $NO_PHONE -eq 1 || $first -eq 1 ]]; then
+    local lead='iPhone:    '
+    [[ $first -eq 1 ]] || lead='           '
+    printf '%s BLOCKED: no connected iPhone; connect and unlock one, then rerun: %s\n' "$lead" "$(retry_command)"
+  fi
 }
 
 retry_command() {
   printf 'cmux-next-ios/scripts/review.sh --tag %s' "$SLUG"
+  [[ -z "$REQUESTED_DEVICE_ID" ]] || printf ' --device-id %s' "$REQUESTED_DEVICE_ID"
   [[ -z "$TARGET_WORKER" ]] || printf ' --target-worker %s' "$TARGET_WORKER"
 }
 
+passed() { [[ "$PASSED_PHONES" == *" $1 "* ]]; }
+
 finish() {
   review_report
-  [[ "$REVIEW_FAILED" -eq 0 && "${#PASSED_PHONES[@]}" -gt 0 ]]
+  [[ "$REVIEW_FAILED" -eq 0 && "$PASSED_PHONES" != " " ]]
 }
 
 # --- fleet --------------------------------------------------------------------
@@ -128,8 +153,10 @@ fleet_submit_mac() {
 # The iPhone app's simulator step, in the background; the same --key re-attaches to it. It is
 # `handoff tag=<tag>`, sent as `shots handoff=<tag>` until the fleet controller lists handoff.
 fleet_start_sim() {
+  # ios-agent-signin: only a simulator worker holding the agent account file (hq build-fleet README,
+  # "Sign-in placement") takes it; the step reads that file itself (cmux-next-ios-sim.sh handoff).
   local args=(run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA"
-    --arg shots --arg "handoff=$SLUG" --artifact artifacts/ios-sim/evidence.zip
+    --arg shots --arg "handoff=$SLUG" --label ios-agent-signin --artifact artifacts/ios-sim/evidence.zip
     --key "cnx-ios-handoff-$SLUG-${SHA:0:12}")
   [[ -z "$TARGET_WORKER" ]] || args+=(--target-worker "$TARGET_WORKER")
   echo "==> iPhone app: fleet step cmux-next-ios-sim.sh handoff tag=$SLUG${TARGET_WORKER:+ on $TARGET_WORKER} (log: $STATE/sim-step.log)"
@@ -170,38 +197,27 @@ fleet_finish_sim() {
     { REPORT_SIM="BLOCKED: step $SIM_STEP passed but its artifact did not download; retry: $(retry_command)"; return 1; }
 }
 
-# Unzip DIR's archive into a fresh directory, refusing absolute paths, `..` and links out of it.
+# Unzip an archive into a fresh directory, refusing absolute paths, `..`, and symlinks that point
+# outside it (absolute, or climbing out). Links inside it stay: a Mac app's frameworks need them.
 safe_unzip() {
   local zip="$1" dest="$2"
   rm -rf "$dest"
-  /usr/bin/python3 -I - "$zip" <<'PY' || return 1
-import stat, sys, zipfile
-with zipfile.ZipFile(sys.argv[1]) as z:
-    for i in z.infolist():
-        parts = i.filename.split("/")
-        if i.filename.startswith("/") or ".." in parts:
-            raise SystemExit(f"unsafe path in {sys.argv[1]}: {i.filename}")
-PY
+  /usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check-zip "$zip" || return 1
   ditto -x -k "$zip" "$dest"
 }
 
 # The simulator verdict and the device app from the step's artifact.
 read_ios_artifact() {
-  safe_unzip "$STATE/ios.zip" "$STATE/ios" || { REPORT_SIM="BLOCKED: the iPhone artifact is not a safe zip"; return 1; }
-  local manifest="$STATE/ios/handoff.json" check
-  check="$(/usr/bin/python3 -I - "$manifest" "$SLUG" "$SHA" "dev.cmux.mobile.$SLUG" <<'PY'
-import json, sys
-m = json.load(open(sys.argv[1]))
-want = {"kind": "cmux-next-ios-handoff", "tag": sys.argv[2], "source_sha": sys.argv[3], "bundle_id": sys.argv[4]}
-bad = [k for k, v in want.items() if m.get(k) != v]
-if bad:
-    raise SystemExit("handoff.json does not match this run: " + ", ".join(bad))
-s = m.get("simulator") or {}
-print("\t".join([s.get("status", ""), m.get("host", ""), s.get("device", ""), s.get("reason", "")]))
-PY
-)" || { REPORT_SIM="BLOCKED: $check"; return 1; }
+  local why
+  why="$(safe_unzip "$STATE/ios.zip" "$STATE/ios" 2>&1)" ||
+    { REPORT_SIM="BLOCKED: the iPhone artifact of step $SIM_STEP is not a safe zip (${why##*$'\n'})"; return 1; }
+  local check
+  # One field per line (a tab split loses empty fields); the reason for a mismatch goes in the report.
+  check="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" read-manifest "$STATE/ios/handoff.json" \
+    --tag "$SLUG" --sha "$SHA" --bundle-id "dev.cmux.mobile.$SLUG" 2>&1)" ||
+    { REPORT_SIM="BLOCKED: step $SIM_STEP: ${check##*$'\n'}; retry: $(retry_command)"; return 1; }
   local status host device reason dir
-  IFS=$'\t' read -r status host device reason <<<"$check"
+  { IFS= read -r status; IFS= read -r host; IFS= read -r device; IFS= read -r reason; } <<<"$check"
   dir="$STATE/ios"
   if [[ "$status" == pass ]]; then
     REPORT_SIM="fleet simulator ($host, $device), signed in (agent account), restored after a credential-free relaunch: $dir (screens/signed-in-auto_login.png, screens/signed-in-restored.png, recording.mp4; step $SIM_STEP)"
@@ -209,32 +225,63 @@ PY
     REPORT_SIM="BLOCKED: fleet simulator check on $host failed: ${reason:-unknown}; evidence $dir; retry: $(retry_command)"
     REVIEW_FAILED=1
   fi
-  safe_unzip "$STATE/ios/CmuxMobileApp-Demo-device-unsigned.app.zip" "$STATE/device" ||
-    { REVIEW_FAILED=1; return 1; }
-  [[ -d "$STATE/device/CmuxMobileApp.app" ]]
+  why="$(safe_unzip "$STATE/ios/CmuxMobileApp-Demo-device-unsigned.app.zip" "$STATE/device" 2>&1)" ||
+    { REPORT_SIM="$REPORT_SIM; BLOCKED: the device app is not a safe zip (${why##*$'\n'})"; REVIEW_FAILED=1; return 1; }
+  [[ -d "$STATE/device/CmuxMobileApp.app" ]] ||
+    { REPORT_SIM="$REPORT_SIM; BLOCKED: the artifact has no device app"; REVIEW_FAILED=1; return 1; }
 }
 
 # --- the tagged Mac -----------------------------------------------------------
 mac_py() { /usr/bin/python3 -I "$SCRIPT_DIR/review_mac.py" "$@"; }
 
 # Install the fleet Mac app at the tag's path (ios-reload.py's install_mac, verify-iphone-auth.sh).
+# The tag's install record ($TAG_STATE/mac-installed: "<head> <job>") says this tool put the app
+# there. The same head reuses it; an earlier head of this tool is quit and replaced; an app this tool
+# did not install (another workflow's build of the tag) is never touched.
 mac_install() {
-  safe_unzip "$STATE/cmux.zip" "$STATE/mac" || { REPORT_MAC="BLOCKED: the Mac artifact is not a safe zip"; return 1; }
-  local built
+  local why
+  why="$(safe_unzip "$STATE/cmux.zip" "$STATE/mac" 2>&1)" ||
+    { REPORT_MAC="BLOCKED: the Mac artifact of job $MAC_JOB is not a safe zip (${why##*$'\n'})"; return 1; }
+  local built record recorded_sha=""
   built="$(find "$STATE/mac" -maxdepth 3 -name 'cmux DEV *.app' -type d | head -n 1)"
   [[ -n "$built" ]] || { REPORT_MAC="BLOCKED: fleet job $MAC_JOB has no cmux DEV app"; return 1; }
   MAC_APP="$(cmux_attach_mac_app_path "$SLUG")"
+  record="$TAG_STATE/mac-installed"
+  [[ -f "$record" ]] && recorded_sha="$(awk '{ print $1; exit }' "$record")"
   if [[ -d "$MAC_APP" ]]; then
-    if [[ "$(cat "$STATE/mac-installed" 2>/dev/null)" != "$MAC_JOB" ]]; then
-      REPORT_MAC="BLOCKED: $SLUG already has another build installed for this tag; choose a new tag"
+    if [[ -z "$recorded_sha" ]]; then
+      REPORT_MAC="BLOCKED: $SLUG already has a build this tool did not install; choose a new tag"
       return 1
     fi
-  else
-    mkdir -p "$(dirname "$MAC_APP")"
-    ditto "$built" "$MAC_APP"
-    printf '%s\n' "$MAC_JOB" >"$STATE/mac-installed"
+    if [[ "$recorded_sha" == "$SHA" ]]; then
+      MAC_SOCKET="$(mac_py socket "$MAC_APP")" || MAC_SOCKET="$(cmux_attach_socket_path "$SLUG")"
+      return 0
+    fi
+    echo "==> replacing this tool's install of $SLUG at ${recorded_sha:0:12} with $SHA"
+    mac_quit_installed || { REPORT_MAC="BLOCKED: the tag's earlier build (${recorded_sha:0:12}) did not quit"; return 1; }
+    rm -rf "$MAC_APP"
   fi
+  mkdir -p "$(dirname "$MAC_APP")"
+  ditto "$built" "$MAC_APP"
+  printf '%s %s\n' "$SHA" "$MAC_JOB" >"$record"
   MAC_SOCKET="$(mac_py socket "$MAC_APP")" || MAC_SOCKET="$(cmux_attach_socket_path "$SLUG")"
+}
+
+# Quit the tag's installed Mac app if it runs: over its control socket, else an Apple Event to its
+# bundle id. Neither brings it to the front; an app that is not running is never launched.
+mac_quit_installed() {
+  pgrep -f "$MAC_APP/Contents/MacOS/" >/dev/null 2>&1 || return 0
+  local socket bundle i
+  socket="$(mac_py socket "$MAC_APP" 2>/dev/null || cmux_attach_socket_path "$SLUG")"
+  if ! mac_py quit "$socket" 2>/dev/null; then
+    bundle="$(mac_py bundle "$MAC_APP")"
+    [[ -n "$bundle" ]] && osascript -e "if application id \"$bundle\" is running then tell application id \"$bundle\" to quit" >/dev/null 2>&1
+  fi
+  for i in $(seq 1 60); do
+    pgrep -f "$MAC_APP/Contents/MacOS/" >/dev/null 2>&1 || return 0
+    sleep 1
+  done
+  return 1
 }
 
 # `open -g` hands the launching shell's environment to the app. An agent's shell inside the person's
@@ -262,8 +309,11 @@ mac_start() {
     REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app is signed in as $account, not the personal account $PERSONAL_ACCOUNT"
     return 1
   fi
-  MAC_DEVICE_ID="$(mac_py device-id "$(mac_py bundle "$MAC_APP")")" ||
-    { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app has no cmux-mobile-host device id (iPhone host not running)"; return 1; }
+  local why
+  # The id phones pair with, from the Mac's own pairing link: also shows the page can offer a code.
+  MAC_DEVICE_ID="$(mac_py mac-id "$MAC_SOCKET" --timeout 90 2>&1)" ||
+    { why="$MAC_DEVICE_ID"; MAC_DEVICE_ID=""
+      REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app offers no pairing code (${why##*$'\n'}; iPhone connections on in Settings > Mobile?)"; return 1; }
 }
 
 # Quit the tagged Mac app as the person does and start it again (the Tag Opener's relaunch).
@@ -307,7 +357,7 @@ phone_launch_and_check() {
       rc=0
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
         --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
-        --mac-id "$MAC_DEVICE_ID")" || rc=$?
+        --mac-id "$MAC_DEVICE_ID" --git-sha "$SHA" --dev-tag "$SLUG")" || rc=$?
       [[ $rc -eq 1 ]] || break
     else
       rc=1 verdict="no readiness receipt yet"
@@ -315,7 +365,9 @@ phone_launch_and_check() {
     (( SECONDS < deadline )) || break
     sleep 3
   done
-  rm -f "$receipt"
+  # The last receipt this launch wrote: mac_sees_phone reads the phone's device ids from it.
+  mkdir -p "$STATE/phone-$udid"
+  if [[ -f "$receipt" ]]; then mv "$receipt" "$STATE/phone-$udid/receipt.json"; else rm -f "$receipt"; fi
   if [[ $rc -ne 0 ]]; then
     PHONE_REASON="$session launch: $verdict (after ${CNX_REVIEW_RECEIPT_TIMEOUT:-180} s)"
     return 1
@@ -323,16 +375,27 @@ phone_launch_and_check() {
   PHONE_VERDICT="$verdict"
 }
 
-# The Mac sees a paired, connected phone (hostd's own list).
+# The Mac lists THIS phone as paired and connected: hostd's row id is one of the phone's own device
+# ids (the receipt's phone_device_ids), never just any connected phone.
 mac_sees_phone() {
-  local i count
+  local udid="$1" i ids
+  ids="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" phone-ids "$STATE/phone-$udid/receipt.json" 2>/dev/null)" ||
+    return 1
   for i in $(seq 1 20); do
-    count="$(mac_py phones "$MAC_SOCKET" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["paired_connected"])' 2>/dev/null || echo 0)"
-    [[ "$count" -ge 1 ]] && return 0
+    if mac_py phones "$MAC_SOCKET" | /usr/bin/python3 -I -c '
+import json, sys
+ids = {line.strip().lower() for line in sys.argv[1].splitlines() if line.strip()}
+rows = json.load(sys.stdin).get("phones") or []
+sys.exit(0 if any(r.get("paired") and r.get("connected") and str(r.get("id", "")).lower() in ids for r in rows) else 1)
+' "$ids" 2>/dev/null; then
+      return 0
+    fi
     sleep 3
   done
   return 1
 }
+
+sign_app() { /usr/bin/python3 -I "$SCRIPT_DIR/sign_device_app.py" "$@"; }
 
 # Sign, install, launch signed in with the pairing code, prove it, relaunch credential-free, prove it.
 phone_review() {
@@ -344,8 +407,8 @@ phone_review() {
   mkdir -p "$STATE/phone-$udid"
   ditto "$STATE/device/CmuxMobileApp.app" "$app"
   local signed
-  if ! signed="$(/usr/bin/python3 -I "$SCRIPT_DIR/sign_device_app.py" --app "$app" --checkout "$REPO_ROOT" \
-      --team "$TEAM" --device "$udid" 2>"$STATE/phone-$udid/sign.err")"; then
+  if ! signed="$(sign_app --app "$app" --checkout "$REPO_ROOT" --team "$TEAM" --device "$udid" \
+      2>"$STATE/phone-$udid/sign.err")"; then
     PHONE_REASON="signing failed: $(sed 's/^sign_device_app: //' "$STATE/phone-$udid/sign.err" | tail -n 1)"
     return 1
   fi
@@ -359,12 +422,18 @@ phone_review() {
     return 1
   fi
   local pair_err="$STATE/phone-$udid/pair-url.err"
-  pair_url="$(mac_py pair-url "$MAC_SOCKET" --timeout 90 --used "$STATE/used-codes" 2>"$pair_err")" ||
+  # A code is recorded as used only once a phone paired with it (its receipt says so), so a launch
+  # that failed, or a rerun, takes the same live code again instead of waiting for the next one.
+  pair_url="$(mac_py pair-url "$MAC_SOCKET" --timeout 90 --used "$TAG_STATE/used-codes" 2>"$pair_err")" ||
     { PHONE_REASON="no pairing code from the tagged Mac: $(tail -n 1 "$pair_err")"; return 1; }
-  phone_launch_and_check "$udid" "$client" auto_login "$pair_url" || return 1
+  if ! phone_launch_and_check "$udid" "$client" auto_login "$pair_url"; then
+    pair_url=""
+    return 1
+  fi
+  printf '%s' "$pair_url" | mac_py mark-used "$TAG_STATE/used-codes" || true
   pair_url=""
   local first="$PHONE_VERDICT"
-  mac_sees_phone || { PHONE_REASON="the tagged Mac lists no paired, connected phone"; return 1; }
+  mac_sees_phone "$udid" || { PHONE_REASON="the tagged Mac does not list this phone as paired and connected"; return 1; }
   phone_launch_and_check "$udid" "$client" restored || return 1
   PHONE_LINE="$label: installed, $first; Mac sees it paired and connected; credential-free relaunch: $PHONE_VERDICT"
 }
@@ -373,7 +442,7 @@ phone_after_mac_restart() {
   local udid="$1" client
   client="$(cmux_attach_dogfood_client_id "$BUNDLE_ID" "$udid")"
   phone_launch_and_check "$udid" "$client" restored || return 1
-  mac_sees_phone || { PHONE_REASON="after the Mac relaunch, the tagged Mac lists no paired, connected phone"; return 1; }
+  mac_sees_phone "$udid" || { PHONE_REASON="after the Mac relaunch, the tagged Mac does not list this phone as paired and connected"; return 1; }
 }
 
 # --- main ---------------------------------------------------------------------
@@ -397,7 +466,7 @@ main() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --tag) TAG="${2:-}"; shift 2 ;;
-      --device-id) DEVICE_ID="${2:-}"; shift 2 ;;
+      --device-id) REQUESTED_DEVICE_ID="${2:-}"; shift 2 ;;
       --target-worker) TARGET_WORKER="${2:-}"; shift 2 ;;
       --workspace) WORKSPACE="${2:-}"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
@@ -423,7 +492,8 @@ main() {
   cmux_dev_secrets_load --profile personal >/dev/null || die "the personal sign-in profile is incomplete (scripts/setup-team-dev.sh)"
   PERSONAL_EMAIL="$CMUX_UITEST_STACK_EMAIL" PERSONAL_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" PERSONAL_ACCOUNT="$CMUX_DEV_AUTH_ACCOUNT"
   unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
-  STATE="$HOME/Library/Application Support/cmux-dev/cnx-ios-builds/$SLUG/$SHA"
+  TAG_STATE="$HOME/Library/Application Support/cmux-dev/cnx-ios-builds/$SLUG"
+  STATE="$TAG_STATE/$SHA"
   review_run
 }
 
@@ -433,34 +503,40 @@ review_run() {
   local default_file
   default_file="$(dirname "$REVIEW_PHONES_FILE")/iphone-device-id"
   DEFAULT_DEVICE_ID="$(head -n 1 "$default_file" 2>/dev/null | tr -d '[:space:]' || true)"
+  [[ -n "$TAG_STATE" ]] || TAG_STATE="$(dirname "$STATE")"
+  # No connected phone is a blocker, but the Mac build, its publish and the fleet simulator check
+  # still run, so the report has everything but the phone.
   if ! review_resolve_phones; then
     REVIEW_FAILED=1
-    finish || exit 1
+    NO_PHONE=1
+  else
+    echo "==> installing on ${#REVIEW_TARGETS[@]} connected iPhone(s)"
   fi
-  echo "==> installing on ${#REVIEW_TARGETS[@]} connected iPhone(s)"
 
   mkdir -p "$STATE"
   fleet_start_sim
-  local mac_ok=1 ios_ok=1
+  local mac_ok=1 ios_ok=1 target
   { fleet_submit_mac && fleet_finish_mac; } || mac_ok=0
   fleet_finish_sim || ios_ok=0
   [[ $ios_ok -eq 0 ]] || read_ios_artifact || ios_ok=0
+  if [[ $NO_PHONE -eq 1 ]]; then
+    finish || exit 1
+  fi
   [[ $mac_ok -eq 0 ]] || { mac_install && mac_start; } || mac_ok=0
   if [[ $mac_ok -eq 0 || $ios_ok -eq 0 ]]; then
     REVIEW_FAILED=1
-    local target
-    for target in "${REVIEW_TARGETS[@]}"; do
+    for target in ${REVIEW_TARGETS[@]+"${REVIEW_TARGETS[@]}"}; do
       review_phone_result "${target#*$'\t'}: BLOCKED: nothing installed, the $([[ $ios_ok -eq 0 ]] && echo 'iPhone build' || echo 'tagged Mac') is not ready (see Dev build / Simulator); retry: $(retry_command)"
     done
     finish || exit 1
   fi
 
-  local target udid label lines=()
-  for target in "${REVIEW_TARGETS[@]}"; do
+  local udid label lines=()
+  for target in ${REVIEW_TARGETS[@]+"${REVIEW_TARGETS[@]}"}; do
     udid="${target%%$'\t'*}" label="${target#*$'\t'}"
     echo "==> iPhone $label"
     if phone_review "$udid" "$label"; then
-      PASSED_PHONES+=("$udid")
+      PASSED_PHONES+="$udid "
       lines+=("$udid"$'\t'"$PHONE_LINE")
     else
       REVIEW_FAILED=1
@@ -470,14 +546,14 @@ review_run() {
 
   # The person's own Mac relaunch: quit the tagged app and start it again; every phone links again.
   local restarted=1
-  if [[ ${#PASSED_PHONES[@]} -gt 0 ]]; then
+  if [[ "$PASSED_PHONES" != " " ]]; then
     echo "==> relaunching the tagged Mac app (quit as the person quits it, then open -g)"
     mac_restart || restarted=0
   fi
   local line
-  for line in "${lines[@]}"; do
+  for line in ${lines[@]+"${lines[@]}"}; do
     udid="${line%%$'\t'*}" line="${line#*$'\t'}"
-    if [[ " ${PASSED_PHONES[*]} " == *" $udid "* ]]; then
+    if passed "$udid"; then
       if [[ $restarted -eq 0 ]]; then
         REVIEW_FAILED=1
         line="$line; BLOCKED: the tagged Mac app did not quit and start again; retry: $(retry_command)"

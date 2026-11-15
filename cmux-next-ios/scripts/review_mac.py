@@ -6,19 +6,22 @@
   review_mac.py wait-socket SOCK [--timeout S]
   review_mac.py account SOCK [--timeout S]    the signed-in account's email (waits for the session)
   review_mac.py pair-url SOCK [--timeout S] [--used FILE]
-      a fresh pairing link from the Mobile Pairing page (`cmux.mobilePairing.status` `qr.url`), on
-      stdout only: it carries a single-use token, so the caller keeps it in a variable and never
-      prints it. A link whose hash is in FILE (one per line) was given to another phone: wait for the
-      next. Exit 3 with the reason when the page cannot show one (iPhone connections off, signed out).
+      a pairing link from the Mobile Pairing page (`cmux.mobilePairing.status` `qr.url`), on stdout
+      only: it carries a single-use token, so the caller keeps it in a variable and never prints it.
+      A link whose hash is in FILE (one per line) already paired a phone: wait for the next. This
+      only reads FILE; the caller records a link with mark-used once a phone paired with it, so a
+      launch that failed, or a rerun, gets the same live code back at once. Exit 3 with the reason
+      when the page cannot show one (iPhone connections off, signed out).
+  review_mac.py mark-used FILE                the link on stdin paired a phone: record its hash in FILE
+  review_mac.py mac-id SOCK [--timeout S]     the Mac's device id from its own pairing link (`mac=`),
+      the id the phone pairs with; no file lookup that could name another build's state
   review_mac.py phones SOCK                   {"paired_connected": N, "phones": [...]} (names and ids only)
   review_mac.py quit SOCK                     quit as the person does, keeping sessions (quitKeepSessions)
-  review_mac.py device-id BUNDLE_ID           this Mac's cmux-mobile-host device id for the bundle
 
 Nothing here turns a setting on, presses Allow or writes the app's pairing state: the code is the
 Mac's own single-use invite, the same route as scanning it (cmux-next-ios/SECURITY.md, pair-e2e).
 """
 import argparse
-import glob
 import hashlib
 import json
 import os
@@ -26,6 +29,7 @@ import plistlib
 import socket
 import sys
 import time
+import urllib.parse
 
 PAGE = "cmux.mobile-pairing"
 
@@ -76,7 +80,8 @@ def wait(fn, timeout, every=1.0):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("op", choices=["socket", "bundle", "wait-socket", "account", "pair-url", "phones", "quit", "device-id"])
+    p.add_argument("op", choices=["socket", "bundle", "wait-socket", "account", "pair-url", "mark-used", "mac-id",
+                                  "phones", "quit"])
     p.add_argument("target")
     p.add_argument("--timeout", type=float, default=60)
     p.add_argument("--used", default="")
@@ -128,10 +133,28 @@ def main(argv=None):
                 print(f"the Mobile Pairing page shows no new code (state {last.get('state') or 'unknown'}"
                       f"{', ' + str(last.get('failure')) if last.get('failure') else ''})", file=sys.stderr)
             return 3
-        if a.used:
-            with open(a.used, "a", encoding="utf-8") as f:
-                f.write(hashlib.sha256(url.encode()).hexdigest() + "\n")
         sys.stdout.write(url + "\n")
+        return 0
+    if a.op == "mark-used":
+        url = sys.stdin.read().strip()
+        if not url:
+            return 1
+        with open(a.target, "a", encoding="utf-8") as f:
+            f.write(hashlib.sha256(url.encode()).hexdigest() + "\n")
+        return 0
+    if a.op == "mac-id":
+        def mac():
+            value = status(a.target)
+            url = (value.get("qr") or {}).get("url") if isinstance(value.get("qr"), dict) else None
+            if not url:
+                return None
+            ids = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("mac") or []
+            return ids[0] if ids and ids[0] else None
+        found = wait(mac, a.timeout, every=2)
+        if not found:
+            print("the Mobile Pairing page shows no pairing code to read the Mac's device id from", file=sys.stderr)
+            return 1
+        print(found)
         return 0
     if a.op == "phones":
         value = status(a.target) or wait(lambda: status(a.target), 10, every=2) or {}
@@ -143,15 +166,6 @@ def main(argv=None):
     if a.op == "quit":
         r = rpc(a.target, "action.run", {"action": "quitKeepSessions"})
         return 1 if r.get("error") else 0
-    if a.op == "device-id":
-        root = os.path.expanduser(os.path.join("~/Library/Application Support", a.target))
-        for path in sorted(glob.glob(os.path.join(root, "cmux-mobile-host", "device-id"))
-                           + glob.glob(os.path.join(root, "*", "cmux-mobile-host", "device-id"))):
-            value = open(path, encoding="utf-8").read().strip()
-            if value:
-                print(value)
-                return 0
-        return 1
     return 2
 
 
