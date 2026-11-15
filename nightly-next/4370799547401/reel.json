@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4370799547401",
+  "notes": "notes/4370799547401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43391,
+      "title": "Device kinds: every machine says what it is, with the glyph that kind draws",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43685,
+      "title": "Agent chat: a .pptx opened beside the chat previews its slides",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43684,
+      "title": "hot-apply: --restart-sessions hands every session over on Leo's NIGHTLY",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43694,
+      "title": "ci(cmux-next): a working-branch dispatch skips the scheme and Release compiles unless full=true",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43612,
+      "title": "Toggle Terminal and Chat: read a harness's approval dialog off a terminal's screen (Rust, step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43582,
+      "title": "Toggle Terminal and Chat: a terminal waiting on a chat's turn shows its permission and takes the answer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43563,
+      "title": "ci: notes and verify/ evidence alone never start the cmux-next-ios kit tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43680,
+      "title": "perf bench: app_config=bench builds the measured app with the debug.* hooks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43679,
+      "title": "agents chat new: resolve --workspace like every other selector",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43548,
+      "title": "cmux NEXT: the app FFI as a replaceable dylib, warm-swapped by hot-apply",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
