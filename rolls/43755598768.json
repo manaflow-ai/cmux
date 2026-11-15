@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43755598768",
+  "recorded_at": "2026-11-15T20:20:12Z",
+  "reason": "cmux-tui 7126140312b3 changes the image's cmux-tui (pinned da984c40c53e)",
+  "dry_run": false,
+  "cmux_tui": "7126140312b3e630ee4673122d40faf773dbcc37",
+  "fixes": [
+    {
+      "sha": "7126140312b3e630ee4673122d40faf773dbcc37",
+      "mergedAt": "2026-11-15T11:44:02-08:00",
+      "subject": "Shared terminal never narrower than an iPhone while a wider view counts (#43501)"
+    },
+    {
+      "sha": "d48fa169121e4c5e069b6d2be1f9f575e141c5e3",
+      "mergedAt": "2026-11-15T11:40:48-08:00",
+      "subject": "perf(cmux-tui): the terminal host reads titles and OSC metadata in one output scan (CMUX-571) (#43817)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T20:20:12Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
