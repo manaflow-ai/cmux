@@ -38,6 +38,10 @@ run_acpmux_lib() {
   run cargo test --profile gate -p acpmux --lib "$1" -- --ignored --nocapture --test-threads=1
 }
 
+run_tui_core_lib() {
+  run cargo test --profile gate -p cmux-tui-core --lib "$1" -- --ignored --nocapture --test-threads=1
+}
+
 run_acpmux_test() {
   run cargo test --profile gate -p acpmux --test v2_connection "$1" -- --ignored --nocapture --test-threads=1
 }
@@ -65,6 +69,7 @@ run_group acpmux-book book_gates
 # acpmux-client (release)
 client_gates() {
   run_client v2_pr06_client_chat
+  run_client v2_pr04b_mirror_v1_rows_gate
 }
 run_group acpmux-client client_gates
 
@@ -81,6 +86,8 @@ core_gates() {
   run_core pr05d_origin_state_ops
   run_core pr05d_removed_origin_batch
   run_core pr05d_submit_time
+  run_core pr08_mirror_apply
+  run_core pr08_mirror_local_row
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
 }
@@ -106,6 +113,12 @@ acpmux_lib_gates() {
   run_acpmux_lib v2_pr07b_callers
 }
 run_group acpmux-lib acpmux_lib_gates
+
+# cmux-tui-core's list callers (row 7c), against an agent service in the test's process.
+tui_core_lib_gates() {
+  run_tui_core_lib v2_pr07c_update_plan
+}
+run_group cmux-tui-core-lib tui_core_lib_gates
 
 # acpmux integration gates use the same gate profile and one v2_connection
 # test binary.
