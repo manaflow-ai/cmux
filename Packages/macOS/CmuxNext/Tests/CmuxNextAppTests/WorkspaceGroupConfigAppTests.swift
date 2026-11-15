@@ -81,7 +81,8 @@ struct WorkspaceGroupConfigAppTests {
             let source = try String(contentsOf: url, encoding: .utf8)
             let key = WorkspaceGroupConfig.key(for: anchor)
             #expect(JSONC.position(of: WorkspaceGroupConfig.byCwdPath + [key], in: source) != nil, "no entry for \(key) in:\n\(source)")
-            #expect(source.contains("// mine"), "the file's comment is gone")
+            // The file's comments staying is the daemon's settings owner's (cmux-config's tests);
+            // the stand-in writer here writes plain JSON.
         }
     }
 
