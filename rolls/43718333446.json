@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43718333446",
+  "recorded_at": "2026-11-15T13:26:08Z",
+  "reason": "cmux-tui b3f54727d579 changes the image's cmux-tui (pinned 28d749ede7bd)",
+  "dry_run": false,
+  "cmux_tui": "b3f54727d579bf9acc9fce621f25184e4f4d4701",
+  "fixes": [
+    {
+      "sha": "844fcb0483a9bb0d1299b8e8b91f161f9ccf7f44",
+      "mergedAt": "2026-11-15T13:02:24Z",
+      "subject": "v2 peer mirror, the dialing side's bounds (row 8 part two, PR C) (#43403)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T13:26:08Z",
+    "snapshot_id": "sh-5c54e07a33104ff6a835160c007fa417",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43718333446): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9427eda79e7f750454186512d6b17685dcff0454",
+    "image": "cloud-native-auto-b3f54727-43718333446-1",
+    "revision": "ci-43718333446-1",
+    "at": "2026-11-15T13:26:08Z"
+  },
+  "rolled_back": false
+}
