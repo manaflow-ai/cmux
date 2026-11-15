@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The connection-notices check and its own tests, as cmux-next.yml's checks job runs them (one line there: the
 # workflow file is near GitHub's size limit). ROOT is the checkout; the ratchet compares with the base tip HEAD^1.
-# Why: docs/ci/cmux-next-workflow-notes.md#note-366
+# Why: docs/ci/cmux-next-workflow-notes.md#note-384
 set -euo pipefail
 root="${1:?usage: check-connection-notices.sh ROOT}"
 here="$(cd "$(dirname "$0")" && pwd)"
