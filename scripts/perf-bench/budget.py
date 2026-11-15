@@ -121,8 +121,8 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
         writers = _file_writes(files_before, _file_states(profile))
         home_mem = browser.instance.memory(per_pid=True)
         home_pids = home_mem.pop("pids", [])
-        _log_home_processes(browser, home_pids)
-        _log_app_wakers(browser, "home")
+        _log_home_processes(browser, home_pids, log)
+        _log_app_wakers(browser, "home", log)
         run.record(name, round_no, "budget-idle-disk-writes-home", got["disk_kb_per_s"], files=writers)
         for path, grew in writers[:15]:
             log(f"  home idle wrote: {grew:>10,} B  {path}")
@@ -218,7 +218,7 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
                     f"{row['rss_mb'] or 0:>8.1f} MB rss {row['cpu_pct'] or 0:>6.2f}% "
                     f"{row['wakeups_per_s'] or 0:>7.1f} wk/s {row.get('threads') or 0:>4} thr "
                     f"{row.get('disk_kb_per_s') or 0:>7.1f} KB/s {row.get('mach_msgs_per_s') or 0:>7.1f} msg/s")
-        _log_app_wakers(browser, "tabs-hidden")
+        _log_app_wakers(browser, "tabs-hidden", log)
         # Who wakes the idle tree: call trees of the app's main thread and of the process with the
         # most wakeups, taken after the measured window so `sample` does not perturb it.
         busiest = max((row for row in table if row["pid"] != browser.instance.pid),
@@ -267,16 +267,19 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
         shutil.rmtree(profile, ignore_errors=True)
 
 
-def _log_home_processes(browser, pids: list[dict]) -> None:
+def _log_home_processes(browser, pids: list[dict], log) -> None:
     """Names what Home holds: every process by footprint, then each Chromium renderer with the pages
     it hosts (`renderers.list`, `cmux app renderers`), so a cut names the process it removed."""
+    try:
+        _log_home_processes_once(browser, pids, log)
+    except Exception as error:  # noqa: BLE001 - a log line, never a failed round
+        log(f"  home renderers: not read ({type(error).__name__}: {error})")
+
+
+def _log_home_processes_once(browser, pids: list[dict], log) -> None:
     for row in sorted(pids, key=lambda row: -row["footprint_mb"]):
         log(f"  home process: {row['footprint_mb']:>7.1f} MB  {row['kind']:<28} pid {row['pid']}")
-    try:
-        reply = browser.app.call("renderers.list", {"interval_ms": 200}, timeout=15)
-    except Exception as error:  # noqa: BLE001 - a log line, never a failed round
-        log(f"  home renderers: not read ({error})")
-        return
+    reply = browser.app.call("renderers.list", {"interval_ms": 200}, timeout=15)
     if reply.get("error"):
         log(f"  home renderers: not read ({reply['error']})")
         return
@@ -288,10 +291,18 @@ def _log_home_processes(browser, pids: list[dict]) -> None:
             f"{len(pages)} page(s): {urls}")
 
 
-def _log_app_wakers(browser, phase: str) -> None:
+def _log_app_wakers(browser, phase: str, log) -> None:
     """Who wakes the app process: the wakeup ledger's owners by rate, the main run loop's repeating timers
     and the spare Chromium window's state (`debug.wakeups`, `debug.cef`; the bench build has the debug
-    hooks). Wakeups outside the ledger (Chromium's own threads, AppKit) show in the sampled call trees."""
+    hooks). Wakeups outside the ledger (Chromium's own threads, AppKit) show in the sampled call trees.
+    Log lines only: nothing here fails a round."""
+    try:
+        _log_app_wakers_once(browser, phase, log)
+    except Exception as error:  # noqa: BLE001 - a log line, never a failed round
+        log(f"  {phase} wakers: not read ({type(error).__name__}: {error})")
+
+
+def _log_app_wakers_once(browser, phase: str, log) -> None:
     wakes = browser.app.call("debug.wakeups", {"run_loop": True}, timeout=15)
     if wakes.get("error"):
         log(f"  {phase} wakers: not read ({wakes['error']})")
