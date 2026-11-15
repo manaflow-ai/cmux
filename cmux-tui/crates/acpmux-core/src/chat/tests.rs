@@ -738,8 +738,7 @@ fn actor_line_and_checkpoint_open_gate() {
         );
         println!("{line}");
         if let Ok(path) = std::env::var("V2_GATE_OUT") {
-            let mut output =
-                std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+            let mut output = fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
             writeln!(output, "{line}").unwrap();
         }
         assert!((god as f64) <= small as f64 * 1.2, "{name} best p95");
