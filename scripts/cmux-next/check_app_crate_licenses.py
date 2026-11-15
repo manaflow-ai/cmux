@@ -56,6 +56,7 @@ FIRST_PARTY_GPL = {
     "cmux-bookmarks-core",
     "cmux-cloud-start-core",
     "cmux-cloud-config",
+    "cmux-cloud-environment",
     "cmux-cloud-tasks",
     "cmux-cookie-sync",
     "cmux-daemon-conn-core",
