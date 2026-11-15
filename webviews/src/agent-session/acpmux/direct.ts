@@ -497,6 +497,13 @@ const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 1024 * 1024;
 /// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES.
 const OLDER_PAGE_RECORDS = 2000;
+/// An older ask the reader is not scrolling up for (`loadOlder`'s `rising` false: an open filling
+/// the view, a chat at rest within OLDER_AHEAD_VIEWPORTS of its loaded top) reads the page it read
+/// before older pages grew, and reads none ahead. The reader's next screens are a short page away,
+/// and a 1 MiB page drawn above a chat just opened was its settle's cost: a switch to a god session
+/// settled in 464 ms instead of 152 (bench/chat-switch.bench.ts, chat_switch.god.unread.settled, #42298).
+export const OLDER_REST_PAGE_BYTES = 256 * 1024;
+export const OLDER_REST_PAGE_RECORDS = 400;
 /// The prompt index's byte cap (`loadPromptIndex`), as it was before older pages grew.
 const PROMPT_INDEX_BYTES = 256 * 1024;
 /// Pages read ahead of the reader once an older read lands (`readOlderAhead`): the next ask at the top
@@ -14876,8 +14883,9 @@ export class AcpmuxDirectClient {
   /// selection changed belongs to another session and is dropped.
   /// `through`: read on until the record at that seq is held (a rail jump, `loadThrough`), not only
   /// until an older turn starts. `fill`: the held rows do not fill the view; the read lands with the
-  /// first page that starts an older turn.
-  loadOlder(through?: number, fill = false): Promise<void> {
+  /// first page that starts an older turn. `rising`: the reader is scrolling up now (the transcript's
+  /// OlderAhead); only then does a read ask for the big page (OLDER_PAGE_BYTES) and read pages ahead.
+  loadOlder(through?: number, fill = false, rising = false): Promise<void> {
     if (!this.canPageOlder()) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
     // An ask inside the back-off after a failed page waits it out, then reads. One that returned
@@ -14892,10 +14900,10 @@ export class AcpmuxDirectClient {
             .wait(wait)
             .then((ready) =>
               ready && this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration
-                ? this.fetchOlder(pagingEpoch, through, fill)
+                ? this.fetchOlder(pagingEpoch, through, fill, rising)
                 : undefined,
             )
-        : this.fetchOlder(pagingEpoch, through, fill);
+        : this.fetchOlder(pagingEpoch, through, fill, rising);
     const loading = read
       .catch((error: unknown) => {
         if (this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration)
@@ -14926,7 +14934,8 @@ export class AcpmuxDirectClient {
     return `${sessionId}\u0000${this.selectionGeneration}\u0000${this.historyEpoch}\u0000${pagingEpoch}`;
   }
   /// The older page of `sessionId` that ends before `before`: the one read ahead for it, else a read.
-  private olderPage(sessionId: string, before: number, pagingEpoch: number): Promise<any> {
+  /// `rest`: the reader is not scrolling up, so a read asks for the rest page (OLDER_REST_PAGE_BYTES).
+  private olderPage(sessionId: string, before: number, pagingEpoch: number, rest = false): Promise<any> {
     const ahead = this.olderAhead;
     const kept = ahead?.key === this.olderKey(sessionId, pagingEpoch) ? ahead.pages.get(before) : undefined;
     if (kept) {
@@ -14936,8 +14945,8 @@ export class AcpmuxDirectClient {
     return this.typed("_acpmux/events", {
       sessionId,
       beforeSeq: before,
-      limit: OLDER_PAGE_RECORDS,
-      maxBytes: OLDER_PAGE_BYTES,
+      limit: rest ? OLDER_REST_PAGE_RECORDS : OLDER_PAGE_RECORDS,
+      maxBytes: rest ? OLDER_REST_PAGE_BYTES : OLDER_PAGE_BYTES,
       // acpmux's "transcript" leaves out the preset approval records (paging.rs): a card older
       // than the attach's page comes with the older page that holds it, on a local acpmux as at
       // attach (three kinds, within a remote cmux-tui's eight either way).
@@ -15055,7 +15064,12 @@ export class AcpmuxDirectClient {
     return next !== undefined && next > 0 ? next : undefined;
   }
 
-  private async fetchOlder(pagingEpoch = this.olderPagingEpoch, through?: number, _fill = false): Promise<void> {
+  private async fetchOlder(
+    pagingEpoch = this.olderPagingEpoch,
+    through?: number,
+    _fill = false,
+    rising = false,
+  ): Promise<void> {
     if (!this.canPageOlder(pagingEpoch)) return;
     if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeBefore() !== undefined)
       return this.fetchNativeOlder();
@@ -15139,12 +15153,14 @@ export class AcpmuxDirectClient {
       more = window.more;
       publish(window.pages.reverse().flat(), more);
     }
+    // The reader asked for this (scrolling up, or a rail jump to a place): the big page, and pages ahead.
+    const reading = rising || through !== undefined;
     // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
     // page of its own, and every page of a long turn the open landed in is that turn's. Each ask
     // reads OLDER_PAGES_PER_ASK pages and moves `historyFrom`, which makes the transcript ask again.
     for (let pages = 0; more && pages < OLDER_PAGES_PER_ASK && (!windowed || !foundThrough); pages++) {
       if (!this.canPageOlder(pagingEpoch)) return;
-      const result = await this.olderPage(sessionId, before, pagingEpoch);
+      const result = await this.olderPage(sessionId, before, pagingEpoch, !reading);
       if (stale()) return;
       const page = records(result?.events);
       const pageMore = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
@@ -15154,7 +15170,8 @@ export class AcpmuxDirectClient {
     }
     this.historyExhausted = !more || (this.firstSeq ?? 1) <= 1;
     if (this.historyExhausted) this.emit("history");
-    this.readOlderAhead(pagingEpoch);
+    // Pages ahead only for a reader on the way up (or a rail jump): a chat at rest reads no 4 MiB it may never show.
+    if (reading) this.readOlderAhead(pagingEpoch);
   }
 
   /// Pages older turns in from the chat's Claude Code transcript, past the newest page its log was
