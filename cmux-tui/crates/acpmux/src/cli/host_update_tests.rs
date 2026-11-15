@@ -1059,6 +1059,19 @@ fn a_host_setup_inside_the_restart_window_refuses_and_changes_nothing() {
     assert!(e.to_string().contains("restart window: last update restart 5 min ago"), "{e:#}");
     assert!(!peer.exists(".local/bin/acpmux.new"));
     assert_eq!(peer.read(".local/bin/acpmux"), installed);
+
+    // The window's length is the daemon unit's for setup too (review of
+    // #43709): a unit with two hours holds setup 61 minutes after a restart,
+    // where the default hour would let it through.
+    restarted_ago(&peer, 61 * 60);
+    peer.write(
+        &format!("{UNITS}/acpmux.service.d/window.conf"),
+        "[Service]\nEnvironment=ACPMUX_UPDATE_RESTART_WINDOW_SECS=7200\n",
+    );
+    let e = setup_locked(&peer, &opts).expect_err("the unit's window holds setup");
+    assert!(e.is::<RestartWindow>(), "{e:#}");
+    assert!(e.to_string().contains("last update restart 61 min ago"), "{e:#}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
 }
 
 #[test]
