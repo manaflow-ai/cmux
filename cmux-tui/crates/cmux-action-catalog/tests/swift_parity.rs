@@ -44,7 +44,7 @@ fn check_awaiting_repin(export: &[Value], file: &str) {
 /// catalog, so until the re-pin they show no shortcut for these rows. An export may show
 /// either no shortcut or this crate's; any other value still fails. Take an id off once both
 /// exports carry its shortcut.
-const SHORTCUT_AWAITING_REPIN: &[&str] = &[];
+const SHORTCUT_AWAITING_REPIN: &[&str] = &["space.new"];
 
 /// Whether `id`'s exported shortcut may be `null` while the crate has one (see
 /// [`SHORTCUT_AWAITING_REPIN`]).

@@ -814,6 +814,9 @@ pub struct Hub {
     /// join starts it again on the new join (`server/machine_enroll.rs`).
     #[cfg(feature = "hub-carrier")]
     pub(crate) hub_carrier_websocket: std::sync::OnceLock<std::net::SocketAddr>,
+    /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) machine_routes: crate::machine_routes::Routes,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
@@ -1373,6 +1376,8 @@ impl Hub {
             hub_carrier_serve: Default::default(),
             #[cfg(feature = "hub-carrier")]
             hub_carrier_websocket: std::sync::OnceLock::new(),
+            #[cfg(feature = "hub-carrier")]
+            machine_routes: Default::default(),
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,

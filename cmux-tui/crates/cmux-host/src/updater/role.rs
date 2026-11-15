@@ -1568,6 +1568,7 @@ fn commit(paths: &Paths, pending: &Pending) {
     state.applied_committed_at = pending.committed_at;
     let took = now().saturating_sub(pending.started_at);
     state.last = Some(format!("updated to {} (serving {took} s after the flip)", pending.commit));
+    state.look = Some(settled_look(state.look.take(), pending, super::look::Settle::Updated));
     state.last_at = now();
     clear_pending(paths);
     disarm_guard();
@@ -1578,6 +1579,22 @@ fn commit(paths: &Paths, pending: &Pending) {
         "updated to {} (profile {}, serving {took} s after the flip); removed profiles {profiles:?}",
         pending.commit, pending.to
     ));
+}
+
+/// The look once `pending`'s flip ended as `how`, for the Cloud report: the
+/// census reads whether a build stayed on its first machine from it.
+pub(super) fn settled_look(
+    look: Option<super::look::Look>,
+    pending: &Pending,
+    how: super::look::Settle,
+) -> super::look::Look {
+    super::look::Look::settle(
+        look,
+        &pending.commit,
+        pending.started_at.saturating_mul(1000),
+        how,
+        wall_ms(),
+    )
 }
 
 /// Flips back to the previous profile and restarts what runs the new build.
@@ -1602,6 +1619,8 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
         let mut state = load_state(paths);
         record_rollback(&mut state, pending);
         state.last = Some(format!("rolled back {}: {why}", pending.commit));
+        state.look =
+            Some(settled_look(state.look.take(), pending, super::look::Settle::RolledBack));
         state.last_at = now();
         let _ = save_state(paths, &state);
         clear_pending(paths);
