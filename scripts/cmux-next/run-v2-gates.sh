@@ -88,6 +88,7 @@ core_gates() {
   run_core pr05d_submit_time
   run_core pr08_mirror_apply
   run_core pr08_mirror_local_row
+  run_core pr08b_serve_page
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
 }

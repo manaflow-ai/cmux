@@ -991,6 +991,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "8b",
+        name: "v2.pr08b.serve_page",
+        done_when: "A peer's all page on the serving side (decision 266), from the request to the frame: the newest page and the deepest full page of this machine's rows, 20 rows each, with 20 live and 11,000 closed rows of its own against 20 live and 20 closed, both behind a third machine's run of 500 live rows the page skips. p95 within 1.2x for each, best round of ten, rounds alternate.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "9",
         name: "v2.pr09.chat_actor_start",
         done_when: "Listen within 100 ms of exec and a prompt accepted within 50 ms, with 527 chats and a 4 GB store, 1.2x against one small chat.",

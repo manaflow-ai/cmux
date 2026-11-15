@@ -1287,26 +1287,45 @@ impl Hub {
         };
         let mut filter = request.filter.clone().unwrap_or_default();
         filter.origin = Some("local".to_owned());
-        let page = self
-            .snapshot()
-            .read_page(
-                key.as_ref(),
-                side,
-                false,
-                MAX_WINDOW_ROWS,
-                max - 8192 - request.sid.len(),
-                Some(&filter),
-            )
-            .map_err(|error| self.page_error(error))?;
+        let index = self.snapshot();
+        // `read_page` filters its candidates after it takes them, and its flags and keys name
+        // candidates of every origin (decision 93). A peer's keys name this machine's rows
+        // only: a piece that holds none of them is skipped here, from the key it ends on,
+        // and the reply's keys are its first and last selected rows.
+        let mut anchor = key;
+        let page = loop {
+            let page = index
+                .read_page(
+                    anchor.as_ref(),
+                    side,
+                    false,
+                    MAX_WINDOW_ROWS,
+                    max - 8192 - request.sid.len(),
+                    Some(&filter),
+                )
+                .map_err(|error| self.page_error(error))?;
+            let (more, next) = match side {
+                ReadSide::Before => (page.has_before, &page.before_key),
+                _ => (page.has_after, &page.after_key),
+            };
+            if !page.rows.is_empty() || !more || next.is_none() {
+                break page;
+            }
+            anchor = next.clone();
+        };
+        let first = page.rows.first().map(|row| SortKey::of(row.as_ref()));
+        let last = page.rows.last().map(|row| SortKey::of(row.as_ref()));
         let reply = crate::wire::PageResult {
             sid: request.sid.clone(),
             rows: page.rows.iter().map(|row| PeerRow(row.as_ref())).collect::<Vec<_>>(),
-            has_before: page.has_before,
-            has_after: page.has_after,
+            // The piece may go on past a selected edge with other origins' rows: a flag stays
+            // set, and the next page skips them.
+            has_before: page.has_before || (first.is_some() && first != page.before_key),
+            has_after: page.has_after || (last.is_some() && last != page.after_key),
             cold_unread: page.cold_unread,
-            deeper: page.deeper.into_iter().map(wire_key).collect(),
-            before_key: page.before_key.map(wire_key),
-            after_key: page.after_key.map(wire_key),
+            deeper: Vec::new(),
+            before_key: first.map(wire_key),
+            after_key: last.map(wire_key),
             missing: Vec::new(),
             unknown: Vec::new(),
             rest: Vec::new(),
@@ -1990,6 +2009,8 @@ mod kin_tests;
 mod origin_gates;
 #[cfg(test)]
 mod origin_tests;
+#[cfg(test)]
+mod peer_page_gates;
 #[cfg(test)]
 mod rebuild_tests;
 #[cfg(test)]
