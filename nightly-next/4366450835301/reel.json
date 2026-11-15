@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4366450835301",
+  "notes": "notes/4366450835301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43233,
+      "title": "sidebar: a refused move names its reason; nobody's-move refusals show nothing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43411,
+      "title": "cmux-tui: ship the release build with thin LTO",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43419,
+      "title": "cmux-tui: split workspace registry open and initialization",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43357,
+      "title": "cmux-tui-core: 7c (a) review follow-ups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42989,
+      "title": "Extension hot reload: an end-to-end read-back test from DEV and Release builds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43399,
+      "title": "next-no-huge-files: split workspace registry session reset",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42998,
+      "title": "Extensions can draw a whole New Tab page the person picks (cmux.newtab/1, tabs.newTabApp)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
