@@ -81,18 +81,23 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             let executable = bundle.appending(path: "Contents/Resources/bin").appending(path: name)
             if files.isExecutableFile(atPath: executable.path) { runs.append(Run(executable: executable, arguments: ["--version"])) }
         }
-        // Each Chromium helper app (`<App> Helper (Kind).app`, named after its bundle): with no `--type` it loads the
-        // CEF framework and returns (CEFShim/src/helper_main.mm), so the framework's first load is paid here too.
+        return runs + Self.helperRuns(bundle: bundle)
+    }
+
+    /// Each Chromium helper app of `bundle` (`<App> Helper (Kind).app`, named after its bundle) with `--version`:
+    /// with no `--type` a helper loads the CEF framework and returns (CEFShim/src/helper_main.mm), so the
+    /// framework's first load is paid by the first of them. Blocking: reads the bundle.
+    public static func helperRuns(bundle: URL) -> [Run] {
+        let files = FileManager.checked
         let frameworks = bundle.appending(path: "Contents/Frameworks")
         let helpers = ((try? files.contentsOfDirectory(at: frameworks, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
             .filter { $0.pathExtension == "app" && $0.lastPathComponent.contains(" Helper") }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        for helper in helpers {
+        return helpers.compactMap { helper in
             let name = helper.deletingPathExtension().lastPathComponent
             let executable = helper.appending(path: "Contents/MacOS").appending(path: name)
-            if files.isExecutableFile(atPath: executable.path) { runs.append(Run(executable: executable, arguments: ["--version"])) }
+            return files.isExecutableFile(atPath: executable.path) ? Run(executable: executable, arguments: ["--version"]) : nil
         }
-        return runs
     }
 
     /// Finds the staged bundle on `work`'s files lane at best-effort priority, then starts each run
