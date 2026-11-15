@@ -133,9 +133,10 @@ struct MacScreenHomeSnapshot: Equatable {
         }
     }
 
-    /// The devices the page lists.
+    /// The devices the page lists: every other Mac, online or not, sharing or not, so the page can say how to
+    /// reach it; a phone only when it shares, since its row could only say to turn on what a phone cannot.
     static func listed(_ devices: [HubDevice]) -> [HubDevice] {
-        devices
+        devices.filter { $0.platform != .ios || $0.macScreenShared }
     }
 
     /// What the home page says while Mac Screen cannot work: it needs a

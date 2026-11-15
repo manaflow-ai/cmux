@@ -41,6 +41,7 @@ public final class MacScreenStore {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encodeIfPresent(hubDeviceName, forKey: .hubDeviceName)
             try c.encode(deviceNames, forKey: .deviceNames)
+            try c.encode(hasSharedBefore, forKey: .hasSharedBefore)
             try c.encode(linkPairingsRemoved, forKey: .linkPairingsRemoved)
         }
     }
@@ -93,7 +94,8 @@ public final class MacScreenStore {
                 if let stored {
                     hubDeviceName = hubDeviceName ?? stored.hubDeviceName
                     deviceNames = stored.deviceNames.merging(deviceNames) { _, new in new }
-                    hasSharedBefore = stored.hasSharedBefore
+                    // A share marked while the file was read stays marked.
+                    hasSharedBefore = hasSharedBefore || stored.hasSharedBefore
                 }
                 if stored?.linkPairingsRemoved != true {
                     // One time: the Keychain items of link pairing (every saved Mac's room
