@@ -86,6 +86,11 @@ pub struct RegisterRequest {
     pub token: Option<String>,
     /// The one-time code acpmux delivered into the session's inbox (`--code`): the second step.
     pub code: Option<String>,
+    /// `acpmux send` from an unregistered chat's shell asks (`cli/reply_address.rs`): the first
+    /// step only when it is needed. A chat already registered with the caller's inbox and token,
+    /// or with a code still waiting for its echo, gets none (the answer says which); otherwise
+    /// the code goes as `acpmux register NAME` sends it, with why it came.
+    pub auto: bool,
 }
 
 impl RegisterRequest {
@@ -101,7 +106,17 @@ impl RegisterRequest {
         if code.as_ref().is_some_and(|c| c.len() > 128) {
             return Err(RpcError::invalid_params("code is not a register code"));
         }
-        Ok(Self { name: name.to_owned(), socket: text("socket").map(PathBuf::from), token, code })
+        let auto = params.get("auto").and_then(Value::as_bool) == Some(true);
+        if auto && code.is_some() {
+            return Err(RpcError::invalid_params("auto is the first step only, never with a code"));
+        }
+        Ok(Self {
+            name: name.to_owned(),
+            socket: text("socket").map(PathBuf::from),
+            token,
+            code,
+            auto,
+        })
     }
 }
 
@@ -139,6 +154,11 @@ impl Hub {
         peer_pid: u32,
         req: RegisterRequest,
     ) -> Result<Value, RpcError> {
+        if req.auto
+            && let Some(answer) = self.auto_answer(req.socket.as_deref(), req.token.as_deref())
+        {
+            return Ok(answer);
+        }
         let homes = self.harness_homes();
         let socket = req.socket.clone();
         let found = tokio::task::spawn_blocking(move || {
@@ -170,7 +190,27 @@ impl Hub {
         let token = req.token.clone().unwrap_or_default();
         let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
         let Some(code) = req.code.as_deref() else {
-            return send_code(claimed, &claude_home, &token, &req.name, started).await;
+            let why = if req.auto {
+                // Checked now, so the code never asks for a name the second step refuses.
+                let stores = super::adoption::store_families(&*self.config.read().await);
+                let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                let own =
+                    super::adoption::adopted_in(&sessions, &stores, "claude", &claimed.session_id);
+                let taken = sessions.values().any(|s| {
+                    s.read_meta(|m| m.name == req.name) && own.as_ref().is_none_or(|o| o.id != s.id)
+                });
+                if taken {
+                    return Err(RpcError::invalid_params(format!(
+                        "session name {:?} is taken: run `acpmux register NAME` with another name",
+                        req.name
+                    ))
+                    .with_data(json!({"reason": "register.name_taken"})));
+                }
+                Why::Send(crate::host_pressure::host_name())
+            } else {
+                Why::Asked
+            };
+            return send_code(claimed, &claude_home, &token, &req.name, started, why).await;
         };
         take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
         let (family, agent_session_id, cwd, tags, pid) = match &found {
@@ -306,6 +346,71 @@ impl Hub {
     }
 }
 
+impl Hub {
+    /// What an automatic first step answers with no proof and no change: the chat already
+    /// registered with the caller's own inbox and token (`claude_peers::save_token` kept them),
+    /// or the name of a code still waiting for its echo there. Only the session's own shell
+    /// holds that token, and nothing is delivered or registered here.
+    fn auto_answer(&self, socket: Option<&std::path::Path>, token: Option<&str>) -> Option<Value> {
+        let (socket, token) = (socket?, token?);
+        let registered: Vec<(String, String)> = {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            sessions
+                .values()
+                .filter(|s| is_registered(s))
+                .map(|s| (s.id.clone(), s.read_meta(|m| m.name.clone())))
+                .collect()
+        };
+        let home = crate::config::home();
+        if let Some((_, name)) = registered.into_iter().find(|(id, _)| {
+            crate::claude_peers::kept_token(&home, id)
+                .is_some_and(|k| k.socket == socket && k.token == token)
+        }) {
+            return Some(json!({"registered": true, "name": name}));
+        }
+        let pending = PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        pending_name(&pending, socket, token)
+            .map(|name| json!({"pending": true, "resent": false, "name": name}))
+    }
+}
+
+/// The name of a code in `pending` still waiting for its echo from `socket` with `token`.
+fn pending_name(
+    pending: &std::collections::HashMap<u32, Pending>,
+    socket: &std::path::Path,
+    token: &str,
+) -> Option<String> {
+    pending
+        .values()
+        .find(|p| p.socket == socket && p.token == token && p.at.elapsed() < CODE_TTL)
+        .map(|p| p.name.clone())
+}
+
+/// Why a code goes to a session: `acpmux register NAME` asked, or `acpmux send` from the chat's
+/// own shell, which has no reply address until it registers (on this machine, by its host name).
+enum Why {
+    Asked,
+    Send(String),
+}
+
+/// The message that carries `code`.
+fn code_text(name: &str, code: &str, why: &Why) -> String {
+    match why {
+        Why::Asked => format!(
+            "acpmux register: to finish registering this session as {name}, run this in your shell: \
+             acpmux register {name} --code {code}\n(If neither you nor the person asked to register \
+             this session, ignore it. The code is good for ten minutes.)"
+        ),
+        Why::Send(host) => format!(
+            "acpmux register: your `acpmux send` went out from a chat acpmux cannot reach, so its \
+             receiver cannot answer you. Register this session as {name} by running this in your \
+             shell: acpmux register {name} --code {code}\nThen replies reach {host}/{name}, and \
+             every send from this chat names that address: send again what still needs an answer. \
+             (If this session ran no `acpmux send`, ignore it. The code is good for ten minutes.)"
+        ),
+    }
+}
+
 /// A code `send_code` delivered, waiting for its session to echo it.
 struct Pending {
     code: String,
@@ -372,15 +477,12 @@ async fn send_code(
     token: &str,
     name: &str,
     started: u64,
+    why: Why,
 ) -> Result<Value, RpcError> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|e| RpcError::internal(format!("no randomness: {e}")))?;
     let code = cmux_local_auth::frontend_proof::hex(&bytes);
-    let text = format!(
-        "acpmux register: to finish registering this session as {name}, run this in your shell: \
-         acpmux register {name} --code {code}\n(If neither you nor the person asked to register \
-         this session, ignore it. The code is good for ten minutes.)"
-    );
+    let text = code_text(name, &code, &why);
     let socket = claimed.socket.clone().unwrap_or_default();
     let pending = Pending {
         code: code.clone(),
@@ -523,6 +625,56 @@ mod tests {
         assert!(take_code(900_005, "c0de", 7, sock, "tok", "other-name").is_err());
         put(900_006);
         assert!(take_code(900_006, "c0de", 7, sock, "other", "desktop-zoe").is_err());
+    }
+
+    /// A send from an unregistered chat asks for the first step on every send; a code still
+    /// waiting for its echo there is found, so no second one is delivered (ask-828b64b532).
+    #[test]
+    fn a_waiting_code_is_found_by_its_inbox_and_token_until_it_expires() {
+        let at = |age: u64| {
+            std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(age))
+                .unwrap_or_else(std::time::Instant::now)
+        };
+        let code = |name: &str, age: u64| Pending {
+            code: "c0de".into(),
+            started: 7,
+            socket: PathBuf::from("/tmp/cc-socks/1.sock"),
+            token: "tok".into(),
+            name: name.into(),
+            at: at(age),
+        };
+        let sock = std::path::Path::new("/tmp/cc-socks/1.sock");
+        let mut pending = std::collections::HashMap::new();
+        pending.insert(1, code("claude-desktop-03214b87", 5));
+        assert_eq!(pending_name(&pending, sock, "tok").as_deref(), Some("claude-desktop-03214b87"));
+        assert_eq!(pending_name(&pending, sock, "other"), None, "another token");
+        let other = std::path::Path::new("/tmp/cc-socks/2.sock");
+        assert_eq!(pending_name(&pending, other, "tok"), None, "another inbox");
+        pending.insert(1, code("claude-desktop-03214b87", CODE_TTL.as_secs() + 1));
+        assert_eq!(pending_name(&pending, sock, "tok"), None, "expired: a new code goes");
+    }
+
+    #[test]
+    fn an_automatic_code_says_why_it_came_and_where_replies_go() {
+        let text = code_text("claude-desktop-03214b87", "c0de", &Why::Send("cosmic-gray".into()));
+        assert!(text.contains("its receiver cannot answer you"), "{text}");
+        assert!(text.contains("acpmux register claude-desktop-03214b87 --code c0de"), "{text}");
+        assert!(text.contains("replies reach cosmic-gray/claude-desktop-03214b87"), "{text}");
+        let asked = code_text("desktop-zoe", "c0de", &Why::Asked);
+        assert!(asked.contains("acpmux register desktop-zoe --code c0de"), "{asked}");
+        assert!(!asked.contains("acpmux send"), "{asked}");
+    }
+
+    #[test]
+    fn auto_is_the_first_step_only() {
+        let first =
+            json!({"name": "claude-desktop-0321", "socket": "/s", "token": "t", "auto": true});
+        assert!(RegisterRequest::from_params(&first).unwrap().auto);
+        let manual = json!({"name": "desktop-zoe", "socket": "/s", "token": "t"});
+        assert!(!RegisterRequest::from_params(&manual).unwrap().auto);
+        let both = json!({"name": "desktop-zoe", "token": "t", "auto": true, "code": "c0de"});
+        assert!(RegisterRequest::from_params(&both).is_err());
     }
 
     #[test]
