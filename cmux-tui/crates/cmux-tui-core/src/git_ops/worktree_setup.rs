@@ -732,6 +732,13 @@ fn read_own(path: &Path) -> Result<Option<Vec<u8>>, TooLarge> {
     if small { Ok(Some(bytes)) } else { Err(TooLarge) }
 }
 
+/// The bytes of the small file `path` of a work tree, read as a file that
+/// cmux keeps in a git folder is read ([`read_own`]); `None` when there is
+/// no such file to read, and for a file above the size limit.
+pub(super) fn read_small(path: &Path) -> Option<Vec<u8>> {
+    read_own(path).ok().flatten()
+}
+
 /// Opens a file that cmux keeps in a git folder (a setup's status, log and
 /// lock, the repository's ports), for a read ([`open_as_own`]).
 fn open_own(path: &Path) -> Option<File> {
