@@ -382,6 +382,8 @@ impl Proxy {
         Self { port, links, backend }
     }
 
+    // Only the churn lab (Linux) moves a proxy.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     fn repoint(&self, backend: u16) {
         self.backend.store(backend, std::sync::atomic::Ordering::SeqCst);
     }
@@ -477,6 +479,7 @@ impl Daemon {
 
     /// `VmRSS` and `VmHWM` of the daemon, in bytes.
     /// The daemon's CPU time so far, user and system, in seconds (`/proc/PID/stat`).
+    #[cfg(target_os = "linux")]
     fn cpu_seconds(&self) -> f64 {
         let stat =
             std::fs::read_to_string(format!("/proc/{}/stat", self.child.id())).unwrap_or_default();
@@ -1098,6 +1101,7 @@ async fn restart_to_chat_attach_is_under_two_seconds() {
 /// One peer's hub, restartable: each start is a new daemon run (a new list epoch) over the same
 /// rows and the same peer token, so the link that reconnects to it cannot follow its cursor and
 /// reads the whole list, as from a peer that restarted or an older daemon without the follow.
+#[cfg(target_os = "linux")]
 struct RestartingPeer {
     name: String,
     rows: usize,
@@ -1105,6 +1109,7 @@ struct RestartingPeer {
     serving: Option<tokio::task::AbortHandle>,
 }
 
+#[cfg(target_os = "linux")]
 impl RestartingPeer {
     /// A new run of the peer's hub on a new port: the port.
     async fn start(&mut self) -> u16 {
@@ -1128,11 +1133,13 @@ impl RestartingPeer {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
 /// Pins `pid` (0: the calling thread) to the first `cpus` CPUs.
+#[cfg(target_os = "linux")]
 fn pin(pid: i32, cpus: usize) {
     // SAFETY: a zeroed cpu_set_t is an empty set; CPU_SET writes within it.
     unsafe {
@@ -1154,6 +1161,7 @@ fn pin(pid: i32, cpus: usize) {
 /// `ACPMUX_CHURN_FOLLOW=1` cuts without a restart, so the link follows: the control.
 /// Manual, on Linux CI:
 /// `cargo test -p acpmux --release --test god_daemon whole_lists -- --ignored --nocapture`.
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "manual: a churn lab; run on Linux CI"]
 async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
