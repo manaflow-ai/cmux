@@ -122,6 +122,7 @@ usage: cmux app ping | identify | capabilities
        cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
        cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
+       cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: phase, first frame ms, fps, round trip, drops)
        cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)

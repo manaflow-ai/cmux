@@ -269,6 +269,15 @@ extension SettingsSchemaSamples {
                 .number(1), .bool(true),
             ]
         ),
+        "domain:app_id": SampleSet(
+            accept: [
+                .string("local/web-pane"), .string("local/showcase-newtab"), .string("manaflow-ai/launcher"),
+            ],
+            refuse: [
+                .string("Foo/Bar"), .string("local/Web"), .string("a/b/c"), .string("launcher"), .string("/b"),
+                .string("a/"), .string("-a/b"), .string("a b/c"), .string(""), .number(1), .bool(true),
+            ]
+        ),
         "domain:search_template": SampleSet(
             accept: [
                 .string(""), .string("https://search.example/?q=%s"),

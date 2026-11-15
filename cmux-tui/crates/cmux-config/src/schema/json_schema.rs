@@ -182,6 +182,13 @@ fn kind_schema(row: &Row) -> Value {
             });
             return json!({ "type": "array", "items": { "anyOf": [name, rule] } });
         }
+        Validation::Domain(DomainKind::AppId) => {
+            // The manifest's own id pattern, read from its schema.
+            return match super::app_id::app_id_pattern() {
+                Some(pattern) => json!({ "type": "string", "pattern": pattern }),
+                None => json!({ "type": "string" }),
+            };
+        }
         _ => {}
     }
     match &row.kind {

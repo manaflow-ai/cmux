@@ -198,6 +198,12 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       ? null
       : "expected a list of preset names and rules, each with a label and a program or match";
   }
+  if (row.validation === "domain:app_id") {
+    // The manifest's own id pattern, which the export carries on the row.
+    return typeof value === "string" && row.pattern !== undefined && new RegExp(row.pattern).test(value)
+      ? null
+      : "expected an app id, publisher/name in lowercase letters, digits and -";
+  }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";
   }
