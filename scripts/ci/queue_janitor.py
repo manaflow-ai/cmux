@@ -4422,13 +4422,21 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     A refusal whose core reset is at most RESET_WAIT_MAX_SECONDS away waits for it and sweeps once more, so
     the macos-pool-load snapshot is still published: run 43759822026 (2026-11-15) was refused 33 s before the
-    reset and wrote none, and the census and the rescue depth rule lost queue depth for 10-20 min. A sweep
-    that still ends refused says in its warning that it published no snapshot."""
+    reset and wrote none, and the census and the rescue depth rule lost queue depth for 10-20 min. It sweeps
+    again only when the refused sweep wrote no snapshot: a refusal it caught and went on from can come after it
+    wrote one and saved lost_reruns for the runs it cancelled there, which a second sweep would rebuild from
+    the previous job's artifact and drop. And only while a full second sweep still fits in the job's 15
+    minutes (RESET_RETRY_START_BY_SECONDS): a timeout skips the publish step. A sweep that still ends refused
+    says in its warning whether it published a snapshot."""
+    started = time.monotonic()
+    snapshot = _pool_load_path(argv)
     first: list[GitHub] = []
     code, limited, client = _sweep_once(argv, first)
     reset = int((client.rate_limits.get("core") or {}).get("reset") or 0) if client else 0
     wait = reset - time.time() + RESET_WAIT_SLACK_SECONDS
-    if limited and reset and 0 < wait <= RESET_WAIT_MAX_SECONDS + RESET_WAIT_SLACK_SECONDS:
+    if (limited and reset and snapshot is not None and not snapshot.exists()
+            and 0 < wait <= RESET_WAIT_MAX_SECONDS + RESET_WAIT_SLACK_SECONDS
+            and time.monotonic() - started + wait <= RESET_RETRY_START_BY_SECONDS):
         print(f"queue-janitor: {limited}; waiting {wait:.0f}s for the budget's reset, then sweeping again so "
               f"the macos-pool-load snapshot is still published")
         time.sleep(wait)
@@ -4437,17 +4445,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         client = retried or client
     if not limited:
         return code
+    published = snapshot is not None and snapshot.exists()
     print(f"::warning title=queue janitor out of API budget::{limited}. This sweep stopped early and is "
-          f"skipped, and it published no macos-pool-load snapshot: readers keep the last one, stale past "
-          f"{FLEET_GATES_STALE_S // 60} min, until the next sweep after the budget resets reads the queue again. "
-          f"{render_rate_limits(client.rate_limits) if client else ''}")
+          + ("skipped; it wrote its macos-pool-load snapshot before the refusal. "
+             if published else
+             f"skipped, and it published no macos-pool-load snapshot: readers keep the last one, stale past "
+             f"{FLEET_GATES_STALE_S // 60} min, until the next sweep after the budget resets reads the queue "
+             f"again. ")
+          + f"{render_rate_limits(client.rate_limits) if client else ''}")
     return 0
+
+
+def _pool_load_path(argv: Sequence[str] | None) -> Path | None:
+    """Where sweep() writes its macos-pool-load snapshot: --pool-load, else POOL_LOAD_OUT, as sweep() reads it."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    for index, arg in enumerate(args):
+        if arg == "--pool-load" and index + 1 < len(args):
+            return Path(args[index + 1])
+        if arg.startswith("--pool-load="):
+            return Path(arg.split("=", 1)[1])
+    return Path(os.environ["POOL_LOAD_OUT"]) if os.environ.get("POOL_LOAD_OUT") else None
 
 
 # How long main() waits for a refused sweep's budget to reset before sweeping again, and the slack past the
 # reset it adds (the reset is whole seconds and clocks differ). Well inside the job's 15 minutes.
 RESET_WAIT_MAX_SECONDS = 120
 RESET_WAIT_SLACK_SECONDS = 3
+# A second sweep starts at most this long after main() did: a full sweep can take 13 of the job's 15 minutes.
+RESET_RETRY_START_BY_SECONDS = 120
 
 
 def _sweep_once(argv: Sequence[str] | None, clients: list["GitHub"]) -> tuple[int, str, "GitHub | None"]:
