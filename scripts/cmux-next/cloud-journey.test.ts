@@ -4,6 +4,7 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
+import { Journey, runPreclaimChat } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
@@ -12,6 +13,47 @@ import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn,
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("preclaim table survives the enclosing journey step on success and failure", async () => {
+    for (const fail of [false, true]) {
+      const out = mkdtempSync(join(tmpdir(), "preclaim-summary-test-"));
+      try {
+        const journey = new Journey(resolveBackend("staging"), out, { account: "private-account" }, true);
+        const row = preclaimClaimRecord({ claim: 1, machine: "private-machine", leaseHit: true, firstReplyMs: 27 });
+        const burst = journey.step("preclaim burst", async () => {
+          Object.assign(journey, { preclaimRows: [row] });
+          journey.flush();
+          if (fail) throw new Error("private failure detail");
+          return { value: 0, detail: "private step detail" };
+        });
+        if (fail) await expect(burst).rejects.toThrow("private failure detail");
+        else await burst;
+        journey.flush();
+        const summary = readFileSync(join(out, "summary.md"), "utf8");
+        expect(summary).toContain(preclaimSummaryMarkdown([row]));
+        expect(summary).toContain("preclaim burst");
+        expect(summary).not.toContain("private-");
+        expect(summary).not.toContain("private failure detail");
+        expect(summary).not.toContain("private step detail");
+      } finally {
+        rmSync(out, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("preclaim reply waits through idle before a queued prompt starts", async () => {
+    const replies = ["@@exit 0", "@@exit 0", "@@wait 0\n", "@@wait 0\nThe measured reply."];
+    const commands: string[] = [];
+    const result = await runPreclaimChat(async (command) => {
+      commands.push(command);
+      const stdout = replies.shift();
+      if (stdout === undefined) throw new Error("unexpected extra command");
+      return { code: 0, stdout, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(commands).toHaveLength(4);
+    expect(replies).toEqual([]);
+    expect(result.replyMs).toBeGreaterThanOrEqual(0);
+  });
+
   test("preclaim records preserve the claim-to-bound split and receipt state", () => {
     const row = preclaimClaimRecord({
       claim: 2,

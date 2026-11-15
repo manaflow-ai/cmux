@@ -220,7 +220,7 @@ export function preclaimPublicMeta(): Record<string, string> {
   return { mode: "preclaim" };
 }
 
-class Journey {
+export class Journey {
   readonly steps: Step[] = [];
   readonly secrets: string[] = [];
   readonly firstText = new FirstTextTiming();
@@ -545,7 +545,7 @@ async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "
   throw new Error("warm-spare returned no JSON answer");
 }
 
-async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number }> {
+export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number }> {
   const started = Date.now();
   const ensured = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m claude --json 2>&1; echo "@@exit $?"`, 120_000);
   if (!/@@exit 0/.test(ensured.stdout)) throw new Error(`preclaim ${session}: agent start refused`);
