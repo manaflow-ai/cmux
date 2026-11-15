@@ -12,8 +12,9 @@
 //! same one for Codex): `CMUX_CLAUDE_AUTH=own|team` pins it, then `cr use`'s recorded choice; a
 //! sign-in of its own keeps own. That is any source `claude_auth::find_in` sees in the launch's
 //! effective env (the login values, the vault, `machine.env`, then the profile, as
-//! `login_env::effective_for` layers them): a key or token, settings env or a helper, the
-//! `.claude.json` API key or the saved sign-in;
+//! `login_env::effective_for` layers them; for a remote-origin launch, which gets none of those,
+//! only the host base and the profile: [`launch_env_now`]): a key or token, settings env or a
+//! helper, the `.claude.json` API key or the saved sign-in;
 //! no `https://` team origin, or one that does not resolve, keeps own. Otherwise team: the pair the
 //! shell set aside, read from the model-plane env file it was persisted to, or the origin and the
 //! public placeholder. A pair the person set themselves stays.
@@ -122,7 +123,10 @@ where
 
 /// The env Claude's sign-in check reads for one launch with the resolved profile env `profile`,
 /// over the daemon's own env `daemon` (less `machine.env`'s names), the vault's entries `vault`
-/// and `machine.env`'s values `machine` (`provider_cloud_auth::LaunchEnv::new`).
+/// and `machine.env`'s values `machine` (`provider_cloud_auth::LaunchEnv::new`). A `remote`
+/// (remote-origin) launch starts from the fixed host base `daemon` and its profile only, so a
+/// vault or `machine.env` value is no sign-in of its own (#43821).
+#[cfg(test)]
 pub(crate) fn launch_env(
     profile: BTreeMap<String, String>,
     daemon: BTreeMap<String, String>,
@@ -130,7 +134,6 @@ pub(crate) fn launch_env(
     machine: BTreeMap<String, String>,
     remote: bool,
 ) -> BTreeMap<String, String> {
-    let _ = remote;
     crate::provider_cloud_auth::LaunchEnv::new(
         "claude",
         profile,
@@ -138,18 +141,19 @@ pub(crate) fn launch_env(
         vault,
         machine,
         Vec::new(),
-        false,
+        remote,
     )
     .into_env()
 }
 
-/// [`launch_env`] with this daemon's env, vault and `machine.env` now (`hub/spawn.rs`).
+/// The env Claude's sign-in check reads for one launch (`hub/spawn.rs`): this daemon's env, vault
+/// and `machine.env` now under the resolved profile, or for a `remote` launch only the host base
+/// it starts from and the profile (`provider_cloud_auth::LaunchEnv::now`; tests: `launch_env`).
 pub(crate) fn launch_env_now(
     profile: BTreeMap<String, String>,
     remote: bool,
 ) -> BTreeMap<String, String> {
-    let _ = remote;
-    crate::login_env::effective_for(Some("claude"), &profile)
+    crate::provider_cloud_auth::LaunchEnv::now("claude", profile, remote).into_env()
 }
 
 /// Claude's managed settings on Linux, under the machine root.
