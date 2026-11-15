@@ -99,8 +99,13 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
         for y in 0..<h {
             let row = pixels + y * rowBytes
             for x in 0..<w {
-                let p = row + x * 4 // B, G, R, A
-                out[y * width + x] = UInt8((Int(p[2]) * 77 + Int(p[1]) * 150 + Int(p[0]) * 29) >> 8)
+                // One typed step each: the expression in one line ran past the type checker's limit.
+                let p: UnsafeMutablePointer<UInt8> = row + x * 4 // B, G, R, A
+                let r: Int = Int(p[2]) * 77
+                let g: Int = Int(p[1]) * 150
+                let b: Int = Int(p[0]) * 29
+                let luma: Int = (r + g + b) >> 8
+                out[y * width + x] = UInt8(luma)
             }
         }
         return out
@@ -162,7 +167,8 @@ SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) 
         return
     }
     let windows = content.windows.filter { $0.owningApplication?.processID == pid && $0.windowLayer == 0 && $0.frame.width > 200 && $0.frame.height > 200 }
-    guard let window = windows.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
+    func area(_ w: SCWindow) -> Double { Double(w.frame.width) * Double(w.frame.height) }
+    guard let window = windows.max(by: { area($0) < area($1) }) else {
         startError = "no on-screen window of pid \(pid) (\(content.windows.count) windows listed; preflight \(preflight))"
         return
     }
@@ -171,7 +177,9 @@ SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) 
         return
     }
     let region = window.frame.intersection(display.frame).offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
-    let height = max(32, Int((Double(outWidth) * region.height / region.width).rounded()))
+    let regionWidth = Double(region.width), regionHeight = Double(region.height)
+    let scaledHeight: Double = Double(outWidth) * regionHeight / regionWidth
+    let height = max(32, Int(scaledHeight.rounded()))
     let hz = displayHz(display.displayID)
     let config = SCStreamConfiguration()
     config.sourceRect = region
@@ -199,11 +207,19 @@ SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) 
     guard startError == nil else { return }
     recorder = made
     stream = s
-    ready = ["ready": true, "w": outWidth, "h": height, "window_id": Int(window.windowID),
-             "window": [window.frame.minX, window.frame.minY, window.frame.width, window.frame.height],
-             "display": [display.frame.minX, display.frame.minY, display.frame.width, display.frame.height],
-             "display_id": Int(display.displayID), "display_hz": hz, "preflight": preflight,
-             "px_per_point": Double(outWidth) / Double(region.width)]
+    func box(_ rect: CGRect) -> [Double] { [Double(rect.minX), Double(rect.minY), Double(rect.width), Double(rect.height)] }
+    var fields: [String: Any] = [:]
+    fields["ready"] = true
+    fields["w"] = outWidth
+    fields["h"] = height
+    fields["window_id"] = Int(window.windowID)
+    fields["window"] = box(window.frame)
+    fields["display"] = box(display.frame)
+    fields["display_id"] = Int(display.displayID)
+    fields["display_hz"] = hz
+    fields["preflight"] = preflight
+    fields["px_per_point"] = Double(outWidth) / regionWidth
+    ready = fields
 }
 if started.wait(timeout: .now() + 20) == .timedOut { fail("capture did not start within 20 s (preflight \(preflight))") }
 if let startError { fail(startError) }
