@@ -1119,6 +1119,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-cli-render"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
+ "base64",
+ "ghostty-vt",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -1459,6 +1469,7 @@ dependencies = [
  "jsonschema",
  "notify",
  "plist",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
