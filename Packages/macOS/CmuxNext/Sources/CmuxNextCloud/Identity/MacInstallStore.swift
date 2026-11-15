@@ -28,10 +28,10 @@ public struct MacInstallStore: Sendable {
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: true)
     }
 
-    /// Keys of type `Key` as blobs in `keychain` (``InstallKeySlots``), records in `directory`: the enclave store's
+    /// Keys of type `Key` as blobs in `keychain` (``SlotInstallSigner``), records in `directory`: the enclave store's
     /// rules over any Keychain, for a test whose Keychain refuses another build's delete.
     static func slots<Key: SlotKey>(_ key: Key.Type, keychain: any InstallKeyKeychain, directory: URL) -> MacInstallStore {
-        MacInstallStore(makeSigner: { account in SlotInstallSigner<Key>(slots: InstallKeySlots(account: account, keychain: keychain)) },
+        MacInstallStore(makeSigner: { account in SlotInstallSigner<Key>(account: account, keychain: keychain) },
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: false)
     }
 

@@ -82,33 +82,41 @@ import Testing
         #expect(Set(await keychain.accounts()).count == 2)
     }
 
+    /// The call site over Rust's `cloud_identity_install_key_slots` (its own cases: cmux-cloud-config
+    /// `install_key_slots_tests`): the Keychain I/O lands where Rust says.
     @Test func aRotationMovesAboveEveryItemItCouldNotDelete() async throws {
         let keychain = Keychain(), account = "install-key-0123456789abcdef"
-        let old = InstallKeySlots(account: account, keychain: BuildKeychain(keychain: keychain, build: "old"))
-        let new = InstallKeySlots(account: account, keychain: BuildKeychain(keychain: keychain, build: "new"))
-        try await old.store(Data("first".utf8))
-        #expect(try await new.current() == Data("first".utf8))
+        let old = SlotInstallSigner<SoftwareKey>(account: account, keychain: BuildKeychain(keychain: keychain, build: "old"))
+        let new = SlotInstallSigner<SoftwareKey>(account: account, keychain: BuildKeychain(keychain: keychain, build: "new"))
+        let first = try await old.publicKeyX963()
+        #expect(try await new.publicKeyX963() == first)
+        #expect(await keychain.accounts() == [account])
 
-        try await new.rotate { Data("second".utf8) }
-        #expect(try await new.current() == Data("second".utf8))
-        #expect(try await old.current() == Data("second".utf8))
-        #expect(try await new.generations() == [1, 2])
+        try await new.rotate()
+        let second = try await new.publicKeyX963()
+        #expect(second != first)
+        #expect(try await old.publicKeyX963() == second)
+        #expect(Set(await keychain.accounts()) == [account, "\(account).2"])
 
         // Its own generation goes; the kept one stays below the new key.
-        try await new.rotate { Data("third".utf8) }
-        #expect(try await new.current() == Data("third".utf8))
-        #expect(try await new.generations() == [1, 2])
+        try await new.rotate()
+        let third = try await new.publicKeyX963()
+        #expect(third != second && third != first)
+        #expect(Set(await keychain.accounts()) == [account, "\(account).2"])
+
         // A build that may delete everything leaves no key: the next use makes one at the account itself.
-        let mine = InstallKeySlots(account: account, keychain: BuildKeychain(keychain: Keychain(), build: "solo"))
-        try await mine.store(Data("solo".utf8))
-        try await mine.rotate { Data("unused".utf8) }
-        #expect(try await mine.current() == nil)
-        #expect(try await mine.generations().isEmpty)
-        // Another user's key and look-alike accounts are never a generation.
+        let solo = Keychain()
+        let mine = SlotInstallSigner<SoftwareKey>(account: account, keychain: BuildKeychain(keychain: solo, build: "solo"))
+        _ = try await mine.publicKeyX963()
+        try await mine.rotate()
+        #expect(await solo.accounts().isEmpty)
+        _ = try await mine.publicKeyX963()
+        #expect(await solo.accounts() == [account])
+
+        // Another user's key and look-alike accounts are never the key.
         try await keychain.add("install-key-ffffffffffffffff", Data(), build: "old")
-        try await keychain.add("\(account).x", Data(), build: "old")
         try await keychain.add("\(account).02", Data(), build: "old")
-        #expect(try await new.generations() == [1, 2])
+        #expect(try await new.publicKeyX963() == third)
     }
 
     /// Leo's NIGHTLY: a relaunch's first Cloud call came before the restored session bound the install, and the
