@@ -4,6 +4,7 @@
     hot-apply.py plan SHA [--app APP] [--repo DIR]
     hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
                        [--restart-acpmux] [--dry-run] [--base COMMIT]
+    hot-apply.py prefetch SHA [--app APP | --base COMMIT] [--repo DIR]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
 
@@ -84,6 +85,16 @@ another pauses it), so they add up to the run:
 app changes, and the receipt (action `dry-run`) goes only to history.jsonl, never to last.json
 (`rollback` never reads it). --base COMMIT stands in for the app's commit (its web ABI is read from
 COMMIT's tree), so a host with no app can plan or dry-run.
+
+`prefetch SHA` does what `apply` does up to the swap, and keeps it: SHA's keys, the published
+metadata, the cmux build and its companions, and the web bundles, each under the state folder by
+content (a key, a commit or a sha256), each checked when it is fetched. A later `apply SHA` then reads
+them from there, checks each against the sha256 it was fetched with, and only swaps. Run it once CI
+has published SHA (`glaeda-gh wait run` on the publish run, then `prefetch`); try-pr.sh and an agent
+that merges can run it right away. A part the app already runs is skipped: a `bin/cmux` (and its
+companions) that already hash to SHA's build, and an overlay whose commit has SHA's web key. The
+receipt names it under `unchanged`. An apply that changed nothing leaves last.json, and so
+`rollback`, to the apply before it. The web cache keeps the newest WEB_KEEP keys.
 
 Exit 0: applied and checked (or nothing to apply). 1: a check failed (rolled back). 2: usage.
 3: nothing here can apply SHA (an unpublished artifact, an unrelated commit, only `left` parts).
@@ -166,6 +177,32 @@ class Phases:
 PHASES = Phases()
 
 
+WEB_KEEP = 8  # web bundle folders kept under state/web (about 30 MB each)
+HEX = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as part:
+        part.write(data)
+    os.replace(part.name, path)
+
+
+def remembered(kind: str, sha: str, compute) -> str:
+    """A key that is a function of commit SHA alone (its cmux-tui tree key, its web source key), kept
+    under state/keys/KIND/SHA after the first time it is computed."""
+    path = state_dir() / "keys" / kind / sha
+    try:
+        value = path.read_text().strip()
+        if HEX.fullmatch(value):
+            return value
+    except OSError:
+        pass
+    value = compute()
+    write_atomic(path, (value + "\n").encode())
+    return value
+
+
 def load(name: str, file: str):
     spec = importlib.util.spec_from_file_location(name, HERE / file)
     module = importlib.util.module_from_spec(spec)
@@ -216,6 +253,19 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def fetch_kept(url: str) -> bytes:
+    """fetch(), for a URL whose body never changes once published (a tree key's or a commit's files):
+    kept under state/meta by the URL's sha256 after the first answer. A 404 is not kept."""
+    path = state_dir() / "meta" / hashlib.sha256(url.encode()).hexdigest()
+    try:
+        return path.read_bytes()
+    except OSError:
+        pass
+    body = fetch(url)
+    write_atomic(path, body)
+    return body
+
+
 def fetch(url: str) -> bytes:
     # files.cmux.com answers Python's default user agent (Python-urllib/...) with 403.
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
@@ -253,8 +303,10 @@ def app_abi(app: Path) -> int | None:
 
 
 def tree_key(repo: Path, sha: str) -> str:
+    # Keyed by the key script too: a new version of the script may compute another key for the same commit.
+    script = sha256_file(ROOT / "scripts/ci/cmux_tui_tree_key.py")[:16]
     with PHASES("key"):
-        return _tree_key(repo, sha)
+        return remembered(f"tree-v2-{script}", sha, lambda: _tree_key(repo, sha))
 
 
 def _tree_key(repo: Path, sha: str) -> str:
@@ -362,7 +414,7 @@ def triple() -> str:
 def published(key: str) -> bool:
     """CI published the cmux binaries of tree KEY (its completion.json is there)."""
     try:
-        return json.loads(fetch(f"{TUI_BASE}/{key}/completion.json")).get("key") == key
+        return json.loads(fetch_kept(f"{TUI_BASE}/{key}/completion.json")).get("key") == key
     except (OSError, ValueError):  # urllib's errors are OSErrors: a 404 is an unpublished tree
         return False
 
@@ -376,11 +428,11 @@ def cached(copy: Path, want: str) -> bool:
 def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     """SHA's cmux binary for this host, checked against the tree's completion.json and .sha256."""
     name = f"cmux-tui-{triple()}"
-    completion = json.loads(fetch(f"{TUI_BASE}/{key}/completion.json"))
+    completion = json.loads(fetch_kept(f"{TUI_BASE}/{key}/completion.json"))
     if completion.get("key") != key:
         raise RuntimeError(f"{TUI_BASE}/{key}/completion.json names key {completion.get('key')}")
     want = completion.get("binaries", {}).get(name)
-    published = fetch(f"{TUI_BASE}/{key}/{name}.sha256").decode().split()[0]
+    published = fetch_kept(f"{TUI_BASE}/{key}/{name}.sha256").decode().split()[0]
     if not want or want != published:
         raise RuntimeError(f"{name}: completion.json says {want}, {name}.sha256 says {published}")
     copy = state / "builds" / want / "cmux"
@@ -400,10 +452,10 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
 def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
     """The companions of tree KEY's build for this host, each checked against the sha256 of the
     commit-addressed manifest its source.json names; None for one that build published none of."""
-    owner = json.loads(fetch(f"{TUI_BASE}/{key}/source.json")).get("commit") or ""
+    owner = json.loads(fetch_kept(f"{TUI_BASE}/{key}/source.json")).get("commit") or ""
     if not SHA.fullmatch(owner):
         raise RuntimeError(f"{TUI_BASE}/{key}/source.json names no commit, so its companions are unknown")
-    binaries = json.loads(fetch(f"{COMMIT_BASE}/{owner}/manifest.json")).get("binaries", {})
+    binaries = json.loads(fetch_kept(f"{COMMIT_BASE}/{owner}/manifest.json")).get("binaries", {})
     out: dict[str, tuple[Path, str] | None] = {}
     for artifact, file in COMPANIONS:
         asset = f"cmux-tui-{artifact}-{triple()}"
@@ -430,6 +482,20 @@ def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | 
     """The companions beside a cmux built elsewhere (--binary: a dev build's bin/)."""
     return {file: keep(state, binary.parent / file) if (binary.parent / file).is_file() else None
             for _, file in COMPANIONS}
+
+
+def rust_unchanged(app: Path, want: str, companions: dict[str, tuple[Path, str] | None]) -> bool:
+    """The app's bin/cmux hashes to WANT and each companion is the build's (or absent where it has none)."""
+    with PHASES("verify"):
+        if sha256_file((app / BIN / "cmux").resolve()) != want:
+            return False
+        for file, new in companions.items():
+            target = app / BIN / file
+            if target.is_symlink():
+                continue
+            if (new is None) != (not target.is_file()) or (new and sha256_file(target) != new[1]):
+                return False
+        return True
 
 
 def place_companions(app: Path, companions: dict[str, tuple[Path, str] | None], state: Path) -> dict:
@@ -769,7 +835,7 @@ def _restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None,
 def web_key(repo: Path, sha: str) -> str:
     """SHA's web source key, from a temporary sparse checkout of SHA (web-bundle-key.py reads files)."""
     with PHASES("key"):
-        return _web_key(repo, sha)
+        return remembered("web", sha, lambda: _web_key(repo, sha))
 
 
 def _web_key(repo: Path, sha: str) -> str:
@@ -826,18 +892,75 @@ def fetch_web(key: str, out: Path) -> None:
         raise RuntimeError(f"web bundles for key {key} not fetched (exit {fetched.returncode}; 3 is unpublished)")
 
 
+DIGEST = ".hot-apply-digest"
+
+
+def tree_digest(root: Path) -> str:
+    """sha256 over every file under ROOT (its path and its sha256), but the digest file itself."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file() and p.name != DIGEST):
+        digest.update(f"{path.relative_to(root)}\0{sha256_file(path)}\n".encode())
+    return digest.hexdigest()
+
+
+def web_bundles(key: str, state: Path) -> Path:
+    """The bundles published for web source KEY, under state/web/KEY: fetched and checked once (the
+    archive against its manifest's sha256), then checked on each use against the digest of the files
+    as they were unpacked. A folder that no longer matches is fetched again."""
+    root = state / "web" / key
+    with PHASES("verify"):
+        try:
+            if (root / DIGEST).read_text().strip() == tree_digest(root):
+                os.utime(root)  # the newest used is the last pruned
+                return root
+        except OSError:
+            pass
+    shutil.rmtree(root, ignore_errors=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{key[:12]}.", dir=ensure_dir(state / "web")))
+    try:
+        fetch_web(key, stage / "b")
+        with PHASES("verify"):
+            (stage / "b" / DIGEST).write_text(tree_digest(stage / "b") + "\n")
+        os.replace(stage / "b", root)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    prune_web(state)
+    return root
+
+
+def ensure_dir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def prune_web(state: Path, keep: int = WEB_KEEP) -> None:
+    """Only the newest KEEP web bundle folders stay: the cache stays bounded however many commits go by."""
+    folders = sorted((p for p in (state / "web").iterdir() if p.is_dir() and HEX.fullmatch(p.name)),
+                     key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in folders[keep:]:
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def web_unchanged(live, key: str) -> bool:
+    """The overlay already holds KEY's bundles: its manifest names a commit whose web key is KEY (as
+    remembered here; a commit whose key was never computed here is not taken for one)."""
+    commit = overlay_commit(live)
+    if not commit or not SHA.fullmatch(commit):
+        return False
+    try:
+        return (state_dir() / "keys" / "web" / commit).read_text().strip() == key
+    except OSError:
+        return False
+
+
 def apply_web(repo: Path, sha: str, live) -> dict:
     key = web_key(repo, sha)
-    out = Path(tempfile.mkdtemp(prefix="hot-apply-bundles-"))
-    try:
-        fetch_web(key, out / "b")
-        with PHASES("swap"):
-            installed = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "install", str(out / "b"),
-                                        "--commit", sha], stdout=sys.stderr, stderr=sys.stderr)
-        if installed.returncode != 0:
-            raise RuntimeError(f"web-overlay.sh install exited {installed.returncode}")
-    finally:
-        shutil.rmtree(out, ignore_errors=True)
+    bundles = web_bundles(key, state_dir())
+    with PHASES("swap"):
+        installed = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "install", str(bundles),
+                                    "--commit", sha], stdout=sys.stderr, stderr=sys.stderr)
+    if installed.returncode != 0:
+        raise RuntimeError(f"web-overlay.sh install exited {installed.returncode}")
     with PHASES("verify"):
         if overlay_commit(live) != sha:
             raise RuntimeError(f"the overlay's manifest names {overlay_commit(live)}, not {sha}")
@@ -882,17 +1005,19 @@ def command_apply(args) -> int:
     t0 = time.monotonic()
     planned = plan(repo, app, args.sha, args.branch, args.base)
     parts = [p for p in planned["parts"] if p in args.parts.split(",")]
-    receipt = {"action": "dry-run" if args.dry_run else "apply", **planned, "applied": [], "rolled_back": False,
+    receipt = {"action": args.command if args.dry_run and args.command == "prefetch" else
+               "dry-run" if args.dry_run else "apply", **planned, "applied": [], "rolled_back": False,
                "steps": {}, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     if not parts:
         receipt["seconds"] = round(time.monotonic() - t0, 3)
-        record(state, receipt, last=not args.dry_run)
+        record(state, receipt, last=False)  # nothing changed: `rollback` still puts back the last apply
         return 0 if not planned["left"] else 3
     if args.dry_run:
         return dry_run(repo, args, planned, parts, receipt, state, t0)
     live = load("live_apply_loop", "live-apply.py")
     target = (app / BIN / "cmux").resolve()
     undo: dict = {}
+    receipt["unchanged"] = []
     try:
         if "rust" in parts:
             # --binary: a cmux binary built for SHA elsewhere (try-pr.sh: the PR's fleet dev build).
@@ -902,6 +1027,12 @@ def command_apply(args) -> int:
             else:
                 new, want = fetch_cmux(planned["tree_key"], state)
                 companions = fetch_companions(planned["tree_key"], state)
+            if not (args.restart_acpmux or args.acpmux_home) and rust_unchanged(app, want, companions):
+                # A hot apply of SHA (or a later commit with the same build) already put it in: nothing to hand off.
+                receipt["unchanged"].append("rust")
+                receipt["steps"]["rust"] = {"to": want, "unchanged": True}
+                parts = [p for p in parts if p != "rust"]
+        if "rust" in parts:
             prior, prior_sha = keep(state, target)
             undo["rust"] = {"copy": str(prior), "sha256": prior_sha, "companions": {}}
             # Before the handoff, so the new daemon starts the companions of its own build.
@@ -932,9 +1063,14 @@ def command_apply(args) -> int:
             if left:  # they keep the build they mapped
                 receipt["steps"]["rust"]["acpmux_left_on_old_build"] = left
         if "web" in parts:
-            undo["web"] = overlay_snapshot(live)
-            receipt["steps"]["web"] = apply_web(repo, args.sha, live)
-            receipt["applied"].append("web")
+            key = web_key(repo, args.sha)
+            if web_unchanged(live, key):
+                receipt["unchanged"].append("web")
+                receipt["steps"]["web"] = {"key": key, "commit": overlay_commit(live), "unchanged": True}
+            else:
+                undo["web"] = overlay_snapshot(live)
+                receipt["steps"]["web"] = apply_web(repo, args.sha, live)
+                receipt["applied"].append("web")
     except Exception as error:  # noqa: BLE001 - any failed step puts back what ran before
         receipt["error"] = str(error)
         receipt["rolled_back"] = True
@@ -947,7 +1083,7 @@ def command_apply(args) -> int:
         return 1
     receipt["undo"] = undo
     receipt["seconds"] = round(time.monotonic() - t0, 3)
-    record(state, receipt)
+    record(state, receipt, last=bool(receipt["applied"]))  # an apply that changed nothing keeps the last one
     return 0
 
 
@@ -961,12 +1097,7 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
         if "web" in parts:
             key = web_key(repo, args.sha)
-            out = Path(tempfile.mkdtemp(prefix="hot-apply-bundles-"))
-            try:
-                fetch_web(key, out / "b")
-            finally:
-                shutil.rmtree(out, ignore_errors=True)
-            receipt["steps"]["web"] = {"key": key, "commit": args.sha}
+            receipt["steps"]["web"] = {"key": key, "commit": args.sha, "bundles": str(web_bundles(key, state))}
     except Exception as error:  # noqa: BLE001 - the receipt says what failed; nothing to put back
         receipt["error"] = str(error)
         receipt["seconds"] = round(time.monotonic() - t0, 3)
@@ -1037,6 +1168,13 @@ def command_rollback(args) -> int:
     return 0 if receipt["ok"] else 1
 
 
+def command_prefetch(args) -> int:
+    """`apply --dry-run` under its own name: fetch and check what SHA's apply needs, and keep it."""
+    args.dry_run, args.parts, args.binary = True, "web,rust", None
+    args.socket, args.acpmux_home, args.restart_acpmux = None, [], False
+    return command_apply(args)
+
+
 def command_status(_args) -> int:
     try:
         print((state_dir() / "last.json").read_text().strip())
@@ -1048,7 +1186,7 @@ def command_status(_args) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("plan", "apply"):
+    for name in ("plan", "apply", "prefetch"):
         p = sub.add_parser(name)
         p.add_argument("sha")
         p.add_argument("--app", default=DEFAULT_APP)
@@ -1076,7 +1214,7 @@ def main(argv=None) -> int:
             print(f"hot-apply: {args.sha!r} is not a commit here", file=sys.stderr)
             return 2
     try:
-        return {"plan": command_plan, "apply": command_apply, "rollback": command_rollback,
+        return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "rollback": command_rollback,
                 "status": command_status}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)
