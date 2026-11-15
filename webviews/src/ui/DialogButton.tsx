@@ -27,11 +27,19 @@ export function dialogKeyAria(key: DialogKey): string {
   return `Meta+${key.command.toUpperCase()}`;
 }
 
+/** The key as a tooltip names it. Escape is "Esc": the ⎋ keycap reads as a stray reload arrow in
+ * the small system tooltip font (Leo, 2026-11-08: "there's this extremely weird looking symbol in
+ * the hover preview of this particular button???"). */
+export function tooltipKeyText(key: DialogKey): string {
+  return key === "escape" ? "Esc" : dialogKeyGlyph(key);
+}
+
 /** The props that name an icon-only button's key: its label for VoiceOver, the key in
- * `aria-keyshortcuts`, and a tooltip of the label and the keycap ("Close ⎋"). The dialog answers
- * the key; spread these on the button. */
+ * `aria-keyshortcuts`, and a tooltip of the label and the key in parentheses ("Close (Esc)"), as
+ * every other shortcut tooltip writes it ("New tab (⌘T)"). The dialog answers the key; spread these
+ * on the button. */
 export function keyedIconProps(label: string, key: DialogKey) {
-  return { "aria-label": label, "aria-keyshortcuts": dialogKeyAria(key), title: `${label} ${dialogKeyGlyph(key)}` };
+  return { "aria-label": label, "aria-keyshortcuts": dialogKeyAria(key), title: `${label} (${tooltipKeyText(key)})` };
 }
 
 export interface DialogButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
