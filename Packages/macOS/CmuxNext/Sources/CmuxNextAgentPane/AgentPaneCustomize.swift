@@ -21,10 +21,13 @@ extension AgentPaneSeed {
 
 extension ActionInvocation {
     /// This invocation as New Agent Chat's for Customize…: the same target and origin, with
-    /// ``AgentPaneSeed/customizeDraft`` as the `draft` argument the new chat's seed takes.
+    /// ``AgentPaneSeed/customizeDraft`` as the `draft` argument the new chat's seed takes. A caller's
+    /// own `draft` (Settings search's "Ask cmux to do this": `/customize WORDS`) is kept.
     public var customizing: ActionInvocation {
         var invocation = self
-        invocation.arguments["draft"] = .string(AgentPaneSeed.customizeDraft)
+        if invocation.arguments["draft"]?.stringValue?.isEmpty ?? true {
+            invocation.arguments["draft"] = .string(AgentPaneSeed.customizeDraft)
+        }
         return invocation
     }
 }

@@ -31,4 +31,14 @@ struct CustomizeEntryTests {
         // New Agent Chat itself is unchanged: no draft.
         #expect(AgentHandlers.seed(for: ActionInvocation()).draft == nil)
     }
+
+    @Test func aCallersOwnDraftIsKept() {
+        let registry = ActionRegistry()
+        var opened: [ActionInvocation] = []
+        #expect(registry.bindAgentPane { opened.append($0) })
+        var invocation = ActionInvocation()
+        invocation.arguments["draft"] = .string("/customize make tabs taller")
+        #expect(registry.perform(.customizeOpen, invocation: invocation))
+        #expect(AgentHandlers.seed(for: opened.first ?? ActionInvocation()).draft == "/customize make tabs taller")
+    }
 }
