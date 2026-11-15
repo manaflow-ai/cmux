@@ -28,10 +28,10 @@ if op == 'run':
     # SwiftPM lists Target.Suite/test, not Target/Suite. Exercise the submitted
     # filter so a valid receipt cannot hide an entrypoint that selects no tests.
     args = [sys.argv[i + 1] for i, arg in enumerate(sys.argv[:-1]) if arg == '--arg']
-    if len(args) != 3 or args[:2] != ['suite', 'Packages/macOS/CmuxNext']:
+    if len(args) != 3 or args[:2] != ['suite', 'Packages/macOS/CmuxNativeSidebarGallery']:
         sys.exit('capture did not submit the native package suite')
-    names = ['CmuxNextAppTests.NativeSidebarGalleryTests/renderGallery()',
-             'CmuxNextAppTests.NativeSidebarGalleryTests/loadFixture(_:)']
+    names = ['CmuxNativeSidebarGalleryTests.NativeSidebarGalleryTests/renderGallery()',
+             'CmuxNativeSidebarGalleryTests.NativeSidebarGalleryTests/loadFixture(_:)']
     if not all(re.search(args[2], name) for name in names):
         sys.exit('capture filter does not select the SwiftPM renderer and fixture tests')
     # Worker stdout can forge a receipt; only the client's stderr is authoritative.
