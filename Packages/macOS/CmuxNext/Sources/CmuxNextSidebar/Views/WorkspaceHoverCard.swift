@@ -370,7 +370,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         guard isLive, let content else { return nil }
         let starts = ([content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
         guard let newest = starts.max() else { return nil }
-        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
+        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60) // hover-timing: clock refresh, not a delay
     }
 
     private let titleLabel = ChromeLabel(labelWithString: "")
