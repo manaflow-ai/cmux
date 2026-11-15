@@ -3,12 +3,13 @@
 //! request (`acpmux_client::tokio_list`); an `AcpmuxLink` it holds has sent requests and cannot
 //! be upgraded. The daemon is the one reader of `acpmux.v2`: on its old answer [`open`] gives
 //! [`Opened::V1`] and the caller runs its v1 path whole, on a connection of its own. Each v1 path
-//! is a named fallback in acpmux's `single_shot_list_tests.rs`.
+//! is a named fallback in `agent_session_list_scan_tests.rs`.
 //!
 //! The callers here run on std threads, and `tokio_list` is async: a [`Source`] owns a tokio
 //! current-thread runtime for as long as its connection, and gives blocking reads. One runtime
-//! a source, never one a page, never shared across threads. Every read keeps the deadline given
-//! at [`open`]: past it the read is an error, never a part of the list.
+//! a source, never one a page, never shared across threads. `within` at [`open`] is one
+//! deadline over the whole read: the connect and upgrade, and every page of every walk after
+//! it. Past it the read is an error, never a part of the list.
 
 use std::io;
 use std::ops::ControlFlow;
@@ -84,11 +85,10 @@ impl Source {
     }
 }
 
-/// A summary's `extra` member `key`.
-pub(crate) fn extra(summary: &Summary, key: &str) -> Option<serde_json::Value> {
-    serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(summary.extra.get())
-        .ok()
-        .and_then(|mut extra| extra.remove(key))
+/// A summary's `extra`, parsed once for every member a caller reads (empty when it is not an
+/// object).
+pub(crate) fn extras(summary: &Summary) -> serde_json::Map<String, serde_json::Value> {
+    serde_json::from_str(summary.extra.get()).unwrap_or_default()
 }
 
 /// Whether the summary's `extra` was bounded away (the daemon writes `{}` for one too large):
@@ -98,9 +98,14 @@ pub(crate) fn bounded_away(summary: &Summary) -> bool {
 }
 
 /// The `status` v1's row gives the summary's chat: `extra`'s when the two differ (a stuck or
-/// stopping chat), else the summary's `state` (`hub/list_tee/summary.rs`).
-pub(crate) fn v1_status(summary: &Summary) -> String {
-    extra(summary, "status")
-        .and_then(|status| status.as_str().map(str::to_owned))
-        .unwrap_or_else(|| summary.state.clone())
+/// stopping chat), else the summary's `state` (`hub/list_tee/summary.rs`). `extra` is the
+/// summary's [`extras`].
+pub(crate) fn v1_status(
+    summary: &Summary,
+    extra: &serde_json::Map<String, serde_json::Value>,
+) -> String {
+    extra
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .map_or_else(|| summary.state.clone(), str::to_owned)
 }

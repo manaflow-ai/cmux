@@ -292,7 +292,7 @@
       "shot": false
     },
     {
-      "title": "Swap 20 (terminal to chat): Opt-Cmd-`, the window's frames around it",
+      "title": "Swap 20 (terminal to chat): Toggle, the window's frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {

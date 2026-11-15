@@ -28,6 +28,9 @@ use vt_boundary::*;
 
 mod replay_rows;
 
+mod window_replay;
+pub use window_replay::VtReplayWindow;
+
 mod settled_replay;
 
 mod alternate_replay;
@@ -60,6 +63,9 @@ mod active_text;
 mod logical_text;
 
 mod clear_history;
+
+mod command_output;
+pub use command_output::CommandOutput;
 
 mod program_status;
 pub use program_status::{
@@ -2001,6 +2007,26 @@ impl Terminal {
         Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())
     }
 
+    /// Bounded plain text of the active screen and its retained history.
+    /// `None` means the formatter would exceed `max_bytes`; it never builds
+    /// an unbounded output buffer first.
+    pub fn plain_text_bounded(&mut self, max_bytes: usize) -> Result<Option<String>> {
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
+            unwrap: false,
+            trim: true,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                ..Default::default()
+            },
+            selection: ptr::null(),
+        };
+        Ok(self
+            .format_bounded(opts, max_bytes)?
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned()))
+    }
+
     /// Replay of the terminal's current state.
     ///
     /// Feeding `bytes` into a fresh terminal of the same size and restoring
@@ -3285,6 +3311,10 @@ mod prompt_clear_tests;
 #[cfg(test)]
 #[path = "alternate_replay_tests.rs"]
 mod alternate_replay_tests;
+
+#[cfg(test)]
+#[path = "window_replay_tests.rs"]
+mod window_replay_tests;
 
 #[path = "terminal_history.rs"]
 mod history;

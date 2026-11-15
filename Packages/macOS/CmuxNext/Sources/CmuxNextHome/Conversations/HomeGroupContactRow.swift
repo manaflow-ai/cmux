@@ -27,7 +27,7 @@ struct HomeGroupContactRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .frame(height: Metrics.sidebarRowHeight)
         .accessibilityValue(isChosen ? "1" : "0")
         .accessibilityIdentifier("cmux.home.groupInfo.add.\(contact.id.rawValue)")

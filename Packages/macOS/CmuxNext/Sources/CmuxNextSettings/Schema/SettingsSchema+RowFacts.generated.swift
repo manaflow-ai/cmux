@@ -21,12 +21,17 @@ extension SettingsSchema {
         "appearance.customDensities": "domain:custom_densities",
         "agentPane.display.commandLabels": "domain:command_labels",
         "browser.customSearchEngine.search": "domain:search_template",
-        "browser.customSearchEngine.suggest": "domain:search_template",
+        "browser.customSearchEngine.suggest": "domain:search_template", "tabs.newTabApp": "domain:app_id",
     ]
     static let validationByKind: [String: String] = [
         "theme": "domain:theme", "font_family": "domain:font_family", "sound": "domain:sound",
     ]
     static let defaultValidation = "portable"
+
+    /// The id an app manifest may have: `properties.id.pattern` of the app manifest schema
+    /// (cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json), copied here by the generator
+    /// (domain:app_id rows, `NewTabAppSetting.isValidID`; the daemon reads the same schema).
+    static let appIDPattern = "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))/[a-z0-9][a-z0-9-]{0,63}$"
 
     /// Each key's earlier defaults that held for a day or more: the one-time launch migration
     /// (`forgetStoredDefaults`) drops a stored value equal to one, so the key follows its default again.

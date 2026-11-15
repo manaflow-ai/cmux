@@ -38,7 +38,7 @@
 //     bun bench/first-load-after-restart.bench.ts
 // GATE=1 fails if content takes over 2 s, blanks, shifts, or never becomes live. TRACE=1 prints each
 // mode's worst round frame by frame. One `FIRST_LOAD_JSON {...}` line carries every number.
-// PANE_SOURCE_REF=<sha> loads that immutable App/direct revision under this same harness for a baseline.
+// PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -83,6 +83,15 @@ for (const [name, value] of [
 const RECORD_MS = DOWN_MS + 4000;
 /// The warm page is settled once the newest answer painted and nothing in view changed this long.
 const SETTLE_QUIET_MS = 600;
+/// How the page reaches acpmux. `bridge` (the default) is the app's: the host owns the socket
+/// (bridgeSocket.ts, Swift AgentPaneTransport) and the page asks it to open one (`transport.open`); here
+/// this process opens it. `websocket` is the browser dev slot's: the page opens a WebSocket itself, and
+/// Chromium delays a renderer's WebSocket opens once it has many failed ones (network
+/// WebSocketPerProcessThrottler: 1-5 s × 2^min(failed / (succeeded + 1), 16) / 65536, counted over
+/// 2-4 min), which the app's transport does not have.
+const TRANSPORT = process.env.TRANSPORT ?? "bridge";
+if (TRANSPORT !== "bridge" && TRANSPORT !== "websocket") throw new Error("TRANSPORT must be bridge or websocket");
+const BRIDGE = TRANSPORT === "bridge";
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
@@ -167,7 +176,7 @@ type Recording = {
 };
 type BenchWindow = {
   __firstLoad: Recording;
-  __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number };
+  __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number; asks: number[] };
   __cmuxChatSnapshotMiss?: string;
   __cmuxChatSnapshotShown?: { at: number; swappedAt?: number };
   captureSnapshot: (doc: Document, theme: string) => ChatSnapshot | undefined;
@@ -179,8 +188,31 @@ type BenchWindow = {
 /// place (`chat.scrollAnchor.get`: null, the chat opens at its newest message). The page assigns its own
 /// `window.cmuxAcpmuxActions` once its client is up (App.tsx); these stay beside its own, as the app's
 /// host keeps answering them. Runs in the page, so it closes over nothing.
-function installHost({ tail, readyDelayMs }: { tail: unknown; readyDelayMs: number }) {
-  // Wrap the dev host's real ready answer, withholding it just as a daemon handoff does.
+function installHost({ tail, readyDelayMs, bridge }: { tail: unknown; readyDelayMs: number; bridge: boolean }) {
+  /// `asks`: when the page asked for a socket to acpmux (ms from navigation): each `transport.open` over
+  /// the bridge, each `new WebSocket` to it on the dev slot's transport.
+  const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0, asks: [] as number[] };
+  (window as unknown as { __benchHost: typeof asked }).__benchHost = asked;
+  if (!bridge) {
+    const Native = window.WebSocket;
+    window.WebSocket = class extends Native {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        if (String(url).startsWith("ws:")) asked.asks.push(performance.now());
+        super(url, protocols);
+      }
+    };
+  }
+  type Own = { ok: true; value: unknown } | { ok: false; code: string; message: string };
+  /// The app host's socket calls, answered by the bench's process (`__benchTransport`).
+  const transport = (method: string, params: Record<string, unknown> | undefined): Promise<Own> | undefined => {
+    if (!bridge || !["transport.open", "transport.send", "transport.close"].includes(method)) return undefined;
+    if (method === "transport.open") asked.asks.push(performance.now());
+    const call = (window as unknown as { __benchTransport: (method: string, params: unknown) => Promise<Own> })
+      .__benchTransport;
+    return call(method, params ?? {});
+  };
+  // Wrap the dev host's real ready answer, withholding it just as a daemon handoff does; over the bridge
+  // it names the app's transport (no endpoint, no token), and the socket calls go to this process.
   let webkit: unknown;
   Object.defineProperty(window, "webkit", {
     configurable: true,
@@ -188,22 +220,46 @@ function installHost({ tail, readyDelayMs }: { tail: unknown; readyDelayMs: numb
     set: (next) => {
       for (const name of ["agentSession", "cmuxPage"]) {
         const handler = next?.messageHandlers?.[name];
-        if (!handler || readyDelayMs <= 0) continue;
+        if (!handler || (readyDelayMs <= 0 && !bridge)) continue;
         const post = handler.postMessage.bind(handler);
-        handler.postMessage = async (request: { method?: string; op?: string }) => {
-          if (["ready", "handshake"].includes((request.method ?? request.op ?? "").replace(/^cmux\.agent\./, ""))) {
+        const envelope = name === "cmuxPage";
+        handler.postMessage = async (request: {
+          t?: string;
+          id?: unknown;
+          method?: string;
+          op?: string;
+          params?: Record<string, unknown>;
+        }) => {
+          if (envelope && request.t !== "call") return post(request);
+          const method = (request.method ?? request.op ?? "").replace(/^cmux\.agent\./, "");
+          const own = transport(method, request.params);
+          if (own) {
+            const reply = await own;
+            if (envelope)
+              return reply.ok
+                ? { t: "ok", id: request.id, value: reply.value }
+                : { t: "err", id: request.id, code: reply.code, message: reply.message, details: { origin: "native" } };
+            return reply.ok
+              ? reply
+              : { ok: false, error: { code: reply.code, message: reply.message, origin: "native" } };
+          }
+          if (!["ready", "handshake"].includes(method)) return post(request);
+          if (readyDelayMs > 0) {
             // fixed-wait: the withheld native handshake is the condition measured by this mode.
             await new Promise((done) => setTimeout(done, Math.max(0, readyDelayMs - performance.now())));
             asked.readyAnsweredAt = performance.now();
           }
-          return post(request);
+          const reply = (await post(request)) as { ok?: boolean; t?: string; value?: Record<string, unknown> };
+          if (bridge && (reply?.ok || reply?.t === "ok") && reply.value) {
+            const { endpoint: _endpoint, token: _token, ...value } = reply.value;
+            return { ...reply, value: { ...value, transport: "acpmux-bridge" } };
+          }
+          return reply;
         };
       }
       webkit = next;
     },
   });
-  const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0 };
-  (window as unknown as { __benchHost: typeof asked }).__benchHost = asked;
   const served: Record<string, (params: Record<string, unknown>) => Promise<unknown>> = {
     "chat.tail.get": async () => {
       asked.tailAskedAt ||= performance.now();
@@ -341,6 +397,10 @@ type Round = {
   socketOpenedMs: number | null;
   initializeAnsweredMs: number | null;
   attachAnsweredMs: number | null;
+  /// How many times the page asked for a socket, and when it made the ask that opened one (ms from
+  /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
+  asks: number;
+  lastAskMs: number | null;
 };
 
 const releases: [string, () => unknown][] = [];
@@ -416,7 +476,7 @@ try {
   const sourceRef = process.env.PANE_SOURCE_REF;
   const priorSources = new Map<string, string>();
   if (sourceRef)
-    for (const file of ["App.tsx", "direct.ts"])
+    for (const file of ["App.tsx", "direct.ts", "hostRetry.ts"])
       priorSources.set(
         path.join(webviews, "src/agent-session/acpmux", file),
         execFileSync("git", ["show", `${sourceRef}:webviews/src/agent-session/acpmux/${file}`], {
@@ -542,9 +602,63 @@ try {
     });
   }
 
+  /// The app host's side of the bridge (Swift AgentPaneTransport) for `page`: `transport.open` opens a
+  /// socket to the stand-in from this process and answers once it is open, or `transport.connect_failed`
+  /// as the app does when acpmux refuses it; its frames and close go to the page's
+  /// `cmuxAcpmuxTransport.receive`, in order.
+  const serveBridge = async (page: Page) => {
+    const sockets = new Map<number, WebSocket>();
+    let next = 0;
+    let delivery = Promise.resolve();
+    const push = (event: { connection: number; frames?: string[]; closed?: { code: number; reason: string } }) => {
+      delivery = delivery
+        .then(() =>
+          page.evaluate((pushed) => {
+            (
+              window as unknown as { cmuxAcpmuxTransport?: { receive(event: unknown): void } }
+            ).cmuxAcpmuxTransport?.receive(pushed);
+          }, event),
+        )
+        .catch(() => undefined);
+    };
+    page.on("close", () => {
+      for (const socket of sockets.values()) socket.close();
+      sockets.clear();
+    });
+    await page.exposeFunction("__benchTransport", async (method: string, params: Record<string, unknown>) => {
+      if (method === "transport.open") {
+        const connection = (next += 1);
+        const socket = new WebSocket(`ws://127.0.0.1:${daemon.port}/`);
+        const opened = await new Promise<boolean>((resolve) => {
+          socket.addEventListener("open", () => resolve(true), { once: true });
+          socket.addEventListener("error", () => resolve(false), { once: true });
+          socket.addEventListener("close", () => resolve(false), { once: true });
+        });
+        if (!opened) return { ok: false, code: "transport.connect_failed", message: "acpmux refused the socket" };
+        sockets.set(connection, socket);
+        socket.addEventListener("message", (event) => push({ connection, frames: [String(event.data)] }));
+        socket.addEventListener("close", (event) => {
+          if (!sockets.delete(connection)) return;
+          push({ connection, closed: { code: event.code, reason: event.reason } });
+        });
+        return { ok: true, value: { connection } };
+      }
+      const socket = sockets.get(Number(params.connection));
+      if (method === "transport.send") {
+        if (!socket) return { ok: false, code: "transport.closed", message: "closed" };
+        for (const frame of (params.frames as string[] | undefined) ?? []) socket.send(frame);
+        return { ok: true, value: null };
+      }
+      sockets.delete(Number(params.connection));
+      socket?.close();
+      return { ok: true, value: null };
+    });
+  };
+
   const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0) => {
     await installPaintedFrames(page);
-    await page.addInitScript(installHost, { tail, readyDelayMs });
+    if (BRIDGE) await serveBridge(page);
+    await page.addInitScript(installHost, { tail, readyDelayMs, bridge: BRIDGE });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -636,6 +750,7 @@ try {
           tailAskedAt: w.__benchHost.tailAskedAt,
           readyAnsweredAt: w.__benchHost.readyAnsweredAt,
           liveLatestAt: w.__firstLoad.liveLatestAt,
+          asks: w.__benchHost.asks,
         };
       });
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
@@ -657,6 +772,12 @@ try {
         socketOpenedMs: since(load.socketOpenedAt),
         initializeAnsweredMs: since(load.initializeAnsweredAt),
         attachAnsweredMs: since(load.attachAnsweredAt),
+        asks: got.asks.length,
+        lastAskMs: (() => {
+          const opened = since(load.socketOpenedAt);
+          const before = opened === null ? [] : got.asks.filter((at) => at <= opened);
+          return before.length ? Math.max(...before) : null;
+        })(),
       };
     } finally {
       downMode = undefined;
@@ -736,6 +857,49 @@ try {
           (values.layoutShift ?? 0).toFixed(4),
         ].join(" | "),
       );
+    if (mode === "down") {
+      // How long after acpmux answers again the page finds it (its retry wait, hostRetry.ts) and has its chat
+      // back: the socket that opened, and its attach answered, less when acpmux came back. p50 and p95.
+      const pct = (values: number[], share: number) =>
+        values.length
+          ? [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(share * values.length))]!
+          : null;
+      const after = (pick: (r: Round) => number | null) =>
+        numbers(rounds, (r) => {
+          const at = pick(r);
+          return at === null ? null : at - r.acpmuxUpMs;
+        });
+      const socket = after((r) => r.socketOpenedMs);
+      const attach = after((r) => r.attachAnsweredMs);
+      console.log(
+        `relink after acpmux up (${DOWN_MS} ms down, ${TRANSPORT}): socket p50 ${ms(pct(socket, 0.5))} ms, p95 ${ms(pct(socket, 0.95))} ms; chat attached p50 ${ms(pct(attach, 0.5))} ms, p95 ${ms(pct(attach, 0.95))} ms (n=${rounds.length})`,
+      );
+      // The relink in two parts: the page's wait for its next ask (its retry schedule), and that ask to the
+      // socket opening (the transport: a browser that holds back a renderer's WebSocket opens shows here).
+      const askWait = after((r) => r.lastAskMs);
+      const askToOpen = numbers(rounds, (r) =>
+        r.lastAskMs === null || r.socketOpenedMs === null ? null : r.socketOpenedMs - r.lastAskMs,
+      );
+      const asks = numbers(rounds, (r) => r.asks);
+      console.log(
+        `relink parts: next ask after acpmux up p50 ${ms(pct(askWait, 0.5))} ms, p95 ${ms(pct(askWait, 0.95))} ms; ask to socket open p50 ${ms(pct(askToOpen, 0.5))} ms, p95 ${ms(pct(askToOpen, 0.95))} ms; asks p50 ${pct(asks, 0.5)}, refused p50 ${pct(
+          numbers(rounds, (r) => r.refused),
+          0.5,
+        )}`,
+      );
+      json.relink = {
+        transport: TRANSPORT,
+        socketP50: pct(socket, 0.5),
+        socketP95: pct(socket, 0.95),
+        attachP50: pct(attach, 0.5),
+        attachP95: pct(attach, 0.95),
+        askWaitP50: pct(askWait, 0.5),
+        askWaitP95: pct(askWait, 0.95),
+        askToOpenP50: pct(askToOpen, 0.5),
+        askToOpenP95: pct(askToOpen, 0.95),
+        asksP50: pct(asks, 0.5),
+      };
+    }
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
     // A round that never handed over to the live chat proves nothing: a copy held over the whole
     // recording paints no blank and no shift.

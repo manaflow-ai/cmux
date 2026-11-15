@@ -83,6 +83,8 @@ mod owned_scope_bench_tests;
 #[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
+mod phone_floor_tests;
+#[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
 mod remote_table_bench;
@@ -635,6 +637,11 @@ pub struct TurnInfo {
     /// once every check that can refuse it has passed (`run_prompt`). Only from then on does a
     /// second copy of the prompt hear this turn (`turns.rs` `pending_turn`).
     pub accepted: bool,
+    /// The paired device that sent this Web turn, while every Web prompt and steer in it came
+    /// from that one device (`Hub::owner_phone_full_access` reads it again); None for a Local
+    /// turn, one another client touched and one recovered after a restart. Set with the turn
+    /// and narrowed beside `control`, under the turn lock (review of cmux#43251, P1-F1).
+    pub device: Option<String>,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -720,9 +727,10 @@ pub struct PromptOptions {
     /// Validated display-only metadata from the app's ordered composer. It is persisted in the
     /// mux record and never forwarded to the agent's ACP prompt.
     pub display_parts: Option<Value>,
-    /// The paired machine whose Full-access setting covered the request that sent it
-    /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
-    /// (`Hub::full_access_hold`).
+    /// The paired machine that sent it (`server/remote_guard.rs` `sending_device`). It grants
+    /// nothing by itself: each rule reads the pairing store again at dispatch, its Full-access
+    /// setting (`Hub::full_access_hold`) and whether it is the owner's own phone (D13,
+    /// `Hub::local_claude_refusal`).
     pub full_access_device: Option<String>,
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
@@ -806,6 +814,9 @@ pub struct Hub {
     /// join starts it again on the new join (`server/machine_enroll.rs`).
     #[cfg(feature = "hub-carrier")]
     pub(crate) hub_carrier_websocket: std::sync::OnceLock<std::net::SocketAddr>,
+    /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) machine_routes: crate::machine_routes::Routes,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
@@ -1012,6 +1023,8 @@ pub struct Hub {
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
+    /// One chat's adoption ended (`log_load.rs` `chat_adopted`): its waiting prompts look again.
+    pub(crate) chat_adopted_wake: Notify,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has served the model lists kept on disk: `_acpmux/models` waits for it.
@@ -1363,6 +1376,8 @@ impl Hub {
             hub_carrier_serve: Default::default(),
             #[cfg(feature = "hub-carrier")]
             hub_carrier_websocket: std::sync::OnceLock::new(),
+            #[cfg(feature = "hub-carrier")]
+            machine_routes: Default::default(),
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
@@ -1456,6 +1471,7 @@ impl Hub {
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
+            chat_adopted_wake: Notify::new(),
             catalog_ready: tokio::sync::watch::channel(true).0,
             model_caches_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -1923,7 +1939,8 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
-        // Hibernated before a restart: marked again, so it wakes on a click and draws no row.
+        // Hibernated before a restart: marked again, so it draws no row; it wakes on its next
+        // turn or typing, never on an open alone (`idle.rs` `wake_for`).
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
@@ -2036,6 +2053,7 @@ impl Hub {
             applied: StdMutex::new(session::Applied::default()),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
+            purging: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
@@ -3078,6 +3096,10 @@ impl Hub {
     /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
     /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
     pub(super) fn reopen(&self, session: &Session, stops: u64) -> bool {
+        // A chat being deleted stays closed (`Session::purging`).
+        if session.purging.load(Ordering::SeqCst) {
+            return false;
+        }
         let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
         if reopened {
             self.append(session, "mux", "reopened", json!({}));

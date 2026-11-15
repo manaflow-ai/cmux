@@ -25,20 +25,20 @@
 //!
 //! Only a harness that speaks ACP itself gets custody in this step: the Claude stream-json
 //! translator and the Codex bridge still run in the host, with state a replacement can not
-//! rebuild yet (step 2 moves them out of the durable process). On by `ACPMUX_AGENT_HOLDER=1` in
-//! the daemon's environment ([`holder_on`]); off, nothing here runs.
+//! rebuild yet. On by default; `ACPMUX_AGENT_HOLDER=0` in the daemon's environment turns it off
+//! ([`holder_on`]), and then nothing here runs.
 
 use super::*;
 use std::io::{Read as _, Write as _};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 
-/// The daemon's switch for the agent holder (`1`: on).
+/// The daemon's switch for the agent holder (`0`: off; on by default).
 pub const HOLDER_ENV: &str = "ACPMUX_AGENT_HOLDER";
 
 /// Whether this daemon gives its hosts' harnesses an agent holder ([`HOLDER_ENV`]).
 pub fn holder_on() -> bool {
     static ON: std::sync::LazyLock<bool> =
-        std::sync::LazyLock::new(|| std::env::var(HOLDER_ENV).is_ok_and(|v| v.trim() == "1"));
+        std::sync::LazyLock::new(|| !std::env::var(HOLDER_ENV).is_ok_and(|v| v.trim() == "0"));
     *ON
 }
 

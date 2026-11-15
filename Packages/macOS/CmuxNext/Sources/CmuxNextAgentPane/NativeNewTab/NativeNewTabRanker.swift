@@ -24,8 +24,13 @@ public nonisolated struct NativeNewTabRanker: Sendable {
         self.emptyLimit = emptyLimit
     }
 
-    /// The rows for `text` typed with `kind` selected.
-    public func rows(for text: String, kind: AgentPaneTabKind, omnibar: AgentPaneOmnibar) -> [NativeNewTabRow] {
+    /// The rows for `text` typed with `kind` selected. With `sources`, the chats the text finds and
+    /// the agent starts it asks for list too (the web page's sections): an agent named with a folder
+    /// ("codex cmux") leads above Ask while no tab or workspace has the text's exact name; else the
+    /// rows go open tabs and workspaces, chats, starts, then pages and actions, each section keeping
+    /// a row while the limit lets it.
+    public func rows(for text: String, kind: AgentPaneTabKind, omnibar: AgentPaneOmnibar,
+                     sources: NativeNewTabSources = NativeNewTabSources(agents: [])) -> [NativeNewTabRow] {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             let places = omnibar.tabs.map(NativeNewTabRow.tab) + omnibar.workspaces.map(NativeNewTabRow.workspace)
@@ -46,7 +51,41 @@ public nonisolated struct NativeNewTabRanker: Sendable {
         for page in omnibar.history { add(.page(page), weight: kind == .browser ? 0.4 : 0.1, [page.title, page.url]) }
         for action in omnibar.actions { add(.action(action), weight: 0.3, [action.title] + action.keywords) }
         let ranked = scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.order < $1.order }.map(\.row)
-        return [lead] + ranked.prefix(max(0, limit - 1))
+        let chats = sources.chatRows(query).map(NativeNewTabRow.chat)
+        var starts = sources.startRows(query)
+        // An exact tab or workspace name keeps Return ("codex" the workspace, not Codex's start).
+        let needle = query.lowercased()
+        let exactName = omnibar.workspaces.contains { $0.name.lowercased() == needle } || omnibar.tabs.contains { $0.title.lowercased() == needle }
+        if kind != .agent || exactName { starts.named = false }
+        let named = starts.named ? starts.rows.map(NativeNewTabRow.start) : []
+        let unnamed = starts.named ? [] : starts.rows.prefix(NativeNewTabSources.maximumUnnamedStarts).map(NativeNewTabRow.start)
+        let isPlace = { (row: NativeNewTabRow) -> Bool in
+            switch row {
+            case .tab, .workspace: true
+            default: false
+            }
+        }
+        let room = max(0, limit - 1 - named.count)
+        // No chat and no start: the matches in their score order, as before the agent rows.
+        guard !chats.isEmpty || !unnamed.isEmpty else { return named + [lead] + ranked.prefix(room) }
+        let rest = Self.share([ranked.filter(isPlace), chats, Array(unnamed), ranked.filter { !isPlace($0) }], room: room)
+        return named + [lead] + rest
+    }
+
+    /// Up to `room` rows from `sections`, taken one per section in turn, listed section by section.
+    static func share(_ sections: [[NativeNewTabRow]], room: Int) -> [NativeNewTabRow] {
+        var counts = Array(repeating: 0, count: sections.count)
+        var taken = 0
+        var more = true
+        while more, taken < room {
+            more = false
+            for index in sections.indices where taken < room && counts[index] < sections[index].count {
+                counts[index] += 1
+                taken += 1
+                more = true
+            }
+        }
+        return sections.indices.flatMap { sections[$0].prefix(counts[$0]) }
     }
 
     /// How well `query` matches one of `texts`: 3 for a prefix, 2 for a word start, 1 for a

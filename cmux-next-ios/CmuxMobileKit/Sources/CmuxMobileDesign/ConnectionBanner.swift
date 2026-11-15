@@ -147,7 +147,7 @@ public struct ConnectionBanner: View {
 
     private func actionButton(_ action: @escaping () -> Void) -> some View {
         Button(state.actionTitle ?? String(localized: "Retry"), action: action)
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityIdentifier(state.actionTitle == nil ? "connection.retry" : "connection.action")
     }
 }

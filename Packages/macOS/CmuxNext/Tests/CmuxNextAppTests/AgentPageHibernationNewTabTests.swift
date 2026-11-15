@@ -36,7 +36,7 @@ struct AgentPageHibernationNewTabTests {
         let context = context ?? AgentPaneNewTab(kind: .agent, cwd: "/tmp/hibernation-newtab")
         rig.tabs.newTabPages[key] = (context, NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
         let view = try #require(rig.tabs.view(for: key))
-        rig.hibernation.pageBuilt(key)
+        rig.hibernation.pages.pageBuilt(key)
         return view
     }
 
