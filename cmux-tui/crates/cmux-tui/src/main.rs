@@ -1831,8 +1831,8 @@ pub fn main() -> std::process::ExitCode {
     // the CLI's environment, stamps or test-owner setup.
     #[cfg(unix)]
     if let Some(code) = run_folded_host() {
-        // As the standalone host binaries end.
-        std::process::exit(code);
+        // The status the standalone host binaries' `process::exit` gives: its low 8 bits.
+        return std::process::ExitCode::from(u8::try_from(code & 0xff).unwrap_or(u8::MAX));
     }
     cmux_tui_core::startup_timings::process_mark("process.start");
     // SAFETY: the first statements of main: no other thread runs yet (G4).
