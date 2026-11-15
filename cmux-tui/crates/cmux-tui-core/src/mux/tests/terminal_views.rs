@@ -692,6 +692,30 @@ fn moving_a_terminal_between_workspaces_refreshes_the_workspace_size_policy() {
     .unwrap();
     mux.move_tab_to_workspace(source.id, Some(occupied_workspace)).unwrap();
     assert_eq!(source.size(), (60, 16), "moving into an occupied workspace refreshes too");
+
+    let dragged = mux.new_workspace(Some("dragged-to".into()), Some((80, 24))).unwrap();
+    let dragged_workspace = mux.surface_workspace(dragged.id).unwrap();
+    mux.set_workspace_size_policy(
+        dragged_workspace,
+        Some(TerminalSizingPolicy::new(
+            crate::sizing_policy::TerminalSizingMode::Fixed,
+            Vec::new(),
+            Some(TerminalGridSize::new(55, 14)),
+        )),
+    )
+    .unwrap();
+    let dragged_pane = mux.with_state(|state| state.pane_of(dragged.id).unwrap());
+    mux.move_tab_to_split_as(
+        &Actor::Daemon,
+        source.id,
+        dragged_pane,
+        TabDropEdge::Right,
+        None,
+        false,
+        None,
+    )
+    .unwrap();
+    assert_eq!(source.size(), (55, 14), "cross-workspace tab drags refresh too");
 }
 
 // Resize audit (2026-10-19), bug A: `apply_terminal_grid` records the
