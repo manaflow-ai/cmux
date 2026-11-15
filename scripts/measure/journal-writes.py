@@ -28,8 +28,9 @@ For each case, between the case's start and end (after the daemon is up and the 
             a clean page becomes dirty, as macOS charges a 16 KiB one);
   syncs     the sync markers it wrote (one per sync that covered records);
   and the same `write_bytes` for the whole daemon (the chats' own events/*.ndjson logs, session.json).
-Write amplification is dirtied over payload. The macOS estimate scales the 4 KiB page charges to 16 KiB
-pages (an upper bound: a batch that straddles two 4 KiB pages is one 16 KiB page).
+Write amplification is dirtied over payload. The macOS estimate splits the 4 KiB page charges into the
+pages the bytes fill (logical / 4 KiB) and the pages a sync made clean that a write dirtied again (the
+rest); on Apple silicon the first are the same bytes and each of the second is a 16 KiB page.
 
 Output: JWRITES lines per case, PERF_ROW lines journal_writes.<case>.{payload,dirtied,macos_est}_mb_per_hour
 and journal_writes.<case>.amplification, and --out JSON.
@@ -405,7 +406,8 @@ def main():
         secs, acc, w, proc = {"idle": case_idle, "stream": case_stream}[case](args, Daemon)
         per_h = 3600.0 / secs
         amp = w["write_bytes"] / acc["payload"] if acc["payload"] else float("inf") if w["write_bytes"] else 0.0
-        macos = w["write_bytes"] * MACOS_PAGE / PAGE
+        redirtied = max(0, w["write_bytes"] // PAGE - -(-w["wchar"] // PAGE))
+        macos = redirtied * MACOS_PAGE + w["wchar"]
         row = {"seconds": secs, "records": acc["records"], "payload": acc["payload"], "markers": acc["markers"],
                "writer": w, "process": proc, "by": acc["by"],
                "per_hour": {"payload": acc["payload"] * per_h, "logical": w["wchar"] * per_h,
