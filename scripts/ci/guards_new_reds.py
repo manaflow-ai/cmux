@@ -143,18 +143,18 @@ _TEMP = re.compile(r"(?:/tmp|/var/folders)/\S*|\btmp[\w-]{4,}")
 _HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
 _NUMBER = re.compile(r"\d+")
 _NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
-# A Python warning line (`sys:1: ResourceWarning: unclosed file ...`, `x.py:12: DeprecationWarning: ...`) and
-# tracemalloc's hint after it. Interpreter-exit warnings come and go from run to run, so they name nothing that
-# failed: on cmux#43438 and #43039, a head's `sys:1: ResourceWarning` made a step red on the base read as the change's.
-_WARNING_LINE = re.compile(r"^\s*(?:\S+:\d+: \w*Warning\b|\w*Warning: Enable tracemalloc\b)")
+# CPython's warnings for a file or socket still open when the interpreter shuts down: `sys:1: ResourceWarning:
+# unclosed ...` (often glued to a unittest progress line) and its tracemalloc hint. They come and go from run to run
+# and name nothing that failed (cmux#43507: `sys:0` charged a step red on both sides to the change).
+_SHUTDOWN = re.compile(r"(?:sys:\d+: )?ResourceWarning: (?:unclosed\b.*|Enable tracemalloc to get the object "
+                       r"allocation traceback)")
 
 
 def failure_names(lines: list[str]) -> set[str]:
     """The names a red step's output holds (paths, tests, items), order and run-to-run noise aside."""
     names: set[str] = set()
     for line in lines:
-        if _WARNING_LINE.match(line):
-            continue
+        line = _SHUTDOWN.sub("", line)
         line = _NUMBER.sub("0", _HEX.sub("<hex>", _TEMP.sub("<tmp>", line)))
         names.update(name.strip(".:-") for name in _NAME.findall(line))
     names.discard("")

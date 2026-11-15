@@ -18,7 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/guards_new_reds.py"
 RUNNER_GUARD = ROOT / "tests/test_ci_self_hosted_guard.sh"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
-import guards_new_reds as new_reds  # noqa: E402
 import run_ci_guards  # noqa: E402
 
 
@@ -465,24 +464,33 @@ class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
         done = self.compare(self.outputs(old[:1], "41"), self.outputs(old, "93"))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
-    def test_an_interpreter_exit_warning_names_nothing(self):
-        # cmux#43438 and #43039: the head's run of a step red on both sides ended with
-        # `sys:1: ResourceWarning: unclosed file`, the base's did not, and "sys:0" read as the change's new item.
-        old = ["tests/test_cargo_locks.py"]
-        head = self.outputs(old, "41")
-        head[self.WIRED] += ("\nsys:1: ResourceWarning: unclosed file <_io.TextIOWrapper name='<ROOT>/x.json' mode='r'>"
-                             "\n<ROOT>/tests/a.py:12: DeprecationWarning: datetime.utcnow() is deprecated"
-                             "\nResourceWarning: Enable tracemalloc to get the object allocation traceback")
-        done = self.compare(head, self.outputs(old, "93"))
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
-        self.assertEqual(new_reds.failure_names(["sys:1: ResourceWarning: unclosed <socket.socket fd=3>"]), set())
-
     def test_a_step_whose_failures_cannot_be_compared_is_not_excused(self):
         old = ["tests/test_cargo_locks.py"]
         done = self.compare(self.outputs(old, "41"), self.outputs(old, "93"), base_failures=False)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("14 guard steps red on this change, 0 red on the base too", done.stdout)
+
+    def test_interpreter_shutdown_noise_is_not_a_new_failure_name(self):
+        # cmux#43507 (job 132737397395): "Validate base-red excusal" failed the same way on both sides, but the head's
+        # output also held CPython's shutdown warning `sys:1: ResourceWarning: unclosed file <...>`, so `sys:0` was a
+        # name the base's failure lacked and the step was charged to the change. Shutdown noise names nothing.
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old, "41")
+        head[self.WIRED] += ("\n" + "." * 40 + "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+                             "\nResourceWarning: Enable tracemalloc to get the object allocation traceback"
+                             "\nsys:1: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=6>")
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+
+    def test_a_real_new_name_beside_shutdown_noise_is_still_the_changes(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41")
+        head[self.WIRED] += "\nsys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("tests/test_portable_jobs_bring_their_python.py", done.stdout)
+        self.assertNotIn("sys:0", done.stdout)
 
 
 if __name__ == "__main__":

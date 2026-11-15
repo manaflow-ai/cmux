@@ -34,6 +34,8 @@ use crate::{Customize, Error};
 pub const WEB_KEY: &str = "code:web";
 /// The file the app watches for an overlay (WebDevOverride.swift).
 pub const WEB_DEV: &str = "web-dev.json";
+/// Where a web-dev.json that did not read is kept when the library writes it.
+pub const WEB_DEV_UNREADABLE: &str = "web-dev.json.unreadable";
 /// What an overlay folder holds once its install is complete.
 pub const LAYER_MANIFEST: &str = "manifest.json";
 
@@ -124,7 +126,7 @@ impl Customize {
     /// `overlay` and `enabled` as web-dev.json has them now.
     pub(crate) fn web_dev_now(&self) -> Result<WebBase, Error> {
         let path = self.web_dev_path();
-        let object = read_object(&path)?;
+        let (object, _) = read_object(&path)?;
         Ok(WebBase {
             overlay: object.get("overlay").cloned(),
             enabled: object.get("enabled").cloned(),
@@ -144,7 +146,16 @@ impl Customize {
             .open(self.roots().config_dir.join(".web-dev.lock"))?;
         let _lock = cmux_file_lock::FileLock::take(lock, cmux_file_lock::Kind::Exclusive)?;
         (|| {
-            let mut object = read_object(&path)?;
+            let (mut object, unreadable) = read_object(&path)?;
+            // A file that reads as neither JSON nor JSONC is kept beside, never
+            // written over unseen (the app reads it as empty, so none of it
+            // was live).
+            if let Some(text) = unreadable {
+                cmux_config::fsio::write_atomic(
+                    &self.roots().config_dir.join(WEB_DEV_UNREADABLE),
+                    text.as_bytes(),
+                )?;
+            }
             let (overlay, enabled) = match target {
                 WebTarget::Layer(dir) => (
                     Some(Value::String(dir.to_string_lossy().into_owned())),
@@ -179,14 +190,23 @@ pub fn valid_key(key: &str) -> bool {
     key.len() == 64 && key.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-fn read_object(path: &Path) -> Result<Map<String, Value>, Error> {
+/// web-dev.json's keys. A file with comments or trailing commas reads as
+/// JSONC, so its other keys are kept. One that reads as neither is empty
+/// (web-overlay.sh reads a broken file as empty too) and its text comes back
+/// second, for a write to keep beside.
+pub(crate) fn read_object(path: &Path) -> Result<(Map<String, Value>, Option<String>), Error> {
     match std::fs::read_to_string(path) {
-        Ok(text) => Ok(match serde_json::from_str::<Value>(&text) {
-            Ok(Value::Object(object)) => object,
-            // web-overlay.sh reads a broken file as empty too.
-            _ => Map::new(),
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Map::new()),
+        Ok(text) => {
+            let parsed = serde_json::from_str::<Value>(&text)
+                .ok()
+                .or_else(|| cmux_config::jsonc::parse(&text).ok());
+            Ok(match parsed {
+                Some(Value::Object(object)) => (object, None),
+                _ if text.trim().is_empty() => (Map::new(), None),
+                _ => (Map::new(), Some(text)),
+            })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok((Map::new(), None)),
         Err(error) => Err(error.into()),
     }
 }
