@@ -201,7 +201,12 @@ class TeamSignedWorkflow(unittest.TestCase):
         request = jobs["request-team-signed-tree"]
         self.assertTrue(request["continue-on-error"])
         self.assertIn("refs/heads/feat-cmux-next", request["if"])
-        self.assertIn("--ref nightly-next", request["steps"][0]["run"])
+        run = request["steps"][0]["run"]
+        self.assertIn("--ref nightly-next", run)
+        # A push whose key is signed already dispatches nothing; one that does names the key's group.
+        self.assertLess(run.index("team-signed/completion.json"), run.index("gh workflow run"))
+        self.assertIn('-f key="$KEY"', run)
+        self.assertIn("inputs.key", self.doc["concurrency"]["group"])
         for name, job in jobs.items():
             needs = job.get("needs") or []
             self.assertNotIn("request-team-signed-tree", [needs] if isinstance(needs, str) else needs, name)

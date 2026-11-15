@@ -30,11 +30,18 @@ on:
         description: "Full 40-hex feat-cmux-next commit whose darwin tree build to sign"
         required: true
         type: string
+      key:
+        description: "Optional: the commit's tree key, which names the concurrency group (checked against the commit)"
+        required: false
+        default: ""
+        type: string
 
-# One run per commit at a time. Two commits with one tree key may sign at once: each publishes its
-# signed files under their own sha256 and the first completion.json to land names one whole set.
+# One run per tree key (the requester passes it; a dispatch by hand without it groups by commit), so a
+# burst of pushes of one key signs once: GitHub keeps one pending run per group, and that run then
+# finds the set published. Two runs that do sign one key at once publish their files under their own
+# sha256, and the first completion.json to land names one whole set.
 concurrency:
-  group: cmux-tui-team-signed-${{ inputs.commit || github.sha }}
+  group: cmux-tui-team-signed-${{ inputs.key || inputs.commit || github.sha }}
   cancel-in-progress: false
 
 permissions: {}
@@ -86,9 +93,14 @@ jobs:
 
       - name: Read the tree key and whether its Team-signed set is published
         id: plan
+        env:
+          KEY_INPUT: ${{ inputs.key }}
         run: |
           set -euo pipefail
           key="$(python3 source/scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)"
+          if [[ -n "$KEY_INPUT" && "$KEY_INPUT" != "$key" ]]; then
+            echo "::error::the key input $KEY_INPUT is not the commit's tree key $key"; exit 1
+          fi
           python3 tools/scripts/ci/cmux_tui_team_sign.py plan "$key" | tee -a "$GITHUB_OUTPUT"
 
   sign:

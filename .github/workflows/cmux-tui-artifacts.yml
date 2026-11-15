@@ -4189,14 +4189,23 @@ jobs:
     permissions:
       actions: write
     steps:
+      # Most pushes keep the tree key of the one before, whose set is signed already: those dispatch
+      # nothing. The key names the run's concurrency group, so a burst of pushes of one new key signs once.
       - name: Dispatch cmux-tui-team-signed.yml on nightly-next
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -uo pipefail
-          if gh workflow run cmux-tui-team-signed.yml --repo "$REPO" --ref nightly-next -f commit="$SHA"; then
+          if curl --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
+              "https://files.cmux.com/cmux-tui/tree/$KEY/team-signed/completion.json?request=$RUN_ID"; then
+            echo "Tree $KEY already has its Team-signed set; nothing to request." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if gh workflow run cmux-tui-team-signed.yml --repo "$REPO" --ref nightly-next -f commit="$SHA" -f key="$KEY"; then
             echo "Asked nightly-next's cmux-tui-team-signed.yml to sign $SHA's tree." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=Team-signed tree not requested::gh workflow run cmux-tui-team-signed.yml --ref nightly-next failed (the file may not be on nightly-next yet); dispatch it by hand with -f commit=$SHA"
