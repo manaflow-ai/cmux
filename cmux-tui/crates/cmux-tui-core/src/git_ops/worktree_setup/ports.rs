@@ -101,8 +101,8 @@ mod lock_tests {
 }
 
 /// The worktree's block, if it has one. The read takes no lock: the
-/// ports file is written under a second name that then takes its name,
-/// so a read gets a whole file.
+/// ports file is written to a `.partial` file that then takes its name
+/// ([`write_own`]), so a read gets a whole file.
 pub(super) fn lookup(git_dir: &Path, root: &Path) -> Option<u16> {
     load(&path(git_dir)?).ok()?.get(&key(root)).copied()
 }

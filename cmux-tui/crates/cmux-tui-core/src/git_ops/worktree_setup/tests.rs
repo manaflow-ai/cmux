@@ -141,8 +141,8 @@ fn place_in(top: &Path) -> Place {
     Place { root: top.join("root"), main_root: None, git_dir: top.join("git-folder") }
 }
 
-/// The ports file is written under a second name that then takes its name. A link at the
-/// second name is not followed: the write stays in the git folder.
+/// The ports file is written to a `.partial` file that then takes its name. A link at the name
+/// of the `.partial` file is not followed: the write stays in the git folder.
 #[cfg(unix)]
 #[test]
 fn own_tree_the_ports_file_is_not_written_through_a_link() {
@@ -262,8 +262,10 @@ fn text_elsewhere(top: &Path) -> String {
     fs::read_to_string(top.join("elsewhere/file")).unwrap()
 }
 
-/// The marker's text is not used, so the marker's open writes nothing: a file that has the
-/// marker's name as a second name keeps its text and its 2 names.
+/// Only the marker's name is used, so a file that is at the name is not opened: a file that has
+/// the marker's name as a second name keeps its text and its 2 names. This test and
+/// [`own_tree_the_stop_marker_is_made_when_there_is_none`] are one proof together: that test,
+/// with the same status, shows that the stop comes to the marker.
 #[cfg(unix)]
 #[test]
 fn own_tree_the_stop_marker_changes_no_file_with_a_second_name() {
@@ -513,4 +515,28 @@ fn own_tree_a_lock_file_with_a_second_name_is_no_run_lock() {
     }
     fs::remove_dir_all(top).unwrap();
     assert!(!run_lock, "a lock on a file with a second name was read as the lock of a run");
+}
+
+/// The log of a setup that does not start is opened as the log of a setup that runs: a log
+/// that has a second name is made new, and the file at the other name keeps its text.
+#[cfg(unix)]
+#[test]
+fn own_tree_the_log_of_a_setup_that_does_not_start_is_made_new_with_a_second_name() {
+    let top = folder_with_a_second_name_in_its_git_folder_at(LOG_FILE);
+    // A ports file above the size limit: the setup does not start, and its log says why.
+    let large = "x".repeat(1024 * 1024 + 1);
+    let ports = json!({large: 1}).to_string();
+    fs::write(top.join("git-folder/cmux-worktree-ports.json"), ports).unwrap();
+    let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
+
+    let reply = start(place_in(&top), recipe);
+
+    let log = fs::read_to_string(top.join("git-folder").join(LOG_FILE)).unwrap_or_default();
+    let (text, started) = (text_elsewhere(&top), top.join("root/started").exists());
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((&reply["state"], started), (&json!("failed"), false), "{reply}");
+    assert_eq!(
+        (text.as_str(), log.contains(KEPT), log.contains("is larger than 1 MiB")),
+        (KEPT, false, true)
+    );
 }

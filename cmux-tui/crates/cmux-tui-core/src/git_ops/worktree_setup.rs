@@ -785,9 +785,9 @@ fn has_no_second_name(_file: &File) -> bool {
 }
 
 /// Writes `bytes` as the whole of the JSON file `path` that cmux keeps in a
-/// git folder: to a second name beside it, which then takes its name. The
-/// second name is made new ([`open_as_own`]): what is at that name goes
-/// first, and a link that comes there after that stops the write.
+/// git folder: to the file `.json.partial` beside it, which then takes its
+/// name. The `.partial` file is made new ([`open_as_own`]): what is at its
+/// name goes first, and a link that comes there after that stops the write.
 fn write_own(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let partial = path.with_extension("json.partial");
     let _ = fs::remove_file(&partial);
