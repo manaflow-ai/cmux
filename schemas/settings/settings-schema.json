@@ -1389,7 +1389,7 @@
             ],
             "title" : {
               "key" : "settings.group.agentTools",
-              "text" : "cmux Tools in Your Coding Agents"
+              "text" : "cmux Tools"
             }
           }
         ],
@@ -103331,7 +103331,7 @@
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentTools",
-        "text" : "cmux Tools in Your Coding Agents"
+        "text" : "cmux Tools"
       },
       "help" : {
         "key" : "settings.agents.cmuxMcp.help",
