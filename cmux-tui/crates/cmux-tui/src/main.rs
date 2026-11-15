@@ -2650,7 +2650,11 @@ fn run_server(
         owner_host_colors,
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
-    mux.configure_journal_plugin(config.agents.plugin.clone());
+    // A Chief owner hosts no terminals: no bundled screen detector there.
+    mux.configure_journal_plugin(crate::agent_plugin_config::plugin_for_session(
+        config.agents.plugin.clone(),
+        &mux.session,
+    ));
     // Check installed plugins in the background so a remote Git host never
     // delays the daemon's first response. The worker's daily marker and
     // source/working-tree checks keep local development installs untouched.

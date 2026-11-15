@@ -8,7 +8,9 @@
 //! runs as producer `cmux_screen_detection`, unless `agents.screen_detection`
 //! is `false`, or the agents settings could not be read (a config file or
 //! `agents` section that failed to parse). The plugin is Unix-only, so other
-//! platforms never run it.
+//! platforms never run it. A Chief owner (session `cmux-chief-<home hash>`,
+//! ChiefHome.swift) never runs the bundled one: it holds Home's conversations
+//! and hosts no terminals, so the detector would only cost a process.
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +22,27 @@ use serde::Deserialize;
 pub(crate) const BUNDLED_SCREEN_DETECTION_ID: &str = "cmux_screen_detection";
 /// File name of the bundled plugin beside the daemon executable.
 pub(crate) const BUNDLED_SCREEN_DETECTION_FILE: &str = "cmux-agent-screen-detection";
+/// The session name of every Chief home's conversation owner (ChiefHome.swift
+/// `sessionName`; the `cmux chief` CLI derives the same).
+const CHIEF_OWNER_SESSION_PREFIX: &str = "cmux-chief-";
+
+/// Whether the daemon of `session` hosts terminals: every session but a Chief
+/// owner's, which holds conversations only (its launcher spawns no terminals,
+/// DaemonLauncher.forChief), so screen detection has nothing to read there.
+pub(crate) fn hosts_terminals(session: &str) -> bool {
+    !session.starts_with(CHIEF_OWNER_SESSION_PREFIX)
+}
+
+/// The agent plugin the daemon of `session` supervises: `plugin` (the
+/// config's choice, [`agent_plugin`]), less the bundled screen detector in a
+/// session that hosts no terminals ([`hosts_terminals`]). An explicit
+/// `agents.plugin` still runs there: it may report more than screens.
+pub(crate) fn plugin_for_session(
+    plugin: Option<JournalPluginOptions>,
+    session: &str,
+) -> Option<JournalPluginOptions> {
+    plugin.filter(|plugin| plugin.id != BUNDLED_SCREEN_DETECTION_ID || hosts_terminals(session))
+}
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -170,12 +193,13 @@ fn this_daemon_host() -> DaemonHost {
     }
 }
 
-/// What the daemon at `daemon_exe` does for screen detection under `raw`
-/// (`daemon status`): the same decision as [`agent_plugin`], with the
-/// places it looked.
+/// What the daemon at `daemon_exe` of `session` does for screen detection
+/// under `raw` (`daemon status`): the same decision as [`agent_plugin`] and
+/// [`plugin_for_session`], with the places it looked.
 pub(crate) fn screen_detection_status(
     raw: RawAgents,
     daemon_exe: Option<&Path>,
+    session: Option<&str>,
 ) -> crate::screen_detection_status::ScreenDetection {
     use crate::screen_detection_status::ScreenDetection;
     if raw.unreadable {
@@ -186,6 +210,9 @@ pub(crate) fn screen_detection_status(
     }
     if raw.screen_detection == Some(false) {
         return ScreenDetection::Off;
+    }
+    if session.is_some_and(|session| !hosts_terminals(session)) {
+        return ScreenDetection::NoTerminals;
     }
     let Some(exe) = daemon_exe else { return ScreenDetection::Unknown };
     let host = DaemonHost::for_exe(exe);
@@ -446,7 +473,7 @@ mod tests {
         std::fs::write(&exe, b"").unwrap();
         let link = links.path().join("cmux-tui");
         std::os::unix::fs::symlink(&exe, &link).unwrap();
-        let status = screen_detection_status(raw("{}"), Some(&link));
+        let status = screen_detection_status(raw("{}"), Some(&link), None);
         let crate::screen_detection_status::ScreenDetection::NotInstalled { looked_in } = &status
         else {
             panic!("nothing is installed yet: {status:?}");
@@ -464,7 +491,7 @@ mod tests {
         );
         std::fs::remove_file(&suffixed_path).unwrap();
         let beside = write_sibling(links.path(), b"#!/bin/sh\n", 0o755);
-        let status = screen_detection_status(raw("{}"), Some(&link));
+        let status = screen_detection_status(raw("{}"), Some(&link), None);
         assert_eq!(
             status,
             crate::screen_detection_status::ScreenDetection::Installed { path: beside }
@@ -476,19 +503,63 @@ mod tests {
         use crate::screen_detection_status::ScreenDetection;
         let exe = Path::new("/nonexistent/cmux-tui");
         assert_eq!(
-            screen_detection_status(raw(r#"{"screen_detection":false}"#), Some(exe)),
+            screen_detection_status(raw(r#"{"screen_detection":false}"#), Some(exe), None),
             ScreenDetection::Off
         );
         assert_eq!(
-            screen_detection_status(RawAgents::invalid(), Some(exe)),
+            screen_detection_status(RawAgents::invalid(), Some(exe), None),
             ScreenDetection::Unreadable
         );
         let json = r#"{"plugin":{"id":"mine","command":["/opt/mine/plugin"]}}"#;
         assert_eq!(
-            screen_detection_status(raw(json), Some(exe)),
+            screen_detection_status(raw(json), Some(exe), None),
             ScreenDetection::Replaced { id: "mine".into() }
         );
-        assert_eq!(screen_detection_status(raw("{}"), None), ScreenDetection::Unknown);
+        assert_eq!(screen_detection_status(raw("{}"), None, None), ScreenDetection::Unknown);
+    }
+
+    #[test]
+    fn a_chief_owner_runs_no_bundled_screen_detector() {
+        // The Chief owner holds Home's conversations and hosts no terminals:
+        // its detector was one idle process per launch (Home idle memory).
+        let (directory, _sibling) = host_with_sibling();
+        let bundled = agent_plugin(raw("{}"), &host(Some(directory.path()), true));
+        assert!(bundled.is_some(), "the default runs where terminals are");
+        for session in ["cmux-app", "cmux-app-nightly", "workspace-dev", "cmux-chiefs"] {
+            assert!(hosts_terminals(session), "{session}");
+            let kept = plugin_for_session(bundled.clone(), session);
+            assert_eq!(kept.map(|plugin| plugin.id).as_deref(), Some(BUNDLED_SCREEN_DETECTION_ID));
+        }
+        assert!(!hosts_terminals("cmux-chief-0a1b2c3d"));
+        assert!(plugin_for_session(bundled, "cmux-chief-0a1b2c3d").is_none());
+        // A plugin the person configured still runs in the Chief owner.
+        let json = r#"{"plugin":{"id":"mine","command":["/opt/mine/plugin"]}}"#;
+        let mine = agent_plugin(raw(json), &host(Some(directory.path()), true));
+        let kept = plugin_for_session(mine, "cmux-chief-0a1b2c3d");
+        assert_eq!(kept.map(|plugin| plugin.id).as_deref(), Some("mine"));
+    }
+
+    #[test]
+    fn screen_detection_status_names_a_session_without_terminals() {
+        use crate::screen_detection_status::ScreenDetection;
+        let exe = Path::new("/nonexistent/cmux-tui");
+        assert_eq!(
+            screen_detection_status(raw("{}"), Some(exe), Some("cmux-chief-0a1b2c3d")),
+            ScreenDetection::NoTerminals
+        );
+        assert!(matches!(
+            screen_detection_status(raw("{}"), Some(exe), Some("cmux-app")),
+            ScreenDetection::NotInstalled { .. }
+        ));
+        // The person's own choice still reads as theirs there.
+        assert_eq!(
+            screen_detection_status(
+                raw(r#"{"screen_detection":false}"#),
+                Some(exe),
+                Some("cmux-chief-0a1b2c3d")
+            ),
+            ScreenDetection::Off
+        );
     }
 
     #[test]

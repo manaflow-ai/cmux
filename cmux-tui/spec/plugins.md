@@ -200,7 +200,10 @@ because the user's choice is unknown. Removing the explicit entry
 (`cmux agent plugin remove`, or `cmux agent plugin use --builtin`) restores the
 default. Older cmux-tui builds do not know `screen_detection` and reject the
 whole `agents` section that contains it. The bundled default is Unix-only; other platforms never
-start it, and a daemon without the sibling file starts nothing.
+start it, and a daemon without the sibling file starts nothing. A Chief owner (session
+`cmux-chief-<home hash>`) never starts the bundled default either: it holds Home's conversations
+and hosts no terminals, so the detector would be an idle process (`daemon status` says
+`no-terminals`). An explicit `agents.plugin` still runs there.
 
 The supervisor passes `CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`,
 `CMUX_TUI_SESSION_ID`, and the required `CMUX_PLUGIN_ID`, plus
