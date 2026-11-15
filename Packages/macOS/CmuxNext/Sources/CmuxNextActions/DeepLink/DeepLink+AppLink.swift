@@ -64,6 +64,46 @@ extension DeepLink {
         return session
     }
 
+    /// The opaque agent reference (`aid-` and 20 lowercase hex digits) a link names in place of a
+    /// session: `cmux://agent?id=aid-…` (what cmux.com's page hands the app, in the `cmux` scheme or
+    /// `linkScheme`) or the page's own form `https://cmux.com/deeplink/agent?id=aid-…`, which every
+    /// public PR footer carries. The app never looks it up itself: acpmux resolves it
+    /// (`_acpmux/resolve`, `opaque_agent_id.rs`) by hashing the chats this Mac and its peers list
+    /// under this Mac's key, so it opens only a chat the reader can already reach. Nil for any other
+    /// URL, for one that also names a harness or session, and for an `id` written twice.
+    public static func agentReference(_ url: URL, linkScheme: String) -> String? {
+        let query: [URLQueryItem]
+        if let web = agentWebQuery(url) {
+            query = web
+        } else {
+            guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  components.host?.lowercased() == "agent", components.path.isEmpty || components.path == "/",
+                  components.user == nil, components.port == nil, components.fragment == nil else { return nil }
+            query = components.queryItems ?? []
+        }
+        guard !query.contains(where: { $0.name == "harness" || $0.name == "session" }) else { return nil }
+        let ids = query.filter { $0.name == "id" }
+        guard ids.count == 1, let id = ids[0].value, isAgentReference(id) else { return nil }
+        return id
+    }
+
+    /// Whether `url` opens an agent's chat: an agent link (`cmux://agent/<harness>/<session>`) or an
+    /// opaque reference (``agentReference(_:linkScheme:)``). Such a link opened from another app is an
+    /// address from a public page or trailer, so it never takes the keys (`ExternalOpenController`).
+    public static func opensAgentChat(_ url: URL, linkScheme: String) -> Bool {
+        if agentReference(url, linkScheme: linkScheme) != nil { return true }
+        if case .agent = read(url, scheme: linkScheme)?.link.target { return true }
+        return false
+    }
+
+    /// `aid-` and 20 lowercase hex digits: the opaque id agent-identity writes (cmux.com's
+    /// `AGENT_REFERENCE_PATTERN`, acpmux's `opaque_agent_id::is_id`).
+    public static func isAgentReference(_ text: String) -> Bool {
+        // The count too: `$` also matches before a final newline a decoded `%0A` could leave.
+        text.utf8.count == 24 && text.range(of: "^aid-[0-9a-f]{20}$", options: .regularExpression) != nil
+    }
+
     /// The query of an https agent session link's page (cmux.com, `/deeplink/agent`, an optional
     /// locale segment and trailing slash; no user, port or fragment), nil for any other URL.
     private static func agentWebQuery(_ url: URL) -> [URLQueryItem]? {
