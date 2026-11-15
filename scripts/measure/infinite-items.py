@@ -20,13 +20,20 @@ compresses DAYS days into minutes; each simulated day is:
   - the acpmux idle timer fast-forwarded (ACPMUX_IDLE_CHILD_SECS, default 2 min in the product);
 then it waits for the idle agents to hibernate and samples an idle window.
 
-Each sample is per process role (acpmux, agent, acpmux-child, cmux-tui, terminal-host, shell, other):
-count, RSS, PSS, CPU seconds and context-switch wakeups over the idle window, open fds; and the disk
+Each sample is per process role (acpmux, agent-host, agent, acpmux-child, cmux-tui, terminal-host, holder,
+shell, other): count, threads, RSS, PSS, CPU seconds and context-switch wakeups over the idle window, open
+fds; and the disk
 each home holds (acpmux home: sessions, logs; cmux-tui state and home). Output: INFINITE lines, one
 PERF_ROW-style JSON line per headline, and --out JSON with every sample. Headlines per N:
   ratio_vs_empty   total PSS (and idle CPU, wakeups) at N over the empty pair's;
   per_item         (total at N - empty) / N;
   per_day          the least-squares slope over the simulated days (MB, disk MB) after creation.
+INFINITE-PERITEM lines give each role at each N: procs, threads, PSS MB and its MB per item over the empty
+pair, and idle wakeups/s. INFINITE-DISKGROW lines name the files whose bytes grow most per simulated day (paths
+with their ids folded to *, so a file per chat is one line), the next disk slope to bound. --terminal-host-model=holder runs the same counts with every terminal in the one
+holder process (CMUX_TUI_TERMINAL_HOST_MODEL=holder, off in the product) instead of a host per terminal.
+--browser-tabs adds a browser tab to each workspace: headless cmux-tui keeps only its model (the page and
+its renderer are the app's), so it measures the daemon's share of a browser tab and no renderer.
 Measurement only: it signals and reads only the processes it started (its two daemons' trees).
 
   infinite-items.py --acpmux BIN --tui BIN [--counts 10,100,1000] [--days 3] [--out result.json]
@@ -38,6 +45,7 @@ import json
 import os
 import platform
 import random
+import re
 import shutil
 import signal
 import socket
@@ -92,7 +100,7 @@ def cmdline(pid):
 
 
 def sample_proc(pid):
-    """RSS, PSS, CPU seconds, wakeups (context switches over all threads), open fds."""
+    """RSS, PSS, CPU seconds, wakeups (context switches over all threads), threads, open fds."""
     out = {}
     try:
         if IS_LINUX:
@@ -107,7 +115,9 @@ def sample_proc(pid):
                         out["pss"] = int(line.split()[1]) * 1024
             out["fds"] = len(os.listdir(f"/proc/{pid}/fd"))
             csw = 0
-            for tid in os.listdir(f"/proc/{pid}/task"):
+            tids = os.listdir(f"/proc/{pid}/task")
+            out["threads"] = len(tids)
+            for tid in tids:
                 try:
                     with open(f"/proc/{pid}/task/{tid}/status") as f:
                         for line in f:
@@ -124,6 +134,8 @@ def sample_proc(pid):
             out["cpu_s"] = sum(v * 60 ** i for i, v in enumerate(reversed(parts)))
             out["fds"] = None
             out["wakeups"] = None
+            out["threads"] = len(subprocess.run(["ps", "-M", "-p", str(pid)], capture_output=True,
+                                                text=True).stdout.splitlines()[1:]) or None
     except (OSError, ValueError, IndexError):
         return None
     return out
@@ -136,9 +148,11 @@ def role_of(pid, top, cmd):
         return "cmux-tui"
     if "fake_agent" in cmd:
         return "agent"
+    if "__agent-host" in cmd:
+        return "agent-host"  # acpmux's host per agent (agent_host/link.rs); the harness runs under it
     if "__terminal-host" in cmd:
         return "terminal-host"
-    if "__holder" in cmd:
+    if "__holder" in cmd or os.path.basename(cmd.split(" ")[0]) == "cmux-holder":
         return "holder"  # CMUX_TUI_TERMINAL_HOST_MODEL=holder: one process holds every terminal
     if "acpmux" in cmd:
         return "acpmux-child"
@@ -185,6 +199,27 @@ def du(path):
     return total
 
 
+# A path with its ids folded, so a file per chat, workspace or day sums into one group: hex runs of 8 or more and
+# digit runs become *.
+FILE_ID = re.compile(r"[0-9a-f]{8,}|[0-9]+")
+
+
+def file_groups(disks):
+    """{"home/path with ids as *": bytes on disk} for every file under each disk root."""
+    groups = {}
+    for name, path in disks.items():
+        for base, _, files in os.walk(path):
+            for file in files:
+                full = os.path.join(base, file)
+                try:
+                    st = os.lstat(full)
+                except OSError:
+                    continue
+                key = f"{name}/{FILE_ID.sub('*', os.path.relpath(full, path))}"
+                groups[key] = groups.get(key, 0) + (st.st_blocks * 512 if hasattr(st, "st_blocks") else st.st_size)
+    return groups
+
+
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
@@ -192,9 +227,11 @@ def idle_window(top, seconds, disks):
     after = snapshot(top)
     roles = {}
     for pid, s in after.items():
-        r = roles.setdefault(s["role"], {"count": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0, "wakeups": 0, "cmds": {}})
+        r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
+                                         "wakeups": 0, "cmds": {}})
         r["cmds"][s["cmd"]] = r["cmds"].get(s["cmd"], 0) + 1
         r["count"] += 1
+        r["threads"] += s.get("threads") or 0
         r["rss"] += s["rss"]
         r["pss"] += s.get("pss") or s["rss"]
         r["fds"] += s.get("fds") or 0
@@ -213,13 +250,14 @@ def idle_window(top, seconds, disks):
         "wakeups_per_s": round(sum(r["wakeups_per_s"] for r in roles.values()), 2),
         "fds": sum(r["fds"] for r in roles.values()),
         "procs": sum(r["count"] for r in roles.values()),
+        "threads": sum(r["threads"] for r in roles.values()),
     }
     disk = {name: round(du(path) / 1048576, 3) for name, path in disks.items()}
     total["disk_mb"] = round(sum(disk.values()), 3)
     for r in roles.values():
         r["pss_mb"] = round(r.pop("pss") / 1048576, 2)
         r["rss_mb"] = round(r.pop("rss") / 1048576, 2)
-    return {"total": total, "roles": roles, "disk": disk}
+    return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks)}
 
 
 # ------------------------------------------------------------------ sockets
@@ -317,6 +355,12 @@ class Run:
             ACPMUX_SESSION_CPU_CLASS="normal",
             CMUX_TUI_CONFIG=os.path.join(self.tui_root, "config.json"),
         )
+        # The terminal model under test, never the caller's: hosts (the product default) or the holder.
+        env.pop("CMUX_TUI_TERMINAL_HOST_MODEL", None)
+        if self.args.terminal_host_model == "holder":
+            env["CMUX_TUI_TERMINAL_HOST_MODEL"] = "holder"
+        # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
+        env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
         return env
 
     def start(self):
@@ -451,6 +495,13 @@ class Run:
         listed = tree.get("workspaces", [])[-n:]
         self.workspaces = [w["id"] for w in listed]
         self.panes = [w["screens"][0]["panes"][0]["id"] for w in listed]
+        self.browser_tabs = []
+        for pane in self.panes if self.args.browser_tabs else []:
+            try:
+                data = tui.call("new-browser-tab", pane=pane, url="about:blank", cols=80, rows=24)
+                self.browser_tabs.append(data.get("surface"))
+            except (OSError, RuntimeError, ValueError) as exc:
+                self.error("new-browser-tab", exc)
 
         sessions = [None] * n
 
@@ -633,7 +684,8 @@ def run_count(args, count):
         result["open_seconds"] = round(time.monotonic() - t0, 1)
         result["mix"] = {"chats": len([s for s in run.sessions if s]), "archived": len(run.archived),
                          "working": len(run.working), "drawn": len(run.drawn), "idle": len(run.idle),
-                         "chat_tabs": len(run.chat_tabs), "workspaces": len(run.workspaces)}
+                         "chat_tabs": len(run.chat_tabs), "browser_tabs": len(run.browser_tabs),
+                         "workspaces": len(run.workspaces)}
         settle(args)
         day0 = idle_window(run.top, args.window, run.disks)
         day0["day"] = 0
@@ -680,11 +732,22 @@ def report(results):
         for s in r["samples"]:
             t_ = s["total"]
             print(f"INFINITE-DAY {n} day={s['day']} mb={t_['pss_mb']} cpu={t_['cpu_pct']} wk={t_['wakeups_per_s']} "
-                  f"procs={t_['procs']} fds={t_['fds']} disk={json.dumps(s['disk'])}", flush=True)
+                  f"procs={t_['procs']} thr={t_.get('threads')} fds={t_['fds']} disk={json.dumps(s['disk'])}", flush=True)
             for k, v in (sorted(s["roles"].items()) if s is r["samples"][0] or s is r["samples"][-1] else []):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
-                print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} mb={v['pss_mb']} cpu={v['cpu_pct']} "
+                print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
+                      f"cpu={v['cpu_pct']} "
                       f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds}", flush=True)
+        grown = r["samples"][1:]
+        if grown:
+            # The slope over the days after creation (day 0 holds what the open made), per file group.
+            keys = set().union(*(s.get("files", {}) for s in grown))
+            rates = {k: slope([s["day"] for s in grown], [s.get("files", {}).get(k, 0) / 1048576 for s in grown])
+                     for k in keys} if len(grown) > 1 else {}
+            for k, rate in sorted(rates.items(), key=lambda kv: -kv[1])[:12]:
+                if rate > 0:
+                    print(f"INFINITE-DISKGROW {n} {rate:+.3f} MB/day {grown[-1]['files'].get(k, 0) / 1048576:.2f} MB {k}",
+                          flush=True)
         if r.get("errors"):
             print(f"INFINITE-ERRORS {n} {json.dumps(r['errors'])}", flush=True)
         # A row is never negative (perf-cron and NOW read a negative number as none): a shrinking day is 0 growth.
@@ -695,7 +758,26 @@ def report(results):
         perf_row(f"infinite_items.n{n}.wakeups_per_s", t["wakeups_per_s"], "count", floor=WAKEUPS_FLOOR)
         perf_row(f"infinite_items.n{n}.mb_per_day", max(0.0, mb_day), "MB", floor=1.0)
         perf_row(f"infinite_items.n{n}.disk_mb_per_day", max(0.0, disk_day), "MB", floor=0.1)
+    per_item(results)
     print(json.dumps({"rows": ROWS}), flush=True)
+
+
+def per_item(results):
+    """Each role at each N, at the last sample: what a process kind costs per item (the process-sharing table)."""
+    model = ARGS.terminal_host_model if ARGS else "-"
+    print("INFINITE-PERITEM model | n | role | procs | threads | MB (PSS) | MB/item over empty | wakeups/s")
+    for r in results:
+        if "empty" not in r or not r["samples"]:
+            continue
+        n, last, empty = r["count"], r["samples"][-1]["roles"], r["empty"]["roles"]
+        for role in sorted(set(last) | set(empty)):
+            v, base = last.get(role, {}), empty.get(role, {})
+            print(f"INFINITE-PERITEM {model} | {n} | {role} | {v.get('count', 0)} | {v.get('threads', 0)} | "
+                  f"{v.get('pss_mb', 0):.2f} | {(v.get('pss_mb', 0) - base.get('pss_mb', 0)) / n:.3f} | "
+                  f"{v.get('wakeups_per_s', 0):.1f}", flush=True)
+
+
+ARGS = None  # the parsed arguments, for the report's labels
 
 
 def main():
@@ -720,13 +802,23 @@ def main():
     p.add_argument("--root-dir", default=None)
     p.add_argument("--keep", action="store_true")
     p.add_argument("--acpmux-log", default="warn", help="acpmux --log; at info, its hibernations are summarized")
+    p.add_argument("--terminal-host-model", choices=("hosts", "holder"), default="hosts",
+                   help="hosts: a __terminal-host per terminal (the product default); holder: "
+                        "CMUX_TUI_TERMINAL_HOST_MODEL=holder, one holder process for every terminal")
+    p.add_argument("--agent-holder", choices=("off", "on"), default="on",
+                   help="on (the product default): ACPMUX_AGENT_HOLDER=1, the daemon keeps a copy of each harness's stdio and "
+                        "replaces a host that dies (acpmux agent_host/custody.rs)")
+    p.add_argument("--browser-tabs", action="store_true", help="a browser tab in each workspace too (model only)")
     p.add_argument("--out")
     args = p.parse_args()
+    global ARGS
+    ARGS = args
     for path in (args.acpmux, args.tui):
         if not os.access(path, os.X_OK):
             raise SystemExit(f"infinite-items: not executable: {path}")
     print(f"INFINITE-MACHINE host={platform.node()} platform={platform.platform()} cpus={os.cpu_count()} "
-          f"counts={args.counts} days={args.days}", flush=True)
+          f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} agent_holder={args.agent_holder} "
+          f"browser_tabs={int(args.browser_tabs)}", flush=True)
     results = []
     for count in (int(c) for c in args.counts.split(",")):
         try:

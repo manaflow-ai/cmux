@@ -173,9 +173,10 @@ impl Mux {
             return;
         }
         let weak = Arc::downgrade(self);
+        let pins = Arc::clone(pins);
         match std::thread::Builder::new()
             .name("terminal-tail-pins".into())
-            .spawn(move || run_publisher(&weak))
+            .spawn(move || run_publisher(&weak, &pins))
         {
             Ok(_) => state.worker = true,
             Err(error) => eprintln!("cmux-tui: terminal tail publisher did not start: {error}"),
@@ -369,7 +370,7 @@ impl Mux {
         }
     }
 
-    fn workspace_public_id_of_surface(&self, view: SurfaceId) -> Option<String> {
+    pub(crate) fn workspace_public_id_of_surface(&self, view: SurfaceId) -> Option<String> {
         let workspace = self.surface_workspace(view)?;
         self.with_state(|state| {
             let index = state.workspace_index(workspace)?;
@@ -395,12 +396,19 @@ impl TerminalTailPins {
 
 /// The publisher thread: commits each due tail, sleeping until the next one
 /// is due. Ends when no terminal is pinned, or the mux is gone.
-fn run_publisher(weak: &Weak<Mux>) {
+///
+/// It holds the mux only for the shutdown check and for a publication, never
+/// across a wait, so a mux its owner dropped is freed at once (with the
+/// registry's session lease). The strong mux is let go before the pins are
+/// locked, so a mux whose last reference ends here never drops under that
+/// lock.
+fn run_publisher(weak: &Weak<Mux>, pins: &TerminalTailPins) {
     loop {
-        let Some(mux) = weak.upgrade() else { return };
-        let pins = &mux.terminal_tail_pins;
+        let Some(shutdown) = weak.upgrade().map(|mux| mux.daemon_shutdown_requested()) else {
+            return;
+        };
         let mut state = pins.lock();
-        if state.pins.is_empty() || mux.daemon_shutdown_requested() {
+        if state.pins.is_empty() || shutdown {
             state.worker = false;
             state.due.clear();
             return;
@@ -409,7 +417,7 @@ fn run_publisher(weak: &Weak<Mux>) {
         let ready: Vec<SurfaceId> =
             state.due.iter().filter(|(_, at)| **at <= now).map(|(id, _)| *id).collect();
         if ready.is_empty() {
-            // Bounded, and the mux is let go after it, so a dropped mux or a
+            // Bounded, and no mux is held across it, so a dropped mux or a
             // shutdown ends the thread.
             let wait = state
                 .due
@@ -436,6 +444,7 @@ fn run_publisher(weak: &Weak<Mux>) {
             }
         }
         drop(state);
+        let Some(mux) = weak.upgrade() else { return };
         for id in ready {
             mux.publish_terminal_tail(id);
         }

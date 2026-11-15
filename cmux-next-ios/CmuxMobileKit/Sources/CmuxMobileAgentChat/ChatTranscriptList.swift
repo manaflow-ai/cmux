@@ -518,7 +518,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     let collectionView: ChatTranscriptCollectionView
     let layout: ChatTranscriptLayout
     private(set) var store: AgentChatStore
-    private let surface: AgentChatSurface
+    let surface: AgentChatSurface
     var context: ChatRowContext { lookup.context }
     private(set) var builder: ChatTranscriptBuilder
     private let dataSource: UICollectionViewDiffableDataSource<Int, String>
@@ -569,6 +569,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var rowsWeighed = 0
     /// Rows offered to the warm-up (tests: once each, not every row on every reload).
     private(set) var warmUpOffers = 0
+    /// Snapshot applies by `reload` (tests: a token whose rows keep their ids applies none).
+    private(set) var snapshotApplies = 0
+    /// Native layouts made on the main thread (tests: none for a streaming row off screen).
+    var layoutsMadeNow: Int { lookup.layouts.madeNow }
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -634,6 +638,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         let shownID = dataSource.itemIdentifier(for: indexPath)
+        // A cell made ahead (prefetched) before its row changed shows the row as it is now.
+        if let id = shownID, lookup.stale.contains(id) { redraw(cell, id) }
         // The oldest turn shown came into view (the reader scrolled up, or the first page is
         // shorter than the screen): read the page before it. The list keeps the reader's rows
         // in place as it lands (`reload`'s anchor).
@@ -882,6 +888,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // Laid out now, on the main thread: rows the reader sees first (the newest, on open)
         // and the streaming answer's changed block. Everything else is laid out off the main thread.
         let runningTurn = store.isRunning ? turns.last?.id : nil
+        // A reader scrolled up off the streaming answer: its changed rows are laid out when they come
+        // into view (prefetch, or the cell's own dequeue), not on the main thread for every token.
+        var onScreen: Set<String>?
+        func streamsOffScreen(_ row: ChatRow) -> Bool {
+            guard loaded, row.turnID == runningTurn, !surface.following else { return false }
+            if onScreen == nil { onScreen = Set(collectionView.indexPathsForVisibleItems.compactMap { dataSource.itemIdentifier(for: $0) }) }
+            return onScreen?.contains(row.id) == false
+        }
         var missing: [String] = []
         // The newest rows on the first reload with a width: laid out as their revision is set below.
         var prime = Set<String>()
@@ -942,7 +956,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     revisions.bump(row.id)
                     rows[row.id] = row
                     if loaded, isNew, !store.isReplayed(Self.storeID(row)) { fadeIn.insert(row.id) }
-                    if loaded, row.turnID == runningTurn, lookup.eligible(row) {
+                    if loaded, row.turnID == runningTurn, lookup.eligible(row), !streamsOffScreen(row) {
                         lookup.layouts.makeNow(row, revision: revisions[row.id] ?? 0, expanded: lookup.expanded(row.id))
                     }
                 }
@@ -957,7 +971,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     if let native = lookup.layouts.height(row.id, revision: revision, expanded: lookup.expanded(row.id)) {
                         estimate = native
                         exact = true
-                    } else if lookup.layouts.environment != nil, !lookup.layouts.has(row.id, revision: revision, expanded: lookup.expanded(row.id)) {
+                    } else if lookup.layouts.environment != nil, !lookup.layouts.has(row.id, revision: revision, expanded: lookup.expanded(row.id)),
+                              !streamsOffScreen(row) {
                         missing.append(row.id)
                     }
                 }
@@ -990,6 +1005,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             layout.retainMeasured(live)
             lookup.shownNative = lookup.shownNative.filter { live.contains($0.key) }
             lookup.shownPool = lookup.shownPool.filter { live.contains($0.key) }
+            lookup.stale.formIntersection(live)
             let turnIDs = Set(turns.map(\.id))
             shownTurns = shownTurns.filter { turnIDs.contains($0.key) }
             heldOnce.formIntersection(turnIDs)
@@ -1025,11 +1041,24 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             snapshot.reconfigureItems(reconfigure.filter { both.contains($0) })
             snapshot.reloadItems(reloadIDs.filter { both.contains($0) })
             shownIDs = ids
+            snapshotApplies += 1
             dataSource.apply(snapshot, animatingDifferences: false)
+        } else if !changed.isEmpty, reloadIDs.isEmpty, reconfigure.allSatisfy(redrawsInPlace) {
+            // The same rows, only content changed (a streamed token): the cell on screen for each
+            // is drawn again in place, and a row with none is drawn when it comes into view
+            // (`willDisplay` draws again a cell made ahead for its old state). A snapshot apply here
+            // ran UIKit's batch update over every visible cell on every token, the changed row on
+            // screen or not.
+            for id in reconfigure {
+                lookup.stale.insert(id)
+                if let cell = cell(for: id) { redraw(cell, id) }
+            }
+            layout.invalidateLayout()
         } else if !changed.isEmpty {
             var snapshot = dataSource.snapshot()
             snapshot.reconfigureItems(reconfigure)
             snapshot.reloadItems(reloadIDs)
+            snapshotApplies += 1
             dataSource.apply(snapshot, animatingDifferences: false)
         } else {
             layout.invalidateLayout()
@@ -1148,6 +1177,25 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     // MARK: Inspection (tests)
 
     /// Row `id`'s cell, when it is on screen.
+    /// A changed row can be drawn again without the data source: it has no cell on screen, or a
+    /// native cell whose height its layout already knows (so no cell has to measure itself; a
+    /// SwiftUI row, or a native one still waiting for its layout, goes through a snapshot apply).
+    private func redrawsInPlace(_ id: String) -> Bool {
+        guard let cell = cell(for: id) else { return true }
+        guard cell is ChatNativeRowCell, let row = layout.row(of: id), row < layout.items.count else { return false }
+        return layout.items[row].exact
+    }
+
+    /// Draws `id`'s current state into the cell that shows it (the data source's registration does
+    /// the same for a cell it dequeues).
+    private func redraw(_ cell: UICollectionViewCell, _ id: String) {
+        if let native = cell as? ChatNativeRowCell {
+            lookup.configureNative(native, id: id)
+        } else if let hosted = cell as? ChatRowCell {
+            lookup.configure(hosted, id: id)
+        }
+    }
+
     func cell(for id: String) -> UICollectionViewCell? {
         dataSource.indexPath(for: id).flatMap { collectionView.cellForItem(at: $0) }
     }
@@ -1291,6 +1339,9 @@ final class ChatRowLookup {
     var shownNative: [String: Bool] = [:]
     /// The reuse pool each row's cell came from (a reconfigure must use the same one).
     var shownPool: [String: String] = [:]
+    /// Rows changed since a cell last drew them, with no cell on screen when they changed: a cell
+    /// made ahead for one is drawn again before it shows (`ChatTranscriptList.willDisplay`).
+    var stale: Set<String> = []
 
     /// The pool the data source dequeues `id` from now.
     func pool(for id: String) -> String {
@@ -1365,6 +1416,7 @@ final class ChatRowLookup {
     func reuseKey(_ id: String) -> String { rows[id]?.hostedReuseKey ?? "other" }
 
     func configureNative(_ cell: ChatNativeRowCell, id: String) {
+        stale.remove(id)
         // A reused cell measures nothing for this row until it draws it.
         cell.shown = nil
         guard let row = rows[id], let native = layouts.makeNow(row, revision: revisions[id] ?? 0, expanded: expanded(id)) else { return }
@@ -1398,6 +1450,7 @@ final class ChatRowLookup {
     }
 
     func configure(_ cell: ChatRowCell, id: String) {
+        stale.remove(id)
         guard let row = rows[id] else { return }
         shownNative[id] = false
         shownPool[id] = "H:" + row.hostedReuseKey

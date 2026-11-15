@@ -231,7 +231,8 @@ public final class AgentTurnStateFeed {
         case initialized(follows: Bool)
         /// A follow's reply (id 2, ``AgentWatchFollow``).
         case follow(AgentWatchFollow)
-        /// `_acpmux/lagged {watch: true}`: acpmux dropped pushes of the watch.
+        /// `_acpmux/lagged` with no `sessionIds` (acpmux sends `{dropped}`, `server/fanout.rs`;
+        /// `{watch: true}` too): acpmux dropped pushes of the watch.
         case lagged
 
         /// A pending push of a chat (or of a peer's row of it) is replaced by a newer one of the
@@ -280,7 +281,7 @@ public final class AgentTurnStateFeed {
                       let peer = params["peer"] as? String, !peer.isEmpty, let state = params["state"] as? String {
                 self = .peerState(peer: peer, state: state)
             } else if message["method"] as? String == "_acpmux/lagged",
-                      (message["params"] as? [String: Any])?["watch"] as? Bool == true {
+                      (message["params"] as? [String: Any])?["sessionIds"] == nil {
                 self = .lagged
             } else {
                 return nil

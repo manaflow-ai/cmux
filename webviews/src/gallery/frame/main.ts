@@ -21,6 +21,7 @@ import { emulateMedia } from "./media";
 import { startGalleryLoad } from "./load";
 import { installSystemFontStandIn } from "./systemFontStandIn";
 import { setLastingGrace } from "../../ui/lasting";
+import { setLinkDownSaidMs } from "../../agent-session/acpmux/afterDelay";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
 import entryIndex from "virtual:cmux-gallery/entry-index";
@@ -31,6 +32,10 @@ import { collectInvariants, type Violation } from "../invariants";
 installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
 setLastingGrace(0);
+// The same for a machine whose link is down: a fixture draws the state the pane says once the drop
+// lasts (afterDelay.ts LINK_DOWN_SAID_MS, 10 s), not 10 s of the plain pane. A fixture of the quiet
+// stretch itself passes its own bound (MachineLinkStatus `quietMs`).
+setLinkDownSaidMs(0);
 
 const params = new URLSearchParams(location.search);
 const env = readEnv(params);

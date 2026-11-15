@@ -2899,8 +2899,6 @@
     "retry.waiting.capacity": {"comment":"Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn that failed because no model capacity was available (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retrying ({attempt}/{of}) after a capacity error"}},"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة ({attempt}/{of}) بعد خطأ في السعة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovni pokušaj ({attempt}/{of}) nakon greške kapaciteta"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøver igen ({attempt}/{of}) efter en kapacitetsfejl"}},"de":{"stringUnit":{"state":"needs_review","value":"Neuer Versuch ({attempt}/{of}) nach einem Kapazitätsfehler"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentando ({attempt}/{of}) tras un error de capacidad"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouvelle tentative ({attempt}/{of}) après une erreur de capacité"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuovo tentativo ({attempt}/{of}) dopo un errore di capacità"}},"ja":{"stringUnit":{"state":"needs_review","value":"容量エラーのため再試行中（{attempt}/{of}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្តងទៀត ({attempt}/{of}) បន្ទាប់ពីកំហុសសមត្ថភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"용량 오류로 재시도 중 ({attempt}/{of})"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøver igjen ({attempt}/{of}) etter en kapasitetsfeil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponawianie ({attempt}/{of}) po błędzie przepustowości"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentando novamente ({attempt}/{of}) após um erro de capacidade"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторная попытка ({attempt}/{of}) после ошибки нехватки мощностей"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่ ({attempt}/{of}) หลังข้อผิดพลาดด้านความจุ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapasite hatasından sonra yeniden deneniyor ({attempt}/{of})"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторна спроба ({attempt}/{of}) після помилки потужності"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang thử lại ({attempt}/{of}) sau lỗi dung lượng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"容量错误后正在重试（{attempt}/{of}）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"容量錯誤後正在重試（{attempt}/{of}）"}}}},
     "retry.waiting.transport": {"comment":"Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn that failed on a connection error (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retrying ({attempt}/{of}) after a connection error"}},"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة ({attempt}/{of}) بعد خطأ في الاتصال"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovni pokušaj ({attempt}/{of}) nakon greške veze"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøver igen ({attempt}/{of}) efter en forbindelsesfejl"}},"de":{"stringUnit":{"state":"needs_review","value":"Neuer Versuch ({attempt}/{of}) nach einem Verbindungsfehler"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentando ({attempt}/{of}) tras un error de conexión"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouvelle tentative ({attempt}/{of}) après une erreur de connexion"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuovo tentativo ({attempt}/{of}) dopo un errore di connessione"}},"ja":{"stringUnit":{"state":"needs_review","value":"接続エラーのため再試行中（{attempt}/{of}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្តងទៀត ({attempt}/{of}) បន្ទាប់ពីកំហុសការតភ្ជាប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"연결 오류로 재시도 중 ({attempt}/{of})"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøver igjen ({attempt}/{of}) etter en tilkoblingsfeil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponawianie ({attempt}/{of}) po błędzie połączenia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentando novamente ({attempt}/{of}) após um erro de conexão"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторная попытка ({attempt}/{of}) после ошибки соединения"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่ ({attempt}/{of}) หลังข้อผิดพลาดการเชื่อมต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bağlantı hatasından sonra yeniden deneniyor ({attempt}/{of})"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторна спроба ({attempt}/{of}) після помилки з'єднання"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang thử lại ({attempt}/{of}) sau lỗi kết nối"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"连接错误后正在重试（{attempt}/{of}）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"連線錯誤後正在重試（{attempt}/{of}）"}}}},
     "retry.waiting.agentExited": {"comment":"Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn whose agent process exited (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retrying ({attempt}/{of}) after the agent exited"}},"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة ({attempt}/{of}) بعد خروج الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovni pokušaj ({attempt}/{of}) nakon izlaska agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøver igen ({attempt}/{of}) efter agenten afsluttede"}},"de":{"stringUnit":{"state":"needs_review","value":"Neuer Versuch ({attempt}/{of}) nach Beenden des Agenten"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentando ({attempt}/{of}) tras cerrarse el agente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouvelle tentative ({attempt}/{of}) après l'arrêt de l'agent"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuovo tentativo ({attempt}/{of}) dopo l'uscita dell'agente"}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェント終了のため再試行中（{attempt}/{of}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្តងទៀត ({attempt}/{of}) បន្ទាប់ពីភ្នាក់ងារបានចេញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트 종료로 재시도 중 ({attempt}/{of})"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøver igjen ({attempt}/{of}) etter at agenten avsluttet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponawianie ({attempt}/{of}) po zamknięciu agenta"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentando novamente ({attempt}/{of}) após o agente encerrar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторная попытка ({attempt}/{of}) после завершения агента"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่ ({attempt}/{of}) หลังเอเจนต์ปิดตัว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajan kapandıktan sonra yeniden deneniyor ({attempt}/{of})"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторна спроба ({attempt}/{of}) після завершення агента"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang thử lại ({attempt}/{of}) sau khi tác tử thoát"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"智能体退出后正在重试（{attempt}/{of}）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"代理程式結束後正在重試（{attempt}/{of}）"}}}},
-    "retry.ask": {"comment":"Agent pane: the message Ask parent to retry sends the chat's agent for a failed subagent (subagents/retryState.ts); {name} is the subagent's name. Sent to the agent as a prompt","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The subagent \"{name}\" failed on a transient error. Run it again."}},"ar":{"stringUnit":{"state":"needs_review","value":"فشل الوكيل الفرعي \"{name}\" بسبب خطأ مؤقت. شغّله مرة أخرى."}},"bs":{"stringUnit":{"state":"needs_review","value":"Podagent \"{name}\" nije uspio zbog privremene greške. Pokreni ga ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Underagenten \"{name}\" fejlede på en midlertidig fejl. Kør den igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Subagent \"{name}\" ist an einem vorübergehenden Fehler gescheitert. Führe ihn erneut aus."}},"es":{"stringUnit":{"state":"needs_review","value":"El subagente \"{name}\" falló por un error transitorio. Ejecútalo de nuevo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le sous-agent \"{name}\" a échoué sur une erreur passagère. Relance-le."}},"it":{"stringUnit":{"state":"needs_review","value":"Il subagente \"{name}\" non è riuscito per un errore temporaneo. Eseguilo di nuovo."}},"ja":{"stringUnit":{"state":"needs_review","value":"サブエージェント「{name}」が一時的なエラーで失敗しました。もう一度実行してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ភ្នាក់ងាររង \"{name}\" បានបរាជ័យដោយកំហុសបណ្ដោះអាសន្ន។ ដំណើរការវាម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"하위 에이전트 \"{name}\"이(가) 일시적인 오류로 실패했습니다. 다시 실행하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Underagenten \"{name}\" feilet på en midlertidig feil. Kjør den på nytt."}},"pl":{"stringUnit":{"state":"needs_review","value":"Podagent \"{name}\" zawiódł z powodu przejściowego błędu. Uruchom go ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O subagente \"{name}\" falhou por um erro temporário. Execute-o novamente."}},"ru":{"stringUnit":{"state":"needs_review","value":"Субагент \"{name}\" завершился с временной ошибкой. Запусти его снова."}},"th":{"stringUnit":{"state":"needs_review","value":"เอเจนต์ย่อย \"{name}\" ล้มเหลวจากข้อผิดพลาดชั่วคราว ให้รันอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"\"{name}\" alt ajanı geçici bir hata nedeniyle başarısız oldu. Yeniden çalıştır."}},"uk":{"stringUnit":{"state":"needs_review","value":"Субагент \"{name}\" завершився з тимчасовою помилкою. Запусти його знову."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tác tử con \"{name}\" thất bại do lỗi tạm thời. Hãy chạy lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"子代理“{name}”因临时错误失败。请重新运行它。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"子代理程式「{name}」因暫時性錯誤失敗。請重新執行。"}}}},
-    "retry.askTask": {"comment":"Agent pane: the message Ask parent to retry sends the chat's agent for a failed subagent (subagents/retryState.ts); {name} is the subagent's name, {task} its description. Sent to the agent as a prompt","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The subagent \"{name}\" ({task}) failed on a transient error. Run it again."}},"ar":{"stringUnit":{"state":"needs_review","value":"فشل الوكيل الفرعي \"{name}\" ({task}) بسبب خطأ مؤقت. شغّله مرة أخرى."}},"bs":{"stringUnit":{"state":"needs_review","value":"Podagent \"{name}\" ({task}) nije uspio zbog privremene greške. Pokreni ga ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Underagenten \"{name}\" ({task}) fejlede på en midlertidig fejl. Kør den igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Subagent \"{name}\" ({task}) ist an einem vorübergehenden Fehler gescheitert. Führe ihn erneut aus."}},"es":{"stringUnit":{"state":"needs_review","value":"El subagente \"{name}\" ({task}) falló por un error transitorio. Ejecútalo de nuevo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le sous-agent \"{name}\" ({task}) a échoué sur une erreur passagère. Relance-le."}},"it":{"stringUnit":{"state":"needs_review","value":"Il subagente \"{name}\" ({task}) non è riuscito per un errore temporaneo. Eseguilo di nuovo."}},"ja":{"stringUnit":{"state":"needs_review","value":"サブエージェント「{name}」（{task}）が一時的なエラーで失敗しました。もう一度実行してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ភ្នាក់ងាររង \"{name}\" ({task}) បានបរាជ័យដោយកំហុសបណ្ដោះអាសន្ន។ ដំណើរការវាម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"하위 에이전트 \"{name}\" ({task})이(가) 일시적인 오류로 실패했습니다. 다시 실행하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Underagenten \"{name}\" ({task}) feilet på en midlertidig feil. Kjør den på nytt."}},"pl":{"stringUnit":{"state":"needs_review","value":"Podagent \"{name}\" ({task}) zawiódł z powodu przejściowego błędu. Uruchom go ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O subagente \"{name}\" ({task}) falhou por um erro temporário. Execute-o novamente."}},"ru":{"stringUnit":{"state":"needs_review","value":"Субагент \"{name}\" ({task}) завершился с временной ошибкой. Запусти его снова."}},"th":{"stringUnit":{"state":"needs_review","value":"เอเจนต์ย่อย \"{name}\" ({task}) ล้มเหลวจากข้อผิดพลาดชั่วคราว ให้รันอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"\"{name}\" ({task}) alt ajanı geçici bir hata nedeniyle başarısız oldu. Yeniden çalıştır."}},"uk":{"stringUnit":{"state":"needs_review","value":"Субагент \"{name}\" ({task}) завершився з тимчасовою помилкою. Запусти його знову."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tác tử con \"{name}\" ({task}) thất bại do lỗi tạm thời. Hãy chạy lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"子代理“{name}”（{task}）因临时错误失败。请重新运行它。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"子代理程式「{name}」（{task}）因暫時性錯誤失敗。請重新執行。"}}}},
     "retry.nothingFailed": {"comment":"Agent pane: short note after a failed subagent's line when acpmux found nothing to retry (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Nothing to retry"}},"ar":{"stringUnit":{"state":"needs_review","value":"لا يوجد ما يُعاد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nema šta ponoviti"}},"da":{"stringUnit":{"state":"needs_review","value":"Intet at prøve igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Nichts zu wiederholen"}},"es":{"stringUnit":{"state":"needs_review","value":"Nada que reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Rien à réessayer"}},"it":{"stringUnit":{"state":"needs_review","value":"Niente da riprovare"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行するものはありません"}},"km":{"stringUnit":{"state":"needs_review","value":"គ្មានអ្វីត្រូវព្យាយាមម្តងទៀតទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"재시도할 항목 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ingenting å prøve igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nic do ponowienia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nada para tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Нечего повторять"}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่มีอะไรให้ลองใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniden denenecek bir şey yok"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нічого повторювати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không có gì để thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"没有可重试的内容"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"沒有可重試的內容"}}}},
     "retry.busy": {"comment":"Agent pane: short note after a failed subagent's line when acpmux refused a retry because the session is busy (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Busy, try again shortly"}},"ar":{"stringUnit":{"state":"needs_review","value":"مشغول، حاول بعد قليل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zauzeto, pokušaj uskoro"}},"da":{"stringUnit":{"state":"needs_review","value":"Optaget, prøv igen om lidt"}},"de":{"stringUnit":{"state":"needs_review","value":"Beschäftigt, gleich erneut versuchen"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocupado, inténtalo en breve"}},"fr":{"stringUnit":{"state":"needs_review","value":"Occupé, réessaie bientôt"}},"it":{"stringUnit":{"state":"needs_review","value":"Occupato, riprova a breve"}},"ja":{"stringUnit":{"state":"needs_review","value":"処理中です。少ししてから再試行してください"}},"km":{"stringUnit":{"state":"needs_review","value":"រវល់ សូមព្យាយាមម្តងទៀតឆាប់ៗ"}},"ko":{"stringUnit":{"state":"needs_review","value":"사용 중, 잠시 후 다시 시도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Opptatt, prøv igjen snart"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zajęte, spróbuj za chwilę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocupado, tente novamente em breve"}},"ru":{"stringUnit":{"state":"needs_review","value":"Занято, попробуйте чуть позже"}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ว่าง ลองใหม่อีกครู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Meşgul, birazdan yeniden dene"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зайнято, спробуйте трохи згодом"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang bận, thử lại sau ít phút"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"忙碌中，请稍后重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"忙碌中，請稍後重試"}}}},
     "retry.failed": {"comment":"Agent pane: short note after a failed subagent's line when its Retry could not be sent (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't retry"}},"ar":{"stringUnit":{"state":"needs_review","value":"تعذرت إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovni pokušaj nije uspio"}},"da":{"stringUnit":{"state":"needs_review","value":"Kunne ikke prøve igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Wiederholen fehlgeschlagen"}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de réessayer"}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile riprovare"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行できませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចព្យាយាមម្តងទៀតបានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"재시도할 수 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kunne ikke prøve igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie udało się ponowić"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось повторить"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองใหม่ไม่สำเร็จ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniden denenemedi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法重試"}}}},
@@ -246445,11 +246443,6 @@
     "goal.editLabel": {"comment":"Agent pane: the accessible name of the field that edits the goal's text in place","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Goal text"}},"ar":{"stringUnit":{"state":"needs_review","value":"نص الهدف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Tekst cilja"}},"da":{"stringUnit":{"state":"needs_review","value":"Måltekst"}},"de":{"stringUnit":{"state":"needs_review","value":"Zieltext"}},"es":{"stringUnit":{"state":"needs_review","value":"Texto del objetivo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Texte de l’objectif"}},"it":{"stringUnit":{"state":"needs_review","value":"Testo dell’obiettivo"}},"ja":{"stringUnit":{"state":"needs_review","value":"目標のテキスト"}},"km":{"stringUnit":{"state":"needs_review","value":"អត្ថបទគោលដៅ"}},"ko":{"stringUnit":{"state":"needs_review","value":"목표 텍스트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Måltekst"}},"pl":{"stringUnit":{"state":"needs_review","value":"Treść celu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Texto da meta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Текст цели"}},"th":{"stringUnit":{"state":"needs_review","value":"ข้อความเป้าหมาย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Hedef metni"}},"uk":{"stringUnit":{"state":"needs_review","value":"Текст цілі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nội dung mục tiêu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"目标文本"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"目標文字"}}}},
     "goal.editSave": {"comment":"Agent pane: saves the goal's edited text (sent to the agent as its new goal)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Save"}},"ar":{"stringUnit":{"state":"needs_review","value":"حفظ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sačuvaj"}},"da":{"stringUnit":{"state":"needs_review","value":"Gem"}},"de":{"stringUnit":{"state":"needs_review","value":"Sichern"}},"es":{"stringUnit":{"state":"needs_review","value":"Guardar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Enregistrer"}},"it":{"stringUnit":{"state":"needs_review","value":"Salva"}},"ja":{"stringUnit":{"state":"needs_review","value":"保存"}},"km":{"stringUnit":{"state":"needs_review","value":"រក្សាទុក"}},"ko":{"stringUnit":{"state":"needs_review","value":"저장"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lagre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zapisz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Salvar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сохранить"}},"th":{"stringUnit":{"state":"needs_review","value":"บันทึก"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kaydet"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зберегти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lưu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"保存"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"儲存"}}}},
     "goal.editCancel": {"comment":"Agent pane: leaves the goal's in-place edit without changing it","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cancel"}},"ar":{"stringUnit":{"state":"needs_review","value":"إلغاء"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otkaži"}},"da":{"stringUnit":{"state":"needs_review","value":"Annuller"}},"de":{"stringUnit":{"state":"needs_review","value":"Abbrechen"}},"es":{"stringUnit":{"state":"needs_review","value":"Cancelar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla"}},"ja":{"stringUnit":{"state":"needs_review","value":"キャンセル"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់"}},"ko":{"stringUnit":{"state":"needs_review","value":"취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avbryt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Anuluj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Cancelar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отмена"}},"th":{"stringUnit":{"state":"needs_review","value":"ยกเลิก"}},"tr":{"stringUnit":{"state":"needs_review","value":"İptal"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hủy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"取消"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"取消"}}}},
-    "goal.loop": {"comment":"Agent pane: the goal strip's state for a Claude Code /loop that keeps re-running its prompt","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تكرار"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponavlja se"}},"da":{"stringUnit":{"state":"needs_review","value":"Gentages"}},"de":{"stringUnit":{"state":"needs_review","value":"Wiederholt sich"}},"en":{"stringUnit":{"state":"translated","value":"Looping"}},"es":{"stringUnit":{"state":"needs_review","value":"En bucle"}},"fr":{"stringUnit":{"state":"needs_review","value":"En boucle"}},"it":{"stringUnit":{"state":"needs_review","value":"In loop"}},"ja":{"stringUnit":{"state":"needs_review","value":"ループ中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងធ្វើម្តងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"반복 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjentas"}},"pl":{"stringUnit":{"state":"needs_review","value":"W pętli"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Em loop"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторяется"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังวนซ้ำ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Döngüde"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторюється"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang lặp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"循环中"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"循環中"}}}},
-    "goal.loopAutonomous": {"comment":"Agent pane: the goal strip's text for a Claude Code /loop the agent runs on its own, with no prompt from the person","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تكرار ذاتي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Samostalna petlja"}},"da":{"stringUnit":{"state":"needs_review","value":"Selvstændig løkke"}},"de":{"stringUnit":{"state":"needs_review","value":"Selbstständige Schleife"}},"en":{"stringUnit":{"state":"translated","value":"Autonomous loop"}},"es":{"stringUnit":{"state":"needs_review","value":"Bucle autónomo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Boucle autonome"}},"it":{"stringUnit":{"state":"needs_review","value":"Loop autonomo"}},"ja":{"stringUnit":{"state":"needs_review","value":"自律ループ"}},"km":{"stringUnit":{"state":"needs_review","value":"រង្វិលជុំស្វ័យប្រវត្តិ"}},"ko":{"stringUnit":{"state":"needs_review","value":"자율 반복"}},"nb":{"stringUnit":{"state":"needs_review","value":"Selvstendig løkke"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pętla autonomiczna"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Loop autônomo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Автономный цикл"}},"th":{"stringUnit":{"state":"needs_review","value":"การวนซ้ำอัตโนมัติ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Otonom döngü"}},"uk":{"stringUnit":{"state":"needs_review","value":"Автономний цикл"}},"vi":{"stringUnit":{"state":"needs_review","value":"Vòng lặp tự động"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"自主循环"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"自主循環"}}}},
-    "goal.loopNext": {"comment":"Agent pane: the loop chip over the composer while a Claude Code /loop waits for its next run; {when} is a short relative time such as \"in 15 min.\"","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Checking back {when}"}},"ar":{"stringUnit":{"state":"needs_review","value":"سيعود للتحقق {when}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovna provjera {when}"}},"da":{"stringUnit":{"state":"needs_review","value":"Tjekker igen {when}"}},"de":{"stringUnit":{"state":"needs_review","value":"Schaut {when} wieder nach"}},"es":{"stringUnit":{"state":"needs_review","value":"Volverá a comprobar {when}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Revérifie {when}"}},"it":{"stringUnit":{"state":"needs_review","value":"Ricontrolla {when}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{when}に再確認"}},"km":{"stringUnit":{"state":"needs_review","value":"នឹងពិនិត្យម្តងទៀត {when}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{when} 다시 확인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sjekker igjen {when}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponowne sprawdzenie {when}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Verificando de novo {when}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Проверит снова {when}"}},"th":{"stringUnit":{"state":"needs_review","value":"จะกลับมาตรวจ {when}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{when} yeniden bakacak"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перевірить знову {when}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Kiểm tra lại {when}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{when}再次检查"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{when}再次檢查"}}}},
-    "goal.loopSchedule": {"comment":"Agent pane: the loop chip over the composer for an interval Claude Code /loop; {schedule} is Claude Code's own wording such as \"every 5 minutes\"","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Repeats {schedule}"}},"ar":{"stringUnit":{"state":"needs_review","value":"يتكرر {schedule}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponavlja se {schedule}"}},"da":{"stringUnit":{"state":"needs_review","value":"Gentages {schedule}"}},"de":{"stringUnit":{"state":"needs_review","value":"Wiederholt sich {schedule}"}},"es":{"stringUnit":{"state":"needs_review","value":"Se repite {schedule}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Se répète {schedule}"}},"it":{"stringUnit":{"state":"needs_review","value":"Si ripete {schedule}"}},"ja":{"stringUnit":{"state":"needs_review","value":"繰り返し: {schedule}"}},"km":{"stringUnit":{"state":"needs_review","value":"ធ្វើម្តងទៀត {schedule}"}},"ko":{"stringUnit":{"state":"needs_review","value":"반복: {schedule}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjentas {schedule}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Powtarza się {schedule}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Repete {schedule}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторяется {schedule}"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำซ้ำ {schedule}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tekrarlanır: {schedule}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторюється {schedule}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lặp lại {schedule}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重复：{schedule}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重複：{schedule}"}}}},
-    "goal.loopPrompt": {"comment":"Agent pane: the loop chip's button that reveals the prompt a Claude Code /loop re-runs, hidden by default","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loop prompt"}},"ar":{"stringUnit":{"state":"needs_review","value":"موجّه التكرار"}},"bs":{"stringUnit":{"state":"needs_review","value":"Upit petlje"}},"da":{"stringUnit":{"state":"needs_review","value":"Løkkeprompt"}},"de":{"stringUnit":{"state":"needs_review","value":"Schleifen-Prompt"}},"es":{"stringUnit":{"state":"needs_review","value":"Prompt del bucle"}},"fr":{"stringUnit":{"state":"needs_review","value":"Prompt de la boucle"}},"it":{"stringUnit":{"state":"needs_review","value":"Prompt del loop"}},"ja":{"stringUnit":{"state":"needs_review","value":"ループのプロンプト"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រអប់បញ្ចូលនៃរង្វិលជុំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"루프 프롬프트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Løkkeprompt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Prompt pętli"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prompt do loop"}},"ru":{"stringUnit":{"state":"needs_review","value":"Промпт цикла"}},"th":{"stringUnit":{"state":"needs_review","value":"พรอมต์ของลูป"}},"tr":{"stringUnit":{"state":"needs_review","value":"Döngü istemi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Промпт циклу"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lời nhắc vòng lặp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"循环提示词"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"循環提示詞"}}}},
     "goal.label": {
       "comment": "Agent pane: persisted task goal state",
       "extractionState": "manual",
@@ -251683,7 +251676,6 @@
     "composer.machineLowMemory":{"comment":"Agent pane: warning shown in a Computer menu row when the machine has little free memory.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Low memory: {free} GB free"}},"ar":{"stringUnit":{"state":"needs_review","value":"ذاكرة منخفضة: {free} جيجابايت متاحة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Malo memorije: {free} GB slobodno"}},"da":{"stringUnit":{"state":"needs_review","value":"Lav hukommelse: {free} GB fri"}},"de":{"stringUnit":{"state":"needs_review","value":"Wenig Speicher: {free} GB frei"}},"es":{"stringUnit":{"state":"needs_review","value":"Poca memoria: {free} GB libres"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mémoire faible : {free} Go libres"}},"it":{"stringUnit":{"state":"needs_review","value":"Memoria insufficiente: {free} GB liberi"}},"ja":{"stringUnit":{"state":"needs_review","value":"メモリ不足: 空き{free} GB"}},"km":{"stringUnit":{"state":"needs_review","value":"អង្គចងចាំទាប៖ ទំនេរ {free} GB"}},"ko":{"stringUnit":{"state":"needs_review","value":"메모리 부족: {free}GB 남음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lite minne: {free} GB ledig"}},"pl":{"stringUnit":{"state":"needs_review","value":"Mało pamięci: {free} GB wolnego"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pouca memória: {free} GB livres"}},"ru":{"stringUnit":{"state":"needs_review","value":"Мало памяти: свободно {free} ГБ"}},"th":{"stringUnit":{"state":"needs_review","value":"หน่วยความจำเหลือน้อย: ว่าง {free} GB"}},"tr":{"stringUnit":{"state":"needs_review","value":"Düşük bellek: {free} GB boş"}},"uk":{"stringUnit":{"state":"needs_review","value":"Мало пам’яті: вільно {free} ГБ"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bộ nhớ thấp: còn trống {free} GB"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"内存不足：剩余 {free} GB"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"記憶體不足：剩餘 {free} GB"}}}},
     "retry.retriedOut": {"comment":"Agent pane: after a failed subagent's 'Subagent failed: {name}' line and ' · ', that acpmux retried it and stopped (subagents/SubagentDoneLine.tsx); {of} is how many tries it made; lowercase, as a phrase in the line","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"gave up after {of} tries"}},"ar":{"stringUnit":{"state":"needs_review","value":"توقف بعد {of} محاولات"}},"bs":{"stringUnit":{"state":"needs_review","value":"odustao nakon {of} pokušaja"}},"da":{"stringUnit":{"state":"needs_review","value":"opgav efter {of} forsøg"}},"de":{"stringUnit":{"state":"needs_review","value":"nach {of} Versuchen aufgegeben"}},"es":{"stringUnit":{"state":"needs_review","value":"abandonado tras {of} intentos"}},"fr":{"stringUnit":{"state":"needs_review","value":"abandon après {of} tentatives"}},"it":{"stringUnit":{"state":"needs_review","value":"rinuncia dopo {of} tentativi"}},"ja":{"stringUnit":{"state":"needs_review","value":"{of} 回試行して中止"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់បន្ទាប់ពីព្យាយាម {of} ដង"}},"ko":{"stringUnit":{"state":"needs_review","value":"{of}회 시도 후 중단"}},"nb":{"stringUnit":{"state":"needs_review","value":"ga opp etter {of} forsøk"}},"pl":{"stringUnit":{"state":"needs_review","value":"przerwano po {of} próbach"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"desistiu após {of} tentativas"}},"ru":{"stringUnit":{"state":"needs_review","value":"прекращено после {of} попыток"}},"th":{"stringUnit":{"state":"needs_review","value":"เลิกหลังลอง {of} ครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"{of} denemeden sonra bırakıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"припинено після {of} спроб"}},"vi":{"stringUnit":{"state":"needs_review","value":"bỏ cuộc sau {of} lần thử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"尝试 {of} 次后放弃"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"嘗試 {of} 次後放棄"}}}},
     "retry.action": {"comment":"Agent pane: the button on a failed subagent's or sub-session's line that runs it again now (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry"}},"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokušaj ponovo"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøv igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Erneut versuchen"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réessayer"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprova"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行"}},"km":{"stringUnit":{"state":"needs_review","value":"ព្យាយាមម្តងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"재시도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøv igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторить"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniden dene"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重試"}}}},
-    "retry.askParent": {"comment":"Agent pane: the action on a failed subagent's line that asks the chat's agent, its parent, to run it again (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ask parent to retry"}},"ar":{"stringUnit":{"state":"needs_review","value":"اطلب من الوكيل الأب إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zatraži od roditelja ponovni pokušaj"}},"da":{"stringUnit":{"state":"needs_review","value":"Bed forælderen om at prøve igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Übergeordneten Agenten erneut versuchen lassen"}},"es":{"stringUnit":{"state":"needs_review","value":"Pedir al agente padre que reintente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Demander au parent de réessayer"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiedi al genitore di riprovare"}},"ja":{"stringUnit":{"state":"needs_review","value":"親に再試行を依頼"}},"km":{"stringUnit":{"state":"needs_review","value":"សុំឱ្យមេព្យាយាមម្តងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"상위 에이전트에 재시도 요청"}},"nb":{"stringUnit":{"state":"needs_review","value":"Be forelderen prøve igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Poproś rodzica o ponowienie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pedir ao agente pai para tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Попросить родителя повторить"}},"th":{"stringUnit":{"state":"needs_review","value":"ขอให้เอเจนต์หลักลองใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Üst ajandan yeniden denemesini iste"}},"uk":{"stringUnit":{"state":"needs_review","value":"Попросити батьківського агента повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Yêu cầu tác tử cha thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请父级重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請上層重試"}}}},
     "subagents.resume": {"comment":"Agent pane: the button on a stopped subagent's transcript line that starts it again from where it stopped, with its transcript and brief (subagents/SubagentDoneLine.tsx); its name and tooltip","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Resume"}},"ar":{"stringUnit":{"state":"needs_review","value":"استئناف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nastavi"}},"da":{"stringUnit":{"state":"needs_review","value":"Genoptag"}},"de":{"stringUnit":{"state":"needs_review","value":"Fortsetzen"}},"es":{"stringUnit":{"state":"needs_review","value":"Reanudar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reprendre"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprendi"}},"ja":{"stringUnit":{"state":"needs_review","value":"再開"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្ត"}},"ko":{"stringUnit":{"state":"needs_review","value":"재개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjenoppta"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wznów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Retomar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Возобновить"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sürdür"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відновити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiếp tục"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"继续"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"繼續"}}}},
     "subagents.resumeDetail": {"comment":"Agent pane: the second line of the Resume button's tooltip on a stopped subagent's transcript line (subagents/SubagentDoneLine.tsx): what it does","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Start it again from its last step, with its transcript and brief"}},"ar":{"stringUnit":{"state":"needs_review","value":"شغّله مرة أخرى من آخر خطوة، مع سجله ومهمته"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreni ga ponovo od zadnjeg koraka, s njegovim zapisom i zadatkom"}},"da":{"stringUnit":{"state":"needs_review","value":"Start den igen fra sidste trin med dens udskrift og opgave"}},"de":{"stringUnit":{"state":"needs_review","value":"Ab dem letzten Schritt neu starten, mit Verlauf und Auftrag"}},"es":{"stringUnit":{"state":"needs_review","value":"Iniciarlo de nuevo desde su último paso, con su transcripción y su encargo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Le relancer depuis sa dernière étape, avec sa transcription et sa consigne"}},"it":{"stringUnit":{"state":"needs_review","value":"Riavvialo dall'ultimo passo, con la sua trascrizione e il suo incarico"}},"ja":{"stringUnit":{"state":"needs_review","value":"記録と指示を引き継ぎ、最後の手順から再開します"}},"km":{"stringUnit":{"state":"needs_review","value":"ចាប់ផ្តើមវាម្តងទៀតពីជំហានចុងក្រោយ ជាមួយកំណត់ត្រា និងភារកិច្ចរបស់វា"}},"ko":{"stringUnit":{"state":"needs_review","value":"기록과 지시를 이어받아 마지막 단계부터 다시 시작"}},"nb":{"stringUnit":{"state":"needs_review","value":"Start den igjen fra siste trinn, med utskrift og oppdrag"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchom ponownie od ostatniego kroku, z jego zapisem i zadaniem"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Iniciar de novo a partir do último passo, com a transcrição e a tarefa"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запустить снова с последнего шага, с его записью и заданием"}},"th":{"stringUnit":{"state":"needs_review","value":"เริ่มอีกครั้งจากขั้นตอนล่าสุด พร้อมบันทึกและงานของมัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Dökümü ve göreviyle son adımından yeniden başlat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запустити знову з останнього кроку, з його записом і завданням"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chạy lại từ bước cuối, kèm bản ghi và nhiệm vụ của nó"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"带着它的记录和任务，从最后一步重新开始"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"帶著它的紀錄與任務，從最後一步重新開始"}}}},
     "retry.menu": {"comment":"Agent pane: the name and tooltip of the more-actions button on a failed subagent's line (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Subagent actions"}},"ar":{"stringUnit":{"state":"needs_review","value":"إجراءات الوكيل الفرعي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Radnje podagenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Underagenthandlinger"}},"de":{"stringUnit":{"state":"needs_review","value":"Subagent-Aktionen"}},"es":{"stringUnit":{"state":"needs_review","value":"Acciones del subagente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Actions du sous-agent"}},"it":{"stringUnit":{"state":"needs_review","value":"Azioni del subagente"}},"ja":{"stringUnit":{"state":"needs_review","value":"サブエージェントの操作"}},"km":{"stringUnit":{"state":"needs_review","value":"សកម្មភាពភ្នាក់ងាររង"}},"ko":{"stringUnit":{"state":"needs_review","value":"하위 에이전트 작업"}},"nb":{"stringUnit":{"state":"needs_review","value":"Underagenthandlinger"}},"pl":{"stringUnit":{"state":"needs_review","value":"Akcje podagenta"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ações do subagente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Действия субагента"}},"th":{"stringUnit":{"state":"needs_review","value":"การทำงานของเอเจนต์ย่อย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Alt ajan eylemleri"}},"uk":{"stringUnit":{"state":"needs_review","value":"Дії субагента"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thao tác tác tử con"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"子代理操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"子代理程式動作"}}}},
@@ -256364,6 +256356,402 @@
           "stringUnit": {
             "state": "translated",
             "value": "{name} 已開始工作"
+          }
+        }
+      }
+    },
+    "sessionInfo.environment.viewScreen": {
+      "comment": "Session Info: the action under a chat on a Cloud machine that opens that machine's screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الشاشة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ekran…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis skærm…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm ansehen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View screen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver pantalla…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voir l’écran…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizza schermo…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面を表示…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មើលអេក្រង់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 보기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis skjerm…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyświetl ekran…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver tela…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть экран…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดูหน้าจอ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekranı görüntüle…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переглянути екран…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xem màn hình…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看屏幕…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢視螢幕…"
+          }
+        }
+      }
+    },
+    "sessionInfo.environment.shareScreen": {
+      "comment": "Session Info: the action under a chat on this Mac that shares this Mac's screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الشاشة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeli ekran…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del skærm…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm freigeben…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share screen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir pantalla…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager l’écran…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi schermo…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面を共有…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែកអេក្រង់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 공유…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del skjerm…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnij ekran…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar tela…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать экран…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์หน้าจอ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekranı paylaş…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поділитися екраном…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ màn hình…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享屏幕…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享螢幕…"
+          }
+        }
+      }
+    },
+    "sessionInfo.environment.screenSharingUnavailable": {
+      "comment": "Screen sharing from the chat machine row in Session Info.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الشاشة غير متاحة لجهاز هذه المحادثة. افتح الأجهزة للتحقق من اتصاله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje ekrana nije dostupno za računar ovog razgovora. Otvorite Računari da provjerite vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmdeling er ikke tilgængelig for denne chats maskine. Åbn Maskiner for at kontrollere forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Bildschirmfreigabe ist für den Rechner dieses Chats nicht verfügbar. Öffne Rechner, um die Verbindung zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen sharing is not available for this chat’s machine. Open Machines to check its connection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede compartir la pantalla del equipo de este chat. Abre Equipos para comprobar su conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le partage d’écran n’est pas disponible pour la machine de cette conversation. Ouvrez Machines pour vérifier sa connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La condivisione schermo non è disponibile per il computer di questa chat. Apri Computer per verificarne la connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットのマシンでは画面共有を利用できません。「マシン」を開いて接続を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកអេក្រង់មិនមានសម្រាប់ម៉ាស៊ីននៃការជជែកនេះទេ។ បើកម៉ាស៊ីនដើម្បីពិនិត្យការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 컴퓨터에서는 화면 공유를 사용할 수 없습니다. 컴퓨터를 열어 연결을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermdeling er ikke tilgjengelig for maskinen i denne chatten. Åpne Maskiner for å kontrollere tilkoblingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie ekranu jest niedostępne dla komputera tego czatu. Otwórz Komputery, aby sprawdzić połączenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O compartilhamento de tela não está disponível para a máquina desta conversa. Abra Máquinas para verificar a conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Демонстрация экрана недоступна для компьютера этого чата. Откройте «Компьютеры», чтобы проверить подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถแชร์หน้าจอของเครื่องสำหรับแชตนี้ได้ เปิดเครื่องเพื่อตรวจสอบการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin makinesi için ekran paylaşımı kullanılamıyor. Bağlantısını kontrol etmek için Makineler’i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний доступ до екрана недоступний для комп’ютера цього чату. Відкрийте «Комп’ютери», щоб перевірити з’єднання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chia sẻ màn hình của máy trong cuộc trò chuyện này. Mở Máy để kiểm tra kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的机器无法共享屏幕。请打开“机器”检查连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的機器無法共享螢幕。請開啟「機器」檢查連線。"
           }
         }
       }

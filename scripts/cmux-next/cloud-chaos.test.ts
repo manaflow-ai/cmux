@@ -462,6 +462,13 @@ describe("judgeTerminal", () => {
     const behind: TerminalRead = { after: r[3].next, start: 0, next: r[3].next - 1, complete: true, text: all(5) };
     expect(judgeTerminal({ n: 50, reads: [...r, behind], machineSha256: sha(all(50)), sha256: sha }).ok).toBe(false);
   });
+
+  test("a repeated live snapshot at cursor zero replaces rather than duplicates", () => {
+    const snapshot: TerminalRead = { after: 0, start: 0, next: 0, complete: true, snapshot: true, text: all(3) };
+    const v = judgeTerminal({ n: 3, reads: [snapshot, snapshot], machineSha256: sha(all(3)), sha256: sha });
+    expect(v.ok).toBe(true);
+    expect(v.text).toContain("2 snapshot");
+  });
 });
 
 // Codex review F1: a session host restart restores the mux with new numeric surface ids; the chat's tab id stays.
@@ -491,14 +498,48 @@ describe("the chat's surface after a restart", () => {
   const fakeDial = (answer: (frame: any) => any) => {
     const frames: any[] = [];
     let onDial: () => void = () => undefined;
+    let onLine: (m: any) => void = () => undefined;
     const dial = {
       dials: 0,
       start() { this.dials += 1; queueMicrotask(() => onDial()); },
       async request(frame: any) { frames.push(frame); return { ok: true, data: answer(frame) }; },
       stop() {},
     };
-    return { frames, dial, make: (_onLine: (m: any) => void, d: () => void) => { onDial = d; return dial; }, redial: () => onDial() };
+    return { frames, dial, make: (line: (m: any) => void, d: () => void) => { onLine = line; onDial = d; return dial; }, redial: () => onDial(), push: (m: any) => onLine(m) };
   };
+
+  for (const redial of [false, true]) test(`records beside an attach reply survive ${redial ? "redial" : "initial attach"}`, async () => {
+    let attachingAgain = false;
+    const f = fakeDial((frame) => {
+      switch (frame.cmd) {
+        case "identify": return { registry_id: "r" };
+        case "create-workspace": return { workspace: 1 };
+        case "new-conversation-tab": return { surface: 7, tab_resource_id: "tab_chat" };
+        case "agent-session-start": return { session: "s-1" };
+        case "list-workspaces": return tree([{ surface: 7, tab_resource_id: "tab_chat", conversation: agent("s-1") }]).data;
+        case "agent-session-attach": {
+          if (!redial || attachingAgain) {
+            // ClientDial resolves the reply, then handles the next line in
+            // that stdout chunk before attach's await continuation can run.
+            queueMicrotask(() => f.push({ surface: 7, event: "agent-session-record", record: { seq: 11 } }));
+          }
+          return { lastSeq: 10, events: [], hasMore: false };
+        }
+        default: return {};
+      }
+    });
+    const chat = new chaos.ChatClient({ cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" }, f.make);
+    try {
+      await chat.open("claude");
+      if (redial) {
+        attachingAgain = true;
+        f.redial();
+        await chat.caughtUp(11, 1_000);
+      }
+      expect(chat.received.map((r) => r.seq)).toEqual([11]);
+      expect(chat.held).toBe(11);
+    } finally { chat.stop(); }
+  });
 
   test("after a redial the chat attaches, and prompts, on the tab's new surface", async () => {
     let surface = 7;
