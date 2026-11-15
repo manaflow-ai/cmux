@@ -300,11 +300,12 @@ fn budget_page(side: PageSide, from: Option<ListKey>) -> Page {
     page
 }
 
-/// One page and its pieces and snapshot bytes, by the same checks as [`read`].
+/// One page, its pieces, its snapshot bytes and its frame's length, from one request, by the
+/// same checks as [`read`].
 fn read_counted(hub: &Hub, page: &Page) -> (PageResult<Value>, usize, usize, usize) {
+    let frame_len = hub.peer_page(page).unwrap().encoded_len();
     let (result, _) = read(hub, page);
     let (pieces, bytes) = PEER_PIECES.with(|read| read.get());
-    let frame_len = hub.peer_page(page).unwrap().encoded_len();
     (result, pieces, bytes, frame_len)
 }
 
