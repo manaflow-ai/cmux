@@ -909,10 +909,11 @@ fn embedded_commit_time(bytes: &[u8]) -> Option<u64> {
     const KEY: &[u8] = b"acpmux-commit-time=";
     let mut from = 0;
     while let Some(i) = bytes.get(from..)?.windows(KEY.len()).position(|w| w == KEY) {
-        let start = from + i + KEY.len();
-        let digits = bytes[start..].iter().take_while(|b| b.is_ascii_digit()).count();
-        if digits > 0 && bytes.get(start + digits) == Some(&b';') {
-            return std::str::from_utf8(&bytes[start..start + digits]).ok()?.parse().ok();
+        let start = from.saturating_add(i).saturating_add(KEY.len());
+        let rest = bytes.get(start..)?;
+        let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+        if digits > 0 && rest.get(digits) == Some(&b';') {
+            return std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok();
         }
         from = start;
     }
