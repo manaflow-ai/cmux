@@ -9,9 +9,19 @@ struct CEFDevToolsSend {
 }
 
 /// A DevTools call's parameters: JSON text made in the caller's turn, or values to encode off the main actor.
-private enum CEFDevToolsParams {
+private enum CEFDevToolsParams: Sendable {
     case encoded(String)
     case large([String: any Sendable])
+
+    /// The JSON text: a large one is encoded off the main actor.
+    var text: String {
+        get async {
+            switch self {
+            case .encoded(let text): text
+            case .large(let values): await CEFDevToolsResult.encodedParams(values)
+            }
+        }
+    }
 }
 
 extension CEFRuntime {
@@ -63,8 +73,23 @@ extension CEFRuntime {
     ///   `closed` when the browser was gone, closes or quit begins first, and `timedOut` after `timeout`.
     func startDevTools(_ browser: Int32, method: String, params: [String: Any], timeout: Duration = CEFRuntime.devToolsTimeout,
                        while allowed: @escaping @MainActor @Sendable () -> Bool) -> @MainActor @Sendable () async throws -> String {
-        let text = CEFDevToolsResult.params(params)
-        if devToolsOrder.isIdle(browser) {
+        startDevTools(browser, method: method, .encoded(CEFDevToolsResult.params(params)), timeout: timeout, while: allowed)
+    }
+
+    /// ``startDevTools(_:method:params:timeout:while:)`` for parameters a page can make large (a document script):
+    /// small ones go out in the caller's turn when nothing of `browser` waits; large ones
+    /// (``CEFDevToolsResult/isLarge(_:)``) take their place in the browser's call order now and are encoded off
+    /// the main actor. Calls started one after another reach Chromium in that order without waiting for each
+    /// other's answers, so a page's setup costs one round trip, not one per call (CMUX-571).
+    func startDevTools(_ browser: Int32, method: String, payload: [String: any Sendable],
+                       timeout: Duration = CEFRuntime.devToolsTimeout) -> @MainActor @Sendable () async throws -> String {
+        let params: CEFDevToolsParams = CEFDevToolsResult.isLarge(payload) ? .large(payload) : .encoded(CEFDevToolsResult.params(payload))
+        return startDevTools(browser, method: method, params, timeout: timeout, while: { true })
+    }
+
+    private func startDevTools(_ browser: Int32, method: String, _ params: CEFDevToolsParams, timeout: Duration,
+                               while allowed: @escaping @MainActor @Sendable () -> Bool) -> @MainActor @Sendable () async throws -> String {
+        if case .encoded(let text) = params, devToolsOrder.isIdle(browser) {
             guard allowed() else { return { throw BrowserTabError.snapshotUnavailable } }
             let sent = sendDevTools(browser, method: method, encodedParams: text)
             // The caller awaits from a later turn: an answer that comes first is kept for it.
@@ -78,6 +103,7 @@ extension CEFRuntime {
         // task-owner: awaited by the returned closure; it always leaves its ticket, so later calls of the browser go.
         let call = Task { @MainActor [weak self] () throws -> String in
             guard let self else { throw BrowserTabError.closed }
+            let text = await params.text
             await self.devToolsOrder.turn(ticket, of: browser)
             let mayGo = allowed()
             let sent = mayGo ? self.sendDevTools(browser, method: method, encodedParams: text) : nil

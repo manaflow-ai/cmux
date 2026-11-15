@@ -82,13 +82,11 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         onEvent?(.ended)
     }
 
-    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
-        try await tab.devTools(method: method, params: params)
-    }
-
+    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String { try await tab.devTools(method: method, params: params) }
     func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String {
         try await tab.devTools(method: method, params: params, timeout: timeout)
     }
+    func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String { tab.startDevTools(method: method, params: params) }
 
     #if DEBUG || CMUX_BENCH_HOOKS
     func debugPress(at point: NSPoint) -> Bool {
