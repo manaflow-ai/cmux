@@ -55,6 +55,8 @@ public struct StateFolderMove: Sendable {
             let items = ClassicFolderItemsMove(applicationSupport: applicationSupport)
             items.run()
             items.moveBundleItems(bundleID: build.bundleID)
+            // The bundle id the helper's own folder is named by (`ComputerUseHelperDaemon.defaultStateDirectory`).
+            items.moveComputerUseRuntime(bundleID: build.bundleID ?? "com.cmuxterm.app")
         }
         guard let pair = folders(build: build) else { return .nothing }
         let (old, new) = pair

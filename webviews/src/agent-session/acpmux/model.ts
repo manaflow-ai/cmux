@@ -1498,6 +1498,8 @@ export type AcpmuxSnapshot = {
     error?: string;
     /// The start refusal's code, for the failed card's one-click way out (startRefusal.ts).
     code?: string;
+    /// `agent_session.sign_in_required` for a sign-in that expired (`errorKind` `auth.expired`).
+    signInExpired?: true;
   };
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */

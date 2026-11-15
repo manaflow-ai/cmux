@@ -7,8 +7,8 @@ Leo 2026-11-01: "i need these hover previews to appear a hell of a lot faster th
 
 Launches the tagged app (a bench build: `debug.hover_cards` is registered only with CMUX_BENCH_HOOKS or in Debug),
 fills the sidebar to each --workspaces count, and for --samples rows per count moves the real pointer onto the row
-and reads `debug.hover_cards` until the row's card shows. The real pointer moves by the first route that works: the installed Nightly's Computer Use app
-(`--pointer-glide`, its own lasting Accessibility grant), then
+and reads `debug.hover_cards` until the row's card shows. The real pointer moves by the first route that works: a bench pointer app built once
+from PointerGlide.swift (`--pointer-glide`, its own lasting Accessibility grant, given once), then
 mouse moves this step posts itself (pointer-probe.swift; needs an Accessibility grant for this process, which a
 binary compiled per run never has), then CuaDriver's `move_cursor` (desktop scope, foreground delivery) through its
 daemon, which holds the host's Accessibility grant. Each route is checked by reading the pointer back. Only when
@@ -120,6 +120,7 @@ def where():
 
 
 LAST_POINT = {}
+DELAY_MS = 0.0  # the coordinator's show delay (`debug.hover_cards` delay_ms), read once the app answers
 ROUTE = None  # the real pointer route: "helper" (cmux Computer Use), "posted" (pointer-probe) or "cua" (CuaDriver)
 CUA_CANDIDATES = (os.path.expanduser("~/.local/bin/cua-driver"),
                   "/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
@@ -197,13 +198,63 @@ class Cua:
 CUA = None
 CUA_SCALE = 1.0
 
-# The installed Nightly's Computer Use app (com.cmuxterm.cua, Developer ID): a stable identity, so an Accessibility
-# grant given once at the host's console lasts across nightlies. Launched through LaunchServices, it is its own
-# responsible process and posts under its own grant (`--pointer-glide`, PointerGlide.swift); a binary this step
-# compiles or starts directly never holds one (cmux20-bench, 2026-11-15: AXIsProcessTrusted and
-# CGPreflightPostEventAccess false for the step's processes).
-HELPER_APP = os.environ.get("CMUX_BENCH_POINTER_APP",
-                            "/Applications/cmux NEXT.app/Contents/Library/cmux Computer Use.app")
+# Real moves need a process with its own lasting Accessibility grant: one this step compiles or starts directly never
+# holds one (cmux20-bench, 2026-11-15: AXIsProcessTrusted and CGPreflightPostEventAccess false for the step's
+# processes). No shipped app can do it either: the Nightly's "cmux Computer Use.app" is the legacy Rust cmux-cua,
+# which answers `--pointer-glide` with "Unknown tool" (step 1fee5f1e), and helper v2, where PointerGlide.swift lives,
+# is not in Nightly (scripts/ci/cua_signed_host_check.py). So the bench builds PointerGlide.swift into a small app
+# once, at a stable path the step's next runs find again, and never rebuilds it: an ad-hoc grant is tied to the binary,
+# so one grant at the host's console lasts. Launched through LaunchServices, it is its own responsible process. The
+# directory is this user's alone (0700). A changed PointerGlide.swift is picked up only after the app is deleted by
+# hand and granted again. CMUX_BENCH_POINTER_APP names another app with the same `--pointer-glide` answer.
+HELPER_CACHE = f"/Users/Shared/cmux-bench-pointer-{os.getuid()}"
+HELPER_ID = "com.cmuxterm.bench-pointer"
+HELPER_APP = os.environ.get("CMUX_BENCH_POINTER_APP", os.path.join(HELPER_CACHE, "cmux Bench Pointer.app"))
+POINTER_GLIDE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Packages", "macOS",
+                             "CmuxComputerUseHelper", "Sources", "CmuxCuaHelperCore", "PointerGlide.swift")
+
+
+def own_cache():
+    """HELPER_CACHE, made 0700 for this user; RuntimeError when it is someone else's, a link, or open to others."""
+    import stat
+    try:
+        os.mkdir(HELPER_CACHE, 0o700)
+    except FileExistsError:
+        pass
+    info = os.lstat(HELPER_CACHE)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise RuntimeError(f"{HELPER_CACHE} is not a directory only uid {os.getuid()} may use "
+                           f"(owner {info.st_uid}, mode {oct(info.st_mode & 0o7777)})")
+
+
+def install_pointer_app():
+    """HELPER_APP, built from PointerGlide.swift on the first run and left alone after (a rebuild would lose its
+    grant); RuntimeError naming why not. Returns whether this run built it."""
+    import plistlib, shutil
+    own_cache()
+    if os.path.isdir(HELPER_APP):
+        return False
+    with tempfile.TemporaryDirectory(prefix="pointer-app-", dir=HELPER_CACHE) as tmp:
+        main = os.path.join(tmp, "main.swift")
+        with open(main, "w") as out:
+            out.write("import Darwin\nexit(PointerGlide().main(arguments: CommandLine.arguments))\n")
+        app = os.path.join(tmp, os.path.basename(HELPER_APP))
+        macos = os.path.join(app, "Contents", "MacOS")
+        os.makedirs(macos)
+        built = subprocess.run(["xcrun", "swiftc", "-O", "-module-name", "BenchPointer", POINTER_GLIDE, main, "-o",
+                                os.path.join(macos, "bench-pointer")], capture_output=True, text=True, timeout=600)
+        if built.returncode:
+            raise RuntimeError(f"swiftc exit {built.returncode}: {built.stderr.strip()[-300:]}")
+        with open(os.path.join(app, "Contents", "Info.plist"), "wb") as out:
+            plistlib.dump({"CFBundleIdentifier": HELPER_ID, "CFBundleExecutable": "bench-pointer",
+                           "CFBundleName": "cmux Bench Pointer", "CFBundlePackageType": "APPL",
+                           "LSUIElement": True}, out)
+        signed = subprocess.run(["codesign", "--force", "-s", "-", "--identifier", HELPER_ID, app],
+                                capture_output=True, text=True, timeout=120)
+        if signed.returncode:
+            raise RuntimeError(f"codesign exit {signed.returncode}: {signed.stderr.strip()[-300:]}")
+        shutil.move(app, HELPER_APP)
+    return True
 
 
 def helper_glide(x0, y0, x1, y1, steps):
@@ -326,6 +377,7 @@ def real_input_works():
     at, ok = landed(target)
     if ok and app_saw(lambda p: probe("move", p[0], p[1]), "posted") is not False:
         ROUTE = "posted"
+        REPORT["route_failures"] = why  # why each earlier route was passed over, also when a later one works
         return None
     why += [f"pointer-probe move {target[0]:.0f} {target[1]:.0f}: exit {run.returncode}, "
            f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}" + (", the app saw no move" if ok else "")]
@@ -338,13 +390,17 @@ def real_input_works():
         cua_move(target[0] - 40, target[1])
         cua_move(target[0], target[1])
         at, ok = landed(target)
-        if ok and app_saw(lambda p: cua_move(*p), "cua") is not False:
+        # Only when the app is seen getting its moves: move_cursor warps (no mouse-moved event), so an unproven
+        # check (None: no row to tell) must not pick it (step 87a83e6c took it on None and measured nothing).
+        if ok and app_saw(lambda p: cua_move(*p), "cua") is True:
             ROUTE = "cua"
+            REPORT["route_failures"] = why
             return None
         why.append(f"cua-driver move_cursor {target[0]:.0f} {target[1]:.0f} (scale {CUA_SCALE:g}): pointer after {at}"
                    + (", the app saw no move (a warp sends no mouse-moved event)" if ok else ""))
     except (OSError, RuntimeError, ValueError) as error:
         why.append(f"cua-driver at {CUA_PATH}: {error}")
+    REPORT["route_failures"] = why
     return "; ".join(why)
 
 
@@ -424,9 +480,14 @@ def sample(count, index, key, point, frame):
     # A card seen before the last post landed counts as 0 ms: it showed while the hand was still arriving.
     pending = None if pending_at is None else max(0.0, (pending_at - last) * 1000)
     shown = None if shown_at is None or shown_at - last > 2.0 else max(0.0, (shown_at - last) * 1000)
+    # The card's own cost past its wait: the coordinator arms the show delay when it turns pending, so pending to
+    # shown, less that delay, is the timer's overshoot plus building and showing the card, whatever the delay is.
+    after_delay = None if shown is None or pending_at is None else (shown_at - pending_at) * 1000 - DELAY_MS
     focus = rpc("debug.focus") or {}
     run = {"workspaces": count, "round": index, "row": key, "pending_ms": pending and round(pending, 1),
-           "shown_ms": shown and round(shown, 1), "target": report.get("shown_target"),
+           "shown_ms": shown and round(shown, 1),
+           "after_delay_ms": None if after_delay is None else round(after_delay, 1),
+           "target": report.get("shown_target"),
            # Where moves stop on a miss: a hovered row with no coordinator hit is the coordinator; a row the list
            # never hovered is delivery (the window server sent the app no move).
            "row_hovered": row_hovered(key), "events_delta": None if not report else
@@ -494,15 +555,26 @@ try:
     REPORT["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     REPORT["host"] = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
     REPORT["active_at_start"] = activate()
+    if opts.input == "real" and "CMUX_BENCH_POINTER_APP" not in os.environ:
+        try:
+            # A just-built app has no grant yet: its glide answers "no post-event access" until one is given.
+            REPORT["pointer_helper"] = {"app": HELPER_APP, "built_now": install_pointer_app()}
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            REPORT["pointer_helper"] = {"app": HELPER_APP, "error": str(error)[-300:]}
+            REPORT["notes"].append(f"bench pointer app unavailable: {str(error)[-300:]}")
     why = real_input_works() if opts.input == "real" else None
     if why:
         REPORT["notes"].append(f"real input fell back to synthetic: {why}")
         safe_print(f"real input fell back to synthetic: {why}", flush=True)
         opts.input = REPORT["input"] = "synthetic"
-    REPORT["pointer_route"] = {"helper": "cmux Computer Use --pointer-glide", "posted": "pointer-probe posted moves", "cua": "cua-driver move_cursor"}.get(ROUTE) \
+    REPORT["pointer_route"] = {"helper": "bench pointer app --pointer-glide", "posted": "pointer-probe posted moves", "cua": "cua-driver move_cursor"}.get(ROUTE) \
         if opts.input == "real" else "debug.pointer_hover"
     report = cards()
     REPORT["defaults"] = {k: report.get(k) for k in ("enabled", "delay_ms", "sources", "monitor", "suppressions", "quiet")}
+    try:
+        DELAY_MS = float(report.get("delay_ms") or 0)
+    except (TypeError, ValueError):
+        DELAY_MS = 0.0
     safe_print(f"app pid {APP_PID}, input {opts.input} ({REPORT['pointer_route']}), "
                f"active {REPORT['active_at_start']}, window "
                f"{(main_window() or {}).get('frame')}, cards {REPORT['defaults']}", flush=True)
@@ -514,13 +586,16 @@ try:
         runs = [sample(count, i, *visible[i % len(visible)]) for i in range(opts.samples)] if visible else []
         shown = [r["shown_ms"] for r in runs if r["shown_ms"] is not None]
         pending = [r["pending_ms"] for r in runs if r["pending_ms"] is not None]
+        after = [r["after_delay_ms"] for r in runs if r["after_delay_ms"] is not None]
         cell = {"workspaces": count, "rows_visible": len(visible), "samples": len(runs), "shown": len(shown),
                 "shown_p50": pct(shown, 0.5), "shown_p95": pct(shown, 0.95),
                 "pending_p50": pct(pending, 0.5), "pending_p95": pct(pending, 0.95),
+                "delay_ms": DELAY_MS, "after_delay_p50": pct(after, 0.5), "after_delay_p95": pct(after, 0.95),
                 "median": statistics.median(shown) if shown else None, "runs": runs}
         REPORT["cells"].append(cell)
         safe_print(f"{count} workspaces: {len(shown)}/{len(runs)} shown, last move to shown p50 {cell['shown_p50']} "
-                   f"p95 {cell['shown_p95']} ms, to pending p50 {cell['pending_p50']} ms", flush=True)
+                   f"p95 {cell['shown_p95']} ms, to pending p50 {cell['pending_p50']} ms, past the {DELAY_MS:g} ms "
+                   f"delay p50 {cell['after_delay_p50']} p95 {cell['after_delay_p95']} ms", flush=True)
     status = 0 if REPORT["cells"] and all(c["shown"] for c in REPORT["cells"]) else 1
 finally:
     if CUA is not None:

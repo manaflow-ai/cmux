@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextKeepAwake
+import CmuxNextKeys
 import CmuxNextLiveCode
 import CmuxNextOnboarding
 import CmuxNextPages
@@ -428,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
+                control.service?.router.register([services.keyRequests.controlMethod]) // keys.request (Settings > Keys)
                 control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
