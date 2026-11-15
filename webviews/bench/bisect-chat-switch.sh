@@ -48,33 +48,52 @@ prepare() { # sha dir
   (cd "$w" && node scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
 }
 
-run_point() { # point
-  local point="$1" sha="${1%%:*}" mode="both"
-  [[ "$point" == *:* ]] && mode="${point#*:}"
-  local dir="$work/$sha" log="$out/$sha"
-  if ! prepare "$sha" "$dir" >"$log.prepare.log" 2>&1; then echo "FAIL $sha prepare"; tail -5 "$log.prepare.log"; return; fi
+# A variant patches the extracted pane before the build (an experiment on one commit):
+#   noahead  readOlderAhead returns at once;  small  older pages at the old 256 KiB / 400 records;
+#   both     the two together;               profile  PROFILE=1 (CPU profile of each arm's last switch).
+patch_variant() { # variant webviews-dir
+  local d="$2/src/agent-session/acpmux/direct.ts"
+  case "$1" in
+    ""|profile) ;;
+    noahead) sed -i '/private readOlderAhead(pagingEpoch: number): void {/a\    return;' "$d" ;;
+    small) sed -i 's/^const OLDER_PAGE_BYTES = 1024 \* 1024;/const OLDER_PAGE_BYTES = 256 * 1024;/; s/^const OLDER_PAGE_RECORDS = 2000;/const OLDER_PAGE_RECORDS = 400;/' "$d" ;;
+    both) patch_variant noahead "$2"; patch_variant small "$2" ;;
+    *) echo "unknown variant $1"; return 1 ;;
+  esac
+}
+
+run_point() { # SHA[:MODE[:VARIANT]]
+  local point="$1" sha="${1%%:*}" mode="both" variant=""
+  local rest="${point#*:}"
+  [[ "$point" == *:* ]] && mode="${rest%%:*}"
+  [[ "$rest" == *:* ]] && variant="${rest#*:}"
+  local id="$sha${variant:+-$variant}"
+  local dir="$work/$id" log="$out/$id"
+  if ! prepare "$sha" "$dir" >"$log.prepare.log" 2>&1; then echo "FAIL $id prepare"; tail -5 "$log.prepare.log"; return; fi
+  patch_variant "$variant" "$dir/webviews" >>"$log.prepare.log" 2>&1 || { echo "FAIL $id patch"; return; }
   local fixtures=()
   case "$mode" in plain) fixtures=(plain) ;; god) fixtures=(god) ;; *) fixtures=(plain god) ;; esac
   for fx in "${fixtures[@]}"; do
     local env=(ROUNDS_IGNORED=1)
     [[ "$fx" == god ]] && env=(FIXTURE=god)
+    [[ "$variant" == profile ]] && env+=(PROFILE=1)
     local start=$SECONDS
     (cd "$dir/webviews" && env "${env[@]}" CHURN="${CHURN:-24}" MAX_WARM="${MAX_WARM:-6}" TMPDIR="$dir" \
       timeout 900 bun bench/chat-switch.bench.ts "${ROUNDS:-3}" "${TURNS:-300}") >"$log.$fx.log" 2>&1
     local rc=$?
-    echo "DONE $sha $fx rc=$rc $((SECONDS - start))s"
-    [[ $rc -ne 0 ]] && tail -15 "$log.$fx.log" | sed "s/^/  $sha $fx | /"
-    grep -h '^PERF_ROW' "$log.$fx.log" | sed "s/^PERF_ROW /BISECT $sha $fx /"
-    grep -h 'at rest for 5 s\|^unread |^read ahead |^arm ' "$log.$fx.log" | sed "s/^/REST $sha $fx /"
+    echo "DONE $id $fx rc=$rc $((SECONDS - start))s"
+    grep -h '^PERF_ROW' "$log.$fx.log" | sed "s/^PERF_ROW /BISECT $id $fx /"
+    grep -h 'at rest for 5 s\|^unread |^read ahead |^arm ' "$log.$fx.log" | sed "s/^/REST $id $fx /"
   done
   rm -rf "$dir"
 }
 
+key() { local p="$1" s="${1%%:*}" r="${1#*:}"; [[ "$p" == *:*:* ]] && echo "$s-${r#*:}" || echo "$s"; }
 running=0
 for point in "$@"; do
-  run_point "$point" > "$out/${point%%:*}.result" &
+  run_point "$point" > "$out/$(key "$point").result" &
   running=$((running + 1))
   if (( running >= PAR )); then wait -n; running=$((running - 1)); fi
 done
 wait
-for point in "$@"; do cat "$out/${point%%:*}.result"; done
+for point in "$@"; do cat "$out/$(key "$point").result"; done
