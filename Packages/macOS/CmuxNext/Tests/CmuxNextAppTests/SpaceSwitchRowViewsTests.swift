@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// shown one in (`BrowserView::OnActiveTabChanged`), and the views a space needs the first time are made before the
 /// switch, after frames committed, as Chromium keeps a spare renderer (`SpareRenderProcessHostManager`).
 /// 24 workspaces, half in each of two spaces: 12 rows a space, fewer than the smallest page of spares (16).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SpaceSwitchRowViewsTests {
     /// Waits until two main run-loop passes have committed, so work after a frame's commit has run (the signal
     /// `AfterFrameCommit` uses: a one-shot before-waiting observer after every other observer of the pass).
