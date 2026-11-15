@@ -15,9 +15,11 @@ struct HoverCardSeparateSourcesTests {
     private final class Source: HoverCardSource {
         let window: NSWindow
         let anchors: [HoverTargetID: CGRect]
-        init(window: NSWindow, anchors: [HoverTargetID: CGRect]) {
+        let hoverCardGroup: HoverCardGroup?
+        init(window: NSWindow, anchors: [HoverTargetID: CGRect], group: HoverCardGroup? = nil) {
             self.window = window
             self.anchors = anchors
+            hoverCardGroup = group
         }
         var hoverCardWindow: NSWindow? { window }
         func hoverCardHit(at point: CGPoint) -> HoverCardHit? { nil }
@@ -70,5 +72,45 @@ struct HoverCardSeparateSourcesTests {
         #expect(coordinator.cardWindow != nil)
         #expect(coordinator.cardWindow !== stripCard, "one pane's tab card flew to another pane's strip")
         #expect(coordinator.singleCardViolations().isEmpty, "\(coordinator.singleCardViolations())")
+    }
+
+    /// Lawrence 2026-10-20: the update card and a workspace row share one card that morphs between
+    /// them. 9ae3f12 (a card window per source) gave the owner's card no source, so a workspace card
+    /// after it got a new window and the update card's faded out (SidebarOneMorphingCardTests red).
+    /// An owner's card is in its group: it morphs with the sidebar's rows, never with a tab strip.
+    @Test func anOwnersCardMorphsWithItsGroupAndNeverWithATabStrip() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 900, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        defer { window.close() }
+        let sidebar = Source(window: window, anchors: [HoverTargetID("ws:a"): CGRect(x: 110, y: 600, width: 200, height: 28)],
+                             group: .sidebar)
+        let strip = Source(window: window, anchors: [HoverTargetID("tab:a"): CGRect(x: 600, y: 660, width: 160, height: 28)])
+        let coordinator = HoverCardCoordinator()
+        coordinator.appIsActive = { true }
+        defer { coordinator.dismiss(.action); ([coordinator.panel] + coordinator.retiring).forEach { $0?.closeAfterTest() } }
+        let update = HoverTargetID("update:notes")
+        func showUpdate() {
+            let body = HoverCardBody(view: NSTextField(labelWithString: "notes"), placement: .beside, themeAnchor: nil) {}
+            coordinator.presentOwned(update, body: body, anchor: CGRect(x: 110, y: 120, width: 200, height: 40),
+                                     parent: window, group: .sidebar) {}
+        }
+
+        autoreleasepool { showUpdate() }
+        weak var updateCard = coordinator.cardWindow
+        try #require(updateCard != nil)
+        autoreleasepool { coordinator.pin(target("ws:a", in: window), from: sidebar) }
+        #expect(coordinator.cardWindow === updateCard, "the workspace card did not morph from the update card")
+
+        autoreleasepool { coordinator.pin(target("tab:a", in: window), from: strip) }
+        weak var stripCard = coordinator.cardWindow
+        #expect(stripCard !== updateCard, "the sidebar's card flew to the tab strip")
+        autoreleasepool { showUpdate() }
+        #expect(coordinator.cardWindow !== stripCard, "the tab strip's card flew to the update card")
+        // No singleCardViolations here: it counts every live card window in the process, and the
+        // suite's other test leaves its own (closed, fading) windows alive until they are freed.
+        #expect(coordinator.isShowingOwned(update))
     }
 }

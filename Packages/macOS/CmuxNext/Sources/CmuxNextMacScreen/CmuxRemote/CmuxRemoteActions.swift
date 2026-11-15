@@ -4,6 +4,7 @@ public import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextDevices
+import CmuxNextSettings
 import Foundation
 
 /// What cmux Remote's actions need from the app: the hub, a window to ask in, and Settings.
@@ -35,7 +36,7 @@ extension CmuxRemoteActionEnvironment {
             _ = registry.bindEffect(id, unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
                 // action-wait-allow: the request runs in cmux Remote, another process; it shows its own prompt or restarts a worker.
                 .waiting(.externalProcess) {
-                    do { _ = try await remote.call(method, params) } catch { return ActionWorkFailure(String(describing: error)) }
+                    do { _ = try await remote.call(method, params) } catch { return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error)) }
                     return nil
                 }
             })
@@ -65,7 +66,7 @@ extension CmuxRemoteActionEnvironment {
                 // action-wait-allow: the device hub owns the sharing switch; the Devices page follows its push.
                 return .waiting(.network) {
                     do { try await Self.apply(on ? "share" : "unshare", device: "", scope: nil, hub: hub, remote: remote) } catch {
-                        return ActionWorkFailure(String(describing: error))
+                        return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))
                     }
                     return nil
                 }
@@ -107,13 +108,29 @@ extension CmuxRemoteActionEnvironment {
                     : CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
                 let window = environment.window()
                 let remote = environment.remote
-                return .followUp {
-                    guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
-                    try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote)
-                    return ["ok": true]
-                }
+                return .followUp(Self.confirmedChange(
+                    confirm: { await Self.confirm(title: title, body: body, in: window) },
+                    apply: { try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote) }))
             }.withDeadline(.fixed(.seconds(130))),
         ]
+    }
+
+    /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.
+    ///
+    /// The dialog outlives the request: the caller gives up after its deadline (the CLI waits
+    /// 130 s), and the request's deadline cancels its follow-up. An Allow after that is still the
+    /// person's answer, so the dialog and the change run in their own task, which the request's
+    /// cancellation does not reach; the request only waits on it.
+    nonisolated static func confirmedChange(confirm: @escaping @MainActor @Sendable () async -> Bool,
+                                            apply: @escaping @Sendable () async throws -> Void) -> @Sendable () async throws -> CmuxNextSettings.JSONValue {
+        {
+            let answer = Task { () async throws -> CmuxNextSettings.JSONValue in
+                guard await confirm() else { return ["ok": false, "declined": true] }
+                try await apply()
+                return ["ok": true]
+            }
+            return try await answer.value
+        }
     }
 
     /// The person's answer to one dialog (false without a window).

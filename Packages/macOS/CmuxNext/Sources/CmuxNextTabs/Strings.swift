@@ -8,7 +8,7 @@ enum Strings {
     static var newTabHoldHint: String {
         String(localized: "tabs.newTab.holdHint", defaultValue: "New Tab (hold for more)", bundle: .module)
     }
-    /// A pane's "…" at the tab bar's trailing end (`PaneToolbarView`).
+    /// "More": the tab group editor's overflow row.
     static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
     static func axOnMachine(_ name: String) -> String {

@@ -15,6 +15,7 @@ import {
   gridLength,
 } from "../../src/agent-session/acpmux/transcriptGrid";
 import { pinLiveTurnRuns } from "../support/liveTurnRuns";
+import { CLOCK_ON_LINE, pinArms } from "../support/pinArms";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
 await requireBrowserLane("transcript-rhythm.test.ts", async () => {
@@ -52,6 +53,9 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
         await pinLiveTurnRuns(page);
+        // The live line under the run, as the gaps below measure it; the clock over the work
+        // (liveTurnClock.experiment.ts `top`) is transcript-live-turn-clock.test.ts's.
+        await pinArms(page, CLOCK_ON_LINE);
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", {
             variant: "grid-rhythm",

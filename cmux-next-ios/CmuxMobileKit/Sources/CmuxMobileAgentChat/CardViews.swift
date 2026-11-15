@@ -253,11 +253,9 @@ public struct QuestionCard: View {
         let item = state.item
         let count = question.items.count
         return VStack(alignment: .leading, spacing: 12) {
-            if showsHeader || count > 1 {
+            // No icon beside the header (Aziz, 2026-11-13): the item's header and "1 of N" only.
+            if (showsHeader && item.header != nil) || count > 1 {
                 HStack(spacing: 8) {
-                    if showsHeader {
-                        Image(systemName: "questionmark.bubble")
-                    }
                     if let header = item.header {
                         Text(header.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary).tracking(0.6)
                     }

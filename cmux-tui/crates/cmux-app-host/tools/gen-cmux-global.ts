@@ -12,6 +12,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { loadAppCatalogs, schemaType } from "./app-catalogs.ts"
 import { SchemaValidator } from "./json-schema.ts"
+import { createCmux } from "../js/src/cmux.ts"
 
 const here = new URL(".", import.meta.url).pathname
 const repo = join(here, "../../../..")
@@ -38,16 +39,18 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // team.audit.list and team.members.remove (cx-3bi.4): the audit chain and member removal are a person's session only.
 // agent.message.list/mark/release/send/unsend (#16430): no app access to agent messages until the agent-inbox lane designs a scoped
 // grant. An app that sends to an agent is a prompt-injection path; an app that reads them sees the agent's context.
-// settings.set/reset/reset_all (cx-9ce.10): the settings file is the person's; an app may read settings only.
+// settings.set/reset/reset_all/edit (cx-9ce.10): the settings file is the person's; an app may read settings only.
 // layout.bulk (cx-gzh.5) closes tabs, panes, screens and workspaces, like every .close op.
 // workspace.open_url (cx-ebm.59.3) navigates the person's browser tabs; Home and the person's tools only.
 // conductor_import.plan/record read Conductor's database and worktrees and keep the import ledger: the app's
 // own Import from Conductor only.
 // classic_import.plan/record read classic cmux's session files and keep the migration ledger: the app's own
 // move from classic cmux only.
+// browser_import.read reads another browser's bookmarks, history and tabs by path: the app's own browser
+// import only (the daemon also refuses any origin but the verified app).
 // palette.rank ranks rows for a cmux page's own palette (the Channels page); apps have `cmux.palette`, the
 // app palette, so the op family would collide with it.
-const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
+const NEVER = /(^settings\.(set|reset|reset_all|edit)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^browser_import\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$|^diff\.comments\.send$)/
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
@@ -177,6 +180,7 @@ function paramsType(op: Op): string {
 }
 
 const SIGNALS = join(here, "../schema/v2/signals.json")
+const EVENTS = join(here, "../schema/v2/events.json")
 const SIGNALS_SCHEMA = join(here, "../schema/v2/signals.schema.json")
 
 interface SignalDef {
@@ -233,6 +237,27 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
   return { json: JSON.stringify({ version: 1, signals: table }, null, 2) + "\n", dts: lines.join("\n") }
 }
 
+/**
+ * schema/v2/events.json, each stream's `reads` op checked against the catalog: the daemon delivers a
+ * stream only to an app that may call its `reads` op (apps/subscriptions.rs declared_reads), so that op's
+ * scope is the stream's scope.
+ */
+export function loadEvents(scopes: Record<string, { scope: string; class: string }>): Record<string, { docs: string; reads: string; scope: string }> {
+  const file = JSON.parse(readFileSync(EVENTS, "utf8")) as { version: number; events: Record<string, { docs: string; reads: string }> }
+  if (file.version !== 1) throw new Error(`schema/v2/events.json: version ${file.version}, expected 1`)
+  const out: Record<string, { docs: string; reads: string; scope: string }> = {}
+  for (const name of Object.keys(file.events).sort()) {
+    const { docs, reads } = file.events[name]!
+    const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
+    if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
+    const known = scopes[reads]
+    if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
+    if (known.class !== "read") throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
+    out[name] = { docs, reads, scope: known.scope }
+  }
+  return out
+}
+
 export function generate(): Record<string, string> {
   const { ops, types, generics } = loadCatalog()
   const names = Object.keys(ops).sort()
@@ -265,7 +290,8 @@ export function generate(): Record<string, string> {
     "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
     // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
     "memory.search": { scope: "memory:read", class: "read" },
-    // The agent chats the sidebar shows (AgentChatAppOps in CmuxNextApps), for a customize section's thread list.
+    // The older name of chat.list for a customize section's thread list: the daemon answers it
+    // from the same chat index as chat.list (apps/routing.rs), shaped {chats: [...]}.
     "agent_chat.list": { scope: "agent_chat:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
@@ -288,6 +314,13 @@ export function generate(): Record<string, string> {
     const result = op.source === "app" ? (op.output ? schemaType(op.output) : "unknown") : tsType(op.result)
     node.ops.push([parts.at(-1)!, `${doc}\n${ident(parts.at(-1)!)}: CmuxOp<${paramsType(op)}, ${result}>`])
   }
+  // `cmux.<name>` answers the runtime's own member first (js/src/cmux.ts createCmux), so a catalog
+  // family with a member's name (`theme.scheme.*`, `integrations.*`) is unreachable as
+  // `cmux.theme.scheme`; declaring it too made TypeScript type `cmux.theme` as the family. Leave
+  // it out here; those ops stay callable as `cmux.call("theme.scheme.convert", ...)`.
+  const runtimeMembers = new Set(Reflect.ownKeys(createCmux(() => undefined)).filter((k): k is string => typeof k === "string"))
+  for (const name of runtimeMembers) root.children.delete(name)
+  root.ops = root.ops.filter(([k]) => !runtimeMembers.has(k))
   const render = (t: Tree, indent: string): string => {
     const lines: string[] = []
     const keys = new Set([...t.ops.map(([k]) => k), ...t.children.keys()])
@@ -335,6 +368,8 @@ ${render(root, "  ")}
   net: { fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<CmuxFetchResponse> }
   integrations: Record<string, { request(params: { method: string; path: string; body?: unknown }): Promise<unknown> }>
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
+  /** Time zones. The sandbox has no Intl and \`toLocaleString\` ignores \`timeZone\`: \`zone(name, at?)\` gives an IANA zone's offset (minutes east of UTC) and short name at \`at\` (epoch ms, default now). An unknown name throws CmuxError \`zone.unknown\`. Local time is \`new Date(utcMs + offsetMinutes * 60000)\` read with the getUTC* methods. */
+  time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
   app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null
@@ -469,7 +504,11 @@ declare function Reorderable<T>(spec: CmuxListSpec<T>, template: (item: CmuxSign
 `
   const scopesJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.fromEntries(Object.entries(scopes).sort(([a], [b]) => a.localeCompare(b))), never: never.sort() }, null, 2) + "\n"
   const opsJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.keys(scopes).sort() }, null, 2) + "\n"
-  return { "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json }
+  // Checked here, read where it is used: the SDKs read events.json with scopes.json (cmux-extension-sdk).
+  loadEvents(scopes)
+  return {
+    "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json
+  }
 }
 
 if (import.meta.main) {

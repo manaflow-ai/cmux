@@ -145,7 +145,7 @@ extension UIScaleSetting {
     /// `app.uiScale`.
     public nonisolated static let configPath = ["app", "uiScale"]
     public nonisolated static let fallback: Double = 1
-    public nonisolated static let range: ClosedRange<Double> = 0.85...1.5
+    public nonisolated static let range: ClosedRange<Double> = 0.25...5
     public nonisolated static let placeholder: Double = 1
 }
 
@@ -305,7 +305,7 @@ nonisolated enum AppearanceSettingsSchema {
                 help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
                 kind: .choice([
                     SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(NekoIconTheme.neko.rawValue, "Neko"),
+                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
                 ]),
                 default: .string(NekoIconThemeSetting.fallback.rawValue),
                 keywords: ["icons", "icon", "theme", "neko", "cat"]

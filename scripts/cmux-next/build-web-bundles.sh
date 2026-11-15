@@ -177,25 +177,18 @@ out() {
 }
 
 rm -f "$STAMP"
+# A report run hands every builder its metafile folder through the environment (bundle-metafile.mjs).
 if [ -n "$REPORT_DIR" ]; then
   mkdir -p "$REPORT_DIR"
-  CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" "$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
-  CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" CMUX_PAGES_METAFILE="$REPORT_DIR/pages.json" "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
-  CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
-  CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
-else
-  "$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
-  "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
-  "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
-  "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
+  export CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" CMUX_PAGES_METAFILE="$REPORT_DIR/pages.json"
 fi
+"$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
+"$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+"$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
+"$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
 # In-tree, the committed page was checked above.
 if [ -n "$OUT_ROOT" ]; then
-  if [ -n "$REPORT_DIR" ]; then
-    CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
-  else
-    "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
-  fi
+  "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
 fi
 
 if [ -z "$OUT_ROOT" ]; then

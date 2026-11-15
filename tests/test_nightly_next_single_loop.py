@@ -49,6 +49,9 @@ else:
     if (retry.get("permissions") or {}).get("actions") != "write":
         failures.append("retry-nightly-next dispatches nightly.yml: it needs actions: write")
     body = "\n".join(str(step.get("run", "")) for step in retry.get("steps", []))
+    # The step's run block lives in scripts/ci/nightly-steps/ (nightly.yml's size budget).
+    for script in re.findall(r"scripts/ci/nightly-steps/[\w.-]+\.sh", body):
+        body += "\n" + (ROOT / script).read_text()
     for piece in ("git/ref/heads/nightly-next", '"$head" != "$SHA"', '-gt 2', "nightly_next_loop_retry=",
                   "gh workflow run nightly.yml"):
         if piece not in body:
@@ -77,6 +80,86 @@ if "github.event_name != 'push' && inputs.nightly_next_loop_retry == ''" not in 
 for name in ("generate-nightly-deltas", "sign-release-notes", "published-in"):
     if "needs.published-build.outputs.run_tail == 'true'" not in str(JOBS.get(name, {}).get("if", "")):
         failures.append(f"{name} must not hold a loop run's push group (run_tail)")
+
+# A loop retry that started just before a newer push leaves the build slot to that push's run (runs 43395284047
+# and 43395323737, 2026-11-13: retry 2 of c31b2b678 was dispatched at 08:42:11, nightly-next moved to 7341dd7 at
+# 08:42:29, and the push run waited 19 min for a retry of the older commit). The check runs in resolve, before any
+# build job starts, so no started build is ever left; the push run is pending in the same group and builds the head.
+resolve_steps = {step.get("id"): step for step in JOBS["resolve-nightly-cmux-tui-client"].get("steps", [])}
+leave = resolve_steps.get("superseded") or {}
+leave_if = " ".join(str(leave.get("if", "")).split())
+# Latest wins at the slot (runs 43558081148 and 43560964857, 2026-11-14): push run 43558081148 of a22a4eb1 waited
+# 23 min in the group behind another build, started at 05:06 with 20 newer feat-cmux-next commits and built the old
+# head; it failed and its retry built a22a4eb1 again (60.9 min from landing to the feed). Every push run and retry
+# reaches the step; the script waits there for the tick's promotion when the run is stale (a retry, or a push that
+# waited YIELD_STALE_MINUTES in the group) and feat-cmux-next moved, and main's rolling rule counts a run in this
+# step as no holder (LEAVE_SLOT_STEP in scripts/ci/nightly_next_rolling.py).
+if leave.get("name") != "Leave the build slot to a newer nightly-next push":
+    failures.append("main's rolling rule finds the waiting run by this step's name; keep it")
+if "inputs.nightly_next_loop_retry != ''" not in leave_if or "github.event_name == 'push' ||" not in leave_if:
+    failures.append("every push run and loop retry reaches the leave-slot step (the script decides whether it waits)")
+if "github.ref == 'refs/heads/nightly-next'" not in leave_if:
+    failures.append("only nightly-next runs leave the build slot")
+
+
+def leave_slot(heads: list[str], tip: str, *, feat: str = "", created_min_ago: float = 0.5, **env_extra) -> str:
+    """Runs resolve-leave-build-slot.sh with a gh whose nightly-next ref answers `heads` in turn (the last one
+    repeats), feat-cmux-next answers `feat` and the run was created `created_min_ago` minutes ago."""
+    import datetime as dt
+    import os
+    import subprocess
+    import tempfile
+    created = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=created_min_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "heads").write_text("\n".join(heads) + "\n")
+        fake = Path(tmp) / "gh"
+        fake.write_text(f"""#!/bin/sh
+case "$2" in
+  */heads/nightly-next) n=$(cat {tmp}/n 2>/dev/null || echo 1); sed -n "${{n}}p" {tmp}/heads | grep . || tail -n 1 {tmp}/heads
+                        echo $((n + 1)) > {tmp}/n ;;
+  */heads/feat-cmux-next) echo {feat} ;;
+  */actions/runs/*) echo {created} ;;
+esac
+""")
+        fake.chmod(0o755)
+        git = Path(tmp) / "git"
+        git.write_text(f"""#!/bin/sh
+[ "$1" = -C ] && shift 2
+[ "$1" = ls-remote ] || exit 1
+n=$(cat {tmp}/n 2>/dev/null || echo 1); h=$(sed -n "${{n}}p" {tmp}/heads | grep .) || h=$(tail -n 1 {tmp}/heads)
+echo $((n + 1)) > {tmp}/n
+[ -n "$h" ] && printf '%s\\trefs/heads/nightly-next\\n' "$h"
+""")
+        git.chmod(0o755)
+        out = Path(tmp) / "out"
+        env = {key: value for key, value in os.environ.items() if key not in ("LOOP_RETRY", "SUPERSEDE_SKIP")}
+        env.update(PATH=f"{tmp}:{os.environ['PATH']}", GITHUB_OUTPUT=str(out), TIP_SHA=tip, REPOSITORY="o/r",
+                   GITHUB_RUN_ID="1", YIELD_MINUTES="1", YIELD_POLL_SECONDS="0")
+        env.update(env_extra)
+        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/resolve-leave-build-slot.sh")], env=env,
+                       check=True, capture_output=True, timeout=120)
+        return out.read_text()
+
+
+OLD_HEAD, NEW_HEAD = "c31b2b6786669f7d25210f6496653b58bcc71dd3", "7341dd7bef6021463ef2ad54a9189502e8361adf"
+FEAT_TIP = "fdb12f557063a1c5d4bb55b4ef47c6e70f6ef0b3"
+if leave_slot([NEW_HEAD], OLD_HEAD, LOOP_RETRY="1").strip() != "superseded=true":
+    failures.append("a loop retry whose head nightly-next moved past must leave the build slot")
+if leave_slot([NEW_HEAD], OLD_HEAD, SUPERSEDE_SKIP="1").strip() != "superseded=true":
+    failures.append("a push run leaves a moved head at once with vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'")
+if leave_slot([OLD_HEAD], OLD_HEAD, LOOP_RETRY="1").strip() != "superseded=false":
+    failures.append("a run at the nightly-next head with nothing newer on feat-cmux-next keeps the build slot")
+if leave_slot([""], OLD_HEAD, LOOP_RETRY="1").strip() != "superseded=false":
+    failures.append("an unread nightly-next ref keeps the build slot")
+# The a22a4eb1 case: the run is stale and feat-cmux-next moved; the tick promotes a newer commit while it waits.
+if leave_slot([OLD_HEAD, OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=23).strip() != "superseded=true":
+    failures.append("a push run that waited 23 min in the group must wait for the tick's promotion and leave to it")
+if leave_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, LOOP_RETRY="1").strip() != "superseded=true":
+    failures.append("a loop retry must wait for the tick to promote a newer buildable commit and leave to it")
+if leave_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=1).strip() != "superseded=false":
+    failures.append("a fresh push run never waits for a promotion")
+if leave_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=23, YIELD_MINUTES="0").strip() != "superseded=false":
+    failures.append("a stale run with nothing promoted in YIELD_MINUTES builds its own commit")
 
 decide = "\n".join(str(step.get("with", {}).get("script", "")) for step in JOBS["decide"].get("steps", []))
 if "resumeOutsideLoop" not in decide or "if (resumeOutsideLoop) shouldBuild = false;" not in decide:

@@ -16,6 +16,9 @@
 // - a row that is not folding changed size too (a streamed reply), or a folding row has no drawn
 //   height yet;
 // - a folding row's top is above the view: holding a line in it may move the offset;
+// - a row the ride would move is placed by another owner now: it plays an animation of its own, holds
+//   a paused one of its translate (a row glide the reader's scroll holds), or wears a translate the
+//   ride did not write (the running turn's live line, held while the reader has the view);
 // - the line the reader clicked (the transcript's fold hold) is in a row the ride would move, or has
 //   moved from where it is held (another fold above it in its own row): the transcript keeps that
 //   line in place by moving the offset, which a translate cannot;
@@ -23,10 +26,11 @@
 //   scroll would clamp to and the map, find or a jump would aim by, so the transcript places the
 //   rows before the input reaches anything;
 // - the mounted rows, where they are placed or moved, do not reach past the view's end: a close
-//   would show a gap the virtualizer has not mounted rows for, or the transcript's end is in view
-//   or within a screen of it,
+//   would show a gap the virtualizer has not mounted rows for, or the transcript's end is in view,
 //   which the transcript places itself (the bottom pinned while a fold plays there, the room under
 //   the last reply and the dock's); or a close would end the scroll range above the view.
+//   A transcript's end that stays under the view's end shows nothing of that, however near it is:
+//   the rows ride there too, until the frame the last row would end over the view's end.
 // Work per frame is O(mounted rows), never O(transcript rows).
 import { heightFoldInFlight, heightFoldUntil } from "./fold";
 
@@ -42,8 +46,19 @@ function siblingRows(row: HTMLElement): { node: HTMLElement; index: number }[] {
 
 const indexOf = (row: HTMLElement) => Number(row.getAttribute("aria-posinset"));
 
-/// Whether `row` plays an animation of its own now (its subtree's are not its translate's).
-const animating = (row: HTMLElement) => row.getAnimations?.().some((each) => each.playState === "running") ?? false;
+/// Whether `animation` sets its element's translate or transform.
+function movesRow(animation: Animation): boolean {
+  const frames = (animation.effect as KeyframeEffect | null)?.getKeyframes?.();
+  return frames?.some((frame) => "translate" in frame || "transform" in frame) ?? false;
+}
+
+/// Whether `row` plays an animation of its own now (its subtree's are not its translate's), or holds
+/// one of its translate paused (a row glide the reader's scroll holds, tailGlide.ts `hold`): paused,
+/// it still wins over the inline translate the ride would write.
+const animating = (row: HTMLElement) =>
+  row
+    .getAnimations?.()
+    .some((each) => each.playState === "running" || (each.playState === "paused" && movesRow(each))) ?? false;
 
 export type FoldRideOptions = {
   /// The height the transcript placed `row` at (its drawn height in the last render), if any.
@@ -66,8 +81,8 @@ type HandedFold = { id: string; at: number; delta: number };
 export class FoldRide {
   /// Each folding row and how far its height is from where the transcript placed it.
   private readonly folds = new Map<HTMLElement, number>();
-  /// The rows wearing a ride's translate.
-  private readonly moved = new Set<HTMLElement>();
+  /// The rows wearing a ride's translate, each with the translate the ride wrote on it.
+  private readonly moved = new Map<HTMLElement, string>();
   /// The folds the rows show now: each folding row's id, index (aria-posinset) and height change.
   private shown: HandedFold[] = [];
   /// The folds the rows showed when the ride let go: the rows under them already show where the
@@ -134,18 +149,23 @@ export class FoldRide {
     // however near it is. Keep riding until the frame the last row would enter the view; the guard
     // above then gives placement back to the transcript exactly when the end becomes visible.
     // A row still playing its own animation (a live row's entry) may set its translate itself, over
-    // the one the ride would write: the transcript places the rows while it plays.
-    if (rows.some(({ node, index }) => Math.abs(shiftOf(index)) >= 0.01 && animating(node))) return this.release();
+    // the one the ride would write: the transcript places the rows while it plays. So does a row that
+    // wears a translate the ride did not write (the live line, held where it is drawn while the reader
+    // has the view, pinnedLiveLine.ts): written over and taken off at the ride's end, the line went to
+    // its layout place under a clip made for the held one.
+    if (rows.some(({ node, index }) => Math.abs(shiftOf(index)) >= 0.01 && (animating(node) || this.foreign(node))))
+      return this.release();
     // A folding row rides the folds above it too (its own change is not in its shift): two folds in
     // flight at once would otherwise overlap while the upper one plays.
     for (const { node, index } of rows) {
       const shift = shiftOf(index);
       if (Math.abs(shift) < 0.01) {
-        if (this.moved.delete(node)) node.style.translate = "";
+        this.letGo(node);
         continue;
       }
       node.style.translate = `0 ${shift}px`;
-      this.moved.add(node);
+      // As the style gives it back (an engine may write "0px" for "0"): what `foreign` compares with.
+      this.moved.set(node, node.style.translate);
     }
     this.shown = [];
     for (const [node, delta] of this.folds)
@@ -212,12 +232,25 @@ export class FoldRide {
       this.handedOn = this.options.drawn?.();
     }
     this.shown = [];
-    for (const node of this.moved) node.style.translate = "";
-    this.moved.clear();
+    // A Map's iteration stays valid while `letGo` deletes the entry it is on.
+    for (const node of this.moved.keys()) this.letGo(node);
     this.folds.clear();
     if (this.frame !== undefined) this.view?.cancelAnimationFrame(this.frame);
     this.frame = undefined;
     return false;
+  }
+
+  /// Whether `row` wears a translate that is not the one the ride wrote on it.
+  private foreign(row: HTMLElement): boolean {
+    return row.style.translate !== "" && row.style.translate !== this.moved.get(row);
+  }
+
+  /// Takes the ride's translate off `row`, if it still wears it: one another owner wrote since stays.
+  private letGo(row: HTMLElement): void {
+    const wrote = this.moved.get(row);
+    if (wrote === undefined) return;
+    this.moved.delete(row);
+    if (row.style.translate === wrote) row.style.translate = "";
   }
 
   /// Once no folding row is still in flight, lets go and has the transcript place every row.

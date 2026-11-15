@@ -312,7 +312,8 @@ mod tests {
         let hub = Hub::new(config, store);
         let row = crate::hub::RemoteSession {
             peer: "hb".into(),
-            summary: json!({"sessionId": "peer-chat-1", "name": "hb/chat", "status": "running"}),
+            summary: json!({"sessionId": "peer-chat-1", "name": "hb/chat", "status": "running"})
+                .into(),
             receipt: SessionReceipt {
                 host_id: "hb".into(),
                 mux_session_id: "peer-chat-1".into(),

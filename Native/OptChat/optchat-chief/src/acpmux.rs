@@ -1226,7 +1226,19 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     if waits_on_harness(spec) {
         meta["waitStart"] = json!(true);
     }
+    if is_compactor(spec) {
+        meta["throwaway"] = json!(true);
+    }
     meta
+}
+
+/// A compactor node's session: purged at `end_node` minutes after its one prompt, so acpmux keeps
+/// no long prompt body in its log (`_meta.acpmux.throwaway`, acpmux `hub/ephemeral.rs`). Each node's
+/// prompt is about 3.1 MB, about 1,000 nodes an hour, and the log wrote each one and its journal
+/// copy, then deleted it (cmuxterm-hq#9636: 549 GB in 23.6 h on Leo's laptop). An acpmux from
+/// before the key ignores it (an unknown `_meta.acpmux` key is not refused on `session/new`).
+fn is_compactor(spec: &SessionSpec) -> bool {
+    spec.tags.get(CHIEF_ROLE_TAG).map(String::as_str) == Some(COMPACTOR_ROLE)
 }
 
 /// The Chief's own sessions on this machine (its turns, which answer a person's message, and the
@@ -1850,6 +1862,26 @@ mod wait_start_tests {
         assert!(
             session_meta(&SessionSpec::default(), None)
                 .get("waitStart")
+                .is_none()
+        );
+    }
+
+    /// cmuxterm-hq#9636: a compactor node's session asks acpmux to keep no long prompt body; a
+    /// Chief turn (a person's chat) and any other session keep theirs.
+    #[test]
+    fn only_a_compactor_session_is_throwaway() {
+        let spec = |role: &str| SessionSpec {
+            tags: chief_tags("home", role),
+            ..SessionSpec::default()
+        };
+        assert_eq!(
+            session_meta(&spec(super::COMPACTOR_ROLE), None)["throwaway"],
+            true
+        );
+        assert!(session_meta(&spec("turn"), None).get("throwaway").is_none());
+        assert!(
+            session_meta(&SessionSpec::default(), None)
+                .get("throwaway")
                 .is_none()
         );
     }

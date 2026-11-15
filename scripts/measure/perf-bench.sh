@@ -4,7 +4,7 @@
 # scrolling, video, switching tabs; cold launch; new tab first paint; idle
 # wakeups and CPU at 20 tabs; memory at 1/10/20 tabs). Method and rows:
 # scripts/perf-bench/README.md. Run alone on an idle mini (it launches apps):
-#   cmux-ci run --class exclusive --measurement --pool perf-lead --label measure \
+#   cmux-ci run --class exclusive --measurement --label bench \
 #     --script scripts/measure/perf-bench.sh --ref SHA --artifact artifacts/perf-bench/results.json \
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
 #     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
@@ -29,8 +29,8 @@
 #     --script scripts/measure/perf-bench.sh --ref SHA --arg=suite=parity --artifact artifacts/perf-bench/parity.json \
 #     [--arg=rounds=2] [--arg=parity_rows=key-field,...] [--arg=parity_loads=light,load] [--arg=vdisplay=120x1]
 #     [--arg=geometry=FILE.json]
-# --display: the step needs a console session (real HID input and screen capture); no --pool, since the
-# perf-lead pool's workers stay paused. Output: PARITY.md in the log, artifacts/perf-bench/{parity.json,PARITY.md,parity-results.jsonl}. A FAIL row
+# --display: the step needs a console session (real HID input and screen capture); no --pool (the
+# perf-lead reservation was lifted 2026-11-06). Output: PARITY.md in the log, artifacts/perf-bench/{parity.json,PARITY.md,parity-results.jsonl}. A FAIL row
 # never fails the step (a bench, not a gate).
 set -euo pipefail
 suite=xbench parity_rows="" parity_loads="light,load" vdisplay="" geometry=""

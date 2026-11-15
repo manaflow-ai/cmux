@@ -513,6 +513,5 @@ class WebBundleReportTests(unittest.TestCase):
             self.assertEqual(bundle["embeddedBytes"], 120)
             self.assertEqual(bundle["modules"][0]["emittedBytes"], 120)
 
-
 if __name__ == "__main__":
     unittest.main()

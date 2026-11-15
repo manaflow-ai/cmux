@@ -520,7 +520,7 @@ async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq
 }
 
 /// `daemon status` counts what the gate holds for the journal and what the transport past it has
-/// not read (`queue_gauge.rs`): the connection's own queue is only the gate's input.
+/// not read (`queue_gauge.rs`, `Outbound::gauge`): one count from queue to reader.
 #[tokio::test]
 async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_read() {
     use std::sync::atomic::AtomicU64;
@@ -533,25 +533,30 @@ async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_rea
         written,
         stalled: Arc::new(|_: Duration| false),
     };
+    let scope = cmux_scope::Scope::new("durable-gate-test");
     let (transport, mut reader) = mpsc::channel(8);
-    let (lines, gate) = super::install(Some(durability), transport);
+    let (out, gate) = super::super::outbound::start(&scope, Some(durability), transport);
     let gate = gate.unwrap_or_else(|| panic!("a journal store has a gate"));
     let backlog = |want: (usize, usize)| {
-        let gate = Arc::clone(&gate);
+        let out = Arc::clone(&out);
         async move {
+            let now = || {
+                let gauge = out.gauge();
+                (gauge.lines, gauge.bytes)
+            };
             tokio::time::timeout(Duration::from_secs(10), async {
-                while gate.backlog() != want {
+                while now() != want {
                     tokio::task::yield_now().await;
                 }
             })
             .await
-            .unwrap_or_else(|_| panic!("backlog {:?}, want {want:?}", gate.backlog()))
+            .unwrap_or_else(|_| panic!("backlog {:?}, want {want:?}", now()))
         }
     };
     // Both lines may show LSN 1, not durable yet: the gate holds them.
     gate.raise();
     for line in ["one", "three"] {
-        lines.send(line.to_owned()).await.unwrap_or_else(|e| panic!("send: {e}"));
+        assert!(out.push(line.to_owned()));
     }
     backlog((2, 8)).await;
     // Durable: they move to the transport, still unread.

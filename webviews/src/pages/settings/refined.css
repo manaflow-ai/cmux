@@ -270,7 +270,7 @@
 :root[data-settings-look="refined"] .settings .row-control > .row-help { margin-top: 0; }
 
 :root[data-settings-look="refined"] .settings .row-control { margin-left: auto; justify-content: flex-end; }
-:root[data-settings-look="refined"] .settings :is(.field, .button, .theme-button):not(.ui-input, .ui-btn) { min-height: var(--ds-control-row); border-radius: var(--ds-radius-md); }
+:root[data-settings-look="refined"] .settings :is(.field, .button, .theme-button):not(.ui-input, .ui-btn) { min-height: var(--ds-control-row); border-radius: var(--ds-radius-control); }
 :root[data-settings-look="refined"] .settings .search-input:not(.ui-input) { min-height: var(--ds-control-primary); border-radius: var(--ds-radius-lg); }
 /* Pills: popups and buttons sit on a soft fill with no outline, the chevron at the end. */
 :root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn) {
@@ -283,8 +283,8 @@
 :root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn):is(:hover, [data-popup-open]):not(:disabled) {
   background: var(--look-control-fill-hover, var(--polish-pressed));
 }
-:root[data-settings-look="refined"] .settings .segmented { padding: var(--ds-space-1); border-radius: var(--ds-radius-lg); background: var(--polish-hover); }
-:root[data-settings-look="refined"] .settings .segment { padding: 0 var(--ds-space-3); border-radius: var(--ds-radius-sm); }
+:root[data-settings-look="refined"] .settings .segmented { padding: var(--ds-space-1); border-radius: calc(var(--ds-radius-control) + var(--ds-space-1)); background: var(--polish-hover); }
+:root[data-settings-look="refined"] .settings .segment { padding: 0 var(--ds-space-3); border-radius: var(--ds-radius-control); }
 
 :root[data-settings-look="refined"] .settings .theme-hero {
   padding: var(--ds-space-3);

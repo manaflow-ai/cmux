@@ -50,7 +50,11 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
   });
 
   /// A new chat; `view` "strip" turns on Settings' attachment strip (the default is inline).
-  async function newChat(colorScheme: "light" | "dark" = "light", view?: "strip"): Promise<Page> {
+  async function newChat(
+    colorScheme: "light" | "dark" = "light",
+    view?: "strip",
+    look?: "codex" | "claude",
+  ): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 }, colorScheme });
     await page.addInitScript(() => {
       Object.assign(window, {
@@ -68,6 +72,20 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".acpmux-composer-prompt").waitFor();
     if (view) await page.evaluate((attachmentView) => window.cmuxAcpmuxComposer?.({ attachmentView }), view);
+    if (look) {
+      await page.evaluate(async (value) => {
+        const source = "/composerLook.ts";
+        const { setComposerLook } = await import(/* @vite-ignore */ source);
+        setComposerLook(value, { remember: false });
+      }, look);
+      await page
+        .locator(
+          look === "codex"
+            ? '.acpmux-composer[data-composer-look="codex"]'
+            : '.acpmux-composer:not([data-composer-look="codex"])',
+        )
+        .waitFor();
+    }
     return page;
   }
 
@@ -116,43 +134,46 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     await page.close();
   });
 
-  test("the attachment strip is compact: one row of 64 px tiles close to the text", async () => {
-    const page = await newChat("light", "strip");
-    const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
-    await prompt.click();
-    const field = page.locator(".acpmux-composer-prompt").first();
-    const before = (await page.locator(".acpmux-composer-box").boundingBox())!;
-    await pasteImages(page, 3);
-    const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
-    await chips.nth(2).waitFor();
-    // Every thumbnail loaded and sized by its own shape (decode() can reject while a thumbnail's
-    // source is swapped for its smaller copy).
-    await page.waitForFunction(() => {
-      const images = [
-        ...document.querySelectorAll<HTMLImageElement>(".acpmux-attachments .acpmux-attachment-image img"),
-      ];
-      return images.length === 3 && images.every((img) => img.complete && img.naturalWidth > 0);
-    });
-    const box = (await page.locator(".acpmux-composer-box").boundingBox())!;
-    const strip = (await page.locator(".acpmux-attachments").boundingBox())!;
-    const tiles = await Promise.all([0, 1, 2].map(async (i) => (await chips.nth(i).boundingBox())!));
-    for (const tile of tiles) {
-      expect(Math.round(tile.height)).toBe(64);
-      // One row: every tile on the strip's first line.
-      expect(Math.abs(tile.y - tiles[0]!.y)).toBeLessThan(1);
-    }
-    expect(Math.round(tiles[1]!.x - (tiles[0]!.x + tiles[0]!.width))).toBe(6);
-    expect(Math.round(tiles[0]!.y - box.y)).toBe(8);
-    // The text's first line starts 6 px under the strip.
-    const textTop = await field.evaluate((node) => {
-      const line = node.querySelector("[contenteditable='true']")!.getBoundingClientRect();
-      return line.top;
-    });
-    expect(Math.round(textTop - (strip.y + strip.height))).toBe(6);
-    // The strip adds at most 78 px to the composer.
-    expect(box.height - before.height).toBeLessThanOrEqual(78);
-    await page.close();
-  });
+  test.each(["codex", "claude"] as const)(
+    "%s attachment strip keeps 64px tiles in one row above the text",
+    async (look) => {
+      const page = await newChat("light", "strip", look);
+      const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+      await prompt.click();
+      const field = page.locator(".acpmux-composer-prompt").first();
+      const before = (await page.locator(".acpmux-composer-box").boundingBox())!;
+      await pasteImages(page, 3);
+      const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
+      await chips.nth(2).waitFor();
+      // Every thumbnail loaded and sized by its own shape (decode() can reject while a thumbnail's
+      // source is swapped for its smaller copy).
+      await page.waitForFunction(() => {
+        const images = [
+          ...document.querySelectorAll<HTMLImageElement>(".acpmux-attachments .acpmux-attachment-image img"),
+        ];
+        return images.length === 3 && images.every((img) => img.complete && img.naturalWidth > 0);
+      });
+      const box = (await page.locator(".acpmux-composer-box").boundingBox())!;
+      const strip = (await page.locator(".acpmux-attachments").boundingBox())!;
+      const tiles = await Promise.all([0, 1, 2].map(async (i) => (await chips.nth(i).boundingBox())!));
+      for (const tile of tiles) {
+        expect(Math.round(tile.height)).toBe(64);
+        // One row: every tile on the strip's first line.
+        expect(Math.abs(tile.y - tiles[0]!.y)).toBeLessThan(1);
+      }
+      expect(Math.round(tiles[1]!.x - (tiles[0]!.x + tiles[0]!.width))).toBe(6);
+      expect(Math.round(tiles[0]!.y - box.y)).toBe(8);
+      // Each look keeps its prompt top inset under the strip.
+      const textTop = await field.evaluate((node) => {
+        const line = node.querySelector("[contenteditable='true']")!.getBoundingClientRect();
+        return line.top;
+      });
+      expect(Math.round(textTop - (strip.y + strip.height))).toBe(look === "codex" ? 12 : 6);
+      // The strip adds at most 78 px to the composer.
+      expect(box.height - before.height).toBeLessThanOrEqual(78);
+      await page.close();
+    },
+  );
 
   /// The mean luminance (0-255) of `pixels` [x, y] in a decoded screenshot.
   const luminance = (png: PNG, pixels: [number, number][]) =>

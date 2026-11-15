@@ -88,12 +88,11 @@ if [ -n "${CMUX_ARTIFACT_RUNTIME_METAFILE:-}" ]; then
 else
   bun scripts/pages/bundle.mjs "$WORK" $PAGES
 fi
+[ -s "$WORK/__shared/page-base.css" ] || { echo "error: pages builder did not emit __shared/page-base.css" >&2; exit 1; }
 if [ -n "${CMUX_PAGES_METAFILE:-}" ]; then cp "$WORK/metafile.json" "$CMUX_PAGES_METAFILE"; fi
 for page in $PAGES; do
   src="$ROOT/webviews/src/pages/$page"
   mkdir -p "$WORK/$page"
-  # FOCUS-RING: the focus-ring gate on esbuild's CSS, as the Vite build does (postcss.config.mjs).
-  if [ -f "$WORK/$page/app.css" ]; then bun scripts/postcss/gate-css.mjs "$WORK/$page/app.css"; fi
   loader=""
   case " $SPLIT_STRINGS " in
     *" $page "*) loader="$(bun scripts/pages/split-strings.mjs "$src/generated/strings.json" "$WORK/$page/locales")" ;;
@@ -104,6 +103,9 @@ for page in $PAGES; do
     printf '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'
     [ -n "$loader" ] && printf '%s\n' "$loader"
     cat "$WORK/$page/preloads.html"
+    # The builder factors the exact common first-party chrome prefix into this sibling asset.
+    # It stays before the page's isolated rules, preserving the original CSS cascade.
+    printf '<link rel="stylesheet" href="../__shared/page-base.css" />\n'
     printf '<style>\n'
     [ -f "$WORK/$page/app.css" ] && cat "$WORK/$page/app.css"
     printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script type="module">\n'

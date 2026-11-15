@@ -66,6 +66,10 @@ pub const AGENT_SESSION_SIDE_CAPABILITY: &str = "agent-session-side-v1";
 /// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
 /// capability in `set-client-info`: an older app ends its attachment on an event it does not know.
 pub const AGENT_SESSION_PRESENCE_CAPABILITY: &str = "agent-session-presence-v1";
+/// `attending` and `seen_seq` on `agent-session-view`: whether the person attends the chat their
+/// window shows, passed to acpmux's `_acpmux/view`, so a chat on this machine keeps its turns
+/// unread while they are away from it (acpmux `hub/seen.rs`), and the answer's `lastReturn`.
+pub const AGENT_SESSION_ATTENTION_CAPABILITY: &str = "agent-session-attention-v1";
 /// `agent-session-set-model`, `agent-session-set-mode` and `agent-session-set-config`: the
 /// person's model, mode and option picks for the attached chat, as acpmux's ACP
 /// `session/set_model`, `session/set_mode` and `session/set_config_option` on the tab's own
@@ -302,8 +306,9 @@ struct Attachment {
     ended: AtomicBool,
     /// Permission ids acpmux announced on this attachment, oldest first.
     permissions: Mutex<VecDeque<String>>,
-    /// Prompt ids waiting for `_acpmux/prompt_accepted`, with their reply slot.
-    prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Value>>>,
+    /// Prompt ids waiting for `_acpmux/prompt_accepted`, with their reply slot: the acceptance
+    /// (`Ok`), or the `session/prompt` reply itself when that comes first (a refusal).
+    prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Result<Value, LinkError>>>>,
     /// The session's descendants this attachment follows
     /// (`agent-session-children-v1`): their changes are streamed too.
     children: Mutex<HashSet<String>>,
@@ -499,6 +504,14 @@ struct TypingParams {
 struct ViewParams {
     surface: SurfaceId,
     visible: bool,
+    /// Whether the person attends the chat it shows (`agent-session-attention-v1`, acpmux
+    /// `hub/seen.rs`); absent, acpmux counts them attending.
+    #[serde(default)]
+    attending: Option<bool>,
+    /// The chat's log seq at the person's last input, where a chat they stopped attending is left
+    /// off.
+    #[serde(default)]
+    seen_seq: Option<u64>,
 }
 
 /// `agent-session-set-model`: the model the attached chat uses from its next turn.
@@ -1344,7 +1357,7 @@ fn run_on_worker(
             // A teammate's answer goes out only while its tab still shows the shared chat.
             let replied = worker.while_shared(|| match result {
                 Ok(data) => ok(&worker_writer, worker_id.clone(), data),
-                Err(refusal) => refuse(&worker_writer, worker_id.clone(), refusal),
+                Err(refused) => refused.send(&worker_writer, worker_id.clone()),
             });
             if let Err(refusal) = replied {
                 refuse(&worker_writer, worker_id, refusal);
@@ -1357,9 +1370,9 @@ fn run_on_worker(
     true
 }
 
-fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, Refusal> {
+fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, Refused> {
     let session = attachment.session.as_str();
-    match command {
+    let answer: Result<Value, Refusal> = match command {
         AgentSessionCommand::Attach(params) => {
             let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
             let mut params = page_params(session, &params, true)?;
@@ -1383,7 +1396,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
         AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, .. }) => {
-            prompt(attachment, prompt_id, text, content)
+            return prompt(attachment, prompt_id, text, content);
         }
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
@@ -1396,7 +1409,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             ..
         }) => {
             if option_id.is_empty() || option_id.len() > 256 {
-                return Err(Refusal::BadRequest);
+                return Err(Refusal::BadRequest.into());
             }
             let answers = answers.filter(|a| !a.is_null());
             let annotations = annotations.filter(|a| !a.is_null());
@@ -1406,7 +1419,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             };
             // Annotations go only beside answers.
             if bad(&answers) || bad(&annotations) || (annotations.is_some() && answers.is_none()) {
-                return Err(Refusal::BadRequest);
+                return Err(Refusal::BadRequest.into());
             }
             if !decision_nonce.as_deref().is_none_or(is_hex64)
                 || !person_decision.as_deref().is_none_or(is_hex64)
@@ -1414,10 +1427,10 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                     .as_ref()
                     .is_some_and(|a| !is_answer_id(&a.device) || !is_answer_id(&a.feed_item))
             {
-                return Err(Refusal::BadRequest);
+                return Err(Refusal::BadRequest.into());
             }
             if !attachment.has_permission(&permission_id) {
-                return Err(Refusal::UnknownPermission);
+                return Err(Refusal::UnknownPermission.into());
             }
             let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
@@ -1462,7 +1475,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         AgentSessionCommand::Fork(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
         AgentSessionCommand::Fork(ForkParams { through_seq, name, .. }) => {
             if through_seq == 0 || name.as_ref().is_some_and(|name| name.len() > 256) {
-                return Err(Refusal::BadRequest);
+                return Err(Refusal::BadRequest.into());
             }
             let mut params = json!({
                 "sessionId": session,
@@ -1524,8 +1537,17 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 }
             })
         }
-        AgentSessionCommand::View(ViewParams { visible, .. }) => {
-            let params = attachment.stamp(json!({"sessionId": session, "visible": visible}));
+        AgentSessionCommand::View(ViewParams { visible, attending, seen_seq, .. }) => {
+            let mut fields = serde_json::Map::new();
+            fields.insert("sessionId".into(), json!(session));
+            fields.insert("visible".into(), json!(visible));
+            if let Some(attending) = attending {
+                fields.insert("attending".into(), json!(attending));
+            }
+            if let Some(seen_seq) = seen_seq {
+                fields.insert("seenSeq".into(), json!(seen_seq));
+            }
+            let params = attachment.stamp(Value::Object(fields));
             attachment.link.call("_acpmux/view", params, CALL_TIMEOUT).map_err(Refusal::of)
         }
         // The person's picks, on the tab's own session; acpmux's answer goes back unchanged (a
@@ -1547,7 +1569,8 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         AgentSessionCommand::Context(params) => context::call(attachment, params),
         AgentSessionCommand::Btw(BtwParams { question, .. }) => btw(attachment, question),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
-    }
+    };
+    answer.map_err(Refused::from)
 }
 
 /// One setting (`session/set_model`, `session/set_mode` or `session/set_config_option`) on the
@@ -1595,11 +1618,11 @@ fn prompt(
     prompt_id: String,
     text: Option<String>,
     content: Option<Vec<Value>>,
-) -> Result<Value, Refusal> {
+) -> Result<Value, Refused> {
     let valid_id = (1..=128).contains(&prompt_id.len())
         && prompt_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     if !valid_id {
-        return Err(Refusal::BadRequest);
+        return Err(Refusal::BadRequest.into());
     }
     let blocks = match (text, content) {
         (Some(text), None) if !text.trim().is_empty() && text.len() <= MAX_PROMPT_BYTES => {
@@ -1608,16 +1631,16 @@ fn prompt(
         (None, Some(blocks)) if !blocks.is_empty() && blocks.iter().all(valid_prompt_block) => {
             blocks
         }
-        _ => return Err(Refusal::BadRequest),
+        _ => return Err(Refusal::BadRequest.into()),
     };
     if blocks.iter().all(|block| {
         block["type"] == "text" && block["text"].as_str().is_some_and(|text| text.trim().is_empty())
     }) {
-        return Err(Refusal::BadRequest);
+        return Err(Refusal::BadRequest.into());
     }
     // Guests previously supplied text only. Do not grant access to files on the owner's host.
     if attachment.author.is_some() && blocks.iter().any(|block| block["type"] != "text") {
-        return Err(Refusal::NotTrusted);
+        return Err(Refusal::NotTrusted.into());
     }
     submit_prompt(attachment, &attachment.session, blocks, prompt_id)
 }
@@ -1630,14 +1653,19 @@ fn submit_prompt(
     session: &str,
     blocks: Vec<Value>,
     prompt_id: String,
-) -> Result<Value, Refusal> {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+) -> Result<Value, Refused> {
+    // One slot for the acceptance, one for the request's own reply: a prompt acpmux refuses
+    // (its remote guard, a mode that does not ask, a chat it does not run) is answered with an
+    // error and never accepted. Dropping that reply told the phone `agent_session.timeout`
+    // `PROMPT_ACCEPT_TIMEOUT` later for every refused prompt (HQ's cloud-start-matrix
+    // phone-start row, run 43626610988).
+    let (sender, receiver) = std::sync::mpsc::sync_channel(2);
     {
         let mut prompts = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner());
         if prompts.len() >= MAX_CALLS || prompts.contains_key(&prompt_id) {
-            return Err(Refusal::Limit);
+            return Err(Refusal::Limit.into());
         }
-        prompts.insert(prompt_id.clone(), sender);
+        prompts.insert(prompt_id.clone(), sender.clone());
     }
     let mut params = json!({
         "sessionId": session,
@@ -1651,30 +1679,82 @@ fn submit_prompt(
     if attachment.cloud_mobile {
         params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
     }
-    // The request's own reply comes at the end of the turn and is not
-    // waited for, so a queued prompt holds no call slot (permission answers
-    // stay possible while turns queue).
+    // The request's own reply comes at the end of the turn: it is listened to only until the
+    // acceptance and forgotten then, so a queued prompt holds no call slot past it (permission
+    // answers stay possible while turns queue). At most [`MAX_CALLS`] listen at once.
     let sent = attachment
         .while_shared(|| {
             attachment
                 .link
-                .send_ignoring_reply("session/prompt", attachment.stamp(params))
+                .send_replying_to("session/prompt", attachment.stamp(params), sender)
                 .map_err(Refusal::of)
         })
         .and_then(|sent| sent);
-    if let Err(refusal) = sent {
-        attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
-        return Err(refusal);
-    }
-    let accepted = receiver.recv_timeout(PROMPT_ACCEPT_TIMEOUT);
+    let request = match sent {
+        Ok(request) => request,
+        Err(refusal) => {
+            attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
+            return Err(refusal.into());
+        }
+    };
+    let heard = receiver.recv_timeout(PROMPT_ACCEPT_TIMEOUT);
+    attachment.link.forget(request);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
-    match accepted {
-        Ok(accepted) => Ok(json!({
+    match heard {
+        // The acceptance, or the turn's own result when it ended before one was seen.
+        Ok(Ok(accepted)) => Ok(json!({
             "prompt_id": prompt_id,
             "turn_id": accepted.get("turnId").cloned().unwrap_or(Value::Null),
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
         })),
-        Err(_) => Err(Refusal::Timeout),
+        Ok(Err(error)) => Err(Refused::of_prompt(error)),
+        Err(_) => Err(Refusal::Timeout.into()),
+    }
+}
+
+/// A prompt's refusal, with acpmux's reason code when it gave one (`data.reason`, such as
+/// `remote.local_claude_session`), so the client can say why acpmux did not take the prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Refused {
+    pub(super) refusal: Refusal,
+    pub(super) reason: Option<String>,
+}
+
+impl From<Refusal> for Refused {
+    fn from(refusal: Refusal) -> Self {
+        Self { refusal, reason: None }
+    }
+}
+
+impl Refused {
+    /// The `session/prompt` reply's error. Only a short code of acpmux's is passed on, never
+    /// its message text.
+    fn of_prompt(error: LinkError) -> Self {
+        let reason = match &error {
+            LinkError::Rpc(_, data) => data.get("reason").and_then(Value::as_str).filter(|code| {
+                (1..=64).contains(&code.len())
+                    && code.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            }),
+            _ => None,
+        };
+        Self { reason: reason.map(str::to_owned), refusal: Refusal::of(error) }
+    }
+
+    /// The refusal as the reply to request `id`: its code, its text with acpmux's reason, and
+    /// that reason as `data.reason`.
+    fn send(self, writer: &MessageWriter, id: Option<Value>) -> bool {
+        let Some(reason) = self.reason else { return refuse(writer, id, self.refusal) };
+        send_response(
+            writer,
+            Response {
+                id,
+                ok: false,
+                data: Some(json!({"reason": reason})),
+                error: Some(format!("{} ({reason})", self.refusal.message())),
+                error_code: Some(self.refusal.code().to_string()),
+                error_delivery: None,
+            },
+        )
     }
 }
 

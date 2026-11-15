@@ -2,7 +2,7 @@ mod events_page;
 use super::*;
 use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
-pub(crate) use events_page::query_resource_events_after;
+pub(crate) use events_page::{query_resource_event_changes_at, query_resource_events_after};
 use serde_json::json;
 mod patch_apply;
 mod terminal_live;
@@ -579,7 +579,8 @@ fn compact_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<(
          )",
         [i64::try_from(RESOURCE_MUTATION_REPLAY_CAPACITY)?],
     )?;
-    Ok(())
+    // The receipts answer the same retries: the same window, at the same times.
+    effect_store::compact_resource_receipts(transaction)
 }
 
 pub(crate) fn migrate_resource_browser_metadata(

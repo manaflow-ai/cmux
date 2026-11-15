@@ -6,9 +6,10 @@
 // claude/web/october-recap-card). The daemon decides when; this only draws it. Its × drops the row
 // (direct.ts dismissRecap), and it stays dismissed on this device (recapDismissed.ts).
 // `agents.chats.sessionRecap` turns recaps off.
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRecap } from "../model";
 import { Close } from "./icons";
+import { recapPoints } from "./recapPoints";
 
 /// How the recap is drawn: a hairline card with a × (shipped), a tool-row line, or a rule on the
 /// left. The gallery compares them (RecapNote.gallery.ts).
@@ -29,19 +30,17 @@ export function RecapNote({
   lead?: boolean;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   return (
     <div className="cv-recap" data-look={look} role="note">
-      <p className="cv-recap__text">
-        {lead && (
-          <>
-            <span className="cv-recap__label">{t("awayRecap.label")}</span>
-            <span className="cv-recap__sep" aria-hidden="true">
-              {" · "}
-            </span>
-          </>
-        )}
-        {recap.text}
-      </p>
+      <div className="cv-recap__text">
+        {lead && <div className="cv-recap__label">{t("awayRecap.label")}</div>}
+        <ul className="cv-recap__points">
+          {recapPoints(recap.text, language).map((point, index) => (
+            <li key={index}>{point}</li>
+          ))}
+        </ul>
+      </div>
       {onDismiss && (
         <button
           type="button"

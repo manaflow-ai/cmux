@@ -94,7 +94,7 @@ Lawrence: "make sure we support MDM the way most enterprises do it, like if they
 
 | Path | Reader | Content |
 | --- | --- | --- |
-| Status file `~/Library/Application Support/cmux/managed-status.json` (per user, 0644) | osquery (`parse_json` table or Fleet's `file` + JSON), Jamf extension attributes, Kandji/Addigy custom scripts | schema version, app version and channel, policy domain, keys seen (forced / recommended, names only, never values of `EnrollmentToken`), keys applied and their source, conflicts (MDM forced vs team enforced, E2), managing team id and policy version, enrolled yes/no, last applied time |
+| Status file `~/Library/Application Support/cmux-next/managed-status.json` (per user, 0644) | osquery (`parse_json` table or Fleet's `file` + JSON), Jamf extension attributes, Kandji/Addigy custom scripts | schema version, app version and channel, policy domain, keys seen (forced / recommended, names only, never values of `EnrollmentToken`), keys applied and their source, conflicts (MDM forced vs team enforced, E2), managing team id and policy version, enrolled yes/no, last applied time |
 | `cmux mdm status --json` (CLI verb, catalog op `mdm.status`) | admin scripts, MDM script runners | the same document; reads the status file, works with the app closed |
 | Backend admin API `team.device.compliance` (read, admins) fed by `team.device.report_status` from each install | the cmux dashboard, the customer's own dashboard through an API token, SIEM | per device: install, user, app version, policy version applied, MDM keys present (names), conflicts, last report time; compliant = applied version equals the team's current version and no conflicts |
 | Audit export | SIEM | `audit_events` (phase 2b) |

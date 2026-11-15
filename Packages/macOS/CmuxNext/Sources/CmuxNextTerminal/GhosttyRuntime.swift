@@ -33,6 +33,9 @@ public final class GhosttyRuntime {
     var themeConfigs: [String: GhosttyThemeConfig] = [:]
     /// Bumps on every config change (reload, conditional theme switch).
     public private(set) var configGeneration = 0
+    /// Ghostty's `working-directory` as a folder, read at this ``configGeneration``
+    /// (`refreshConfiguredWorkingDirectory`).
+    var workingDirectoryValue: (generation: Int, folder: String?)?
 
     /// The light/dark scheme last given to Ghostty (the app's appearance).
     public private(set) var isDark = false
@@ -85,6 +88,7 @@ public final class GhosttyRuntime {
         guard let config = Self.loadConfig(diagnostics: &configDiagnostics, opacity: &configuredBackgroundOpacity) else { return }
         mark("config_load")
         self.config = config
+        refreshConfiguredWorkingDirectory()
         // Callbacks reach the runtime through this context, never through
         // `shared`: Ghostty can call back synchronously while `shared` is
         // still being initialized (for example set_color_scheme emits
@@ -144,6 +148,7 @@ public final class GhosttyRuntime {
         // Themed configs were built on the old files; rebuild on demand.
         themeConfigs.removeAll()
         configGeneration += 1
+        refreshConfiguredWorkingDirectory()
         onConfigChange?()
         NotificationCenter.default.post(name: Self.configDidChange, object: self)
     }

@@ -96,6 +96,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
     @State private var pinchSession = ZoomPinchSession()
     @State private var zoomPinchActive = false
+    /// The swipe up on the bar that drives the zoom, with its travel fixed
+    /// when it started (nil when no bar swipe drives it).
+    @State private var barSwipe: BarSwipe.Tracking?
+    @Environment(\.scenePhase) private var scenePhase
     /// The insets the grid last had on screen: a page that hides a tab bar or
     /// the status bar has smaller ones, and a card revealed or laid out
     /// against them landed under the grid's bar once they came back
@@ -201,7 +205,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onMenu: openMenu, onTabs: openOverview, onBeginEditing: beginEditing,
                         onEndEditing: { endEditing() }, onGo: go,
                         onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded,
-                        onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded)
+                        onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded,
+                        onSwipeCancelled: swipeCancelled)
                 .opacity(1 - overviewShown)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
@@ -250,6 +255,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .gesture(ZoomPinchGesture { handlePinch($0) })
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
+        // Leaving the foreground cancels the touches without ending their
+        // gestures: a swipe up left part-way would keep the bar untouchable.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { releaseCancelledSwipeUp() }
+        }
         .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
             if top >= 0 { gridTop = top }
         }
@@ -784,23 +794,44 @@ struct TabsScreen<Source: TabsDataSource>: View {
             guard !chrome.swiping, activeID != nil else { return }
             zoomTabId = activeID
             prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
+            barSwipe = BarSwipe.Tracking(path: zoomPath())
             zoomDriver.beginInteraction()
         }
-        guard zoomState.phase == .interactive, !zoomPinchActive else { return }
-        let travel = BarSwipe.travel(path: zoomPath())
-        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up, travel: travel),
-                                     velocity: BarSwipe.velocity(velocity, travel: travel))
+        guard zoomState.phase == .interactive, !zoomPinchActive, let barSwipe else { return }
+        zoomDriver.updateInteraction(progress: barSwipe.progress(up: up), velocity: barSwipe.velocity(velocity))
     }
 
     /// Release: on to the grid or back to the page on the release spring,
     /// which starts at the finger's speed.
     private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
+        let tracking = barSwipe
+        barSwipe = nil
         guard zoomState.phase == .interactive, !zoomPinchActive else { return }
-        let travel = BarSwipe.travel(path: zoomPath())
-        let progress = BarSwipe.progress(up: up, travel: travel)
-        let v = BarSwipe.velocity(velocity, travel: travel)
+        let swipe = tracking ?? BarSwipe.Tracking(path: zoomPath())
+        let progress = swipe.progress(up: up)
+        let v = swipe.velocity(velocity)
         zoomDriver.updateInteraction(progress: progress, velocity: v)
         zoomDriver.release(toOverview: BarSwipe.releaseToOverview(progress: progress, velocity: v))
+    }
+
+    /// The system cancelled a bar drag (no end event): a sideways swipe
+    /// springs back to its page, a swipe up settles at the nearer end.
+    private func swipeCancelled(_ axis: BarSwipe.Axis) {
+        switch axis {
+        case .horizontal: if chrome.swiping { swipeEnded(0, 0) }
+        case .up: releaseCancelledSwipeUp()
+        case .down: break
+        }
+    }
+
+    /// Releases a zoom left interactive by a swipe that never ended, from
+    /// where the page is, at rest.
+    private func releaseCancelledSwipeUp() {
+        barSwipe = nil
+        guard BarSwipe.releasesOnCancel(phase: zoomState.phase, pinchActive: zoomPinchActive) else { return }
+        let progress = zoomState.progress
+        zoomDriver.updateInteraction(progress: progress, velocity: 0)
+        zoomDriver.release(toOverview: BarSwipe.releaseToOverviewOnCancel(progress: progress))
     }
 
     /// Closing from the grid: the active card is first handed to the grid

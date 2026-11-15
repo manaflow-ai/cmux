@@ -1,25 +1,27 @@
-// Draws a chat's snapshot (shared.ts) in the document's first frame, before the bundle runs: the
+// Draws a chat's snapshot (shared.ts) in the document's first frames, before the bundle runs: the
 // page's first classic script calls this (boot.ts). The copy lives in a shadow root, so none of the
-// page's own code and selectors find it, under the page's own stylesheet rewritten for the shadow
-// tree; the live page's root is clear under it until the swap (live.ts). The copy takes no input:
-// clicks, scrolls and focus go through it to the live page, and typing before the live composer is
-// up waits in the host's key queue (PageInputReadiness), as it does with no snapshot.
+// page's own code and selectors find it, under the page's own `pane.css` and `pane-copy.css` (its
+// `html`, `body` and `:root` rules rewritten for the shadow tree at build time); the live page's root is
+// clear under it until the swap
+// (live.ts). The copy takes no input: clicks, scrolls and focus go through it to the live page, and
+// typing before the live composer is up waits in the host's key queue (PageInputReadiness), as it does
+// with no snapshot.
 import {
   fitsDocument,
   PAGE_STYLE_ID,
   SNAPSHOT_BODY_TAG,
   SNAPSHOT_HOST_TAG,
   SNAPSHOT_HTML_TAG,
+  SNAPSHOT_MISS_GLOBAL,
   SNAPSHOT_ROOT_CLASS,
   SNAPSHOT_SCROLL_ATTRIBUTE,
   SNAPSHOT_SHEETS_ATTRIBUTE,
   SNAPSHOT_SHOWN_GLOBAL,
+  shadowSelector,
   type ChatSnapshot,
   type SnapshotAttributes,
 } from "./shared";
 
-/// `html`, `body` and `:root` in a selector, where they are a selector and not part of a name.
-const PAGE_ROOTS = /(^|[\s,(>+~])(html|body)(?![-\w])|:root(?![-\w])/g;
 /// The copy shows its final frame: what was running when it was written ends at once, as the
 /// motion-off rule ends it (WebTheme `data-cmux-motion="off"`), so nothing in it enters again.
 const STILL =
@@ -30,14 +32,6 @@ const STILL =
 const BASE =
   `${SNAPSHOT_HTML_TAG},${SNAPSHOT_BODY_TAG}{display:block;background:transparent!important}` +
   `${SNAPSHOT_HTML_TAG}{width:100%;height:100%;overflow:hidden}`;
-
-/// The page's selectors for the shadow tree: `html` and `body` name their stand-ins, `:root` the
-/// root stand-in's class, each with its own specificity, so the copy cascades as the page did.
-export function shadowSelector(selector: string): string {
-  return selector.replace(PAGE_ROOTS, (_match, before: string | undefined, tag: string | undefined) =>
-    tag ? `${before ?? ""}${tag === "html" ? SNAPSHOT_HTML_TAG : SNAPSHOT_BODY_TAG}` : `.${SNAPSHOT_ROOT_CLASS}`,
-  );
-}
 
 function rewrite(rules: CSSRuleList): void {
   for (const rule of Array.from(rules)) {
@@ -115,14 +109,35 @@ function restoreScroll(root: ParentNode): void {
   }
 }
 
-/// Draws `snapshot` over `doc`'s live root; true when it did. Nothing when there is none, when it was
+/// What the boot script hears of a copy it asked for (boot.ts).
+export type PaintEvents = {
+  /// Asked once the copy's sheet loaded, before it shows: false when the live page drew the chat
+  /// meanwhile (the copy then goes, unseen).
+  wanted?: () => boolean;
+  /// The copy shows.
+  shown?: () => void;
+};
+
+/// Draws `snapshot` over `doc`'s live root; true when it will. Nothing when there is none, when it was
 /// written for another viewport, look or theme, or when the engine lacks what the copy needs.
-export function paintSnapshot(doc: Document, snapshot: ChatSnapshot | null | undefined): boolean {
+///
+/// The copy links the page's own sheet in its shadow root, and beside it the page's root rules
+/// rewritten for the shadow tree (its link's `data-copy`): each chat page of the renderer used to parse
+/// a constructed copy of the whole page sheet (bench/chat-pages-memory.bench.ts, CSS=inline), where the
+/// links reuse the renderer's one parse. A link finishes in a later task even when the sheet is parsed
+/// already, so the copy is laid out hidden and shows once both loaded, before the next frame.
+export function paintSnapshot(
+  doc: Document,
+  snapshot: ChatSnapshot | null | undefined,
+  events: PaintEvents = {},
+): boolean {
   const view = doc.defaultView;
   const live = doc.getElementById("root");
+  const pageSheet = doc.getElementById(PAGE_STYLE_ID);
   if (!view || !live || !doc.body || !snapshot || !fitsDocument(snapshot, doc)) return false;
-  const pageStyle = doc.getElementById(PAGE_STYLE_ID)?.textContent ?? "";
-  const styles = [pageStyle, ...snapshot.styles].map((text) => sheetOf(view, text));
+  const copySheet = pageSheet instanceof view.HTMLLinkElement && pageSheet.href ? pageSheet.dataset.copy : undefined;
+  if (!copySheet) return false;
+  const styles = snapshot.styles.map((text) => sheetOf(view, text));
   const still = sheetOf(view, BASE + STILL);
   if (!still || styles.some((sheet) => !sheet)) return false;
   try {
@@ -134,9 +149,18 @@ export function paintSnapshot(doc: Document, snapshot: ChatSnapshot | null | und
   host.setAttribute("inert", "");
   host.setAttribute("aria-hidden", "true");
   host.style.cssText =
-    "position:fixed;inset:0;display:block;z-index:var(--layer-debug);pointer-events:none;contain:strict;margin:0;padding:0;border:0";
+    "position:fixed;inset:0;display:block;z-index:var(--layer-debug);pointer-events:none;contain:strict;margin:0;padding:0;border:0;visibility:hidden";
   const shadow = host.attachShadow({ mode: "open" });
   const sheets = snapshot.sheets.map((text) => sheetOf(view, text)).filter((s): s is CSSStyleSheet => !!s);
+  // The shadow root's own sheets cascade before its adopted ones: the page's rules (with its root
+  // rules rewritten), then the copy's other sheets, then the still rule, as the page had them.
+  const pageHref = (pageSheet as HTMLLinkElement).href;
+  const links = [pageHref, new URL(copySheet, pageHref).href].map((href) => {
+    const link = doc.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    return link;
+  });
   shadow.adoptedStyleSheets = [...(styles as CSSStyleSheet[]), still];
   const html = doc.createElement(SNAPSHOT_HTML_TAG);
   setAttributes(html, snapshot.root);
@@ -150,13 +174,35 @@ export function paintSnapshot(doc: Document, snapshot: ChatSnapshot | null | und
   inertCopy(body);
   adoptShadowSheets(body, sheets);
   html.appendChild(body);
-  shadow.appendChild(html);
-  // The live root lays out under the copy, unseen until the swap (live.ts); a press on the copy ends it
-  // and reaches nothing under it (live.ts `reportChatSnapshot`).
-  live.style.opacity = "0";
+  shadow.append(...links, html);
+  const globals = view as unknown as Record<string, unknown>;
+  let loading = links.length;
+  const failed = () => {
+    if (!host.isConnected) return;
+    host.remove();
+    globals[SNAPSHOT_MISS_GLOBAL] = "the copy's sheet did not load";
+  };
+  const loaded = () => {
+    // Gone already: the live page took over, a press ended it (live.ts), or a sheet failed.
+    if (--loading > 0 || !host.isConnected) return;
+    if (events.wanted && !events.wanted()) {
+      host.remove();
+      globals[SNAPSHOT_MISS_GLOBAL] = "late: the page drew the chat first";
+      return;
+    }
+    // The live root lays out under the copy, unseen until the swap (live.ts); a press on the copy ends it
+    // and reaches nothing under it (live.ts `reportChatSnapshot`). Both in this task: one frame shows it.
+    host.style.removeProperty("visibility");
+    live.style.opacity = "0";
+    restoreScroll(body);
+    globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now() };
+    view.performance.mark?.("cmux-chat:snapshot-paint");
+    events.shown?.();
+  };
+  for (const link of links) {
+    link.addEventListener("load", loaded, { once: true });
+    link.addEventListener("error", failed, { once: true });
+  }
   doc.body.appendChild(host);
-  restoreScroll(body);
-  (view as unknown as Record<string, unknown>)[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now() };
-  view.performance.mark?.("cmux-chat:snapshot-paint");
   return true;
 }

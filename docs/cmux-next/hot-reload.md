@@ -5,6 +5,9 @@ cmux checkout and the app you're using right now changes as you save: no build, 
 windows, chats and terminals stay where they are. It works in every cmux build, in WebKit and in
 Chromium, and it's on by default. The feature is called **cmux Live**.
 
+For a tagged Debug app with separate chat and pages servers, use
+[live chat editing](live-chat-editing.md). It includes the chat scenario workbench and source checks.
+
 ### Is cmux Live the same as Live Web Reload?
 
 Yes. It is one feature, and Live Web Reload was its old name. The setting Settings > General >
@@ -490,10 +493,18 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   can't be read, is left;
   `--acpmux-home H` restarts one by its home. Without either, the receipt lists the acpmux daemons
   left on the old build (`acpmux_left_on_old_build`), and `rollback` restarts the ones it restarted.
+  Another session's terminal daemon that runs from the same `bin/cmux` (a Chief's) keeps the build it
+  mapped and is listed in `left_on_old_build`, unless `--restart-sessions` is given. With it, each one is
+  handed to the new build by `server restart` on its socket. Its terminals are kept, and its session,
+  launch flags and environment carry over. It's checked like the app's own: a new owner must answer,
+  running the swapped file. `rollback` hands them back the same way. From ssh on macOS they're left and
+  the receipt says why.
 - **Web:** SHA's published web bundles go into the app's web overlay, as long as SHA's web ABI is
   the app's.
 - **Neither:** Swift, resources, Rust the app links through FFI, and helpers such as
-  cmux-mobile-host still need the nightly. `plan` lists them under `left`.
+  cmux-mobile-host still need the nightly. `plan` lists them under `left`. C, Objective-C and Zig
+  sources inside `cmux-tui/` (a companion's shim, the Zig binding) are not resources: the tree build
+  compiles them, so they go with the Rust part unless they sit in an app FFI crate.
 
 Each part is checked after it goes in: `bin/cmux` hashes to the published sha256 and a new daemon
 answers from it, and the overlay names SHA. A part that fails its check is put back. SHA must come
@@ -501,6 +512,17 @@ after the app's commit, and the swap carries every change between the two. Swapp
 breaks the bundle's seal until `rollback` or the next update. The running app does not notice.
 `scripts/measure/hot-apply-nightly.sh` runs apply and rollback on a copy of the newest nightly on a
 fleet Mac.
+
+Every receipt has `phases`, the seconds spent in plan, key, fetch, verify, backup, find, swap, reload
+and rollback. stderr prints them, largest first. `apply SHA --dry-run` plans, fetches and verifies
+without changing the app, and its receipt goes only to `history.jsonl`. `--base COMMIT` stands in for
+the app's commit, so `plan` and `--dry-run` also work on a host with no app.
+
+`hot-apply.py prefetch SHA` fetches and checks everything `apply SHA` needs and keeps it in the state
+folder by content: the keys by commit, the published metadata by URL, the builds by sha256, and the
+web bundles by web key (the newest 8). Run it once CI has published SHA, and the `apply` that follows
+only checks the kept files and swaps. A part the app already runs is skipped and listed under
+`unchanged`, and an apply that changed nothing leaves `rollback` to the apply before it.
 
 ## Every merge, no checkout
 

@@ -2,6 +2,7 @@ import { documentName, type Artifact } from "../conversation/artifactPreview";
 import { latestWrittenArtifacts } from "../conversation/writtenArtifactsModel";
 import { chatDocuments } from "../conversation/artifactVersions";
 import { renderPages } from "../conversation/renderCall";
+import { PrefixFold } from "../conversation/prefixFlatMap";
 import type { AcpmuxRow } from "../model";
 
 /// Rows shown before Show more. A fold that would hold back one row shows it instead: "Show 1 more"
@@ -38,8 +39,8 @@ export function outputArtifacts(rows: readonly AcpmuxRow[]): OutputArtifact[] {
       artifact,
     });
   }
-  const replies = rows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : []));
-  for (const artifact of chatDocuments(replies)) {
+  // The finished replies' documents, each reply parsed once (artifactVersions.ts `finishedReplyDocuments`).
+  for (const artifact of chatDocuments(rows)) {
     if (seen.has(artifact.code)) continue;
     seen.add(artifact.code);
     found.push({
@@ -61,25 +62,33 @@ export function outputArtifacts(rows: readonly AcpmuxRow[]): OutputArtifact[] {
 /// Each reply's links, kept while the row is the same object (a streamed update replaces only the
 /// live row).
 const rowLinks = new WeakMap<AcpmuxRow, string[]>();
+const NO_LINKS: readonly string[] = [];
+function replyLinks(row: AcpmuxRow): readonly string[] {
+  if (row.kind !== "assistant" || !row.text) return NO_LINKS;
+  let found = rowLinks.get(row);
+  if (!found) rowLinks.set(row, (found = [...row.text.matchAll(LINK)].map(([url]) => url.replace(/[.,;:!?]+$/, ""))));
+  return found;
+}
+
+/// The links of every reply, read again only past the rows an update kept (prefixFlatMap.ts), and
+/// listed again only when they changed: a streamed token walks neither the chat's rows nor its links.
+const links = new PrefixFold<AcpmuxRow, string, OutputLink[]>(replyLinks, (urls) => {
+  const seen = new Set<string>();
+  const found: OutputLink[] = [];
+  for (const url of urls) {
+    if (seen.has(url) || PULL_REQUEST.test(url)) continue;
+    seen.add(url);
+    found.push({
+      url,
+      label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""),
+    });
+  }
+  return found;
+});
 
 /// The web links the chat's replies gave, oldest first, each once; pull requests are left out.
 export function outputLinks(rows: readonly AcpmuxRow[]): OutputLink[] {
-  const seen = new Set<string>();
-  const links: OutputLink[] = [];
-  for (const row of rows) {
-    if (row.kind !== "assistant" || !row.text) continue;
-    let found = rowLinks.get(row);
-    if (!found) rowLinks.set(row, (found = [...row.text.matchAll(LINK)].map(([url]) => url.replace(/[.,;:!?]+$/, ""))));
-    for (const url of found) {
-      if (seen.has(url) || PULL_REQUEST.test(url)) continue;
-      seen.add(url);
-      links.push({
-        url,
-        label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""),
-      });
-    }
-  }
-  return links;
+  return links.read(rows);
 }
 
 /// A page the pane beside the chat can open: http(s) on localhost or 127.0.0.1 with no user info,

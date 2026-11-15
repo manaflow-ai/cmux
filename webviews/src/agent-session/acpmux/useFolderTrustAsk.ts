@@ -11,7 +11,7 @@ import {
 } from "./folderTrust";
 import type { StringKey } from "./i18n";
 import { trustRefusal } from "./direct";
-import { errorMessage } from "./transportErrors";
+import { knownRefusalText } from "./transportErrors";
 
 /// The chat's trust question: "ask" while the folder reads as unknown for the chat's agent, then
 /// the user's answer with its Undo, or "failed" when saving it didn't. `repo`: the repository
@@ -19,14 +19,17 @@ import { errorMessage } from "./transportErrors";
 /// made for when not this one (the repository, or a parent folder).
 export type FolderTrustAsk = { cwd: string; repo?: TrustRepo; via?: string } & (
   | { state: "ask" | "remote" }
-  /// `reason`: why the save failed, as the host said it (absent when it said nothing).
+  /// `reason`: why the save failed, in the pane's words (absent unless the pane words it).
   | { state: "failed"; reason?: string }
   | { state: "decided"; level: Exclude<TrustLevel, "unknown"> }
 );
 
-/// The question again after a save of its answer failed with `error`, saying why.
+/// The question again after a save of its answer failed with `error`. "Couldn't save that. Try
+/// again." says what to do; a reason shows under it only when the pane words that reason itself
+/// (a refusal that can never pass reads as one). The host's own words go to the log.
 export function failedAsk(cwd: string, error: unknown): FolderTrustAsk {
-  const reason = errorMessage(error).trim();
+  const reason = knownRefusalText(error);
+  if (!reason) console.warn("agent pane: saving the trust answer failed", error);
   return { cwd, state: "failed", ...(reason ? { reason } : {}) };
 }
 

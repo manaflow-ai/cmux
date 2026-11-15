@@ -56,4 +56,5 @@ opt-level = 3
 codegen-units = 1
 debug = false
 strip = "debuginfo"
-lto = "off"
+# Machine code from rustc's own LTO: scripts/cmux-next/build-app-ffi.sh.
+lto = "fat"

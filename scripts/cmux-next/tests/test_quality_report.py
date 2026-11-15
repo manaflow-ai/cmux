@@ -3,7 +3,7 @@
 hang-watch's issues as the fallback, the perf cron's interaction p95, the god-vs-small and animation coverage
 slots, and the sticky issue's history. No network: Sentry and gh are fakes.
 Run: python3 -I scripts/cmux-next/tests/test_quality_report.py (also runs in cmux-next-quality-report.yml)."""
-import datetime, importlib.util, json, os, subprocess, tempfile, unittest
+import base64, datetime, importlib.util, json, os, subprocess, tempfile, unittest, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("quality_report", os.path.join(HERE, "..", "quality-report.py"))
@@ -312,6 +312,40 @@ class Inputs(unittest.TestCase):
         self.assertEqual(got["worst_ratio"], 1.25)
         self.assertEqual(qr.god_vs_small(None, "no input given")["why"], "no input given")
 
+    def test_god_vs_small_uses_home_status_for_v2_rows(self):
+        got = qr.god_vs_small({"rows": [
+            {"name": "bounded-ok", "small_p95": 10, "god_p95": 30, "status": "ok"},
+            {"name": "god-max-red", "small_p95": 10, "god_p95": 10, "status": "red",
+             "reason": "god p95 exceeds absolute maximum"},
+            {"name": "degenerate", "small_p95": 10, "god_p95": 13},
+        ]}, None)
+        self.assertEqual(got["failing"], ["god-max-red", "degenerate"])
+
+    def test_god_vs_small_keeps_skipped_rows_in_markdown(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "status": "skipped", "reason": "PR 1 not landed"},
+            {"name": "v2.pr02.measure", "status": "ok", "small_p95": 10, "god_p95": 11},
+            {"name": "v2.pr03.measure", "status": "red", "small_p95": 10, "god_p95": 13},
+        ]}, None)
+        self.assertEqual([row["status"] for row in r["god_vs_small"]["rows"]], ["skipped", "ok", "red"])
+        encoded = json.dumps(r["god_vs_small"])
+        for name in ("v2.pr01.measure", "v2.pr02.measure", "v2.pr03.measure"):
+            self.assertIn(name, encoded)
+        md = qr.render_markdown(r, public=False)
+        self.assertIn("v2.pr01.measure", md)
+        self.assertIn("v2.pr03.measure", md)
+        self.assertIn("PR 1 not landed", md)
+
+    def test_god_vs_small_keeps_failed_rows_in_markdown(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "status": "failed", "reason": "the gate did not report a measure"},
+        ]}, None)
+        md = qr.render_markdown(r, public=False)
+        self.assertIn("v2.pr01.measure", md)
+        self.assertIn("the gate did not report a measure", md)
+
     def test_anim_coverage_shapes(self):
         self.assertEqual(qr.anim_coverage({"coverage": 0.875}, None)["value"], 0.875)
         self.assertEqual(qr.anim_coverage({"covered": 3, "total": 4}, None)["value"], 0.75)
@@ -492,6 +526,174 @@ class CIHealth(unittest.TestCase):
         self.assertIsNone(r["ci_health"]["green_share"])
         self.assertIn("n/a (no --ci-branches given)", qr.headline(r)["CI flake rate"])
         self.assertNotIn("### CI health", qr.render_markdown(r, public=False))
+
+
+def journey(surface, at, cells, missing=()):
+    return {"schema": 1, "surface": surface, "generated_at": at, "build": "abc", "run_url": f"https://ci/{surface}",
+            "cells": cells, "missing_accounts": list(missing)}
+
+
+class FirstUserJourney(unittest.TestCase):
+    WEB = journey("web", "2026-11-10T05:00:00Z", [
+        {"cell": "claude/working", "harness": "claude", "state": "working", "outcome": "pass", "steps": 40, "reds": []},
+        {"cell": "codex/expired", "harness": "codex", "state": "expired", "outcome": "red", "steps": 31, "reds": [
+            {"rule": "raw-error-code", "where": "chat", "step": "send", "detail": "HTTP 429 | usage_limit_reached"},
+            {"rule": "error-without-next-step", "where": "chat", "step": "send", "detail": "no button"}]},
+        {"cell": "cursor/expired", "harness": "cursor", "state": "expired", "outcome": "needs-account", "steps": 0}],
+        missing=["cursor"])
+
+    def write(self, d, name, doc):
+        path = os.path.join(d, name)
+        with open(path, "w") as f:
+            json.dump(doc, f)
+        return path
+
+    def test_counts_cells_and_groups_reds_by_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "web.json", self.WEB)], T)
+        web = got["surfaces"]["web"]
+        self.assertEqual((web["cells"], web["pass"], web["red"], web["needs_account"], web["steps"]), (3, 1, 1, 1, 71))
+        self.assertEqual(web["reds_by_rule"], {"error-without-next-step": 1, "raw-error-code": 1})
+        self.assertEqual((got["cells"], got["red_cells"], got["reds"]), (3, 1, 2))
+        self.assertEqual(web["missing_accounts"], ["cursor"])
+
+    def test_stale_and_missing_surfaces_say_why_and_count_nothing(self):
+        old = journey("ios", "2026-11-07T00:00:00Z", [{"cell": "ios/onboarding", "outcome": "red", "reds": [{"rule": "dead-button"}]}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "web.json", self.WEB), self.write(d, "ios.json", old),
+                                         os.path.join(d, "mac.json")], T)
+        self.assertIn("stale", got["surfaces"]["ios"]["why"])
+        self.assertIn("does not exist", got["surfaces"]["input3"]["why"])
+        self.assertEqual(got["red_cells"], 1, "only the fresh web surface counts")
+        self.assertEqual(qr.first_user_journey([], T)["why"], "no input given")
+
+    def test_report_markdown_history_and_public_detail(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                                journey_paths=[self.write(d, "web.json", self.WEB)])
+        self.assertEqual(qr.headline(r)["First-user journey"], "1 red of 3 cells, 2 reds (web 1/3)")
+        private, public = qr.render_markdown(r, public=False), qr.render_markdown(r, public=True)
+        self.assertIn("### First-user journey", public)
+        self.assertIn("`cursor`", public)
+        self.assertIn("HTTP 429 / usage_limit_reached", private, "a red's detail cannot break the table")
+        self.assertNotIn("HTTP 429", public, "red details stay in the private sticky")
+        row = qr.history_row(r)
+        self.assertEqual((row["journey_red"], row["journey_cells"]), (1, 3))
+        self.assertIn("| 1/3 |", qr.sticky_body(r, "md", ""))
+        pub = json.dumps(qr.public_report(r))
+        for private in ("HTTP 429", "codex/expired", "https://ci/web"):
+            self.assertNotIn(private, pub, "the public JSON carries counts only")
+        self.assertIn("https://ci/web", private)
+        self.assertNotIn("https://ci/web", public)
+
+    def test_odd_shapes_count_nothing_wrong_and_never_crash(self):
+        odd = journey(["web"], "2026-11-10T05:00:00Z", [
+            {"cell": "x", "outcome": "pass", "steps": True}, "not a cell"])
+        odd["missing_accounts"] = "cursor"
+        dup = journey("web", "2026-11-10T05:00:00Z", [{"cell": "y", "outcome": "red", "reds": [{"rule": "dead-button"}]}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "a.json", self.WEB), self.write(d, "b.json", odd),
+                                         self.write(d, "c.json", dup)], T)
+        self.assertEqual(sorted(got["surfaces"]), ["input2", "input3", "web"], "a bad or repeated surface never overwrites")
+        self.assertEqual((got["surfaces"]["input2"]["steps"], got["surfaces"]["input2"]["missing_accounts"]), (0, []))
+
+    def test_a_non_text_stamp_or_reds_value_costs_that_surface_never_the_report(self):
+        stamp = journey("web", 1, [{"cell": "x", "outcome": "pass"}])
+        reds = journey("ios", "2026-11-10T05:00:00Z", [{"cell": "y", "outcome": "red", "reds": 1}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "a.json", stamp), self.write(d, "b.json", reds)], T)
+            r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                                journey_paths=[self.write(d, "c.json", stamp)])
+        self.assertEqual(got["surfaces"]["web"]["why"], "the results have no generated_at")
+        self.assertEqual((got["surfaces"]["ios"]["red"], got["surfaces"]["ios"]["reds_by_rule"]), (1, {}))
+        self.assertIn("n/a", qr.headline(r)["First-user journey"])
+
+    def test_fetch_takes_the_newest_run_that_kept_the_artifact(self):
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            if cmd[2] == "list":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([{"databaseId": 9}, {"databaseId": 8}]), stderr="")
+            return subprocess.CompletedProcess(cmd, 0 if cmd[3] == "8" else 1, stdout="", stderr="no artifact")
+        self.assertEqual(qr.fetch_journey("o/r", "w.yml", "first-user-journey-web", "/tmp/x", run=run), "8")
+        with self.assertRaises(qr.SourceError):
+            qr.fetch_journey("o/r", "w.yml", "a", "/tmp/x", run=lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 0, stdout="[]", stderr=""))
+
+
+class NightlySpeed(unittest.TestCase):
+    """The nightly_speed metric from scripts/ci/nightly_speed.py's history in its cmuxterm-hq issue."""
+
+    DOC = {"budget_min": 30.0, "top_stages": ["promote", "c_build", "g_sign"], "records": [
+        {"feed_at": "2026-11-10T08:00:00Z", "merge_to_feed": 20.0, "stages": {"promote": 2, "c_build": 9, "g_sign": 8, "c1_compile": 50}},
+        {"feed_at": "2026-11-10T06:00:00Z", "merge_to_feed": 104.0, "stages": {"promote": 3, "c_build": 16, "g_sign": 20}},
+        {"feed_at": "2026-11-09T20:00:00Z", "merge_to_feed": 151.0, "stages": {"promote": 3, "c_build": 15, "g_sign": 22}},
+        {"feed_at": "2026-11-09T20:00:00Z", "merge_to_feed": None, "stages": {}},
+        {"feed_at": "2026-11-08T20:00:00Z", "merge_to_feed": 999.0, "stages": {"g_sign": 900}},
+    ]}
+
+    def body(self, doc):
+        return f"{qr.SPEED_MARK}\nreport\n<!-- nightly-speed-history: {json.dumps(doc)} -->\n"
+
+    def test_window_p50_p95_over_budget_and_largest_stage(self):
+        sp = qr.nightly_speed(self.DOC, None, SINCE)
+        self.assertEqual((sp["published"], sp["p50_min"], sp["p95_min"], sp["over_budget"]), (4, 104.0, 146.3, 2))
+        self.assertEqual((sp["largest_stage"], sp["largest_stage_p50_min"]), ("g_sign", 20), "a nested step never wins")
+        self.assertIn("p95 146.3 min (budget p95 under 30); 2 of 4 published over budget; largest stage g_sign", qr.speed_line(sp))
+
+    def test_reads_the_issue_and_says_why_when_it_cannot(self):
+        ok = lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, json.dumps(
+            [{"number": 3, "title": qr.SPEED_TITLE, "body": self.body(self.DOC)}, {"number": 4, "title": qr.SPEED_TITLE, "body": "no mark"}]), "")
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                            speed_history=lambda: qr.gh_speed_history(run=ok))
+        self.assertEqual(r["nightly_speed"]["p50_min"], 104.0)
+        self.assertIn("| 146.3 |", qr.sticky_body(r, "md", ""))
+        self.assertIn("Nightly merge to feed", qr.render_markdown(r, public=True))
+        none = lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, "[]", "")
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                            speed_history=lambda: qr.gh_speed_history(run=none))
+        self.assertIsNone(r["nightly_speed"]["p50_min"])
+        self.assertIn("has not written it", r["nightly_speed"]["why"])
+        fail = lambda cmd, **k: subprocess.CompletedProcess(cmd, 1, "", "HTTP 403")
+        with self.assertRaises(qr.SourceError):
+            qr.gh_speed_history(run=fail)
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        self.assertEqual(qr.headline(r)["Nightly merge to feed"], "n/a (no speed history source given)")
+
+    def test_reads_the_compressed_history_and_refuses_a_corrupt_one(self):
+        def reader(body):
+            issues = [{"number": 3, "title": qr.SPEED_TITLE, "body": body}]
+            listed = lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, json.dumps(issues), "")
+            return lambda: qr.gh_speed_history(run=listed)
+        z = base64.b64encode(zlib.compress(json.dumps(self.DOC, separators=(",", ":")).encode(), 9)).decode()
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                            speed_history=reader(f"{qr.SPEED_MARK}\nreport\n<!-- nightly-speed-history-z: {z} -->\n"))
+        self.assertEqual(r["nightly_speed"]["p50_min"], 104.0)
+        bomb = base64.b64encode(zlib.compress(b" " * (qr.SPEED_INFLATE_CAP + 10), 9)).decode()
+        for bad in ("not base64!", base64.b64encode(b"not zlib").decode(), bomb):
+            # The compressed form wins over a plain one beside it, and a corrupt one is no history.
+            with self.assertRaises(qr.SourceError):
+                reader(f"{qr.SPEED_MARK}\n<!-- nightly-speed-history-z: {bad} -->\n" + self.body(self.DOC))()
+
+    def test_valid_json_of_another_shape_is_no_history_and_an_odd_value_is_skipped(self):
+        def reader(doc):
+            z = base64.b64encode(zlib.compress(json.dumps(doc).encode(), 9)).decode()
+            issues = [{"number": 3, "title": qr.SPEED_TITLE, "body": f"{qr.SPEED_MARK}\n<!-- nightly-speed-history-z: {z} -->\n"}]
+            return lambda: qr.gh_speed_history(run=lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, json.dumps(issues), ""))
+        for doc in ({"records": 1}, {"records": {"a": 1}}, {"records": None}, {"budget_min": 30}, [1], 5):
+            with self.assertRaises(qr.SourceError, msg=doc):
+                reader(doc)()
+            self.assertEqual(qr.nightly_speed(doc, None, SINCE)["why"], "no speed history", doc)
+        odd = [1, None, {"feed_at": 5, "merge_to_feed": 1.0}, {"feed_at": "2026-11-10T08:00:00Z", "merge_to_feed": "20", "stages": 3},
+               {"feed_at": "2026-11-10T08:00:00Z", "merge_to_feed": 10 ** 400, "stages": {"promote": True, "g_sign": "8"}}]
+        doc = {**self.DOC, "budget_min": "30", "records": odd + self.DOC["records"]}
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [], speed_history=reader(doc))
+        sp = r["nightly_speed"]
+        self.assertEqual((sp["published"], sp["p50_min"], sp["p95_min"], sp["over_budget"], sp["budget_min"]),
+                         (6, 104.0, 146.3, 2, 30.0))
+        self.assertEqual((sp["largest_stage"], sp["largest_stage_p50_min"]), ("g_sign", 20))
+        self.assertIsNone(qr.nightly_speed({**doc, "top_stages": "promote"}, None, SINCE)["largest_stage"])
 
 
 if __name__ == "__main__":

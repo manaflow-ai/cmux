@@ -133,8 +133,10 @@ await requireBrowserLane("edit-diff-loading.browser.test.ts", async () => {
         const moves = await page.evaluate(
           () =>
             (
-              window as unknown as { cmuxGalleryPlayReport?: { steps: { boxMoves: unknown[] }[] } }
-            ).cmuxGalleryPlayReport?.steps.flatMap((step) => step.boxMoves) ?? null,
+              window as unknown as { cmuxGalleryPlayReport?: { steps: { action: string; boxMoves: unknown[] }[] } }
+            ).cmuxGalleryPlayReport?.steps
+              .filter((step) => step.action === "click")
+              .map((step) => step.boxMoves) ?? null,
         );
         release();
         await page.locator("diffs-container [data-line]").first().waitFor();
@@ -142,7 +144,8 @@ await requireBrowserLane("edit-diff-loading.browser.test.ts", async () => {
         await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
         const painted = await userTop();
         console.log({ variant, moves, opened, painted });
-        expect(moves).toEqual([]);
+        // Preparing the raw-tool view opens Worked for first. Only the edit click is under test.
+        expect(moves).toEqual([[]]);
         // Still where it was drawn once the rendered lines replaced the placeholder.
         expect(painted).toBe(opened);
       } finally {

@@ -88,10 +88,11 @@ pub(super) fn save_merged(
 
 /// `<config>.lock`, held while a writer reads, merges and writes the file. Bounded: a writer
 /// that holds it longer than a save takes (a hung process) is not waited for; the save then
-/// goes on unlocked, as every save did before.
+/// goes on unlocked, as every save did before. Its drop unlocks before it closes, so a child
+/// another daemon thread forks meanwhile keeps no lock.
 #[cfg(unix)]
-fn lock(path: &Path) -> Option<std::fs::File> {
-    use std::os::fd::AsRawFd;
+fn lock(path: &Path) -> Option<cmux_file_lock::FileLock> {
+    use cmux_file_lock::{FileLock, Kind, LockError};
     use std::os::unix::fs::OpenOptionsExt;
     let mut name = path.as_os_str().to_owned();
     name.push(".lock");
@@ -104,18 +105,41 @@ fn lock(path: &Path) -> Option<std::fs::File> {
         .custom_flags(libc::O_NOFOLLOW)
         .open(&name)
         .ok()?;
-    for _ in 0..100 {
-        // SAFETY: flock on a descriptor this function owns.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Some(file);
+    let budget = std::time::Duration::from_secs(1);
+    match FileLock::take_within(file, Kind::Exclusive, budget, std::time::Duration::from_millis(10))
+    {
+        Ok(held) => Some(held),
+        Err(LockError::Busy(_)) => {
+            tracing::warn!(path = %path.display(), "config lock held for over 1 s; saving without it");
+            None
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        Err(LockError::Io(e)) => {
+            tracing::warn!(path = %path.display(), "config lock failed ({e}); saving without it");
+            None
+        }
     }
-    tracing::warn!(path = %path.display(), "config lock held for over 1 s; saving without it");
-    None
 }
 
 #[cfg(not(unix))]
-fn lock(_path: &Path) -> Option<std::fs::File> {
+fn lock(_path: &Path) -> Option<cmux_file_lock::FileLock> {
     None
+}
+
+#[cfg(all(test, unix))]
+mod lock_tests {
+    use super::*;
+
+    /// A save lets go of the config lock, also while a child the daemon forked meanwhile has the
+    /// descriptor: else the next save (daemon or CLI) waits, and past 1 s saves without the lock.
+    #[test]
+    fn a_dropped_config_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let held = lock(&path).expect("a free config lock");
+        let keeper = crate::fork_tests::Keeper::fork();
+        drop(held);
+        let free = crate::fork_tests::free(&dir.path().join("config.json.lock"));
+        drop(keeper);
+        assert!(free, "a dropped config lock stayed held through a forked child's copy");
+    }
 }

@@ -1,9 +1,8 @@
 import Foundation
 
 /// `CLOUD_ENVIRONMENTS_ENABLED`, the launch flag for the composer's Cloud Environment chip
-/// (webviews CloudEnvironmentChip.tsx): read from the bundle's `LSEnvironment` or the launch
-/// environment, as `CMUX_NEXT_CLOUD_NATIVE_LINK` is (CloudNativeFirstLauncher.setting). Off unless
-/// it is `1` or `true`. It reaches the page as the `composer` event's `cloudEnvironments`.
+/// (webviews CloudEnvironmentChip.tsx): read from the bundle's `LSEnvironment`, else the launch
+/// environment. Off unless it is `1` or `true`. It reaches the page as the `composer` event's `cloudEnvironments`.
 public nonisolated struct AgentPaneCloudEnvironmentsFlag: Sendable, Equatable {
     public static let key = "CLOUD_ENVIRONMENTS_ENABLED"
     public let enabled: Bool

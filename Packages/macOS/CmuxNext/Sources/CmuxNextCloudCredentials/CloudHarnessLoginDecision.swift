@@ -128,6 +128,8 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         /// Whether a start would race the spare warm's login copy on its machine (Rust's `warm_copy_conflict`): only
         /// such a start waits on it. Nil from an app FFI pinned before the field: no start waits then.
         public var warmCopyConflict: Bool?
+        /// Rust verified a reusable login on this owned spare; Swift only transports the verdict.
+        public var warmVerified: Bool?
         public var summary: String
 
         /// ``provider`` as a transfer provider; nil for a harness with no transfer (pi, opencode).
@@ -150,7 +152,7 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
                               requested: requested, requestedByPerson: requestedByPerson, stored: stored, headless: headless)
         return CloudStartCore().call("cloud_harness_login", request, as: Verdict.self) ?? Verdict(
             step: .skip, reason: .ffiFailed, gate: false, provider: nil, guestKind: nil, machineLogin: nil, guestKindProbe: "",
-            readsMachine: false, guestTakesLogin: false, skippedTeamMachine: false,
+            readsMachine: false, guestTakesLogin: false, skippedTeamMachine: false, warmCopyConflict: nil, warmVerified: nil,
             summary: "skip (ffi-failed)" + (outcome.map { " -> \($0)" } ?? ""))
     }
 

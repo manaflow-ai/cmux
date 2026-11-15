@@ -499,3 +499,160 @@ fn a_goal_set_answers_only_once_the_goal_is_durable() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Closed chats on disk, loaded without starting the background log pass or any agents.
+fn loaded_closed_chats(
+    count: usize,
+) -> (tempfile::TempDir, Arc<crate::hub::Hub>, Arc<std::sync::atomic::AtomicU64>) {
+    use crate::config::{Config, StoreConfig};
+    use crate::store::{EventRecord, LocalStore, SessionMeta, Store};
+
+    let home = tempfile::tempdir().unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), StoreConfig::default().segment_bytes)
+        .unwrap();
+    for i in 0..count {
+        let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA, "id": format!("chat-{i}"),
+            "name": "closed chat", "harness": "fake", "cwd": "/tmp",
+            "status": "closed", "createdAt": 1, "updatedAt": 2,
+            "lastSeq": 1, "eventCount": 1,
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        store
+            .append(
+                &meta.id,
+                &EventRecord {
+                    seq: 1,
+                    at: 1,
+                    dir: "mux".into(),
+                    kind: "created".into(),
+                    msg: serde_json::json!({}),
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+    }
+    let saves = store.meta_saves.clone();
+    let cfg: Config = serde_json::from_value(serde_json::json!({})).unwrap();
+    let hub =
+        crate::hub::Hub::new_deferred(cfg, Box::new(store), crate::mailbox::Mailbox::memory());
+    assert_eq!(hub.session_count(), count);
+    saves.store(0, Ordering::Relaxed);
+    (home, hub, saves)
+}
+
+/// Loading a closed chat does not change its metadata. Only the unsaved draft is flushed.
+#[test]
+fn shutdown_flush_saves_only_the_changed_chat_among_300_loaded_closed_chats() {
+    use crate::config::StoreConfig;
+    use crate::store::{LocalStore, Store};
+
+    let (home, hub, saves) = loaded_closed_chats(300);
+    let session = hub.resolve_here("chat-17").unwrap();
+    session.meta.lock().unwrap().composer_draft = Some("unsaved draft".into());
+    hub.flush();
+    assert_eq!(saves.load(Ordering::Relaxed), 1);
+    let stored =
+        LocalStore::new(home.path().join("sessions"), StoreConfig::default().segment_bytes)
+            .unwrap();
+    assert_eq!(
+        stored.load(&session.id).unwrap().unwrap().composer_draft.as_deref(),
+        Some("unsaved draft"),
+    );
+    saves.store(0, Ordering::Relaxed);
+    hub.flush();
+    assert_eq!(saves.load(Ordering::Relaxed), 0, "a successful flush left the chat dirty");
+}
+
+#[test]
+fn a_failed_metadata_save_stays_dirty_until_a_successful_save() {
+    let (home, hub, saves) = loaded_closed_chats(1);
+    let session = hub.resolve_here("chat-0").unwrap();
+    assert!(!session.meta_writer.needs_flush(&session));
+    session.meta.lock().unwrap().composer_draft = Some("keep this".into());
+    let path = home.path().join("sessions/chat-0/session.json");
+    let backup = path.with_extension("backup");
+    std::fs::rename(&path, &backup).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    let saved = hub.write_meta(&session);
+    std::fs::remove_dir(&path).unwrap();
+    std::fs::rename(&backup, &path).unwrap();
+    assert!(saved.is_err(), "a file could not replace a directory");
+    assert!(session.meta_writer.needs_flush(&session));
+    assert!(
+        session.meta_writer.state.lock().unwrap().saved.as_ref().unwrap().composer_draft.is_none()
+    );
+    hub.flush();
+    assert_eq!(saves.load(Ordering::Relaxed), 2, "one failed attempt and one retry");
+    assert!(!session.meta_writer.needs_flush(&session));
+    assert_eq!(on_disk(home.path(), &session.id)["composerDraft"], "keep this");
+}
+
+/// Even when memory returns to its saved value, the writer's held copy can be different.
+#[test]
+fn shutdown_flush_keeps_a_change_taken_back_while_an_older_save_runs() {
+    let home = tempfile::tempdir().unwrap();
+    let (hub, session) = hub_with_chat(home.path(), &SimStorage::new(83));
+    hub.write_meta(&session).unwrap();
+    session.meta.lock().unwrap().unread = true;
+    let (release, writer) = hold_next_write(&hub, &session);
+    session.meta.lock().unwrap().unread = false;
+    assert!(session.meta_writer.needs_flush(&session));
+    let shutdown = {
+        let hub = hub.clone();
+        std::thread::spawn(move || hub.flush())
+    };
+    while requested(&session.meta_writer) < 3 {
+        std::thread::yield_now();
+    }
+    release.send(()).unwrap();
+    writer.join().unwrap();
+    shutdown.join().unwrap();
+    assert_eq!(on_disk(home.path(), &session.id)["unread"], false);
+    assert!(!session.meta_writer.needs_flush(&session));
+}
+
+#[test]
+fn startup_repairs_are_dirty_even_before_any_commit_is_requested() {
+    use crate::store::{MemoryStore, SessionMeta};
+
+    let cfg = serde_json::from_value(serde_json::json!({})).unwrap();
+    let hub = crate::hub::Hub::new(cfg, Box::new(MemoryStore::default()));
+    for (id, status, saved) in [("normalized", "running", true), ("failed-repair", "closed", false)]
+    {
+        let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "chat",
+            "harness": "fake", "cwd": "/tmp", "status": status,
+            "createdAt": 1, "updatedAt": 2,
+        }))
+        .unwrap();
+        hub.install_stored_session(meta, true, false, saved);
+        let session = hub.resolve_here(id).unwrap();
+        assert!(session.meta_writer.needs_flush(&session));
+        hub.flush();
+        assert!(!session.meta_writer.needs_flush(&session));
+    }
+}
+
+#[test]
+fn shutdown_flush_syncs_a_successful_kept_save_without_another_metadata_commit() {
+    let home = tempfile::tempdir().unwrap();
+    let journal = SimStorage::new(84);
+    let (hub, session) = hub_with_chat(home.path(), &journal);
+    hub.write_meta(&session).unwrap();
+    session.meta.lock().unwrap().composer_draft = Some("kept draft".into());
+    hub.save_meta_kept(&session).unwrap();
+    let before = {
+        let state = session.meta_writer.state.lock().unwrap();
+        assert!(!state.writing);
+        assert_eq!(state.requested, state.durable);
+        assert!(state.kept > state.synced);
+        state.requested
+    };
+    hub.flush();
+    assert_eq!(requested(&session.meta_writer), before, "an unchanged kept copy was saved again");
+    assert_eq!(on_disk(home.path(), &session.id)["composerDraft"], "kept draft");
+    let crashed = journal.snapshot(Crash::Os);
+    assert_eq!(after_crash(home.path(), &crashed, &session.id)["composerDraft"], "kept draft");
+}
