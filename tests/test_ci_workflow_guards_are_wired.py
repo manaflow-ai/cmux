@@ -53,6 +53,10 @@ UNWIRED: set[str] = {
     # scripts/cmux-next/check-single-host-fallbacks.py, which the pre-push gate runs strictly and CI runs
     # with --advisory; it reads the workflows only as that script's data. Exit: as below.
     "tests/test_ci_single_host_fallbacks.py",
+    # lane = "manual" in tests/test-execution.d/other.toml (no new CI tests, CLAUDE.md). It pins
+    # scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml only to check it calls that script, not the
+    # Homebrew tap. Run it by hand when either changes. Exit: as below.
+    "tests/test_install_axe_ci.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",

@@ -108,6 +108,8 @@ impl Mirror {
                         .get(&(*place, u32::try_from(*span).unwrap_or(u32::MAX)))
                         .cloned()
                         .unwrap_or_default(),
+                    // A card's raw sources are the actor's to read; this model keeps no log.
+                    BodySource::Records(_) | BodySource::RawField { .. } => String::new(),
                 };
                 if matches!(field, BodyField::Text | BodyField::Content) {
                     let text = self.text.entry(*id).or_default();

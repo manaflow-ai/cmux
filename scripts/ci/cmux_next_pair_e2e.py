@@ -941,7 +941,7 @@ def no_answer_evidence(app, ls_env, tag, sock, out):
 def scanner(udid, shot):
     """Settings > Devices > "Scan QR on your Mac", by a tap through AXe (the rig's UI driver)."""
     if not shutil.which("axe"):
-        return "not captured (axe is not installed on this host: brew install cameroncooke/axe/axe)"
+        return "not captured (axe is not installed on this host: scripts/install-axe-ci.sh)"
     try:
         tree = json.loads(subprocess.run(["axe", "describe-ui", "--udid", udid], capture_output=True, text=True,
                                          timeout=60).stdout or "[]")

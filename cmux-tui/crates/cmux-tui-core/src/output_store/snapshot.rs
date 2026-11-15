@@ -840,11 +840,20 @@ pub(super) fn read(
     ))
 }
 
+/// The parked trim of one [`prune`]: how long it took and how many rewrites
+/// of a snapshot file it ran. Zero also when the prune did not come to it.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct ParkedTrimLap {
+    pub(super) took: Duration,
+    pub(super) rewrites: usize,
+}
+
 /// Remove files the policy does not allow: everything in memory mode, and
 /// the files of terminals that are no longer in the session otherwise.
-pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
-    let Some(directory) = store.directory() else { return };
-    let Ok(entries) = fs::read_dir(directory) else { return };
+/// Returns the share of the parked trim, for the start log.
+pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) -> ParkedTrimLap {
+    let Some(directory) = store.directory() else { return ParkedTrimLap::default() };
+    let Ok(entries) = fs::read_dir(directory) else { return ParkedTrimLap::default() };
     if policy.mode == PersistenceMode::Memory {
         let mut removed = 0_usize;
         for entry in entries.flatten() {
@@ -860,14 +869,14 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
                  terminal.persistence.mode is memory"
             );
         }
-        return;
+        return ParkedTrimLap::default();
     }
     let live = mux
         .workspace_registry
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .live_terminal_public_ids();
-    let Ok(live) = live else { return };
+    let Ok(live) = live else { return ParkedTrimLap::default() };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
@@ -887,13 +896,15 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     // Parked: a kept tab and no running shell (after a daemon restart too).
     let parked = mux.parked_terminal_ids(live);
     let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-    super::parked_trim::run(
+    let trimming = Instant::now();
+    let rewrites = super::parked_trim::run(
         directory,
         &parked,
         now_ms,
         policy.parked_max_total_bytes,
         policy.min_free_disk_bytes,
     );
+    ParkedTrimLap { took: trimming.elapsed(), rewrites }
 }
 
 /// Delete the oldest files with `suffix` until their total is at most `cap`.

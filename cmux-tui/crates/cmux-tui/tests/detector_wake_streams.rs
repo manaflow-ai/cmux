@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use cmux::{
     Client, Config, EventStreamOptions, JournalSensitivity, JournalStart, Selector, Session,
     SessionEvent, SessionId, SessionJournalOptions, SessionJournalStream, StreamPoll,
-    TerminalLifecycle,
+    TerminalExitOutcome, TerminalLifecycle, TerminalSnapshot,
 };
 use detector_wake_kinds::journal_wake_kinds;
 use fault_support::{FaultDir, NO_MAINTENANCE, Owner};
@@ -64,6 +64,14 @@ struct FirstRead {
     snapshot: String,
 }
 
+/// One listed terminal: its row of `terminal.list`, and what `terminal.get`
+/// gave for its id (`None`: the get did not find it).
+#[derive(Debug)]
+struct TerminalRead {
+    row: TerminalSnapshot,
+    got: Option<TerminalSnapshot>,
+}
+
 fn sdk_session(socket: &Path, session_name: &str) -> Result<(Client, Session), String> {
     let selector = match SessionId::parse(session_name.to_owned()) {
         Ok(id) => Selector::id(id),
@@ -93,23 +101,32 @@ fn follow_journal(session: &Session) -> Result<SessionJournalStream, String> {
 /// item of the session event stream. The error names the call that failed
 /// and holds the SDK's text.
 fn detector_first_read(socket: &Path, session_name: &str) -> Result<FirstRead, String> {
+    detector_reads(socket, session_name).map(|(read, _)| read)
+}
+
+/// [`detector_first_read`], and each listed terminal with what its read gave.
+fn detector_reads(
+    socket: &Path,
+    session_name: &str,
+) -> Result<(FirstRead, Vec<TerminalRead>), String> {
     let (_client, session) = sdk_session(socket, session_name)?;
     let _journal = follow_journal(&session)?;
     let mut records = session
         .events(EventStreamOptions::default())
         .map_err(|error| format!("session event stream open: {error}"))?;
     let listed = session.terminal_snapshots().map_err(|error| format!("terminal list: {error}"))?;
-    let mut not_found = 0;
-    for terminal in &listed {
-        match session.terminal(terminal.id.clone()).refresh() {
-            Ok(_) => {}
+    let mut terminals = Vec::with_capacity(listed.len());
+    for row in listed {
+        let got = match session.terminal(row.id.clone()).refresh() {
+            Ok(got) => Some(got),
             Err(cmux::Error::Protocol { ref code, .. })
                 if code == "selector.not_found" || code == "resource.not_found" =>
             {
-                not_found += 1;
+                None
             }
-            Err(error) => return Err(format!("terminal get of {}: {error}", terminal.id)),
-        }
+            Err(error) => return Err(format!("terminal get of {}: {error}", row.id)),
+        };
+        terminals.push(TerminalRead { row, got });
     }
     let first = records
         .recv()
@@ -126,10 +143,10 @@ fn detector_first_read(socket: &Path, session_name: &str) -> Result<FirstRead, S
         }
     };
     let rows = event.snapshot;
-    Ok(FirstRead {
-        listed: listed.len(),
-        not_found,
-        lifecycles: listed.iter().map(|terminal| terminal.lifecycle).collect(),
+    let read = FirstRead {
+        listed: terminals.len(),
+        not_found: terminals.iter().filter(|terminal| terminal.got.is_none()).count(),
+        lifecycles: terminals.iter().map(|terminal| terminal.row.lifecycle).collect(),
         snapshot: format!(
             "workspaces {} screens {} panes {} tabs {} terminals {} browsers {} clients {} \
              notifications {} agents {} frontend_projections {} sidebar_views {}",
@@ -145,7 +162,8 @@ fn detector_first_read(socket: &Path, session_name: &str) -> Result<FirstRead, S
             rows.frontend_projections.len(),
             rows.sidebar_views.len(),
         ),
-    })
+    };
+    Ok((read, terminals))
 }
 
 /// The detector's pass does not end on a session that `setup` made.
@@ -312,8 +330,11 @@ fn detector_wake_streams_decode_a_session_with_a_frontend_projection() {
     });
 }
 
-/// Waits until `terminal.list` holds a terminal with the lifecycle `wanted`.
-fn wait_for_lifecycle(socket: &Path, session_name: &str, wanted: TerminalLifecycle) {
+/// Waits until `terminal.list` holds a terminal that ended and has no tab,
+/// and each other listed terminal runs (one of them at least). A wait on
+/// that state with the liveness bound `SETUP_BOUND` (60 s): after the bound
+/// the test fails as `setup:`.
+fn wait_for_an_ended_terminal_with_no_tab(socket: &Path, session_name: &str) {
     let (_client, session) =
         sdk_session(socket, session_name).unwrap_or_else(|error| panic!("setup: {error}"));
     let deadline = Instant::now() + SETUP_BOUND;
@@ -321,20 +342,38 @@ fn wait_for_lifecycle(socket: &Path, session_name: &str, wanted: TerminalLifecyc
         let listed = session.terminal_snapshots().unwrap_or_else(|error| {
             panic!("the terminal list on the session `{session_name}` fails: {error}")
         });
-        let lifecycles = listed.iter().map(|terminal| terminal.lifecycle).collect::<Vec<_>>();
-        if lifecycles.contains(&wanted) {
+        let (ended, others): (Vec<_>, Vec<_>) =
+            listed.iter().partition(|terminal| terminal.lifecycle == TerminalLifecycle::Exited);
+        let no_tab = ended.iter().any(|terminal| terminal.tab_ids.is_empty());
+        let others_run =
+            others.iter().all(|terminal| terminal.lifecycle == TerminalLifecycle::Running);
+        if no_tab && !others.is_empty() && others_run {
             return;
         }
+        let seen = listed
+            .iter()
+            .map(|terminal| (terminal.lifecycle, terminal.tab_ids.len()))
+            .collect::<Vec<_>>();
         assert!(
             Instant::now() < deadline,
-            "setup: no listed terminal has the lifecycle {wanted:?} within {SETUP_BOUND:?}: \
-             {lifecycles:?}"
+            "setup: within {SETUP_BOUND:?} the list has no ended terminal with no tab beside \
+             terminals that run; the lifecycle and the tab count of each listed terminal: \
+             {seen:?}"
         );
         std::thread::sleep(Duration::from_millis(20));
     }
 }
 
-/// A terminal whose process ended while its row stays.
+/// A terminal whose process ended and whose tab went, beside a terminal that
+/// runs. The process ends by itself (`exit 3`) under the default on-exit
+/// policy: the owner takes the tab away and keeps the row of the terminal,
+/// and `terminal.list` gives that row until a `terminal.close`. The
+/// detector's calls find each listed terminal, the read of the ended one
+/// gives its list row, and the first item of the session event stream decodes
+/// after the reads.
+///
+/// This proves that the detector's calls go on with such a row in the list.
+/// It does not run the detector's binary: `detector_reads` makes the calls.
 #[test]
 fn detector_wake_streams_decode_a_session_with_a_terminal_that_ended() {
     let label = "dws-ended";
@@ -344,10 +383,10 @@ fn detector_wake_streams_decode_a_session_with_a_terminal_that_ended() {
     owner.data(json!({
         "cmd": "run", "argv": ["/bin/sh", "-c", "exit 3"], "new_workspace": true, "name": "ended",
     }));
-    wait_for_lifecycle(&dir.socket(), label, TerminalLifecycle::Exited);
-    let read = detector_first_read(&dir.socket(), label);
+    wait_for_an_ended_terminal_with_no_tab(&dir.socket(), label);
+    let reads = detector_reads(&dir.socket(), label);
     owner.stop();
-    let read = read.unwrap_or_else(|error| {
+    let (read, terminals) = reads.unwrap_or_else(|error| {
         panic!("the detector's pass on the session `{label}` ends: {error}")
     });
     eprintln!("{label}: {read:?}");
@@ -355,6 +394,45 @@ fn detector_wake_streams_decode_a_session_with_a_terminal_that_ended() {
         read.lifecycles.contains(&TerminalLifecycle::Exited),
         "setup: the detector's list had no terminal that ended: {read:?}"
     );
+    let (ended, others): (Vec<_>, Vec<_>) =
+        terminals.iter().partition(|terminal| terminal.row.lifecycle == TerminalLifecycle::Exited);
+    assert_eq!(
+        ended.len(),
+        1,
+        "setup: the list does not have 1 terminal that ended: {terminals:?}"
+    );
+    let ended = ended[0];
+    assert!(ended.row.tab_ids.is_empty(), "setup: the ended terminal has a tab: {ended:?}");
+    assert!(
+        !others.is_empty()
+            && others.iter().all(|terminal| terminal.row.lifecycle == TerminalLifecycle::Running),
+        "setup: the other listed terminals do not all run, or there is none: {terminals:?}"
+    );
+    assert_eq!(
+        read.not_found, 0,
+        "`terminal.get` does not find {} of the {} terminals that `terminal.list` gives: \
+         {terminals:?}",
+        read.not_found, read.listed
+    );
+    assert_eq!(
+        ended.got.as_ref(),
+        Some(&ended.row),
+        "`terminal.get` of the ended terminal does not give its row of `terminal.list`"
+    );
+    assert!(!ended.row.running, "the ended terminal runs: {ended:?}");
+    assert_eq!(
+        ended.row.exit.as_ref().map(|exit| &exit.outcome),
+        Some(&TerminalExitOutcome::Exit { code: 3 }),
+        "the ended terminal does not hold the exit code of its process: {ended:?}"
+    );
+    for terminal in others {
+        assert_eq!(
+            terminal.got.as_ref().map(|got| got.lifecycle),
+            Some(TerminalLifecycle::Running),
+            "`terminal.get` of a terminal that runs does not give a terminal that runs: \
+             {terminal:?}"
+        );
+    }
 }
 
 /// Many terminals, and a part of them with no tab: the test closes their

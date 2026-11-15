@@ -144,7 +144,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   # ticket that finish is waiting to staple.
   if [[ "$SIGN_MODE" == "all" && -d "$COMPUTER_USE_HELPER" ]]; then
     echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
-    /usr/bin/codesign \
+    "$SCRIPT_DIR/codesign-retry.sh" \
       "${COMMON[@]}" \
       --entitlements "$HELPER_ENTITLEMENTS" \
       "$COMPUTER_USE_HELPER"
@@ -154,7 +154,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
     while IFS= read -r -d '' plugin; do
       echo "==> signing plugin $(basename "$plugin")"
-      /usr/bin/codesign "${COMMON[@]}" --deep "$plugin"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$plugin"
     done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
   fi
 
@@ -190,14 +190,14 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
         "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;
       esac
       echo "==> signing framework $(basename "$framework")"
-      /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$framework"
     done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
   fi
 fi
 
 # 5. Main app bundle (no --deep), with the effective entitlements.
 echo "==> signing main bundle ($SIGN_MODE)"
-/usr/bin/codesign "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
+"$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
 
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
