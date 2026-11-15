@@ -909,6 +909,8 @@ impl Peer {
         );
         wake_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut wake_probe: Option<tokio::time::Instant> = None;
+        // Why `wake_probe` is set when a network change set it, not a wake.
+        let mut probe_cause: Option<String> = None;
         // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
         // the regular ping's tick may be served first, and its write must be held to the probe's
         // deadline, never the whole send budget.
@@ -919,7 +921,7 @@ impl Peer {
                     // One deadline for the ping to go out and its answer to come back.
                     let deadline = tokio::time::Instant::now() + WAKE_PROBE;
                     match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
-                        Ok(Ok(())) => wake_probe = Some(deadline),
+                        Ok(Ok(())) => (wake_probe, probe_cause) = (Some(deadline), None),
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(stopped_reading(WAKE_PROBE)),
                     }
@@ -1043,7 +1045,30 @@ impl Peer {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
-                    break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
+                    break Err(match probe_cause {
+                        Some(why) => why,
+                        None => format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()),
+                    });
+                }
+                // This computer's network changed (`peer_network.rs`): the link may ride a route that
+                // is gone. A ping goes out at once and the link is dropped and redialed when nothing
+                // answers within `NETWORK_PROBE`, not after the whole silence budget.
+                () = self.network_changed() => {
+                    let deadline = tokio::time::Instant::now() + network::NETWORK_PROBE;
+                    if wake_probe.is_none_or(|probe| probe > deadline) {
+                        tracing::info!(peer = %self.name, "this computer's network changed; checking the link");
+                        match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                            Ok(Ok(())) => {
+                                wake_probe = Some(deadline);
+                                probe_cause = Some(format!(
+                                    "no answer {}s after this computer's network changed",
+                                    network::NETWORK_PROBE.as_secs()
+                                ));
+                            }
+                            Ok(Err(e)) => break Err(e.to_string()),
+                            Err(_) => break Err(stopped_reading(network::NETWORK_PROBE)),
+                        }
+                    }
                 }
                 // Once only. A watch the handshake dropped is never published, and the changes
                 // held after it wait for the list asked for instead (`paged`).
