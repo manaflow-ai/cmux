@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::super::serve_machine::{self, TokenRead};
-use super::super::supervise_wire::{AppLine, app_line, error_json, error_of, refresh_delay_at};
+use super::super::supervise_wire::{
+    AppLine, app_line, error_json, error_of, refresh_delay_at, serve_event,
+};
 use super::*;
 
 /// How long a test waits for any one line.
@@ -450,4 +452,91 @@ fn the_serve_argv_parses() {
         None
     );
     assert_eq!(parse(&["supervise", "--socket", "/tmp/a.sock"].map(str::to_owned)), None);
+}
+
+/// cmux#40201 F1: the app's regrant reaches the ready child as serve's
+/// `{"regrant":true}` stdin line; the child's marked answer publishes the
+/// fresh caller (the app's link moves first) and then answers the waiter.
+/// With no ready child it is answered at once with none.
+#[tokio::test]
+async fn a_regrant_asks_the_child_and_publishes_the_fresh_grant_first() {
+    let dir = scratch("regrant");
+    let script = format!(
+        "{READY}\nprintf '%s\\n' '{{\"ok\":true,\"route\":\"carrier\",\"vmk\":\"team\"}}' >&2\nwhile IFS= read -r line; do case \"$line\" in *regrant*) printf '%s\\n' \"$line\" >> \"$2.stdin\"; printf '%s\\n' '{{\"ok\":true,\"route\":\"carrier\",\"vmk\":\"owner\",\"regrant\":true}}' >&2 ;; esac; done"
+    );
+    let mut serve = Harness::start(config(&dir, &script));
+    serve.send(json!({"regrant": 7}));
+    assert_eq!(
+        serve.expect("regranted").await,
+        json!({"regranted": [7], "answer": null}),
+        "no child yet"
+    );
+    serve.connect(1);
+    let read = serve.read().await;
+    serve.token(read, "t-1");
+    serve.expect("resume").await;
+    assert_eq!(serve.expect("publish").await, json!({"publish": "team"}));
+    serve.send(json!({"regrant": 8}));
+    let mut published = false;
+    loop {
+        let line = serve.next("regranted").await;
+        if line.get("publish").is_some() {
+            assert_eq!(line, json!({"publish": "owner"}));
+            published = true;
+        }
+        if line.get("regranted").is_some() {
+            assert_eq!(line, json!({"regranted": [8], "answer": "owner"}));
+            break;
+        }
+    }
+    assert!(published, "the publish line comes before the regrant's answer");
+    assert_eq!(serve.end().await, 0);
+    let stdin = std::fs::read_to_string(dir.join("launches.stdin")).unwrap_or_default();
+    assert_eq!(stdin, "{\"regrant\":true}\n", "one regrant line reached serve");
+    assert_eq!(launches(&dir), 1, "the ready child kept serving");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A child that exits before it answers leaves the regrant with none, and a
+/// refused regrant dial answers none.
+#[tokio::test]
+async fn a_regrant_the_child_does_not_answer_is_none() {
+    let dir = scratch("regrant-refused");
+    let script = format!(
+        "{READY}\nread -r line\nprintf '%s\\n' '{{\"ok\":false,\"error_code\":\"ticket\",\"route\":\"carrier\",\"regrant\":true}}' >&2\nread -r line\nexit 0"
+    );
+    let mut serve = Harness::start(config(&dir, &script));
+    serve.connect(1);
+    let read = serve.read().await;
+    serve.token(read, "t-1");
+    serve.expect("resume").await;
+    serve.send(json!({"regrant": 2}));
+    assert_eq!(serve.expect("regranted").await, json!({"regranted": [2], "answer": null}));
+    serve.send(json!({"regrant": 3}));
+    assert_eq!(serve.expect("regranted").await, json!({"regranted": [3], "answer": null}));
+    assert_eq!(serve.end().await, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_regrant_line_is_read_both_ways() {
+    assert_eq!(app_line(r#"{"regrant":4}"#), Some(AppLine::Regrant { waiter: 4 }));
+    let check: fn(&str) -> Result<(), LinkError> = |_| Ok(());
+    assert_eq!(
+        serve_event(2, r#"{"ok":true,"route":"carrier","vmk":"owner","regrant":true}"#, check),
+        Some(Event::RegrantLine { child: 2, vmk: Some("owner".to_owned()), refused: false })
+    );
+    assert_eq!(
+        serve_event(
+            2,
+            r#"{"ok":false,"error_code":"ticket","route":"carrier","regrant":true}"#,
+            check
+        ),
+        Some(Event::RegrantLine { child: 2, vmk: None, refused: true })
+    );
+    assert_eq!(
+        serve_event(2, r#"{"ok":true,"route":"carrier","vmk":"team"}"#, check),
+        Some(Event::OkLine { child: 2, vmk: Some("team".to_owned()) }),
+        "a connection's line is not a regrant's"
+    );
 }

@@ -112,6 +112,73 @@ import Testing
         #expect(CloudCallerOwnership(creator: platform, caller: "s") == .team, "the Stack id is another namespace")
     }
 
+    /// cmux#40201 F1: the carrier's held session answers every connection with its first grant's `vmk`, so a
+    /// teammate an owner shared the machine with stays `team`. A regrant asks the supervisor (`{"regrant":W}`),
+    /// whose `publish` line moves the live link before its `regranted` line answers; an answer younger than
+    /// the bound asks nothing. The stand-in speaks the supervisor's lines (cmux-tui `carrier/supervise.rs`).
+    @Test func aRegrantMovesTheLinkToTheFreshGrant() async throws {
+        let cli = try Self.standIn("""
+        d=$(dirname "$0")
+        while IFS= read -r l; do
+          case "$l" in
+            *'"connect"'*) n=$(printf '%s' "$l" | sed 's/.*"connect":\\([0-9]*\\).*/\\1/'); printf '{"read_token":%s}\\n' "$n" >&2 ;;
+            *'"token"'*) n=$(printf '%s' "$l" | sed 's/.*"token":\\([0-9]*\\).*/\\1/')
+              printf '{"state":{"refusal":null,"answer":"team"}}\\n{"publish":"team"}\\n{"resume":[%s],"socket":"%s"}\\n' "$n" "$6" >&2 ;;
+            *'"regrant"'*) n=$(printf '%s' "$l" | sed 's/.*"regrant":\\([0-9]*\\).*/\\1/'); echo x >> "$d/regrants"
+              printf '{"state":{"refusal":null,"answer":"owner"}}\\n{"publish":"owner"}\\n{"regranted":[%s],"answer":"owner"}\\n' "$n" >&2 ;;
+            *'"stop"'*) exit 0 ;;
+          esac
+        done
+
+        """)
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let socket = folder.appendingPathComponent("cmux-link-0123456789ab.sock").path
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
+            ["CMUX_CLOUD_ACCESS_TOKEN": "t-1"]
+        }
+        let serve = CloudCarrierServe(connector: connector, socket: socket)
+        #expect(await serve.regrant() == nil, "no supervisor runs yet: nothing to ask")
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .unknown })
+        _ = try await link.connect(origin: .user)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await link.callerOwnership != .team, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await link.callerIsTeammate)
+        #expect(await link.regrant(unlessAnsweredWithin: .seconds(60)) == .team, "a fresh answer asks nothing")
+        #expect(await link.regrant() == .owner)
+        #expect(await link.ownerLink != nil)
+        #expect(try String(contentsOf: folder.appendingPathComponent("regrants"), encoding: .utf8) == "x\n")
+        await link.close()
+    }
+
+    /// The supervisor's `null` answer (no ready child, a refused dial, a child gone) is no answer, and the
+    /// link keeps the one it had.
+    @Test func aRegrantTheSupervisorCannotAnswerIsNil() async throws {
+        let cli = try Self.standIn("""
+        while IFS= read -r l; do
+          case "$l" in
+            *'"connect"'*) n=$(printf '%s' "$l" | sed 's/.*"connect":\\([0-9]*\\).*/\\1/'); printf '{"read_token":%s}\\n' "$n" >&2 ;;
+            *'"token"'*) n=$(printf '%s' "$l" | sed 's/.*"token":\\([0-9]*\\).*/\\1/')
+              printf '{"state":{"refusal":null,"answer":"team"}}\\n{"publish":"team"}\\n{"resume":[%s],"socket":"%s"}\\n' "$n" "$6" >&2 ;;
+            *'"regrant"'*) n=$(printf '%s' "$l" | sed 's/.*"regrant":\\([0-9]*\\).*/\\1/'); printf '{"regranted":[%s],"answer":null}\\n' "$n" >&2 ;;
+            *'"stop"'*) exit 0 ;;
+          esac
+        done
+
+        """)
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let socket = folder.appendingPathComponent("cmux-link-0123456789ab.sock").path
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
+            ["CMUX_CLOUD_ACCESS_TOKEN": "t-1"]
+        }
+        let serve = CloudCarrierServe(connector: connector, socket: socket)
+        _ = try await serve.socketPath()
+        #expect(await serve.regrant() == nil)
+        #expect(await serve.answer == .team)
+        await serve.stop()
+    }
+
     private static func standIn(_ body: String) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ccd-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

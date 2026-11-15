@@ -14,18 +14,28 @@
 //!   resume `closed`); `{"token":R,"env":{…}}` answers `read_token` `R` with
 //!   the child's environment (the access token under
 //!   `CMUX_CLOUD_ACCESS_TOKEN`), `{"token":R,"error":E}` with why it has
-//!   none, `{"token":R,"fenced":true}` with the account having ended. Any
-//!   other line is skipped. The end of stdin is a stop.
+//!   none, `{"token":R,"fenced":true}` with the account having ended.
+//!   `{"regrant":W}` (waiter `W`, from the same id space as `connect`) asks
+//!   the ready child for a fresh grant (cmux#40201 F1: a share changes the
+//!   person's grant under the same credential, and the child's held session
+//!   keeps its first dial's `vmk`). Any other line is skipped. The end of
+//!   stdin is a stop.
 //! - stderr, one JSON object per line, to the app: `{"read_token":R}`;
 //!   `{"resume":[W…],"socket":PATH}` or `{"resume":[W…],"error":E}`;
 //!   `{"publish":"owner"|"team"|"unknown"}` for each connection's grant
-//!   answer; and `{"state":{"refusal":E|null,"answer":…|null}}` whenever
-//!   either changes, before the lines of the same step. `E` is
-//!   `{"kind":…}` with the app's link error fields ([`supervise_wire`]).
+//!   answer; `{"regranted":[W…],"answer":"owner"|"team"|"unknown"|null}`
+//!   once the child answered a regrant (a fresh answer comes after its own
+//!   `publish` line, so the app's link moves first), and at once with
+//!   `null` when no child is ready; a refused regrant dial, or a child that
+//!   exits, stops or parks first, is `null` too. One `{"regrant":true}` line
+//!   goes to the child at a time: a regrant asked while it is out joins it.
+//!   `{"state":{"refusal":E|null,"answer":…|null}}` whenever either changes,
+//!   before the lines of the same step. `E` is `{"kind":…}` with the app's
+//!   link error fields ([`supervise_wire`]).
 //! - The serve child is this executable's `carrier serve --machine --socket`,
 //!   spawned with this process's environment plus the app's `env`. Its stdin
-//!   gets the token lines; its stderr lines become the machine's events; its
-//!   ready line's socket passes [`serve_policy`] first.
+//!   gets the token and regrant lines; its stderr lines become the machine's
+//!   events; its ready line's socket passes [`serve_policy`] first.
 //! - Two supervisors of one socket (a session replaced while its child
 //!   still exits) take turns: a launch holds `<socket>.supervise` (a file
 //!   lock) from its claim to its child's exit, and waits for it at most
@@ -300,6 +310,7 @@ impl Supervisor {
                 Some(AppLine::Connect { waiter, keep_refusal }) => {
                     self.dispatch(Event::Connect { waiter, keep_refusal });
                 }
+                Some(AppLine::Regrant { waiter }) => self.dispatch(Event::Regrant { waiter }),
                 Some(AppLine::Park) => self.dispatch(Event::Park),
                 Some(AppLine::Stop) => self.dispatch(Event::Stop),
                 Some(AppLine::AccountEnded) => self.dispatch(Event::AccountEnded),
@@ -413,6 +424,10 @@ impl Supervisor {
             Effect::TerminateAfterGrace(child) => self.terminate(child, self.config.stop_grace),
             Effect::Resume(waiters, result) => (self.out)(wire::resume_line(&waiters, &result)),
             Effect::Publish(caller) => (self.out)(wire::publish_line(caller)),
+            Effect::WriteRegrant(child) => self.write_regrant(child),
+            Effect::Regranted(waiters, caller) => {
+                (self.out)(wire::regranted_line(&waiters, caller));
+            }
         }
     }
 
@@ -457,17 +472,39 @@ impl Supervisor {
     }
 
     fn write_token(&mut self, child: ChildId, token: String) {
+        let line = wire::token_line(&token);
+        self.write_line(child, "carrier serve token line", line, move |ok| Event::TokenWritten {
+            child,
+            token,
+            ok,
+        });
+    }
+
+    fn write_regrant(&mut self, child: ChildId) {
+        let line = wire::REGRANT_LINE.to_owned();
+        self.write_line(child, "carrier serve regrant line", line, move |ok| {
+            Event::RegrantWritten { child, ok }
+        });
+    }
+
+    /// Writes `line` to `child`'s stdin, then sends `written(ok)`.
+    fn write_line(
+        &mut self,
+        child: ChildId,
+        name: &'static str,
+        line: String,
+        written: impl FnOnce(bool) -> Event + Send + 'static,
+    ) {
         let sender = self.children.get(&child).and_then(|slot| {
             slot.stdin.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
         });
         let tx = self.tx.clone();
-        self.scope.spawn_until_cancelled("carrier serve token line", async move {
-            let line = wire::token_line(&token);
+        self.scope.spawn_until_cancelled(name, async move {
             let ok = match sender {
                 Some(sender) => write_all(&sender, line.as_bytes()).await,
                 None => false,
             };
-            let _ = tx.send(Msg::Event(Event::TokenWritten { child, token, ok }));
+            let _ = tx.send(Msg::Event(written(ok)));
         });
     }
 
