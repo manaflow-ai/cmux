@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43760459672",
+  "recorded_at": "2026-11-15T21:03:51Z",
+  "reason": "cmux-tui 171c1fa97a74 changes the image's cmux-tui (pinned 9df878397e52)",
+  "dry_run": false,
+  "cmux_tui": "171c1fa97a741631a2abfcdb8215a2bb3f057c41",
+  "fixes": [
+    {
+      "sha": "171c1fa97a741631a2abfcdb8215a2bb3f057c41",
+      "mergedAt": "2026-11-15T12:33:54-08:00",
+      "subject": "acpmux: the Mac app's and the Linux package's acpmux ship the hub carrier, and log its state (#43753)"
+    },
+    {
+      "sha": "bc67ae0cc41777f7cd8bfee5fb69c20830e5438e",
+      "mergedAt": "2026-11-15T20:32:48Z",
+      "subject": "v2 peer pages, serve side: a peer's all and keys pages of this machine's rows (8b PR 1) (#43683)"
+    },
+    {
+      "sha": "e4686b2e219af7837c2c84d9181fdac518cfac1d",
+      "mergedAt": "2026-11-15T20:31:52Z",
+      "subject": "acpmux-core: measure actor gates with alternating rounds (#43609)"
+    },
+    {
+      "sha": "32b4ead970170287bcfaeff6033403171eacc391",
+      "mergedAt": "2026-11-15T12:31:41-08:00",
+      "subject": "Terminal: a restart with no free terminal says what to do (#43889)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T21:03:51Z",
+    "snapshot_id": "sh-d58ea7af619949b8b2f99449ce55108a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43760459672): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "34a3871472a82c840b90bf32d5524dcb59cfd84f",
+    "image": "cloud-native-auto-171c1fa9-43760459672-1",
+    "revision": "ci-43760459672-1",
+    "at": "2026-11-15T21:03:51Z"
+  },
+  "rolled_back": false
+}
