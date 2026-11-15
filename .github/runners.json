@@ -613,6 +613,26 @@
     "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
     "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}
   },
+  "light_fit": {
+    "$comment": [
+      "The cmux-next.yml Mac jobs measured to fit a 16 GiB light mini (glaeda class light, cmux16 to cmux24 and the m4-16",
+      "minis): at least min_light_runs completed runs on light hosts and a success rate there no more than max_ok_drop",
+      "below the same job's on the 48 GiB std minis. Source: cmuxterm-hq build-fleet/data/2026/11/10..14 jobs.csv",
+      "(completed rows, workflow cmux-next): runs, success rate and rss_peak_mib p95 (MiB) per host class. The rest of",
+      "the Mac jobs never ran on a light mini in that window (cmux-scheme-compile, release-compile, swift-test: n 0;",
+      "swift-canary: n 0 of 4 runs), so they are not shown to fit and never move there. cmux-next.yml's",
+      "macos-placement LIGHT_FIT_JOBS lists exactly these, each job's runs-on reads light_jobs on the attempt its",
+      "placement ran, and owned_pool_rescue.light_wait() (main) moves only such a job: tests/test_ci_side_lane_placement.py",
+      "LightRerunRoute keeps the three in step."
+    ],
+    "min_light_runs": 20,
+    "max_ok_drop": 0.05,
+    "jobs": {
+      "cmux-next.yml#fast-tier": {"light": {"runs": 2069, "ok": 0.66, "rss_p95_mib": 20044}, "std": {"runs": 256, "ok": 0.69, "rss_p95_mib": 65243}},
+      "cmux-next.yml#daemon-test": {"light": {"runs": 25, "ok": 0.60, "rss_p95_mib": 19406}, "std": {"runs": 1283, "ok": 0.64, "rss_p95_mib": 48739}},
+      "cmux-next.yml#generated-files": {"light": {"runs": 61, "ok": 0.52, "rss_p95_mib": 19006}, "std": {"runs": 1406, "ok": 0.54, "rss_p95_mib": 62850}}
+    }
+  },
   "portable_light_jobs": {
     "$comment": [
       "Secretless placement bootstraps are admitted as light jobs so their short runner-state read cannot queue behind the paid overflow.",

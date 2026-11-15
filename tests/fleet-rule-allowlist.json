@@ -1,5 +1,6 @@
 {
   "keychain": {
+    "cmux-tui/crates/cmux-tui/src/cli/key_broker.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a key provider's bootstrap token (service cmux-key-provider)"},
     "plans/cmux-next/swift-logic-classes.tsv": {"count": 1, "reason": "safe: a plan table row that names SecItemCopyMatching in prose; it reads no keychain item"},
     "Native/OptChat/optchat-chief/src/toolpacks.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a tool pack's own keychain service"},
     "cmux-next-ios/scripts/testflight-build.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the App Store Connect credential (service asc)"},
