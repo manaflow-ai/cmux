@@ -10,6 +10,12 @@ public nonisolated enum PageWebKitReason: String, Sendable, Hashable, CaseIterab
     /// The agent chat and New Tab page keep their warmed WebKit host until their own Chromium port:
     /// typing latency there is measured against WebKit and a spare view is kept ready.
     case agentChat = "agent-chat"
+    /// The page opens from the page host pool's parked WebKit document (``PageHostPool``), so it shows
+    /// with its tab: Settings. A Chromium page is built on each open (the browser, its setup calls, the
+    /// 2.4 MB bundle, the first screen's reads) and drew its first frame 270-500 ms after Cmd-, on a
+    /// fleet Mac while the tab already showed (2026-11-15: "the tab shows up first, and then like a
+    /// second later, the settings page actually shows up").
+    case pooledInstantOpen = "pooled-instant-open"
     /// The page floats over the window as a transparent panel (the update island, the icon
     /// picker's glass panel). A Chromium page is an opaque child window that takes the keys, which
     /// cannot float over the window's backdrop or keep a panel that closes when it loses them.
