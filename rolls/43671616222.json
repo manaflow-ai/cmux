@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43671616222",
+  "recorded_at": "2026-11-15T03:24:03Z",
+  "reason": "cmux-tui 1e3170a6e475 changes the image's cmux-tui (pinned 4360b11fa4e8)",
+  "dry_run": false,
+  "cmux_tui": "1e3170a6e475b84e589ce5cede159ccb662ee84b",
+  "fixes": [
+    {
+      "sha": "1e3170a6e475b84e589ce5cede159ccb662ee84b",
+      "mergedAt": "2026-11-15T02:58:09Z",
+      "subject": "cmux-tui-core: the terminal port watch worker lets a dropped mux go, so restart tests reopen their session (#43435)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T03:24:03Z",
+    "snapshot_id": "sh-366966fc1e6641d39ced9bb438ae40e9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43671616222): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e02e8eef19b6adcba1ee5c30c59a345ce1ca140a",
+    "image": "cloud-native-auto-1e3170a6-43671616222-1",
+    "revision": "ci-43671616222-1",
+    "at": "2026-11-15T03:24:03Z"
+  },
+  "rolled_back": false
+}
