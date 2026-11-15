@@ -24,6 +24,12 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         /// A card just hid; a hover before `token` fires shows at once
         /// (quick reshow).
         case grace(token: Int)
+
+        /// A card just hid and the next hover shows at once (Chrome's `kShowWithoutDelayTimeBuffer`).
+        public var isGrace: Bool {
+            if case .grace = self { return true }
+            return false
+        }
     }
 
     public private(set) var phase: Phase = .idle {
@@ -64,8 +70,10 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     /// instant card, so content passing under it flashes none.
     public var stillPointerDelay: Duration
 
+    // hover-timing: a pinned card's lifetime (Show Resource Usage), not a hover delay
     public init(reshowWindow: Duration = HoverCardTiming.reshowWindow, pinLifetime: Duration = .seconds(10),
                 leaveWindow: Duration = HoverIntentTiming.standard.cardGrace, aimWindow: Duration = HoverIntentTiming.standard.cardAim,
+                // hover-timing: only for a target with no delay that content moves under a still pointer
                 stillPointerDelay: Duration = .milliseconds(300)) {
         self.reshowWindow = reshowWindow
         self.pinLifetime = pinLifetime
