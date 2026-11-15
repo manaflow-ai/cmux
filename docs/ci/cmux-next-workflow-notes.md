@@ -262,12 +262,15 @@ App token's hour ends (it is minted just before the wait).
 
 A refused status post (`post()`, the same function in compile-status and compile-status-handoff) prints GitHub's
 answer (`HTTP 403: {"message":...}`) and waits out a rate limit: a 403 or 429 that says so waits its Retry-After or
-primary reset, at least 60 s and twice as long each try (a retry inside a secondary limit extends it), up to 600 s;
-a 5xx or no answer tries again in 10 s; any other refusal (a bad token, no permission) is final at once. The pending
+primary reset, at least 60 s and twice as long each try (a retry inside a secondary limit extends it), up to the
+step's own end (`post_end`, 54 min after the step starts, inside the App token's hour; hq#11485: cmux#43659's success
+post met the cmux-bot installation's spent pool with its reset past the old 600 s budget, stopped after one try, and
+the passed check sat pending 2.5 h); a pending post's explicit budget still bounds its wait; a 5xx or no answer tries again in 10 s; any other refusal (a bad token, no permission) is final at once. The pending
 post only shows the wait, so it gets 30 s and a refusal is a warning: on 2026-11-11 from 02:38Z a ten-minute 403 rate
 limit on cmux-bot failed this job on #40351, #40942, #41007 and the base push at the pending post, before any compile
-was read. A terminal post that still fails leaves the job's own `cmux-next/compile is not a pass for SHA (STATE)`
-line: no verdict for base_red_excuse.py (`NO_VERDICT`) for every state but `fail`, which stays a compile red.
+was read. A terminal post that still fails prints `NO_VERDICT: GitHub refused the cmux-next/compile verdict ...;
+re-run this job, RUN_URL` (the status stays as last posted, so the line says what to do), then the job's own
+`cmux-next/compile is not a pass for SHA (STATE)` line: no verdict for base_red_excuse.py (`NO_VERDICT`) for every state but `fail`, which stays a compile red.
 `test_every_cmux_next_compile_post_waits_out_a_rate_limit` fails on a job that posts cmux-next/compile any other way.
 
 Forks get no secret and no status: the job does not run, the gate is missing, and a missing
