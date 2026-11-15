@@ -65,6 +65,15 @@ def pct(values, p):
 
 for arg in sys.argv[1:]:
     read(Path(arg).expanduser())
+# A chat that never showed the seeded transcript (its harness refused the session, the seed failed) makes every swap
+# a swap to an empty or error page: its numbers measure nothing about the long chat, so they are not printed.
+empty = sorted({b[0] for b in bad if b[2].startswith("Before: the chat painted its newest turn")})
+if empty:
+    print(f"\nrefused: the chat never showed the seeded transcript in {', '.join(empty)}; its swaps measure an empty "
+          "or error page (look at light.png). Not reporting numbers.", file=sys.stderr)
+    for b in bad:
+        print(" ", b, file=sys.stderr)
+    sys.exit(2)
 print()
 # Settled: the last frame that changed. A page rebuilt behind its last picture shows content at once but settles late.
 print("| case | n | first content p50 | p95 | max | misses (no change) | blank frames | settled p50 | settled p95 |")
