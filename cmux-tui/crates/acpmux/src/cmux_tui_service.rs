@@ -169,8 +169,9 @@ pub(crate) async fn serve_pipe<R, W>(
         // ends on one no redial cures and redials the rest (`machine.unreachable`).
         carrier.dial_service(&daemon, CircuitService::CmuxTui { port }).await.map_err(|e| {
             let refusal = crate::machine_routes::refusal_of(&e);
-            let message = refusal["error"].as_str().unwrap_or(&e).to_owned();
-            RpcError::new(-32000, message).with_data(json!({"reason": refusal["reason"]}))
+            let message =
+                refusal.get("error").and_then(serde_json::Value::as_str).unwrap_or(&e).to_owned();
+            RpcError::new(-32000, message).with_data(json!({"reason": refusal.get("reason")}))
         })
     }
     .await;
