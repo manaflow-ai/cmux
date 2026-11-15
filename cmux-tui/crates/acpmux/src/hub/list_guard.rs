@@ -169,6 +169,12 @@ impl Events {
         self.stamped(event)
     }
 
+    /// Events a receiver has not read yet, which the channel holds until every receiver has:
+    /// up to its capacity while one lags (`gauges.hubEvents` in `_acpmux/status`).
+    pub(super) fn queued(&self) -> (usize, usize) {
+        (self.tx.len(), self.tx.receiver_count())
+    }
+
     pub(super) fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.tx.subscribe()
     }

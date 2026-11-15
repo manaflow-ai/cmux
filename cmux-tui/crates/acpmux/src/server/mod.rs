@@ -2307,14 +2307,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // every other peer's link for nothing (24 copies of every change with one daemon's
             // 25 peers, 2026-10-30), and the row's origin hears it from its own.
             if rec.dir == "peer" && !view::a_link(conn) {
-                let sid = remote
-                    .summary
-                    .get("sessionId")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String(ev.session_id.clone()));
+                let sid = Value::String(
+                    remote.summary.session_id().unwrap_or(ev.session_id.as_str()).to_owned(),
+                );
                 conn.send(&Message::notification(
                     method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": if attached || conn.watch_tools.load(Ordering::SeqCst) { remote.summary.clone() } else { crate::hub::views::without_summary_tools(remote.summary.clone()) }, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": if attached || conn.watch_tools.load(Ordering::SeqCst) { remote.summary.value() } else { crate::hub::views::without_summary_tools(remote.summary.value()) }, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
                 ));
             }
             return;

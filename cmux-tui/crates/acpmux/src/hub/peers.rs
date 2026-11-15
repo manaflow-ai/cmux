@@ -731,8 +731,14 @@ impl Hub {
     }
 
     /// Tell watching clients that a peer session appeared, changed or left.
-    pub(super) fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
-        let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
+    pub(super) fn announce_remote(
+        &self,
+        peer: &str,
+        summary: impl Into<RemoteSummary>,
+        kind: &str,
+    ) {
+        let summary = summary.into();
+        let Some(id) = summary.session_id().map(str::to_owned) else {
             return;
         };
         let _ = self.events.send_remote(HubEvent {
@@ -1005,12 +1011,13 @@ impl Hub {
                     // notice. The throttle admits one snapshot per interval; disconnect/drop
                     // paths still call with `now = true` for the final state.
                     self.save_peer_cache(&peer, generation, false);
-                    // Each summary parsed as it is announced, one at a time.
+                    // Each announcement shares the table's packed row; a connection parses it
+                    // as it sends it.
                     for (_, row) in changed {
-                        self.announce_remote(&peer, row.summary.value(), "status");
+                        self.announce_remote(&peer, RemoteSummary::Row(row), "status");
                     }
                     for row in gone {
-                        self.announce_remote(&peer, row.summary.value(), "purged");
+                        self.announce_remote(&peer, RemoteSummary::Row(row), "purged");
                     }
                     // Its live asks that came before this list.
                     self.release_held_peer_asks(&peer, generation);
@@ -1060,7 +1067,9 @@ impl Hub {
                             }),
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
-                                summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
+                                summary: removed
+                                    .unwrap_or_else(|| json!({"sessionId": mux_id}))
+                                    .into(),
                             }),
                             update_line: Default::default(),
                             row: Default::default(),
@@ -1125,7 +1134,10 @@ impl Hub {
                             msg: Value::Null,
                             host_seq: None,
                         }),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
+                        remote: Some(RemoteRef {
+                            peer: peer.clone(),
+                            summary: summary.clone().into(),
+                        }),
                         update_line: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
@@ -1158,7 +1170,7 @@ impl Hub {
                             msg: json!({"sessionIds": [id], "reason": "peer_reattached"}),
                             host_seq: None,
                         }),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null.into() }),
                         update_line: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
@@ -1185,7 +1197,10 @@ impl Hub {
                                 msg: params.clone(),
                                 host_seq: None,
                             }),
-                            remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                            remote: Some(RemoteRef {
+                                peer: peer.clone(),
+                                summary: Value::Null.into(),
+                            }),
                             update_line: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
@@ -1342,7 +1357,7 @@ impl Hub {
                     let _ = self.events.send_remote(HubEvent {
                         session_id: id,
                         record: Arc::new(record),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: summary.into() }),
                         update_line: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
@@ -1858,3 +1873,7 @@ mod restart_notice_tests;
 #[cfg(test)]
 #[path = "resolve_cost_bench.rs"]
 mod resolve_cost_bench;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "peer_list_announce_tests.rs"]
+mod peer_list_announce_tests;
