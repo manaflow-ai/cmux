@@ -182,3 +182,39 @@ the setting stays hidden and resolves to the default family. What we learned: at
 a 1.5-unit line either vanishes or reads as a defect. A next round would need a different approach:
 for example one dedicated cat mark (a mascot spot, like Idlesse's footer cat) in place of cues on
 every action, or 2x-only art. That is a taste call for Leo, not more hill climbing on these cues.
+
+## Cat mark
+
+Round 3's lesson was that cues on every action either vanish or read as defects. So this round draws
+**one dedicated cat mark** instead: a candidate replacement for `app.cmux` (the prompt mark) that a
+user could pick as an accent for the sidebar glyph, an empty-state hero, or the glyph on an app tile.
+Three original drawings live in `neko-candidates/mark/` (`manifest.json` has the geometry):
+
+- `head`: the default prompt (`>_`) drawn as the face of an eared cat head.
+- `tile`: the prompt in a rounded tile whose top corners rise into ears.
+- `tail`: the default prompt, with its underscore turned up into a hooked tail.
+
+**Capture.** Same harness (`scripts/gallery-matrix/neko.ts`) and renderer: real 1x and 2x, light and
+dark, compact and comfortable, UI scale 1 and 1.25. 192 images, 48 of them cat mark, from
+[run 43674464145](https://github.com/manaflow-ai/cmux/actions/runs/43674464145). Each capture shows the
+default and the cat mark in a sidebar row, at 16, 24, 32 and 48 px, on an accent app tile, and as an
+empty-state hero. Visual fit uses the same rubric (0–2 each). Recognition here is cat read (0–1) plus
+cmux prompt read (0–1), judged at the 14–16 px sidebar size.
+
+| Variant | Visual fit (/6) | Recognition (/2) | Decision |
+| --- | --- | ---: | --- |
+| Head | 6/6 (2, 2, 2) | 1/2 (2/2 from 24 px) | Best candidate; Leo's taste call |
+| Eared tile | 5/6 (2, 2, 1) | 1/2 (2/2 from 24 px) | Runner-up |
+| Tail prompt | 4/6 (2, 2, 0) | 1/2 | Rejected |
+
+- Head: the first Neko drawing that reads as a cat at every captured size, including 14 px at 1x
+  in both themes. The prompt face is mush below 24 px; from 24 px up it holds, and on the accent
+  tile it is the strongest of the three as an app-icon glyph.
+- Eared tile: the prompt is the most legible of the three, because the tile frames it. But the ears
+  are small corners, so at 16 px it reads as a tray or a box more than a cat.
+- Tail prompt: keeps the default's silhouette, which is why it fits the row, but the cue reads as a
+  stray glyph (">ɹ") rather than a tail at every size. The same failure as round 3's cues.
+
+**Decision:** nothing ships or flips. `app.cmux` and `IconFamily` are unchanged, and the marks exist
+only in the gallery. If Leo likes the head, the next step would be an opt-in accent setting that
+swaps `app.cmux` for it, plus a 2x-tuned app-icon export. That is a taste call, not more hill climbing.
