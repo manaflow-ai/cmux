@@ -1082,6 +1082,14 @@ impl Store for JournalStore {
     fn settle_cold_segments(&self, id: &str) -> Result<()> {
         Store::settle_cold_segments(&self.inner.local, id)
     }
+    /// The renames, removals and folder syncs run in `counted_sync`, as a move's do. The bytes
+    /// are the archive's, which the checkpoint already covered when it went cold.
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        let inner = &self.inner;
+        inner.counted_sync("a warmed log segment failed to sync", || {
+            Store::warm_cold_segments(&inner.local, id)
+        })
+    }
     fn on_segment_sealed(&self, hook: SealHook) {
         Store::on_segment_sealed(&self.inner.local, hook)
     }

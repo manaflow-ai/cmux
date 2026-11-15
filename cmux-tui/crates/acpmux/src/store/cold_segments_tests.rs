@@ -397,3 +397,253 @@ fn a_segment_goes_cold_only_once_the_checkpoint_covers_it_and_a_kill_replays_eac
         assert_eq!(now.unwrap(), bytes, "{name} is as it went cold");
     }
 }
+
+/// Every record of the chat's plain segments, read as files are (no store): what a reader
+/// returned before cold segments existed.
+fn plain_records(sessions: &Path) -> Vec<EventRecord> {
+    let events = sessions.join(ID).join("events");
+    let mut out = Vec::new();
+    for name in names(&events) {
+        assert!(!name.contains(IDX_SUFFIX), "{name}: no cold segment with the setting off");
+        if !name.ends_with(".ndjson") {
+            continue;
+        }
+        let bytes = std::fs::read(events.join(&name)).unwrap();
+        for line in bytes.split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
+            out.push(serde_json::from_slice(line).unwrap());
+        }
+    }
+    out
+}
+
+/// The chat folder, every file's name and bytes.
+fn chat_files(sessions: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    let session = sessions.join(ID);
+    let mut out = std::collections::BTreeMap::new();
+    for dir in ["events", COLD_DIR] {
+        for name in names(&session.join(dir)) {
+            out.insert(
+                format!("{dir}/{name}"),
+                std::fs::read(session.join(dir).join(&name)).unwrap(),
+            );
+        }
+    }
+    out
+}
+
+/// Pages of 400 back from the end of `records`, as `pages` reads them.
+fn pages_of(records: &[EventRecord]) -> Vec<Vec<EventRecord>> {
+    records.rchunks(400).map(|page| page.iter().rev().cloned().collect()).collect()
+}
+
+/// With the setting off a chat has no cold file, and every reader that now goes through the
+/// cold-segment code (`open_segment`, the listing that parses index names, the seal hook, the
+/// writer's open) reads and writes exactly what plain files hold: forward scans, pages back,
+/// `tail_after`, a fork view, a settle, retention and a cut, and a reopened writer that goes on
+/// in the same segment.
+#[test]
+fn with_the_setting_off_every_reader_reads_the_plain_files_as_before() {
+    let (_home, sessions, store) = chat(1500);
+    let sealed = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let seen = sealed.clone();
+    Store::on_segment_sealed(
+        &store,
+        std::sync::Arc::new(move |_: &str| {
+            seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }),
+    );
+    for seq in 1501..=1600 {
+        store.append(ID, &record(seq)).unwrap();
+    }
+    store.close_log(ID);
+    assert!(sealed.load(std::sync::atomic::Ordering::Relaxed) > 0, "the hook ran on seals");
+    let plain = plain_records(&sessions);
+    assert_eq!(plain, expected(1600));
+    let files = chat_files(&sessions);
+    assert!(files.keys().all(|k| k.starts_with("events/") && k.ends_with(".ndjson")), "{files:?}");
+
+    assert_eq!(all(&store), plain, "a forward scan");
+    assert_eq!(pages(&store), pages_of(&plain), "pages back");
+    for after in [0, 1, 399, 1234, 1599, 1600] {
+        let tail: Vec<_> = plain.iter().filter(|r| r.seq > after).collect();
+        let last = tail.last().map_or(after, |r| r.seq);
+        assert_eq!(
+            store.tail_after(ID, after).unwrap(),
+            (tail.len() as u64, last),
+            "after {after}"
+        );
+    }
+    let fork = ForkView::new(Box::new(LocalStore::new(sessions.clone(), SEGMENT).unwrap()));
+    assert_eq!(all(&fork), plain, "through a fork view");
+    store.settle_cold_segments(ID).unwrap();
+    assert_eq!(chat_files(&sessions), files, "a settle changes nothing");
+
+    // A reopened writer goes on in the segment it left, as it always did.
+    drop(fork);
+    drop(store);
+    let store = LocalStore::new(sessions.clone(), SEGMENT).unwrap();
+    store.append(ID, &record(1601)).unwrap();
+    store.close_log(ID);
+    let after = chat_files(&sessions);
+    assert_eq!(
+        after.keys().collect::<Vec<_>>(),
+        files.keys().collect::<Vec<_>>(),
+        "no new segment for one more record"
+    );
+    let last = files.keys().last().unwrap();
+    let mut grown = files[last].clone();
+    grown.extend_from_slice(&serde_json::to_vec(&record(1601)).unwrap());
+    grown.push(b'\n');
+    assert_eq!(after[last], grown, "the record went at the end of the last segment");
+
+    // Retention and a cut, on plain files.
+    let staged =
+        store.stage_compaction(ID, CompactMode::Write { archive: None }).unwrap().expect("a log");
+    assert!(store.commit_compaction(ID, staged).unwrap());
+    assert_eq!(all(&store), plain_records(&sessions));
+    assert_eq!(all(&store), expected(1601));
+    assert!(store.truncate_after(ID, 700).unwrap());
+    assert_eq!(all(&store), expected(700));
+    assert_eq!(plain_records(&sessions), expected(700));
+}
+
+/// Through the journal with the setting off: a kill replays each record once into plain
+/// segments, and the repair reads them as files.
+#[test]
+fn with_the_setting_off_the_journal_repair_writes_plain_segments_as_before() {
+    use cmux_journal::{Crash, SimStorage};
+    let home = tempfile::tempdir().unwrap();
+    let journal = SimStorage::new(11);
+    let store = journal_store(home.path(), &journal);
+    for seq in 1..=1500 {
+        store.append(ID, &record(seq)).unwrap();
+    }
+    assert!(store.wait_durable(std::time::Duration::from_secs(10)).unwrap());
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = journal_store(home.path(), &killed);
+    let sessions = home.path().join("sessions");
+    assert_eq!(all(store.as_ref()), expected(1500), "each record once");
+    assert_eq!(plain_records(&sessions), expected(1500), "in plain segments");
+    assert!(!sessions.join(ID).join(COLD_DIR).exists());
+}
+
+fn segment_bytes(sessions: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    chat_files(sessions)
+        .into_iter()
+        .filter(|(k, _)| k.starts_with("events/") && k.ends_with(".ndjson"))
+        .collect()
+}
+
+/// `cmux chats warm`: every cold segment comes back as the plain file it was, byte for byte, and
+/// nothing of the cold layout is left.
+#[test]
+fn warm_brings_every_cold_segment_back_byte_for_byte() {
+    let (_home, sessions, store) = chat(1500);
+    let before = segment_bytes(&sessions);
+    let moved = move_all(&store);
+    assert!(moved > 2);
+    let warmed = store.warm_cold_segments(ID).unwrap();
+    assert_eq!(warmed.segments, moved);
+    assert!(warmed.left.is_empty(), "{warmed:?}");
+    assert_eq!(chat_files(&sessions), before, "the same files, the same bytes");
+    assert!(!sessions.join(ID).join(COLD_DIR).exists());
+    assert_eq!(all(&store), expected(1500));
+    assert_eq!(store.warm_cold_segments(ID).unwrap(), ColdWarmed::default(), "nothing left to do");
+    assert_eq!(move_all(&store), moved, "they can go cold again");
+}
+
+/// A crash after each step of a warm: the chat reads every record at once, a settle leaves a
+/// whole log, and a second warm brings every segment back.
+#[test]
+fn a_crash_at_every_step_of_a_warm_loses_nothing() {
+    for step in [Step::WarmWritten, Step::WarmPlaced, Step::WarmCommitted] {
+        let (_home, sessions, store) = chat(1500);
+        let before = segment_bytes(&sessions);
+        move_all(&store);
+        CRASH_AFTER.with(|c| c.set(Some(step)));
+        let crashed = store.warm_cold_segments(ID);
+        CRASH_AFTER.with(|c| c.set(None));
+        assert!(crashed.is_err(), "{step:?}");
+        assert_eq!(all(&store), expected(1500), "{step:?}: read after the crash");
+        store.settle_cold_segments(ID).unwrap();
+        assert_eq!(all(&store), expected(1500), "{step:?}: read after the settle");
+        let warmed = store.warm_cold_segments(ID).unwrap();
+        assert!(warmed.left.is_empty(), "{step:?}: {warmed:?}");
+        assert_eq!(chat_files(&sessions), before, "{step:?}: every segment plain again");
+        assert_eq!(all(&store), expected(1500), "{step:?}");
+    }
+}
+
+/// A full disk while a warm writes: each segment stays cold, intact and readable, no temporary
+/// file is left, and a later warm brings them back.
+#[test]
+fn a_full_disk_while_warming_keeps_every_segment_cold_and_a_later_warm_brings_them_back() {
+    let (_home, sessions, store) = chat(1500);
+    let before = segment_bytes(&sessions);
+    let moved = move_all(&store);
+    let cold = chat_files(&sessions);
+    DISK_FULL_AFTER.with(|c| c.set(Some(16)));
+    let full = store.warm_cold_segments(ID);
+    DISK_FULL_AFTER.with(|c| c.set(None));
+    let full = full.unwrap();
+    assert_eq!(full.segments, 0);
+    assert_eq!(full.left.len() as u64, moved, "{full:?}");
+    assert!(full.left.iter().all(|(_, e)| e.contains("no space left")), "{full:?}");
+    assert_eq!(chat_files(&sessions), cold, "every file as it was, no temporary file");
+    assert_eq!(all(&store), expected(1500));
+    let warmed = store.warm_cold_segments(ID).unwrap();
+    assert_eq!(warmed.segments, moved);
+    assert_eq!(chat_files(&sessions), before);
+}
+
+/// A damaged archive with no segment left to rebuild it from: a warm leaves it cold as it is,
+/// names it with a clear error, and brings the others back; nothing is removed.
+#[test]
+fn a_damaged_archive_stays_cold_with_a_clear_error_and_the_others_come_back() {
+    let (_home, sessions, store) = chat(1500);
+    let before = segment_bytes(&sessions);
+    let moved = move_all(&store);
+    let session = sessions.join(ID);
+    let zst = zst_path(&session, 2);
+    let saved = std::fs::read(&zst).unwrap();
+    flip_byte(&zst, saved.len() / 2);
+    let damaged = std::fs::read(&zst).unwrap();
+    let warmed = store.warm_cold_segments(ID).unwrap();
+    assert_eq!(warmed.segments, moved - 1);
+    assert_eq!(warmed.left.len(), 1, "{warmed:?}");
+    assert_eq!(warmed.left[0].0, 2);
+    assert!(warmed.left[0].1.contains("damaged"), "{warmed:?}");
+    assert_eq!(std::fs::read(&zst).unwrap(), damaged, "the archive is as it was");
+    assert!(idx_path(&session, 2).exists(), "its index too");
+    assert!(!session.join("events").join("000002.ndjson").exists(), "no segment made from it");
+    assert!(
+        names(&session.join("events")).iter().all(|n| !n.contains(".tmp-")),
+        "no temporary file"
+    );
+    std::fs::write(&zst, &saved).unwrap();
+    assert_eq!(store.warm_cold_segments(ID).unwrap().segments, 1);
+    assert_eq!(chat_files(&sessions), before);
+}
+
+/// A page-back read that listed the segments while they were cold reads each one whole as a warm
+/// brings them back under it.
+#[test]
+fn a_page_back_while_segments_warm_reads_every_record() {
+    let (_home, _sessions, store) = chat(1500);
+    move_all(&store);
+    let mut warmed = false;
+    let mut seen = Vec::new();
+    store
+        .scan_back(ID, 0, u64::MAX, &|_, _| false, &mut |rec| {
+            if !warmed {
+                warmed = true;
+                assert!(store.warm_cold_segments(ID).unwrap().segments > 0);
+            }
+            seen.push(rec);
+            true
+        })
+        .unwrap();
+    seen.reverse();
+    assert_eq!(seen, expected(1500), "one read across the warm");
+}

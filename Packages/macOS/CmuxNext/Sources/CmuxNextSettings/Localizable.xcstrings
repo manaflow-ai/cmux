@@ -799,127 +799,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ضغط سجل الدردشة"
+            "value": "ضغط الدردشات الطويلة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sažmi historiju razgovora"
+            "value": "Sažmi duge razgovore"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Komprimer chathistorik"
+            "value": "Komprimer lange chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chatverlauf komprimieren"
+            "value": "Lange Chats komprimieren"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compress Chat History"
+            "value": "Compress Long Chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comprimir el historial del chat"
+            "value": "Comprimir chats largos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compresser l'historique des discussions"
+            "value": "Compresser les longues discussions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comprimi la cronologia della chat"
+            "value": "Comprimi le chat lunghe"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャット履歴を圧縮"
+            "value": "長いチャットを圧縮"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បង្ហាប់ប្រវត្តិជជែក"
+            "value": "បង្ហាប់ការជជែកវែងៗ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 기록 압축"
+            "value": "긴 채팅 압축"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Komprimer chatthistorikk"
+            "value": "Komprimer lange chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kompresuj historię czatu"
+            "value": "Kompresuj długie czaty"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comprimir histórico do chat"
+            "value": "Comprimir chats longos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сжимать историю чата"
+            "value": "Сжимать длинные чаты"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บีบอัดประวัติแชท"
+            "value": "บีบอัดแชทที่ยาว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbet geçmişini sıkıştır"
+            "value": "Uzun sohbetleri sıkıştır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Стискати історію чату"
+            "value": "Стискати довгі чати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nén lịch sử trò chuyện"
+            "value": "Nén các cuộc trò chuyện dài"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "压缩聊天记录"
+            "value": "压缩长聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "壓縮聊天記錄"
+            "value": "壓縮長聊天"
           }
         }
       }
@@ -930,127 +930,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تُضغط الأجزاء الأقدم من الدردشة الطويلة على القرص كلما كبرت. لا يُحذف شيء، ويمكن التمرير للخلف في الدردشة كما من قبل."
+            "value": "يضغط الأجزاء الأقدم من الدردشات الطويلة. شغّل cmux chats warm للتراجع."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stariji dijelovi dugog razgovora sažimaju se na disku kako razgovor raste. Ništa se ne briše, a razgovor se pomiče unazad kao i prije."
+            "value": "Sažima starije dijelove dugih razgovora. Pokrenite cmux chats warm da poništite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ældre dele af en lang chat komprimeres på disken, efterhånden som den vokser. Intet fjernes, og chatten kan rulles tilbage som før."
+            "value": "Komprimerer de ældre dele af lange chats. Kør cmux chats warm for at fortryde."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ältere Teile eines langen Chats werden auf der Festplatte komprimiert, während er wächst. Nichts wird entfernt, und der Chat lässt sich wie bisher zurückscrollen."
+            "value": "Komprimiert die älteren Teile langer Chats. Zum Rückgängigmachen cmux chats warm ausführen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Older parts of a long chat are compressed on disk as it grows. Nothing is removed, and the chat scrolls back as before."
+            "value": "Compresses the older parts of long chats. Run cmux chats warm to undo."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las partes más antiguas de un chat largo se comprimen en el disco a medida que crece. No se elimina nada y el chat se desplaza hacia atrás como antes."
+            "value": "Comprime las partes más antiguas de los chats largos. Ejecuta cmux chats warm para deshacerlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les parties les plus anciennes d'une longue discussion sont compressées sur le disque à mesure qu'elle grandit. Rien n'est supprimé et la discussion défile vers l'arrière comme avant."
+            "value": "Compresse les parties les plus anciennes des longues discussions. Exécutez cmux chats warm pour annuler."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le parti più vecchie di una chat lunga vengono compresse su disco man mano che cresce. Non viene rimosso nulla e la chat scorre all'indietro come prima."
+            "value": "Comprime le parti più vecchie delle chat lunghe. Esegui cmux chats warm per annullare."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "長いチャットの古い部分は、チャットが増えるにつれてディスク上で圧縮されます。何も削除されず、これまでどおり遡って表示できます。"
+            "value": "長いチャットの古い部分を圧縮します。元に戻すには cmux chats warm を実行します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្នែកចាស់ៗនៃការជជែកវែងត្រូវបានបង្ហាប់នៅលើថាស នៅពេលវាកើនឡើង។ គ្មានអ្វីត្រូវបានលុបទេ ហើយការជជែកអាចរំកិលត្រឡប់ក្រោយដូចមុន។"
+            "value": "បង្ហាប់ផ្នែកចាស់ៗនៃការជជែកវែងៗ។ ដំណើរការ cmux chats warm ដើម្បីត្រឡប់វិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "긴 채팅의 오래된 부분은 채팅이 길어질수록 디스크에서 압축됩니다. 아무것도 삭제되지 않으며 이전처럼 거슬러 올라가 볼 수 있습니다."
+            "value": "긴 채팅의 오래된 부분을 압축합니다. 되돌리려면 cmux chats warm을 실행하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eldre deler av en lang chat komprimeres på disken etter hvert som den vokser. Ingenting fjernes, og chatten kan rulles tilbake som før."
+            "value": "Komprimerer de eldre delene av lange chatter. Kjør cmux chats warm for å angre."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Starsze części długiego czatu są kompresowane na dysku w miarę jego wzrostu. Nic nie jest usuwane, a czat przewija się wstecz jak dotąd."
+            "value": "Kompresuje starsze części długich czatów. Uruchom cmux chats warm, aby cofnąć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As partes mais antigas de um chat longo são comprimidas no disco à medida que ele cresce. Nada é removido, e o chat rola para trás como antes."
+            "value": "Comprime as partes mais antigas de chats longos. Execute cmux chats warm para desfazer."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Более старые части длинного чата сжимаются на диске по мере его роста. Ничего не удаляется, и чат прокручивается назад, как раньше."
+            "value": "Сжимает старые части длинных чатов. Чтобы отменить, выполните cmux chats warm."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ส่วนที่เก่ากว่าของแชทที่ยาวจะถูกบีบอัดบนดิสก์เมื่อแชทเติบโตขึ้น ไม่มีสิ่งใดถูกลบ และเลื่อนย้อนกลับในแชทได้เหมือนเดิม"
+            "value": "บีบอัดส่วนที่เก่ากว่าของแชทที่ยาว เรียกใช้ cmux chats warm เพื่อเลิกทำ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uzun bir sohbetin eski bölümleri sohbet büyüdükçe diskte sıkıştırılır. Hiçbir şey silinmez ve sohbet eskisi gibi geriye kaydırılabilir."
+            "value": "Uzun sohbetlerin eski bölümlerini sıkıştırır. Geri almak için cmux chats warm komutunu çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Старіші частини довгого чату стискаються на диску в міру його зростання. Нічого не видаляється, і чат прокручується назад, як і раніше."
+            "value": "Стискає старіші частини довгих чатів. Щоб скасувати, виконайте cmux chats warm."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các phần cũ hơn của một cuộc trò chuyện dài được nén trên ổ đĩa khi nó lớn dần. Không có gì bị xóa và bạn vẫn cuộn ngược lại như trước."
+            "value": "Nén các phần cũ của những cuộc trò chuyện dài. Chạy cmux chats warm để hoàn tác."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "长聊天中较早的部分会随着聊天增长在磁盘上压缩。不会删除任何内容，聊天仍可像以前一样向上翻阅。"
+            "value": "压缩长聊天中较早的部分。运行 cmux chats warm 可撤销。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "長聊天中較早的部分會隨著聊天增長在磁碟上壓縮。不會刪除任何內容，聊天仍可像以前一樣向上捲動。"
+            "value": "壓縮長聊天中較早的部分。執行 cmux chats warm 可復原。"
           }
         }
       }
@@ -1061,127 +1061,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مستوى ضغط سجل الدردشة"
+            "value": "مستوى ضغط الدردشات الطويلة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nivo sažimanja historije razgovora"
+            "value": "Nivo sažimanja dugih razgovora"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Komprimeringsniveau for chathistorik"
+            "value": "Komprimeringsniveau for lange chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Komprimierungsstufe des Chatverlaufs"
+            "value": "Komprimierungsstufe für lange Chats"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat History Compression Level"
+            "value": "Long Chat Compression Level"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nivel de compresión del historial del chat"
+            "value": "Nivel de compresión de chats largos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niveau de compression de l'historique des discussions"
+            "value": "Niveau de compression des longues discussions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Livello di compressione della cronologia della chat"
+            "value": "Livello di compressione delle chat lunghe"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャット履歴の圧縮レベル"
+            "value": "長いチャットの圧縮レベル"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្រិតបង្ហាប់ប្រវត្តិជជែក"
+            "value": "កម្រិតបង្ហាប់ការជជែកវែងៗ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 기록 압축 수준"
+            "value": "긴 채팅 압축 수준"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Komprimeringsnivå for chatthistorikk"
+            "value": "Komprimeringsnivå for lange chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Poziom kompresji historii czatu"
+            "value": "Poziom kompresji długich czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nível de compressão do histórico do chat"
+            "value": "Nível de compressão de chats longos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Уровень сжатия истории чата"
+            "value": "Уровень сжатия длинных чатов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ระดับการบีบอัดประวัติแชท"
+            "value": "ระดับการบีบอัดแชทที่ยาว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbet geçmişi sıkıştırma düzeyi"
+            "value": "Uzun sohbet sıkıştırma düzeyi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Рівень стиснення історії чату"
+            "value": "Рівень стиснення довгих чатів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mức nén lịch sử trò chuyện"
+            "value": "Mức nén cuộc trò chuyện dài"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "聊天记录压缩级别"
+            "value": "长聊天压缩级别"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "聊天記錄壓縮等級"
+            "value": "長聊天壓縮等級"
           }
         }
       }

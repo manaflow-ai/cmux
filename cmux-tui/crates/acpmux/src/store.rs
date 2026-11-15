@@ -23,7 +23,7 @@ pub use deferred::{Deferral, Keep};
 mod cold;
 pub(crate) mod cold_segments;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
-pub use cold_segments::{ColdMoved, SealHook, StagedColdSegments};
+pub use cold_segments::{ColdMoved, ColdWarmed, SealHook, StagedColdSegments};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
@@ -1485,6 +1485,11 @@ pub trait Store: Send + Sync {
     fn settle_cold_segments(&self, _id: &str) -> Result<()> {
         Ok(())
     }
+    /// Brings every cold segment of `id` back to a plain `.ndjson`, each checked against its
+    /// index's SHA-256 before it goes in place (`store/cold_segments.rs`, `cmux chats warm`).
+    fn warm_cold_segments(&self, _id: &str) -> Result<ColdWarmed> {
+        Ok(ColdWarmed::default())
+    }
     /// Called with a chat's id when its log seals a segment (rolls over to the next), under the
     /// store's writers' lock: it may only note the id and wake a worker. Set once.
     fn on_segment_sealed(&self, _hook: SealHook) {}
@@ -1891,7 +1896,7 @@ impl LocalStore {
         // #37020). A log whose only segment it is goes on in `000001`.
         // Nor a cold segment's archive (`store/cold_segments.rs`): the log goes on in the next.
         let (index, path) = match segs.last().filter(|(i, _)| *i > 0) {
-            Some((i, p)) if cold_segments::is_cold(p) => {
+            Some((i, p)) if cold_segments::is_cold(p) || p.extension().is_some() => {
                 (i + 1, dir.join(format!("{:06}.ndjson", i + 1)))
             }
             Some((i, p)) => (*i, p.clone()),
@@ -2572,6 +2577,10 @@ impl Store for LocalStore {
 
     fn settle_cold_segments(&self, id: &str) -> Result<()> {
         LocalStore::settle_cold_segments(self, id)
+    }
+
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        LocalStore::warm_cold_segments(self, id)
     }
 
     fn on_segment_sealed(&self, hook: SealHook) {

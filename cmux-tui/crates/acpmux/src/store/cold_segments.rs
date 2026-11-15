@@ -179,7 +179,23 @@ impl Seek for SegmentFile {
 /// segment only after).
 pub(crate) fn open_segment(path: &Path) -> Result<SegmentFile> {
     if is_cold(path) {
-        return Ok(SegmentFile::Cold(Box::new(ColdFile::open(path)?)));
+        return match ColdFile::open(path) {
+            Ok(cold) => Ok(SegmentFile::Cold(Box::new(cold))),
+            // Warmed since it was listed (`cmux chats warm`): its `.ndjson` is in place before its
+            // index and archive go, so it is the segment now.
+            Err(e) => match session_and_index(path) {
+                Some((session, index))
+                    if index == u32::MAX
+                        && crate::home_fs::try_exists_nofollow(ndjson_path(session, index))
+                            .unwrap_or(false) =>
+                {
+                    Ok(SegmentFile::Local(crate::config::private_state_file(&ndjson_path(
+                        session, index,
+                    ))?))
+                }
+                _ => Err(e),
+            },
+        };
     }
     match crate::config::private_state_file(path) {
         Ok(file) => Ok(SegmentFile::Local(file)),
@@ -398,6 +414,12 @@ pub(crate) enum Step {
     Committed,
     /// The `.ndjson` is removed; `events/` not synced since.
     Removed,
+    /// A warm: the decoded segment is written under its temporary name, not yet checked.
+    WarmWritten,
+    /// A warm: the `.ndjson` is in place beside its index and archive.
+    WarmPlaced,
+    /// A warm: the index is removed (committed); the archive is still there.
+    WarmCommitted,
 }
 
 #[cfg(test)]
@@ -501,6 +523,21 @@ impl Drop for StagedColdSegments {
             let _ = crate::home_fs::remove_file(tmp);
         }
     }
+}
+
+/// What a warm brought back ([`LocalStore::warm_cold_segments`]).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ColdWarmed {
+    /// Segments that are plain `.ndjson` again.
+    pub segments: u64,
+    /// Their raw bytes, and what their archives took.
+    pub raw: u64,
+    pub comp: u64,
+    /// Segments left cold, each with why: an archive that does not decode to its index, or a
+    /// write that failed. Each stays as it was, readable or a clear error, never removed.
+    pub left: Vec<(u32, String)>,
+    /// The chat is archived whole (`store/cold.rs`): opening it brings its log back first.
+    pub archived_whole: bool,
 }
 
 /// What a commit put in place.
@@ -618,6 +655,66 @@ fn write_archive(src: &Path, dst: &Path, level: i32) -> Result<(PathBuf, Index, 
 
 fn drop_cache_of(file: &File) {
     compact::drop_cache(file);
+}
+
+/// Decodes cold segment `index` of `session` into a temporary file beside its index, checks it
+/// against the index's length and SHA-256, and syncs it. On an error nothing is left (unless a
+/// test crashed it). The temporary name holds `.cold.idx` and `.tmp-`, so a settle removes it.
+fn write_warm(session: &Path, index: u32) -> Result<(PathBuf, Index)> {
+    let doc = read_index(session, index)?;
+    let zst = zst_path(session, index);
+    let tmp = tmp_of(&session.join("events").join(format!("{index:06}{IDX_SUFFIX}.warm")));
+    #[cfg_attr(not(test), allow(unused_mut))]
+    let mut crashed = false;
+    let written = (|| -> Result<()> {
+        let mut archive = crate::config::private_state_file(&zst)
+            .with_context(|| format!("open cold segment {}", zst.display()))?;
+        let mut out = Out {
+            file: open_private_append(&tmp)?,
+            #[cfg(test)]
+            left: DISK_FULL_AFTER.with(std::cell::Cell::get),
+        };
+        let mut hash = Sha256::new();
+        let mut raw = 0u64;
+        for (i, chunk) in doc.chunks.iter().enumerate() {
+            anyhow::ensure!(
+                chunk[0] == raw,
+                "chunk {i} starts at {} where {raw} was due",
+                chunk[0]
+            );
+            let bytes = decode_chunk(&mut archive, chunk).with_context(|| {
+                format!("cold segment {} is damaged at chunk {i}", zst.display())
+            })?;
+            hash.update(&bytes);
+            raw += bytes.len() as u64;
+            out.write_all(&bytes)?;
+        }
+        out.flush()?;
+        drop(out);
+        drop_cache_of(&archive);
+        #[cfg(test)]
+        if crash_after(Step::WarmWritten) {
+            crashed = true;
+            return Err(Crash.into());
+        }
+        anyhow::ensure!(
+            raw == doc.raw_len && hex(&hash.finalize()) == doc.sha256,
+            "cold segment {} does not decode to its segment's bytes",
+            zst.display()
+        );
+        let synced = crate::config::private_state_file(&tmp)?;
+        anyhow::ensure!(synced.metadata()?.len() == raw, "{} was cut short", tmp.display());
+        synced.sync_all().map_err(SyncFailed)?;
+        drop_cache_of(&synced);
+        Ok(())
+    })();
+    match written {
+        Ok(()) => Ok((tmp, doc)),
+        Err(e) => {
+            let _ = (crashed, &tmp);
+            Err(e)
+        }
+    }
 }
 
 impl LocalStore {
@@ -876,6 +973,82 @@ impl LocalStore {
             sync_directory(&cold_dir)?;
         }
         Ok(())
+    }
+
+    /// Brings every cold segment of `id` back to a plain `.ndjson` (`cmux chats warm`), oldest
+    /// first, each its own commit; the reverse of a move, with the same care:
+    /// 1. the archive is decoded into a temporary file beside the index, checked against the
+    ///    index's length and SHA-256, and synced (no lock held);
+    /// 2. under the writers' lock, and only while the index is there and no `.ndjson` is: the
+    ///    file is renamed to `NNNNNN.ndjson` and `events/` synced. The listing reads the
+    ///    `.ndjson` from here on, and a crash here leaves the state a move's crash after its
+    ///    commit leaves, which a settle finishes losslessly (the segment goes cold again; a
+    ///    second warm brings it back);
+    /// 3. the index is removed and `events/` synced (the commit point): a crash after it leaves an
+    ///    archive with no index beside its segment, which a settle removes;
+    /// 4. the archive is removed and `cold-segments/` synced.
+    ///
+    /// A segment whose archive does not decode to its index, or whose write fails (a full disk),
+    /// stays cold as it was and is named in [`ColdWarmed::left`]; the others go on. Refused once
+    /// the store is sealed.
+    pub(super) fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        let mut warmed = ColdWarmed::default();
+        if self.is_cold(id) {
+            warmed.archived_whole = true;
+            return Ok(warmed);
+        }
+        self.settle_cold_segments(id)?;
+        let session = self.dir(id);
+        let events = session.join("events");
+        let cold_dir = session.join(COLD_DIR);
+        let (segments, _) = self.listed_files(id)?;
+        for (index, path) in segments {
+            if !is_cold(&path) {
+                continue;
+            }
+            let _sealed = self.unsealed(id)?;
+            let (tmp, doc) = match write_warm(&session, index) {
+                Ok(written) => written,
+                Err(e) if e.is::<Crash>() => return Err(e),
+                Err(e) => return Err(e),
+            };
+            let idx = idx_path(&session, index);
+            let src = ndjson_path(&session, index);
+            {
+                let _writers = self.writers.lock_or_recover();
+                let placeable = crate::home_fs::try_exists_nofollow(&idx)?
+                    && !crate::home_fs::try_exists_nofollow(&src)?;
+                if !placeable {
+                    let _ = crate::home_fs::remove_file(&tmp);
+                    continue;
+                }
+                crate::home_fs::remove_file(&idx)?;
+                sync_directory(&events)?;
+                #[cfg(test)]
+                if crash_after(Step::WarmPlaced) {
+                    return Err(Crash.into());
+                }
+                crate::home_fs::rename(&tmp, &src)?;
+                // The commit point: the segment is plain from here on.
+                sync_directory(&events)?;
+            }
+            #[cfg(test)]
+            if crash_after(Step::WarmCommitted) {
+                return Err(Crash.into());
+            }
+            crate::home_fs::remove_file(zst_path(&session, index))?;
+            sync_directory(&cold_dir)?;
+            warmed.segments += 1;
+            warmed.raw += doc.raw_len;
+            warmed.comp += doc.comp_len;
+            tracing::info!(session = %id, index, raw = doc.raw_len, "a cold log segment is plain again");
+        }
+        // An empty `cold-segments/` goes; one that still holds an archive (left cold, or set
+        // aside by a settle) stays.
+        if crate::home_fs::read_dir(&cold_dir).is_ok_and(|entries| entries.is_empty()) {
+            let _ = crate::home_fs::remove_dir(&cold_dir);
+        }
+        Ok(warmed)
     }
 
     /// Calls the seal hook (`append_line`, as a segment rolls over).

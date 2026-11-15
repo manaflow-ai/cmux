@@ -162,6 +162,74 @@ impl Hub {
         Ok((moved, more))
     }
 
+    /// `cmux chats warm` (`_acpmux/chats_warm`): every cold segment of `only`, or of every chat,
+    /// back to a plain `.ndjson` (`LocalStore::warm_cold_segments`), each chat under its append
+    /// lock as a move's commit is. Refused while the setting is on: the worker would compress them
+    /// again. What it brought back, what it left cold and why, and the chats it skipped.
+    pub(crate) fn warm_cold_segments(&self, only: Option<&str>) -> anyhow::Result<Value> {
+        #[cfg(test)]
+        let level = self
+            .cold_segments_level
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(level_now);
+        #[cfg(not(test))]
+        let level = level_now();
+        anyhow::ensure!(
+            level.is_none() || level.is_some(),
+            "{SETTING_ON} is on, so its worker would compress them again: turn it off first \
+             (`cmux settings set {SETTING_ON} false`), then run `cmux chats warm` again"
+        );
+        // A chat this daemon has not loaded is warmed from its files all the same.
+        let ids: Vec<String> = match only {
+            Some(id) => vec![id.to_owned()],
+            None => self.sessions().into_iter().map(|s| s.id.clone()).collect(),
+        };
+        let (mut chats, mut segments, mut raw, mut comp) = (0u64, 0u64, 0u64, 0u64);
+        let (mut left, mut skipped) = (Vec::new(), Vec::new());
+        for id in ids {
+            let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned();
+            let warmed = match session.as_deref() {
+                Some(session) => {
+                    let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+                    if !self.cold_segments_movable(session) {
+                        skipped.push(json!({"chat": id, "reason": "busy: moving, restoring, importing or purged; try again"}));
+                        continue;
+                    }
+                    self.store.warm_cold_segments(&id)
+                }
+                None => self.store.warm_cold_segments(&id),
+            };
+            let warmed = match warmed {
+                Ok(warmed) => warmed,
+                Err(e) => {
+                    left.push(json!({"chat": id, "error": format!("{e:#}")}));
+                    continue;
+                }
+            };
+            if warmed.archived_whole {
+                skipped.push(json!({"chat": id, "reason": "compressed whole by Compress Old Chats: open it, then warm it"}));
+            }
+            if warmed.segments > 0 {
+                chats += 1;
+            }
+            segments += warmed.segments;
+            raw += warmed.raw;
+            comp += warmed.comp;
+            for (segment, error) in warmed.left {
+                left.push(json!({"chat": id, "segment": segment, "error": error}));
+            }
+        }
+        Ok(json!({
+            "chats": chats,
+            "segments": segments,
+            "rawBytes": raw,
+            "compressedBytes": comp,
+            "left": left,
+            "skipped": skipped,
+        }))
+    }
+
     /// Whether nothing reads or replaces `session`'s files as files now.
     fn cold_segments_movable(&self, session: &Session) -> bool {
         !session.purged.load(Ordering::SeqCst)

@@ -776,6 +776,9 @@ impl Store for ForkView {
     fn settle_cold_segments(&self, id: &str) -> Result<()> {
         self.inner.settle_cold_segments(id)
     }
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        self.inner.warm_cold_segments(id)
+    }
     fn on_segment_sealed(&self, hook: SealHook) {
         self.inner.on_segment_sealed(hook)
     }

@@ -162,3 +162,45 @@ fn a_fork_reads_its_history_while_the_chat_goes_cold() {
     assert_eq!(hot_sealed(&sessions, "parent"), 0);
     assert_eq!(all(hub.store.as_ref(), "fork"), before, "the fork after");
 }
+
+/// `cmux chats warm`: refused while the setting is on (the worker would compress them again),
+/// and with it off every cold segment of the chat is plain again, the chat and its fork reading
+/// as before.
+#[test]
+fn warm_is_refused_while_the_setting_is_on_and_brings_a_chat_back_with_it_off() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let writer = LocalStore::new(sessions.clone(), SEGMENT).unwrap();
+    writer.save(&meta("parent")).unwrap();
+    for seq in 1..=1500 {
+        writer.append("parent", &record(seq)).unwrap();
+    }
+    writer.flush().unwrap();
+    drop(writer);
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), SEGMENT).unwrap()));
+    let mut fork = meta("fork");
+    fork.history_from = Some(HistoryRef { session: "parent".into(), through_seq: 1400 });
+    hub.store.save(&fork).unwrap();
+    let before = (all(hub.store.as_ref(), "parent"), all(hub.store.as_ref(), "fork"));
+    loop {
+        let (_, more) = hub.cold_segments_of("parent", Some(3)).unwrap();
+        if !more {
+            break;
+        }
+    }
+    let moved = cold(&sessions, "parent");
+    assert!(moved > 4, "{moved}");
+
+    *hub.cold_segments_level.lock().unwrap() = Some(Some(3));
+    let refused = hub.warm_cold_segments(Some("parent")).expect_err("the setting is on");
+    assert!(format!("{refused:#}").contains("agents.chats.coldSegments"), "{refused:#}");
+    assert_eq!(cold(&sessions, "parent"), moved, "nothing changed");
+
+    *hub.cold_segments_level.lock().unwrap() = Some(None);
+    let warmed = hub.warm_cold_segments(Some("parent")).unwrap();
+    assert_eq!(warmed["segments"], json!(moved), "{warmed}");
+    assert_eq!(warmed["left"], json!([]), "{warmed}");
+    assert_eq!(cold(&sessions, "parent"), 0);
+    assert!(!sessions.join("parent").join("cold-segments").exists());
+    assert_eq!((all(hub.store.as_ref(), "parent"), all(hub.store.as_ref(), "fork")), before);
+}
