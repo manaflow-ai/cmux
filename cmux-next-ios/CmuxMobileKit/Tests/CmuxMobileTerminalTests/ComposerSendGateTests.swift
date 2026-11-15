@@ -65,3 +65,22 @@ import Foundation
     }
 }
 #endif
+
+#if os(iOS)
+/// Codex review of #41898 (F3): a refusal that comes inside `send` itself (the hold was full
+/// or already dropped) leaves the composer's text where it was.
+@MainActor
+@Suite struct ComposerRefusedInSendTests {
+    @Test func aRefusalDuringSendKeepsTheText() {
+        let model = TerminalModel(session: ComposerHeldSendTests.StubSession(), artifactSource: MockArtifactSource(), title: "held")
+        model.ingest(.connection(.reattaching(mac: "mini")))
+        model.composerText = "make test"
+        model.heldComposerSend = ("make test", ProcessInfo.processInfo.systemUptime)
+        // What the session says while `send` hands it the text.
+        model.ingest(.inputNotSent(bytes: 10))
+        #expect(model.composerSendRefused)
+        #expect(model.composerText == "make test")
+        #expect(model.composerNotice == TerminalConnectionState.inputNotSentNotice)
+    }
+}
+#endif

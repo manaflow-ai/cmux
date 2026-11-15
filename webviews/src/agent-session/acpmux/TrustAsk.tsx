@@ -44,7 +44,8 @@ export function TrustAsk({
   const { folder, repo } = subject;
   const recovery = ask.state === "decided" && ask.level === "untrusted" && answers && !!onContinueWithoutFolder;
   const asking = ask.state === "ask" || ask.state === "failed";
-  // Why the last save failed, as the host said it: a refusal that can never pass reads as one.
+  // Why the last save failed, in the pane's own words (useFolderTrustAsk `failedAsk`): a refusal
+  // that can never pass reads as one. The host's raw text never shows here.
   const failedReason = ask.state === "failed" ? ask.reason : undefined;
   // The repository is offered whole only when the pane can record it (`onTrustRepo`).
   const offersRepo = Boolean(repo && onTrustRepo && !owned);

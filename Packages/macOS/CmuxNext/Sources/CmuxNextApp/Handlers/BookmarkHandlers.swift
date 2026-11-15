@@ -70,7 +70,7 @@ enum BookmarkHandlers {
             services.bookmarks.setBarShown(shown)
             guard let settings = services.settings else { return }
             services.registry.track(Task { @MainActor in
-                do { try await settings.setShowBookmarksBar(shown) } catch { return ActionWorkFailure(String(describing: error)) }
+                do { try await settings.setShowBookmarksBar(shown) } catch { return ActionWorkFailure(log: String(describing: error)) }
                 return nil
             })
         })

@@ -115,6 +115,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `POST /v1/sessions` | `{hostId, scope}` | `{session:{id, state, scope}}` | From the viewer. See flow. |
 | `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min: the server ends them (`session.revoked`, reason `expired`) without waiting for a decision. If setting up the approved session fails, it ends with `approve_failed` and the call returns 500. |
 | `POST /v1/sessions/:id/end` | `{reason}` | `{}` | Either side; idempotent. Pushes `session.revoked`. Without `reason`: `host_stopped` from the host, `viewer_disconnected` from the viewer. |
+| `POST /v1/sessions/:id/reattach` | `{}` | `{session, ticket}` | Viewer only. Re-admits the original viewer/host pair while `approved`/`live`, with the stored scope capped by current permission; returns a 30 s viewer ticket and pushes matching 30 s tickets to both devices. It cannot revive an ended session or broaden access. |
 | `POST /v1/sessions/:id/ice` | | `{ice:[…]}` | Fresh cmux relay credentials while `approved`/`live` (checked against cmux billing on every call; else `[]`); otherwise 409 `session_not_active`. |
 | `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
@@ -195,6 +196,8 @@ to each host), so a change made while it was away never leaves an old value.
    signing keys to the Session DO when it creates it, so the Session DO
    verifies the JWS, `exp`, `sid`, `dev` = `X-Device-Id` = the role's device,
    the device signature, and burns `jti` (SQLite). At most one socket per role.
+   A reattach ticket additionally carries `reattach:true`, expires after 30 s,
+   and may replace an existing socket only for the same device.
    Failures, before the upgrade: 401 `ticket_invalid` (bad, expired or other
    session), 403 `ticket_invalid` (other device), 401 `bad_signature` /
    `stale_timestamp`, 401 `replay` (used `jti`), 409 `role_taken`, 404
@@ -225,6 +228,13 @@ to each host), so a change made while it was away never leaves an old value.
    authoritative end follows (a client often sends `bye` and then `/end`), its
    reason wins; otherwise the session ends with reason `bye` (audit `ended`
    with duration, push `session.ended` to both).
+   When a live stream loses its media path, the viewer closes its signaling
+   socket without `bye`, calls `POST /v1/sessions/:id/reattach` after the
+   1/2/4/8/16/30 s backoff, and uses the returned viewer ticket. The hub also
+   pushes the matching host ticket, so the Mac can serve the same session
+   again. This path checks the original viewer device, host device, saved
+   scope, current permission, sharing switch and host online state; its tickets
+   expire after 30 s.
 7. Revocation: removing a device, lowering a permission, turning sharing off,
    signing out, or ending from either side pushes `session.revoked` to both
    devices, closes the signaling sockets with code 4002 and audits `ended`

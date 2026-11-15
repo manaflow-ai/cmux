@@ -911,6 +911,14 @@ button.acpmux-session-info-port:hover,
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* A note about the row above it starts on that row's label column (past its inset, icon box and gap)
+   and wraps, so a long refusal never runs past the panel's edge. */
+.acpmux-session-info-note--label {
+  margin-top: -4px;
+  padding-left: calc(var(--grid-gap) * 2 + var(--grid-icon-box));
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .acpmux-session-info-link {
   padding: 0 2px;
   border: 0;
@@ -947,7 +955,7 @@ button.acpmux-session-info-port:hover,
   height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: var(--agent-muted);
 }

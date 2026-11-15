@@ -179,7 +179,7 @@ final class ChiefPetMascotCell: NSButton {
     nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        layer?.cornerRadius = Metrics.buttonCornerRadius
         hover.refresh(animated: false)
     }
 

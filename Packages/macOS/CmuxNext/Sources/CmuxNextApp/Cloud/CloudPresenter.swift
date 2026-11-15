@@ -13,34 +13,30 @@ import os
 /// with no window a result is only logged and a question answers cancel.
 enum CloudPresenter {
     static let resultToastID = "cloud-result"
+    /// A failure's own toast: a later success replaces the last success, never the failure.
+    static let failureToastID = "cloud-result.failure"
 
     /// Shows a result as a toast: the title and the body's first line (the
     /// whole body when it is one short line). `copyable` text gets a Copy
-    /// action that copies the whole body, and the toast stays 12 s.
-    static func show(_ title: String, _ body: String, copyable: Bool = false, in window: NSWindow?) {
-        guard let window else {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info("cloud result with no window: \(title, privacy: .public)")
-            return
-        }
+    /// action that copies the whole body, and the toast stays 12 s; a `failed` one has its own id.
+    static func show(_ title: String, _ body: String, copyable: Bool = false, failed: Bool = false, in window: NSWindow?) {
         let message = body.isEmpty ? title : CloudStrings.result(title, summary(body))
-        let toast = CmuxToast(id: resultToastID, message: message, action: copyable ? CmuxToast.Action(title: CloudStrings.copy) : nil,
-                              duration: .seconds(copyable ? 12 : 6))
-        let handle = CmuxToastCenter.shared.show(toast, in: window)
-        handle.onAction = { copy(body) }
+        present(CmuxToast(id: failed ? failureToastID : resultToastID, message: message, action: copyable ? CmuxToast.Action(title: CloudStrings.copy) : nil,
+                          duration: .seconds(copyable ? 12 : 6)), title: title, copying: body, in: window)
     }
 
     /// Shows a report as a toast: the title and `summary`, with a Copy
     /// details action that copies `details` (the raw report) and only on a
     /// click; the toast stays 12 s.
     static func show(_ title: String, summary: String, details: String, in window: NSWindow?) {
-        guard let window else {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info("cloud result with no window: \(title, privacy: .public)")
-            return
-        }
-        let toast = CmuxToast(id: resultToastID, message: CloudStrings.result(title, summary),
-                              action: CmuxToast.Action(title: CloudStrings.copyDetails), duration: .seconds(12))
-        let handle = CmuxToastCenter.shared.show(toast, in: window)
-        handle.onAction = { copy(details) }
+        present(CmuxToast(id: resultToastID, message: CloudStrings.result(title, summary),
+                          action: CmuxToast.Action(title: CloudStrings.copyDetails), duration: .seconds(12)), title: title, copying: details, in: window)
+    }
+
+    /// Shows `toast` in `window` (its action copies `text`); with no window it is only logged.
+    private static func present(_ toast: CmuxToast, title: String, copying text: String, in window: NSWindow?) {
+        guard let window else { return Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info("cloud result with no window: \(title, privacy: .public)") }
+        CmuxToastCenter.shared.show(toast, in: window).onAction = { copy(text) }
     }
 
     /// One short line: the body itself, else its first non-empty line with "…".
@@ -53,7 +49,7 @@ enum CloudPresenter {
 
     /// An error, copyable (the whole text goes to the clipboard on Copy).
     static func failure(_ error: any Error, in window: NSWindow?) {
-        show(CloudStrings.failedTitle, CloudStrings.errorText(error), copyable: true, in: window)
+        show(CloudStrings.failedTitle, CloudStrings.errorText(error), copyable: true, failed: true, in: window)
     }
 
     /// The money confirmation of a machine create: only the person answers

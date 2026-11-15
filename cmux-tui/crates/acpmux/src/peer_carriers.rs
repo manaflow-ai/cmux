@@ -31,6 +31,10 @@ pub(super) const STAGGER: Duration = Duration::from_millis(250);
 /// The longest a probe's dial may take (a dead path's connect is cut off well before the
 /// link's own connect deadline; it is probed again on its recovery backoff).
 const PROBE_CONNECT: Duration = Duration::from_secs(10);
+/// A route that already carried this peer must get a fresh attempt after a
+/// freeze. Bound its transport dial and WebSocket upgrade together; the cold
+/// connect budget still accommodates a first handshake or a slow ssh login.
+const DIRECT_REDIAL_CONNECT: Duration = Duration::from_secs(4);
 
 pub(crate) trait Duplex: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Duplex for T {}
@@ -279,6 +283,16 @@ impl Peer {
         let _ = self.last_good.set(book);
     }
 
+    /// Preparation may run concurrently; the registered peer owns token writes.
+    /// This only sets an atomic generation, so registration does no file I/O.
+    pub(crate) fn activate_read_tokens(&self) {
+        self.read_tokens.activate();
+    }
+
+    pub(crate) fn persist_read_tokens(&self) {
+        self.read_tokens.persist();
+    }
+
     /// The paths this peer has, before any is dialed.
     pub(super) fn path_vias(&self) -> Vec<Via> {
         let mut vias: Vec<Via> =
@@ -517,9 +531,16 @@ impl Peer {
             .await
             .map_err(|e| e.to_string())
         };
-        let (ws, _) = tokio::time::timeout(self.timings.connect, opening)
+        let deadline = if self.linked_once.load(Ordering::SeqCst)
+            && matches!(via, Via::Wireguard | Via::Link)
+        {
+            self.timings.connect.min(DIRECT_REDIAL_CONNECT)
+        } else {
+            self.timings.connect
+        };
+        let (ws, _) = tokio::time::timeout(deadline, opening)
             .await
-            .map_err(|_| connect_timed_out(self.timings.connect))??;
+            .map_err(|_| connect_timed_out(deadline))??;
         Ok(Opened {
             ws: OpenedWs::Boxed(Box::new(ws)),
             heard,

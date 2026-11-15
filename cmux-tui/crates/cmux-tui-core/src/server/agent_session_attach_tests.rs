@@ -182,6 +182,9 @@ pub(super) struct Fixture {
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
     /// When set, each prompt's acceptance comes this long after the prompt (a cold chat's).
     pub(super) accept_after: Option<Duration>,
+    /// When set, each prompt is refused with this error `data` and never accepted, as acpmux's
+    /// remote guard refuses one (`remote_guard::web_starts_asking`).
+    pub(super) prompt_refusal: Option<Value>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
     /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
@@ -507,6 +510,10 @@ fn serve(
                 }
                 reply
             }
+            "session/prompt" if fixture.prompt_refusal.is_some() => Some(json!({
+                FAKE_ERROR: "a remote device cannot control this chat",
+                FAKE_ERROR_DATA: fixture.prompt_refusal.clone(),
+            })),
             "session/prompt" => {
                 if let Some(gate) = &fixture.prompt_gate {
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
@@ -1212,6 +1219,36 @@ fn a_prompt_acpmux_accepts_after_a_cold_start_is_sent_not_timed_out() {
 }
 
 #[test]
+fn a_prompt_acpmux_refuses_is_refused_at_once_with_its_reason_not_timed_out() {
+    // HQ run 43626610988's phone-start row: acpmux answered the phone's `session/prompt` with an
+    // error and never accepted it, and the phone heard `agent_session.timeout` 30 s later.
+    let fixture = Fixture {
+        prompt_refusal: Some(json!({"reason": "remote.local_claude_session"})),
+        ..Fixture::default()
+    };
+    let fake = FakeAcpmux::start_with("prompt-refused", fixture);
+    let mux = mux_with(&fake, "asa-prompt-refused");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "prompt-refused");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let id = client.send(json!({"cmd":"agent-session-prompt","surface":surface,
+                                "prompt_id":"prompt-refused","text":"hello"}));
+    assert!(WAIT < agent_session_attach::PROMPT_ACCEPT_TIMEOUT);
+    let reply = client.answer_within(id, WAIT);
+    assert_code(&reply, "agent_session.refused");
+    assert_eq!(reply["data"]["reason"], json!("remote.local_claude_session"), "{reply}");
+    assert!(
+        reply["error"].as_str().is_some_and(|text| text.contains("remote.local_claude_session")),
+        "{reply}"
+    );
+    // The same prompt id may be sent again: the refused one holds no slot.
+    let again = client.send(json!({"cmd":"agent-session-prompt","surface":surface,
+                                   "prompt_id":"prompt-refused","text":"hello"}));
+    assert_code(&client.answer_within(again, WAIT), "agent_session.refused");
+}
+
+#[test]
 fn a_content_prompt_preserves_order_bytes_and_pasted_metadata_on_the_pinned_session() {
     let fake = FakeAcpmux::start("prompt-content");
     let mux = mux_with(&fake, "asa-prompt-content");
@@ -1578,6 +1615,13 @@ fn typing_and_view_go_to_the_pinned_session_and_presence_streams_back() {
             json!({"cmd":"agent-session-view","surface":surface,"visible":false}),
             "_acpmux/view",
             json!({"sessionId": SESSION, "visible": false}),
+        ),
+        // The person away from the chat on screen (agent-session-attention-v1): acpmux keeps its
+        // turns unread, left off at the seq of their last input.
+        (
+            json!({"cmd":"agent-session-view","surface":surface,"visible":true,"attending":false,"seen_seq":41}),
+            "_acpmux/view",
+            json!({"sessionId": SESSION, "visible": true, "attending": false, "seenSeq": 41}),
         ),
     ] {
         let reply = client.request(frame);

@@ -8,6 +8,7 @@ import { usePaneLanguage, useT } from "../../i18n";
 import type { AcpmuxRow } from "../../model";
 import { planDone, type SessionInfoPlan } from "../progressSectionModel";
 import { postNative } from "../../native";
+import { screenSharingKind, useScreenSharing } from "../screenSharing";
 import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
 import { useNow } from "../../subagents/subagentGroupModel";
@@ -46,6 +47,7 @@ import {
 } from "./model";
 import { outputsSection } from "./outputs";
 import { useNativeOverlayReport } from "./overlays";
+import { useNativePinchReport } from "./pinch";
 import { panelAction } from "./panelActions";
 import { usageSection } from "./usage";
 import type { AccessGrant } from "../EnvironmentSection";
@@ -195,6 +197,10 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const language = usePaneLanguage();
   const state = useSessionInfoState();
   const { shown, summary, onShowUsage } = props;
+  const screenSharing = useScreenSharing(
+    summary?.sessionId,
+    screenSharingKind(chatMachine(summary, props.machineName, props.peerKinds, props.place)),
+  );
   const imessage = useIMessage(shown);
   const imessageStatus = imessage?.data.status;
   useEffect(() => {
@@ -361,6 +367,9 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           pendingCloudRepos: cloud.pendingRepos,
           onOpenFolder: props.onOpenFolder,
           onOpenUrl: props.onOpenUrl,
+          onShareScreen: screenSharing.run,
+          screenShareKind: screenSharing.kind,
+          screenShareNote: screenSharing.note,
         },
         actions,
         t,
@@ -571,6 +580,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   };
   // The page's popups over the App's panel: it steps behind them (overlays.ts).
   useNativeOverlayReport(info.open);
+  // The page's trackpad pinch: the App's panel zooms and pans with it (pinch.ts).
+  useNativePinchReport(info.open);
   usePostSessionInfo(info, actions, () => {
     if (props.revealed) props.onRevealed?.();
     else setLocalReveal(undefined);

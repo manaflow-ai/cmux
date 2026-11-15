@@ -9,7 +9,7 @@ import Testing
     let t0 = ContinuousClock.now
 
     private func shown() -> Debounce {
-        var claim = Debounce(delay: .seconds(1), backgroundDelay: .seconds(300))
+        var claim = Debounce(delay: .seconds(1))
         claim.pageShown = true
         _ = claim.update(at: t0)
         return claim
@@ -39,48 +39,70 @@ import Testing
         #expect(claim.update(at: t0.advanced(by: .seconds(2))).claims == nil)
     }
 
-    /// Leo, 2026-11-12: an app switch, the lock screen or a link blip must
-    /// not move the Mac's PTY. The background keeps the claim for the grace.
-    @Test func theBackgroundKeepsTheClaimForTheGrace() {
+    /// Leo, 2026-11-14: "we want to bring back the 45 f***ing seconds". The
+    /// background keeps the claim for 45 s, then releases.
+    @Test func theBackgroundKeepsTheClaimFor45Seconds() {
         var claim = shown()
         claim.appActive = false
         let away = claim.update(at: t0)
-        #expect(away.claims == nil, "released at once: the Mac's PTY grows and the phone redraws twice")
-        #expect(away.recheck == t0.advanced(by: .seconds(300)))
-        #expect(claim.update(at: t0.advanced(by: .seconds(299))).claims == nil)
-        #expect(claim.claims)
-        #expect(claim.update(at: t0.advanced(by: .seconds(300))).claims == false)
+        #expect(away.claims == nil, "released at once: coming back inside 45 s would resize the Mac twice")
+        #expect(away.recheck == t0.advanced(by: .seconds(45)))
+        #expect(claim.update(at: t0.advanced(by: .seconds(44))).claims == nil)
+        #expect(claim.update(at: t0.advanced(by: .seconds(45))).claims == false)
+        #expect(!claim.claims)
     }
 
-    /// Background then foreground (an app switch, lock and unlock): nothing
-    /// is ever sent, so the Mac never resizes the PTY.
-    @Test func backgroundThenForegroundSendsNothing() {
+    /// An app switch, or a lock and unlock, inside 45 s: nothing is sent, so
+    /// the Mac's pane never resizes and the page never reflows.
+    @Test func comingBackInside45SecondsSendsNothing() {
         var claim = shown()
         var sent: [Bool] = []
-        for (step, active) in [(1, false), (40, true), (60, false), (200, true)] {
+        for (step, active) in [(1, false), (40, true), (41, false), (42, true)] {
             claim.appActive = active
             if let change = claim.update(at: t0.advanced(by: .seconds(step))).claims { sent.append(change) }
         }
         #expect(sent.isEmpty)
         #expect(claim.claims)
+        #expect(claim.releaseAt == nil)
     }
 
-    @Test func aPageThatLeftStillReleasesAfterTheShortDelayInTheBackground() {
+    /// A suspended app runs no timer: coming back after the grace finds the
+    /// release overdue. It goes out first (the Mac's lease ended anyway),
+    /// then the claim, so the Mac takes the phone's size again.
+    @Test func comingBackAfterTheGraceReleasesThenClaims() {
+        var claim = shown()
+        claim.appActive = false
+        _ = claim.update(at: t0)
+        claim.appActive = true
+        let back = claim.update(at: t0.advanced(by: .seconds(60)))
+        #expect(back.claims == false)
+        #expect(back.recheck == t0.advanced(by: .seconds(60)))
+        #expect(claim.update(at: t0.advanced(by: .seconds(60))).claims == true)
+        #expect(claim.claims)
+    }
+
+    @Test func aBackgroundDuringAPendingReleaseKeepsItsEarlierDeadline() {
         var claim = shown()
         claim.pageShown = false
         _ = claim.update(at: t0)
         claim.appActive = false
-        #expect(claim.update(at: t0.advanced(by: .milliseconds(100))).claims == nil)
+        let away = claim.update(at: t0.advanced(by: .milliseconds(100)))
+        #expect(away.claims == nil)
+        #expect(away.recheck == t0.advanced(by: .seconds(1)))
         #expect(claim.update(at: t0.advanced(by: .seconds(1))).claims == false)
     }
 
-    @Test func thePageLeavingDuringTheBackgroundGraceTakesTheShortDelay() {
+    /// Back in the app inside the grace, then on another tab: the page's own
+    /// 1 s, not what was left of the 45 s.
+    @Test func leavingThePageAfterTheForegroundTakesThePageDelay() {
         var claim = shown()
         claim.appActive = false
         _ = claim.update(at: t0)
+        claim.appActive = true
+        _ = claim.update(at: t0.advanced(by: .seconds(5)))
         claim.pageShown = false
-        let left = claim.update(at: t0.advanced(by: .seconds(10)))
-        #expect(left.recheck == t0.advanced(by: .seconds(11)))
+        let left = claim.update(at: t0.advanced(by: .seconds(5)))
+        #expect(left.recheck == t0.advanced(by: .seconds(6)))
     }
 
     @Test func aSheetOverThePageReleasesAndItsDismissalClaimsAgain() {
@@ -96,10 +118,9 @@ import Testing
         var claim = shown()
         claim.appActive = false
         _ = claim.update(at: t0)
-        // Away past the grace: released; back, it claims at once.
-        #expect(claim.update(at: t0.advanced(by: .seconds(300))).claims == false)
+        #expect(claim.update(at: t0.advanced(by: .seconds(45))).claims == false)
         claim.appActive = true
-        #expect(claim.update(at: t0.advanced(by: .seconds(301))).claims == true)
+        #expect(claim.update(at: t0.advanced(by: .seconds(46))).claims == true)
     }
 
     @Test func aPageNeverShownReleasesAfterTheDelay() {
@@ -123,11 +144,24 @@ import Testing
         #expect(told == [false])
         claimer.set(pageShown: true)
         #expect(told == [false, true])
-        // The background keeps the claim (its grace is long).
+        // A quick trip to the background sends nothing.
         claimer.set(appActive: false)
-        #expect(told == [false, true])
         claimer.set(appActive: true)
         #expect(told == [false, true])
+    }
+
+    /// A suspended app's release timer never fires; on its return the
+    /// overdue release and the claim go out at once, in that order.
+    @Test func aClaimerBackAfterTheGraceReleasesThenClaimsAtOnce() {
+        let clock = ManualClock()
+        var told: [Bool] = []
+        let claimer = TerminalSizeClaimer(clock: clock, delay: .seconds(1)) { told.append($0) }
+        claimer.set(pageShown: true)
+        claimer.set(appActive: false)
+        clock.now = clock.now.advanced(by: .seconds(60))
+        claimer.set(appActive: true)
+        #expect(told == [false, true])
+        #expect(claimer.claims)
     }
 
     @Test func aClaimerWhosePageNeverShowsReleases() async throws {
@@ -148,5 +182,24 @@ import Testing
         }
         try await Task.sleep(for: .milliseconds(200))
         #expect(told.isEmpty)
+    }
+}
+
+/// A clock that moves only when a test moves it (time as a suspended app
+/// sees it: its timers never fire).
+private final class ManualClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    var now = Instant(offset: .zero)
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        // Never wakes before the test ends: the test calls in itself.
+        try await Task.sleep(for: .seconds(3600))
     }
 }

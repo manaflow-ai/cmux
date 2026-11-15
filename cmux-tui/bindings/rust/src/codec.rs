@@ -344,7 +344,7 @@ fn connect_unix_with_poll_checks(
         ));
     }
     let mut address: libc::sockaddr_un = unsafe { zeroed() };
-    if path.len() >= address.sun_path.len() {
+    if !crate::socket_paths::unix_socket_path_fits(socket_path) {
         return Err(CmuxError::InvalidArgument(format!(
             "session socket path is too long: {}",
             socket_path.display()

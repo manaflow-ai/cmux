@@ -147,17 +147,17 @@ extension PaneController {
         // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
         // that types its own text first keeps the keys where they are.
         let window = self.workspace == nil || text != nil || page != nil ? nil : view.window
-        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         // The PTY starts at the grid this pane's view will fit, so the first frame is final (NewTerminalGrid).
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window,
+            return newTerminalTabNow(command, agent: agent, intent: intent, window: window,
                                      selectHere: selectHere, homePlacement: homePlacement, then: then)
         }
-        services.registry.track(Task { [services] in
-            var landed = false
-            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, machine: daemon.machineID, newTerminal: true)
+        services.registry.track(Task { [services, daemon] in
+            var made: SurfaceID? // nil: refused, and the keys typed for the tab go with it
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: made != nil, in: window, madeTab: { [made] in made.flatMap { daemon.store.locatedTab(surface: $0)?.tab.id } }, madeSurface: made?.rawValue) } // a read that hears the tab list: the hold's wake-up
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
@@ -170,7 +170,7 @@ extension PaneController {
                     selectWhenReported(surface: created.surface)
                     self.workspace?.expectFocus(on: created.surface, generation: intent)
                 }
-                landed = true
+                made = created.surface
                 then?(created.surface)
                 return nil
             } catch {
@@ -185,9 +185,9 @@ extension PaneController {
     /// waits for nothing (Ctrl-`, ctrl-backtick-instant): the stand-in tab is in the store, selected
     /// and shown in this turn, so it draws in the key's frame; `new-tab` runs behind it, and the
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
-    /// the daemon's terminal, as before.
+    /// the daemon's terminal and go only into it: the stand-in's tab is their lane (`NewTerminalKeys`).
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, selectHere: Bool,
+                                   window: NSWindow?, selectHere: Bool,
                                    homePlacement: Bool, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
@@ -197,13 +197,14 @@ extension PaneController {
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab, machine: daemon.machineID, newTerminal: true, standInSends: daemon.queuesCreatingInput)
         if selectHere { selectWhenReported(surface: pending.surface) }
         // After the workspace's create before it (a Ctrl-` on a split still in flight names that split's pane once the
         // daemon made it), as Cmd-D, New Column and New Row go (`WorkspaceContentController.pendingCreate`).
         let previous = self.workspace?.pendingCreate
-        let work: ActionWork = Task { [services] in
-            var landed = false
-            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+        let work: ActionWork = Task { [services, daemon] in
+            var made: SurfaceID?
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: made != nil, in: window, madeTab: { [made] in made.flatMap { daemon.store.locatedTab(surface: $0)?.tab.id } }, madeSurface: made?.rawValue) } // a read that hears the tab list: the hold's wake-up
             await previous?.value
             do {
                 let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
@@ -212,14 +213,12 @@ extension PaneController {
                     if (successor ?? self).stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
                     self.workspace?.expectFocus(on: created.surface, generation: intent)
                 }
-                landed = true
+                made = created.surface
                 then?(created.surface)
                 return nil
-            } catch is NewTerminalTabCancelled {
-                if homePlacement { HomeDockOpens.cancel(self.pane, services: services) }
-                return nil // the person closed the stand-in first
             } catch {
                 if homePlacement { HomeDockOpens.cancel(self.pane, services: services) }
+                if error is NewTerminalTabCancelled { return nil } // the person closed the stand-in first
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return .create("new-tab", error)
             }
@@ -271,7 +270,6 @@ extension PaneController {
     /// and then calls its `finish`.
     func prepareClose(_ ids: [StripTabID]) -> PreparedTabClose? {
         guard !ids.isEmpty else { return nil }
-        for id in ids { services.closedTabs?.undoToasts.hiddenPages.lift(id.rawValue) } // a tab hidden while its page decided: this close's intent takes it out now
         var commands: [DaemonService.CloseRun] = []
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
@@ -423,22 +421,67 @@ extension PaneController {
             // Building the menu selects nothing and moves no focus (#24913: the selection's focus
             // move made a Chromium page window key inside the right-click). The rows act on the
             // right-clicked tab, or on the selection it is one of (`AppActionContext.actionTabs`).
-            return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
-                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
-                                registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil, machineID: daemon.machineID).themeRows(in: view.themeScope.fullStrength)
+            let menu = Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
+                                    sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
+                                    registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil, machineID: daemon.machineID)
+            if selection.count <= 1 { prependOwnRows(to: menu, tab: id.rawValue, model: tab(id)) }
+            return menu.themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
                                             entries: TabGroupPinMenu.entries(saved: saved, registry: registry), customize: true).themeRows(in: view.themeScope.fullStrength)
         case .emptyStrip:
-            // The tab bar's menu, the strip's or the vertical list's (makeTabStripMenu).
-            return registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
-                .themeRows(in: view.themeScope.fullStrength)
+            // The tab bar's menu, the strip's or the vertical list's (makeTabStripMenu), with what the pane's "…"
+            // offered that it lacks (PaneToolbar.tabBarMenuRows) above its More.
+            let menu = registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
+            Self.insert(view.toolbar?.tabBarMenuRows() ?? [], into: menu)
+            return menu.themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
             return registry.makePaneCreationMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
                 .themeRows(in: view.themeScope.fullStrength)
         }
+    }
+
+    /// The right-clicked tab's own first rows: Toggle Terminal and Chat on half of a terminal and chat pair (the
+    /// pane toolbar's toggle is gone, user 2026-11-13), and on the selected tab the shown content's own rows (the
+    /// docked Home's Chief Actions), which the pane's "…" listed first.
+    private func prependOwnRows(to menu: NSMenu, tab id: String, model: TabModel?) {
+        let pair = model.map { TerminalChatHandler.offersToggle(on: $0, services: services) } ?? false
+        let toggle = pair ? Self.terminalChatRows(tab: id, registry: services.registry, machineID: daemon.machineID) : []
+        let content = stripModel.selectedID?.rawValue == id ? view.toolbar?.contentRows() ?? [] : []
+        Self.prepend(toggle + content, to: menu)
+    }
+
+    /// Toggle Terminal and Chat's row for tab `id`, running the action on that tab as its key does on the focused one.
+    static func terminalChatRows(tab id: String, registry: ActionRegistry, machineID: String?) -> [NSMenuItem] {
+        let menu = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: id), entries: [.action(terminalChatToggle)],
+                                            machineID: machineID)
+        let rows = menu.items
+        menu.removeAllItems()
+        return rows
+    }
+
+    /// Puts `rows` first in `menu`, a separator after them.
+    static func prepend(_ rows: [NSMenuItem], to menu: NSMenu) {
+        guard !rows.isEmpty else { return }
+        if !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
+        for (index, row) in rows.enumerated() { menu.insertItem(row, at: index) }
+    }
+
+    /// Toggle Terminal and Chat (`palette.toggleTerminalChat`): the tab right-click's row runs it, as its key does.
+    static let terminalChatToggle: ActionID = "palette.toggleTerminalChat"
+
+    /// Puts `sections` into the tab bar's `menu`, each between separators, just above its trailing More submenu
+    /// (``ActionRegistry/makeTabStripMenu(target:machineID:)``), else at its end.
+    static func insert(_ sections: [[NSMenuItem]], into menu: NSMenu) {
+        let endsWithMore = menu.items.last.map { $0.submenu != nil && $0.title == MenuFolder.more.title } ?? false
+        var index = endsWithMore ? menu.items.count - 1 : menu.items.count
+        for section in sections where !section.isEmpty {
+            if index > 0, !menu.items[index - 1].isSeparatorItem { menu.insertItem(.separator(), at: index); index += 1 }
+            for row in section { menu.insertItem(row, at: index); index += 1 }
+        }
+        if endsWithMore, index > 0, !menu.items[index - 1].isSeparatorItem { menu.insertItem(.separator(), at: index) }
     }
 }

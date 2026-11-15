@@ -1598,6 +1598,41 @@ let package = Package(
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_push_that_adds_a_raw_file_lock_is_refused(self):
+        # The lock-by-close audit (lane c-agenthost): a lock that only its close releases stays held in a child forked
+        # while the descriptor was open; new code takes file locks through cmux_file_lock::FileLock.
+        self.write("cmux-tui/crates/cmux-tui-core/src/fresh.rs",
+                   "pub fn run(f: &std::fs::File) { let _ = f.lock_exclusive(); }\n")
+        self.commit("adds a raw file lock")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the raw file lock must not reach origin")
+        self.assertIn("check-no-raw-flock", output)
+        self.assertIn("fresh.rs", output)
+
+    def test_push_with_a_file_lock_through_cmux_file_lock_or_in_a_test_passes(self):
+        self.write("cmux-tui/crates/cmux-tui-core/src/fresh.rs",
+                   "pub fn run(f: std::fs::File) { let _ = cmux_file_lock::FileLock::take(f, Kind::Exclusive); }\n")
+        self.write("cmux-tui/crates/cmux-tui-core/tests/fresh.rs",
+                   "#[test] fn t() { let f = std::fs::File::open(\"x\").unwrap(); let _ = f.lock_exclusive(); }\n")
+        self.write("cmux-tui/crates/cmux-file-lock/src/fresh.rs",
+                   "pub fn run(fd: i32) { unsafe { libc::flock(fd, libc::LOCK_EX) }; }\n")
+        self.commit("locks through cmux_file_lock, in a test and in the lock crate")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_the_raw_file_lock_guard_rules_hold(self):
+        # The guard's own rule tests (per-file counts, the ratchet, scope), with the pre-push set.
+        result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-no-raw-flock.test.sh")],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_the_app_id_special_cases_guard_rules_hold(self):
         # Zero first-party privilege (docs/app-store-platonic-ideal.md 5): the guard's own rule tests.
         result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-app-id-special-cases.test.sh")],
@@ -2213,7 +2248,8 @@ mod tests {
         self.assertEqual(sorted(taken), [f"{name}: A.swift size 3 -> 1", f"{name}: B.swift size 1 -> 0 (row deleted)"])
         self.assertEqual(set(gate.RATCHET_BASELINES), {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
-            "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv", "swift-type-scale-baseline.tsv"})
+            "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
+            "swift-type-scale-baseline.tsv"})
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
@@ -2875,6 +2911,19 @@ class ToolDownloadFallbackTests(unittest.TestCase):
         self.assertEqual(asked, [url])
 
 
+class SideWorkersTests(unittest.TestCase):
+    def test_the_job_cpu_share_caps_the_scanner_pool(self):
+        # On a CI mini the runner hook grants the checks job 5 of 14 cores (CMUX_CI_CPU_BUDGET); every gate this suite
+        # runs started one scanner per core of the whole mini beside the job's other checks (job 131984422217).
+        gate = load_gate_tools()
+        self.assertEqual(gate.side_workers({}, cpus=14), 14)
+        self.assertEqual(gate.side_workers({}, cpus=32), 16)
+        self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "5"}, cpus=14), 5)
+        self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "20"}, cpus=14), 14)
+        for malformed in ("", "0", "-3", "five"):
+            self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": malformed}, cpus=14), 14, malformed)
+
+
 class StaleInstallTests(unittest.TestCase):
     """The check trees never take the pushed head's scripts/swift_source_mask.py on a hook run."""
 
@@ -3088,6 +3137,30 @@ class RustfmtLayerTests(unittest.TestCase):
         folder.mkdir(exist_ok=True)
         fake = folder / "rustfmt"
         fake.write_text("#!/nonexistent/interpreter\n")
+        fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+
+    def test_a_dyld_loader_error_naming_the_toolchain_is_no_verdict(self):
+        # #41888 review (F1): a macOS loader failure names the rustfmt binary's own path under
+        # ~/.rustup/toolchains/..., so a match on "toolchain" anywhere in stderr read it as rustup's "not installed"
+        # and passed. Only rustup's own answer as the whole of stderr warns (#41945); this is a crash, no verdict.
+        # Self-contained (no fake_rustfmt helper) so it also runs against the gate at #41888's head.
+        folder = Path(self.tmp.name) / "dyld-bin"
+        folder.mkdir(exist_ok=True)
+        (folder / "stderr.txt").write_text(
+            "dyld[4242]: Library not loaded: @rpath/librustc_driver-5f3e0e1b6a2d.dylib\n"
+            "  Referenced from: <0D1F2E3A-4B5C-6D7E-8F90-A1B2C3D4E5F6> "
+            "/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/bin/rustfmt\n"
+            "  Reason: tried: '/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/lib/"
+            "librustc_driver-5f3e0e1b6a2d.dylib' (no such file)\n")
+        fake = folder / "rustfmt"
+        fake.write_text(f"#!/bin/sh\n/bin/cat '{folder / 'stderr.txt'}' >&2\nexit 134\n")
         fake.chmod(0o755)
         saved = os.environ.get("PATH", "")
         os.environ["PATH"] = str(folder)

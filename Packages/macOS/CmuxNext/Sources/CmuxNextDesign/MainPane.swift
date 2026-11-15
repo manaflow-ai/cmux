@@ -51,6 +51,17 @@ extension Metrics {
         let flush: Bool? = CornerFlush.current.isOn ? true : nil
         return tunable.override ?? flush ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
+    /// The card's edge is the sidebar's seam, so the sidebar's edge line stays in the titlebar band and its hover
+    /// and drag glow light nothing: the curved main pane, where the flush corner counts only when picked in Debug
+    /// Settings (``CornerFlush/isChosen``). Since #40282 made the flush corner the default, ``mainPaneCurved`` is
+    /// true under the stock `flat` style too, and the sidebar lost its full-height line and its resize highlight.
+    /// Leo, 2026-11-12: "you've, like, slightly regressed the border thing, the border divider. And then there's,
+    /// like, no more drag divider highlight or anything like that." The default folder tab keeps both.
+    public static var cardEdgeIsSidebarSeam: Bool {
+        let tunable = ChromeTunables.mainPaneCurved
+        let flush: Bool? = CornerFlush.isChosen ? true : nil
+        return tunable.override ?? flush ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
+    }
     /// Floating panes (`appearance.chromeStyle` floating): every pane is its
     /// own card, tab strip included, left unshaded on the shaded chrome
     /// (`MainPaneChromeShadeView`); the main pane itself draws no card.
@@ -153,11 +164,48 @@ extension Metrics {
         guard let window, window.styleMask.contains(.titled), !window.styleMask.contains(.fullScreen) else { return inset }
         return max(inset, PaneTabRowRim.height)
     }
-    /// Black's alpha over the chrome around the main pane: the shade of the
+    /// Black's alpha over the chrome around the main pane (the sidebar, the titlebar and the tab row
+    /// around the content card): ``mainPaneChromeShadeBase(isDark:)`` scaled by ``titleAreaShadeScale``. Leo,
+    /// 2026-11-11, on the title area: "the contrast, I guess it's fine, but I feel like it may be too intense for
+    /// some people, so it needs to be adjustable." At most 1.
+    public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
+        let base = mainPaneChromeShadeBase(isDark: isDark)
+        let scale = titleAreaShadeScale
+        return scale == 1 ? base : min(1, max(0, base * scale))
+    }
+
+    /// The least chrome shade under which a selected folder tab in the content's surface still reads
+    /// (``Palette/folderTabFill``): Subtle Tone's light frame (0.045 × ``TitleAreaTone/subtleShare``) still
+    /// clears it at a title area contrast of 0.5; under it the tab keeps the selection fill.
+    public static let folderTabMinimumShade: CGFloat = 0.011
+
+    /// How strongly the tab row's divider draws (a share of `Palette.separator`): the line takes over from the
+    /// tone as `appearance.titleAreaContrast` drops, so the tab row stays marked at any contrast. 0 at a
+    /// contrast of 1 or more (the shipped look, no line), 1 at a contrast of 0 (one colour: the line and the
+    /// selected tab's pill are the only separation). Leo, 2026-11-12: "THERE IS THE DIVIDER THERE ARE WAYS TO
+    /// MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
+    public static var tabRowDividerStrength: CGFloat {
+        min(1, max(0, 1 - titleAreaShadeScale))
+    }
+
+    /// The share of ``mainPaneChromeShadeBase(isDark:)`` the chrome draws. On the default flush corner's frame
+    /// (``CornerFlush``) `appearance.titleAreaTone` decides it: 0 under One Color (the default, Lawrence's single
+    /// colour), ``TitleAreaTone/subtleShare`` × `appearance.titleAreaContrast` under Subtle Tone. Every other
+    /// chrome style (floating, blocks, card and the explicit two-tone style) keeps its own shade, scaled by the
+    /// contrast alone, so the default tone never flattens a look the user picked. Leo, 2026-11-12: "since lawrence
+    /// wanted the default to be mono ish (the tab bar the side bar the main view kinda the same-ish) we can make that
+    /// the default... but i still think at least a subtle toning might be a bit nice."
+    public static var titleAreaShadeScale: CGFloat {
+        let design = DesignSettings.shared
+        guard CornerFlush.current.isOn else { return design.titleAreaContrast }
+        return design.titleAreaTone == .oneColor ? 0 : TitleAreaTone.subtleShare * design.titleAreaContrast
+    }
+
+    /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the
     /// separate look only under `appearance.sidebarSurface` separate (the
     /// default shares the pane's surface, `SidebarSurface`); 0 when the pane
     /// is edge to edge.
-    public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
+    public static func mainPaneChromeShadeBase(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
         // The flush corner shades its frame so the card reads on the one surface.
         if CornerFlush.current.isOn { return CornerFlush.current.shade(isDark: isDark) }

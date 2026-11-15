@@ -61,6 +61,8 @@ sha2 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
+# The longest socket path every host binds (src/acpmux_daemon.rs).
+cmux-unix-socket = { path = "../../../cmux-tui/crates/cmux-unix-socket" }
 # The settings file's path and JSONC dialect (src/agent_memory/settings.rs),
 # the daemon's own reader.
 cmux-config = { path = "../../../cmux-tui/crates/cmux-config" }
@@ -84,6 +86,10 @@ regex = "1"
 [profile.release]
 lto = "fat"
 codegen-units = 1
+# Size over the last bit of speed (CMUX-570, bundle size): -23% of the stripped binary against
+# opt-level 3; the store bench (optchat-host tests/bench.rs, 100k messages) appends at 0.430 ms p50
+# against 0.398 ms. "z" was -31% for +31% append time. Nothing in Chief runs per frame.
+opt-level = "s"
 
 # optchat-wasm's release build for the hosted placement (experiments/chief-optmem/
 # scripts/build-optchat-wasm.sh: --profile wasm-release): the settings it had as

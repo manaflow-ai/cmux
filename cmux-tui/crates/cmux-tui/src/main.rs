@@ -18,6 +18,8 @@ mod agent_plugin_config;
 mod agent_session_context;
 #[cfg(unix)]
 mod agent_start_host;
+#[cfg(unix)]
+mod agent_terminal_identity;
 mod app;
 #[cfg(unix)]
 mod app_identity;
@@ -2401,6 +2403,22 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
+/// Settles a try-on whose time is up and waits for one still running, on
+/// its own thread. The thread ends once no try-on is left (its stop
+/// condition), so an owner with nothing being tried on costs two file reads.
+fn start_try_on_timer() {
+    let Ok(customize) = cmux_customize::Customize::from_env() else { return };
+    let _ = std::thread::Builder::new().name("cmux-customize-try-on".into()).spawn(move || {
+        if let Err(error) = customize.run_try_on_timer() {
+            crate::client_log::stderr_log!(
+                "customize",
+                "customize try-on ({}): {error}",
+                error.code()
+            );
+        }
+    });
+}
+
 /// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
@@ -2479,6 +2497,13 @@ fn run_server(
         interactive_stdio_is_terminal(),
     ) {
         return start_detached_owner_session(args, config, socket_path);
+    }
+    // A customization someone is trying on reverts at its time also when
+    // the app quit through it: the owner settles one that is due now and
+    // waits for one still running (cmux-customize `try_on.rs`). A Cloud
+    // daemon hosts no person's setup.
+    if !args.remote {
+        start_try_on_timer();
     }
     #[cfg(unix)]
     let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {

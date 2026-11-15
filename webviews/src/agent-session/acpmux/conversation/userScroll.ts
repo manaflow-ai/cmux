@@ -34,6 +34,7 @@ function createIntent() {
   /// Whether the newest input scrolls (`Input`): a press on text holds automatic motion like any
   /// input, but moves nothing by itself.
   let scrolling = false;
+  let scrollbar = false;
   const listeners = new Set<Listener>();
   const quietListeners = new Set<() => void>();
   let quietTimer: ReturnType<typeof setTimeout> | undefined;
@@ -61,6 +62,7 @@ function createIntent() {
     scrolledByHand(): boolean {
       return scrolling && this.isHeld();
     },
+    isScrollbarDragging: () => pressed && scrollbar,
     // An explicit request may start during the hold, but its continuations expire on later input.
     request: () => {
       const started = generation;
@@ -73,8 +75,9 @@ function createIntent() {
       scheduleQuiet();
       for (const listener of listeners) listener(event);
     },
-    press(value: boolean) {
+    press(value: boolean, onScrollbar = false) {
       pressed = value;
+      scrollbar = value && onScrollbar;
       scheduleQuiet();
     },
     /// A drag that ended without its pointerup (no buttons on the next move, or the window lost
@@ -82,6 +85,7 @@ function createIntent() {
     /// requests made since the drag stay valid.
     release() {
       pressed = false;
+      scrollbar = false;
       at = performance.now();
       scheduleQuiet();
     },
@@ -106,6 +110,7 @@ function createIntent() {
       this.mark();
       at = -Infinity;
       pressed = false;
+      scrollbar = false;
       clearTimeout(quietTimer);
       quietTimer = undefined;
     },
@@ -143,9 +148,21 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
     // may still be followed into view. A press on text or the scrollbar is scroll input.
     if ((event.target as Element | null)?.closest?.(CONTROLS)) return;
     pressed = true;
-    intent.press(true);
-    // The scrollbar (the scroller itself) scrolls at the press; a press on the rows only once it drags.
-    const onScrollbar = event.target === node;
+    const pointer = event as PointerEvent;
+    // The transcript reserves a real scrollbar lane. A text or touch drag keeps row anchoring.
+    let onScrollbar = false;
+    if (
+      event.type === "pointerdown" &&
+      pointer.pointerType !== "touch" &&
+      event.target === node &&
+      node.offsetWidth > node.clientWidth
+    ) {
+      const box = node.getBoundingClientRect();
+      const scale = node.offsetWidth > 0 ? box.width / node.offsetWidth : 1;
+      const x = (pointer.clientX - box.left) / scale;
+      onScrollbar = x >= node.clientLeft + node.clientWidth && x <= node.offsetWidth;
+    }
+    intent.press(true, onScrollbar);
     pressAt = onScrollbar ? undefined : pointAt(event);
     mark(event, onScrollbar || !pressAt ? "scroll" : "press");
   };
@@ -187,6 +204,7 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
   page.addEventListener("pointermove", move, { capture: true, passive: true });
   page.addEventListener("pointerup", up, true);
   page.addEventListener("pointercancel", up, true);
+  page.addEventListener("lostpointercapture", up, true);
   page.addEventListener("touchend", up, true);
   page.addEventListener("touchcancel", up, true);
   page.defaultView?.addEventListener("blur", blur, true);
@@ -199,6 +217,7 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
     page.removeEventListener("pointermove", move, true);
     page.removeEventListener("pointerup", up, true);
     page.removeEventListener("pointercancel", up, true);
+    page.removeEventListener("lostpointercapture", up, true);
     page.removeEventListener("touchend", up, true);
     page.removeEventListener("touchcancel", up, true);
     page.defaultView?.removeEventListener("blur", blur, true);

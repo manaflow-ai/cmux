@@ -18,7 +18,7 @@
 //                                                                     (+ the first message's send)
 // Catalog actions (the PageDescriptor's allowed actions): home.leaveConversation (asks first),
 // home.invite, home.inviteToTeam {email}, home.newChief.
-import { isPageError, type PageClient } from "../../shared/pageClient";
+import type { PageClient } from "../../shared/pageClient";
 import type { Strings } from "../../shared/i18n";
 import type { ContactAddress } from "./address";
 import {
@@ -90,9 +90,10 @@ export interface ComposeActions {
   openTeamInvite(address: ContactAddress): void;
 }
 
-/** A refusal the host sent as an error, as the sheet's status line reads it. */
-function refused(error: unknown): { kind: "refused"; reason: string } {
-  return { kind: "refused", reason: isPageError(error) || error instanceof Error ? error.message : "" };
+/** A refusal the host sent as an error, as the sheet's status line reads it: the generic "That
+ * didn't work. Try again." (an empty reason), never the owner's own text. */
+function refused(): { kind: "refused"; reason: string } {
+  return { kind: "refused", reason: "" };
 }
 
 const wireRecipient = (recipient: HomeRecipient) =>

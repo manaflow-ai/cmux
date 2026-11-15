@@ -61,7 +61,7 @@ import Testing
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
             let (list, window) = SidebarLeadingEdgeTests.list(width: c.width)
             defer { window.close() }
-            let size = SidebarStyle.workspaceFaviconSide
+            let size = SidebarStyle.rowGlyphOpticalSide
             for g in try Self.glyphs(list) {
                 let longest = max(g.ink.width, g.ink.height)
                 #expect(abs(longest - size) <= Self.tolerance,

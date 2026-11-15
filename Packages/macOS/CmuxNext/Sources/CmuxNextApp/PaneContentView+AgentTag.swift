@@ -23,7 +23,7 @@ extension PaneContentView {
     /// pane's header (a toolbar's buttons, a chat's header), the agent tag left of it.
     func layoutAgentTag() {
         let host = contentHost.frame, top = barPosition == .top && !isBandActive && stripView.frame.height > 0 && host.minY < stripView.frame.maxY ? stripView.frame.maxY : host.minY
-        let trailing = zoomIndicator.place(in: host, top: max(top, paneHeaderHeight), elsewhere: toolbar.map { !$0.view.isHidden && $0.view.zoomed } ?? false) // shown left of "…" when the bar shows
+        let trailing = zoomIndicator.place(in: host, top: max(top, paneHeaderHeight), elsewhere: toolbar.map { !$0.view.isHidden && $0.view.zoomed } ?? false) // shown in the tab bar's trailing slot when the bar shows
         guard !agentTag.isHidden, !isBandActive else { agentTag.frame = .zero; return }
         agentTag.place(in: host, top: top, trailing: trailing)
     }

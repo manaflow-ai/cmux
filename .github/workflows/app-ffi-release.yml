@@ -71,6 +71,7 @@ on:
       - "cmux-tui/crates/cmux-remote-browser/**"
       - "cmux-tui/crates/cmux-tasks-core/**"
       - "cmux-tui/crates/cmux-terminal-prediction/**"
+      - "cmux-tui/crates/cmux-unix-socket/**"
       - "cmux-tui/crates/cmux-window-rules/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"
@@ -103,8 +104,17 @@ jobs:
   # push's Release compile (side_lane_placement.py PLACEMENT=promote): an idle
   # vars.CI_NEXT_PROMOTE_POOL runner (attempt 1 of a push only), else a free
   # Blacksmith macOS slot, 12 vCPU then 6, ranked as a feed's compile
-  # (FRESH_JOBS), else 6 vCPU's queue while it moves. Never a side mini: the
-  # build publishes a release. On 2026-11-10 the promote pool was unset and every
+  # (FRESH_JOBS), else 6 vCPU's queue while it moves. Blacksmith macOS is off
+  # unless vars.CI_BLACKSMITH_MACOS is `on` (cmux#43103's switch; Leo,
+  # 2026-11-11: "just stop using blacksmith temporarily"): with it off, the
+  # build takes vars.CI_SIDE_LANE_RUNNER after an idle promote runner, the
+  # owned pool the other cmux-next Mac jobs and, with the switch off,
+  # cmux-next.yml's push Release compile take. The build job holds no secret
+  # (the Linux publish job does). Never the nightly-dedicated Macs: nightly
+  # comes first on the fleet. On 2026-11-14 the promote pool was unset and
+  # blacksmith-6vcpu-macos-26 stalled (104 queued, oldest 106 min): ead26e75's
+  # build queued 140 min, and "Check the app FFI pin" went red on every push
+  # (hq#10943). On 2026-11-10 the promote pool was unset and every
   # build queued on blacksmith-6vcpu-macos-26 behind PR CI for 11 to 66 minutes,
   # with feat-cmux-next red until the re-pin landed. SIDE_LABEL only says the
   # run is on the owned pools (next_macos_cascade.skipped()). A failed or
@@ -113,7 +123,7 @@ jobs:
   # concurrency group for an older build starts on that reading.
   placement:
     name: place the build
-    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai'
+    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.
@@ -157,6 +167,8 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
           CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
+          # Unset is off here, as in cmux-next.yml: the cascade places nothing on Blacksmith macOS.
+          CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
           SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           PROMOTE_LABEL: ${{ github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
           JOBS: app-ffi-build
@@ -176,11 +188,13 @@ jobs:
     # attempt 1 of a push takes vars.CI_NEXT_PROMOTE_POOL, the reserved trusted
     # promote runners (trustedRef feat-cmux-next): on Blacksmith 12 vCPU alone
     # the build once sat queued for 12 hours (run 39402525970, 2026-10-20). A
-    # re-run, a dispatch or an empty variable takes Blacksmith 6 vCPU. Queued
+    # re-run, a dispatch or an empty variable takes Blacksmith 6 vCPU, and with
+    # vars.CI_BLACKSMITH_MACOS not `on` every attempt without an idle promote
+    # runner takes vars.CI_SIDE_LANE_RUNNER instead (see placement). Queued
     # on a Blacksmith label, the build holds it against pull request placements
     # as a nightly job does (the queue janitor's reserved_queued,
     # queue_janitor.RESERVED_POOL_WORKFLOW).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never
     # cancels it; a still newer one replaces it while it waits.

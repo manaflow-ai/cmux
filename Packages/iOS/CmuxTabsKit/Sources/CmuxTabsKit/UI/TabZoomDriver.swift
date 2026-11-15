@@ -27,8 +27,6 @@ final class TabZoomDriver {
         mutate { $0.updateInteraction(progress: progress, offset: offset, velocity: velocity, offsetVelocity: offsetVelocity) }
     }
     func release(toOverview: Bool) { mutate { $0.release(toOverview: toOverview) } }
-    func releaseOnSwipeUpCurve() { mutate { $0.releaseOnSwipeUpCurve() } }
-    func startSwipeUp() { mutate { $0.startSwipeUp() } }
     @discardableResult
     func endInteraction(velocity: Double, startedFromOverview: Bool) -> Bool {
         var toOverview = false

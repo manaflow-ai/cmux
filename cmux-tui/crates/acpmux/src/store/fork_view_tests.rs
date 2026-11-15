@@ -791,3 +791,34 @@ fn a_cold_commit_waits_for_the_forks_history_write() {
     assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
 }
+
+/// Every reader and writer goes through [`ForkView`] (`Hub::new`), so a [`Store`] method it
+/// does not forward answers with the trait's default for every store: under a view that did not
+/// forward them, a journal restore's cut never happened and what a chat kept while a restore held
+/// it was never on disk (review of #37284 at 4af5b562). Each method of the trait is forwarded,
+/// or named here with why the default stands.
+#[test]
+fn the_fork_view_forwards_every_store_method() {
+    // Not forwarded yet; each row is to be forwarded or given its reason.
+    const DEFAULT_STANDS: &[&str] = &["audit_dir"];
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+    let fns = |text: &str, from: &str| -> Vec<String> {
+        let body = text.split(from).nth(1).unwrap_or_default();
+        let body = body.split("\n}\n").next().unwrap_or_default();
+        let names = body.lines().filter_map(|l| l.strip_prefix("    fn "));
+        names.filter_map(|l| l.split(['(', '<']).next()).map(str::to_owned).collect()
+    };
+    let store = std::fs::read_to_string(format!("{root}/store.rs")).unwrap();
+    let view = std::fs::read_to_string(format!("{root}/store/fork_view.rs")).unwrap();
+    let methods = fns(&store, "pub trait Store: Send + Sync {");
+    let forwarded = fns(&view, "impl Store for ForkView {");
+    assert!(methods.len() > 20 && !forwarded.is_empty(), "the scan read no methods");
+    let missing: Vec<&String> = methods
+        .iter()
+        .filter(|m| !forwarded.contains(m) && !DEFAULT_STANDS.contains(&m.as_str()))
+        .collect();
+    assert!(missing.is_empty(), "ForkView does not forward: {missing:?}");
+    let stale: Vec<&&str> =
+        DEFAULT_STANDS.iter().filter(|m| forwarded.iter().any(|f| f == *m)).collect();
+    assert!(stale.is_empty(), "forwarded now, take them out of DEFAULT_STANDS: {stale:?}");
+}

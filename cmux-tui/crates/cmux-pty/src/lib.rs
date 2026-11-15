@@ -115,19 +115,33 @@ fn is_capacity_exhaustion(error: &io::Error) -> bool {
     matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::OutOfMemory)
 }
 
-/// Environment keys no cmux terminal child may see, whatever the daemon
-/// inherited or a caller passed. Every path that starts a terminal child
-/// applies these: pass them to [`PtyCommand::env_remove`] after the command's
-/// own values, or drop them from a spelled-out environment map.
+/// The terminal identity every cmux terminal child gets, whatever the daemon
+/// inherited or a caller passed: `echo $TERM_PROGRAM` says `cmux`, and
+/// `TERM_PROGRAM_VERSION` is cmux's version (the workspace version every
+/// bundled CLI carries). Every path that starts a terminal child sets these
+/// after the command's own values ([`PtyCommand::env`] or the spelled-out
+/// environment map), so they win over a daemon that started with Ghostty's
+/// identity (a Cloud daemon) and over an older app's launch env.
 ///
-/// `TERM_PROGRAM_VERSION`: cmux keeps `TERM_PROGRAM=ghostty` so a child
-/// detects a Ghostty-class terminal, but cmux forwards a full-screen TUI's
-/// mouse reports instead of providing Ghostty's native selection, so a child
-/// that reads a Ghostty version turns its own copy-on-select drag fallback
-/// off (cmux#22585: Codex and Claude lose drag-to-copy). The daemon's own
-/// environment carries it (`cmux-host::daemon_spec`), which is why every
-/// child path has to drop it rather than merely not set it.
-pub const UNSET_IN_TERMINAL_CHILDREN: &[&str] = &["TERM_PROGRAM_VERSION"];
+/// `TERM` stays `xterm-256color` (or the opted-in `xterm-ghostty`), and
+/// `COLORTERM=truecolor` and `GHOSTTY_RESOURCES_DIR` stay as they were, so
+/// programs that query the terminal (XTVERSION still answers `ghostty`, the
+/// kitty keyboard protocol, synchronized output) or read those keep working.
+/// Claude Code and Codex key Ghostty features on `TERM_PROGRAM=ghostty`, and a
+/// Ghostty version turns off their copy-on-select fallback (cmux#22585), so
+/// their wrappers start them with `TERM_PROGRAM=ghostty` and no version
+/// (`cmux-tui` `agent_terminal_identity`).
+pub const TERMINAL_IDENTITY: [(&str, &str); 2] =
+    [("TERM_PROGRAM", "cmux"), ("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"))];
+
+impl PtyCommand {
+    /// Sets [`TERMINAL_IDENTITY`] on this command, over any earlier value.
+    pub fn terminal_identity(&mut self) {
+        for (key, value) in TERMINAL_IDENTITY {
+            self.env(key, value);
+        }
+    }
+}
 
 /// The subset of process configuration needed by both cmux PTY runtimes.
 #[derive(Debug, Clone)]

@@ -80,9 +80,9 @@ const atBottom: Play = async (ctx) => {
   const command = () => ctx.document.querySelector('[data-row-id="fold-bottom-command"] button.cv-tool');
   const worked = () => [...ctx.document.querySelectorAll<HTMLElement>(".cv-worked")].at(-1);
   await ctx.waitFor(() => command() ?? worked(), { capMs: 10_000 });
-  if (!command() && worked()?.getAttribute("aria-expanded") === "false") {
+  if (worked()?.getAttribute("aria-expanded") === "false") {
     worked()!.click();
-    await ctx.waitFor(command, { capMs: 10_000 });
+    await ctx.waitFor(() => Boolean(command()?.getClientRects().length), { capMs: 10_000 });
   }
   const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) return;

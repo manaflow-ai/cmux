@@ -2,6 +2,7 @@
 // scroll rail, you should be able to ... filter out the other agent messages to only your own, or
 // filtering out your own to only the agent messages", and "if you scroll to the very top, there should
 // be no fade. But then as you scroll down, like gradually, there's more and more of a fade").
+import { readFileSync } from "node:fs";
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -261,5 +262,60 @@ test("the transcript's edges deepen as the view leaves each end", async () => {
     expect(scroller.style.getPropertyValue("--acpmux-fade-bottom-reach")).toBe("0");
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+// Lawrence saw the rail's latest shadow (#42298) as a "weird timeline bg whiteness" (Leo: "maybe this is
+// what lawrence meant? the scroll rail havign a bsckgorund?"): the rail and its pseudo-elements paint
+// nothing of their own, at the latest message or scrolled up from it.
+test("the rail draws no background or shadow while the view is scrolled up", async () => {
+  const css = readFileSync(
+    new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  // Every rule that targets the rail itself or its ::before/::after (with any attribute on the rail).
+  const railRules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, selector]) =>
+    selector!
+      .split(",")
+      .some((part) => /\.acpmux-minimap__rail(\[[^\]]*\]|:not\([^)]*\))*(::?(before|after))?\s*$/.test(part.trim())),
+  );
+  expect(railRules.length).toBeGreaterThan(0);
+  for (const [, selector, body] of railRules)
+    expect({
+      selector: selector!.trim(),
+      paint: body!.match(/(^|;|\s)(background[\w-]*|box-shadow)\s*:[^;]*/g),
+    }).toEqual({
+      selector: selector!.trim(),
+      paint: null,
+    });
+  setChatDisplay({ "agentPane.display.minimap": "compact" });
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(turns, new Set())}
+          sessionId="rail-no-shadow"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    // Scrolled up to the top of the chat, far from the latest message.
+    await act(async () => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+    });
+    const shell = document.querySelector<HTMLElement>(".acpmux-minimap")!;
+    const rail = document.querySelector<HTMLElement>("nav.acpmux-minimap__rail")!;
+    expect(rail).toBeTruthy();
+    // No distance-driven paint on the rail: no shadow reach on its shell, no shadow variant on it.
+    expect([...shell.style].filter((name) => name.includes("shadow"))).toEqual([]);
+    expect([...rail.style].filter((name) => name.includes("shadow"))).toEqual([]);
+    expect(rail.hasAttribute("data-shadow-variant")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    setChatDisplay({});
   }
 });

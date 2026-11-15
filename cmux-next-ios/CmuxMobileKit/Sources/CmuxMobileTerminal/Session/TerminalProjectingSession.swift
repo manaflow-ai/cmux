@@ -84,21 +84,27 @@ public final class TerminalProjectingSession: TerminalSession {
     public func clearHistory() async throws { try await inner.clearHistory() }
     /// Older rows: the projection's own first (a re-wrap paints a window of
     /// the scrollback, so a rotation costs the same at any length), then the
-    /// Mac's.
-    public func loadOlderHistory() {
+    /// Mac's. Returns whether a reset with older rows follows (the
+    /// projection's re-wrap, one still being parsed, or the Mac's replay).
+    @discardableResult
+    public func loadOlderHistory() -> Bool {
         guard !shownAlternate, handler != nil else { return inner.loadOlderHistory() }
         if projection.olderRows() > 0 {
             let started = CFAbsoluteTimeGetCurrent()
             // One chunk per replay: the page keeps calling while its reset is parsed.
-            if let last = lastOlderLoad, started - last < 0.5 { return }
+            if let last = lastOlderLoad, started - last < 0.5 { return true }
             lastOlderLoad = started
             let segments = projection.loadOlder(hostRows: Self.olderChunkRows)
             log.notice("projection: \(Self.olderChunkRows, privacy: .public) older rows re-wrapped in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000), privacy: .public) ms, \(self.projection.olderRows(), privacy: .public) left")
             emit(segments)
-        } else {
-            inner.loadOlderHistory()
+            return segments.contains { if case .reset = $0 { true } else { false } }
         }
+        return inner.loadOlderHistory()
     }
+
+    /// The Mac holds the scrollback the projection re-wraps: it asks for the
+    /// reader's rows. Phone rows are never fewer than the host rows they wrap.
+    public func requestHistoryRows(_ rows: Int) { inner.requestHistoryRows(rows) }
 
     public func noteReaderRowsFromEnd(_ rows: Int) {
         projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))

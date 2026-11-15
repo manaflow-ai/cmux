@@ -395,12 +395,34 @@ const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.m
 export const isRevealRow = (row: AcpmuxRow, reveal: Pick<FindRevealTarget, "rowId" | "card">) =>
   (row.id === reveal.rowId || Boolean(row.joined?.includes(reveal.rowId))) && Boolean(row.ended) === reveal.card;
 
+/// The id suffix of the part of a run that ended after a prompt the person sent (turns.ts
+/// `afterSends`): what was still going left its run for one under the prompt, which names the rows
+/// it came from in `joined`.
+export const AFTER_SEND = ":after:";
+
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
- * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. */
-export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string): number {
+ * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. A row a
+ * prompt sent mid-turn split (AFTER_SEND) draws in two places: `holds` picks the one with the match.
+ * Any other row draws in one place, the first, as before. */
+export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string, holds?: (row: AcpmuxRow) => boolean): number {
   const at = rows.findIndex((row) => isFindRow(row, rowId));
-  return at >= 0 ? at : rows.findIndex((row) => isCardOf(row, rowId));
+  if (at < 0) return rows.findIndex((row) => isCardOf(row, rowId));
+  if (!holds || holds(rows[at]!)) return at;
+  for (let next = at + 1; next < rows.length; next += 1)
+    if (rows[next]!.id.includes(AFTER_SEND) && isFindRow(rows[next]!, rowId) && holds(rows[next]!)) return next;
+  return at;
 }
+
+/** Whether `row`'s work holds `needle` (folded as Find folds it) or call `toolId`: the part of a
+ * split row a match or a count's reveal goes to (findRowIndex). */
+export const rowHolds =
+  (target: { needle?: string; toolId?: string }) =>
+  (row: AcpmuxRow): boolean =>
+    target.toolId !== undefined
+      ? Boolean(row.items?.some((item) => item.tool?.id === target.toolId))
+      : target.needle
+        ? Boolean(row.items?.some((item) => searchableActivityText(item).includes(foldFind(target.needle!))))
+        : true;
 
 /** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
 export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {

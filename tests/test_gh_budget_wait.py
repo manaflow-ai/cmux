@@ -359,8 +359,12 @@ PUBLISH_PATH = (
     # The dispatches: run 42726398544's sign dispatch failed on "HTTP 403: API rate limit exceeded for
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
-    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next",
+    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
 )
+# A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
+# tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
+# missed ask costs at most the tick's 5-minute cron, and wake-nightly-next-tick asks again at the job's end.
+DISPATCH_NEVER_WAITS = {"nightly-next-one": "Ask main's nightly-next tick at notarization"}
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 # One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
 # these guards hold the limit with the mode off, the smaller one.
@@ -406,6 +410,11 @@ SHARED_TOKEN_ONLY = {
     ("resolve-nightly-cmux-tui-client", "Build the tip while its tree publishes"),
     ("resolve-nightly-cmux-tui-client", "Resolve cmux-tui client commit"),
     ("resolve-nightly-cmux-tui-client", "Leave the build slot to a newer nightly-next push"),
+    # The tick wake after nightly-next-one, a workflow dispatch like retry-nightly-next's (which reads
+    # github.token from its job env). No App path fits it: the release App holds contents and workflows,
+    # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
+    # nightly-next-one reaches the tick while that job still holds the slot, so the tick promotes nothing.
+    ("wake-nightly-next-tick", "Ask main's nightly-next tick"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),
@@ -487,7 +496,14 @@ class WorkflowTests(unittest.TestCase):
 
     def test_every_dispatch_is_on_the_publish_path(self) -> None:
         for name, job in self.jobs.items():
-            if any("gh workflow run" in str(s.get("run", "")) for s in job.get("steps", [])):
+            dispatches = [s for s in job.get("steps", []) if "gh workflow run" in str(s.get("run", ""))]
+            if name in DISPATCH_NEVER_WAITS:
+                for step in dispatches:
+                    self.assertEqual(step.get("name"), DISPATCH_NEVER_WAITS[name], name)
+                    self.assertEqual(str((step.get("env") or {}).get("GH_BUDGET_WAIT_MAX_SECONDS")), "0", name)
+                    self.assertIs(step.get("continue-on-error"), True, name)
+                continue
+            if dispatches:
                 self.assertIn(name, PUBLISH_PATH, name)
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
@@ -517,8 +533,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(runs_on.endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
         self.assertNotIn("blacksmith", runs_on)
         self.assertNotIn("RUNNER_POOLS", runs_on)
-        # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run.
-        self.assertEqual(job["needs"], ["decide", "build-nightly-app", "build-nightly-remote-daemon"])
+        # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run;
+        # nightly-next-one builds the same assets in one-job mode.
+        self.assertEqual(job["needs"], ["decide", "build-nightly-app", "build-nightly-remote-daemon", "nightly-next-one"])
         self.assertGreaterEqual(int(mode_off_timeout(job["timeout-minutes"])), 65)
         # No consumer can put this advisory job back on the publication path,
         # directly or transitively. A budget wait must not delay the feed.

@@ -29,6 +29,8 @@ cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
 cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
 # The phone's own reflowed view of a Mac terminal it does not size.
 cmux-terminal-projection = { path = "../../cmux-tui/crates/cmux-terminal-projection" }
+# Toggle Terminal and Chat: the Mac's pair route (`tabs::terminal_chat_toggle`), which the phone asks too.
+cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
@@ -46,6 +48,8 @@ tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+# Web link addresses (the phone decides which device opens a link, link_side).
+url = "2"
 webrtc = "0.17"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = "1"

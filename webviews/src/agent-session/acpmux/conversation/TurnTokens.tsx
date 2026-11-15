@@ -5,11 +5,8 @@
 // (its fresh input and the prompt cache's writes), never every call's reads added up, since each call
 // reads the whole context again (tokenSplit.ts); the hover names each part. The two are never folded
 // into one total. A
-// turn whose calls named their output but not what they read shows "2.1M out". The line over a
-// running turn (WorkingFor.tsx) and a finished turn's "Worked for" (TurnRows.tsx) draw it in the
-// line's quieter tertiary text and tabular numerals (conversation.css `.cv-worked__tokens`). The
-// live line at the bottom (Thinking.tsx) says the output alone as Claude Code does, "47.4K tokens",
-// with this split on its hover (liveLineTokens.experiment.ts).
+// turn whose calls named their output but not what they read shows "2.1M out". Transcript
+// running and completed status lines do not use this formatter; usage data remains available.
 import type { ReactNode } from "react";
 import { usePaneLanguage, useT } from "../i18n";
 import type { TurnTokenSplit } from "../model";
@@ -35,8 +32,7 @@ export function TurnTokens({ total, split }: { total?: number; split?: TurnToken
   return <span className="cv-worked__tokens">{workingTokens(t, language, total)}</span>;
 }
 
-/// "Worked for 1m 16s" with its time in the line's quieter color: the translated label split around
-/// its time, so the words keep their place in every language.
+/// A translated turn label split around its duration, so the words keep their place in every language.
 export function TimedLabel({ text, time }: { text: (time: string) => string; time: number }): ReactNode {
   const shown = formatDuration(time);
   const marker = "\u0000";

@@ -8,8 +8,9 @@
 //! `start`: the stream offset of the snapshot it continues) + frames in the
 //! segment format (`start offset (u64 LE) | compressed length (u32 LE) | raw
 //! length (u32 LE) | gzip`). The writer appends one frame per changed
-//! terminal per pass (write(2) only; an fsync at most every
-//! [`super::TAIL_SYNC_INTERVAL`]). A snapshot is the compaction: it records
+//! terminal per pass (write(2) only; the tails written since their last
+//! sync are synced together every [`super::TAIL_SYNC_INTERVAL`], and each
+//! at quit). A snapshot is the compaction: it records
 //! its stream offset, and the tail file goes once the snapshot is in place.
 //! A frame cut by a crash ends the read.
 //!
@@ -53,7 +54,7 @@ pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
 
 /// Append `bytes` (stream offsets `start..`) to the tail that continues the
 /// snapshot at `base` of `generation`; the file is created with its header
-/// when absent. `sync`: fsync the file after the write.
+/// when absent. `sync`: fsync the file after the write (the quit pass).
 pub(super) fn append(
     directory: &Path,
     terminal_id: &TerminalPublicId,
@@ -88,11 +89,35 @@ pub(super) fn append(
     Ok(())
 }
 
-/// Fsync a tail written without one.
+/// Fsync a tail written without one (the quit pass; F_FULLFSYNC on macOS).
 pub(super) fn sync(directory: &Path, terminal_id: &TerminalPublicId) {
     if let Ok(file) = fs::File::open(path(directory, terminal_id)) {
         let _ = file.sync_data();
     }
+}
+
+/// The sync of a tail written without one while the daemon runs, every
+/// [`super::TAIL_SYNC_INTERVAL`]; whether a file was synced. On macOS it is
+/// F_BARRIERFSYNC, not the F_FULLFSYNC of [`sync`]: the file's bytes go to
+/// the drive, in order before later writes, and the drive's cache is not
+/// flushed (0.5 ms against 3.9 ms on a Mac mini,
+/// `terminal_host_runtime/sys/unix/barrier_sync.rs`). A power loss can so
+/// take back output the drive still held in its cache; terminal output is
+/// not structure, and the registry's WAL runs the same way
+/// (`workspace_registry/wal_durability.rs`). It falls back to the full sync
+/// where the file system refuses the barrier; fdatasync elsewhere.
+pub(super) fn sync_ordered(directory: &Path, terminal_id: &TerminalPublicId) -> bool {
+    let Ok(file) = fs::File::open(path(directory, terminal_id)) else { return false };
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: fcntl on a descriptor this File owns, with no pointer
+        // argument.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } != -1 {
+            return true;
+        }
+    }
+    file.sync_data().is_ok()
 }
 
 /// One tail frame: its stream offset and raw bytes.

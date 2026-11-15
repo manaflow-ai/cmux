@@ -1,5 +1,5 @@
 {
- "title": "A wide Markdown table's motion (user 2026-11-08: \"this table thing needs better animation on appear/disappear\"): in the Markdown viewer and in a chat reply, light then dark, every display frame recorded (debug.window_record into launch/strip-NN) while the table scrolls right and back and while a reply's table arrives. Shows the edge fades and the sideways thumb coming and going. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/markdown-table-motion.json --mac (any commit: the state is read from this file).",
+ "title": "A wide Markdown table's motion (user 2026-11-08: \"this table thing needs better animation on appear/disappear\"): in the Markdown viewer and in a chat reply, light then dark, each motion recorded as a display video (displayRecord: CuaDriver, whose Screen Recording grant a tagged build lacks, into launch/strip-NN/recording.mp4; a whole capture mini) while the table scrolls right and back and while a reply's table arrives. Shows the edge fades and the sideways thumb coming and going. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/markdown-table-motion.json --mac (any commit: the state is read from this file).",
  "launch_args": [
   "--skip-onboarding"
  ],
@@ -201,19 +201,6 @@
    "shot": false
   },
   {
-   "title": "Record every frame (light viewer, scroll right)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 2.5
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
-  },
-  {
    "title": "light viewer: scroll to the last column (the left edge fade comes in, the right one goes)",
    "rpc": {
     "method": "debug.page",
@@ -226,20 +213,8 @@
    },
    "record": true,
    "wait": 2.7,
-   "shot": false
-  },
-  {
-   "title": "Record every frame (light viewer, scroll back)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 2.5
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
+   "shot": false,
+   "displayRecord": true
   },
   {
    "title": "light viewer: scroll back to the start (the left fade goes, the right one comes back)",
@@ -254,7 +229,8 @@
    },
    "record": true,
    "wait": 2.7,
-   "shot": false
+   "shot": false,
+   "displayRecord": true
   },
   {
    "title": "light: the chat",
@@ -279,19 +255,6 @@
    "shot": false
   },
   {
-   "title": "Record every frame (light chat, the table appears)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 3
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
-  },
-  {
    "title": "light chat: a reply with a wide table arrives (the fake agent echoes the prompt)",
    "rpc": {
     "method": "debug.agent_pane",
@@ -301,7 +264,9 @@
     }
    },
    "wait": 3.5,
-   "shot": false
+   "shot": false,
+   "displayRecord": true,
+   "record": true
   },
   {
    "title": "The reply's table is drawn (not the prompt's)",
@@ -319,19 +284,6 @@
    "shot": false
   },
   {
-   "title": "Record every frame (light chat, scroll right)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 3
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
-  },
-  {
    "title": "light chat: scroll the reply's table to its last column (thumb fades in and out, edge fades swap)",
    "rpc": {
     "method": "debug.page",
@@ -344,20 +296,8 @@
    },
    "record": true,
    "wait": 3.2,
-   "shot": false
-  },
-  {
-   "title": "Record every frame (light chat, scroll back)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 3
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
+   "shot": false,
+   "displayRecord": true
   },
   {
    "title": "light chat: scroll back to the start",
@@ -372,7 +312,8 @@
    },
    "record": true,
    "wait": 3.2,
-   "shot": false
+   "shot": false,
+   "displayRecord": true
   },
   {
    "title": "dark: appearance",
@@ -411,19 +352,6 @@
    "shot": false
   },
   {
-   "title": "Record every frame (dark viewer, scroll right)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 2.5
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
-  },
-  {
    "title": "dark viewer: scroll to the last column (the left edge fade comes in, the right one goes)",
    "rpc": {
     "method": "debug.page",
@@ -436,20 +364,8 @@
    },
    "record": true,
    "wait": 2.7,
-   "shot": false
-  },
-  {
-   "title": "Record every frame (dark viewer, scroll back)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 2.5
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
+   "shot": false,
+   "displayRecord": true
   },
   {
    "title": "dark viewer: scroll back to the start (the left fade goes, the right one comes back)",
@@ -464,7 +380,8 @@
    },
    "record": true,
    "wait": 2.7,
-   "shot": false
+   "shot": false,
+   "displayRecord": true
   },
   {
    "title": "dark: the chat",
@@ -489,19 +406,6 @@
    "shot": false
   },
   {
-   "title": "Record every frame (dark chat, the table appears)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 3
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
-  },
-  {
    "title": "dark chat: a reply with a wide table arrives (the fake agent echoes the prompt)",
    "rpc": {
     "method": "debug.agent_pane",
@@ -511,7 +415,9 @@
     }
    },
    "wait": 3.5,
-   "shot": false
+   "shot": false,
+   "displayRecord": true,
+   "record": true
   },
   {
    "title": "The reply's table is drawn (not the prompt's)",
@@ -529,19 +435,6 @@
    "shot": false
   },
   {
-   "title": "Record every frame (dark chat, scroll right)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 3
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
-  },
-  {
    "title": "dark chat: scroll the reply's table to its last column (thumb fades in and out, edge fades swap)",
    "rpc": {
     "method": "debug.page",
@@ -554,20 +447,8 @@
    },
    "record": true,
    "wait": 3.2,
-   "shot": false
-  },
-  {
-   "title": "Record every frame (dark chat, scroll back)",
-   "rpc": {
-    "method": "debug.window_record",
-    "params": {
-     "dir": "{strip}",
-     "seconds": 3
-    }
-   },
-   "record": true,
-   "wait": 0.15,
-   "shot": false
+   "shot": false,
+   "displayRecord": true
   },
   {
    "title": "dark chat: scroll back to the start",
@@ -582,7 +463,8 @@
    },
    "record": true,
    "wait": 3.2,
-   "shot": false
+   "shot": false,
+   "displayRecord": true
   }
  ]
 }
