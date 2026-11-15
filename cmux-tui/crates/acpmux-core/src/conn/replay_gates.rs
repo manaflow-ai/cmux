@@ -371,19 +371,10 @@ async fn append_replay_unobserved_sample(
     let copy_stop = stop.clone();
     let copy_active = active.clone();
     let copy_overlap = overlap.clone();
-    let copy_go = Arc::new(AtomicBool::new(false));
-    let copy_go_thread = copy_go.clone();
     let copy_task = tokio::task::spawn_blocking(move || {
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
-            while !copy_go_thread.load(Ordering::Acquire) {
-                if copy_stop.load(Ordering::Acquire) {
-                    return;
-                }
-                std::thread::yield_now();
-            }
-            copy_go_thread.store(false, Ordering::Release);
             let Some(RawRead::Span(span)) =
                 receiver.try_next_raw(Some(target), MAX_REPLAY_FRAME_BYTES)
             else {
@@ -415,8 +406,16 @@ async fn append_replay_unobserved_sample(
         target,
         offset,
         &active,
-        || permit.store(true, Ordering::Release),
-        || copy_go.store(true, Ordering::Release),
+        || {
+            // `waiting` is raised by RawCopyPermit inside try_next_raw. Once
+            // active is armed, releasing this permit starts the real copy at
+            // the measured clock boundary without reading a counter in it.
+            if waiting.load(Ordering::Acquire) {
+                overlap.store(true, Ordering::Release);
+            }
+            permit.store(true, Ordering::Release);
+        },
+        || {},
     )
     .unwrap();
     stop.store(true, Ordering::Release);
@@ -445,19 +444,10 @@ async fn append_foreign_hub_sample(
     let copy_stop = stop.clone();
     let copy_active = active.clone();
     let copy_overlap = overlap.clone();
-    let copy_go = Arc::new(AtomicBool::new(false));
-    let copy_go_thread = copy_go.clone();
     let copy_task = tokio::task::spawn_blocking(move || {
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
-            while !copy_go_thread.load(Ordering::Acquire) {
-                if copy_stop.load(Ordering::Acquire) {
-                    return;
-                }
-                std::thread::yield_now();
-            }
-            copy_go_thread.store(false, Ordering::Release);
             let Some(RawRead::Span(span)) =
                 receiver.try_next_raw(Some(foreign_target), MAX_REPLAY_FRAME_BYTES)
             else {
@@ -487,8 +477,16 @@ async fn append_foreign_hub_sample(
         target,
         offset,
         &active,
-        || permit.store(true, Ordering::Release),
-        || copy_go.store(true, Ordering::Release),
+        || {
+            // `waiting` is raised by RawCopyPermit inside try_next_raw. Once
+            // active is armed, releasing this permit starts the real copy at
+            // the measured clock boundary without reading a counter in it.
+            if waiting.load(Ordering::Acquire) {
+                overlap.store(true, Ordering::Release);
+            }
+            permit.store(true, Ordering::Release);
+        },
+        || {},
     )
     .unwrap();
     stop.store(true, Ordering::Release);
