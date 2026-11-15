@@ -1402,6 +1402,21 @@ class Wiring(unittest.TestCase):
                 attempt if attempt == "1" or attempt in ("2", "3") and actor == BOT else "1")}}}
         return context
 
+    def test_a_later_bot_attempt_takes_the_blacksmith_slot_its_own_placement_found(self):
+        # macos-placement runs on every rescue bot attempt (run 43716323834's attempt 5, #43733), so each placed
+        # output of that attempt is honored: a job its cascade put on Blacksmith takes Blacksmith, never the deeper
+        # side label through deferred_runner.
+        for name in (*CASCADED, "swift-test", "daemon-test", "generated-files"):
+            for attempt in ("4", "5"):
+                for key, label in (("small", SMALL), ("large", LARGE)):
+                    context = self.context(attempt, BOT, runner="", placed=attempt, **{key: f" {name} "})
+                    context["needs"]["macos-placement"]["outputs"]["deferred_runner"] = SIDE
+                    for expression in (runs_on_of(self.jobs[name]), env_of(self.jobs[name]).get("CMUX_NEXT_RUNNER")):
+                        if expression is None:
+                            continue
+                        with self.subTest(job=name, attempt=attempt, reading=key):
+                            self.assertEqual(evaluate(expression, context), label)
+
     def test_attempt_1_takes_the_blacksmith_slot_the_placement_found(self):
         for name in CASCADED:
             runs_on = runs_on_of(self.jobs[name])
