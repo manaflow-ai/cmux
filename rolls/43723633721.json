@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43723633721",
+  "recorded_at": "2026-11-15T14:23:16Z",
+  "reason": "cmux-tui e931a6596165 changes the image's cmux-tui (pinned 73fc4b35c7de)",
+  "dry_run": false,
+  "cmux_tui": "e931a6596165956f686c32406f3ae17d57715907",
+  "fixes": [
+    {
+      "sha": "e931a6596165956f686c32406f3ae17d57715907",
+      "mergedAt": "2026-11-15T06:02:11-08:00",
+      "subject": "cmux-tui: the Rust SDK reads each member of a column dock and the client transport `remote`, so a pass of the screen detector does not end"
+    },
+    {
+      "sha": "4524ac983c421c1ab9fde75c189ad57fbd0dca1d",
+      "mergedAt": "2026-11-15T05:57:03-08:00",
+      "subject": "fix: preserve session search replies across log rollover (#43756)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T14:23:16Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
