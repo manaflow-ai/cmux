@@ -179,6 +179,14 @@ fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
         let file = entry.parent().unwrap().join(path);
         assert!(file.is_file(), "{path} is carried with the SDK ({})", file.display());
     }
+    // `cmux-extension-sdk/customize`, written from this build's schema.
+    let types = entry.parent().unwrap().join("generated/customize.ts");
+    let schema = cmux_customize::schema::Schema::current();
+    assert_eq!(
+        std::fs::read_to_string(&types).ok(),
+        Some(cmux_customize::schema::typescript(&schema)),
+        "the customize types are carried with the SDK"
+    );
 
     let Some(bun) = dev::find_bun() else {
         eprintln!("bun is not on PATH: the build half of this test needs it");
