@@ -662,9 +662,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 // one is an error, so callers such as `host setup` see it.
                 Err(e) if start => return Err(e),
                 Err(e) => {
-                    // Why a start would fail, when config.json already says (a network listen
-                    // without its opt-in): the person sees it here, not only in daemon.log.
-                    let refused = crate::daemon::saved_listen_refusal().await;
+                    // Why a start would fail, when config.json already says (the daemon's start
+                    // check): the person sees it here, not only in daemon.log.
+                    let refused = crate::daemon::saved_start_refusal().await;
                     if json_out {
                         let out = match &refused {
                             Some(why) => {
