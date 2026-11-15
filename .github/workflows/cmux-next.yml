@@ -1866,6 +1866,7 @@ jobs:
             python3 scripts/cmux-next/test_reduce_motion_audit.py
             python3 scripts/cmux-next/test_split_scale_background.py
             python3 scripts/cmux-next/test_split_scale_metrics.py
+            python3 scripts/cmux-next/tests/test_app_ffi_exports.py
             python3 scripts/cmux-next/tests/test_arch_layers.py
             python3 scripts/cmux-next/tests/test_arch_ratchet.py
             python3 scripts/cmux-next/tests/test_bench_arms.py
