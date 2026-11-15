@@ -1223,7 +1223,6 @@ fn shared_helper(servers: &[McpServer]) -> Option<Value> {
 /// file first, then renamed, so claude never reads half a config).
 #[cfg(unix)]
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
-    use std::io::Write;
     // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`),
     // and the file goes through the folder this daemon holds (`home_fs`): a home replaced after
     // the check never gets it.
@@ -1231,21 +1230,8 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     crate::home_fs::create_dir_all(dir, 0o700)?;
     crate::home_fs::set_mode(dir, 0o700)?;
-    let tmp = dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
-    let written = (|| -> std::io::Result<()> {
-        let mut f = crate::home_fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        crate::home_fs::rename(&tmp, path)
-    })();
-    if written.is_err() {
-        let _ = crate::home_fs::remove_file(&tmp);
-    }
-    Ok(written?)
+    // The copy of a writer stopped before its rename is removed by the next write.
+    crate::config::write_atomic_checked(path, bytes)
 }
 /// Windows: the folder and the file owner-only (`owner_only.rs`).
 #[cfg(windows)]
