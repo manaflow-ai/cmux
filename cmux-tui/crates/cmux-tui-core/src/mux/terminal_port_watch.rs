@@ -208,9 +208,10 @@ impl Mux {
             return;
         }
         let weak = Arc::downgrade(self);
+        let watch = Arc::clone(&self.terminal_port_watch);
         match std::thread::Builder::new()
             .name("terminal-port-watch".into())
-            .spawn(move || run_worker(&weak))
+            .spawn(move || run_worker(&weak, &watch))
         {
             Ok(_) => state.worker = true,
             Err(error) => eprintln!("cmux-tui: terminal port watch did not start: {error}"),
@@ -459,25 +460,30 @@ impl TerminalPortWatch {
 
 /// The worker: one pass per [`PASS_INTERVAL`] while terminals print. Ends
 /// after [`IDLE_LINGER`] with nothing queued, when the mux is gone, or at
-/// shutdown; its waits are bounded and it lets the mux go between them.
-fn run_worker(weak: &Weak<Mux>) {
+/// shutdown; its waits are bounded.
+///
+/// It holds the mux only for the shutdown check and for a pass, never across
+/// a wait: a mux its owner dropped is freed at once (with the registry's
+/// session lease), not after [`IDLE_LINGER`]. The watch it waits on is its
+/// own `Arc`. The strong mux is let go before the watch is locked, so a mux
+/// whose last reference ends here never drops under that lock.
+fn run_worker(weak: &Weak<Mux>, watch: &TerminalPortWatch) {
     // A pass that panics leaves no stale `worker`: the next output starts one.
-    struct OnPanic<'a>(&'a Weak<Mux>);
+    struct OnPanic<'a>(&'a TerminalPortWatch);
     impl Drop for OnPanic<'_> {
         fn drop(&mut self) {
-            if std::thread::panicking()
-                && let Some(mux) = self.0.upgrade()
-            {
-                mux.terminal_port_watch.lock().worker = false;
+            if std::thread::panicking() {
+                self.0.lock().worker = false;
             }
         }
     }
-    let _on_panic = OnPanic(weak);
+    let _on_panic = OnPanic(watch);
     loop {
-        let Some(mux) = weak.upgrade() else { return };
-        let watch = &mux.terminal_port_watch;
+        let Some(shutdown) = weak.upgrade().map(|mux| mux.daemon_shutdown_requested()) else {
+            return;
+        };
         let mut state = watch.lock();
-        if mux.daemon_shutdown_requested() {
+        if shutdown {
             state.worker = false;
             state.queued.clear();
             return;
@@ -502,6 +508,7 @@ fn run_worker(weak: &Weak<Mux>) {
         let queued: Vec<SurfaceId> = state.queued.drain().collect();
         let reconcile = std::mem::take(&mut state.reconcile);
         drop(state);
+        let Some(mux) = weak.upgrade() else { return };
         mux.terminal_ports_pass(queued, reconcile);
     }
 }

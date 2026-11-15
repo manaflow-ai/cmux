@@ -137,8 +137,11 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
   contentful paint, visibility changes (+2 rAF) and video playback to the harness.
   The scroll page scrolls itself 4 px per frame; the video page records a 720p
   clip from a canvas and loops it (no downloaded media, any engine). No network rows.
-- **Profiles**: one template per browser (one launch, 45 s settle, quit); every
-  launch runs on its own APFS clone. HOME and CFFIXED_USER_HOME point into the run
+- **Profiles**: one template per browser (one launch, quit once its first-run writes
+  end: at least 75 s, past Chromium's 60 s component-updater check, then 30 s with
+  no file written, at most 150 s; `settle_template`); every launch runs on its own
+  APFS clone. The old 45 s template left the component downloads (23 to 62 MB) to
+  every measured launch's Home window. HOME and CFFIXED_USER_HOME point into the run
   folder. cmux runs with `CMUX_NEXT_NO_ACTIVATE=1`, a scratch config with updates off.
 - **Driving**: Chromium browsers over CDP's HTTP endpoints (`/json/new`,
   `/json/activate`, `/json/close`) with `--remote-debugging-port --no-first-run

@@ -28,7 +28,8 @@ Review production Swift and runtime changes for:
 - Per-call allocating formatting (`String(format:)`, per-call formatters) on hot or concurrent paths instead of preallocated buffers or reused formatters.
 - Correctness-critical detection/identity derived from title/name heuristics or unreliable fallbacks instead of a single reliable source of truth.
 - Custom React composite UI built from raw elements when Base UI or an existing local component should own accessibility, focus, and keyboard behavior.
-- Native chrome or Home drawn in a web view in the cmux NEXT macOS app (toasts, dialogs, popovers, bars, sidebar sections, Command Palette surfaces), instead of AppKit.
+- Native chrome or Home drawn in a web view in the cmux NEXT macOS app
+- A pressed (mousedown, `:active`, `isPressed`) state that changes anything but the background fill: bold, font, size, scale, offset, opacity or icon (toasts, dialogs, popovers, bars, sidebar sections, Command Palette surfaces), instead of AppKit.
 - Remote CLI relay authorization (GHSA-9vmv-3hjw-j28c): the relay credential lives on the remote host, so flag any v2 method added to the relay allowlist without a per-method security analysis, any command-bearing param (`initial_command`, `command`, `tmux_start_command`, `pane_start_command`) accepted through the relay, workspace/surface/tab ID params not scoped to the remote session's owned objects, and any weakening of deny-by-default. The legacy `RemoteRelayCommandPolicy` is deleted; a relay path to the app without a default-deny policy is a failure.
 
 ## Runtime No Hacky Sleeps
