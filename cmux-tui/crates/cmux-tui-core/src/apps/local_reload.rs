@@ -295,15 +295,26 @@ fn watched_dirs(sources: &catalog::Sources) -> Vec<PathBuf> {
     dirs
 }
 
-/// The watched folders whose subfolders are app packages.
+/// The watched folders whose subfolders are app packages. An empty entry
+/// (`CMUX_APPS_DIRS=":~/ext"` splits into "" and "~/ext") names no folder.
 fn package_dirs(sources: &catalog::Sources) -> impl Iterator<Item = &PathBuf> {
-    sources.local.iter().chain(&sources.extra)
+    sources.local.iter().chain(&sources.extra).filter(|dir| !dir.as_os_str().is_empty())
 }
 
-/// Whether `dir` (a package folder) is in a watched folder.
+/// Whether `dir` (a package folder) is one the watch covers: the
+/// customization folder, or a direct subfolder of a package folder, as
+/// `catalog::load` reads them. Not any path under one: `starts_with` an
+/// empty root or an outer folder would count a shipped package in it, which
+/// `PrintsBefore::take` never fingerprints, so it read as changed on every
+/// reload and its host restarted each time.
 fn is_watched_dir(sources: &catalog::Sources, dir: &Path) -> bool {
     sources.customize.as_deref() == Some(dir)
-        || package_dirs(sources).any(|root| dir.starts_with(root))
+        || package_dirs(sources).any(|root| dir.parent() == Some(root.as_path()))
+}
+
+/// Whether `dir` holds an app manifest (`catalog::load` reads no other).
+fn is_package(dir: &Path) -> bool {
+    dir.join("cmux-app.json").is_file() || dir.join(catalog::V2_MANIFEST).is_file()
 }
 
 /// Fingerprints of the watched package folders (the customization folder and
@@ -317,9 +328,13 @@ pub(super) struct PrintsBefore(HashMap<PathBuf, u64>);
 impl PrintsBefore {
     pub(super) fn take(sources: &catalog::Sources) -> Self {
         let mut dirs: Vec<PathBuf> = sources.customize.iter().cloned().collect();
+        // Only folders with a manifest: a `CMUX_APPS_DIRS` folder may be a
+        // checkout whose other folders (`target/`, `docs/`) are no app, and
+        // each costs a fingerprint per reload. A folder whose manifest comes
+        // during the read gets `UNREAD` and is read on its next event.
         for root in package_dirs(sources) {
             if let Ok(entries) = std::fs::read_dir(root) {
-                dirs.extend(entries.flatten().map(|entry| entry.path()));
+                dirs.extend(entries.flatten().map(|entry| entry.path()).filter(|p| is_package(p)));
             }
         }
         let prints = dirs.into_iter().filter(|dir| dir.is_dir()).map(|dir| {
@@ -782,5 +797,26 @@ mod tests {
         let after = fingerprint(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         assert_ne!(before, after, "the content changed");
+    }
+
+    /// An empty `CMUX_APPS_DIRS` entry (a leading or trailing `:`) and an
+    /// outer folder watch nothing they do not hold directly: every path
+    /// starts with "", so a shipped package counted as watched, had no
+    /// fingerprint from before the read, and restarted on every reload.
+    #[test]
+    fn only_direct_subfolders_of_a_named_folder_are_watched() {
+        let sources = super::catalog::Sources {
+            local: Some(PathBuf::from("/state/apps/local")),
+            extra: vec![PathBuf::new(), PathBuf::from("/src/ext")],
+            customize: Some(PathBuf::from("/home/me/.config/cmux/customize")),
+            ..Default::default()
+        };
+        let watched = |dir: &str| super::is_watched_dir(&sources, Path::new(dir));
+        assert!(watched("/state/apps/local/spy"));
+        assert!(watched("/src/ext/fork"));
+        assert!(watched("/home/me/.config/cmux/customize"));
+        assert!(!watched("/Applications/cmux.app/Contents/Resources/apps/first-party/search"));
+        assert!(!watched("/src/ext/fork/nested"));
+        assert!(!super::watched_dirs(&sources).iter().any(|d| d.as_os_str().is_empty()));
     }
 }
