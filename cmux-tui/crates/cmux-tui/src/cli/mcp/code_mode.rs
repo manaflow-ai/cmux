@@ -1328,7 +1328,7 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     // they were in the result) and images: each outline back in its place, the
     // images in `images`.
     let outline = |block: &Value| -> Option<String> {
-        block["_meta"][cmux_computer_use::engine::OUTLINE_META].as_str().map(str::to_owned)
+        block["_meta"][acpmux::computer_use::OUTLINE_META].as_str().map(str::to_owned)
     };
     if let Some(mut body) = json_body
         && blocks.len() > 1
@@ -1482,7 +1482,7 @@ mod outline_tests {
     /// script; an unmarked second text block (another tool's) is left as content.
     #[test]
     fn computer_use_outlines_return_to_their_place() {
-        let mut out = cmux_computer_use::ToolOutput::ok(json!({
+        let mut out = acpmux::computer_use::ToolOutput::ok(json!({
             "route": "ax_press",
             "state": {"unchanged": false, "tree": "~ [3] button \"Save\" (was: disabled)"},
         }));

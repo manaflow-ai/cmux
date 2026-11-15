@@ -9,4 +9,6 @@ pub mod mcp;
 
 /// The tool catalog (names, schemas, the server name and its instructions),
 /// for the `cmux` server that folds this one (`cmux mcp serve`).
+pub use cmux_computer_use::ToolOutput;
+pub use cmux_computer_use::engine::OUTLINE_META;
 pub use cmux_computer_use::tools;
