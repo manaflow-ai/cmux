@@ -1,6 +1,5 @@
-import CmuxNextFiles
 import CryptoKit
-import Foundation
+public import Foundation
 
 /// Keeps Markdown table column widths with the file, in its `com.cmux.markdown.tables` extended
 /// attribute, and mirrors them into a small app-side copy per file under Application Support
@@ -10,25 +9,25 @@ import Foundation
 /// the attribute is gone or refused: a volume without attributes (some SMB, FAT, exFAT), a file the
 /// user cannot write, or an editor or `git checkout` that replaced the file and dropped them. The
 /// copy is one file per path, bounded to ``fallbackLimit`` files, oldest first out.
-actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
+public actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     /// The extended attribute's name.
-    static let attributeName = "com.cmux.markdown.tables"
+    public static let attributeName = "com.cmux.markdown.tables"
     /// The largest value kept; the page's own cap keeps far below it.
-    static let valueLimit = 16 * 1024
-    /// The attribute of a file's viewer comments (``ViewerCommentList``).
-    static let commentsAttributeName = "com.cmux.markdown.comments"
+    public static let valueLimit = 16 * 1024
+    /// The attribute of a file's viewer comments (the App's `ViewerCommentList`).
+    public static let commentsAttributeName = "com.cmux.markdown.comments"
     /// The largest comments value kept: under ``DarwinExtendedAttributes/readLimit``.
-    static let commentsValueLimit = 60 * 1024
+    public static let commentsValueLimit = 60 * 1024
     /// How many files the app-side copy remembers.
-    static let fallbackLimit = 1000
+    public static let fallbackLimit = 1000
     /// The copy is pruned on the first write and then every this many writes.
-    static let pruneEvery = 32
+    public static let pruneEvery = 32
 
     private let attributes: any ExtendedAttributeAccess
     /// This store's attribute (``attributeName`` for table widths, ``commentsAttributeName`` for viewer comments).
-    let name: String
+    public let name: String
     /// The largest value this store keeps.
-    let maxBytes: Int
+    public let maxBytes: Int
     private let fallback: URL?
     private let fileManager: FileManager
     private let limit: Int
@@ -41,9 +40,9 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     ///   - name: The extended attribute; the same store keeps a file's viewer comments under
     ///     ``commentsAttributeName`` (viewer-comments-DESIGN.md "Comments in the viewer").
     ///   - maxBytes: The largest value kept.
-    init(attributes: any ExtendedAttributeAccess = DarwinExtendedAttributes(), fallback: URL?,
-         fallbackLimit: Int = MarkdownTableWidthRepository.fallbackLimit,
-         name: String = MarkdownTableWidthRepository.attributeName, maxBytes: Int = MarkdownTableWidthRepository.valueLimit) {
+    public init(attributes: any ExtendedAttributeAccess = DarwinExtendedAttributes(), fallback: URL?,
+                fallbackLimit: Int = MarkdownTableWidthRepository.fallbackLimit,
+                name: String = MarkdownTableWidthRepository.attributeName, maxBytes: Int = MarkdownTableWidthRepository.valueLimit) {
         self.attributes = attributes
         self.name = name
         self.maxBytes = maxBytes
@@ -54,13 +53,13 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     }
 
     /// `~/Library/Application Support/<bundle id>/MarkdownTableWidths` (per tagged build).
-    static func defaultFallbackDirectory(bundle: Bundle = .main, folder: String = "MarkdownTableWidths") -> URL? {
+    public static func defaultFallbackDirectory(bundle: Bundle = .main, folder: String = "MarkdownTableWidths") -> URL? {
         guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         return support.appending(path: bundle.bundleIdentifier ?? "cmux-next", directoryHint: .isDirectory)
             .appending(path: folder, directoryHint: .isDirectory)
     }
 
-    func read(_ path: String) async -> Data? {
+    public func read(_ path: String) async -> Data? {
         if let value = attributes.read(name, at: path), value.count <= maxBytes { return value }
         guard let url = copyURL(for: path), let data = try? Data(contentsOf: url),
               let copy = try? JSONDecoder().decode(Copy.self, from: data), copy.path == path else { return nil }
@@ -70,7 +69,7 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     }
 
     @discardableResult
-    func write(_ path: String, _ value: Data?) async -> MarkdownTableWidthWrite {
+    public func write(_ path: String, _ value: Data?) async -> MarkdownTableWidthWrite {
         if let value, value.count > maxBytes { return MarkdownTableWidthWrite(attribute: false, fallback: false) }
         let attribute = if let value {
             attributes.write(name, value, at: path)
