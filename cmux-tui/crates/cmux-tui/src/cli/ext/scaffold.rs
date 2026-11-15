@@ -1,4 +1,4 @@
-//! `cmux ext new NAME [--kind sidebar|pane|newtab|command]`: a working extension
+//! `cmux ext new NAME [--kind sidebar|session-info|pane|newtab|command]`: a working extension
 //! folder from templates embedded in the binary (manifest v2, `src/main.ts`
 //! on the public SDK, its built `dist/main.js`, a README with the loop, and
 //! the API types). Each kind loads as written, and a save to its source is
@@ -18,7 +18,8 @@
 use std::path::{Path, PathBuf};
 
 /// The kinds `--kind` takes (`section` is `sidebar`'s first name).
-pub(super) const KINDS: &[&str] = &["sidebar", "section", "pane", "newtab", "command"];
+pub(super) const KINDS: &[&str] =
+    &["sidebar", "section", "session-info", "pane", "newtab", "command"];
 
 /// The first lines of every kind's `dist/main.js`; the packer's build follows.
 pub(super) const FIRST_BUILD_HEADER: &str = "// The packer's build of src/main.ts, so this folder loads before bun is installed. `cmux ext dev`\n\
@@ -50,6 +51,12 @@ const PANE: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/pane/cmux-app.json")),
     ("src/main.ts", include_str!("templates/pane/src/main.ts")),
     ("dist/main.js", include_str!("templates/pane/dist/main.js")),
+];
+
+const SESSION_INFO: &[(&str, &str)] = &[
+    ("cmux-app.json", include_str!("templates/session-info/cmux-app.json")),
+    ("src/main.ts", include_str!("templates/session-info/src/main.ts")),
+    ("dist/main.js", include_str!("templates/session-info/dist/main.js")),
 ];
 
 const NEWTAB: &[(&str, &str)] = &[
@@ -159,6 +166,11 @@ fn readme_parts(kind: &str) -> (&'static str, &'static str, &'static str) {
             "Open the pane from the command palette by its title.",
             "",
         ),
+        "session-info" => (
+            "a section in an agent chat's Session Info panel.",
+            "It shows in the Session Info panel of every agent chat; its context is that chat's session\n(`cwd`, `branch`, `harness`).",
+            "",
+        ),
         "newtab" => (
             "a whole New Tab page.",
             "Pick it as your New Tab page: `cmux settings set tabs.newTabApp local/{{NAME}}` (Settings >\nTabs > New Tab App); unset it to get cmux's own page back.",
@@ -178,6 +190,7 @@ pub(super) fn files(name: &str, kind: &str) -> Option<Vec<(&'static str, String)
     let templates = match kind {
         "sidebar" | "section" => SECTION,
         "pane" => PANE,
+        "session-info" => SESSION_INFO,
         "newtab" => NEWTAB,
         "command" => COMMAND,
         _ => return None,

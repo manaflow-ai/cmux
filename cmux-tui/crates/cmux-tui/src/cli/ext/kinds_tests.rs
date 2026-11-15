@@ -19,8 +19,13 @@ use super::{Request, exit, parse, scaffold};
 const BUDGET: Duration = Duration::from_secs(1);
 
 /// The kinds that make a folder; `view` when the kind draws one.
-const KINDS: [(&str, bool); 4] =
-    [("sidebar", true), ("pane", true), ("newtab", true), ("command", false)];
+const KINDS: [(&str, bool); 5] = [
+    ("sidebar", true),
+    ("session-info", true),
+    ("pane", true),
+    ("newtab", true),
+    ("command", false),
+];
 
 /// One kind's run: save to reloaded, and that reload's build and copy-to-frame times.
 struct Measured {

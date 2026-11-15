@@ -10,7 +10,7 @@ save, so cmux changes as you work. `cmux apps ...` keeps working; `ext` is the a
 
 ```sh
 cmux ext new my-prs          # ./my-prs: cmux-app.json, src/main.ts, dist/main.js, sdk/, README.md, cmux-app.d.ts
-                             # --kind sidebar (default), pane, newtab or command
+                             # --kind sidebar (default), session-info, pane, newtab or command
 cd my-prs
 cmux ext dev                 # validate, build, load; then one line per save
 ```
@@ -124,6 +124,7 @@ leads out of the folder, is refused by name.
 | `--kind` | What it adds | Interface |
 |---|---|---|
 | `sidebar` (default; `section` too) | a sidebar section | `cmux.section/1` |
+| `session-info` | a section in an agent chat's Session Info panel; its context is that chat's session | `cmux.session.info.section/1` |
 | `pane` | a view in a tab, opened from the command palette by its title | `cmux.pane/1` |
 | `newtab` | a whole New Tab page, shown once picked: `cmux settings set tabs.newTabApp local/NAME` | `cmux.newtab/1` |
 | `command` | a command in the palette, `cmux NAME hello` in a terminal, and a tool for agents | `catalog.json` |
