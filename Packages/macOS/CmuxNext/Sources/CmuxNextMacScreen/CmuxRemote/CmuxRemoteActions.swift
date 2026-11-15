@@ -116,12 +116,20 @@ extension CmuxRemoteActionEnvironment {
     }
 
     /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.
+    ///
+    /// The dialog outlives the request: the caller gives up after its deadline (the CLI waits
+    /// 130 s), and the request's deadline cancels its follow-up. An Allow after that is still the
+    /// person's answer, so the dialog and the change run in their own task, which the request's
+    /// cancellation does not reach; the request only waits on it.
     nonisolated static func confirmedChange(confirm: @escaping @MainActor @Sendable () async -> Bool,
                                             apply: @escaping @Sendable () async throws -> Void) -> @Sendable () async throws -> CmuxNextSettings.JSONValue {
         {
-            guard await confirm() else { return ["ok": false, "declined": true] }
-            try await apply()
-            return ["ok": true]
+            let answer = Task { () async throws -> CmuxNextSettings.JSONValue in
+                guard await confirm() else { return ["ok": false, "declined": true] }
+                try await apply()
+                return ["ok": true]
+            }
+            return try await answer.value
         }
     }
 
