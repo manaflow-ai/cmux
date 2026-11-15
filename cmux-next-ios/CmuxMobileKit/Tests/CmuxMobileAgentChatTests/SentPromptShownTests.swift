@@ -39,8 +39,8 @@ import Testing
         #expect(store.isRunning)
         let before = Self.rowIDs(store)
         #expect(before.contains("u-\(AgentChatStore.localTurnKey(id))"))
-        #expect(store.takeJustSent() == AgentChatStore.localTurnKey(id))
-        #expect(store.takeJustSent() == nil)
+        #expect(store.justSentRowKey() == AgentChatStore.localTurnKey(id))
+        #expect(store.justSentRowKey(now: ProcessInfo.processInfo.systemUptime + 2) == nil, "only a moment after the send")
 
         store.apply(.userMessage(text: "run the tests\nand summarize", promptId: id, turnId: "t1", attachments: [], at: Date()))
         store.apply(.turnStarted(turnId: "t1", at: Date()))
@@ -157,7 +157,8 @@ import Testing
 
     @Test func theRowsStartWhereTheyWereAndArriveAtTheBottom() {
         var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromOffset: 100)
-        #expect(settle.begin(restingOffset: 160, contentHeight: 900, at: 10))
+        let began = settle.begin(restingOffset: 160, contentHeight: 900, at: 10)
+        #expect(began)
         // The first frame draws the rows where they were before the bubble went in.
         #expect(abs(160 - settle.remaining(at: 10) - 100) < 0.001)
         #expect(settle.remaining(at: 10.2) < 60)
@@ -166,7 +167,8 @@ import Testing
 
     @Test func aRowGrowingMidGlideDoesNotJump() {
         var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromOffset: 0)
-        #expect(settle.begin(restingOffset: 50, contentHeight: 500, at: 0))
+        let began = settle.begin(restingOffset: 50, contentHeight: 500, at: 0)
+        #expect(began)
         let before = settle.remaining(at: 0.1)
         // The working line measured 12 pt taller: the resting place moves down 12, and so must
         // what is left, so the drawn offset (resting − remaining) stays put this frame.
@@ -176,6 +178,7 @@ import Testing
 
     @Test func nothingToTravelIsNoGlide() {
         var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromOffset: 40)
-        #expect(!settle.begin(restingOffset: 40, contentHeight: 300, at: 0))
+        let began = settle.begin(restingOffset: 40, contentHeight: 300, at: 0)
+        #expect(!began)
     }
 }

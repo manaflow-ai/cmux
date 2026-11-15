@@ -885,7 +885,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         let turns = store.turns
         // The rows a send just drew settle in on its motion (the controller's glide), not the fade.
-        let sentKey = store.takeJustSent()
+        let sentKey = store.justSentRowKey()
         let settlesSent = sentRowsArrived != nil && ChatSendMotion.current != .off && !UIAccessibility.isReduceMotionEnabled
         var sent: [String] = []
         let built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
@@ -1037,6 +1037,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         lastReconfigured = changed.count
         let anchor = surface.following || !loaded ? nil : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
         // Before the rows are laid out: the controller notes where the transcript is now.
+        #if DEBUG
+        if !sent.isEmpty { ChatSendTrace.log("list: \(sent.count) sent rows new, \(sentRowsArrived == nil ? "no" : "a") controller") }
+        #endif
         if !sent.isEmpty { sentRowsArrived?(sent) }
         layout.setItems(items)
         // A row whose cell type changes (native and SwiftUI) is reloaded; reconfiguring one

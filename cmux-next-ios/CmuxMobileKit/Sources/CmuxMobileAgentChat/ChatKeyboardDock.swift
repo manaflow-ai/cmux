@@ -366,6 +366,17 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         surface.scroller = self
+        #if DEBUG
+        // What the send glide did (`ChatSendTrace`), for ChatSendMotionUITests to print.
+        let sendTrace = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        sendTrace.alpha = 0.02
+        sendTrace.isUserInteractionEnabled = false
+        sendTrace.isAccessibilityElement = true
+        sendTrace.accessibilityIdentifier = "chat.sendSettle.trace"
+        sendTrace.accessibilityLabel = "send trace"
+        view.addSubview(sendTrace)
+        ChatSendTrace.changed = { [weak sendTrace] in sendTrace?.accessibilityValue = ChatSendTrace.lines.joined(separator: " | ") }
+        #endif
         surface.stackHeightFrame = { [weak self] in self?.stackHeightFrame($0) }
         if let height = surface.drawnStackHeight { stackHeightFrame(height) }
         if placement == .external { externalMetricsChanged() }
@@ -571,11 +582,23 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private func armSendSettle(_ ids: [String]) {
         let motion = ChatSendMotion.current
         guard isViewLoaded, positionedInitially, surface.following, motion != .off, !foldHolding,
-              !scrollView.isTracking, !scrollView.isDecelerating, !UIAccessibility.isReduceMotionEnabled else { return }
+              !scrollView.isTracking, !scrollView.isDecelerating, !UIAccessibility.isReduceMotionEnabled else {
+            noteSend("arm refused: placed \(positionedInitially) following \(surface.following) motion \(motion.rawValue) "
+                + "fold \(foldHolding) tracking \(scrollView.isTracking) decel \(scrollView.isDecelerating)")
+            return
+        }
         // A second send mid-glide starts from where the first has the rows now.
         endSendSettle()
         sendSettle = ChatSendSettle(rowIDs: ids, motion: motion, fromOffset: Double(scrollView.contentOffset.y))
         list.settlingRowIDs = Set(ids)
+        noteSend("arm \(motion.rawValue) rows \(ids.count) from \(Int(scrollView.contentOffset.y))")
+    }
+
+    /// DEBUG: a line for `ChatSendTrace` (nothing in other builds).
+    private func noteSend(_ line: @autoclosure () -> String) {
+        #if DEBUG
+        ChatSendTrace.log(line())
+        #endif
     }
 
     /// The following offset for `resting` (the newest row on the stack): less what the send's
@@ -585,9 +608,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let now = settleClock
         if settle.start == nil {
             guard settle.begin(restingOffset: Double(resting.y), contentHeight: Double(contentHeight), at: now) else {
+                noteSend("no travel: resting \(Int(resting.y)) from \(Int(settle.fromOffset))")
                 endSendSettle()
                 return resting
             }
+            noteSend("begin travel \(Int(settle.reach))")
             let link = CADisplayLink(target: SettleLinkTarget(self), selector: #selector(SettleLinkTarget.tick(_:)))
             link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
             link.add(to: .main, forMode: .common)
@@ -642,6 +667,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         settleLink?.invalidate()
         settleLink = nil
         if let settle = sendSettle {
+            let started = settle.start.map { "after \(Int((settleClock - $0) * 1000)) ms" } ?? "before it began"
+            noteSend("end \(started), reach \(Int(settle.reach))")
             for id in settle.rowIDs {
                 guard let view = list.cell(for: id)?.contentView else { continue }
                 view.transform = .identity

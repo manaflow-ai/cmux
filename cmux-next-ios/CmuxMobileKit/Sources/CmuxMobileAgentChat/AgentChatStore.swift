@@ -573,25 +573,34 @@ public final class AgentChatStore {
     private func showSent(text: String, attachments: [AgentAttachment], promptID: String) {
         guard !source.isReadOnly, !isRunning, queue.isEmpty, !queuePaused, pendingPermission == nil,
               pendingQuestion == nil, gapFiller == nil,
-              !turns.contains(where: { $0.promptID == promptID }) else { return }
+              !turns.contains(where: { $0.promptID == promptID }) else {
+            #if DEBUG
+            ChatSendTrace.log("store: not shown as sent (running \(isRunning), queue \(queue.count), paused \(queuePaused))")
+            #endif
+            return
+        }
+        #if DEBUG
+        ChatSendTrace.log("store: shown as sent")
+        #endif
         revision &+= 1
         lastChangeWasReplay = false
         let key = Self.localTurnKey(promptID)
         var turn = AgentTurn(id: key, prompt: text, promptID: promptID, attachments: attachments, promptAt: Date())
         turn.localKey = key
         turns.append(turn)
-        justSentRowKey = key
+        justSent = (key, ProcessInfo.processInfo.systemUptime)
         refreshDerived()
     }
 
-    /// The row key of the turn the last send drew, until the transcript takes it
-    /// (``takeJustSent()``): its rows settle in on the send's motion instead of fading in.
-    @ObservationIgnored private var justSentRowKey: String?
+    /// The row key of the turn the last send drew and when: its rows settle in on the send's
+    /// motion instead of fading in, in every transcript that shows them first within a moment.
+    @ObservationIgnored private var justSent: (key: String, at: TimeInterval)?
 
-    /// The row key of the turn just drawn as sent, once (nil when there is none new).
-    func takeJustSent() -> String? {
-        defer { justSentRowKey = nil }
-        return justSentRowKey
+    /// The row key of the turn drawn as sent within the last second (nil when there is none).
+    /// Every transcript showing this store reads it; each shows a row as new only once.
+    func justSentRowKey(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> String? {
+        guard let justSent, now - justSent.at < 1 else { return nil }
+        return justSent.key
     }
 
     /// The Mac's turn for a prompt shown as sent: the shown turn becomes it (same rows). False

@@ -105,3 +105,20 @@ struct ChatSendSettle {
         return time - start >= ChatSendSpring.settleTime || remaining(at: time) < 0.25
     }
 }
+
+#if DEBUG
+/// What the send glide did, newest last (DEBUG): the transcript shows it as the value of a
+/// one-point accessibility element, `chat.sendSettle.trace`, which ChatSendMotionUITests prints,
+/// so a fleet recording says why a send glided or did not.
+@MainActor
+enum ChatSendTrace {
+    private(set) static var lines: [String] = []
+    static var changed: (() -> Void)?
+
+    static func log(_ line: String) {
+        lines.append(line)
+        if lines.count > 24 { lines.removeFirst(lines.count - 24) }
+        changed?()
+    }
+}
+#endif

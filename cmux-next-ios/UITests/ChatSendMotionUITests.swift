@@ -43,6 +43,9 @@ final class ChatSendMotionUITests: XCTestCase {
             // The motion plays, the turn starts.
             pause(1.6)
             attach(app, "\(motion)-sent-\(index + 1)")
+            // What the glide did (DEBUG `ChatSendTrace`), in the run's console.
+            let trace = app.descendants(matching: .any)["chat.sendSettle.trace"].firstMatch
+            print("send-trace \(motion) #\(index + 1): \(trace.exists ? (trace.value as? String ?? "-") : "absent")")
             // The demo's short turn ends on its own; a turn still running after a while is stopped
             // so the next message goes into an idle chat.
             let stop = app.buttons["Stop"].firstMatch
