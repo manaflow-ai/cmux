@@ -360,6 +360,19 @@ fn archive_holds(zst: &Path, index: &Index) -> Result<()> {
     Ok(())
 }
 
+/// Checks that the cold segment whose archive is at `zst` decodes whole to what its index records:
+/// every chunk in order, its raw length and its SHA-256. A whole-chat archive (`store/cold.rs`)
+/// copies a cold segment through its index's `rawLen` and then drops the segment archive, so an
+/// index damaged to a shorter length, still valid JSON, would otherwise archive only a prefix of
+/// the history (#43562 review F1 at 8dd36113).
+pub(crate) fn verify_cold(zst: &Path) -> Result<()> {
+    let (session, index) = session_and_index(zst)
+        .with_context(|| format!("{} is not a cold segment's archive", zst.display()))?;
+    let doc = read_index(session, index)?;
+    archive_holds(zst, &doc)
+        .with_context(|| format!("cold segment {} does not decode to its index", zst.display()))
+}
+
 /// The SHA-256 and length of the file at `path`.
 fn file_hash(path: &Path) -> Result<(String, u64)> {
     let mut file = crate::config::private_state_file(path)?;

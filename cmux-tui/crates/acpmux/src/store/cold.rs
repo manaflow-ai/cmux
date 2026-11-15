@@ -458,6 +458,11 @@ impl LocalStore {
         // since is not in the archive, and the commit refuses the log.
         let mut opened = Vec::with_capacity(files.len());
         for (name, path) in files {
+            // A cold segment is taken only as its archive decodes whole to its index: the commit
+            // drops that archive, so a short or damaged index must stop the archive here.
+            if super::cold_segments::is_cold(&path) {
+                super::cold_segments::verify_cold(&path)?;
+            }
             let (len, file) = open_log_file(&path)?;
             opened.push((Entry { name, len }, file));
         }
