@@ -79,6 +79,13 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", "Resources/Localizable.xcstrings")]), "rebuild")
         self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/Package.swift")]), "rebuild")
 
+    def test_native_sources_need_a_rebuild_except_the_ones_cmux_tui_builds(self):
+        self.assertEqual(self.verdict([("M", "cmux-tui/crates/cmux-remote-browser-host/csrc/rb_shim.mm")]), "daemon")
+        self.assertEqual(self.verdict([("M", "cmux-tui/bindings/zig/src/raw/generated/protocol.zig")]), "daemon")
+        self.assertEqual(self.verdict([("M", "ghostty/src/main.zig")]), "rebuild")
+        self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/CEFShim/src/shim_client.mm")]), "rebuild")
+        self.assertEqual(self.verdict([("M", "Sources/CmuxNextApp/Bridge.m")]), "rebuild")
+
     def test_a_new_swift_file_is_live_unless_it_is_an_entry_point(self):
         new = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Chip.swift"
         diffs = {new: [("+", "struct Chip: View {"), ("+", "    let title: String"), ("+", "    var body: some View { Text(title) }"), ("+", "}")],

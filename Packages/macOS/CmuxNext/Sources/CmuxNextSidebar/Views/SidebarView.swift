@@ -87,7 +87,7 @@ public final class SidebarView: NSView {
     /// The hairline between the top band and the list (quiet look). The
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
-    let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
+    let newButton = SidebarIconButton(plus: Strings.newWorkspace)
     /// The +'s menu segment, right of the + as one split button (Lawrence 2026-10-30: "the dropdown
     /// on left of plus is ugly"): the + itself remains a one-click workspace action.
     let newWorkspaceOptionsButton = TitlebarBandButton(symbol: "chevron.down")
@@ -174,8 +174,6 @@ public final class SidebarView: NSView {
         buildHierarchy()
         list.hoverOccluded = { [weak self] point in self?.updatedCardView.covers(windowPoint: point) == true }
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
-        // The tab row's New Tab + (Leo 2026-11-07: one size class for both, in the middle of the two).
-        newButton.drawsAddGlyph = true
         newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
@@ -361,6 +359,7 @@ public final class SidebarView: NSView {
     private func joinSplitButtonCorners(_ joined: Bool) {
         let all: CACornerMask = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         newButton.layer?.maskedCorners = joined ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : all
+        newButton.plusLook?.segment = joined ? .leading : .alone
         newWorkspaceOptionsButton.layer?.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
     }
 
