@@ -2476,6 +2476,19 @@ class GitHub:
                       if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
                       and run.get("event") == "push" and run.get("conclusion") != "cancelled")
 
+    def newer_head_runs(self, path: str, run_id: int, head_sha: str) -> list[int]:
+        """Ids of `path`'s pull request and dispatch runs at `head_sha` newer than `run_id`, not cancelled and no
+        delivery run (never_fails_over()), finished or not (one request): the runs that supersede `run_id` at its
+        own head (superseded_pull_cancel())."""
+        workflow = path.rsplit("/", 1)[-1]
+        data = self.request("GET", f"/actions/workflows/{workflow}/runs?head_sha={head_sha}&per_page=20")
+        return sorted(int(run.get("id") or 0) for run in (data or {}).get("workflow_runs") or []
+                      if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
+                      and run.get("head_sha") == head_sha
+                      and run.get("event") in ("pull_request", "workflow_dispatch")
+                      and run.get("conclusion") != "cancelled"
+                      and not never_fails_over(path, run.get("event"), run.get("name"), run.get("display_title")))
+
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
 
@@ -4519,15 +4532,18 @@ SUPERSEDED_PUSH_CANCEL = "superseded push cancel"
 
 
 def superseded_push_cancel(api: GitHub, target: Target, moved: str, sleep: Callable[[float], None],
-                           log: Callable[[str], None]) -> str:
+                           log: Callable[[str], None], *, keep: str = "", line: str = SUPERSEDED_PUSH_CANCEL,
+                           held: str = "held the branch's job groups") -> str:
     """Cancel a superseded cmux-next push run (push_tip_failover(); `moved` names the newer push run), not re-run,
     when nothing is lost: no job of it is running or held by a runner (job_running()), at least one waits for a
     runner, and no DEV compile or delivery work of it started. Its queued Mac job holds the branch's job group
     (cmux-next.yml's `cmux-next-push-<ref>-fast-tier`, `-cmux-scheme-compile`, ...), so the newer run's job waits
     pending behind it however long the owned label leaves it: run 41220917513's fast tier held that group for 82
-    minutes. The guard reads the run and its jobs again right before the cancel and drops it if one started."""
+    minutes. The guard reads the run and its jobs again right before the cancel and drops it if one started.
+    `keep`, `line` and `held` (superseded_pull_cancel()'s) word what is left, the cancel's log line and what the
+    queued jobs held."""
     jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-    keep = f"not rescued: {moved}; a cmux-next push run is never cancelled for a newer push"
+    keep = keep or f"not rescued: {moved}; a cmux-next push run is never cancelled for a newer push"
     if len(jobs) >= MAX_JOB_PAGES * 100:
         return f"{keep} (its job listing may be cut short)"
     busy = sorted(str(job.get("name") or job.get("id")) for job in jobs if job_running(job))
@@ -4560,9 +4576,32 @@ def superseded_push_cancel(api: GitHub, target: Target, moved: str, sleep: Calla
     except OpenHeadStarted as started_now:
         return f"{keep} ({started_now})"
     waiting = sorted(f"{job.get('name')} on {mac_route(job) or 'linux'}" for job in jobs if waiting_for_runner(job))
-    log(f"{SUPERSEDED_PUSH_CANCEL}: run {target.run_id} ({moved}); nothing of it was running, and "
-        f"{', '.join(waiting)} held the branch's job groups")
+    log(f"{line}: run {target.run_id} ({moved}); nothing of it was running, and {', '.join(waiting)} {held}")
     return f"cancelled run {target.run_id}, not re-run: {moved}; nothing of it was running"
+
+
+# The log line that names a superseded cmux-next pull request run the stall scan cancels (superseded_pull_cancel()).
+SUPERSEDED_PULL_CANCEL = "superseded pull request cancel"
+
+
+def superseded_pull_cancel(api: GitHub, target: Target, newer: Sequence[int], sleep: Callable[[float], None],
+                           log: Callable[[str], None]) -> str:
+    """Cancel a stalled cmux-next pull request run, never re-run it, when a newer run of the same workflow at the same
+    head supersedes it (GitHub.newer_head_runs(): a pull request or dispatch run, not cancelled, no delivery run) and
+    nothing is lost (superseded_push_cancel()'s rules: no job of it runs or is held by a runner, one waits for a
+    runner, no DEV compile or delivery work started; its guard reads the run again right before the cancel).
+
+    The one exception to OPEN_HEAD_RULE besides the failovers and the stall move: the pull request keeps its CI in the
+    newer run, and merge_hold drops a cancelled check that a newer run of the same name replaces, where a queued one
+    read as checks_running for as long as the owned label stayed busy. On 2026-11-15, run 43675467123 (PR #43391,
+    attempt 2) left its generated files queued on glaeda-side-std-xcode-26.6, with 711 runs queued in the repository,
+    while run 43677313669, a dispatch at the same head c87f745cfb, replaced it."""
+    moved = (f"run {', '.join(str(run) for run in newer)} of {target.path.rsplit('/', 1)[-1]} at the same head "
+             f"{target.head_sha[:12]} supersedes it")
+    return superseded_push_cancel(api, target, moved, sleep, log,
+                                  keep=f"not cancelled: {moved}, but a superseded pull request run is cancelled only "
+                                       "while nothing of it runs",
+                                  line=SUPERSEDED_PULL_CANCEL, held="waited on an owned label for nothing")
 
 
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
@@ -5311,8 +5350,10 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
 # and moves it to Blacksmith (stall_move()) when nothing is lost and Blacksmith has room:
 # - the run is a same-repository pull request's, open at the run's head (rescue()'s pull_moved(): a superseded head
 #   is never re-run), and no nightly, DEV or promote build (never_fails_over(), rescue()'s started_delivery_work());
-# - no job of the attempt failed on its own (decided_failures(): a re-run of failed jobs would repeat it), and no job
-#   but the stalled ones is running or held by a runner (a cancel would kill it);
+# - no job but the stalled ones is running or held by a runner (a cancel would kill it). A job of the attempt that
+#   failed on its own does not keep it (stall_blockers(): its stalled job waited for good, PR #43391, 2026-11-15);
+# - a run a newer run of cmux-next.yml at the same head supersedes (GitHub.newer_head_runs()) is cancelled, never
+#   re-run, and needs no Blacksmith room (superseded_pull_cancel());
 # - each Blacksmith label the move's jobs may end on (stall_destinations()) is listed in the janitor's fresh snapshot, is not
 #   stalled, and has a slot for every owned job the move sends there, counting the jobs this sweeper moved within
 #   STALL_ROOM_WINDOW_SECONDS, which the snapshot may not show yet (stall_room()). On 2026-11-10 that label had 27
@@ -5460,11 +5501,11 @@ def owned_stalls(jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> list[St
 
 def stall_blockers(jobs: Sequence[Mapping[str, Any]], stalls: Sequence[Stall],
                    attempt_started: dt.datetime | None) -> str:
-    """Why the stall move may not cancel the run now, or "": a job that failed on its own (a re-run of failed jobs
-    would repeat it), or a job other than the stalled ones running or held by a runner (the cancel would kill it)."""
-    decided = decided_failures(jobs, attempt_started)
-    if decided:
-        return f"{', '.join(decided)} already failed, and a re-run of the failed jobs would repeat it"
+    """Why the stall move may not cancel the run now, or "": a job other than the stalled ones running or held by a
+    runner (the cancel would kill it). A job that failed on its own no longer keeps the run (`attempt_started` is
+    unused, kept for the callers): its stalled job then waited on the owned label for good, and merge_hold read it as
+    checks_running (PR #43391's run 43675467123, 2026-11-15). The move's re-run of failed jobs repeats the red one,
+    which the pull request has to fix anyway, and the stalled job gets its own verdict on Blacksmith."""
     stalled = {stall.job_id for stall in stalls}
     running = sorted(str(job.get("name") or job.get("id")) for job in jobs
                      if job_running(job) and job_key(job) not in stalled)
@@ -5679,6 +5720,21 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         what = "; ".join(str(stall) for stall in stalls)
         if blocked:
             log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {blocked}")
+            continue
+        try:
+            newer = client.newer_head_runs(target.path, run_id, target.head_sha)
+        except READ_ERRORS as error:
+            log(f"[run {run_id}] {STALL_MOVE}: could not list the runs at {target.head_sha[:12]} ({error}); next scan")
+            continue
+        if newer:
+            # Cancelled, not moved: it takes no Blacksmith slot, so no room is needed and none is counted.
+            moved.add((run_id, target.attempt))
+            log(f"[run {run_id}] {SUPERSEDED_PULL_CANCEL}: {what}; run {', '.join(map(str, newer))} at the same head "
+                "supersedes it")
+            start(target, stalls, newer)
+            started += 1
+            if started >= STALL_MOVES_PER_SCAN:
+                break
             continue
         if not snapshot_read:
             snapshot_read = True
@@ -5967,13 +6023,14 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         watching[run_id] = thread
         return True
 
-    def move(target: Target, stalls: list[Stall]) -> None:
+    def move(target: Target, stalls: list[Stall], newer: Sequence[int] = ()) -> None:
         def say(text: str) -> None:
             log(f"[run {target.run_id}] {text}")
         try:
             # Its waits are the rescue's own (`wait`, not the handover's): a started move always gets its re-run.
-            outcome = stall_move(client, target, stalls, now=now, sleep=wait, log=say, deadline=latest,
-                                 stopped=stopping.is_set)
+            outcome = superseded_pull_cancel(client, target, newer, wait, say) if newer else \
+                stall_move(client, target, stalls, now=now, sleep=wait, log=say, deadline=latest,
+                           stopped=stopping.is_set)
         except QuotaSpent as error:
             outcome = "quota spent"
             say(f"{STALL_MOVE} stopped: {error.why}")
@@ -5989,8 +6046,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             key = f"{STALL_MOVE}: {outcome.split(':')[0]}"
             outcomes[key] = outcomes.get(key, 0) + 1
 
-    def start_move(target: Target, stalls: list[Stall]) -> None:
-        thread = threading.Thread(target=move, args=(target, stalls), name=f"stall-{target.run_id}", daemon=True)
+    def start_move(target: Target, stalls: list[Stall], newer: Sequence[int] = ()) -> None:
+        thread = threading.Thread(target=move, args=(target, stalls, newer), name=f"stall-{target.run_id}",
+                                  daemon=True)
         thread.start()
         threads.append(thread)
 
