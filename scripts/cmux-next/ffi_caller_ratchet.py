@@ -185,11 +185,20 @@ def pinned_exports(tree: Tree) -> tuple[str, dict[str, str] | None]:
     match = PIN_TAG.search(url) if isinstance(url, str) else None
     if not match:
         return f"the url in {PIN} names no cmux-app-ffi-<40 hex sha> release tag", None
-    tag = match.group(0)
+    tag, sha = match.group(0), match.group(1)
     try:
-        found = exported(Tree(tree.repo, match.group(1)))
+        found = exported(Tree(tree.repo, sha))
     except SystemExit:  # Tree.git: the commit is not here, or --repo is no git repo
-        return f"git cannot read the pinned source of {tag}", None
+        # A shallow checkout (CI's push run, fetch-depth 2) often lacks the pinned commit; judging without it made
+        # the baseline test skip on feat-cmux-next while every PR failed it (#43920, 2026-11-15). Fetch it once.
+        try:
+            fetched = subprocess.run(["git", "-C", str(tree.repo), "fetch", "-q", "--depth=1", "--no-tags", "origin",
+                                      sha], capture_output=True, timeout=120)
+            found = exported(Tree(tree.repo, sha)) if fetched.returncode == 0 else None
+        except (SystemExit, subprocess.TimeoutExpired):
+            found = None
+        if found is None:
+            return f"git cannot read the pinned source of {tag}", None
     if not found:
         return f"the pinned source of {tag} exports no function", None
     return tag, found
