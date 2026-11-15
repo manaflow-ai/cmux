@@ -18,10 +18,13 @@ use session_guard::session_guard_coordinator_waiter_dir;
 #[cfg(test)]
 pub(crate) use session_guard::start_session_guard_for_test;
 use session_guard::{
-    SESSION_GUARD_DIR, SessionCoordinatorWaiter, acquire_existing_session_guard,
-    acquire_existing_session_reset_guard, acquire_session_guard, open_session_lock_file,
-    prepare_session_guard_dir, session_guard_coordinator_path, session_guard_lock_path,
+    SESSION_GUARD_DIR, acquire_existing_session_guard, acquire_existing_session_reset_guard,
+    acquire_session_guard, open_session_lock_file, session_guard_lock_path,
     validate_session_lock_file,
+};
+#[cfg(test)]
+use session_guard::{
+    SessionCoordinatorWaiter, prepare_session_guard_dir, session_guard_coordinator_path,
 };
 pub(crate) use session_guard::{
     SessionLease, SessionOwnerProbe, probe_session_owner, session_owner_mark,
