@@ -2,8 +2,6 @@ public import Foundation
 
 /// Provider-specific model discovery with injected process and filesystem I/O.
 public struct MobileTaskModelProviderStrategy: Sendable {
-    private static let codexModelsCommand = "exec codex debug models"
-
     /// Runs one login-shell command under a bounded timeout.
     public typealias CommandRunner = @Sendable (
         _ command: String,
@@ -36,6 +34,10 @@ public struct MobileTaskModelProviderStrategy: Sendable {
         self.parser = parser
     }
 
+    func codexInstallation() async -> MobileTaskCodexInstallation? {
+        await MobileTaskCodexInstallation.resolve(using: commandRunner, defaultHome: homeDirectory)
+    }
+
     /// Discovers the models exposed by the provider installed on this Mac.
     ///
     /// Claude answers a control-stream `list_models` request, Codex exposes a
@@ -52,6 +54,19 @@ public struct MobileTaskModelProviderStrategy: Sendable {
         for provider: MobileTaskModelProvider,
         claudeExecutable: String = "claude"
     ) async -> MobileTaskModelListResult {
+        let installation = provider == .codex ? await codexInstallation() : nil
+        return await models(
+            for: provider,
+            claudeExecutable: claudeExecutable,
+            codexInstallation: installation
+        )
+    }
+
+    func models(
+        for provider: MobileTaskModelProvider,
+        claudeExecutable: String,
+        codexInstallation: MobileTaskCodexInstallation?
+    ) async -> MobileTaskModelListResult {
         switch provider {
         case .openCode:
             // OpenCode resolves installed provider authentication before it
@@ -67,29 +82,36 @@ public struct MobileTaskModelProviderStrategy: Sendable {
             }
             return discovered(models)
         case .codex:
-            let output = await commandRunner(Self.codexModelsCommand, .seconds(5))
+            guard let codexInstallation else {
+                return MobileTaskModelListResult(models: [], source: .fallback, error: .queryFailed)
+            }
+            let codexHome = codexInstallation.home
+            let executable = Self.shellArgument(codexInstallation.executable)
+            let environment = Self.shellArgument("CODEX_HOME=" + codexHome.path)
+            // env interprets any operand containing "=" as another assignment until the command.
+            let command = #"exec /usr/bin/env \#(environment) /bin/sh -c 'exec "$0" debug models' \#(executable)"#
+            let output = await commandRunner(command, .seconds(5))
             let discoveredModels = output.map(parser.codexModels(from:)) ?? []
             if !discoveredModels.isEmpty {
                 return discovered(
                     discoveredModels,
-                    defaultModel: await codexDefaultModel(in: discoveredModels)
+                    defaultModel: await codexDefaultModel(in: discoveredModels, home: codexHome)
                 )
             }
-            let url = homeDirectory
-                .appendingPathComponent(".codex", isDirectory: true)
-                .appendingPathComponent("models_cache.json")
+            let url = codexHome.appendingPathComponent("models_cache.json")
             let models = await fileReader(url)
                 .map(parser.codexModels(from:)) ?? []
-            let defaultModel = await codexDefaultModel(in: models)
+            let defaultModel = await codexDefaultModel(in: models, home: codexHome)
             guard !models.isEmpty else {
                 return await failedDiscovery(
                     for: provider,
-                    commandReturnedOutput: output != nil
+                    commandReturnedOutput: output != nil,
+                    executable: executable
                 )
             }
             return discovered(models, defaultModel: defaultModel)
         case .claude:
-            let executable = "'" + claudeExecutable.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            let executable = Self.shellArgument(claudeExecutable)
             let output = await commandRunner(
                 Self.claudeModelListCommand(executable: executable),
                 .seconds(30)
@@ -141,17 +163,22 @@ public struct MobileTaskModelProviderStrategy: Sendable {
     }
 
     private func codexDefaultModel(
-        in models: [MobileTaskModel]
+        in models: [MobileTaskModel], home: URL
     ) async -> MobileTaskModel? {
         guard !models.isEmpty else { return nil }
-        let url = homeDirectory
-            .appendingPathComponent(".codex", isDirectory: true)
-            .appendingPathComponent("config.toml")
+        let url = home.appendingPathComponent("config.toml")
         guard let data = await fileReader(url),
               let configuredID = parser.codexConfiguredModel(from: data) else {
             return nil
         }
         return models.first { $0.id == configuredID }
+    }
+
+    private static func shellArgument(_ value: String) -> String {
+        // fish also interprets backslashes before quotes inside single quotes.
+        value.components(separatedBy: "\\")
+            .map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+            .joined(separator: "\\\\")
     }
 
     private static func claudeModelListCommand(executable: String) -> String {

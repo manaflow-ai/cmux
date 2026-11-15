@@ -4,8 +4,8 @@ import Testing
 
 @Suite("Mobile task Codex installation")
 struct MobileTaskCodexInstallationTests {
-    @Test(arguments: [true, false])
-    func selectedInstallationSuppliesCatalogAndDefault(liveCatalog: Bool) async throws {
+    @Test(arguments: [true, false], ["/bin/bash --noprofile --norc", "/bin/zsh -df"])
+    func selectedInstallationSuppliesCatalogAndDefault(liveCatalog: Bool, shellCommand: String) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -18,9 +18,9 @@ struct MobileTaskCodexInstallationTests {
         cd "$(/usr/bin/dirname "$0")" || exit 1
         export HOME="$PWD" PATH="$PWD/bin"
         account=$(/bin/cat active)
-        export CODEX_HOME="$PWD/$account"
-        export CMUX_CUSTOM_CODEX_PATH="$PWD/bin/pinned ' codex"
-        exec /bin/bash --noprofile --norc "$@"
+        export CODEX_HOME="$account"
+        export CMUX_CUSTOM_CODEX_PATH="$PWD/bin/pinned ' codex=2"
+        exec \(shellCommand) "$@"
         """, to: shell)
         let defaultCatalog = #"{"models":[{"slug":"wrong-installation","visibility":"list"}]}"#
         try writeExecutable("#!/bin/sh\nprintf '%s' '\(defaultCatalog)'", to: bin.appendingPathComponent("codex"))
@@ -28,13 +28,12 @@ struct MobileTaskCodexInstallationTests {
         #!/bin/sh
         [ "$#" = 2 ] && [ "$1" = debug ] && [ "$2" = models ] || exit 2
         \(liveCatalog ? #"exec /bin/cat "$CODEX_HOME/live.json""# : "exit 1")
-        """, to: bin.appendingPathComponent("pinned ' codex"))
+        """, to: bin.appendingPathComponent("pinned ' codex=2"))
 
         let discovery = MobileTaskModelDiscovery.live(homeDirectory: directory, shellPath: shell.path)
-        for account in ["profile one", "profile two"] {
+        for (account, model) in [("profile one", "profile-one"), (#"profile\two"#, "profile-two")] {
             let profile = directory.appendingPathComponent(account)
             try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
-            let model = account.replacingOccurrences(of: " ", with: "-")
             let catalog = #"{"models":[{"slug":"\#(model)","visibility":"list"}]}"#
             let filename = liveCatalog ? "live.json" : "models_cache.json"
             try Data(catalog.utf8).write(to: profile.appendingPathComponent(filename))
@@ -45,6 +44,12 @@ struct MobileTaskCodexInstallationTests {
             #expect(result.models.map(\.id) == [model])
             #expect(result.defaultModel?.id == model)
         }
+
+        // Removing the override switches the executable while the account stays the same.
+        try FileManager.default.removeItem(at: bin.appendingPathComponent("pinned ' codex=2"))
+        let fallback = await discovery.models(for: .codex)
+        #expect(fallback.models.map(\.id) == ["wrong-installation"])
+        #expect(fallback.defaultModel == nil)
     }
 
     private func writeExecutable(_ script: String, to url: URL) throws {
