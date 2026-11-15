@@ -203,11 +203,16 @@ impl<'a> Dial<'a> {
 
     /// The keys of the origin's rows as the peer names them, for the walk's
     /// reconcile.
+    ///
+    /// Read from the origin's own range of the index: a dial costs what the
+    /// origin holds, not what the index holds. The client needs the set at
+    /// subscribe even for a resume: a resume answered with a window walks on
+    /// the same subscription, and the walk's end (`finish_mirror_walk`) finds
+    /// the rows to drop among these keys.
     fn held_keys(&self) -> Vec<ListKey> {
         self.hub
             .snapshot()
-            .iter()
-            .filter(|row| row.origin == self.origin)
+            .origin_rows(self.origin)
             .map(|row| ListKey {
                 last_activity: row.last_activity,
                 chat_id: row.chat_id.clone(),
