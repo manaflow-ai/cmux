@@ -510,11 +510,16 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
+    # Main's Cua Driver SDK, dev helper and remote browser host publishers: their unsigned build
+    # takes the side label on attempt 1 of the dispatch (run 43645667029 sat on a Blacksmith queue).
+    ".github/workflows/cmux-next-cua-driver-sdk-publish.yml",
+    ".github/workflows/cmux-next-cua-helper-dev-sign.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-media.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-remote-browser-host-publish.yml",
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
@@ -524,7 +529,9 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next.yml",
     # feat-cmux-next only; its portable placement (portable_job_placement.py) puts the guard group,
     # tooling tests and release-notary guards on the side label only while a side runner is idle.
+    ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-next-guards.yml",
+    ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
@@ -533,17 +540,24 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
     ".github/workflows/nightly-next-launch-smoke.yml",
+    ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
-    ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
+    # Its full-text job takes the side label on attempt 1 (on both branches).
+    ".github/workflows/test-feed-reply-providers.yml",
 })
-# Side workflows whose Mac jobs take a session or gui label on every attempt (feat-cmux-next only), so no
-# re-run moves them off the minis (bot_rerun_leaves_owned()).
+# Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
+# re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
+# CI_BLACKSMITH_MACOS-off fallback is CI_SIDE_LANE_RUNNER: unlike the historical side route,
+# that expression has no github.run_attempt gate.
 OWNED_EVERY_ATTEMPT_PATHS = frozenset({
+    ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-next-base-autofix.yml",
     ".github/workflows/cmux-next-pr-autofix.yml",
+    ".github/workflows/cmux-rd-windows.yml",
+    ".github/workflows/macos-cross-parity.yml",
 })
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
