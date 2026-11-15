@@ -1802,10 +1802,10 @@ impl Hub {
             signed_out = true;
         }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
-            match &mut e.data {
-                Some(Value::Object(data)) => data.extend(info.clone()),
-                None => e.data = Some(Value::Object(info.clone())),
-                Some(_) => {}
+            // An agent's string or list data moves under `agentData`, so the route still shows.
+            crate::recovery::object_data(e);
+            if let Some(Value::Object(data)) = &mut e.data {
+                data.extend(info.clone());
             }
         }
         // A failure acpmux knows the remedy for says it (`recovery.rs`): a full disk, an agent
