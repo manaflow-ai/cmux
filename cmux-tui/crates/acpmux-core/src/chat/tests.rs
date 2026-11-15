@@ -734,7 +734,7 @@ fn actor_line_and_checkpoint_open_gate() {
         ("v2.pr03a3.checkpoint_open", small.2, god.2, god.3),
     ];
     let mut gate_output = std::env::var_os("V2_GATE_OUT")
-        .map(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap());
+        .map(|path| fs::OpenOptions::new().create(true).append(true).open(path).unwrap());
     for (name, small, god, all) in measurements {
         let line = format!(
             "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{all},\"unit\":\"ns\"}}"
