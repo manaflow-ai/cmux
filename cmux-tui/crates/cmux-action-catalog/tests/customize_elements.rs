@@ -114,3 +114,16 @@ fn every_element_title_is_translated() {
         }
     }
 }
+
+#[test]
+fn reset_takes_one_element_and_runs_from_the_palette_and_the_cli() {
+    let action = find("customize.reset").expect("the Reset action");
+    let argument =
+        action.arguments.iter().find(|a| a.name == "element").expect("an element argument");
+    assert!(argument.required, "Reset needs the element whose settings it removes");
+    let ArgKind::Enumeration(cases) = argument.kind else {
+        panic!("element is not an enumeration")
+    };
+    assert_eq!(cases, ELEMENT_CASES);
+    assert_eq!(action.surface_plan.cli, Some(cmux_action_catalog::Decision::Offered));
+}

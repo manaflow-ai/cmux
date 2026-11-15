@@ -30,6 +30,9 @@ const CUSTOMIZE_MENUS: &[Placement] = &[
 #[rustfmt::skip]
 const CUSTOMIZE_ELEMENT: Argument = Argument { name: "element", title: t("ActionCatalog", "argument.customize.element", "Element"), kind: ArgKind::Enumeration(crate::customize_elements::ELEMENT_CASES), required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 
+/// `CUSTOMIZE_ELEMENT` where the action needs one (Reset).
+const CUSTOMIZE_ELEMENT_REQUIRED: Argument = Argument { required: true, ..CUSTOMIZE_ELEMENT };
+
 /// The new chat's first composer text in place of `/customize ` (Settings search's "Ask cmux to do
 /// this" passes `/customize WORDS`). Shown, never sent by itself.
 #[rustfmt::skip]
@@ -70,6 +73,20 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[CUSTOMIZE_ELEMENT, CUSTOMIZE_DRAFT],
         cli_name: "action customize-open",
         main_menu: Some("app"),
+        ..Action::DEFAULT
+    },
+    // Reset: an element's settings (customize_elements) back to their defaults, the Customize
+    // Inspector's Reset button. The settings it removes are the element map's, nothing else.
+    Action {
+        id: "customize.reset",
+        group: GROUP,
+        title: t("ActionCatalog", "action.customize.reset", "Reset Element to Defaults"),
+        keywords: &["customize", "reset", "defaults", "element", "inspector", "undo"],
+        category: "window",
+        symbol: "arrow.uturn.backward",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        arguments: &[CUSTOMIZE_ELEMENT_REQUIRED],
+        cli_name: "action customize-reset",
         ..Action::DEFAULT
     },
     Action {
