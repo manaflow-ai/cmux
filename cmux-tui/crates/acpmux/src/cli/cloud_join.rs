@@ -1134,7 +1134,7 @@ mod tests {
         assert!(super::joined_device_at(home.path()).is_some());
 
         // A revoke an earlier join's sign-out still owes (its row, and its credential) is not this
-        // join's: the sign-in since enrolled this one, so the tunnel runs (cmuxterm-hq probe
+        // join's: the sign-in since enrolled this one, so the tunnel runs (the probe
         // cloud-carrier-ssh-failover: a shared runner home kept ssh `no_tunnel` for every run).
         let earlier = super::MachineCredential {
             credential: "cmm_earlier".into(),
