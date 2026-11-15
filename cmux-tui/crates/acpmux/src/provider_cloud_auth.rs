@@ -533,7 +533,7 @@ mod tests {
         let Mode::Team(vars) = team(Provider::Grok) else { unreachable!() };
         apply_team(&mut env, vars);
         assert_eq!(env["XAI_API_KEY"], PLACEHOLDER_KEY);
-        assert_eq!(env.len(), 2);
+        assert_eq!(env.len(), 3);
     }
 
     #[tokio::test]
