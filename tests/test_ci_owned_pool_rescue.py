@@ -2385,6 +2385,122 @@ class DeeperDestination(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
 
 
+PLACEMENT_ID = 700001
+DAEMON_ID = 700002
+
+
+class RerunAPI:
+    """One cmux-next run for the rerun input (RERUN=1): its record, one attempt's jobs, and the calls made. A cancel
+    settles after `settles_after` seconds of the test clock."""
+
+    def __init__(self, clock, *, attempt=2, jobs=None, snapshot=None, path=rescue.CMUX_NEXT_WORKFLOW_PATH,
+                 status="queued", settles_after=10):
+        self.clock, self.attempt, self.path, self.status = clock, attempt, path, status
+        self.jobs_now = jobs if jobs is not None else [
+            {**job("cmux-next macOS placement", status="completed", labels=["ubuntu-24.04"]), "id": PLACEMENT_ID,
+             "conclusion": "success"},
+            {**job("cmux-next daemon tests", labels=[SIDE], created=0), "id": DAEMON_ID}]
+        self.snapshot = snapshot or (lambda seconds: {"generated_at": stamp(seconds), "pools": {}})
+        self.settles_after = settles_after
+        self.cancelled_at: float | None = None
+        self.calls: list[str] = []
+
+    def run(self, run_id):
+        self.calls.append("run")
+        done = self.status == "completed" or (
+            self.cancelled_at is not None and self.clock.seconds - self.cancelled_at >= self.settles_after)
+        return {"id": RUN_ID, "path": self.path, "event": "workflow_dispatch", "name": "cmux-next",
+                "display_title": f"cmux-next · {HEAD}", "status": "completed" if done else self.status,
+                "conclusion": "cancelled" if done else None, "run_attempt": self.attempt, "head_sha": HEAD,
+                "head_branch": "lane/x", "head_repository": {"full_name": "manaflow-ai/cmux"},
+                "pull_requests": [{"number": 42}], "triggering_actor": {"login": "teamleaderleo"}}
+
+    def jobs(self, run_id, attempt):
+        self.calls.append(f"jobs:{attempt}")
+        return [dict(found) for found in self.jobs_now]
+
+    def pool_snapshot(self, now):
+        self.calls.append("snapshot")
+        return self.snapshot(self.clock.seconds)
+
+    def cancel(self, run_id, before_send=None):
+        if before_send is not None:
+            before_send()
+        self.calls.append("cancel")
+        self.cancelled_at = self.clock.seconds
+
+    def force_cancel(self, run_id):
+        self.calls.append("force-cancel")
+
+    def rerun_job(self, run_id, job_id, next_attempt):
+        assert next_attempt == self.attempt + 1, (next_attempt, self.attempt)
+        self.calls.append(f"rerun-job:{job_id}")
+
+    def rerun_failed(self, run_id, next_attempt):
+        assert next_attempt == self.attempt + 1, (next_attempt, self.attempt)
+        self.calls.append("rerun-failed")
+
+    def rerun(self, run_id, next_attempt):
+        raise AssertionError("the rerun input never re-runs every job")
+
+
+def run_rerun(api, clock, env_extra=None):
+    env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "POOL_OWNED": "1", "WATCH_RUN_ID": str(RUN_ID), "RERUN": "1",
+           **(env_extra or {})}
+    with tempfile.TemporaryDirectory() as tmp:
+        summary = Path(tmp, "summary")
+        env["GITHUB_STEP_SUMMARY"] = str(summary)
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            code = rescue.main([], env, api=api, now=clock.now, sleep=clock.sleep)
+        return code, summary.read_text() if summary.exists() else ""
+
+
+class RerunInput(unittest.TestCase):
+    """The rerun input (RERUN=1 with a run id) re-runs a named run's failed and cancelled jobs as the bot, so the
+    placement runs again, whatever the attempt. #43104's run 43718265555 waited on the side label from 14:37Z on
+    2026-11-15 at a person's attempt 2, and a dispatch with its id answered "not watched: attempt 2"."""
+
+    def test_a_queued_attempt_two_is_cancelled_and_its_placement_re_run(self):
+        clock = Clock()
+        api = RerunAPI(clock)
+        code, summary = run_rerun(api, clock)
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertIn(f"rerun-job:{PLACEMENT_ID}", api.calls)
+        self.assertLess(api.calls.index("cancel"), api.calls.index(f"rerun-job:{PLACEMENT_ID}"))
+        self.assertIn("attempt 3", summary)
+
+    def test_past_the_placed_attempts_the_re_run_keeps_the_depth_rule(self):
+        # Attempt 4 has no placement (cmux-next.yml places bot attempts through 3): its jobs take the side label,
+        # which may not be deeper than the label they leave.
+        clock = Clock()
+        jobs = [{**job("cmux-next daemon tests", labels=[GUI], created=0), "id": DAEMON_ID}]
+        api = RerunAPI(clock, attempt=3, jobs=jobs, snapshot=depth_snapshot())
+        code, summary = run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn(f"{SIDE} has 61 queued (oldest 203 min), deeper than {GUI}'s 1 queued", summary)
+        clock = Clock()
+        api = RerunAPI(clock, attempt=3, jobs=jobs, snapshot=depth_snapshot(destination=0, destination_oldest=0))
+        code, summary = run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_a_running_job_or_another_workflow_is_left_alone(self):
+        clock = Clock()
+        running = {**job("cmux-next swift test", status="in_progress", labels=[SIDE], runner="mini-1"), "id": 3}
+        api = RerunAPI(clock, jobs=[running])
+        _, summary = run_rerun(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("not re-run: cmux-next swift test is running", summary)
+        clock = Clock()
+        api = RerunAPI(clock, path=".github/workflows/nightly.yml")
+        _, summary = run_rerun(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("not re-run", summary)
+
+
 class SideLanes(unittest.TestCase):
     def test_every_side_workflow_is_watched_like_a_pull_request(self):
         for path in sorted(rescue.SIDE_WORKFLOW_PATHS):
