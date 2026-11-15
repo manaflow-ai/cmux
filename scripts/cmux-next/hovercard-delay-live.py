@@ -124,6 +124,28 @@ if opts.input == "real":
     subprocess.run(["xcrun", "swiftc", "-O", os.path.join(HERE, "pointer-probe.swift"), "-o", PROBE], check=True)
 
 
+def park_real_cursor():
+    """Synthetic input: the real cursor goes to the window's bottom-right corner, inside the window
+    (the coordinator reads it, HoverCardCoordinator.pointerLocation) and away from every card (the
+    owned cards' close checks read it too, SidebarPullRequestCard's closeUnlessPointed: left on a
+    card, it would hold that card open). A warp needs no Accessibility grant."""
+    import ctypes, ctypes.util
+
+    class CGPoint(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+    graphics = ctypes.CDLL(ctypes.util.find_library("CoreGraphics"))
+    graphics.CGWarpMouseCursorPosition.argtypes = [CGPoint]
+    graphics.CGMainDisplayID.restype = ctypes.c_uint32
+    graphics.CGDisplayPixelsHigh.argtypes = [ctypes.c_uint32]
+    graphics.CGDisplayPixelsHigh.restype = ctypes.c_size_t
+    frame = (main_window() or {}).get("frame") or {}
+    # Window frames are bottom-left screen points; a warp takes the main display's top-left points.
+    main_h = graphics.CGDisplayPixelsHigh(graphics.CGMainDisplayID())
+    x, y = frame.get("x", 0) + frame.get("width", 0) - 12, main_h - (frame.get("y", 0) + 12)
+    print(f"   real cursor parked at ({x}, {y}): {graphics.CGWarpMouseCursorPosition(CGPoint(x, y))}", flush=True)
+
+
 def probe(*args, timeout=20):
     return subprocess.run([PROBE, *map(str, args)], capture_output=True, text=True, timeout=timeout).stdout.strip()
 
@@ -163,7 +185,11 @@ def activate():
     if app_active():
         return
     subprocess.run([CUA, "call", "bring_to_front", json.dumps({"pid": APP_PID})], capture_output=True, text=True, timeout=60)
-    quiet_wait(app_active, 3)
+    if not quiet_wait(app_active, 3):
+        # cua-driver answers permissions_pending on a host whose grant is not settled: LaunchServices
+        # activates the running app as well (the same bundle, so no second instance).
+        subprocess.run(["open", "-a", APP], capture_output=True, text=True, timeout=60)
+        quiet_wait(app_active, 3)
 
 
 def shot(name):
@@ -193,21 +219,39 @@ def row_points():
 
 
 def tab_points():
-    strips = (rpc("debug.tab_drag") or {}).get("strips") or []
-    for strip in strips:
-        tabs = strip.get("tabs") or []
+    """The window's drawn terminal tabs, left to right: one strip's, or each column's when every
+    tab has its own column (the strip scrolls, so only the frames inside the window count)."""
+    width = ((main_window() or {}).get("frame") or {}).get("width", 0)
+    sidebar = max([xywh(r["window_frame"])[0] + xywh(r["window_frame"])[2]
+                   for r in ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []] or [0])
+    points = []
+    for strip in (rpc("debug.tab_drag") or {}).get("strips") or []:
         # A New Tab page has no card (it would repeat its title): terminal tabs only.
-        tabs = [t for t in tabs if t.get("label") != "New Tab"]
-        if len(tabs) >= 2:
-            return [(t.get("label"), (lambda f: [f[0] + f[2] * 0.35, f[1] + f[3] / 2])(xywh(t["frame"]))) for t in tabs]
-    return []
+        for t in strip.get("tabs") or []:
+            f = xywh(t["frame"])
+            point = [f[0] + f[2] * 0.35, f[1] + f[3] / 2]
+            if t.get("label") != "New Tab" and sidebar + 4 < point[0] < width - 40:
+                points.append((t.get("label"), point))
+    return [p for p in sorted(points, key=lambda p: p[1][0]) if takes_hover(p[1])]
+
+
+def takes_hover(point):
+    """The pointer at `point` arms a tab's card (a column scrolled out of view may still report a
+    frame inside the window, under the visible one)."""
+    move(None)
+    quiet_wait(lambda: cards().get("phase") == "idle", 2)
+    move(point)
+    hit = quiet_wait(lambda: (lambda h: h if h.startswith("tab:") else None)(cards().get("last_hit", "")), 0.3, step=0.03)
+    move(None)
+    return bool(hit)
 
 
 def settle():
     """Off every target until no card is pending or shown and the quick-reshow window passed."""
     activate()
     move(None)
-    quiet_wait(lambda: cards().get("phase") == "idle", 3)
+    # Idle, and no card shows: an owned card (update, pull request) leaves the machine idle while it shows.
+    quiet_wait(lambda: cards().get("phase") == "idle" and cards().get("card_showing") != "true", 3)
     time.sleep(0.4)
 
 
@@ -334,6 +378,8 @@ try:
     window = ((quiet_wait(lambda: (rpc("debug.focus") or {}).get("windows"), 60, step=0.2) or [{}])[0]).get("id")
     rpc("debug.window_frame", {"window": window, "frame": [40, 40, 1100, 700]})
     activate()
+    if opts.input == "synthetic":
+        park_real_cursor()
     safe_print(f"app pid {APP_PID}, input {opts.input}, window {window}: {(main_window() or {}).get('frame')}, active {app_active()}",
                flush=True)
     # Two workspaces and two tabs in the selected one.
@@ -348,7 +394,7 @@ try:
     for attempt in range(3):
         if len(tab_points()) >= 2:
             break
-        safe_print("   newSurface:", (rpc("action.run", {"action": "newSurface", "origin": "script"}) or {}), flush=True)
+        safe_print("   new.terminal.tab:", (rpc("action.run", {"action": "new.terminal.tab", "origin": "script"}) or {}), flush=True)
         quiet_wait(lambda: len(tab_points()) >= 2, 10, step=0.2)
     rows, tabs = row_points(), tab_points()
     safe_print(f"rows {rows}\ntabs {tabs}", flush=True)
@@ -383,7 +429,8 @@ try:
 
     # The Update Ready card: its highlights card (owned "sidebar:update-highlights").
     rpc("debug.updater", {"action": "stage", "version": "1.99.0", "changes": 6})
-    spot = quiet_wait(lambda: (lambda r: r if r.get("card") == "true" and r.get("x") else None)(
+    # Its point once the card is laid out (right after staging it reads the zero frame's corner).
+    spot = quiet_wait(lambda: (lambda r: r if r.get("card") == "true" and float(r.get("x") or 0) > 0 else None)(
         rpc("debug.update_surfaces", {"action": "card-point"}) or {}), 15, step=0.2) or {}
     check(bool(spot), f"the Update Ready card shows ({spot})")
     if spot:
@@ -395,6 +442,9 @@ try:
     row_entries = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
     ids = [str(r["key"])[len("workspace("):-1] for r in row_entries
            if str(r.get("key", "")).startswith("workspace(") and str(r["key"]).endswith(")") and r.get("in_list")]
+    # Row pull request marks are off by default (sidebar.workspaceRow.pullRequest, Leo 2026-10-21).
+    set_setting("sidebar.workspaceRow.pullRequest", True)
+
     def stage_badge():
         return rpc("debug.update_surfaces", {"action": "pull-request-badge", "workspace": ids[0]}) or {}
     badge = (quiet_wait(lambda: (lambda b: b if b.get("x") else None)(stage_badge()), 5, step=0.2) or stage_badge()) if ids else {}
@@ -413,6 +463,7 @@ try:
             check(bool(shown) and took < 0.35, f"pull request badge: from a shown row card its card shows at once ({took:.2f} s)")
             measured.setdefault("pull request badge warm (from a row card)", []).append(round(took, 3))
         rpc("debug.update_surfaces", {"action": "pull-request-badge", "workspace": ids[0], "off": True})
+    set_setting("sidebar.workspaceRow.pullRequest", False)
 
     if rows:
         set_setting("sidebar.hoverCards.delay", OTHER_DELAY_MS)

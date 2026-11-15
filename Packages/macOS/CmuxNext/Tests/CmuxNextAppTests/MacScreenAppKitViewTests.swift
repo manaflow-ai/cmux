@@ -133,6 +133,64 @@ struct MacScreenAppKitViewTests {
         pages.tabClosed("home")
     }
 
+    private func homeView(_ devices: [MacScreenHomeSnapshot.Device]) throws -> (MacScreenPages, MacScreenHomeView) {
+        let pages = makePages()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
+        home.build(MacScreenHomeSnapshot(devices: .list(devices), sharingLook: .list))
+        return (pages, home)
+    }
+
+    /// A hub device maps to a row's values; its offline word counts only while this Mac's hub link is up.
+    @Test func hubDevicesMapToRowsAndOfflineIsUnknownWhileTheHubReconnects() {
+        let mac = HubDevice(id: "mac", name: "Office", platform: .macos, macScreenShared: true, online: false)
+        let ask = MacScreenAccess(.ask)
+        let connected = MacScreenHomeSnapshot.device(mac, access: ask, hubConnected: true)
+        #expect(connected == MacScreenHomeSnapshot.Device(id: "mac", name: "Office", isPhone: false, online: false,
+                                                           macScreenShared: true, access: ask, onlineKnown: true))
+        #expect(!MacScreenHomeSnapshot.device(mac, access: ask, hubConnected: false).onlineKnown)
+    }
+
+    /// While the hub reconnects, a Mac last seen offline keeps View Only and Full Control and says nothing about it.
+    @Test func aMacOfUnknownOnlineStateCanStillBeOpened() throws {
+        let device = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Office", isPhone: false, online: false,
+                                                   macScreenShared: true, access: MacScreenAccess(.ask), onlineKnown: false)
+        let (pages, home) = try homeView([device])
+        #expect((findView("macScreen.home.view.Office", under: home) as? NSButton)?.isEnabled == true)
+        #expect((findView("macScreen.home.control.Office", under: home) as? NSButton)?.isEnabled == true)
+        #expect(!texts(under: home).contains("Open cmux on Office to share its screen."))
+        pages.tabClosed("home")
+    }
+
+    /// Online, sharing and allowed: both buttons work. Sharing off: the row says how, with its own id.
+    @Test func sharingOffSaysHowAndOnlineSharedRowsWork() throws {
+        let ask = MacScreenAccess(.ask)
+        let (pages, home) = try homeView([
+            MacScreenHomeSnapshot.Device(id: "a", name: "Studio", isPhone: false, online: true, macScreenShared: true, access: ask),
+            MacScreenHomeSnapshot.Device(id: "b", name: "Office", isPhone: false, online: true, macScreenShared: false, access: ask),
+            MacScreenHomeSnapshot.Device(id: "c", name: "Den", isPhone: false, online: false, macScreenShared: true, access: ask),
+        ])
+        #expect((findView("macScreen.home.view.Studio", under: home) as? NSButton)?.isEnabled == true)
+        #expect((findView("macScreen.home.control.Studio", under: home) as? NSButton)?.isEnabled == true)
+        #expect((findView("macScreen.home.notShared.Office", under: home) as? NSTextField)?.stringValue
+            == "Turn on Allow Mac Screen on Office to share its screen.")
+        #expect((findView("macScreen.home.view.Office", under: home) as? NSButton)?.isEnabled == false)
+        #expect((findView("macScreen.home.offline.Den", under: home) as? NSTextField)?.stringValue
+            == "Open cmux on Den to share its screen.")
+        pages.tabClosed("home")
+    }
+
+    /// A Mac that blocks this one says so even while its sharing is off: turning sharing on would not let this Mac in.
+    @Test func aBlockingMacSaysItBlocksEvenWithSharingOff() throws {
+        let device = MacScreenHomeSnapshot.Device(id: "a", name: "Office", isPhone: false, online: true,
+                                                   macScreenShared: false, access: MacScreenAccess(.none))
+        let (pages, home) = try homeView([device])
+        #expect(findView("macScreen.home.blocked.Office", under: home) != nil)
+        #expect(!texts(under: home).contains("Turn on Allow Mac Screen on Office to share its screen."))
+        pages.tabClosed("home")
+    }
+
     /// Macs are listed whether or not they are online or sharing; a phone only when it shares (never, today).
     @Test func listsEveryMacButOnlySharingPhones() {
         let devices = [
