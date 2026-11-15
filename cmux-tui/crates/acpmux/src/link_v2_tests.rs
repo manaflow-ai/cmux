@@ -356,6 +356,7 @@ async fn list_stream_is_named_only_on_a_link_with_list_and_peers_on() {
     let mut other = not_a_link(&hub);
     let reply = other.call(1, method::INITIALIZE, initialize()).await;
     assert!(!features(&reply).contains(&FEATURE.into()));
+    assert!(!features(&reply).contains(&acpmux_core::hub::PEER_PAGES_FEATURE.into()));
     // A paired machine with the `client` credential and the carrier's owner are peers: the
     // name and a served frame. A phone, a read-only machine and a teammate are served as Web:
     // neither. The name and the frame come from one value, so they always agree.
@@ -395,6 +396,9 @@ async fn list_stream_is_named_only_on_a_link_with_list_and_peers_on() {
     for (case, peer, mut wire) in cases {
         let reply = wire.call(1, method::INITIALIZE, initialize()).await;
         assert_eq!(features(&reply).contains(&FEATURE.into()), peer, "{case}: {reply}");
+        // Decision 266: `listPages` is named with `listStream`, never alone.
+        let pages = acpmux_core::hub::PEER_PAGES_FEATURE.into();
+        assert_eq!(features(&reply).contains(&pages), peer, "{case}: {reply}");
         let dropped = hub.link_v2.counters.dropped.load(Ordering::Relaxed);
         wire.send(hello_frame()).await;
         if peer {
