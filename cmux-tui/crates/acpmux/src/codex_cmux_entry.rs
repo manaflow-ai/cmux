@@ -16,9 +16,27 @@
 //!   stdio"), so cmux passes no server of its own and sends nothing;
 //! - none, an error, or no answer within [`TIMEOUT`]: nothing is sent for the person's entry.
 //!
-//! One known gap: `mcp get` reads project files for its working folder as resolved, so a launch
-//! with `-C <a link>` whose trust key is the link's path (which `codex exec -C` honours) reads
-//! as no entry, and nothing is sent: the person's entry then starts as a caller outside cmux.
+//! Skip on doubt (decided 2026-11-15, after a review saw Codex answer "none" and the launch then
+//! load an HTTP `cmux` entry, so cmux's command merged into its url and Codex exited with "url
+//! is not supported for stdio"). When cmux cannot be sure what the launch loads, it adds no
+//! server at all, neither its own nor env keys for the person's, and says nothing: Codex starts
+//! with the person's config untouched, and the agent has no cmux tools, as when the question is
+//! unanswered. Doubt is any of:
+//!
+//! - no answer from Codex (an error, unreadable output, or over [`TIMEOUT`]): [`CmuxEntry::Unknown`];
+//! - a `.codex/config.toml` from the launch folder up to the repository root (the nearest folder
+//!   with `.git`; every folder up to `/` without one), for the folder as written and as
+//!   resolved (`-C` applied), that defines `mcp_servers.cmux` and that Codex's answer does not
+//!   show it loads (the answer is not that same stdio entry): an untrusted folder the person may
+//!   trust at Codex's prompt, a `--trust` launch, a `-C <link>` whose trust key is the link's
+//!   path. The person's user config (`$CODEX_HOME/config.toml`) is not a project file. A file
+//!   that does not parse but names `cmux` counts too. [`project_doubt`], [`CmuxEntry::Doubt`];
+//! - a terminal launch whose loaded config can differ from the question
+//!   ([`launch_doubt`]): `--trust`, `--worktree`, `--ignore-user-config`, `--remote`, resume and
+//!   fork in every form (`resume`, `fork`, `exec resume`, `review` of a session), and any
+//!   subcommand outside the new-session ones (none, `exec`, `review`). An agent chat's launch is
+//!   always `codex app-server` in the chat's own folder, resumed or forked in that same folder,
+//!   which is the folder Codex is asked about.
 //!
 //! Every other field of a person's `cmux` entry merges into this build's server where cmux gives
 //! its own: extra `env` keys, `env_vars`, timeouts, `enabled_tools`/`disabled_tools`,
@@ -46,12 +64,22 @@ pub enum CmuxEntry {
     Http,
     /// No answer: Codex failed, printed what this does not read, or took over [`TIMEOUT`].
     Unknown,
+    /// Codex answered, but what the launch loads may differ from it ([`project_doubt`]): a
+    /// project file defining `cmux` that Codex's answer does not show it loads. The reason.
+    Doubt(String),
 }
 
 impl CmuxEntry {
     /// Whether this build's server cannot take the name: the person's is HTTP.
     pub fn is_http(&self) -> bool {
         matches!(self, Self::Http)
+    }
+
+    /// Whether cmux adds no server at all to this launch (neither its own nor env keys for the
+    /// person's), and says nothing: the person's is HTTP, or what the launch loads is in doubt
+    /// (no answer, or [`CmuxEntry::Doubt`]). Codex then starts with the person's config as it is.
+    pub fn skips(&self) -> bool {
+        matches!(self, Self::Http | Self::Unknown | Self::Doubt(_))
     }
 }
 
@@ -155,7 +183,7 @@ fn launch_folder(cwd: &Path, cd: Option<&Path>, home: Option<&Path>) -> PathBuf 
 /// The person's own `cmux` entry for a launch of `codex` (the program the launch runs) with the
 /// person's arguments `args` in `cwd`: `codex <config options> mcp get cmux --json` in the launch
 /// folder (`-C` applied), with exactly `env` (the Codex child's environment), within
-/// [`TIMEOUT`]. Also how long it took.
+/// [`TIMEOUT`], then [`project_doubt`] over the project files. Also how long it took.
 pub fn resolve(
     codex: &Path,
     args: &[OsString],
@@ -175,9 +203,12 @@ fn resolve_within(
     timeout: Duration,
 ) -> CmuxEntry {
     use std::io::Read as _;
+    use std::os::unix::process::CommandExt as _;
+    use wait_timeout::ChildExt as _;
     let config = config_args(args);
     let getenv = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
-    let folder = launch_folder(cwd, config.cd.as_deref(), home_dir(&getenv).as_deref());
+    let home = home_dir(&getenv);
+    let folder = launch_folder(cwd, config.cd.as_deref(), home.as_deref());
     let mut command = std::process::Command::new(codex);
     command
         .args(&config.passed)
@@ -187,7 +218,9 @@ fn resolve_within(
         .envs(env.iter().map(|(k, v)| (k, v)))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+        .stderr(std::process::Stdio::piped())
+        // Its own process group, so a timeout ends whatever it started too.
+        .process_group(0);
     let Ok(mut child) = command.spawn() else { return CmuxEntry::Unknown };
     let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
         pipe.map(|mut pipe| {
@@ -200,22 +233,182 @@ fn resolve_within(
     };
     let stdout = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
     let stderr = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            // One short-lived child, polled in 10 ms steps: std has no wait with a timeout.
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return CmuxEntry::Unknown;
-            }
+    let group = child.id() as libc::pid_t;
+    let status = child.wait_timeout(timeout);
+    // Whatever it started and left running ends with it, so no process outlives the question
+    // and nothing it left holds the output open. SAFETY: a signal to the process group this call
+    // started; no memory is touched.
+    unsafe { libc::kill(-group, libc::SIGKILL) };
+    let status = match status {
+        Ok(Some(status)) => status,
+        _ => {
+            let _ = child.wait();
+            return CmuxEntry::Unknown;
         }
     };
     let out = stdout.and_then(|r| r.join().ok()).unwrap_or_default();
     let err = stderr.and_then(|r| r.join().ok()).unwrap_or_default();
-    entry_from(status.success(), &out, &err)
+    let entry = entry_from(status.success(), &out, &err);
+    if entry == CmuxEntry::Unknown {
+        return entry;
+    }
+    let user = getenv("CODEX_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|h| h.join(".codex")))
+        .map(|dir| dir.join("config.toml"));
+    match project_doubt(&folder, user.as_deref(), &entry) {
+        Some(why) => CmuxEntry::Doubt(why),
+        None => entry,
+    }
+}
+
+/// Why what a launch in `folder` loads may differ from Codex's answer `entry`: a
+/// `.codex/config.toml` from `folder` up to the repository root (the nearest folder with `.git`,
+/// else every folder up to `/`), for `folder` as written and as resolved, that defines
+/// `mcp_servers.cmux` (or does not parse but names `cmux`) and is not the entry Codex answered
+/// (the same stdio command and args). `user` (the person's user config) is no project file. A
+/// read-only scan that only ever adds doubt: it never makes cmux send anything.
+pub fn project_doubt(folder: &Path, user: Option<&Path>, entry: &CmuxEntry) -> Option<String> {
+    let user = user.and_then(|u| u.canonicalize().ok().or_else(|| Some(u.to_path_buf())));
+    let resolved = folder.canonicalize().ok();
+    let mut files: Vec<PathBuf> = Vec::new();
+    for start in std::iter::once(folder.to_path_buf()).chain(resolved) {
+        let root = start.ancestors().find(|dir| dir.join(".git").exists()).map(Path::to_path_buf);
+        for dir in start.ancestors() {
+            let file = dir.join(".codex/config.toml");
+            if !files.contains(&file) {
+                files.push(file);
+            }
+            if root.as_deref() == Some(dir) {
+                break;
+            }
+        }
+    }
+    for file in files {
+        let Ok(text) = std::fs::read_to_string(&file) else { continue };
+        let real = file.canonicalize().unwrap_or_else(|_| file.clone());
+        if user.as_deref() == Some(real.as_path()) {
+            continue;
+        }
+        let shown = file.display();
+        let Ok(config) = text.parse::<toml::Table>() else {
+            if text.contains(SERVER) {
+                return Some(format!("{shown} does not parse and names {SERVER}"));
+            }
+            continue;
+        };
+        let Some(table) = config.get("mcp_servers").and_then(|s| s.get(SERVER)) else { continue };
+        let command = table.get("command").and_then(toml::Value::as_str);
+        let args: Option<Vec<&str>> = match table.get("args") {
+            None => Some(Vec::new()),
+            Some(toml::Value::Array(list)) => list.iter().map(toml::Value::as_str).collect(),
+            Some(_) => None,
+        };
+        let loaded = match entry {
+            CmuxEntry::Stdio { command: c, args: a } => {
+                command == Some(c.as_str())
+                    && args
+                        .is_some_and(|args| args.iter().copied().eq(a.iter().map(String::as_str)))
+            }
+            _ => false,
+        };
+        if !loaded {
+            return Some(format!(
+                "{shown} defines {SERVER}, and Codex's answer does not show it loads"
+            ));
+        }
+    }
+    None
+}
+
+/// Why a terminal launch of Codex with the person's arguments `args` may load another config than
+/// the question asked ([`resolve`] asks for a new session in the launch folder), or `None` for a
+/// new session: no subcommand (an interactive session, with or without a prompt), `exec`, or
+/// `review`, with none of `--trust`, `--worktree`, `--ignore-user-config` or `--remote`. Resume
+/// and fork in every form (`resume`, `fork`, `exec resume`, `exec fork`, `--last`) and every other
+/// subcommand are doubt.
+pub fn launch_doubt(args: &[OsString]) -> Option<String> {
+    const DOUBT_FLAGS: [&str; 6] =
+        ["--trust", "--worktree", "--ignore-user-config", "--remote", "--last", "--resume"];
+    const VALUE_OPTIONS: [&str; 22] = [
+        "-c",
+        "--config",
+        "-p",
+        "--profile",
+        "-C",
+        "--cd",
+        "-m",
+        "--model",
+        "-s",
+        "--sandbox",
+        "-a",
+        "--ask-for-approval",
+        "-i",
+        "--image",
+        "--enable",
+        "--disable",
+        "--add-dir",
+        "--local-provider",
+        "--output-schema",
+        "-o",
+        "--output-last-message",
+        "--color",
+    ];
+    const SUBCOMMANDS: [&str; 26] = [
+        "exec",
+        "e",
+        "review",
+        "login",
+        "logout",
+        "mcp",
+        "mcp-server",
+        "app-server",
+        "completion",
+        "sandbox",
+        "debug",
+        "apply",
+        "a",
+        "resume",
+        "fork",
+        "cloud",
+        "features",
+        "help",
+        "proto",
+        "generate-ts",
+        "responses-api-proxy",
+        "stdio-to-uds",
+        "execpolicy",
+        "agents",
+        "plugin",
+        "update",
+    ];
+    let mut positionals: Vec<&str> = Vec::new();
+    let mut args = args.iter().filter_map(|a| a.to_str());
+    while let Some(arg) = args.next() {
+        if arg == "--" {
+            break;
+        }
+        let flag = arg.split_once('=').map_or(arg, |(f, _)| f);
+        if DOUBT_FLAGS.contains(&flag) {
+            return Some(format!("the launch passes {flag}"));
+        }
+        if arg.starts_with('-') {
+            if VALUE_OPTIONS.contains(&arg) {
+                args.next();
+            }
+            continue;
+        }
+        positionals.push(arg);
+    }
+    // Any word that names a subcommand other than a new session's, wherever it stands (an option
+    // this list does not know may have taken the word before it): doubt. A prompt is one word
+    // (quoted), so it is never one of these.
+    let new_session = |word: &str| matches!(word, "exec" | "e" | "review");
+    positionals
+        .iter()
+        .find(|word| SUBCOMMANDS.contains(word) && !new_session(word))
+        .map(|word| format!("the launch names `{word}`"))
 }
 
 /// [`CmuxEntry`] from `codex mcp get cmux --json`'s exit (`ok`), stdout and stderr: Codex 0.160.1
@@ -379,5 +572,134 @@ mod tests {
         );
         assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
         assert_eq!(resolve(&root.join("missing"), &[], &work, &env).0, CmuxEntry::Unknown);
+    }
+
+    /// A timeout ends the resolver's whole process group: what it started is gone too. So does an
+    /// answer: what it left running cannot hold the question open.
+    #[test]
+    fn a_timed_out_resolver_ends_with_everything_it_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let pid_file = root.join("pid");
+        let slow = fake_codex(&root, &format!("sleep 30 & echo $! > {pid_file:?}; wait"));
+        let started = Instant::now();
+        assert_eq!(
+            resolve_within(&slow, &[], &root, &[], Duration::from_millis(300)),
+            CmuxEntry::Unknown
+        );
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        let left = fake_codex(
+            &root,
+            r#"sleep 30 & printf '{"transport":{"type":"streamable_http"}}'; exit 0"#,
+        );
+        let started = Instant::now();
+        assert_eq!(resolve(&left, &[], &root, &[]).0, CmuxEntry::Http);
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        let pid: libc::pid_t = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+        // Signalled with the group; gone once its new parent reaps it.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        // SAFETY: a probe signal (0) to a pid; nothing is sent.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            assert!(Instant::now() < deadline, "the resolver's child {pid} still runs");
+            std::thread::yield_now();
+        }
+    }
+
+    /// A project file defining `cmux` that Codex's answer does not show it loads is doubt: from
+    /// the launch folder up to the repository root, for the folder as written (a link) and as
+    /// resolved; the person's user config is none, nor is a folder above the root.
+    #[test]
+    fn a_project_cmux_entry_codex_does_not_show_it_loads_is_doubt() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let repo = root.join("repo");
+        let deep = repo.join("a/b");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let none = CmuxEntry::None;
+        let stdio = CmuxEntry::Stdio { command: "/opt/x".into(), args: vec!["mcp".into()] };
+        let write = |dir: &Path, text: &str| {
+            std::fs::create_dir_all(dir.join(".codex")).unwrap();
+            std::fs::write(dir.join(".codex/config.toml"), text).unwrap();
+        };
+        assert_eq!(project_doubt(&deep, None, &none), None, "no project file");
+        // Above the repository root: not this project's.
+        write(&root, "[mcp_servers.cmux]\nurl = \"http://x\"\n");
+        assert_eq!(project_doubt(&deep, None, &none), None);
+        // In the middle, HTTP: doubt whatever Codex answered but that same stdio entry.
+        write(&repo.join("a"), "[mcp_servers.cmux]\nurl = \"http://x\"\n");
+        for entry in [&none, &stdio, &CmuxEntry::Http] {
+            assert!(project_doubt(&deep, None, entry).is_some(), "{entry:?}");
+        }
+        write(&repo.join("a"), "[mcp_servers.cmux]\ncommand = \"/opt/x\"\nargs = [\"mcp\"]\n");
+        assert_eq!(project_doubt(&deep, None, &stdio), None, "the entry Codex loads");
+        assert!(project_doubt(&deep, None, &none).is_some(), "one Codex does not load");
+        write(&repo.join("a"), "[mcp_servers.other]\nurl = \"http://x\"\n");
+        assert_eq!(project_doubt(&deep, None, &none), None, "another name");
+        write(&repo.join("a"), "[mcp_servers.cmux\nbroken");
+        assert!(project_doubt(&deep, None, &none).is_some(), "unparseable, names cmux");
+        write(&repo.join("a"), "[broken");
+        assert_eq!(project_doubt(&deep, None, &none), None, "unparseable, no cmux");
+        // The person's user config, when the repository is their home: not a project file.
+        write(&repo, "[mcp_servers.cmux]\nurl = \"http://x\"\n");
+        let user = repo.join(".codex/config.toml");
+        assert_eq!(project_doubt(&deep, Some(&user), &none), None);
+        assert!(project_doubt(&deep, None, &none).is_some());
+        std::fs::remove_dir_all(repo.join(".codex")).unwrap();
+        std::fs::remove_dir_all(root.join(".codex")).unwrap();
+        std::fs::remove_dir_all(repo.join("a/.codex")).unwrap();
+        // A link (`-C <link>`): the target's project files count, though the link's path is
+        // outside the repository.
+        let link = root.join("link");
+        std::os::unix::fs::symlink(&deep, &link).unwrap();
+        write(&deep, "[mcp_servers.cmux]\nurl = \"http://x\"\n");
+        assert!(project_doubt(&link, None, &none).is_some());
+        // Through `resolve`: Codex answers none, the project file makes it doubt.
+        let env = vec![(OsString::from("HOME"), root.join("home").into_os_string())];
+        let codex =
+            fake_codex(&root, "echo \"Error: No MCP server named 'cmux' found.\" >&2; exit 1");
+        assert!(matches!(
+            resolve(&codex, &os(&["-C", "link", "exec", "hi"]), &root, &env).0,
+            CmuxEntry::Doubt(_)
+        ));
+    }
+
+    /// The launches whose loaded config can differ from the question are doubt; a new session
+    /// (none, a prompt, `exec`, `review`) is not.
+    #[test]
+    fn launches_that_may_load_another_config_are_doubt() {
+        for args in [
+            &[][..],
+            &["fix it"],
+            &["exec", "fix it"],
+            &["e", "-C", "/w", "hi"],
+            &["review", "--uncommitted"],
+            &["-c", "a=1", "-p", "resume", "exec", "hi"],
+            &["exec", "--", "resume"],
+            &["exec", "fix the resume bug"],
+        ] {
+            assert_eq!(launch_doubt(&os(args)), None, "{args:?}");
+        }
+        for args in [
+            &["--trust"][..],
+            &["exec", "--trust", "hi"],
+            &["--worktree"],
+            &["--worktree=x"],
+            &["--ignore-user-config"],
+            &["--remote", "ws://h"],
+            &["resume"],
+            &["resume", "--last"],
+            &["fork", "019a"],
+            &["exec", "resume", "--last"],
+            &["e", "fork", "019a"],
+            &["--last"],
+            &["agents"],
+            &["mcp", "list"],
+            &["app-server"],
+            &["--some-new-option", "value", "resume", "--last"],
+            &["exec", "--new-flag", "x", "fork"],
+        ] {
+            assert!(launch_doubt(&os(args)).is_some(), "{args:?}");
+        }
     }
 }

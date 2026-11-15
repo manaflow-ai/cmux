@@ -140,18 +140,19 @@ impl Hub {
         profile: &HarnessProfile,
         session_id: Option<&str>,
         child: &crate::agent::ChildAgent,
+        answer: &crate::agent_tools::CodexAnswer,
     ) -> Value {
         let all =
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
         // A fork through this child asks for the same list (`fork.rs`).
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
-        // Codex's answer for the person's own `cmux` entry, asked once for this start.
-        let answer = std::sync::OnceLock::new();
+        // Codex's answer for the person's own `cmux` entry, asked once for this start (its tool
+        // rows', `record_spawn_inputs`, or its pool spec's) off the runtime.
         let codex = crate::agent_tools::is_codex(meta, Some(profile)).then_some(
             crate::agent_tools::CodexLaunch {
                 cwd: &meta.cwd,
                 argv: &profile.argv,
-                answer: Some(&answer),
+                answer: Some(answer),
             },
         );
         let servers =

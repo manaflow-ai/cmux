@@ -45,7 +45,18 @@
 #      the server Codex alone starts, and starts; and the shim's question to
 #      Codex (`mcp get`) per launch, timed;
 #  15. Codex itself: env keys alone for an entry it does not load make it
-#      refuse to start.
+#      refuse to start;
+#  16-21. skip on doubt (codex_cmux_entry.rs), with the answer on: when cmux
+#      cannot be sure what the launch loads, the shim adds no server and no
+#      env keys, says nothing, and Codex starts with the person's config:
+#      16. the trust prompt, driven in tmux: a new folder whose project file
+#          has an HTTP cmux entry; the person trusts it at Codex's prompt and
+#          Codex runs on (no "url is not supported for stdio");
+#      17. `exec --trust` in that folder (Codex versions with --trust);
+#      18. `exec -C <link>` whose trust key is the link's path;
+#      19. resume, fork, --worktree and other launches: nothing recorded;
+#      20. a resolver that does not answer in time: nothing, launch not held;
+#      21. an untrusted project file beside a user stdio entry: nothing.
 # JSON is read from stdout only: an agent may warn on stderr.
 # Prints PASS or FAIL per check and exits 1 on any FAIL.
 set -u
@@ -343,10 +354,16 @@ PY
     while IFS= read -r a; do [ "$a" = -c ] && { IFS= read -r v; recorded+=(-c "$v"); }; done < "$D/codex-args"
     with=$(session "$folder" "$@" ${recorded[@]+"${recorded[@]}"})
     given=$(printf '%s\n' ${recorded[@]+"${recorded[@]}"} | grep '^mcp_servers\.' | tr '\n' ' ')
-    local started=${alone%%|*}
+    local started=${alone%%|*} entry
+    entry=$(sed -n 's/^cmux-tui: codex mcp get cmux: [0-9]* ms (\(.*\))$/\1/p' "$D/shim.err" | head -1)
+    # Skip on doubt: a project file Codex's answer does not show it loads sends nothing.
     [ "$with" = "$alone" ] && [ "${alone#*|}" = "0|1" ] \
-      && if [ -n "$started" ]; then case "$given" in *CMUX_AGENT_TOOLS_ANSWER*) true ;; *) false ;; esac; else [ -z "$given" ]; fi
-    rc=$?; check "probe [$name]: Codex alone ($alone) = with the shim's -c ($with); sent: ${given:-nothing}; codex mcp get took ${ms:-?} ms" $rc
+      && case "$given" in
+           '') [ -z "$started" ] || case "$entry" in Doubt*) true ;; *) false ;; esac ;;
+           *CMUX_AGENT_TOOLS_ANSWER*) [ -n "$started" ] ;;
+           *) false ;;
+         esac
+    rc=$?; check "probe [$name]: Codex alone ($alone) = with the shim's -c ($with); answer: ${entry:-?}; sent: ${given:-nothing}; codex mcp get took ${ms:-?} ms" $rc
   }
   resolve_ms=""
   Q=$D/probes; rm -rf "$Q"; mkdir -p "$Q"
@@ -388,6 +405,105 @@ PY
   [ "${alone#*|}" != "0|1" ]
   rc=$?; check "codex: env keys alone for an entry it does not load make it refuse ($alone)" $rc
   answer on
+
+  # 16 to 21. Skip on doubt, with the answer on.
+  http_entry() { printf '[mcp_servers.cmux]\nurl = "http://127.0.0.1:9/mcp"\n'; }
+  shim_session() { # FOLDER ARGS...: `session` through this build's shim and the real Codex
+    local at=$1; shift; : > "$L"
+    (cd "$at" && DEAD_KEY=x CODEX_API_KEY=sk-test timeout 30 env "${shim_env[@]}" PATH="$base_path" \
+       "$CMUX" agent codex-wrapper exec --json --skip-git-repo-check "${dead[@]}" "$@" "say hi" \
+       < /dev/null > "$D/session.out" 2>&1)
+    local refused=0 reached=0
+    grep -qiE 'invalid transport|failed to load|not supported for stdio' "$D/session.out" && refused=1
+    grep -q '"type":"turn.started"' "$D/session.out" && grep -qE '"type":"(turn.failed|error)"' "$D/session.out" && reached=1
+    printf '%s|%s|%s' "$(sort -u "$L" | tr '\n' ' ')" "$refused" "$reached"
+  }
+  : > "$CODEX_HOME/config.toml"
+  # Signed in with an API key (scratch CODEX_HOME), so the TUI's only first-run step is the trust prompt.
+  printf '{"OPENAI_API_KEY":"sk-test"}\n' > "$CODEX_HOME/auth.json"
+  # 16. The trust prompt. A new git folder, never trusted, whose project file has an HTTP cmux entry.
+  N=$D/doubt/new; mkdir -p "$N/.codex"; git -C "$N" init -q; http_entry > "$N/.codex/config.toml"
+  TMUX_BIN=$(command -v tmux || ls /opt/homebrew/bin/tmux /usr/local/bin/tmux 2>/dev/null | head -1)
+  if [ -n "$TMUX_BIN" ]; then
+    tm() { "$TMUX_BIN" -L "mcp-trust-$$" "$@"; }
+    screen() { tm capture-pane -p -t trust -S - 2>/dev/null; }
+    # The person's own terminal: this build's shim, then the real Codex, in a 160x45 pane that
+    # stays for a look once Codex ends.
+    tm new-session -d -x 160 -y 45 -s trust -c "$N" \
+      "env ${shim_env[*]} PATH='$base_path' TERM=xterm-256color CMUX_TUI_MCP_RESOLVE_TRACE=1 '$CMUX' agent codex-wrapper"
+    tm set-option -t trust remain-on-exit on >/dev/null
+    for _ in $(seq 1 60); do screen | grep -q "Trust and continue" && break; perl -e 'select(undef,undef,undef,0.5)'; done
+    prompt=$(screen | grep -c "Trust and continue")
+    tm send-keys -t trust Enter
+    # Codex either loads the folder's config and runs on, or refuses it and ends.
+    for _ in $(seq 1 30); do
+      screen | grep -qE "not supported for stdio|Error loading" && break
+      [ "$(tm display -p -t trust '#{pane_dead}')" = 1 ] && break
+      perl -e 'select(undef,undef,undef,0.5)'
+    done
+    perl -e 'select(undef,undef,undef,3)'
+    screen > "$D/trust.screen"
+    dead=$(tm display -p -t trust '#{pane_dead}')
+    tm send-keys -t trust C-c; tm send-keys -t trust C-c
+    for _ in $(seq 1 20); do [ "$(tm display -p -t trust '#{pane_dead}')" = 1 ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
+    screen > "$D/trust.after"
+    tm kill-server
+    pkill -f "$CODEX_HOME/packages/" 2>/dev/null
+    refused=$(grep -cE "not supported for stdio|Error loading" "$D/trust.screen")
+    trusted=$(grep -c "\"$N\"" "$CODEX_HOME/config.toml" 2>/dev/null)
+    entry=$(sed -n 's/.*cmux-tui: codex mcp get cmux: [0-9]* ms (\([A-Za-z]*\).*/\1/p' "$D/trust.after" | head -1)
+    [ "${prompt:-0}" -ge 1 ] && [ "$dead" = 0 ] && [ "$refused" = 0 ] && [ "${trusted:-0}" -ge 1 ] \
+      && grep -q "Ask Codex to do anything" "$D/trust.screen" && [ "$entry" = Doubt ]
+    rc=$?; check "doubt [trust prompt]: a new folder with an HTTP project cmux entry, trusted at Codex's prompt (prompt shown: ${prompt:-0}, saved: ${trusted:-0}): answer ${entry:-?}, Codex runs on (ended: $dead, refused: $refused)" $rc
+  else
+    check "doubt [trust prompt]: tmux is missing" 1
+  fi
+  # 17. `exec --trust` in a new folder with the same project file.
+  T17=$D/doubt/trust; mkdir -p "$T17/.codex"; git -C "$T17" init -q; http_entry > "$T17/.codex/config.toml"
+  : > "$CODEX_HOME/config.toml"
+  if "$CODEX" exec --help 2>/dev/null | grep -q -- '--trust'; then
+    result=$(shim_session "$T17" --trust)
+    [ "$result" = "|0|1" ]
+    rc=$?; check "doubt [exec --trust]: no server, Codex starts with the HTTP project entry ($result)" $rc
+  else
+    echo "SKIP doubt [exec --trust]: this Codex has no --trust"
+  fi
+  # 18. `exec -C <link>`: the trust key is the link's path; the entry is HTTP.
+  R18=$D/doubt/real; mkdir -p "$R18/.codex"; git -C "$R18" init -q; http_entry > "$R18/.codex/config.toml"
+  ln -s "$R18" "$D/doubt/link"
+  printf '[projects."%s"]\ntrust_level = "trusted"\n' "$D/doubt/link" > "$CODEX_HOME/config.toml"
+  result=$(shim_session "$D" -C "$D/doubt/link")
+  [ "$result" = "|0|1" ]
+  rc=$?; check "doubt [exec -C <link>]: no server, Codex starts with the HTTP project entry ($result)" $rc
+  : > "$CODEX_HOME/config.toml"
+  # 19. Launches whose loaded config can differ from the question: nothing recorded, nothing said.
+  fake_codex > "$D/bin/codex"; chmod +x "$D/bin/codex"
+  sent=""
+  for launch in "resume --last" "fork --last" "exec resume --last" "--worktree" "exec --trust hi" "--ignore-user-config exec hi" "--remote ws://127.0.0.1:9" "mcp list"; do
+    # shellcheck disable=SC2086
+    record "$P/sub" $launch
+    if grep -q '^mcp_servers\.' "$D/codex-args" 2>/dev/null || [ -s "$D/shim.err" ]; then sent+=" [$launch]"; fi
+  done
+  [ -z "$sent" ]
+  rc=$?; check "doubt [resume, fork, --worktree, --trust, --ignore-user-config, --remote, other subcommands]: no setting, nothing said${sent:+ (sent:$sent)}" $rc
+  # 20. A resolver that does not answer in time: nothing, and the launch waits at most the limit.
+  printf '#!/bin/sh\ncase " $* " in *" mcp get cmux --json "*) exec sleep 31;; esac\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' \
+    "$(sq "$D/codex-args")" > "$D/bin/codex"
+  started=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+  record "$P/sub" exec "say hi"
+  took=$(( $(perl -MTime::HiRes=time -e 'printf "%d", time*1000') - started ))
+  ! grep -q '^mcp_servers\.' "$D/codex-args" && grep -q '^hooks' "$D/codex-args" && [ ! -s "$D/shim.err" ] && [ "$took" -lt 4000 ] \
+    && ! pgrep -f "sleep 31" >/dev/null
+  rc=$?; check "doubt [resolver timed out]: no server, the hooks go, nothing said, launch took $took ms, the resolver's process is gone" $rc
+  # 21. A user stdio entry, and an untrusted project file that defines cmux too: nothing.
+  fake_codex > "$D/bin/codex"; chmod +x "$D/bin/codex"
+  U21=$D/doubt/untrusted; mkdir -p "$U21/.codex"; git -C "$U21" init -q; http_entry > "$U21/.codex/config.toml"
+  marker_entry u21-user > "$CODEX_HOME/config.toml"
+  record "$U21" exec "say hi"
+  rm -f "$D/bin/codex"
+  ! grep -q '^mcp_servers\.' "$D/codex-args" && [ ! -s "$D/shim.err" ]
+  rc=$?; check "doubt [untrusted HTTP project entry beside a user stdio entry]: no setting, nothing said" $rc
+  : > "$CODEX_HOME/config.toml"; rm -f "$CODEX_HOME/auth.json"
 
   # 7. cmux setup mcp, with the real agents installed: a report, no write.
   printf '[mcp_servers.other]\ncommand = "/bin/true"\n' > "$CODEX_HOME/config.toml"

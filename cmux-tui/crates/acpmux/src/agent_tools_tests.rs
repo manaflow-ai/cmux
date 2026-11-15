@@ -598,11 +598,53 @@ fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
     // The person's own options went to `mcp get`.
     let calls = std::fs::read_to_string(root.path().join("calls")).unwrap();
     assert!(calls.lines().all(|l| l == "-p w mcp get cmux --json"), "{calls}");
-    // Not a Codex app-server launch (an ACP adapter): no answer, `cmux` stays.
-    codex_answers(root.path(), Some("http"));
-    let adapter = vec!["/opt/codex-acp-adapter".to_owned()];
+    // Skip on doubt: no answer from Codex (output it cannot read, or a program that is not
+    // there), and a project file Codex's answer does not show it loads, drop `cmux` too.
+    std::fs::write(root.path().join("answer"), "not json").unwrap();
+    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(at, &env)), ["acpmux"]);
+    let gone = vec!["/nowhere/codex".to_owned(), "app-server".to_owned()];
+    let missing = super::CodexLaunch { cwd: &work, argv: &gone, answer: None };
+    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(missing, &env)), ["acpmux"]);
+    std::fs::create_dir_all(work.join(".git")).unwrap();
+    std::fs::create_dir_all(work.join(".codex")).unwrap();
+    std::fs::write(
+        work.join(".codex/config.toml"),
+        "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
+    )
+    .unwrap();
+    for answer in [None, Some("/opt/x")] {
+        codex_answers(root.path(), answer);
+        assert_eq!(
+            names(tools.clone().without_cmux_beside_an_http_entry(at, &env)),
+            ["acpmux"],
+            "an untrusted project entry, {answer:?}"
+        );
+    }
+    // The same stdio entry Codex answers is one it loads: no doubt.
+    std::fs::write(
+        work.join(".codex/config.toml"),
+        "[mcp_servers.cmux]\ncommand = \"/opt/x\"\nargs = [\"mcp\", \"serve\"]\n",
+    )
+    .unwrap();
+    assert_eq!(
+        names(tools.clone().without_cmux_beside_an_http_entry(at, &env)),
+        ["cmux", "acpmux"]
+    );
+    std::fs::remove_dir_all(work.join(".codex")).unwrap();
+    // An ACP adapter (not a Codex app-server launch) loads the person's config through the
+    // `codex` on its PATH, asked with no options.
+    std::fs::remove_file(root.path().join("calls")).unwrap();
+    let adapter = vec!["/opt/codex-acp-adapter".to_owned(), "--x".to_owned()];
     let other = super::CodexLaunch { cwd: &work, argv: &adapter, answer: None };
-    assert_eq!(names(tools.without_cmux_beside_an_http_entry(other, &env)), ["cmux", "acpmux"]);
+    let on_path: std::collections::BTreeMap<String, String> =
+        [("PATH".to_owned(), format!("{}:/usr/bin:/bin", codex.parent().unwrap().display()))]
+            .into();
+    codex_answers(root.path(), Some("http"));
+    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(other, &on_path)), ["acpmux"]);
+    codex_answers(root.path(), Some("/opt/x"));
+    assert_eq!(names(tools.without_cmux_beside_an_http_entry(other, &on_path)), ["cmux", "acpmux"]);
+    let calls = std::fs::read_to_string(root.path().join("calls")).unwrap();
+    assert!(calls.lines().all(|l| l == "mcp get cmux --json"), "{calls}");
 }
 
 /// The servers a Codex chat's session start and fork send (`acp_servers_with`, which
@@ -797,7 +839,7 @@ fn codex_is_asked_once_per_launch_and_again_by_the_next() {
     let calls =
         || std::fs::read_to_string(root.path().join("calls")).unwrap_or_default().lines().count();
     codex_answers(root.path(), Some("/opt/x"));
-    let first = std::sync::OnceLock::new();
+    let first = super::CodexAnswer::default();
     let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&first) };
     for _ in 0..3 {
         assert!(matches!(
@@ -807,8 +849,32 @@ fn codex_is_asked_once_per_launch_and_again_by_the_next() {
     }
     assert_eq!(calls(), 1, "one launch, one question");
     codex_answers(root.path(), Some("http"));
-    let next = std::sync::OnceLock::new();
+    let next = super::CodexAnswer::default();
     let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&next) };
     assert!(super::persons_cmux_entry(launch, &env).is_http(), "the next launch asks again");
     assert_eq!(calls(), 2);
+}
+
+/// One start asks Codex once, off the runtime (`warm_codex_answer`), and everything the start
+/// reads shares that answer: its tool rows, its `mcpServers`, the person's entry env keys.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_start_asks_codex_once_off_the_runtime_for_everything_it_reads() {
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let codex = fake_codex(root.path());
+    let argv = vec![codex.to_string_lossy().into_owned(), "app-server".to_owned()];
+    let env = std::collections::BTreeMap::new();
+    codex_answers(root.path(), Some("/opt/x"));
+    let answer = super::CodexAnswer::default();
+    super::warm_codex_answer(&work, &argv, &env, &answer).await;
+    assert!(matches!(answer.get(), Some(crate::codex_cmux_entry::CmuxEntry::Stdio { .. })));
+    super::warm_codex_answer(&work, &argv, &env, &answer).await;
+    let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&answer) };
+    let tools = super::AgentTools::default();
+    let _ = tools.clone().without_cmux_beside_an_http_entry(launch, &env);
+    let servers = super::acp_servers_with(tools, &env, "s-1", false, Some(launch));
+    assert!(super::person_entry_env(&servers, launch, &env, "s-1").is_some());
+    let calls = std::fs::read_to_string(root.path().join("calls")).unwrap();
+    assert_eq!(calls.lines().count(), 1, "{calls}");
 }

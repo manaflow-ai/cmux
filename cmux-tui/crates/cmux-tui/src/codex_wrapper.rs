@@ -105,9 +105,11 @@ fn prepare_hooks(
         .filter(|(key, _)| key != "PATH")
         .chain([(OsString::from("PATH"), child_path.to_owned())])
         .collect();
-    let (entry, took) = acpmux::codex_cmux_entry::resolve(codex, args, &cwd, &child_env);
+    let started = std::time::Instant::now();
+    let entry =
+        launch_entry(args, || acpmux::codex_cmux_entry::resolve(codex, args, &cwd, &child_env).0);
     if std::env::var_os("CMUX_TUI_MCP_RESOLVE_TRACE").is_some() {
-        eprintln!("cmux-tui: codex mcp get cmux: {} ms ({entry:?})", took.as_millis());
+        eprintln!("cmux-tui: codex mcp get cmux: {} ms ({entry:?})", started.elapsed().as_millis());
     }
     let settings = mcp_settings(
         &McpLaunch { cwd: &cwd, executable: &executable, socket: &socket },
@@ -121,6 +123,20 @@ fn prepare_hooks(
     }
     launch.extend(hoist_session_global_args(args));
     Ok(Some(launch))
+}
+
+/// The person's own `cmux` entry for a launch with the person's `args`: Codex's answer (`ask`),
+/// unless the launch may load another config than the question asks
+/// (`acpmux::codex_cmux_entry::launch_doubt`: `--trust`, `--worktree`, resume, fork, ...); then
+/// doubt, and Codex is not asked.
+fn launch_entry(
+    args: &[OsString],
+    ask: impl FnOnce() -> acpmux::codex_cmux_entry::CmuxEntry,
+) -> acpmux::codex_cmux_entry::CmuxEntry {
+    match acpmux::codex_cmux_entry::launch_doubt(args) {
+        Some(why) => acpmux::codex_cmux_entry::CmuxEntry::Doubt(why),
+        None => ask(),
+    }
 }
 
 /// What [`mcp_settings`] needs of the launch: the launch folder, this
@@ -137,6 +153,12 @@ struct McpLaunch<'a> {
 /// launch's Codex answers it (`entry`, `acpmux::codex_cmux_entry`), is HTTP:
 /// this build's command cannot merge into it, so none, and nothing is said.
 ///
+/// Skip on doubt: when what the launch loads is in doubt (no answer from Codex,
+/// a project file Codex's answer does not show it loads, or a launch such as
+/// `--trust` or a resume: `CmuxEntry::skips`), no setting at all, neither the
+/// server nor env keys, and nothing is said: Codex starts with the person's
+/// config untouched.
+///
 /// Without the yes, a stdio `cmux` entry of the person's own, as Codex answers
 /// it, gets the env key `CMUX_AGENT_TOOLS_ANSWER` = `off` with exactly its own
 /// `command` and `args` beside it (the same entry, with the key added): its
@@ -150,6 +172,9 @@ fn mcp_settings(
     entry: &acpmux::codex_cmux_entry::CmuxEntry,
 ) -> Vec<OsString> {
     use acpmux::codex_cmux_entry::CmuxEntry;
+    if entry.skips() {
+        return Vec::new();
+    }
     if !choice.injects() {
         let CmuxEntry::Stdio { command, args } = entry else { return Vec::new() };
         let string = |value: &str| toml::Value::String(value.to_owned());
@@ -162,9 +187,6 @@ fn mcp_settings(
             .into_iter()
             .map(|(key, value)| OsString::from(format!("mcp_servers.cmux.{key}={value}")))
             .collect();
-    }
-    if entry.is_http() {
-        return Vec::new();
     }
     crate::agent_mcp_choice::codex_settings(
         choice,
@@ -417,12 +439,13 @@ mod tests {
 
     /// The settings one launch in `/work` gets when Codex answers `entry` for the person's own
     /// `cmux` entry.
-    /// (The person's arguments go to Codex's own answer, `entry`, not to these settings.)
+    /// (A launch in doubt, `launch_entry`, is not asked and gets doubt instead of `entry`.)
     fn launch_with(
         choice: AgentsCmuxMcp,
-        _args: &[&str],
+        args: &[&str],
         entry: &acpmux::codex_cmux_entry::CmuxEntry,
     ) -> Vec<String> {
+        let entry = &launch_entry(&os(args), || entry.clone());
         let pane = |name: &str| (name == "CMUX_TUI_TERMINAL_ID").then(|| OsString::from("term_1"));
         let settings = mcp_settings(
             &McpLaunch {
@@ -437,8 +460,8 @@ mod tests {
         settings.iter().map(|s| s.to_string_lossy().into_owned()).collect()
     }
 
-    /// The server goes in only with the person's yes, under the name `cmux`, for every kind of
-    /// session: interactive, with a prompt, exec, review, resumed, forked, in a worktree.
+    /// The server goes in only with the person's yes, under the name `cmux`, for every new
+    /// session: interactive, with a prompt, exec, review.
     #[test]
     fn the_server_goes_in_as_cmux_only_with_the_persons_yes() {
         for choice in [AgentsCmuxMcp::Ask, AgentsCmuxMcp::Off] {
@@ -449,10 +472,7 @@ mod tests {
             &["fix the bug"],
             &["exec", "fix the bug"],
             &["review", "--uncommitted"],
-            &["resume", "--last"],
-            &["fork", "--last"],
-            &["--worktree"],
-            &["agents"],
+            &["-c", "model=\"o3\"", "exec", "-C", "/w", "hi"],
         ] {
             let settings = launch(AgentsCmuxMcp::On, args);
             assert!(settings.iter().all(|s| s.starts_with("mcp_servers.cmux.")), "{settings:?}");
@@ -485,8 +505,45 @@ mod tests {
         }
         let on = |entry| launch_with(AgentsCmuxMcp::On, &["exec", "hi"], &entry);
         assert!(on(stdio).contains(&"mcp_servers.cmux.enabled=true".to_owned()));
-        assert!(on(CmuxEntry::Unknown).contains(&"mcp_servers.cmux.enabled=true".to_owned()));
+        assert!(on(CmuxEntry::None).contains(&"mcp_servers.cmux.enabled=true".to_owned()));
         assert!(on(CmuxEntry::Http).is_empty(), "an HTTP entry keeps the name");
+    }
+
+    /// Skip on doubt: no answer from Codex, a project file Codex's answer does not show it
+    /// loads, or a launch whose loaded config can differ from the question gets no setting at
+    /// all (neither the server nor env keys), with the yes or without it, whatever the answer.
+    #[test]
+    fn a_launch_in_doubt_gets_no_setting_at_all() {
+        use acpmux::codex_cmux_entry::CmuxEntry;
+        let stdio = CmuxEntry::Stdio { command: "/c".into(), args: vec![] };
+        for choice in [AgentsCmuxMcp::On, AgentsCmuxMcp::Ask, AgentsCmuxMcp::Off] {
+            for entry in [CmuxEntry::Unknown, CmuxEntry::Doubt("a project file".into())] {
+                assert!(launch_with(choice, &["exec", "hi"], &entry).is_empty(), "{entry:?}");
+            }
+            for args in [
+                &["--trust"][..],
+                &["exec", "--trust", "hi"],
+                &["--worktree"],
+                &["--ignore-user-config", "exec", "hi"],
+                &["--remote", "ws://h"],
+                &["resume", "--last"],
+                &["resume", "019a"],
+                &["fork", "--last"],
+                &["exec", "resume", "--last", "go on"],
+                &["exec", "fork", "019a"],
+                &["--last"],
+                &["agents"],
+                &["mcp", "list"],
+                &["-c", "x=1", "resume"],
+            ] {
+                for entry in [CmuxEntry::None, stdio.clone()] {
+                    let settings = launch_with(choice, args, &entry);
+                    assert!(settings.is_empty(), "{choice:?} {args:?} {settings:?}");
+                }
+            }
+        }
+        assert!(acpmux::codex_cmux_entry::launch_doubt(&os(&["-p", "resume", "hi"])).is_none());
+        assert!(acpmux::codex_cmux_entry::launch_doubt(&os(&["exec", "--", "resume"])).is_none());
     }
 
     /// Codex 0.160.1 keeps only the deepest list of a clap global (`-c`,

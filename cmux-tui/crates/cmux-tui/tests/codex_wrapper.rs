@@ -407,20 +407,31 @@ fn codex_wrapper_gives_codex_one_server_named_cmux() {
     fs::create_dir_all(project.join(".codex")).unwrap();
     let other = "[mcp_servers.cmux]\ncommand = \"/opt/other/cmux\"\nargs = [\"mcp\", \"serve\"]\nenabled = false\n";
     let this = fs::canonicalize(env!("CARGO_BIN_EXE_cmux-tui")).unwrap();
+    // Codex's answer for the person's entry where it loads (the user config, or a trusted
+    // project's file): that entry. A project file Codex's answer does not show it loads is doubt,
+    // and gets no server (`codex_wrapper_skips_on_doubt`).
+    let answer = root.join("mcp-get.json");
+    fs::write(
+        &answer,
+        r#"{"transport":{"type":"stdio","command":"/opt/other/cmux","args":["mcp","serve"]}}"#,
+    )
+    .unwrap();
     for (user, in_project) in [("", ""), (other, ""), ("", other), (other, other)] {
         fs::write(codex_home.join("config.toml"), user).unwrap();
         fs::write(project.join(".codex/config.toml"), in_project).unwrap();
         for args in
             [&[][..], &["fix the bug"], &["exec", "fix the bug"], &["review", "--uncommitted"]]
         {
-            let argv = launch.argv(
-                launch
-                    .command()
-                    .current_dir(&project)
-                    .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
-                    .env("CODEX_HOME", &codex_home)
-                    .args(args),
-            );
+            let mut command = launch.command();
+            command
+                .current_dir(&project)
+                .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
+                .env("CODEX_HOME", &codex_home)
+                .args(args);
+            if !user.is_empty() || !in_project.is_empty() {
+                command.env("FAKE_MCP_GET", &answer);
+            }
+            let argv = launch.argv(&mut command);
             let config = settings(&argv);
             let servers = config["mcp_servers"].as_table().unwrap();
             assert_eq!(servers.keys().collect::<Vec<_>>(), ["cmux"], "{args:?}: {argv:?}");
@@ -472,12 +483,70 @@ fn codex_wrapper_leaves_an_http_cmux_entry_alone() {
     assert!(settings(&argv).get("hooks").is_some(), "{argv:?}");
     assert!(has_server(&run(&["exec", "fix the bug"], Some(stdio))));
     assert!(has_server(&run(&["exec", "fix the bug"], None)));
-    assert!(has_server(&run(&["exec", "fix the bug"], Some("not json"))));
+    // Skip on doubt: no answer from Codex is no server either.
+    let argv = run(&["exec", "fix the bug"], Some("not json"));
+    assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{argv:?}");
     // Codex was asked in the launch folder, with the person's own config options only.
     let asked = fs::read_to_string(&log).unwrap();
     let first = asked.lines().next().unwrap();
     let folder = project.canonicalize().unwrap();
     assert_eq!(first, format!("{}|-p work mcp get cmux --json", folder.display()), "{asked}");
+}
+
+/// Skip on doubt: a project file that defines `cmux` and that Codex's answer does not show it
+/// loads (an untrusted folder the person may trust at Codex's prompt), and a launch whose loaded
+/// config can differ from the question (`--trust`, resume, fork, `--worktree`), get no MCP
+/// setting at all; the hooks still go, and nothing is said. A launch in doubt does not ask Codex.
+#[test]
+fn codex_wrapper_skips_on_doubt() {
+    let launch = Launch::new();
+    let root = launch.root.path();
+    let settings_file = root.join("settings.json");
+    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
+    let codex_home = root.join("codex-home");
+    let project = root.join("new");
+    fs::create_dir_all(&codex_home).unwrap();
+    fs::create_dir_all(project.join(".git")).unwrap();
+    fs::create_dir_all(project.join(".codex")).unwrap();
+    fs::write(
+        project.join(".codex/config.toml"),
+        "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
+    )
+    .unwrap();
+    let log = root.join("mcp-get.log");
+    let run = |args: &[&str]| {
+        launch.argv(
+            launch
+                .command()
+                .current_dir(&project)
+                .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
+                .env("CODEX_HOME", &codex_home)
+                .env("FAKE_MCP_GET_LOG", &log)
+                .args(args),
+        )
+    };
+    let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
+    // Codex answers none (the folder is not trusted yet); the person may trust it at the prompt.
+    let argv = run(&[]);
+    assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{argv:?}");
+    assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 1);
+    fs::remove_dir_all(project.join(".codex")).unwrap();
+    assert!(has_server(&run(&["exec", "fix the bug"])), "no project entry: the server goes in");
+    for args in [
+        &["exec", "--trust", "fix the bug"][..],
+        &["resume", "--last"],
+        &["fork", "--last"],
+        &["exec", "resume", "--last", "go on"],
+        &["--worktree"],
+    ] {
+        let argv = run(args);
+        assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{args:?}: {argv:?}");
+    }
+    assert_eq!(
+        fs::read_to_string(&log).unwrap().lines().count(),
+        2,
+        "a launch in doubt asks nothing"
+    );
 }
 
 #[test]

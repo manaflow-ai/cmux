@@ -352,8 +352,12 @@ impl Hub {
             }
             // The list the parent's agent got at its start (`spawn.rs`).
             let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
-            // Codex's answer for the person's own `cmux` entry, asked once for this fork.
-            let answer = std::sync::OnceLock::new();
+            // Codex's answer for the person's own `cmux` entry, asked once for this fork, off the
+            // runtime.
+            let answer = crate::agent_tools::CodexAnswer::default();
+            if let Some(argv) = codex_fork.as_deref() {
+                crate::agent_tools::warm_codex_answer(&cwd, argv, &fork_env, &answer).await;
+            }
             let codex = codex_fork.as_deref().map(|argv| crate::agent_tools::CodexLaunch {
                 cwd: &cwd,
                 argv,

@@ -180,6 +180,9 @@ pub(super) struct Pooled {
     /// MDM's off as the chat that claimed it began its claim (`pool_claim`), which may have waited
     /// on this start: an off that came and went before the start read it counts too (review 121).
     claimed_under: Option<crate::hub::full_access_bound::OffLatch>,
+    /// The answer its claim's spec asked for the person's own `cmux` entry
+    /// (`PoolSpec::answer`): the claiming chat's start reads it (`record_spawn_inputs`).
+    codex_answer: Option<crate::agent_tools::CodexAnswer>,
 }
 
 impl Pooled {
@@ -215,6 +218,10 @@ struct PoolSpec {
     key: PoolKey,
     spawn: HarnessProfile,
     draft: SessionMeta,
+    /// Codex's answer for the person's own `cmux` entry, asked once for this spec off the runtime:
+    /// its key (`tool_servers`), the spare it starts (`session/new`, prewarm and refill) and the
+    /// chat that claims with it read this one.
+    answer: crate::agent_tools::CodexAnswer,
 }
 
 /// `_acpmux/prewarm`: the harness (and preset) the pane is about to use.
@@ -397,8 +404,14 @@ impl Hub {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         spawn.env.hash(&mut h);
         credentials.hash(&mut h);
-        // Codex's answer for the person's own `cmux` entry, asked once for this spec.
-        let answer = std::sync::OnceLock::new();
+        // Codex's answer for the person's own `cmux` entry, asked once for this spec, off the
+        // runtime.
+        let answer = crate::agent_tools::CodexAnswer::default();
+        let codex = crate::agent_tools::is_codex(draft, Some(profile));
+        if codex {
+            crate::agent_tools::warm_codex_answer(&draft.cwd, &spawn.argv, &spawn.env, &answer)
+                .await;
+        }
         let key = PoolKey {
             origin: if draft.remote_origin { Origin::Remote } else { Origin::Local },
             cwd: draft.cwd.clone(),
@@ -417,16 +430,14 @@ impl Hub {
             tool_servers: tool_servers(
                 crate::agent_tools::current(),
                 &spawn.env,
-                crate::agent_tools::is_codex(draft, Some(profile)).then_some(
-                    crate::agent_tools::CodexLaunch {
-                        cwd: &draft.cwd,
-                        argv: &spawn.argv,
-                        answer: Some(&answer),
-                    },
-                ),
+                codex.then_some(crate::agent_tools::CodexLaunch {
+                    cwd: &draft.cwd,
+                    argv: &spawn.argv,
+                    answer: Some(&answer),
+                }),
             ),
         };
-        Ok(PoolSpec { key, spawn, draft: draft.clone() })
+        Ok(PoolSpec { key, spawn, draft: draft.clone(), answer })
     }
 
     /// The spec for a new local session of `harness`/`preset` in `cwd`.
@@ -861,6 +872,7 @@ impl Hub {
                     }
                     let id = p.session_id.clone();
                     p.claimed_under = Some(off.clone());
+                    p.codex_answer = Some(spec.answer.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
                     return Some(id);
                 }
@@ -886,6 +898,15 @@ impl Hub {
     /// The name the claimed pooled session for `id` was started with.
     pub(super) fn pool_claimed_name(&self, id: &str) -> Option<String> {
         lock(&self.pool.claimed).get(id).map(|p| p.name.clone())
+    }
+
+    /// The answer the claim of the pooled session for `id` asked for the person's own `cmux`
+    /// entry (`Pooled::codex_answer`), if `session/new` claimed one.
+    pub(super) fn pool_claimed_codex_answer(
+        &self,
+        id: &str,
+    ) -> Option<crate::agent_tools::CodexAnswer> {
+        lock(&self.pool.claimed).get(id).and_then(|p| p.codex_answer.clone())
     }
 
     /// The claimed pooled session for `id`, if `session/new` claimed one.

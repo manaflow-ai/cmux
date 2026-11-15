@@ -42,6 +42,9 @@
 #      `cmux` entry in Claude Code's user config: a real Claude chat starts it
 #      with the chat's CMUX_AGENT_SESSION, and it is the off server, as a
 #      terminal Claude's is (mcp-launch-check.sh case 8);
+#  12. skip on doubt: a Codex chat in a folder whose project file (in a
+#      folder Codex does not trust) has an HTTP `cmux` entry gets no `cmux`
+#      and still starts (Codex's answer does not show the file loads);
 #   9. a second daemon in the scratch folder, linked as a peer: its own answer
 #      is off (with "mcp": {"enabled": true}) and its Codex config has the
 #      person's stdio entry; a Codex chat this daemon (answer on) starts there
@@ -113,8 +116,8 @@ PY
 servers_of() { # NAME: "<tool rows' servers> | <harness-reported servers and status>"
   acp --json session info "$1" 2>/dev/null | python3 "$D/servers.py"
 }
-start_chat() { # NAME HARNESS: a chat the way the agent pane starts one, with a first prompt
-  acp new -d -n "$1" -m "$2" --cwd "$D/work" --policy approve-all "say hi" > "$D/$1.new" 2>&1
+start_chat() { # NAME HARNESS [FOLDER]: a chat the way the agent pane starts one, with a first prompt
+  acp new -d -n "$1" -m "$2" --cwd "${3:-$D/work}" --policy approve-all "say hi" > "$D/$1.new" 2>&1
   for _ in $(seq 1 40); do [ "$(servers_of "$1")" != " | " ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
   # Claude Code reports its MCP servers after it started them.
   [ "$2" = claude ] && for _ in $(seq 1 40); do case "$(servers_of "$1")" in *"| "?*) break ;; esac; perl -e 'select(undef,undef,undef,0.5)'; done
@@ -277,6 +280,19 @@ running=$(codex_servers gui-codex-http)
 [ "$started" = True ] && [ "$running" = "0 -" ] && case "$names" in *acpmux*) true ;; *) false ;; esac || ok=1
 check "agent chat [codex] over an HTTP cmux entry: no cmux (running: $running), the chat starts (thread: $started), its other servers stay (tool rows | harness: $names)" $ok
 cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
+# 12. Skip on doubt: a folder Codex does not trust whose project file has an HTTP `cmux` entry.
+U=$D/untrusted; mkdir -p "$U/.codex"; git -C "$U" init -q
+printf '[mcp_servers.cmux]\nurl = "http://127.0.0.1:9/mcp"\n' > "$U/.codex/config.toml"
+"$CMUX" setup trust "$U" >/dev/null 2>&1
+start_chat gui-codex-doubt codex "$U"
+for _ in $(seq 1 40); do [ -n "$(session_id gui-codex-doubt)" ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
+names=$(servers_of gui-codex-doubt)
+started=$(acp --json session info gui-codex-doubt 2>/dev/null | python3 -c 'import json,sys; print(bool(json.loads(sys.stdin.read() or "{}").get("agentSessionId")))')
+running=$(codex_servers gui-codex-doubt)
+ok=0
+case " ${names%% | *} " in *" cmux "*) ok=1 ;; esac
+[ "$started" = True ] && [ "$running" = "0 -" ] || ok=1
+check "agent chat [codex] in a folder with an untrusted HTTP project cmux entry: no cmux (running: $running), the chat starts (thread: $started) (tool rows | harness: $names)" $ok
 # 5. A Codex chat over the entry `cmux acp desktop link --app codex` writes into the (scratch) Codex
 # config: acpmux's own server in guest mode. Codex merges it key by key into the `cmux` the chat
 # passes, so the server is this build's `cmux mcp serve`, and ACPMUX_MCP_GUEST is sent empty.

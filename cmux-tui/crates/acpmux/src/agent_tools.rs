@@ -585,31 +585,58 @@ pub fn person_entry_env(
 /// The person's own `cmux` entry for a Codex chat's `launch`, as Codex itself answers it
 /// (`codex_cmux_entry::resolve`): the launch's program (the profile's `CODEX_PATH`, else its argv's
 /// program), its config options, the chat's folder and the Codex child's environment
-/// (`login_env::effective_for`). Only for a `codex ... app-server` launch; another program (an ACP
-/// adapter) is no answer. Codex is asked once per `launch` that carries a cell for its answer
-/// (`CodexLaunch::answer`: one chat start, fork, pool spec or tool-rows read), never across
-/// launches, so a config the person changes counts at the next one; how long Codex took is
-/// logged.
+/// (`login_env::effective_for`, with the profile env's `${keychain:…}` and `${env:…}` references
+/// resolved, as the launch resolves them). An ACP adapter (not a `codex ... app-server` launch)
+/// loads the person's config through the Codex this machine runs (`managed_codex::codex_binary`),
+/// asked with no options; none is no answer. Codex is asked once per start
+/// (`CodexLaunch::answer`: one chat start, shared by its tool rows, its pool spec and its
+/// `session/new`; one fork), never across starts, so a config the person changes counts at the
+/// next one; how long Codex took is logged. Run it off the runtime ([`warm_codex_answer`]).
 pub fn persons_cmux_entry(
     launch: CodexLaunch<'_>,
     env: &BTreeMap<String, String>,
 ) -> crate::codex_cmux_entry::CmuxEntry {
     use crate::codex_cmux_entry::CmuxEntry;
-    if !crate::codex_app_server::is_profile_launch(launch.argv) {
-        return CmuxEntry::Unknown;
-    }
-    let effective = crate::login_env::effective_for(Some("codex"), env);
-    let program = effective
-        .get("CODEX_PATH")
-        .filter(|p| !p.is_empty())
-        .cloned()
-        .or_else(|| launch.argv.first().cloned())
-        .unwrap_or_default();
-    let args: Vec<std::ffi::OsString> =
-        launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect();
-    let child_env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
-        effective.iter().map(|(k, v)| (k.into(), v.into())).collect();
     let ask = || {
+        let mut env = env.clone();
+        if crate::config::profiles::has_env_refs(&env)
+            && crate::config::profiles::resolve_env_refs(
+                &mut env,
+                &crate::login_env::reference_var,
+                &crate::config::profiles::keychain_lookup,
+            )
+            .is_err()
+        {
+            return CmuxEntry::Unknown;
+        }
+        let effective = crate::login_env::effective_for(Some("codex"), &env);
+        let app_server = crate::codex_app_server::is_profile_launch(launch.argv);
+        let program = if app_server {
+            effective
+                .get("CODEX_PATH")
+                .filter(|p| !p.is_empty())
+                .cloned()
+                .or_else(|| launch.argv.first().cloned())
+        } else {
+            // The `codex` on the adapter's PATH, else the one this machine runs.
+            effective
+                .get("PATH")
+                .and_then(|path| {
+                    std::env::split_paths(path)
+                        .map(|dir| dir.join("codex"))
+                        .find(|file| file.is_file())
+                        .map(|file| file.to_string_lossy().into_owned())
+                })
+                .or_else(crate::managed_codex::codex_binary)
+        };
+        let Some(program) = program.filter(|p| !p.is_empty()) else { return CmuxEntry::Unknown };
+        let args: Vec<std::ffi::OsString> = if app_server {
+            launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect()
+        } else {
+            Vec::new()
+        };
+        let child_env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
+            effective.iter().map(|(k, v)| (k.into(), v.into())).collect();
         let (entry, took) = crate::codex_cmux_entry::resolve(
             std::path::Path::new(&program),
             &args,
@@ -628,6 +655,30 @@ pub fn persons_cmux_entry(
         Some(cell) => cell.get_or_init(ask).clone(),
         None => ask(),
     }
+}
+
+/// One start's answer for the person's own `cmux` entry ([`persons_cmux_entry`]), shared by
+/// everything that start reads it for: its tool rows, its pool spec (and the spare that spec
+/// starts), its `session/new` or `session/load`.
+pub type CodexAnswer = std::sync::Arc<std::sync::OnceLock<crate::codex_cmux_entry::CmuxEntry>>;
+
+/// Asks Codex for `answer` ([`persons_cmux_entry`] for a launch in `cwd` with `argv` and `env`)
+/// on a blocking thread, so the runtime never waits on Codex; a later read of `answer` is
+/// immediate. Nothing when it is already answered.
+pub async fn warm_codex_answer(
+    cwd: &Path,
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    answer: &CodexAnswer,
+) {
+    if answer.get().is_some() {
+        return;
+    }
+    let (cwd, argv, env, answer) = (cwd.to_owned(), argv.to_vec(), env.clone(), answer.clone());
+    let _ = tokio::task::spawn_blocking(move || {
+        persons_cmux_entry(CodexLaunch { cwd: &cwd, argv: &argv, answer: Some(&answer) }, &env);
+    })
+    .await;
 }
 
 /// Whether a session whose profile, preset and session env is `env` is cut off from cmux's
@@ -671,7 +722,7 @@ pub fn send_person_entry_env(params: &mut Value, entry_env: Option<Value>) {
 pub struct CodexLaunch<'a> {
     pub cwd: &'a Path,
     pub argv: &'a [String],
-    pub answer: Option<&'a std::sync::OnceLock<crate::codex_cmux_entry::CmuxEntry>>,
+    pub answer: Option<&'a CodexAnswer>,
 }
 
 /// `mcpServers` from `tools` for acpmux session `session_id`'s ACP harness; `all_tools`
@@ -1131,13 +1182,17 @@ impl AgentTools {
     /// Without the `cmux` server for a Codex chat whose person's own server named `cmux` is HTTP,
     /// as Codex itself answers for the launch ([`persons_cmux_entry`], the rule the `codex`
     /// terminal shim follows): Codex would refuse the merged entry and the chat would not start.
-    /// The person's server keeps the name; the session's other servers stay, standalone.
+    /// Skip on doubt: also when what the launch loads is in doubt (no answer from Codex, or a
+    /// project file its answer does not show it loads: `CmuxEntry::skips`), and no env keys go
+    /// either ([`person_entry_env`] needs a stdio answer). The chat then has no cmux tools and
+    /// nothing is said, as with no answer to the question. The person's server keeps the name;
+    /// the session's other servers stay, standalone.
     pub fn without_cmux_beside_an_http_entry(
         mut self,
         launch: CodexLaunch<'_>,
         env: &BTreeMap<String, String>,
     ) -> Self {
-        if persons_cmux_entry(launch, env).is_http() {
+        if persons_cmux_entry(launch, env).skips() {
             self.servers.retain(|s| s.name != CMUX_SERVER);
         }
         self
