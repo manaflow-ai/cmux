@@ -17,7 +17,7 @@ import Testing
     @discardableResult
     static func stage(_ root: URL, _ a: String, _ b: String, id: String = bundleID, build: String,
                       bins: [String] = StagedUpdatePrewarm.bundledExecutables,
-                      helpers: [String] = ["cmux Helper (GPU)", "cmux Helper"]) throws -> URL {
+                      helpers: [String] = ["cmux Helper (GPU)", "cmux Helper"], body: String = "") throws -> URL {
         let app = root.appending(path: "\(a)/\(b)/cmux.app")
         let files = FileManager.default
         try files.createDirectory(at: app.appending(path: "Contents/MacOS"), withIntermediateDirectories: true)
@@ -33,7 +33,7 @@ import Testing
         }
         for script in [app.appending(path: "Contents/MacOS/cmux")] + bins.map({ app.appending(path: "Contents/Resources/bin/\($0)") }) + helperScripts {
             let name = script.path.hasSuffix(".app/Contents/MacOS/cmux") && !script.path.contains("Helper") ? "app" : script.lastPathComponent
-            try "#!/bin/sh\necho \"\(name) $*\" >> '\(log)'\n".write(to: script, atomically: true, encoding: .utf8)
+            try "#!/bin/sh\n\(body)echo \"\(name) $*\" >> '\(log)'\n".write(to: script, atomically: true, encoding: .utf8)
             try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         }
         return app
@@ -81,10 +81,11 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
         try Self.stage(root, "u1", "x1", build: "200")
         let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
-        let ran = try String(contentsOf: root.appending(path: "ran.txt"), encoding: .utf8).split(separator: "\n")
-        #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
-                        "cmux Helper (GPU) --version", "cmux Helper --version"])
+        let ran = try String(contentsOf: root.appending(path: "ran.txt"), encoding: .utf8).split(separator: "\n").sorted()
+        #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux Helper (GPU) --version",
+                        "cmux Helper --version", "cmux-tui --version"])
         #expect(line.hasPrefix("launch pre-warm of 200 (cmux.app): cmux exit 0"), "\(line)")
+        #expect(line.contains("cmux-tui exit 0") && line.contains("cmux Helper (GPU) exit 0") && line.hasSuffix(" ms in all"), "\(line)")
         let none = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork())
         #expect(none.contains("no staged bundle of 300"))
     }
@@ -102,6 +103,33 @@ import Testing
         #expect(!StagedUpdatePrewarm.consumeLaunchMarker(build: "199", at: marker), "another build's launch")
         #expect(StagedUpdatePrewarm.consumeLaunchMarker(build: "200", at: marker))
         #expect(!StagedUpdatePrewarm.consumeLaunchMarker(build: "200", at: marker), "a relaunch of the same build")
+    }
+
+    /// Run one after another under a load like Leo's, the parts took 95 s (desktop-leo's third read-back); started
+    /// together, five parts of 2 s each end in about 2 s, not 10.
+    @Test func thePartsRunTogether() async throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        try Self.stage(root, "u1", "x1", build: "200", body: "sleep 2\n")
+        let started = ContinuousClock.now
+        let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
+        let took = ContinuousClock.now - started
+        #expect(took < .seconds(7), "five 2 s parts took \(took): they ran one after another (\(line))")
+        #expect(try String(contentsOf: root.appending(path: "ran.txt"), encoding: .utf8).split(separator: "\n").count == 5)
+    }
+
+    /// The whole pre-warm stops at `total`: each part still going is stopped (its own process group) and says so.
+    @Test func theTotalCapStopsEveryPartStillGoing() async throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        try Self.stage(root, "u1", "x1", build: "200", body: "sleep 60\n")
+        let started = ContinuousClock.now
+        let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200")
+            .perform(work: BackgroundWork(), timeout: .seconds(120), total: .seconds(1))
+        let took = ContinuousClock.now - started
+        #expect(took < .seconds(20), "the 1 s cap held the pre-warm for \(took) (\(line))")
+        #expect(line.components(separatedBy: "stopped at the 1000 ms cap").count - 1 == 5, "\(line)")
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "ran.txt").path), "a stopped part ran to its end")
     }
 
     /// The running app is build 100.
