@@ -35,7 +35,11 @@ extension BrowserProfileService {
     func omnibarBadge(forTab key: String) -> BrowserProfileBadge? {
         guard BrowserProfileCascade.showsOmnibarBadge(profileCount: ordered.count),
               !services.cache.browserTabs.isIncognitoTab(key) else { return nil }
-        let id = services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        return badge(services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID)
+    }
+
+    /// Profile `id`'s avatar: its icon or first letter on its color (the omnibar, the profile switcher).
+    func badge(_ id: String) -> BrowserProfileBadge {
         let record = record(id)
         return BrowserProfileBadge(monogram: record?.monogram ?? "?", color: record?.color.flatMap(GroupColor.init(rawValue:)),
                                    name: record?.name ?? displayName(id))

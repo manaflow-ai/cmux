@@ -14,7 +14,7 @@ import CmuxNextSettings
 /// | Favorites | `bookmark.manager` |
 /// | Downloads | `browser.downloads.show`, the downloads popup (`BrowserDownloadsPopup`) |
 /// | design mode | `toggleBrowserDesignMode` |
-/// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
+/// | profile | `browser.profile.choose`, the profile switcher (`profileSwitcherMenu`) |
 /// | theme | a menu of `browserTheme` system, light, dark |
 /// | DevTools | `toggleBrowserDeveloperTools` |
 /// | More | `browser.overflow.menu` |
@@ -139,37 +139,29 @@ enum BrowserToolbarHandlers {
         return submenu
     }
 
-    /// One item per browser profile (the tab's checked), each moving the tab
-    /// with `browserProfile.moveTab`; then New Browser Profile, Import from
-    /// Browser and Rename Browser Profile for the tab's profile.
+    /// The profile button's menu: the profile switcher, Import from Browser, this profile's Web Store.
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
-        let registry = services.registry
-        let target = tabTarget(entry)
-        let profiles = services.browserProfiles
-        let current = services.cache.tabModel(entry.tab.id.rawValue).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
-        let menu = NSMenu()
-        for record in profiles.ordered {
-            let item = NSMenuItem(title: record.icon.map { "\($0)  \(record.name)" } ?? record.name, action: nil, keyEquivalent: "")
-            item.state = record.id == current ? .on : .off
-            let closure = ActionMenuClosure { [weak registry] in
-                guard record.id != current else { return }
-                registry?.perform("browserProfile.moveTab", invocation: ActionInvocation(
-                    target: target, arguments: ["browserProfile": .string(record.id)], origin: .user))
-            }
-            item.target = closure
-            item.action = #selector(ActionMenuClosure.run)
-            item.representedObject = closure
-            menu.addItem(item)
-        }
+        // Manage Extensions is the profile's own row above (`browserProfile.manageExtensions`).
+        let extras: [ContextMenuEntry] = [.action("importFromBrowser"), .separator, .action("browser.extensions.webStore")]
+        let menu = profileSwitcherMenu(forTab: tabKey(entry), services: services, customize: false)
         menu.addItem(.separator())
-        let profileTarget = ActionTargetRef(kind: .browserProfile, id: current)
-        let entries: [ContextMenuEntry] = [.action("browserProfile.new"), .action("importFromBrowser")]
-        move(registry.makeContextMenu(for: .browserPage, target: target, entries: entries), into: menu)
-        move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, entries: [.action("browserProfile.rename")]), into: menu)
-        // This profile's own extensions (chrome://extensions and the Web Store open in it).
-        move(registry.makeContextMenu(for: .browserPage, target: target,
-                                      entries: [.separator, .action("browser.extensions.manage"), .action("browser.extensions.webStore")]), into: menu)
+        move(services.registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: extras), into: menu)
         return menu
+    }
+
+    /// Chrome's profile menu for tab `key` (`BrowserProfileSwitcherMenuBuilder`): the omnibar avatar's and the
+    /// profile button's. An incognito tab keeps its window's profile: no other profile to switch to.
+    static func profileSwitcherMenu(forTab key: String, services: AppServices, customize: Bool = true) -> NSMenu {
+        let profiles = services.browserProfiles
+        let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        func profile(_ id: String) -> BrowserProfileSwitcherMenuBuilder.Profile {
+            let badge = profiles.badge(id)
+            return .init(id: id, name: badge.name) { badge.avatarImage(side: $0) }
+        }
+        let others = services.cache.browserTabs.isIncognitoTab(key) ? [] : profiles.ordered.map(\.id).filter { $0 != current }
+        return BrowserProfileSwitcherMenuBuilder(registry: services.registry).make(
+            current: profile(current), others: others.map(profile), tab: ActionTargetRef(kind: .tab, id: key),
+            workspace: services.workspaceID(ofTab: key).map { ActionTargetRef(kind: .workspace, id: $0) }, customize: customize)
     }
 
     private static func move(_ source: NSMenu, into menu: NSMenu) {
