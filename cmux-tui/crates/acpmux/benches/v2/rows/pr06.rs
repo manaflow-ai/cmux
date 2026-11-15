@@ -7,7 +7,7 @@ pub const ROWS: &[GateRow] = &[
         pr: "6e",
         name: "v2.pr06.hold_attach",
         done_when: "A hold attach on the god chat costs at most 1.2x the same hold attach on the small chat, without reading the chat log.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,

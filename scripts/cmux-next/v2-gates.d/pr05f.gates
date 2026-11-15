@@ -4,3 +4,5 @@ book pr05f_apply_move
 book pr05f_first_window
 book pr05f_deep_page
 book pr05f_equal_entry
+core folders_serving_release_gates
+core folders_tail_release_gates
