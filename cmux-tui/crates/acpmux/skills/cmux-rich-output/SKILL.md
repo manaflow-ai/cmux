@@ -30,9 +30,14 @@ never because it exists. The person's own instructions win.
   right of this chat by default. From a shell: `cmux browser open URL`, `cmux file open PATH`.
 - An `.html` file opens as a real Chromium page: its relative CSS, images and scripts load. A PDF
   opens in Chromium's PDF viewer. A Markdown file opens in cmux's Markdown page.
-- A browser tab does not reload a file when it changes. For a page you will iterate on, serve the
-  folder with a dev server that reloads (`bunx vite`, `npx live-server`) from a background shell:
-  the chat shows its `localhost` address as a chip that opens beside the chat, and saves reload it.
+- A shown `.html`, SVG, PDF, image or `.pptx` file reloads in its tab when the file changes (`live`,
+  on by default for those), so a file you keep writing stays current without another `open`.
+- A `.pptx` file previews in the right pane with `open {kind: "file", path}`: a slide strip on the
+  left and the current slide fit to the pane, arrow keys to move. A slide renderer loads from a CDN
+  on the first deck (about 466 KB gzipped, cached after); nothing is installed. Fidelity is close,
+  not exact: an EMF or WMF picture shows only its embedded preview, and fonts the machine lacks fall
+  back. Say so when a deck depends on them. The preview is served by this chat's cmux MCP server, so
+  after a restart `open` the deck again.
 
 ## Slide decks
 

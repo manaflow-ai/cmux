@@ -12,6 +12,13 @@ impl Mux {
             "workspace.registry",
         );
         self.publish_journal_event();
+        // A close that took a space's last workspace deleted the space in its
+        // commit (LAST-WORKSPACE-CLOSES-SPACE): clients refetch the spaces.
+        if let Ok(Some(personal_revision)) =
+            self.read_registry_state(crate::state::room_emptied::take_cascaded_personal_revision)
+        {
+            self.emit(MuxEvent::PersonalChanged { personal_revision });
+        }
         // A terminal's first cwd report can precede its registration, and its
         // shell may then stay quiet. Each committed graph change is where such
         // a terminal can join the graph, so publish whatever report waited.
