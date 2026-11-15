@@ -1614,6 +1614,7 @@ mod tests {
         // cmux#43403: acpmux-core/src/hub/mirror_gates.rs.
         "v2.pr08.mirror_apply",
         "v2.pr08.mirror_local_row",
+        "v2.pr08.mirror_local_row_thirty",
     ];
 
     /// A gate that keeps the best of several rounds hides a round that did different work from
