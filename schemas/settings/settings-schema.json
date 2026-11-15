@@ -24426,7 +24426,7 @@
         },
         {
           "title" : {
-            "key" : null,
+            "key" : "settings.choice.neko",
             "text" : "Neko"
           },
           "value" : "neko"
