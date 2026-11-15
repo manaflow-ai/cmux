@@ -370,6 +370,30 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "app.try.run",
+        group: GROUP,
+        title: t("ActionCatalog", "action.app.try.run", "Run a PR as This App…"),
+        hint: Some(t("ActionCatalog", "action.app.try.run.hint", "Swap in a pull request's, branch's or commit's cmux, with no checkout or build. Undo Last PR Run puts this one back.")),
+        keywords: &["try", "pr", "pull request", "branch", "commit", "sha", "hot swap", "swap", "run", "test", "nightly", "build"],
+        category: "settings",
+        symbol: "arrow.triangle.pull",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::APP_TRY_TARGET],
+        cli_name: "action app-try-run",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "app.try.undo",
+        group: GROUP,
+        title: t("ActionCatalog", "action.app.try.undo", "Undo Last PR Run"),
+        keywords: &["try", "undo", "pr", "pull request", "put back", "revert", "roll back", "hot swap", "swap"],
+        category: "settings",
+        symbol: "arrow.uturn.backward",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        cli_name: "action app-try-undo",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.pro.upgrade",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.pro.upgrade", "Upgrade to cmux Pro"),
