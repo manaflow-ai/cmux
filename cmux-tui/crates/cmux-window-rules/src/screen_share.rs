@@ -114,9 +114,9 @@ pub fn plan(facts: &Facts) -> Plan {
             else {
                 return Plan::Refuse { reason: Refusal::NoDevice };
             };
-            // The current device-hub viewer supports macOS. Linux desktop hosts
-            // use the Cloud route above; Windows support needs its host port.
-            if device.platform.as_deref() != Some("macos") {
+            // Device-hub hosts: a Mac (the app) and a Linux desktop (`cmux-rd
+            // linux-host`). Windows support needs its host port; a phone never hosts.
+            if !matches!(device.platform.as_deref(), Some("macos" | "linux")) {
                 return Plan::Refuse { reason: Refusal::Unsupported };
             }
             if !device.online {

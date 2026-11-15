@@ -6840,6 +6840,10 @@
     "class": "brand",
     "source": "Mac"
   },
+  "devices.platform.linux": {
+    "class": "brand",
+    "source": "Linux"
+  },
   "devices.platform.ios": {
     "class": "brand",
     "source": "iPhone"
