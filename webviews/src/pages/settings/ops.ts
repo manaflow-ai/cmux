@@ -1064,30 +1064,40 @@ export type IntegrationRow = {
   errorKind?: "noAnswer" | "notFinished" | null;
 };
 
-/** One coding agent of Settings > Agents > Agents with cmux Tools: whether its own config gives it
- * cmux's MCP server (`cmux setup mcp`). The name is the product's own, never translated. */
+/** One coding agent of Settings > Agents > Agents on This Mac: whether it gets cmux's MCP server when
+ * cmux starts it (`cmux setup mcp`). The name is the product's own, never translated. */
 export type AgentToolsCardRow = {
   id: string;
   name: string;
-  /** `terminals`: a DEV build leaves the agent's config alone; its terminals give the agent cmux's tools. */
-  state: "ready" | "added" | "terminals" | "conflict" | "kept" | "failed";
-  /** Its config still holds a cmux entry a development build wrote; Remove takes it out. */
-  stale?: boolean;
+  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
+  state: "ready" | "terminals" | "failed";
+  /** The line that removes a `cmux` entry in the agent's own settings that runs `cmux mcp serve`, used
+   * outside cmux (not this build's own manual line); null or absent for none. Remove runs it only on
+   * the person's click. */
+  leftover?: string | null;
 };
 
-/** Agents with cmux Tools (`SettingsAgentTools.state`). */
+/** Agents on This Mac (`SettingsAgentTools.state`). */
 export type AgentToolsCardState = {
   /** The first read answered (an empty list then says none was found). */
   loaded: boolean;
-  /** Add Now or Remove runs. */
+  /** Turn On runs. */
   applying: boolean;
-  /** The last run could not change every agent. */
+  /** The answer could not be saved. */
   failed: boolean;
+  /** `agents.cmuxMcp` now. Absent from older hosts. */
+  choice?: "ask" | "on" | "off";
   rows: AgentToolsCardRow[];
+  /** The lines a person runs themselves to use cmux's tools in agents started elsewhere (cmux never
+   * runs them). Absent from older hosts. */
+  manual?: string[];
+  /** Why the last Remove kept the entry (it holds settings cmux could not put back), as the CLI
+   * says it; null or absent otherwise. */
+  note?: string | null;
 };
 
-/** One Agents with cmux Tools gesture; `add` and `remove` run only on a click. */
-export type AgentToolsCardRun = { action: "refresh" | "add" | "remove" };
+/** One Agents on This Mac gesture; `turnOn` and `removeLeftover` run only on a click. */
+export type AgentToolsCardRun = { action: "refresh" | "turnOn" } | { action: "removeLeftover"; id: string };
 
 /** The Agent integrations part (`SettingsAgentIntegrations.state`). */
 export type IntegrationsState = {
@@ -1269,7 +1279,7 @@ export type SettingsOps = {
   "cmux.settings.integrations.run": [IntegrationsRun, unknown];
   /** Native: the coding agents and whether their configs hold cmux's MCP server (Settings > Agents). */
   "cmux.settings.agentTools.state": [Record<string, never>, AgentToolsCardState];
-  /** Native: Add Now (`agents.cmuxMcp` on, then `cmux setup mcp`), Remove (`--remove`) or a refresh. */
+  /** Native: Turn On (`agents.cmuxMcp` on), Remove an agent's old cmux entry (`cmux setup mcp --remove ID`) or a refresh. */
   "cmux.settings.agentTools.run": [AgentToolsCardRun, AgentToolsCardState];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];

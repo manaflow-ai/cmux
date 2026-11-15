@@ -1,67 +1,70 @@
-//! `cmux setup mcp [claude|codex ...] [--dry-run] [--remove]`: gives Claude
-//! Code and Codex the cmux MCP server (`cmux mcp serve`) when they run outside
-//! cmux, in a terminal or another app, or with `--remove` takes cmux's own
-//! entry out of their configs again. Chats cmux starts already get it, and
-//! cmux-cua, from acpmux (`agent_tools`); cmux-cua needs the app's
-//! per-session socket token, so no user config can hold it.
+//! `cmux setup mcp [claude|codex ...]`: which coding agents get cmux's MCP
+//! server (`cmux mcp serve`, Computer Use behind it) when cmux starts them,
+//! and the lines a person can run to use it elsewhere. It writes nothing,
+//! but for `--remove CLIENT` (below).
 //!
-//! Each harness's own CLI writes its own config (`claude mcp add --scope
-//! user`, `codex mcp add`), so the file keeps its one writer; setup only
-//! reads the user-scope config to see what is there: `~/.claude.json` (or
-//! `$CLAUDE_CONFIG_DIR/.claude.json`) and `$CODEX_HOME/config.toml`. An
-//! entry that runs `cmux mcp serve` from a command that still runs is `ok`.
-//! One named `cmux` whose command is gone (an app that moved) is replaced;
-//! one named `cmux` that runs something else is the person's, and is left.
+//! cmux gives its server to the agents it starts, and only through their
+//! launch: a Claude Code or Codex typed into a cmux terminal gets it from the
+//! `claude` and `codex` shims (agent_mcp_choice.rs, agent_computer_use.rs),
+//! and the app's agent chats and the Chief get it from acpmux
+//! (`acpmux::agent_tools`), all with the one server definition
+//! (`acpmux::agent_tools::cmux_server`), named `cmux`. Each follows the
+//! person's answer to "should agents you start in cmux get cmux's tools?"
+//! (`agents.cmuxMcp`: the onboarding step, Settings > Agents): `on` gives it,
+//! `off` and unanswered (`ask`) do not. cmux never writes an agent's own
+//! config (`~/.claude.json`, `$CODEX_HOME/config.toml`): a person who wants
+//! cmux's server in agents started elsewhere runs the `manual` lines this
+//! report names themselves, and removes them the same way.
 //!
-//! `cmux mcp serve` answers a client outside a cmux chat only when the
-//! settings file says `"mcp": {"enabled": true}`, the person's opt-in, which
-//! is not a key agents set. Until it is on, setup writes nothing and the
-//! result is `needs_user` naming that switch. With neither harness installed
-//! (and none named) there is nothing to wire: `ok`, switch or not.
+//! A `cmux` entry in the person's own config (`~/.claude.json`,
+//! `$CODEX_HOME/config.toml`) that runs `cmux mcp serve` (`cmux_serve.rs`),
+//! one an older cmux wrote or one the person added: each client row names one
+//! it finds (`leftover`, with the exact line that removes it), but for the
+//! very `manual` line this build names, which the person added on purpose.
+//! Inside cmux the agent's own `cmux` replaces or overrides it; outside cmux
+//! it is what starts. Nothing takes it out on its own: `cmux setup mcp
+//! --remove CLIENT` does, when the person asks (Settings' Remove button), and
+//! names the line that puts it back; `--dry-run` only names the line. An
+//! entry with anything cmux could not put back (another field, an `env` key
+//! outside [`RESTORABLE_ENV`]) is kept and named, its values never printed.
 //!
-//! The person's answer to "may cmux add its tools to your coding agents?"
-//! (`agents.cmuxMcp`: the onboarding step, Settings > Agents) decides too.
-//! `on` is the opt-in above (it turns the server on unless `mcp.enabled`
-//! says otherwise, `cli/mcp/config.rs`); `off` writes nothing, names that
-//! answer as the setting to change, and makes `status` content (the person
-//! declined, nothing is missing); unanswered keeps the switch's rule.
-//! `--remove` runs whatever the answer is: it only takes out an entry named
-//! `cmux` that runs `cmux mcp serve`, never a server of the person's.
+//! The only cmux commands that write an agent's own config are two other
+//! features the person runs themselves, each with its own server name:
+//! `cmux acp desktop link` (an `acpmux-mcp` guest entry named `cmux` for
+//! Claude desktop, Claude Code and Codex; `acpmux desktop_link.rs`) and
+//! `cmux acp bridge connect` (`cmux-bridge`; `acpmux cli/bridge.rs`). Neither
+//! runs from onboarding, Settings' cmux Tools row or this command.
 //!
-//! Only a shipped build (release or nightly) on the shared settings file
-//! writes the person's global agent configs (`mcp_writer`). Any other cmux
-//! (a tagged DEV build, DerivedData, RC or staging, or one on its own
-//! settings file) does a dry run: it writes and removes nothing, and reports
-//! `"scope": "terminals"` with why and the shim folder through which its own
-//! terminals give their agents cmux's server. Its agents get the server from
-//! the `claude` and `codex` shims (`agent_mcp_choice`), with the terminal's
-//! settings file, never from a global entry.
-//!
-//! A shipped build writes its own path (`this_cli`) with no `env`. It
-//! replaces a `cmux` entry whose command is gone or runs from a DEV build
-//! (decided by the command alone), or that names a settings file which is
-//! gone; the undo line puts it back. An entry with anything setup cannot put
-//! back is left alone (`keep`).
+//! An installed agent is `terminals` once the person said yes and the server
+//! serves these agents (`mcp.enabled` not false), else `planned`; one not
+//! installed is `not_applicable` (named and missing: `needs_user`, install
+//! it). The result is `needs_user` while the person has not answered, or
+//! said yes with `mcp.enabled` false (the server would refuse cmux's tools).
 
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::super::agents_doctor::{on_path, read_json, read_text, toml_error};
+use super::super::agents_doctor::{on_path, read_json, read_text};
 use super::super::fix_command::quote_arg;
-use super::mcp_writer::{RESTORABLE_ENV, Writer, dev_build, settings_path, writer};
 use super::{Outcome, Refusal};
 use cmux_json::JsonSet as _;
-use cmux_tui_core::user_settings::{AgentsCmuxMcp, CONFIG_OVERRIDE};
+use cmux_tui_core::user_settings::AgentsCmuxMcp;
 
 const TASK: &str = "mcp";
 
-/// The name the cmux server gets in each harness's config.
-const SERVER: &str = "cmux";
+/// The name the cmux server has in every agent cmux starts.
+const SERVER: &str = crate::agent_computer_use::SERVER;
 
-/// The longest `claude mcp add` or `codex mcp add` may take.
+/// The `env` keys of a `cmux` entry whose values setup may print and put
+/// back: cmux's own routing and settings-file keys, none of them a secret.
+/// Any other key (a token, a proxy, `CMUX_SOCKET_PASSWORD`) is never printed,
+/// and an entry with one is never removed (cmux could not put it back).
+const RESTORABLE_ENV: [&str; 4] =
+    ["CMUX_NEXT_CONFIG_FILE", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_TUI_SOCKET"];
+
+/// The longest `claude mcp remove` or `codex mcp remove` may take.
 const CLI_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -92,7 +95,7 @@ impl Client {
         }
     }
 
-    /// The user-scope config the harness's `mcp add` writes.
+    /// The person's own config file the agent's CLI writes (user scope).
     fn config(self) -> Option<PathBuf> {
         let dir = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from);
         match self {
@@ -105,910 +108,380 @@ impl Client {
         }
     }
 
-    /// The servers of that config.
-    fn servers(self, file: &Path) -> Result<Vec<Entry>, String> {
-        let shown = file.display();
-        match self {
-            Self::Claude => {
-                let config = read_json(file).map_err(|error| format!("{shown}: {error}"))?;
-                let servers =
-                    config.as_ref().and_then(|c| c.get("mcpServers")).and_then(Value::as_object);
-                Ok(servers
-                    .into_iter()
-                    .flatten()
-                    .map(|(name, server)| Entry {
-                        name: name.clone(),
-                        command: server.get("command").and_then(Value::as_str).map(str::to_owned),
-                        args: server
-                            .get("args")
-                            .and_then(Value::as_array)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(Value::as_str)
-                            .map(str::to_owned)
-                            .collect(),
-                        env: server
-                            .get("env")
-                            .and_then(Value::as_object)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
-                            .collect(),
-                        cwd: server.get("cwd").and_then(Value::as_str).map(str::to_owned),
-                        unread: unread_json(server),
-                    })
-                    .collect())
-            }
-            Self::Codex => {
-                let Some(text) = read_text(file).map_err(|error| format!("{shown}: {error}"))?
-                else {
-                    return Ok(Vec::new());
-                };
-                let config = text
-                    .parse::<toml::Table>()
-                    .map_err(|error| format!("{shown}: {}", toml_error(&text, &error)))?;
-                let servers = config.get("mcp_servers").and_then(toml::Value::as_table);
-                Ok(servers
-                    .into_iter()
-                    .flatten()
-                    .map(|(name, server)| Entry {
-                        name: name.clone(),
-                        command: server
-                            .get("command")
-                            .and_then(toml::Value::as_str)
-                            .map(str::to_owned),
-                        args: server
-                            .get("args")
-                            .and_then(toml::Value::as_array)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(toml::Value::as_str)
-                            .map(str::to_owned)
-                            .collect(),
-                        env: server
-                            .get("env")
-                            .and_then(toml::Value::as_table)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
-                            .collect(),
-                        cwd: server.get("cwd").and_then(toml::Value::as_str).map(str::to_owned),
-                        unread: unread_toml(server),
-                    })
-                    .collect())
-            }
-        }
-    }
-
-    /// `mcp add` of the server named `cmux` that runs `command args` with
-    /// `env`. Each `--env KEY=VALUE` goes before the scope and the name:
-    /// Claude Code's `--env` takes several values, so the next option
-    /// (`--scope`) ends it before the name, and Codex takes one per flag.
-    fn add(self, command: &str, args: &[String], env: &[(String, String)]) -> Vec<String> {
+    /// The `mcp remove` arguments for the entry named `cmux`.
+    fn remove_args(self) -> Vec<String> {
         let scope: &[&str] = match self {
             Self::Claude => &["--scope", "user"],
             Self::Codex => &[],
         };
-        let env =
-            env.iter().flat_map(|(key, value)| ["--env".to_owned(), format!("{key}={value}")]);
-        ["mcp", "add"]
-            .iter()
-            .map(|arg| (*arg).to_owned())
-            .chain(env)
-            .chain(scope.iter().chain(&[SERVER, "--", command]).map(|arg| (*arg).to_owned()))
-            .chain(args.iter().cloned())
-            .collect()
+        ["mcp", "remove"].iter().chain(scope).chain(&[SERVER]).map(|a| (*a).to_owned()).collect()
     }
 
-    /// `mcp remove` of the server named `cmux`.
-    fn remove(self) -> Vec<String> {
-        let scope: &[&str] = match self {
-            Self::Claude => &["--scope", "user"],
-            Self::Codex => &[],
-        };
-        ["mcp", "remove"]
-            .iter()
-            .chain(scope)
-            .chain(&[SERVER])
-            .map(|arg| (*arg).to_owned())
-            .collect()
-    }
-
-    /// `args` as the shell line an agent runs.
+    /// `args` as the shell line a person runs.
     fn line(self, args: &[String]) -> String {
         std::iter::once(self.id().to_owned())
             .chain(args.iter().map(|arg| quote_arg(arg)))
             .collect::<Vec<_>>()
             .join(" ")
     }
-}
 
-/// One MCP server in a harness's config.
-struct Entry {
-    name: String,
-    command: Option<String>,
-    args: Vec<String>,
-    /// Its `env` (string values only).
-    env: Vec<(String, String)>,
-    /// Its `cwd`, when it has one (Codex; also counted in [`Entry::unread`]).
-    cwd: Option<String>,
-    /// What setup did not read into the fields above, so could not put back:
-    /// another field (Codex `cwd`, `env_vars`, `startup_timeout_sec`,
-    /// `enabled_tools`), an `env` value or `args` item that is no string.
-    unread: Vec<String>,
-}
-
-/// Fields a Claude Code stdio entry may have that setup reads or rewrites.
-const CLAUDE_FIELDS: [&str; 4] = ["type", "command", "args", "env"];
-/// Fields a Codex entry may have that setup reads.
-const CODEX_FIELDS: [&str; 3] = ["command", "args", "env"];
-
-/// What of the Claude Code entry `server` setup does not read ([`Entry::unread`]).
-fn unread_json(server: &Value) -> Vec<String> {
-    let Some(fields) = server.as_object() else { return vec!["the entry".into()] };
-    let mut unread: Vec<String> =
-        fields.keys().filter(|key| !CLAUDE_FIELDS.contains(&key.as_str())).cloned().collect();
-    if fields.get("type").is_some_and(|kind| kind.as_str() != Some("stdio")) {
-        unread.push("type".into());
-    }
-    if let Some(args) = fields.get("args")
-        && args.as_array().is_none_or(|args| args.iter().any(|arg| !arg.is_string()))
-    {
-        unread.push("args".into());
-    }
-    match fields.get("env") {
-        Some(Value::Object(env)) => unread
-            .extend(env.iter().filter(|(_, v)| !v.is_string()).map(|(k, _)| format!("env {k}"))),
-        Some(_) => unread.push("env".into()),
-        None => {}
-    }
-    unread
-}
-
-/// What of the Codex entry `server` setup does not read ([`Entry::unread`]).
-fn unread_toml(server: &toml::Value) -> Vec<String> {
-    let Some(fields) = server.as_table() else { return vec!["the entry".into()] };
-    let mut unread: Vec<String> =
-        fields.keys().filter(|key| !CODEX_FIELDS.contains(&key.as_str())).cloned().collect();
-    if let Some(args) = fields.get("args")
-        && args.as_array().is_none_or(|args| args.iter().any(|arg| !arg.is_str()))
-    {
-        unread.push("args".into());
-    }
-    match fields.get("env") {
-        Some(toml::Value::Table(env)) => {
-            unread.extend(env.iter().filter(|(_, v)| !v.is_str()).map(|(k, _)| format!("env {k}")));
-        }
-        Some(_) => unread.push("env".into()),
-        None => {}
-    }
-    unread
-}
-
-impl Entry {
-    /// Whether it runs `cmux mcp serve`, from any cmux build's CLI.
-    fn serves_cmux(&self) -> bool {
-        self.command.as_deref().is_some_and(|command| {
-            crate::agent_computer_use::cmux_serve(command, &self.args).is_some()
-        })
-    }
-
-    /// Whether its command is still there to run, and the launcher script a
-    /// JavaScript runtime runs (`node …/cmux.js mcp serve`) is still there.
-    fn runs(&self, path: Option<&OsStr>) -> bool {
-        use crate::agent_computer_use::{CmuxServe, cmux_serve};
-        use std::os::unix::fs::PermissionsExt;
-        let command_runs = match self.command.as_deref() {
-            Some(command) if command.contains('/') => std::fs::metadata(command)
-                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0),
-            Some(command) => on_path(path, command).is_some(),
-            None => false,
-        };
-        // A relative script is looked up in the entry's `cwd`; without one,
-        // where it runs is unknown, and an entry is never replaced on doubt.
-        let script_there = match self.command.as_deref().and_then(|c| cmux_serve(c, &self.args)) {
-            Some(CmuxServe::Path(program)) if Some(program) != self.command.as_deref() => {
-                let script = Path::new(program);
-                match (script.is_absolute(), self.cwd.as_deref()) {
-                    (true, _) => script.is_file(),
-                    (false, Some(cwd)) => Path::new(cwd).join(script).is_file(),
-                    (false, None) => true,
-                }
+    /// The `cmux` entry in the person's own config, when it runs cmux's server
+    /// and is not exactly this build's [`Self::manual`] line (`cli`), which the
+    /// person added on purpose. `Err` for a config it cannot read.
+    fn leftover(self, cli: &str) -> Result<Option<Leftover>, String> {
+        let Some(file) = self.config() else { return Ok(None) };
+        let shown = file.display();
+        let entry: Option<Value> = match self {
+            Self::Claude => read_json(&file)
+                .map_err(|error| format!("{shown}: {error}"))?
+                .and_then(|config| config.pointer(&format!("/mcpServers/{SERVER}")).cloned()),
+            Self::Codex => {
+                let Some(text) = read_text(&file).map_err(|error| format!("{shown}: {error}"))?
+                else {
+                    return Ok(None);
+                };
+                let config: toml::Table =
+                    text.parse().map_err(|error| format!("{shown}: {error}"))?;
+                config
+                    .get("mcp_servers")
+                    .and_then(|servers| servers.get(SERVER))
+                    .map(|entry| serde_json::to_value(entry).unwrap_or(Value::Null))
             }
-            _ => true,
         };
-        command_runs && script_there
-    }
-
-    /// The settings file its `env` names (`CMUX_NEXT_CONFIG_FILE`); `None`
-    /// for the shared one.
-    fn settings_file(&self) -> Option<&str> {
-        self.env.iter().find(|(key, _)| key == CONFIG_OVERRIDE).map(|(_, value)| value.as_str())
-    }
-
-    /// What setup could not put back if it replaced or removed this entry:
-    /// [`Entry::unread`], and every `env` key outside [`RESTORABLE_ENV`] (a
-    /// token, a proxy, a cmux secret such as `CMUX_SOCKET_PASSWORD`). Setup
-    /// leaves an entry with any of these alone and names them to the person.
-    fn unrestorable(&self) -> Vec<String> {
-        let mut lost = self.unread.clone();
-        lost.extend(
-            self.env
-                .iter()
-                .filter(|(key, _)| !RESTORABLE_ENV.contains(&key.as_str()))
-                .map(|(key, _)| format!("env {key}")),
-        );
-        lost
-    }
-
-    /// What adds it back: its command, args and `env`. Only a
-    /// [`RESTORABLE_ENV`] value is printed (the line goes in the report); any
-    /// other key reads `<value of KEY>` and is named in [`Restore::hidden`].
-    /// Setup restores only entries with nothing [`Entry::unrestorable`], so
-    /// that never happens in practice.
-    fn restore(&self, client: Client) -> Option<Restore> {
-        let shown = |key: &str| RESTORABLE_ENV.contains(&key);
-        let env: Vec<(String, String)> = self
-            .env
-            .iter()
-            .map(|(key, value)| {
-                let value = if shown(key) { value.clone() } else { format!("<value of {key}>") };
-                (key.clone(), value)
-            })
+        let Some(entry) = entry.as_ref().and_then(Value::as_object) else { return Ok(None) };
+        let Some(command) = entry.get("command").and_then(Value::as_str) else { return Ok(None) };
+        let args: Vec<String> = entry
+            .get("args")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|a| a.as_str().map(str::to_owned))
             .collect();
-        let mut hidden: Vec<String> =
-            self.env.iter().map(|(key, _)| key).filter(|key| !shown(key)).cloned().collect();
-        hidden.extend(self.unread.iter().cloned());
-        let command = self.command.as_deref()?;
-        Some(Restore { line: client.line(&client.add(command, &self.args, &env)), hidden })
-    }
-
-    /// Whether a shipped build wrote it, by what it runs, whatever settings
-    /// file its `env` names: the cmux CLI or launcher script it runs is no DEV
-    /// build's ([`dev_build`]; a bare name on PATH counts as shipped), or a
-    /// package runner fetches a published cmux.
-    fn shipped(&self) -> bool {
-        use crate::agent_computer_use::{CmuxServe, cmux_serve};
-        let Some(command) = self.command.as_deref() else { return true };
-        match cmux_serve(command, &self.args) {
-            Some(CmuxServe::Published) => true,
-            // A relative script is judged where the entry runs it (its
-            // `cwd`); without one that is unknown, and unknown is kept.
-            Some(CmuxServe::Path(program))
-                if program != command && Path::new(program).is_relative() =>
-            {
-                self.cwd
-                    .as_deref()
-                    .is_none_or(|cwd| dev_build(&Path::new(cwd).join(program)).is_none())
-            }
-            Some(CmuxServe::Path(program)) => dev_build(Path::new(program)).is_none(),
-            None => dev_build(Path::new(command)).is_none(),
+        let Some(runs) = super::cmux_serve::cmux_serve(command, &args) else { return Ok(None) };
+        let runs = match runs {
+            super::cmux_serve::CmuxServe::Path(path) => path.to_owned(),
+            super::cmux_serve::CmuxServe::Published => "a published cmux package".to_owned(),
+        };
+        let all_env = entry.get("env").and_then(Value::as_object);
+        // Only cmux's own keys are kept, values and all: another key's value
+        // may be a secret, so it is named, never held or printed.
+        let env: Vec<(String, String)> = all_env
+            .into_iter()
+            .flatten()
+            .filter(|(k, _)| RESTORABLE_ENV.contains(&k.as_str()))
+            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+            .collect();
+        let kept = ["type", "command", "args", "env"];
+        let mut unrestorable: Vec<String> =
+            entry.keys().filter(|k| !kept.contains(&k.as_str())).cloned().collect();
+        unrestorable.extend(
+            all_env
+                .into_iter()
+                .flatten()
+                .filter(|(k, v)| !RESTORABLE_ENV.contains(&k.as_str()) || !v.is_string())
+                .map(|(k, _)| format!("env {k}")),
+        );
+        // A secret in its command or args (a URL with credentials, `--token=…`, `key=<long random
+        // value>`): shown redacted, and the entry is kept, as for a token in `env` (cmux could
+        // not put the secret back).
+        let line: Vec<String> =
+            std::iter::once(command.to_owned()).chain(args.iter().cloned()).collect();
+        if redact_secrets(&line) != line {
+            unrestorable.push("command or args (a secret)".to_owned());
         }
+        let stdio = entry.get("type").is_none_or(|t| t == "stdio");
+        let manual = stdio
+            && unrestorable.is_empty()
+            && env.is_empty()
+            && args == ["mcp", "serve"]
+            && same_file(command, cli);
+        if manual {
+            return Ok(None);
+        }
+        Ok(Some(Leftover {
+            config: file,
+            command: command.to_owned(),
+            args,
+            env,
+            unrestorable,
+            runs,
+        }))
     }
 
-    /// Whether the settings file its `env` names is there, a leading `~`
-    /// expanded (no file named: the shared one, always). A file that is gone
-    /// (a scratch launch's) would leave the server reading nothing, so the
-    /// entry is replaced.
-    fn settings_file_exists(&self) -> bool {
-        self.settings_file()
-            .is_none_or(|file| settings_path(file, &|key| std::env::var_os(key)).is_file())
+    /// The line that adds `leftover` back, as it was: only for an entry with
+    /// nothing [`Leftover::unrestorable`], so every `env` value it prints is
+    /// one of [`RESTORABLE_ENV`].
+    fn add_back(self, leftover: &Leftover) -> String {
+        let mut args = vec!["mcp".to_owned(), "add".to_owned()];
+        for (key, value) in &leftover.env {
+            args.push("--env".to_owned());
+            args.push(format!("{key}={value}"));
+        }
+        if self == Self::Claude {
+            args.extend(["--scope".to_owned(), "user".to_owned()]);
+        }
+        // Never a secret: an entry with one is kept, so this runs only for one without; redacted
+        // all the same, so no path can print one.
+        args.extend([SERVER.to_owned(), "--".to_owned()]);
+        let mut line = vec![leftover.command.clone()];
+        line.extend(leftover.args.iter().cloned());
+        args.extend(redact_secrets(&line));
+        self.line(&args)
     }
 
-    /// For the report: no `env` values beyond the settings file, since a
-    /// server of the person's may keep a secret there.
-    fn json(&self) -> Value {
-        json!({"name": self.name, "command": self.command, "args": self.args,
-               "settings_file": self.settings_file()})
+    /// The line a person runs to give this agent cmux's server everywhere,
+    /// in its own config, with its own CLI. cmux never runs it.
+    fn manual(self, cli: &str) -> String {
+        let add = match self {
+            Self::Claude => "claude mcp add --scope user",
+            Self::Codex => "codex mcp add",
+        };
+        format!("{add} {SERVER} -- {} mcp serve", quote_arg(cli))
     }
 }
 
-/// The line that puts an entry back, and the `env` keys whose values it does
-/// not show (they read `<value of KEY>`).
-struct Restore {
-    line: String,
-    hidden: Vec<String>,
+/// A `cmux` entry in the person's own config that runs cmux's server.
+struct Leftover {
+    config: PathBuf,
+    command: String,
+    args: Vec<String>,
+    /// Its [`RESTORABLE_ENV`] keys and values.
+    env: Vec<(String, String)>,
+    /// What cmux could not put back if it removed it: other fields, and
+    /// `env KEY` for each other `env` key (named, never its value).
+    unrestorable: Vec<String>,
+    /// The cmux CLI or launcher it runs, or that it fetches a published one.
+    runs: String,
 }
 
-impl Restore {
-    /// Why the line does not put the entry back exactly, when it does not.
-    fn note(hidden: &[String]) -> Option<String> {
-        (!hidden.is_empty()).then(|| {
-            format!(
-                "The undo line does not put back all of the old entry: {} (values read \
-                 <value of KEY>; put each in place before you run it)",
-                hidden.join(", ")
-            )
+impl Leftover {
+    fn json(&self, client: Client) -> Value {
+        json!({
+            "config": self.config,
+            "command": redact_secrets(std::slice::from_ref(&self.command))[0],
+            "args": redact_secrets(&self.args),
+            "runs": redact_secrets(std::slice::from_ref(&self.runs))[0],
+            "remove": client.line(&client.remove_args()),
         })
     }
-}
-
-/// What setup does for one harness.
-enum Plan {
-    /// Not installed, and not named.
-    Absent,
-    /// Already gives the cmux server.
-    Ok,
-    Add,
-    /// Replaces the `cmux` entry whose command is gone or runs from a DEV
-    /// build, or that names a settings file which is gone.
-    Replace,
-    /// The person must act: this `user_action`.
-    Person(Value),
-    Failed(String),
-}
-
-#[derive(Default)]
-struct Request {
-    clients: Vec<Client>,
-    dry_run: bool,
-    remove: bool,
 }
 
 pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let request = parse(args)?;
-    let command = this_cli()?;
-    if let Writer::Terminals(why) = writer(Path::new(&command), |key| std::env::var_os(key)) {
-        return Ok(terminals(&request, &command, &why));
-    }
-    if request.remove {
-        return Ok(remove(&request, false));
-    }
-    let (settings, enabled) = super::super::mcp::outside_chats();
-    let choice = AgentsCmuxMcp::from_config_file(&settings);
-    let path = std::env::var_os("PATH");
-    let clients =
-        if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
-    let mut rows = Vec::new();
-    let mut undo = Vec::new();
-    let off = match &enabled {
-        _ if choice == AgentsCmuxMcp::Off => Some(declined()),
-        // No answer yet: the question is the person's to answer, whatever
-        // `mcp.enabled` says (an agent can write that key; it is no answer).
-        _ if choice == AgentsCmuxMcp::Ask => Some(unanswered()),
-        Ok(true) => None,
-        Ok(false) => Some(switch(&settings, None)),
-        Err(error) => Some(switch(&settings, Some(error.as_str()))),
-    };
-    let mut user_action = Value::Null;
-    let (mut failed, mut planned, mut changed, mut installed) = (false, false, false, false);
-    let mut inexact = false;
-    for client in clients {
-        let (next, found) = plan(client, request.clients.contains(&client), path.as_deref());
-        let here = on_path(path.as_deref(), client.id()).is_some();
-        installed |= here;
-        let mut row = json!({
-            "id": client.id(),
-            "name": client.name(),
-            "installed": here,
-            "config": client.config(),
-            "entry": found.as_ref().map(Entry::json),
-            "undo": Value::Null,
-            "user_action": Value::Null,
-            "error": Value::Null,
-        });
-        let state = match next {
-            Plan::Absent => "not_applicable",
-            Plan::Ok => "ok",
-            Plan::Person(action) => {
-                if user_action.is_null() {
-                    user_action = action.clone();
-                }
-                row.set("user_action", action);
-                "needs_user"
-            }
-            Plan::Failed(error) => {
-                row.set("error", json!(error));
-                failed = true;
-                "failed"
-            }
-            // Nothing is written until the person said yes (agents.cmuxMcp
-            // `on`), or while the switch is off: the server would refuse the harness.
-            Plan::Add | Plan::Replace
-                if choice != AgentsCmuxMcp::On || enabled != Ok(true) || request.dry_run =>
-            {
-                planned = true;
-                "planned"
-            }
-            Plan::Add | Plan::Replace => {
-                match apply(client, &command, found.as_ref().filter(|e| e.name == SERVER)) {
-                    Ok((line, hidden)) => {
-                        row.set("undo", json!(line));
-                        if let Some(note) = Restore::note(&hidden) {
-                            row.set("undo_exact", json!(false));
-                            row.set("undo_note", json!(note));
-                            inexact = true;
-                        }
-                        undo.push(line);
-                        changed = true;
-                        "changed"
-                    }
-                    Err(error) => {
-                        row.set("error", json!(error));
-                        failed = true;
-                        "failed"
-                    }
-                }
-            }
-        };
-        row.set("state", json!(state));
-        rows.push(row);
-    }
-    // The switch comes first, but only when a harness is there to wire:
-    // with none installed there is nothing to do, or the install comes first.
-    // A person's no names itself only when it kept something from being written.
-    let declined = choice != AgentsCmuxMcp::On;
-    if let Some(action) = off.filter(|_| installed && (!declined || planned)) {
-        user_action = action;
-    }
-    let state = if failed {
-        "failed"
-    } else if !user_action.is_null() {
-        "needs_user"
-    } else if changed {
-        "changed"
-    } else if planned {
-        "planned"
-    } else {
-        "ok"
-    };
-    let report = json!({
-        "schema_version": 1,
-        "task": TASK,
-        "state": state,
-        "dry_run": request.dry_run,
-        "server": {"name": SERVER, "command": command, "args": ["mcp", "serve"], "env": {}},
-        "settings": settings,
-        "enabled": enabled == Ok(true),
-        "choice": choice.as_str(),
-        "clients": rows,
-        "undo": (!undo.is_empty()).then(|| undo.join(" && ")),
-        "undo_exact": !inexact,
-        "user_action": user_action,
-    });
-    Ok(Outcome { report, failed })
-}
-
-/// `--remove`: takes cmux's own entry (named `cmux`, running `cmux mcp
-/// serve`, from any cmux build) out of each installed harness's config, or
-/// of each named one, through the harness's own `mcp remove`. A `cmux` entry
-/// that runs something else is the person's and stays. Runs whatever
-/// `agents.cmuxMcp` says: taking cmux out never oversteps.
-///
-/// With `only_unshipped` (a DEV build, [`Writer::Terminals`]) it takes out
-/// only an entry whose command runs from a development build or a temporary
-/// cache ([`Entry::shipped`] is false: a DEV bundle, DerivedData, an
-/// unbundled build outside a release install). The settings file an entry
-/// names does not count. Any other entry stays, and says so.
-fn remove(request: &Request, only_unshipped: bool) -> Outcome {
-    let (settings, enabled) = super::super::mcp::outside_chats();
-    let choice = AgentsCmuxMcp::from_config_file(&settings);
-    let path = std::env::var_os("PATH");
-    let clients =
-        if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
-    let (mut rows, mut undo) = (Vec::new(), Vec::new());
-    let (mut failed, mut planned, mut changed, mut inexact) = (false, false, false, false);
-    let mut user_action = Value::Null;
-    for client in clients {
-        let here = on_path(path.as_deref(), client.id()).is_some();
-        let mut row = json!({
-            "id": client.id(),
-            "name": client.name(),
-            "installed": here,
-            "config": client.config(),
-            "entry": Value::Null,
-            "undo": Value::Null,
-            "user_action": Value::Null,
-            "error": Value::Null,
-        });
-        let found = if here {
-            match client
-                .config()
-                .ok_or_else(|| "no home directory".to_owned())
-                .and_then(|file| client.servers(&file))
-            {
-                Ok(entries) => Ok(entries
-                    .into_iter()
-                    .find(|entry| entry.name == SERVER && entry.serves_cmux())),
-                Err(error) => Err(error),
-            }
-        } else {
-            Ok(None)
-        };
-        let state = match found {
-            _ if !here => "not_applicable",
-            Err(error) => {
-                row.set("error", json!(error));
-                failed = true;
-                "failed"
-            }
-            Ok(None) => "ok",
-            Ok(Some(entry)) if only_unshipped && entry.shipped() => {
-                row.set("entry", entry.json());
-                row.set(
-                    "kept",
-                    json!("this entry runs no development build of cmux; this build leaves it"),
-                );
-                "ok"
-            }
-            Ok(Some(entry)) if !entry.unrestorable().is_empty() => {
-                row.set("entry", entry.json());
-                let action = keep(client, &entry.unrestorable(), true);
-                if user_action.is_null() {
-                    user_action = action.clone();
-                }
-                row.set("user_action", action);
-                "needs_user"
-            }
-            Ok(Some(entry)) => {
-                row.set("entry", entry.json());
-                if request.dry_run {
-                    planned = true;
-                    "planned"
-                } else {
-                    match run_cli(client, &client.remove()) {
-                        Ok(()) => {
-                            if let Some(restore) = entry.restore(client) {
-                                row.set("undo", json!(restore.line));
-                                if let Some(note) = Restore::note(&restore.hidden) {
-                                    row.set("undo_exact", json!(false));
-                                    row.set("undo_note", json!(note));
-                                    inexact = true;
-                                }
-                                undo.push(restore.line);
-                            }
-                            changed = true;
-                            "changed"
-                        }
-                        Err(error) => {
-                            row.set("error", json!(error));
-                            failed = true;
-                            "failed"
-                        }
-                    }
-                }
-            }
-        };
-        row.set("state", json!(state));
-        rows.push(row);
-    }
-    let state = if failed {
-        "failed"
-    } else if !user_action.is_null() {
-        "needs_user"
-    } else if changed {
-        "changed"
-    } else if planned {
-        "planned"
-    } else {
-        "ok"
-    };
-    let report = json!({
-        "schema_version": 1,
-        "task": TASK,
-        "action": "remove",
-        "state": state,
-        "dry_run": request.dry_run,
-        "server": {"name": SERVER, "args": ["mcp", "serve"]},
-        "settings": settings,
-        "enabled": enabled == Ok(true),
-        "choice": choice.as_str(),
-        "clients": rows,
-        "undo": (!undo.is_empty()).then(|| undo.join(" && ")),
-        "undo_exact": !inexact,
-        "user_action": user_action,
-    });
-    Outcome { report, failed }
-}
-
-/// A cmux that may not write the person's global agent configs
-/// ([`Writer::Terminals`]). Adding is a dry run that writes nothing: each
-/// installed agent is `terminals` once the person said yes (`agents.cmuxMcp`
-/// on) and the server serves them (`mcp.enabled` not false): this build's
-/// terminals give it cmux's server through the `claude` and `codex` shims,
-/// with the terminal's settings file. With the switch off the shim's server
-/// would refuse, so the result names that switch, as [`run`] does. An entry a
-/// DEV build left in an agent's config (not [`Entry::shipped`]) is named,
-/// with the line that removes it. `--remove` takes out only such entries,
-/// never a shipped build's. The report names `why` and the shim folder.
-fn terminals(request: &Request, command: &str, why: &str) -> Outcome {
-    let shims = crate::own_build_helpers::wrapper_shim_dir(Path::new(command));
-    let shims_text = shims.as_ref().map(|dir| format!(" ({})", dir.display())).unwrap_or_default();
-    if request.remove {
-        let mut outcome = remove(request, true);
-        outcome.report.set("scope", json!("terminals"));
-        outcome.report.set(
-            "terminals",
-            json!({
-                "why": why,
-                "shims": shims,
-                "text": format!(
-                    "{why}: --remove takes out only entries whose command runs from a \
-                     development build of cmux (a DEV app, DerivedData, a build folder) or a \
-                     temporary cache; any other entry stays"
-                ),
-            }),
-        );
-        return outcome;
+    let cli = this_cli()?;
+    if let Some(client) = request.remove {
+        return Ok(remove(client, &cli, request.dry_run));
     }
     let (settings, enabled) = super::super::mcp::outside_chats();
     let choice = AgentsCmuxMcp::from_config_file(&settings);
     let serves = choice == AgentsCmuxMcp::On && enabled == Ok(true);
     let path = std::env::var_os("PATH");
-    let clients =
-        if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
+    let clients = if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients };
     let mut installed = false;
-    let mut stale = Vec::new();
+    let mut user_action = Value::Null;
     let rows: Vec<Value> = clients
-        .into_iter()
-        .map(|client| {
+        .iter()
+        .map(|&client| {
             let here = on_path(path.as_deref(), client.id()).is_some();
             installed |= here;
-            let state = match () {
-                _ if !here => "not_applicable",
-                _ if serves => "terminals",
-                _ => "planned",
-            };
-            let left = here
-                .then(|| client.config().and_then(|file| client.servers(&file).ok()))
-                .flatten()
-                .and_then(|entries| {
-                    entries.into_iter().find(|entry| {
-                        entry.name == SERVER && entry.serves_cmux() && !entry.shipped()
-                    })
-                });
-            let remove = left.as_ref().map(|_| client.line(&client.remove()));
-            if let Some(line) = &remove {
-                stale.push(format!("{} (`{line}`)", client.name()));
-            }
-            json!({
+            let named = !request.named.is_empty() && request.named.contains(&client);
+            let mut row = json!({
                 "id": client.id(),
                 "name": client.name(),
                 "installed": here,
-                "config": client.config(),
-                "entry": Value::Null,
-                "stale_entry": left.as_ref().map(Entry::json),
-                "remove": remove,
-                "undo": Value::Null,
+                "manual": client.manual(&cli),
+                "leftover": Value::Null,
                 "user_action": Value::Null,
                 "error": Value::Null,
-                "state": state,
-            })
+            });
+            match client.leftover(&cli) {
+                Ok(Some(leftover)) => {
+                    row.set("leftover", leftover.json(client));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    row.set("error", json!(error));
+                }
+            }
+            let state = match () {
+                _ if here && serves => "terminals",
+                _ if here => "planned",
+                _ if named => {
+                    let setup = format!("cmux setup harness {}", client.id());
+                    let action = json!({
+                        "kind": "install",
+                        "text": format!(
+                            "Install {}: `{}` is not on PATH; `{setup}` says how",
+                            client.name(),
+                            client.id()
+                        ),
+                        "command": setup,
+                        "url": Value::Null,
+                    });
+                    if user_action.is_null() {
+                        user_action = action.clone();
+                    }
+                    row.set("user_action", action);
+                    "needs_user"
+                }
+                _ => "not_applicable",
+            };
+            row.set("state", json!(state));
+            row
         })
         .collect();
     // Only the person answers the question; a yes with the switch off needs
-    // the switch (the shim's server would refuse); a no needs nothing more.
-    let user_action = match &enabled {
-        _ if !installed => Value::Null,
-        _ if choice == AgentsCmuxMcp::Ask => unanswered(),
-        _ if choice == AgentsCmuxMcp::Off => Value::Null,
-        Ok(true) => Value::Null,
-        Ok(false) => switch(&settings, None),
-        Err(error) => switch(&settings, Some(error.as_str())),
-    };
-    let stale_text = if stale.is_empty() {
-        String::new()
-    } else {
-        format!(
-            ". An old cmux entry from a development build is still in the settings of {}: \
-             `cmux setup mcp --remove` from this build takes it out (never a shipped cmux's \
-             entry), or run that line",
-            stale.join(", ")
-        )
+    // the switch (the server would refuse cmux's tools); a no needs nothing.
+    if user_action.is_null() && installed {
+        user_action = match &enabled {
+            _ if choice == AgentsCmuxMcp::Ask => unanswered(),
+            _ if choice == AgentsCmuxMcp::Off => Value::Null,
+            Ok(true) => Value::Null,
+            Ok(false) => switch(&settings, None),
+            Err(error) => switch(&settings, Some(error.as_str())),
+        };
+    }
+    let manual: Vec<String> = clients.iter().map(|client| client.manual(&cli)).collect();
+    let text = match () {
+        _ if serves => format!(
+            "Claude Code and Codex you start in cmux (its terminals, agent chats and the Chief) \
+             get cmux's tools from cmux's server, named {SERVER}, reading {}. cmux changes \
+             no agent's own settings",
+            settings.display()
+        ),
+        _ => format!(
+            "Agents you start in cmux do not get cmux's tools until the person turns on {} \
+             (Settings > Agents). cmux changes no agent's own settings",
+            AgentsCmuxMcp::KEY
+        ),
     };
     let report = json!({
         "schema_version": 1,
         "task": TASK,
         "state": if user_action.is_null() { "ok" } else { "needs_user" },
         "scope": "terminals",
-        "dry_run": true,
-        "server": {"name": SERVER, "command": command, "args": ["mcp", "serve"], "env": {}},
+        "dry_run": request.dry_run,
+        "server": {"name": SERVER, "command": cli, "args": ["mcp", "serve"]},
         "settings": settings,
         "enabled": enabled == Ok(true),
         "choice": choice.as_str(),
         "clients": rows,
         "undo": Value::Null,
         "user_action": user_action,
-        "terminals": {
-            "why": why,
-            "shims": shims,
+        "terminals": {"text": text},
+        "manual": {
             "text": format!(
-                "Nothing was written: {why}. Claude Code and Codex started in this build's \
-                 terminals get cmux's tools through its claude and codex shims{shims_text}, \
-                 reading {}{stale_text}",
-                settings.display()
+                "To use cmux's tools in agents started outside cmux, the person can run these \
+                 lines themselves; cmux never runs them. Each agent's own `mcp remove {SERVER}` \
+                 takes the entry out again"
             ),
+            "commands": manual,
         },
     });
-    Outcome { report, failed: false }
+    Ok(Outcome { report, failed: false })
 }
 
-/// The check `cmux setup status` reports: the switch, and whether each
-/// installed harness gives the cmux server outside cmux. With none
-/// installed it is `ok`, as `run` is: the switch has nothing to serve.
+/// The check `cmux setup status` reports: the same as [`run`], read only.
 pub(super) fn status() -> Value {
-    let (settings, enabled) = super::super::mcp::outside_chats();
-    if let Ok(command) = this_cli()
-        && let Writer::Terminals(why) = writer(Path::new(&command), |key| std::env::var_os(key))
-    {
-        let report = terminals(&Request::default(), &command, &why).report;
-        return json!({
-            "task": TASK,
-            "state": report["state"],
-            "scope": "terminals",
-            "settings": settings,
-            "enabled": enabled == Ok(true),
-            "choice": report["choice"],
-            "clients": report["clients"],
-            "terminals": report["terminals"],
-            "fix": Value::Null,
-        });
-    }
-    let choice = AgentsCmuxMcp::from_config_file(&settings);
-    let declined = choice == AgentsCmuxMcp::Off;
-    let unanswered = choice == AgentsCmuxMcp::Ask;
-    let path = std::env::var_os("PATH");
-    let clients: Vec<Value> = CLIENTS
-        .into_iter()
-        .filter_map(|client| {
-            let (next, found) = plan(client, false, path.as_deref());
-            let state = match next {
-                Plan::Absent => return None,
-                Plan::Ok => "ok",
-                // The person said no: nothing is missing.
-                Plan::Add | Plan::Replace | Plan::Person(_) if declined => "off",
-                // The person has not answered: waiting on them, not on setup.
-                Plan::Add | Plan::Replace | Plan::Person(_) if unanswered => "ask",
-                Plan::Add | Plan::Replace => "needs_setup",
-                Plan::Person(_) => "needs_user",
-                Plan::Failed(_) => "failed",
-            };
-            Some(json!({"id": client.id(), "state": state, "entry": found.as_ref().map(Entry::json)}))
-        })
-        .collect();
-    let ready = declined
-        || ((clients.is_empty() || enabled == Ok(true))
-            && clients.iter().all(|client| client["state"] == "ok"));
-    let asking = !ready && clients.iter().any(|client| client["state"] == "ask");
+    let report = match run(&[]) {
+        Ok(outcome) => outcome.report,
+        Err(Refusal::Usage(error) | Refusal::Failed(error)) => {
+            return json!({"task": TASK, "state": "failed", "error": error, "fix": Value::Null});
+        }
+    };
+    let needs_user = report["state"] == "needs_user";
     json!({
         "task": TASK,
-        "state": if ready { "ok" } else if asking { "needs_user" } else { "needs_setup" },
-        "settings": settings,
-        "enabled": enabled == Ok(true),
-        "choice": choice.as_str(),
-        "clients": clients,
-        "fix": (!ready).then_some("cmux setup mcp"),
+        "state": report["state"],
+        "scope": "terminals",
+        "settings": report["settings"],
+        "enabled": report["enabled"],
+        "choice": report["choice"],
+        "clients": report["clients"].as_array().map(|clients| {
+            clients
+                .iter()
+                .filter(|client| client["installed"] == true)
+                .map(|client| json!({"id": client["id"], "state": client["state"]}))
+                .collect::<Vec<_>>()
+        }),
+        "terminals": report["terminals"],
+        "manual": report["manual"],
+        "fix": needs_user.then_some("cmux setup mcp"),
     })
 }
 
-fn parse(args: &[String]) -> Result<Request, Refusal> {
-    let mut request = Request { clients: Vec::new(), dry_run: false, remove: false };
-    for arg in args {
-        match arg.as_str() {
-            "--dry-run" => request.dry_run = true,
-            "--remove" => request.remove = true,
-            flag if flag.starts_with('-') => {
-                return Err(Refusal::Usage(format!("cmux: setup mcp: unknown option {flag:?}")));
-            }
-            id => {
-                let client = Client::parse(id).ok_or_else(|| {
-                    Refusal::Usage(format!(
-                        "cmux: setup mcp: no client {id:?}; give claude or codex"
-                    ))
-                })?;
-                if !request.clients.contains(&client) {
-                    request.clients.push(client);
-                }
-            }
-        }
-    }
-    Ok(request)
+#[derive(Default)]
+struct Request {
+    /// Every client to report: the named ones, else all.
+    clients: Vec<Client>,
+    /// The clients named on the command line.
+    named: Vec<Client>,
+    dry_run: bool,
+    /// `--remove CLIENT`: take that agent's leftover `cmux` entry out.
+    remove: Option<Client>,
+    /// `--confirm`: the person asked for `--remove` (Settings' Remove button passes it).
+    confirm: bool,
 }
 
-/// This cmux's own path, links followed (the path [`writer`] judged): the
-/// command the harness runs.
-fn this_cli() -> Result<String, Refusal> {
-    std::env::current_exe()
-        .map(|exe| exe.canonicalize().unwrap_or(exe).to_string_lossy().into_owned())
-        .map_err(|error| Refusal::Failed(format!("cmux: setup mcp: no path to this cmux: {error}")))
-}
-
-/// What setup does for `client`, and the entry that decided it. A harness
-/// that is not installed is the person's only when it was named. A cmux
-/// entry is kept when it still runs, every settings file it names is there,
-/// and (for the one named `cmux`) what it runs is no DEV build's
-/// ([`Entry::shipped`], whatever settings file it names). A `cmux` entry that
-/// fails that is replaced, unless it holds what setup cannot put back.
-fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entry>) {
-    if on_path(path, client.id()).is_none() {
-        if !named {
-            return (Plan::Absent, None);
-        }
-        let setup = format!("cmux setup harness {}", client.id());
-        let action = json!({
-            "kind": "install",
-            "text": format!(
-                "Install {}: `{}` is not on PATH; `{setup}` says how",
-                client.name(),
-                client.id()
-            ),
-            "command": setup,
-            "url": Value::Null,
-        });
-        return (Plan::Person(action), None);
-    }
-    let Some(file) = client.config() else {
-        return (Plan::Failed("no home directory".into()), None);
-    };
-    let mut entries = match client.servers(&file) {
-        Ok(entries) => entries,
-        Err(error) => return (Plan::Failed(error), None),
-    };
-    if let Some(at) = entries.iter().position(|entry| {
-        entry.serves_cmux()
-            && entry.runs(path)
-            // Another name is the person's own wiring; the `cmux` entry must
-            // reach this cmux's settings file.
-            && entry.settings_file_exists()
-            && (entry.name != SERVER || entry.shipped())
-    }) {
-        return (Plan::Ok, Some(entries.swap_remove(at)));
-    }
-    let Some(at) = entries.iter().position(|entry| entry.name == SERVER) else {
-        return (Plan::Add, None);
-    };
-    let taken = entries.swap_remove(at);
-    if taken.serves_cmux() {
-        let lost = taken.unrestorable();
-        if !lost.is_empty() {
-            return (Plan::Person(keep(client, &lost, false)), Some(taken));
-        }
-        return (Plan::Replace, Some(taken));
-    }
-    let remove = client.line(&client.remove());
-    let action = json!({
-        "kind": "conflict",
-        "text": format!(
-            "{} already has an MCP server named `{SERVER}` that does not run `cmux mcp serve`. \
-             If it is no longer needed, `{remove}` removes it; then run `cmux setup mcp {}` again",
-            client.name(),
-            client.id()
-        ),
-        "command": remove,
-        "url": Value::Null,
+/// `--remove CLIENT`: takes out the `cmux` entry in `client`'s own config
+/// that runs `cmux mcp serve` ([`Client::leftover`]), through its own `mcp
+/// remove`, and names the line that puts it back. An entry with anything cmux
+/// could not put back is left, and the line to run is named. `dry_run` only
+/// names the line (`plan`).
+fn remove(client: Client, cli: &str, dry_run: bool) -> Outcome {
+    let mut report = json!({
+        "schema_version": 1,
+        "task": TASK,
+        "action": "remove",
+        "client": client.id(),
+        "state": "ok",
+        "dry_run": dry_run,
+        "plan": Value::Null,
+        "undo": Value::Null,
+        "user_action": Value::Null,
+        "error": Value::Null,
     });
-    (Plan::Person(action), Some(taken))
-}
-
-/// Adds the cmux server to `client`, removing `old` (the `cmux` entry whose
-/// command is gone or is a DEV build's, or that names a settings file which
-/// is gone) first,
-/// and answers the line that undoes it. When the add fails after the remove,
-/// the error names the line that puts `old` back.
-fn apply(
-    client: Client,
-    command: &str,
-    old: Option<&Entry>,
-) -> Result<(String, Vec<String>), String> {
-    let remove = client.remove();
-    let restore = old.and_then(|old| old.restore(client));
-    let hidden = restore.as_ref().map(|restore| restore.hidden.clone()).unwrap_or_default();
-    let restore = restore.map(|restore| restore.line);
-    if old.is_some() {
-        run_cli(client, &remove)?;
-    }
-    run_cli(client, &client.add(command, &["mcp".into(), "serve".into()], &[])).map_err(
-        |error| match &restore {
-            Some(restore) => format!("{error}; `{restore}` puts the old entry back"),
-            None => error,
+    let line = client.line(&client.remove_args());
+    match client.leftover(cli) {
+        Err(error) => {
+            report.set("state", json!("failed"));
+            report.set("error", json!(error));
+            return Outcome { report, failed: true };
+        }
+        Ok(None) => {}
+        Ok(Some(leftover)) if !leftover.unrestorable.is_empty() => {
+            report.set("state", json!("needs_user"));
+            report.set(
+                "user_action",
+                json!({
+                    "kind": "keep",
+                    "text": format!(
+                        "{}'s cmux entry has settings cmux would not put back ({}), so it is left \
+                         as it is. Keep what you need from it, then run `{line}`",
+                        client.name(),
+                        leftover.unrestorable.join(", ")
+                    ),
+                    "command": line,
+                    "url": Value::Null,
+                }),
+            );
+        }
+        Ok(Some(_)) if dry_run => {
+            report.set("plan", json!(line));
+        }
+        Ok(Some(leftover)) => match run_cli(client, &client.remove_args()) {
+            Ok(()) => {
+                report.set("state", json!("changed"));
+                report.set("undo", json!(client.add_back(&leftover)));
+            }
+            Err(error) => {
+                report.set("state", json!("failed"));
+                report.set("error", json!(error));
+                return Outcome { report, failed: true };
+            }
         },
-    )?;
-    let undo = client.line(&remove);
-    let undo = match restore {
-        Some(restore) => format!("{undo} && {restore}"),
-        None => undo,
-    };
-    Ok((undo, hidden))
+    }
+    Outcome { report, failed: false }
 }
 
 /// Runs `client`'s CLI with `args`, within [`CLI_TIMEOUT`].
@@ -1045,7 +518,6 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
                 let _ = child.wait();
                 return Err(format!("`{line}` did not finish in {}s", CLI_TIMEOUT.as_secs()));
             }
-            // The child may still run: stop it before reporting, as on a timeout.
             Err(error) => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -1061,61 +533,276 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
     Err(format!("`{line}` failed ({status}): {text}"))
 }
 
-/// `client`'s `cmux` entry holds what setup could not put back (`lost`:
-/// another field, a non-string value, an `env` key such as a token): setup
-/// leaves it as it is, never deleting what it cannot restore, and names the
-/// exact command for the person to run once they have kept what they need.
-fn keep(client: Client, lost: &[String], removing: bool) -> Value {
-    let remove = client.line(&client.remove());
-    // This cmux's own path, quoted, as `apply` writes it: a bare `cmux` can be
-    // another install's.
-    let cli = this_cli().map(|cli| quote_arg(&cli)).unwrap_or_else(|_| "cmux".to_owned());
-    let command =
-        if removing { remove } else { format!("{remove} && {cli} setup mcp {}", client.id()) };
-    json!({
-        "kind": "keep",
-        "text": format!(
-            "{}'s cmux entry has settings cmux cannot put back ({}), so cmux left it as it is. \
-             To {} it, keep what you need from it, then run `{command}`",
-            client.name(),
-            lost.join(", "),
-            if removing { "remove" } else { "replace" },
-        ),
-        "command": command,
-        "url": Value::Null,
-    })
+fn parse(args: &[String]) -> Result<Request, Refusal> {
+    let mut request = Request::default();
+    let mut removing = false;
+    for arg in args {
+        match arg.as_str() {
+            "--remove" => removing = true,
+            "--confirm" => request.confirm = true,
+            // Nothing is written by a report either way; with --remove, only the plan.
+            "--dry-run" => request.dry_run = true,
+            flag if flag.starts_with('-') => {
+                return Err(Refusal::Usage(format!(
+                    "cmux: setup mcp: unknown option {flag:?}; cmux adds nothing to an agent's own \
+                     settings (the report's `manual` lines are for the person to run)"
+                )));
+            }
+            id => {
+                let client = Client::parse(id).ok_or_else(|| {
+                    Refusal::Usage(format!(
+                        "cmux: setup mcp: no client {id:?}; give claude or codex"
+                    ))
+                })?;
+                if !request.named.contains(&client) {
+                    request.named.push(client);
+                }
+            }
+        }
+    }
+    if removing {
+        // A person's act only: at a terminal, or Settings' Remove button (`--confirm`). An agent
+        // (the Chief, a script) never runs it on its own; `--dry-run` only plans. This is a
+        // consent speed bump, not a security boundary: anything that runs as the person can pass
+        // `--confirm`, or run the agent's own `mcp remove` itself.
+        use std::io::IsTerminal as _;
+        let person = request.confirm || std::io::stdin().is_terminal();
+        if !person && !request.dry_run {
+            return Err(Refusal::Usage(
+                "cmux: setup mcp: --remove changes an agent's own settings, so a person runs it: \
+                 in a terminal, or with Settings > Agents' Remove button. Show the person the \
+                 report's leftover instead"
+                    .into(),
+            ));
+        }
+        let [client] = request.named.as_slice() else {
+            return Err(Refusal::Usage(
+                "cmux: setup mcp: --remove takes one agent, claude or codex: it takes out the \
+                 cmux entry in that agent's own settings that runs `cmux mcp serve`"
+                    .into(),
+            ));
+        };
+        request.remove = Some(*client);
+    }
+    request.clients = request.named.clone();
+    Ok(request)
 }
 
-/// The person's answer was no (`agents.cmuxMcp` `off`): the setting to
-/// change, where the person changes it.
-fn declined() -> Value {
-    json!({
-        "kind": "setting",
-        "text": format!(
-            "You chose not to add cmux's tools to your coding agents ({} is \"off\"). \
-             To add them, choose Add to My Agents in cmux Settings > Agents > cmux Tools in \
-             Coding Agents, or run `cmux settings set {} on --confirm` and approve it in cmux; \
-             then run `cmux setup mcp` again",
-            AgentsCmuxMcp::KEY,
-            AgentsCmuxMcp::KEY
-        ),
-        "command": format!("cmux settings set {} on --confirm", AgentsCmuxMcp::KEY),
-        "url": Value::Null,
-    })
+/// `args` (a command line) with each secret-shaped value replaced by `<redacted>`: a URL's
+/// credentials ([`redact_url_credentials`]); the value of a flag whose name says secret
+/// (`--token=V`, `--api-key V`, `--password`, `--secret`, `--auth…`, `--credential…`); and a
+/// `NAME=VALUE` whose value is a long random-looking string (20 or more characters of letters
+/// and digits, both present, and nothing but `-_.+/=`), as an `env`-style key=token; an HTTP
+/// header with credentials (`Authorization: Bearer …`, `X-Api-Key: …`, `Cookie: …`, or any
+/// `Name: Bearer|Basic|Token …`, alone or after `--header=`); and a bare positional token (24 or
+/// more characters of letters and digits, both present, and nothing but `-_+`, so no path,
+/// package or version); a bare JWT (three base64url segments); a URL query parameter that
+/// names a secret (`?token=`, `?api_key=`, `?access_token=`, `&sig=`, ...); and a header split
+/// across arguments (`Authorization:` then `Bearer x`, or `Authorization: Bearer` then `x`, or
+/// `Bearer` then `x`): the part after the name is redacted.
+fn redact_secrets(args: &[String]) -> Vec<String> {
+    const SECRET_WORDS: [&str; 7] =
+        ["token", "key", "secret", "password", "passwd", "auth", "credential"];
+    let names_secret = |flag: &str| {
+        let name = flag.trim_start_matches('-').to_ascii_lowercase();
+        flag.starts_with('-') && SECRET_WORDS.iter().any(|word| name.contains(word))
+    };
+    let random = |value: &str| {
+        value.len() >= 20
+            && value.chars().all(|c| c.is_ascii_alphanumeric() || "-_.+/=".contains(c))
+            && value.chars().any(|c| c.is_ascii_digit())
+            && value.chars().any(|c| c.is_ascii_alphabetic())
+    };
+    // `Name: value` with credentials: the name and `<redacted>`.
+    let header = |text: &str| -> Option<String> {
+        let (name, value) = text.split_once(':')?;
+        let name = name.trim();
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return None;
+        }
+        let lower = name.to_ascii_lowercase();
+        let scheme = value.split_whitespace().next().unwrap_or_default().to_ascii_lowercase();
+        let secret = SECRET_WORDS.iter().any(|word| lower.contains(word))
+            || matches!(lower.as_str(), "cookie" | "proxy-authorization")
+            || matches!(scheme.as_str(), "bearer" | "basic" | "token" | "digest");
+        (secret && !value.trim().is_empty()).then(|| format!("{name}: <redacted>"))
+    };
+    let bare = |value: &str| {
+        value.len() >= 24
+            && value.chars().all(|c| c.is_ascii_alphanumeric() || "-_+".contains(c))
+            && value.chars().any(|c| c.is_ascii_digit())
+            && value.chars().any(|c| c.is_ascii_alphabetic())
+    };
+    let jwt = |value: &str| {
+        let parts: Vec<&str> = value.split('.').collect();
+        parts.len() == 3
+            && parts.iter().all(|part| {
+                part.len() >= 8
+                    && part.chars().all(|c| c.is_ascii_alphanumeric() || "-_".contains(c))
+            })
+    };
+    const SCHEMES: [&str; 4] = ["bearer", "basic", "token", "digest"];
+    // An argument that leaves a header's credential to the next one: `Name:` (a secret-shaped
+    // header name, no value), `Name: Scheme` (no credential), or a bare `Scheme`.
+    let header_continues = |text: &str| {
+        let trimmed = text.trim();
+        if SCHEMES.contains(&trimmed.to_ascii_lowercase().as_str()) {
+            return true;
+        }
+        let Some((name, value)) = trimmed.split_once(':') else { return false };
+        let lower = name.trim().to_ascii_lowercase();
+        let value = value.trim().to_ascii_lowercase();
+        let secret_name = SECRET_WORDS.iter().any(|word| lower.contains(word))
+            || matches!(lower.as_str(), "cookie" | "proxy-authorization");
+        !lower.is_empty()
+            && lower.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            && ((value.is_empty() && secret_name) || SCHEMES.contains(&value.as_str()))
+    };
+    let mut out = Vec::with_capacity(args.len());
+    let mut next_is_secret = false;
+    for arg in args {
+        if std::mem::take(&mut next_is_secret) {
+            out.push("<redacted>".to_owned());
+            continue;
+        }
+        let arg = redact_query_secrets(&redact_url_credentials(arg));
+        if header_continues(&arg) {
+            next_is_secret = true;
+            out.push(if arg.contains(':') {
+                format!("{}: <redacted>", arg.split_once(':').map_or("", |(n, _)| n.trim()))
+            } else {
+                arg
+            });
+            continue;
+        }
+        if let Some(shown) = header(&arg) {
+            out.push(shown);
+            continue;
+        }
+        if jwt(&arg) {
+            out.push("<redacted>".to_owned());
+            continue;
+        }
+        if let Some((flag, value)) = arg.split_once('=')
+            && flag.starts_with('-')
+        {
+            // `--header=Authorization:` or `--header=Authorization: Bearer`: the credential is next.
+            if header_continues(value) {
+                next_is_secret = true;
+                let name = value.split_once(':').map_or(value.trim(), |(n, _)| n.trim());
+                out.push(if value.contains(':') {
+                    format!("{flag}={name}: <redacted>")
+                } else {
+                    arg.clone()
+                });
+                continue;
+            }
+            if let Some(shown) = header(value) {
+                out.push(format!("{flag}={shown}"));
+                continue;
+            }
+        }
+        if !arg.starts_with('-') && bare(&arg) {
+            out.push("<redacted>".to_owned());
+            continue;
+        }
+        match arg.split_once('=') {
+            Some((flag, _)) if names_secret(flag) => out.push(format!("{flag}=<redacted>")),
+            Some((name, value))
+                if !name.is_empty()
+                    && !name.contains('/')
+                    && !name.contains(':')
+                    && random(value) =>
+            {
+                out.push(format!("{name}=<redacted>"));
+            }
+            None if names_secret(&arg) => {
+                next_is_secret = true;
+                out.push(arg);
+            }
+            _ => out.push(arg),
+        }
+    }
+    out
 }
 
-/// The person has not answered whether cmux may add its tools to their coding
-/// agents (`agents.cmuxMcp` unset or `ask`): only they answer it, in the
+/// `value` with each URL query parameter that names a secret (`auth`, `sig`, `signature`,
+/// `code`, or any name with `token`, `secret`, `password` or `key` in it: `access_token`,
+/// `api_key`, `apikey`) given `<redacted>` as its value.
+fn redact_query_secrets(value: &str) -> String {
+    let Some(start) = value.find('?') else { return value.to_owned() };
+    let (head, query) = value.split_at(start + 1);
+    let secret_name = |name: &str| {
+        let name = name.to_ascii_lowercase();
+        matches!(name.as_str(), "auth" | "sig" | "signature" | "code")
+            || ["token", "secret", "password", "key"].iter().any(|word| name.contains(word))
+    };
+    let (query, fragment) = match query.find('#') {
+        Some(at) => query.split_at(at),
+        None => (query, ""),
+    };
+    let params: Vec<String> = query
+        .split('&')
+        .map(|pair| match pair.split_once('=') {
+            Some((name, value)) if secret_name(name) && !value.is_empty() => {
+                format!("{name}=<redacted>")
+            }
+            _ => pair.to_owned(),
+        })
+        .collect();
+    format!("{head}{}{fragment}", params.join("&"))
+}
+
+/// `value` with the credentials of each URL in it (`scheme://user:pass@host`) replaced by
+/// `<redacted>`, as in `--registry=https://<redacted>@registry.example/`.
+fn redact_url_credentials(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(at) = rest.find("://") {
+        let (head, tail) = rest.split_at(at + 3);
+        out.push_str(head);
+        let authority_end = tail.find(['/', '?', '#', ' ']).unwrap_or(tail.len());
+        match tail[..authority_end].rfind('@') {
+            Some(cut) => {
+                out.push_str("<redacted>");
+                rest = &tail[cut..];
+            }
+            None => rest = tail,
+        }
+        if rest.as_ptr() == tail.as_ptr() {
+            // No credentials: copy the authority and go on after it.
+            out.push_str(&tail[..authority_end]);
+            rest = &tail[authority_end..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Whether `command` is the file `cli` (links followed): an entry that runs
+/// this very cmux.
+fn same_file(command: &str, cli: &str) -> bool {
+    let canonical = |path: &str| std::fs::canonicalize(path).ok();
+    command == cli || canonical(command).is_some_and(|c| Some(c) == canonical(cli))
+}
+
+/// This cmux's own path, links followed: the command the manual lines run.
+fn this_cli() -> Result<String, Refusal> {
+    std::env::current_exe()
+        .map(|exe| exe.canonicalize().unwrap_or(exe).to_string_lossy().into_owned())
+        .map_err(|error| Refusal::Failed(format!("cmux: setup mcp: no path to this cmux: {error}")))
+}
+
+/// The person has not answered whether agents they start in cmux get cmux's
+/// tools (`agents.cmuxMcp` unset or `ask`): only they answer it, in the
 /// onboarding step or Settings > Agents.
 fn unanswered() -> Value {
     json!({
         "kind": "setting",
         "text": format!(
-            "The person has not chosen whether cmux may add its tools to their coding agents \
-             ({} is \"ask\"). Ask them: they answer in cmux's cmux Tools step or in Settings > \
-             Agents > cmux Tools in Your Coding Agents (Add to My Agents), or run `cmux settings \
-             set {} on --confirm` themselves and approve it in cmux; then run `cmux setup mcp` \
-             again",
+            "The person has not chosen whether agents they start in cmux get cmux's tools ({} \
+             is \"ask\"). Ask them: they answer in cmux's cmux Tools step or in Settings > \
+             Agents, or run `cmux settings set {} on --confirm` themselves and approve it in cmux",
             AgentsCmuxMcp::KEY,
             AgentsCmuxMcp::KEY
         ),
@@ -1124,19 +811,112 @@ fn unanswered() -> Value {
     })
 }
 
-/// The person's switch for MCP clients outside cmux, and why the settings
-/// file could not be read when it could not.
+/// The person's switch for cmux's MCP tools, and why the settings file could
+/// not be read when it could not.
 fn switch(settings: &Path, unreadable: Option<&str>) -> Value {
     let why =
         unreadable.map(|error| format!(" (it cannot be read now: {error})")).unwrap_or_default();
     json!({
         "kind": "setting",
         "text": format!(
-            "Turn on the cmux MCP server for agents outside cmux: add \"mcp\": {{\"enabled\": true}} \
-             to {}{why}, then run `cmux setup mcp` again",
+            "Turn on the cmux MCP server: \"mcp\": {{\"enabled\": false}} in {}{why} keeps \
+             cmux's tools from the agents cmux starts; set it to true, or remove it",
             settings.display()
         ),
         "command": Value::Null,
         "url": Value::Null,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_url_credentials as redact;
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| (*a).to_owned()).collect()
+    }
+
+    /// Secret-shaped values are redacted; a plain command line stays as it is.
+    #[test]
+    fn secret_shaped_args_are_redacted() {
+        let r = |args: &[&str]| super::redact_secrets(&strings(args));
+        assert_eq!(r(&["--token=abc", "x"]), ["--token=<redacted>", "x"]);
+        assert_eq!(r(&["--api-key", "abc", "mcp"]), ["--api-key", "<redacted>", "mcp"]);
+        assert_eq!(r(&["--password=hunter2"]), ["--password=<redacted>"]);
+        assert_eq!(
+            r(&["KEY=sk9f8a7d6s5f4g3h2j1k0l", "https://u:p@h/x"]),
+            ["KEY=<redacted>", "https://<redacted>@h/x"]
+        );
+        assert_eq!(
+            r(&["--header", "Authorization: Bearer abc.def", "-H", "X-Api-Key: k1"]),
+            ["--header", "Authorization: <redacted>", "-H", "X-Api-Key: <redacted>"]
+        );
+        assert_eq!(
+            r(&["--header=Authorization: Basic dXNlcjpw"]),
+            ["--header=Authorization: <redacted>"]
+        );
+        assert_eq!(r(&["X-Custom: Token t0k3n"]), ["X-Custom: <redacted>"]);
+        assert_eq!(r(&["mcp", "ghp1a2b3c4d5e6f7g8h9i0j1k2l3m4n"]), ["mcp", "<redacted>"]);
+        assert_eq!(
+            r(&[
+                "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+            ]),
+            ["<redacted>"]
+        );
+        assert_eq!(
+            r(&["--url=https://h.example/mcp?access_token=abc&v=2", "https://h/x?api_key=k#top"]),
+            [
+                "--url=https://h.example/mcp?access_token=<redacted>&v=2",
+                "https://h/x?api_key=<redacted>#top"
+            ]
+        );
+        assert_eq!(
+            r(&["-H", "Authorization:", "Bearer xyz", "mcp"]),
+            ["-H", "Authorization: <redacted>", "<redacted>", "mcp"]
+        );
+        assert_eq!(
+            r(&["-H", "Authorization: Bearer", "xyz"]),
+            ["-H", "Authorization: <redacted>", "<redacted>"]
+        );
+        assert_eq!(r(&["Bearer", "xyz", "mcp"]), ["Bearer", "<redacted>", "mcp"]);
+        assert_eq!(
+            r(&["--header=Authorization: Bearer", "xyz", "mcp"]),
+            ["--header=Authorization: <redacted>", "<redacted>", "mcp"]
+        );
+        assert_eq!(
+            r(&["--header=Authorization:", "Bearer xyz"]),
+            ["--header=Authorization: <redacted>", "<redacted>"]
+        );
+        for plain in [
+            &["npx", "-y", "cmux", "mcp", "serve"][..],
+            &["/Applications/cmux.app/Contents/Resources/bin/cmux", "mcp", "serve", "--all-tools"],
+            &["--registry=https://npm.example/", "--keep-alive", "LANG=en_US.UTF-8"],
+            &["MODE=aaaaaaaaaaaaaaaaaaaaaaaaa"],
+            &["lib/node_modules/cmux-tui-linux-x64/bin/cmux-tui", "mcp", "serve"],
+            &[
+                "cmux@1.2.3-beta.4",
+                "Content-Type: application/json",
+                "abcdefghijklmnopqrstuvwxyzab",
+            ],
+            &["https://npm.example/cmux?v=2&tag=next", "node_modules.cache.dir", "a.b.c"],
+        ] {
+            assert_eq!(r(plain), strings(plain), "{plain:?}");
+        }
+    }
+
+    #[test]
+    fn url_credentials_are_redacted_and_nothing_else_changes() {
+        assert_eq!(
+            redact("--registry=https://me:tok@npm.example/x"),
+            "--registry=https://<redacted>@npm.example/x"
+        );
+        assert_eq!(redact("https://tok@h"), "https://<redacted>@h");
+        assert_eq!(
+            redact("a http://u:p@h/ b https://v@w"),
+            "a http://<redacted>@h/ b https://<redacted>@w"
+        );
+        for plain in ["https://npm.example/x", "mcp", "user@host", "https://h/a@b", ""] {
+            assert_eq!(redact(plain), plain);
+        }
+    }
 }

@@ -140,127 +140,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add to My Agents"
+            "value": "Turn On"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أضف إلى وكلائي"
+            "value": "تشغيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaj mojim agentima"
+            "value": "Uključi"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Føj til mine agenter"
+            "value": "Slå til"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zu meinen Agenten hinzufügen"
+            "value": "Einschalten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir a mis agentes"
+            "value": "Activar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajouter à mes agents"
+            "value": "Activer"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi ai miei agenti"
+            "value": "Attiva"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントに追加"
+            "value": "オンにする"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បន្ថែមទៅភ្នាក់ងាររបស់ខ្ញុំ"
+            "value": "បើក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내 에이전트에 추가"
+            "value": "켜기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legg til i agentene mine"
+            "value": "Slå på"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaj do moich agentów"
+            "value": "Włącz"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicionar aos meus agentes"
+            "value": "Ativar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавить моим агентам"
+            "value": "Включить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มให้เอเจนต์ของฉัน"
+            "value": "เปิด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajanlarıma ekle"
+            "value": "Aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Додати моїм агентам"
+            "value": "Увімкнути"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm vào tác tử của tôi"
+            "value": "Bật"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "添加到我的智能体"
+            "value": "开启"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "加入我的代理程式"
+            "value": "開啟"
           }
         }
       }

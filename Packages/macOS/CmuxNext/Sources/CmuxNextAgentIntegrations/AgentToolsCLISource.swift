@@ -5,9 +5,9 @@ import os
 
 /// The cmux Tools question's source over the bundled CLI: the answer is `agents.cmuxMcp`, read from
 /// and written through the app's settings owner (the person's own write; `ask` removes the key); the
-/// agents and every config write are `cmux setup mcp` (the code a person or an agent runs in a
-/// terminal), so cmux writes no agent config itself. The CLI runs off the main thread with the login
-/// `PATH` a terminal has, so it finds the `claude` and `codex` a terminal finds.
+/// agents are `cmux setup mcp`'s report (the code a person or an agent runs in a terminal), which
+/// writes nothing. The CLI runs off the main thread with the login `PATH` a terminal has, so it
+/// finds the `claude` and `codex` a terminal finds.
 @MainActor
 public final class AgentToolsCLISource: AgentToolsSource {
     private let cli: @MainActor () async -> URL?
@@ -37,18 +37,19 @@ public final class AgentToolsCLISource: AgentToolsSource {
     }
 
     public func agentToolsAgents() async -> [AgentToolsAgent] {
-        guard let cli = await cli(), let report = await Self.setupMCP(cli, ["--dry-run"]) else { return [] }
-        return AgentToolsAgent.agents(setupReport: report) ?? []
+        await agentToolsReport()?.agents ?? []
     }
 
-    public func applyAgentTools(remove: Bool) async -> [AgentToolsAgent]? {
-        guard let cli = await cli(), let report = await Self.setupMCP(cli, remove ? ["--remove"] : []) else { return nil }
-        guard remove else { return AgentToolsAgent.agents(setupReport: report) }
-        // `--remove` takes out only an entry named `cmux`: read again, so one under another name that
-        // still runs cmux's server shows as added, not as removed.
-        guard AgentToolsAgent.agents(setupReport: report, removing: true) != nil,
-              let after = await Self.setupMCP(cli, ["--dry-run"]) else { return nil }
-        return AgentToolsAgent.agents(setupReport: after)
+    public func agentToolsReport() async -> AgentToolsReport? {
+        guard let cli = await cli(), let report = await Self.setupMCP(cli, []),
+              let agents = AgentToolsAgent.agents(setupReport: report) else { return nil }
+        return AgentToolsReport(agents: agents, manual: AgentToolsAgent.manualCommands(setupReport: report))
+    }
+
+    public func removeLeftoverEntry(_ id: String) async -> AgentToolsRemoval {
+        guard ["claude", "codex"].contains(id), let cli = await cli(),
+              let data = await Self.setupMCP(cli, ["--remove", id, "--confirm"]) else { return .failed }
+        return AgentToolsRemoval(removeReport: data)
     }
 
     /// `cmux --json setup mcp <arguments>` off the main thread; its stdout (a failed run prints its

@@ -478,3 +478,403 @@ fn the_hosted_mcp_server_is_off_by_default_and_its_config_holds_no_token() {
     assert!(super::resolve(&inputs(true)).servers.iter().all(|s| s.name != name));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Every agent cmux starts gets the one `cmux` server ([`super::cmux_server`]): this CLI's `mcp
+/// serve` with the app's settings file, and only with the person's yes (`agents.cmuxMcp` on).
+/// Unanswered, `off` or a file that does not parse: the session's other servers, standalone. A
+/// Chief turn (a preset naming its cmux tools) keeps it either way.
+#[test]
+fn the_cmux_server_goes_only_with_the_persons_yes() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let cmux = root.path().join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/bin/acpmux");
+    let inputs = |json: Option<&str>| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(exe.clone(), Vec::new())),
+        ..memory_inputs(root.path(), json)
+    };
+    let names = |json: Option<&str>, env: &std::collections::BTreeMap<String, String>| {
+        super::resolve(&inputs(json))
+            .scoped(env)
+            .servers
+            .into_iter()
+            .map(|s| s.name)
+            .collect::<Vec<_>>()
+    };
+    let none = std::collections::BTreeMap::new();
+    for json in [
+        None,
+        Some("{}"),
+        Some(r#"{"agents": {"cmuxMcp": "ask"}}"#),
+        Some(r#"{"agents": {"cmuxMcp": "off"}}"#),
+        Some(r#"{"agents.cmuxMcp": "yes"}"#),
+        Some("{"),
+    ] {
+        let names = names(json, &none);
+        assert!(!names.contains(&"cmux".to_owned()), "{json:?}: {names:?}");
+        assert!(names.contains(&crate::acpmux_mcp::SERVER_NAME.to_owned()), "{json:?}: {names:?}");
+        let chief = std::collections::BTreeMap::from([(
+            super::MCP_TOOLS_ENV.to_owned(),
+            super::CHIEF_TURN_TOOLS.to_owned(),
+        )]);
+        assert!(
+            super::resolve(&inputs(json)).scoped(&chief).servers.iter().any(|s| s.name == "cmux")
+        );
+    }
+    for json in [r#"{"agents": {"cmuxMcp": "on"}}"#, "{\n// mine\n\"agents.cmuxMcp\": \"on\",\n}"] {
+        let tools = super::resolve(&inputs(Some(json))).scoped(&none);
+        let server =
+            tools.servers.iter().find(|s| s.name == "cmux").unwrap_or_else(|| panic!("{json}"));
+        assert_eq!(server.command, cmux);
+        assert_eq!(server.args, ["mcp", "serve"]);
+        // Folded: one server, `cmux`, the others behind it.
+        let folded = tools.for_session("s-1").folded();
+        assert_eq!(folded.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["cmux"]);
+    }
+    // MCP off in the settings file: no `cmux` server even with the yes.
+    let off = r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#;
+    assert!(!names(Some(off), &none).contains(&"cmux".to_owned()));
+}
+
+#[test]
+fn the_cmux_server_definition_names_the_settings_file() {
+    let settings = std::path::Path::new("/h/cmux-next-x.json");
+    let server = super::cmux_server(std::path::Path::new("/A/cmux"), false, settings);
+    assert_eq!(server.name, "cmux");
+    assert_eq!(server.command, std::path::PathBuf::from("/A/cmux"));
+    assert_eq!(server.args, ["mcp", "serve"]);
+    // Always the resolved settings file, and the acpmux guest mode always off: Codex merges these
+    // keys into a person's own `cmux` entry, one `cmux acp desktop link` wrote among them.
+    assert_eq!(
+        server.env,
+        [
+            ("CMUX_NEXT_CONFIG_FILE".to_owned(), "/h/cmux-next-x.json".to_owned()),
+            (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
+        ]
+    );
+    let all = super::cmux_server(std::path::Path::new("/A/cmux"), true, settings);
+    assert_eq!(all.args, ["mcp", "serve", "--all-tools"]);
+}
+
+/// A Codex chat whose person's own server named `cmux` is HTTP, as Codex itself answers for the
+/// launch, gets no `cmux` server (Codex would refuse the merged entry), the rule the `codex`
+/// terminal shim follows; its other servers stay. A stdio entry, none, or no answer keeps it.
+#[test]
+fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let codex = fake_codex(root.path());
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "/x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server("cmux"), server(crate::acpmux_mcp::SERVER_NAME)],
+        cmux_for_agents: true,
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::new();
+    let names = |t: super::AgentTools| t.servers.into_iter().map(|s| s.name).collect::<Vec<_>>();
+    let argv =
+        vec![codex.to_string_lossy().into_owned(), "-p".into(), "w".into(), "app-server".into()];
+    let at = super::CodexLaunch { cwd: &work, argv: &argv, answer: None };
+    for (answer, want) in [
+        (Some("/opt/x"), &["cmux", "acpmux"][..]),
+        (Some("http"), &["acpmux"]),
+        (None, &["cmux", "acpmux"]),
+    ] {
+        codex_answers(root.path(), answer);
+        assert_eq!(
+            names(tools.clone().without_cmux_beside_an_http_entry(at, &env)),
+            want,
+            "{answer:?}"
+        );
+    }
+    // The person's own options went to `mcp get`.
+    let calls = std::fs::read_to_string(root.path().join("calls")).unwrap();
+    assert!(calls.lines().all(|l| l == "-p w mcp get cmux --json"), "{calls}");
+    // Skip on doubt: no answer from Codex (output it cannot read, or a program that is not
+    // there), and a project file Codex's answer does not show it loads, drop `cmux` too.
+    std::fs::write(root.path().join("answer"), "not json").unwrap();
+    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(at, &env)), ["acpmux"]);
+    let gone = vec!["/nowhere/codex".to_owned(), "app-server".to_owned()];
+    let missing = super::CodexLaunch { cwd: &work, argv: &gone, answer: None };
+    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(missing, &env)), ["acpmux"]);
+    std::fs::create_dir_all(work.join(".git")).unwrap();
+    std::fs::create_dir_all(work.join(".codex")).unwrap();
+    std::fs::write(
+        work.join(".codex/config.toml"),
+        "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
+    )
+    .unwrap();
+    for answer in [None, Some("/opt/x")] {
+        codex_answers(root.path(), answer);
+        assert_eq!(
+            names(tools.clone().without_cmux_beside_an_http_entry(at, &env)),
+            ["acpmux"],
+            "an untrusted project entry, {answer:?}"
+        );
+    }
+    // The same stdio entry Codex answers is one it loads: no doubt.
+    std::fs::write(
+        work.join(".codex/config.toml"),
+        "[mcp_servers.cmux]\ncommand = \"/opt/x\"\nargs = [\"mcp\", \"serve\"]\n",
+    )
+    .unwrap();
+    assert_eq!(
+        names(tools.clone().without_cmux_beside_an_http_entry(at, &env)),
+        ["cmux", "acpmux"]
+    );
+    std::fs::remove_dir_all(work.join(".codex")).unwrap();
+    // An ACP adapter (not a Codex app-server launch) loads the person's config through the
+    // `codex` on its PATH, asked with no options.
+    std::fs::remove_file(root.path().join("calls")).unwrap();
+    let adapter = vec!["/opt/codex-acp-adapter".to_owned(), "--x".to_owned()];
+    let other = super::CodexLaunch { cwd: &work, argv: &adapter, answer: None };
+    let on_path: std::collections::BTreeMap<String, String> =
+        [("PATH".to_owned(), format!("{}:/usr/bin:/bin", codex.parent().unwrap().display()))]
+            .into();
+    codex_answers(root.path(), Some("http"));
+    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(other, &on_path)), ["acpmux"]);
+    codex_answers(root.path(), Some("/opt/x"));
+    assert_eq!(names(tools.without_cmux_beside_an_http_entry(other, &on_path)), ["cmux", "acpmux"]);
+    let calls = std::fs::read_to_string(root.path().join("calls")).unwrap();
+    assert!(calls.lines().all(|l| l == "mcp get cmux --json"), "{calls}");
+}
+
+/// The servers a Codex chat's session start and fork send (`acp_servers_with`, which
+/// `hub/spawn.rs` `acp_params` and `hub/fork.rs` use): no `cmux` beside the person's own HTTP
+/// `cmux` entry (as Codex answers), the others standalone; another harness, or no such entry,
+/// keeps `cmux` with the others folded behind it.
+#[test]
+fn a_codex_session_start_or_fork_beside_an_http_cmux_entry_sends_no_cmux() {
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let codex = fake_codex(root.path());
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "/x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server("cmux"), server(crate::acpmux_mcp::SERVER_NAME)],
+        cmux_for_agents: true,
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::new();
+    let argv = vec![codex.to_string_lossy().into_owned(), "app-server".to_owned()];
+    let names = |cwd: Option<&std::path::Path>| {
+        let codex = cwd.map(|cwd| super::CodexLaunch { cwd, argv: &argv, answer: None });
+        super::acp_servers_with(tools.clone(), &env, "s-1", false, codex)
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["name"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(Some(&work)), ["cmux"]);
+    codex_answers(root.path(), Some("http"));
+    assert_eq!(names(Some(&work)), ["acpmux"]);
+    assert_eq!(names(None), ["cmux"], "not Codex: the person's Codex config does not matter");
+}
+
+/// A chat started from another Mac follows that Mac's answer (`hub/cmux_tools_answer.rs`), as
+/// its session env carries it, over this machine's settings file either way.
+#[test]
+fn a_chat_started_from_another_mac_gets_cmux_by_that_macs_answer() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let cmux = root.path().join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let has_cmux = |json: &str, answer: Option<&str>| {
+        let env: std::collections::BTreeMap<String, String> = answer
+            .map(|a| (super::TOOLS_ANSWER_ENV.to_owned(), a.to_owned()))
+            .into_iter()
+            .collect();
+        super::resolve(&memory_inputs(root.path(), Some(json)))
+            .scoped(&env)
+            .servers
+            .iter()
+            .any(|s| s.name == super::CMUX_SERVER)
+    };
+    let (on, off) = (r#"{"agents": {"cmuxMcp": "on"}}"#, r#"{"agents": {"cmuxMcp": "off"}}"#);
+    assert!(has_cmux(off, Some("on")));
+    assert!(!has_cmux(on, Some("off")));
+    assert!(!has_cmux(on, Some("ask")), "anything but on is no");
+    // Started here: this machine's answer.
+    assert!(has_cmux(on, None));
+    assert!(!has_cmux(off, None));
+}
+
+/// A Codex chat whose servers hold no `cmux` of cmux's own sends the person's own stdio `cmux`
+/// entry back whole, exactly as Codex itself answers it, with the chat's session and answer
+/// (`person_entry_env`): never for an HTTP entry, none or no answer, and not when cmux gives its
+/// own `cmux`.
+#[test]
+fn a_persons_own_stdio_cmux_entry_learns_which_chat_starts_it() {
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let codex = fake_codex(root.path());
+    let argv = vec![codex.to_string_lossy().into_owned(), "app-server".to_owned()];
+    let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: None };
+    let mut env =
+        std::collections::BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "off".to_owned())]);
+    let without = serde_json::json!([{"name": "acpmux"}]);
+    let with_cmux = serde_json::json!([{"name": "cmux"}]);
+    assert_eq!(super::person_entry_env(&without, launch, &env, "s-1"), None, "no entry");
+    codex_answers(root.path(), Some("http"));
+    assert_eq!(super::person_entry_env(&without, launch, &env, "s-1"), None, "an HTTP entry");
+    codex_answers(root.path(), Some("/opt/cmux"));
+    assert_eq!(
+        super::person_entry_env(&without, launch, &env, "s-1"),
+        Some(serde_json::json!({"cmux": {"command": "/opt/cmux", "args": ["mcp", "serve"],
+            "env": {"CMUX_AGENT_SESSION": "s-1", "CMUX_AGENT_TOOLS_ANSWER": "off"}}}))
+    );
+    env.insert(super::TOOLS_ANSWER_ENV.to_owned(), "on".to_owned());
+    let answer_of = |env: &std::collections::BTreeMap<String, String>| {
+        super::person_entry_env(&without, launch, env, "s-3").unwrap()["cmux"]["env"]
+            ["CMUX_AGENT_TOOLS_ANSWER"]
+            .clone()
+    };
+    assert_eq!(answer_of(&env), "on");
+    assert_eq!(
+        super::person_entry_env(&with_cmux, launch, &env, "s-1"),
+        None,
+        "cmux gives its own"
+    );
+    // A session cut off from cmux's tools: off, whatever the answer.
+    for (key, value) in [(super::SWITCH_ENV, "0"), (super::SERVERS_ENV, "acpmux,cmux-forum")] {
+        let mut cut = env.clone();
+        cut.insert(key.to_owned(), value.to_owned());
+        assert_eq!(answer_of(&cut), "off", "{key}={value}");
+    }
+    // A Codex that does not answer in time (or fails): nothing is sent.
+    std::fs::write(root.path().join("answer"), "not json").unwrap();
+    assert_eq!(super::person_entry_env(&without, launch, &env, "s-1"), None, "no answer");
+    // On the ACP params: `_meta.cmux.mcpServerEntry`, beside what is there.
+    let mut params = serde_json::json!({"cwd": "/w", "_meta": {"cmux": {"generateTitle": false}}});
+    super::send_person_entry_env(&mut params, Some(serde_json::json!({"cmux": {"K": "v"}})));
+    assert_eq!(params["_meta"]["cmux"]["mcpServerEntry"]["cmux"]["K"], "v");
+    assert_eq!(params["_meta"]["cmux"]["generateTitle"], false);
+    let mut bare = serde_json::json!({"cwd": "/w"});
+    super::send_person_entry_env(&mut bare, None);
+    assert!(bare.get("_meta").is_none());
+}
+
+/// A remote-origin chat with no answer of its own (a phone or Web client started it) gets `off`;
+/// one another Mac's daemon started keeps that Mac's answer; a local chat is untouched.
+#[test]
+fn a_remote_origin_chat_without_its_own_answer_gets_off() {
+    let mut phone = std::collections::BTreeMap::new();
+    super::remote_origin_answer(&mut phone, true);
+    assert_eq!(phone.get(super::TOOLS_ANSWER_ENV).map(String::as_str), Some("off"));
+    let mut peer =
+        std::collections::BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "on".to_owned())]);
+    super::remote_origin_answer(&mut peer, true);
+    assert_eq!(peer.get(super::TOOLS_ANSWER_ENV).map(String::as_str), Some("on"));
+    let mut local = std::collections::BTreeMap::new();
+    super::remote_origin_answer(&mut local, false);
+    assert!(local.is_empty());
+}
+
+/// A fake `codex` named so its launch is a Codex app-server launch: it answers `mcp get cmux
+/// --json` with the contents of `<dir>/answer` (as Codex prints them), or Codex's "No MCP server
+/// named 'cmux' found." with exit 1 when there is none, and logs each call's arguments.
+pub(crate) fn fake_codex(dir: &std::path::Path) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let bin = dir.join("fake-bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let path = bin.join("codex");
+    let (answer, log) = (dir.join("answer"), dir.join("calls"));
+    std::fs::write(
+        &path,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> {log:?}\nif [ -f {answer:?} ]; then cat {answer:?}; else echo \"Error: No MCP server named 'cmux' found.\" >&2; exit 1; fi\n"
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// What the fake Codex answers next: a stdio entry, an HTTP one, or none (`None`).
+pub(crate) fn codex_answers(dir: &std::path::Path, answer: Option<&str>) {
+    match answer {
+        Some("http") => std::fs::write(
+            dir.join("answer"),
+            r#"{"transport":{"type":"streamable_http","url":"http://127.0.0.1:1/mcp"}}"#,
+        )
+        .unwrap(),
+        Some(command) => std::fs::write(
+            dir.join("answer"),
+            serde_json::json!({"transport": {"type": "stdio", "command": command, "args": ["mcp", "serve"]}})
+                .to_string(),
+        )
+        .unwrap(),
+        None => {
+            let _ = std::fs::remove_file(dir.join("answer"));
+        }
+    }
+}
+
+/// Codex is asked once per launch that keeps its answer (one chat start, fork, pool spec), and
+/// asked again by the next launch, so a config the person changes between two chat starts counts.
+#[test]
+fn codex_is_asked_once_per_launch_and_again_by_the_next() {
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let codex = fake_codex(root.path());
+    let argv = vec![codex.to_string_lossy().into_owned(), "app-server".to_owned()];
+    let env = std::collections::BTreeMap::new();
+    let calls =
+        || std::fs::read_to_string(root.path().join("calls")).unwrap_or_default().lines().count();
+    codex_answers(root.path(), Some("/opt/x"));
+    let first = super::CodexAnswer::default();
+    let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&first) };
+    for _ in 0..3 {
+        assert!(matches!(
+            super::persons_cmux_entry(launch, &env),
+            crate::codex_cmux_entry::CmuxEntry::Stdio { .. }
+        ));
+    }
+    assert_eq!(calls(), 1, "one launch, one question");
+    codex_answers(root.path(), Some("http"));
+    let next = super::CodexAnswer::default();
+    let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&next) };
+    assert!(super::persons_cmux_entry(launch, &env).is_http(), "the next launch asks again");
+    assert_eq!(calls(), 2);
+}
+
+/// One start asks Codex once, off the runtime (`warm_codex_answer`), and everything the start
+/// reads shares that answer: its tool rows, its `mcpServers`, the person's entry env keys.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_start_asks_codex_once_off_the_runtime_for_everything_it_reads() {
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let codex = fake_codex(root.path());
+    let argv = vec![codex.to_string_lossy().into_owned(), "app-server".to_owned()];
+    let env = std::collections::BTreeMap::new();
+    codex_answers(root.path(), Some("/opt/x"));
+    let answer = super::CodexAnswer::default();
+    super::warm_codex_answer(&work, &argv, &env, &answer).await;
+    assert!(matches!(answer.get(), Some(crate::codex_cmux_entry::CmuxEntry::Stdio { .. })));
+    super::warm_codex_answer(&work, &argv, &env, &answer).await;
+    let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&answer) };
+    let tools = super::AgentTools::default();
+    let _ = tools.clone().without_cmux_beside_an_http_entry(launch, &env);
+    let servers = super::acp_servers_with(tools, &env, "s-1", false, Some(launch));
+    assert!(super::person_entry_env(&servers, launch, &env, "s-1").is_some());
+    let calls = std::fs::read_to_string(root.path().join("calls")).unwrap();
+    assert_eq!(calls.lines().count(), 1, "{calls}");
+}

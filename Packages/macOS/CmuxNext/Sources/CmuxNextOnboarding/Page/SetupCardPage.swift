@@ -37,7 +37,7 @@ public struct SetupCardEnvironment {
     public var historySources: @MainActor () async -> Bool
     /// Shows Bring your history (the person's click); false when it did not show.
     public var importHistory: @MainActor () -> Bool
-    /// The cmux Tools question (`agents.cmuxMcp` and `cmux setup mcp`); nil: the card has no such row.
+    /// The cmux Tools question (`agents.cmuxMcp` and `cmux setup mcp`'s report); nil: the card has no such row.
     public var agentTools: (any AgentToolsSource)?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
@@ -255,7 +255,7 @@ public final class SetupCardPageProvider: PageProvider {
         case "signInAccount": environment.signInAccount()
         case "importHistory": if environment.importHistory() { setup.historyAnswered() }
         case "declineHistory": setup.historyAnswered()
-        // cmux Tools: Add to My Agents runs `cmux setup mcp` for the agents found; Not Now writes nothing.
+        // cmux Tools: Turn On answers yes, Not Now answers no; neither writes an agent's own config.
         case "addTools" where toolsRow != .null: tools.add()
         case "declineTools" where toolsRow != .null: tools.decline()
         case "installCLI":

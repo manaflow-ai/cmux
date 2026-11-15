@@ -172,7 +172,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.agentCache"),
             // Folders that start an agent without the trust question.
             GroupSpec(group: "settings.group.folderTrust"),
-            // Whether cmux adds its MCP server (Computer Use included) to the person's own coding agents (the onboarding step's question); the agentTools card under it lists the agents with Add Now and Remove.
+            // Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (the onboarding step's question); the agentTools card under it lists the agents with Turn On.
             GroupSpec(group: "settings.group.agentTools"),
         ],
         trail: [.agentTools, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]

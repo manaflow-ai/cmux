@@ -11,7 +11,7 @@ import Testing
 /// `CMUX_NEXT_*` key of the app's environment, so a Claude Code started in the
 /// app's terminal ran `cmux mcp serve` on the shared cmux-next.json, found
 /// `agents.cmuxMcp` off there and exited before the MCP handshake (Claude
-/// showed CONNECTION_CLOSED right after the person chose Add to My Agents).
+/// showed CONNECTION_CLOSED right after the person said yes to cmux Tools).
 struct LaunchConfigFileEnvironmentTests {
     static let home = URL(fileURLWithPath: "/Users/someone", isDirectory: true)
 

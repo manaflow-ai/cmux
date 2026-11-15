@@ -74,18 +74,16 @@ describe("primary label", () => {
 
 describe("cmux tools text", () => {
   test("the buttons, the window title and the status line follow the state", () => {
-    expect(primaryLabel(en, "addTools")).toBe("Add to My Agents");
-    expect(primaryLabels(en, "agentTools")).toEqual(["Add to My Agents", "Done"]);
+    expect(primaryLabel(en, "addTools")).toBe("Turn On");
+    expect(primaryLabels(en, "agentTools")).toEqual(["Turn On", "Done"]);
     expect(skipLabel(en, "notNow")).toBe("Not Now");
     expect(windowTitle(en, agentToolsState("found"))).toBe("cmux Tools");
     expect(agentToolsStatus(en, agentToolsState("found").agentTools)).toBeNull();
-    expect(agentToolsStatus(en, agentToolsState("adding").agentTools)).toBe("Adding…");
+    expect(agentToolsStatus(en, agentToolsState("adding").agentTools)).toBe("Turning on…");
     expect(agentToolsStatus(en, null)).toBe("Checking…");
   });
   test("the place in Settings is translated with the Settings page's own names", () => {
-    expect(de.t("onboarding.agentTools.settings")).toContain(
-      "Einstellungen > Agenten > cmux-Werkzeuge in deinen Coding-Agenten",
-    );
+    expect(de.t("onboarding.agentTools.settings")).toContain("Einstellungen > Agenten");
   });
 });
 
@@ -122,23 +120,14 @@ describe("Return and Escape", () => {
   });
 });
 
-describe("cmux Tools in a DEV build", () => {
-  test("an agent a DEV build's terminals give cmux's tools says so, never Not added", () => {
+describe("cmux Tools in another language", () => {
+  test("an agent that gets cmux's tools says so, and the Done line names agents started in cmux", () => {
     const tools = agentToolsState("added").agentTools!;
     const row = { id: "claude", name: "Claude Code", state: "terminals" as const };
-    expect(agentToolsDetail(en, row, tools)).toBe("Gets cmux’s tools in cmux terminals");
-    expect(agentToolsDetail(de, row, tools)).toBe("Erhält die Werkzeuge von cmux in cmux-Terminals");
-  });
-});
-
-describe("cmux Tools done in a DEV build", () => {
-  test("the Done line says the agents get cmux's tools in this build's terminals", () => {
-    const tools = agentToolsState("added").agentTools!;
-    const terminals = { ...tools, rows: tools.rows.map((row) => ({ ...row, state: "terminals" as const })) };
-    expect(agentToolsStatus(en, terminals)).toBe("Done. Agents you start in this build’s terminals get cmux’s tools.");
-    expect(agentToolsStatus(de, terminals)).toBe(
-      "Fertig. Agenten, die du in den Terminals dieser Version startest, bekommen die Werkzeuge von cmux.",
+    expect(agentToolsDetail(en, row, tools)).toBe("Gets cmux’s tools in cmux");
+    expect(agentToolsDetail(de, row, tools)).toBe("Bekommt die Werkzeuge von cmux in cmux");
+    expect(agentToolsStatus(de, tools)).toBe(
+      "Fertig. Agenten, die du in den Terminals und Agent-Chats von cmux startest, bekommen die Werkzeuge von cmux.",
     );
-    expect(agentToolsStatus(en, tools)).toBe("Done. Your agents get cmux’s tools when they next start.");
   });
 });

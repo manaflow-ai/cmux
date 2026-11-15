@@ -53,6 +53,14 @@ pub fn read() -> Settings {
     paths().iter().find_map(|path| read_one(path)).unwrap_or(Settings::Missing)
 }
 
+/// The settings file `read` reads: the first of [`paths`] that exists, else
+/// the first (the one the app creates). What a server cmux starts is told to
+/// read (`agent_tools::cmux_server`).
+pub fn resolved_path() -> PathBuf {
+    let paths = paths();
+    paths.iter().find(|path| path.exists()).cloned().unwrap_or_else(|| paths[0].clone())
+}
+
 /// The settings file's text, or `None` when there is none to read.
 pub fn text() -> Option<String> {
     match read() {

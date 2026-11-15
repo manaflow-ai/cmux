@@ -820,7 +820,7 @@ fn the_server_refuses_unless_cmux_json_enables_it() {
 }
 
 /// The off server's reason names the setting the person actually changes:
-/// Settings > Agents > Add cmux Tools to Your Coding Agents, or
+/// Settings > Agents > cmux Tools for Agents in cmux (Turn On), or
 /// `cmux settings set agents.cmuxMcp on --confirm`, not `mcp.enabled` (the
 /// switch this flow never sets). An explicit `"mcp": {"enabled": false}` is
 /// named as itself. Read outside an agent chat, in every locale.
@@ -835,16 +835,20 @@ fn the_refusal_names_the_setting_the_person_turns_on() {
             Some(text) => std::fs::write(&path, text).unwrap(),
             None => drop(std::fs::remove_file(&path)),
         }
-        let message = refusal_for(&path, false).expect("off");
+        let message = refusal_for(&path, Caller::Outside, None).expect("off");
         assert!(message.contains("agents.cmuxMcp on --confirm"), "{message}");
         assert!(!message.contains("mcp.enabled"), "{message}");
         assert!(message.contains(&path.display().to_string()), "{message}");
     }
     std::fs::write(&path, r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#).unwrap();
-    let message = refusal_for(&path, false).expect("off");
+    let message = refusal_for(&path, Caller::Outside, None).expect("off");
     assert!(message.contains("\"mcp\": {\"enabled\": false}"), "{message}");
     let [english, _] = messages::all();
-    assert!(english.disabled.contains("Add cmux Tools to Your Coding Agents"));
+    assert!(
+        english
+            .disabled
+            .contains("Turn On in cmux Settings > Agents > cmux Tools for Agents in cmux")
+    );
     for messages in messages::all() {
         assert!(messages.disabled.contains("cmux settings set agents.cmuxMcp on --confirm"));
         assert!(messages.disabled.contains("{path}") && messages.switched_off.contains("{path}"));
@@ -861,7 +865,7 @@ fn the_refusal_names_the_setting_the_person_turns_on() {
 /// of any name, answers the reason as an error and runs nothing.
 #[test]
 fn the_off_server_completes_the_handshake_and_answers_every_call_with_the_reason() {
-    let reason = "cmux's tools are off: choose Add to My Agents";
+    let reason = "cmux's tools are off: choose Turn On";
     let server = off::Off::new(reason.to_owned());
     let init = server
         .handle(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",

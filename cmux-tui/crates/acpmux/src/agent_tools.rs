@@ -36,11 +36,20 @@
 //!   terminal gets the same through its shim (cmux-tui `agent_computer_use.rs`).
 //! - Binaries are found next to this executable (the app's
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`.
-//!   A missing binary leaves its server out. Every agent chat gets `cmux mcp serve`
-//!   by default (cx-wx93i, Lawrence 2026-10-14: "give every agent chat the
-//!   cmux MCP tools by default"), so it controls cmux without a shell
-//!   command its sandbox may refuse; the settings file's `"mcp":
-//!   {"enabled": false}` turns it off (`cmux mcp serve` refuses then too).
+//!   A missing binary leaves its server out.
+//! - The `cmux` server (`cmux mcp serve`, [`cmux_server`]): one definition for
+//!   every agent cmux starts, built by [`cmux_server`] for these sessions and
+//!   for a Claude Code or Codex typed into a cmux terminal (cmux-tui
+//!   `agent_computer_use.rs`), so the two cannot drift: the name `cmux`, the
+//!   CLI, `mcp serve`, and the settings file the app runs on
+//!   (`CMUX_NEXT_CONFIG_FILE`). A session gets it once the person said yes to
+//!   cmux's tools in agents started in cmux (`agents.cmuxMcp` is `on`,
+//!   [`agents_get_cmux`]; Aziz, 2026-11-14), the same answer the terminal
+//!   shims follow; a Chief turn (a preset with its own cmux tool list,
+//!   [`MCP_TOOLS_ENV`]) keeps it either way, being cmux's own orchestrator.
+//!   The settings file's `"mcp": {"enabled": false}` turns it off too (`cmux
+//!   mcp serve` refuses then). Without it the session's other servers stay
+//!   standalone (`folded`). cmux never writes an agent's own config for it.
 //! - Left out (`left_out`): remote-origin sessions (`remote_sandbox.rs`
 //!   keeps their MCP config empty on purpose), a profile or preset whose env
 //!   sets `ACPMUX_AGENT_TOOLS=0` (isolated sessions such as the Chief's
@@ -81,9 +90,16 @@ pub const SWITCH_ENV: &str = "ACPMUX_AGENT_TOOLS";
 pub const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
 
 /// Caller ids an agent must not inherit from the daemon's own environment
-/// (a daemon an agent started carries that agent's session too).
-pub const INHERITED_CALLER_ENV: [&str; 4] =
-    ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID", AGENT_SESSION_ENV];
+/// (a daemon an agent started carries that agent's session too, and a
+/// terminal Claude's answer to cmux's tools, [`TOOLS_ANSWER_ENV`]; a chat's own
+/// answer comes from its session env, applied after).
+pub const INHERITED_CALLER_ENV: [&str; 5] = [
+    "CMUX_TUI_TERMINAL_ID",
+    "CMUX_SURFACE_ID",
+    "CMUX_PANEL_ID",
+    AGENT_SESSION_ENV,
+    TOOLS_ANSWER_ENV,
+];
 
 /// The agent memory server's name (`optchat-chief agent-memory mcp`).
 pub const MEMORY_SERVER_NAME: &str = "cmux-agent-memory";
@@ -134,6 +150,56 @@ pub const ASKING_RULE: &str = "Asking the person: Full access already permits ha
 /// independent item in this one response" step is the published fix for that. Concise
 /// reporting is left to the harness prompt and the recap guidance (`agent_guidance.rs`).
 pub const CONCURRENT_WORK_RULE: &str = "Before each tool step, privately list what you need next, then request every read, search and command that does not depend on another's result in that one response, starting with the first: the files and instructions the task names or implies. Run long builds, tests and waits in the background when the tool allows it, and check the result before relying on it.";
+
+/// The cmux MCP server's name in every agent cmux starts ([`cmux_server`]).
+pub const CMUX_SERVER: &str = "cmux";
+
+/// The person's answer to "should agents you start in cmux get cmux's tools?".
+pub const AGENTS_CMUX_MCP_KEY: &str = "agents.cmuxMcp";
+
+/// A session env key: the answer (`on` or `off`) of the Mac that started this chat on another
+/// machine (`hub/cmux_tools_answer.rs`), which the chat follows over this machine's
+/// [`AGENTS_CMUX_MCP_KEY`]: in its tool list ([`AgentTools::scoped`]) and in any `cmux mcp serve`
+/// it starts (cmux-tui `cli/mcp.rs` `refusal`).
+pub const TOOLS_ANSWER_ENV: &str = "CMUX_AGENT_TOOLS_ANSWER";
+
+/// Whether agents cmux starts get the `cmux` server: the settings text says
+/// `agents.cmuxMcp` is `on` (nested or flat, JSONC). No file, no key, `ask`,
+/// `off`, another value or a file that does not parse: no. cmux-tui's
+/// `AgentsCmuxMcp` reads the same key for the terminal shims.
+pub fn agents_get_cmux(settings: Option<&str>) -> bool {
+    settings
+        .and_then(crate::user_settings::document)
+        .and_then(|doc| crate::user_settings::value(&doc, AGENTS_CMUX_MCP_KEY))
+        .is_some_and(|value| value == Value::String("on".into()))
+}
+
+/// The `cmux` server every agent cmux starts gets: this cmux CLI's `mcp
+/// serve` (`--all-tools` lists every tool instead of code mode) under the
+/// name [`CMUX_SERVER`]. Its env always names `settings_file`, the settings
+/// file the launch resolved (`CMUX_NEXT_CONFIG_FILE`, the default file
+/// too), so the server reads the settings the app runs on even where the
+/// harness passes a stdio server no env of its own (Codex). It also always
+/// sends [`crate::desktop_link::GUEST_ENV`] empty: Codex merges these keys
+/// into a person's own `[mcp_servers.cmux]`, and one `cmux acp desktop link`
+/// wrote carries the acpmux server's guest mode there, which would reach the
+/// acpmux server folded behind this one and hide its tools. The one
+/// definition for acpmux's sessions and cmux-tui's terminal shims; each adds
+/// only its own routing env.
+pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: &Path) -> McpServer {
+    let mut args = vec!["mcp".to_owned(), "serve".to_owned()];
+    if all_tools {
+        args.push("--all-tools".to_owned());
+    }
+    let env = vec![
+        (
+            crate::user_settings::CONFIG_OVERRIDE.to_owned(),
+            settings_file.to_string_lossy().into_owned(),
+        ),
+        (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
+    ];
+    McpServer { name: CMUX_SERVER.into(), command: cmux.to_path_buf(), args, env }
+}
 
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
@@ -241,6 +307,9 @@ pub struct AgentTools {
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then leaves the
     /// Computer Use server out.
     pub displays: Option<PathBuf>,
+    /// The person said yes to cmux's tools in agents started in cmux
+    /// ([`agents_get_cmux`]): [`AgentTools::scoped`] keeps the `cmux` server.
+    pub cmux_for_agents: bool,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -452,19 +521,243 @@ pub fn is_claude_code(name: &str, profile: &crate::config::HarnessProfile) -> bo
         || crate::config::derive_family(name, profile).starts_with("claude")
 }
 
-/// `mcpServers` for acpmux session `session_id`'s ACP harness; `all_tools`
-/// from [`lists_all_tools`].
+/// `mcpServers` for acpmux session `session_id`'s ACP harness: [`acp_servers_with`] over
+/// [`current`], none for a session [`left_out`].
 pub fn acp_servers_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
     session_id: &str,
     all_tools: bool,
+    codex: Option<CodexLaunch<'_>>,
 ) -> Value {
     if left_out(remote_origin, env, &[]) {
-        json!([])
-    } else {
-        current().scoped(env).for_session(session_id).listing(all_tools).folded().acp_servers()
+        return json!([]);
     }
+    acp_servers_with(current(), env, session_id, all_tools, codex)
+}
+
+/// The person's own stdio `cmux` entry, whole, with the env keys, for a Codex chat whose servers
+/// (`servers`, as [`acp_servers_for`] gave them) hold no `cmux` of cmux's own (the answer is not
+/// on, the HTTP rule, or a chat started from another machine): `{"cmux": {command, args, env:
+/// {CMUX_AGENT_SESSION, CMUX_AGENT_TOOLS_ANSWER}}}`, which cmux-codex-acp
+/// (`_meta.cmux.mcpServerEntry`) sends as `mcp_servers.cmux.{command,args,env.*}` overrides. The
+/// command and args are exactly the ones Codex itself loads for the launch
+/// ([`persons_cmux_entry`]), so it is the same entry with the keys added. Codex passes a stdio
+/// server only its own env and an allowlist, so without them the entry's `cmux mcp serve` cannot
+/// tell it runs in a chat, and counts as a caller outside cmux (cmux-tui `cli/mcp.rs`
+/// `refusal`). The answer is `off` for a session cut off from cmux's tools, else the session's
+/// own (a chat another Mac started, `TOOLS_ANSWER_ENV`), else this machine's. The pool key
+/// carries it (`hub/pool` `tool_servers`). `None` unless Codex answers a stdio entry (none, HTTP,
+/// an error or no answer in time: nothing is sent).
+pub fn person_entry_env(
+    servers: &Value,
+    launch: CodexLaunch<'_>,
+    env: &BTreeMap<String, String>,
+    session_id: &str,
+) -> Option<Value> {
+    let gives_cmux =
+        servers.as_array().is_some_and(|list| list.iter().any(|s| s["name"] == CMUX_SERVER));
+    if gives_cmux {
+        return None;
+    }
+    let crate::codex_cmux_entry::CmuxEntry::Stdio { command, args } =
+        persons_cmux_entry(launch, env)
+    else {
+        return None;
+    };
+    // A session cut off from cmux's tools gets the off server from the person's entry too.
+    let answer = match env.get(TOOLS_ANSWER_ENV).map(String::as_str) {
+        _ if cut_off(env) => "off",
+        Some("on") => "on",
+        Some(_) => "off",
+        None if agents_get_cmux(crate::user_settings::text().as_deref()) => "on",
+        None => "off",
+    };
+    // The entry Codex loads, as Codex itself gives it, with the keys: the same entry, never env
+    // keys with no command (`codex_cmux_entry`).
+    Some(json!({CMUX_SERVER: {
+        "command": command,
+        "args": args,
+        "env": {AGENT_SESSION_ENV: session_id, TOOLS_ANSWER_ENV: answer},
+    }}))
+}
+
+/// The person's own `cmux` entry for a Codex chat's `launch`, as Codex itself answers it
+/// (`codex_cmux_entry::resolve`): the launch's program (the profile's `CODEX_PATH`, else its argv's
+/// program), its config options, the chat's folder and the Codex child's environment
+/// (`login_env::effective_for`, with the profile env's `${keychain:…}` and `${env:…}` references
+/// resolved, as the launch resolves them). An ACP adapter (not a `codex ... app-server` launch)
+/// loads the person's config through the Codex this machine runs (`managed_codex::codex_binary`),
+/// asked with no options; none is no answer. Codex is asked once per start
+/// (`CodexLaunch::answer`: one chat start, shared by its tool rows, its pool spec and its
+/// `session/new`; one fork), never across starts, so a config the person changes counts at the
+/// next one; how long Codex took is logged. Run it off the runtime ([`warm_codex_answer`]).
+pub fn persons_cmux_entry(
+    launch: CodexLaunch<'_>,
+    env: &BTreeMap<String, String>,
+) -> crate::codex_cmux_entry::CmuxEntry {
+    use crate::codex_cmux_entry::CmuxEntry;
+    let ask = || {
+        let mut env = env.clone();
+        if crate::config::profiles::has_env_refs(&env)
+            && crate::config::profiles::resolve_env_refs(
+                &mut env,
+                &crate::login_env::reference_var,
+                &crate::config::profiles::keychain_lookup,
+            )
+            .is_err()
+        {
+            return CmuxEntry::Unknown;
+        }
+        let effective = crate::login_env::effective_for(Some("codex"), &env);
+        let app_server = crate::codex_app_server::is_profile_launch(launch.argv);
+        let program = if app_server {
+            effective
+                .get("CODEX_PATH")
+                .filter(|p| !p.is_empty())
+                .cloned()
+                .or_else(|| launch.argv.first().cloned())
+        } else {
+            // The `codex` on the adapter's PATH, else the one this machine runs.
+            effective
+                .get("PATH")
+                .and_then(|path| {
+                    std::env::split_paths(path)
+                        .map(|dir| dir.join("codex"))
+                        .find(|file| file.is_file())
+                        .map(|file| file.to_string_lossy().into_owned())
+                })
+                .or_else(crate::managed_codex::codex_binary)
+        };
+        let Some(program) = program.filter(|p| !p.is_empty()) else { return CmuxEntry::Unknown };
+        let args: Vec<std::ffi::OsString> = if app_server {
+            launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect()
+        } else {
+            Vec::new()
+        };
+        let child_env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
+            effective.iter().map(|(k, v)| (k.into(), v.into())).collect();
+        let (entry, took) = crate::codex_cmux_entry::resolve(
+            std::path::Path::new(&program),
+            &args,
+            launch.cwd,
+            &child_env,
+        );
+        tracing::info!(
+            target: "acpmux::codex_cmux_entry",
+            ms = took.as_millis() as u64,
+            entry = ?entry,
+            "codex mcp get cmux"
+        );
+        entry
+    };
+    match launch.answer {
+        Some(cell) => cell.get_or_init(ask).clone(),
+        None => ask(),
+    }
+}
+
+/// One start's answer for the person's own `cmux` entry ([`persons_cmux_entry`]), shared by
+/// everything that start reads it for: its tool rows, its pool spec (and the spare that spec
+/// starts), its `session/new` or `session/load`.
+pub type CodexAnswer = std::sync::Arc<std::sync::OnceLock<crate::codex_cmux_entry::CmuxEntry>>;
+
+/// Asks Codex for `answer` ([`persons_cmux_entry`] for a launch in `cwd` with `argv` and `env`)
+/// on a blocking thread, so the runtime never waits on Codex; a later read of `answer` is
+/// immediate. Nothing when it is already answered.
+pub async fn warm_codex_answer(
+    cwd: &Path,
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    answer: &CodexAnswer,
+) {
+    if answer.get().is_some() {
+        return;
+    }
+    let (cwd, argv, env, answer) = (cwd.to_owned(), argv.to_vec(), env.clone(), answer.clone());
+    let _ = tokio::task::spawn_blocking(move || {
+        persons_cmux_entry(CodexLaunch { cwd: &cwd, argv: &argv, answer: Some(&answer) }, &env);
+    })
+    .await;
+}
+
+/// Whether a session whose profile, preset and session env is `env` is cut off from cmux's
+/// tools: `ACPMUX_AGENT_TOOLS=0` ([`SWITCH_ENV`]), or a server list ([`SERVERS_ENV`]) that leaves
+/// `cmux` out. A person's own `cmux` entry such a session starts gets the answer `off`
+/// ([`person_entry_env`] for Codex; the harness env for Claude Code, `hub/spawn.rs`).
+pub fn cut_off(env: &BTreeMap<String, String>) -> bool {
+    let kept = env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
+    env.get(SWITCH_ENV).is_some_and(|v| v == "0")
+        || kept.is_some_and(|keep| !keep.split(',').any(|name| name.trim() == CMUX_SERVER))
+}
+
+/// A remote-origin session's answer when it has none of its own: `off` ([`TOOLS_ANSWER_ENV`] in
+/// `env`). A chat a phone or a Web client started gets none of cmux's servers ([`left_out`]), so
+/// its person's own `cmux` entry is the off server too, for Codex (`person_entry_env`) and Claude
+/// Code (the harness env) alike. A chat another Mac's daemon started has that Mac's answer
+/// (`hub/cmux_tools_answer.rs`), which stays.
+pub fn remote_origin_answer(env: &mut BTreeMap<String, String>, remote_origin: bool) {
+    if remote_origin {
+        env.entry(TOOLS_ANSWER_ENV.to_owned()).or_insert_with(|| "off".to_owned());
+    }
+}
+
+/// Puts [`person_entry_env`]'s entry on ACP session params as `_meta.cmux.mcpServerEntry`
+/// (cmux-codex-acp: `mcp_servers.cmux.{command,args,env.KEY}`).
+pub fn send_person_entry_env(params: &mut Value, entry_env: Option<Value>) {
+    let Some(entry_env) = entry_env else { return };
+    if !params.get("_meta").is_some_and(Value::is_object) {
+        params["_meta"] = json!({});
+    }
+    if !params["_meta"].get("cmux").is_some_and(Value::is_object) {
+        params["_meta"]["cmux"] = json!({});
+    }
+    params["_meta"]["cmux"]["mcpServerEntry"] = entry_env;
+}
+
+/// A Codex session's launch, for [`persons_cmux_entry`]: its folder, its profile's argv (the
+/// program first), whose config options Codex reads too, and where the answer is kept once asked
+/// (`answer`: one per chat start, fork, pool spec or tool-rows read; `None` asks each time).
+#[derive(Clone, Copy, Debug)]
+pub struct CodexLaunch<'a> {
+    pub cwd: &'a Path,
+    pub argv: &'a [String],
+    pub answer: Option<&'a CodexAnswer>,
+}
+
+/// `mcpServers` from `tools` for acpmux session `session_id`'s ACP harness; `all_tools`
+/// from [`lists_all_tools`]. `codex` is the session's launch when the
+/// harness is Codex: cmux-codex-acp gives Codex these servers as its thread's
+/// `mcp_servers.<name>` override, which Codex merges into the person's own
+/// entry of that name, and where that is an HTTP server named `cmux` the
+/// merged entry has a command and a url, which Codex refuses
+/// ([`without_cmux_beside_an_http_entry`]).
+pub fn acp_servers_with(
+    tools: AgentTools,
+    env: &BTreeMap<String, String>,
+    session_id: &str,
+    all_tools: bool,
+    codex: Option<CodexLaunch<'_>>,
+) -> Value {
+    let tools = tools.scoped(env);
+    let tools = match codex {
+        Some(launch) => tools.without_cmux_beside_an_http_entry(launch, env),
+        None => tools,
+    };
+    tools.for_session(session_id).listing(all_tools).folded().acp_servers()
+}
+
+/// Whether `meta`'s harness is Codex: its family as recorded, else as `profile` derives it (a
+/// session an older build recorded has none). Its MCP servers become Codex config overrides
+/// ([`acp_servers_for`]).
+pub fn is_codex(
+    meta: &crate::store::SessionMeta,
+    profile: Option<&crate::config::HarnessProfile>,
+) -> bool {
+    meta.family
+        .clone()
+        .or_else(|| profile.map(|p| crate::config::derive_family(&meta.harness, p)))
+        .is_some_and(|family| family.starts_with("codex"))
 }
 
 /// Extra Claude Code flags for session `session_id` whose command line is
@@ -632,12 +925,7 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
-        servers.push(McpServer {
-            name: "cmux".into(),
-            command: cmux,
-            args: vec!["mcp".into(), "serve".into()],
-            env: vec![],
-        });
+        servers.push(cmux_server(&cmux, false, &crate::user_settings::resolved_path()));
     }
     if let Some(chief) = executable("optchat-chief")
         && inputs.cmux_json.as_deref().is_some_and(memory_enabled)
@@ -660,7 +948,13 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
             }
         };
     let user_plugin_dir = user_plugin(&inputs.state_dir);
-    AgentTools { servers, plugin_dir, user_plugin_dir, displays: inputs.displays.clone() }
+    AgentTools {
+        servers,
+        plugin_dir,
+        user_plugin_dir,
+        displays: inputs.displays.clone(),
+        cmux_for_agents: agents_get_cmux(inputs.cmux_json.as_deref()),
+    }
 }
 
 impl AgentTools {
@@ -671,6 +965,22 @@ impl AgentTools {
     /// server (fail closed: the worker drives the machine's desktop, never
     /// the session's own display).
     pub fn scoped(mut self, session_env: &BTreeMap<String, String>) -> Self {
+        // No `cmux` server without the person's yes ([`agents_get_cmux`]),
+        // except for a Chief turn (a preset that names its own cmux tools,
+        // `MCP_TOOLS_ENV`; `config/chief_builtins.rs`). The Chief is cmux's own
+        // orchestrator, not one of the person's agents: its turns work only
+        // through those tools (agents_snapshot, agents_terminal_send, …), and its
+        // preset already limits them to that list, so it keeps the server
+        // whatever the answer (decided 2026-11-14).
+        // A chat started from another Mac follows that Mac's answer (`TOOLS_ANSWER_ENV`).
+        let yes = match session_env.get(TOOLS_ANSWER_ENV).map(String::as_str) {
+            Some("on") => true,
+            Some(_) => false,
+            None => self.cmux_for_agents,
+        };
+        if !yes && !session_env.contains_key(MCP_TOOLS_ENV) {
+            self.servers.retain(|s| s.name != CMUX_SERVER);
+        }
         let keep = session_env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
         if let Some(keep) = keep {
             let keep: Vec<&str> = keep.split(',').map(str::trim).collect();
@@ -865,6 +1175,25 @@ impl AgentTools {
             if all {
                 server.args.push("--all-tools".into());
             }
+        }
+        self
+    }
+
+    /// Without the `cmux` server for a Codex chat whose person's own server named `cmux` is HTTP,
+    /// as Codex itself answers for the launch ([`persons_cmux_entry`], the rule the `codex`
+    /// terminal shim follows): Codex would refuse the merged entry and the chat would not start.
+    /// Skip on doubt: also when what the launch loads is in doubt (no answer from Codex, or a
+    /// project file its answer does not show it loads: `CmuxEntry::skips`), and no env keys go
+    /// either ([`person_entry_env`] needs a stdio answer). The chat then has no cmux tools and
+    /// nothing is said, as with no answer to the question. The person's server keeps the name;
+    /// the session's other servers stay, standalone.
+    pub fn without_cmux_beside_an_http_entry(
+        mut self,
+        launch: CodexLaunch<'_>,
+        env: &BTreeMap<String, String>,
+    ) -> Self {
+        if persons_cmux_entry(launch, env).skips() {
+            self.servers.retain(|s| s.name != CMUX_SERVER);
         }
         self
     }
@@ -1160,3 +1489,9 @@ fn home_env() -> String {
 #[cfg(all(test, unix))]
 #[path = "agent_tools_tests.rs"]
 mod tests;
+
+/// The fake Codex resolver other unit tests use (`agent_tools_tests.rs`).
+#[cfg(all(test, unix))]
+pub(crate) mod tests_support {
+    pub(crate) use super::tests::{codex_answers, fake_codex};
+}

@@ -485,15 +485,85 @@ fn allowed_tools(value: Option<std::ffi::OsString>) -> Option<BTreeSet<String>> 
     )
 }
 
+/// Who started this `serve`, by the env acpmux gives the server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Caller {
+    /// A client outside cmux's agent chats (a terminal agent, another app).
+    Outside,
+    /// An agent chat cmux started (`CMUX_AGENT_SESSION` set): also a server a
+    /// `cmux` entry in the person's own agent config starts inside a chat,
+    /// which inherits the chat's env or gets these keys from the chat's launch
+    /// (`acpmux::agent_tools::person_entry_env`), and one a Codex started in a
+    /// cmux terminal starts, which the shim gives `CMUX_AGENT_TOOLS_ANSWER`.
+    AgentChat,
+    /// A Chief turn: an agent chat whose preset names its cmux tools
+    /// (`CMUX_MCP_TOOLS`).
+    ChiefTurn,
+}
+
 /// Why `serve` must not run with the settings file at `path`, or `None`
-/// when cmux.json turns the server on. An agent chat that cmux started
-/// (`CMUX_AGENT_SESSION` set) has it on unless the file says `false`
-/// (cx-wx93i, Lawrence 2026-10-14: every agent chat gets the cmux MCP tools
-/// by default); any other client needs `"mcp": {"enabled": true}`. The env
-/// is no security boundary: the same process can run the cmux CLI.
+/// when it is on for this caller. The caller is told by the env: acpmux puts
+/// `CMUX_AGENT_SESSION` (and the Chief's `CMUX_MCP_TOOLS`) in the `cmux`
+/// server's own `env` (`agent_tools::for_session`), so it arrives whatever
+/// env the harness passes a stdio server (Codex passes only an allowlist and
+/// the server's own); a server a person's own entry starts in a Claude chat
+/// inherits the chat's. The env is no security boundary: the same process
+/// can run the cmux CLI. The answer is a consent gate for the person's
+/// agents, not a sandbox.
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
-    let agent_chat = std::env::var_os(AGENT_SESSION_ENV).is_some_and(|v| !v.is_empty());
-    refusal_for(path, agent_chat)
+    let set = |key: &str| std::env::var_os(key).is_some_and(|v| !v.is_empty());
+    // An agent cmux started: a chat (`CMUX_AGENT_SESSION`), or a Codex cmux started whose
+    // person's own `cmux` entry it told the answer (`CMUX_AGENT_TOOLS_ANSWER`; the terminal shim).
+    let chat = set(AGENT_SESSION_ENV);
+    let caller = match (chat, std::env::var_os(ALLOWED_TOOLS_ENV).is_some()) {
+        (true, true) => Caller::ChiefTurn,
+        (true, false) => Caller::AgentChat,
+        _ if set(acpmux::agent_tools::TOOLS_ANSWER_ENV) => Caller::AgentChat,
+        _ => Caller::Outside,
+    };
+    let started_with = match std::env::var(acpmux::agent_tools::TOOLS_ANSWER_ENV).as_deref() {
+        Ok("on") => Some(true),
+        Ok("off") => Some(false),
+        _ => None,
+    };
+    refusal_for(path, caller, started_with)
+}
+
+/// [`refusal`] for `caller`. `"mcp": {"enabled": false}` turns it off for
+/// everyone. An agent chat follows the person's answer to "should agents you
+/// start in cmux get cmux's tools?" (`agents.cmuxMcp` `on`; Aziz,
+/// 2026-11-14), whatever else the file says, so a `cmux` entry an older cmux
+/// wrote into the person's own config is the off server in every chat while
+/// the answer is not on. A chat cmux-next started from another Mac (a peer
+/// link, a Cloud VM, a headless daemon) follows that Mac's answer,
+/// `started_with` (`acpmux::agent_tools::TOOLS_ANSWER_ENV`), over this
+/// machine's file (decided 2026-11-14). A Chief turn, cmux's own
+/// orchestrator, is served unless the file says `false`. Any other client
+/// needs `mcp.enabled` true or the person's yes.
+fn refusal_for(
+    path: &std::path::Path,
+    caller: Caller,
+    started_with: Option<bool>,
+) -> Option<String> {
+    let messages = messages::messages();
+    let shown = path.display().to_string();
+    let setting = match config::setting(path) {
+        Ok(setting) => setting,
+        Err(error) => return Some(messages.config_invalid.replace("{error}", &error)),
+    };
+    if setting == Some(false) {
+        return Some(messages.switched_off.replace("{path}", &shown));
+    }
+    let yes = started_with.unwrap_or_else(|| {
+        cmux_tui_core::user_settings::AgentsCmuxMcp::from_config_file(path)
+            == cmux_tui_core::user_settings::AgentsCmuxMcp::On
+    });
+    match caller {
+        Caller::ChiefTurn => None,
+        Caller::AgentChat if yes => None,
+        Caller::Outside if setting == Some(true) => None,
+        Caller::AgentChat | Caller::Outside => Some(messages.disabled.replace("{path}", &shown)),
+    }
 }
 
 /// The settings file, and whether it turns `serve` on for a client outside
@@ -503,20 +573,6 @@ pub(super) fn outside_chats() -> (PathBuf, Result<bool, String>) {
     let path = config::path();
     let on = config::setting(&path).map(|setting| setting == Some(true));
     (path, on)
-}
-
-fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
-    let messages = messages::messages();
-    match config::setting(path) {
-        Ok(Some(true)) => None,
-        Ok(None) if agent_chat => None,
-        // `"mcp": {"enabled": false}` said so, over any answer to the cmux Tools question.
-        Ok(Some(false)) => {
-            Some(messages.switched_off.replace("{path}", &path.display().to_string()))
-        }
-        Ok(None) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
-        Err(error) => Some(messages.config_invalid.replace("{error}", &error)),
-    }
 }
 
 fn serve(global: GlobalArgs, code_mode: bool) -> i32 {

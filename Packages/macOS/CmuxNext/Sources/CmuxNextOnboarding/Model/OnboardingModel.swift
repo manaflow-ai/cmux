@@ -52,7 +52,7 @@ public final class OnboardingModel {
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
         if step == .agents { return OnboardingStrings.continueTitle }
-        if step == .agentTools, !agentTools.answered { return OnboardingStrings.addToMyAgents }
+        if step == .agentTools, !agentTools.answered { return OnboardingStrings.turnOnTools }
         return OnboardingStrings.done
     }
 
@@ -85,7 +85,7 @@ public final class OnboardingModel {
         case .computerUse where !computerUse.allGranted:
             if computerUse.permissions.helperFailed { computerUse.restart() } else { computerUse.allowNext() }
             return
-        // cmux Tools: Add to My Agents answers yes and stays, so the rows show what it did; then Done.
+        // cmux Tools: Turn On answers yes and stays, so the rows show what it did; then Done.
         case .agentTools where !agentTools.answered:
             agentTools.add()
             return

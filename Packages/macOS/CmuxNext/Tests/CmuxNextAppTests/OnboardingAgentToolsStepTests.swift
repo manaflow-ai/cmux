@@ -5,12 +5,13 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// The cmux Tools step: cmux asks before it adds its MCP server (Computer Use included) to the
-/// person's coding agents. Nothing is written until the person answers; Add to My Agents sets
-/// `agents.cmuxMcp` to `on` before `cmux setup mcp` runs (the CLI reads it), Not Now sets `off` and
-/// runs nothing, and first run asks only while nobody answered and an agent is there to ask about.
+/// The cmux Tools step: cmux asks whether agents the person starts in cmux get its MCP server
+/// (Computer Use included). Nothing is written until the person answers; Turn On sets
+/// `agents.cmuxMcp` to `on` and reads the agents again, Not Now sets `off`; neither writes an
+/// agent's own config. First run asks only while nobody answered and an agent is there to ask about.
 @MainActor @Suite(.serialized) struct OnboardingAgentToolsStepTests {
-    /// The app's source, recorded: the settings write and each `cmux setup mcp` run, in order.
+    /// The app's source, recorded: the settings write and each `cmux setup mcp` read, in order. Its
+    /// agents get cmux's tools in cmux once the answer is `on`, as the CLI reports.
     @MainActor final class Source: AgentToolsSource {
         var choice: AgentToolsChoice
         var agents: [AgentToolsAgent]
@@ -35,12 +36,7 @@ import Testing
         }
         func agentToolsAgents() async -> [AgentToolsAgent] {
             calls.append("read")
-            return agents
-        }
-        func applyAgentTools(remove: Bool) async -> [AgentToolsAgent]? {
-            calls.append(remove ? "remove" : "add with \(choice.rawValue)")
-            agents = agents.map { AgentToolsAgent(id: $0.id, name: $0.name, state: $0.state == .conflict ? .conflict : remove ? .ready : .added) }
-            return agents
+            return agents.map { AgentToolsAgent(id: $0.id, name: $0.name, state: choice == .on ? .terminals : $0.state) }
         }
     }
 
@@ -53,28 +49,25 @@ import Testing
 
     // MARK: The report `cmux setup mcp` prints
 
-    @Test func theSetupReportListsInstalledAgentsWithWhatTheirConfigHolds() throws {
+    @Test func theSetupReportListsInstalledAgentsAndWhetherTheyGetCmuxTools() throws {
         let report = """
-        {"state": "needs_user", "clients": [
-          {"id": "claude", "name": "Claude Code", "installed": true, "state": "ok", "user_action": null},
-          {"id": "codex", "name": "Codex", "installed": true, "state": "needs_user", "user_action": {"kind": "conflict"}},
+        {"state": "ok", "clients": [
+          {"id": "claude", "name": "Claude Code", "installed": true, "state": "terminals", "user_action": null},
+          {"id": "codex", "name": "Codex", "installed": true, "state": "planned", "user_action": null},
           {"id": "gemini", "name": "Gemini", "installed": false, "state": "not_applicable"}
         ]}
         """
         let agents = try #require(AgentToolsAgent.agents(setupReport: Data(report.utf8)))
-        #expect(agents == [AgentToolsAgent(id: "claude", name: "Claude Code", state: .added),
-                           AgentToolsAgent(id: "codex", name: "Codex", state: .conflict)])
-        let planned = #"{"clients": [{"id": "codex", "name": "Codex", "installed": true, "state": "planned"}, {"id": "claude", "name": "Claude Code", "installed": true, "state": "failed"}]}"#
-        #expect(AgentToolsAgent.agents(setupReport: Data(planned.utf8))?.map(\.state) == [.ready, .failed])
-        // `--remove`: `changed` took cmux out.
-        let removed = #"{"action": "remove", "clients": [{"id": "codex", "name": "Codex", "installed": true, "state": "changed"}]}"#
-        #expect(AgentToolsAgent.agents(setupReport: Data(removed.utf8), removing: true)?.map(\.state) == [.ready])
+        #expect(agents == [AgentToolsAgent(id: "claude", name: "Claude Code", state: .terminals),
+                           AgentToolsAgent(id: "codex", name: "Codex", state: .ready)])
+        let failed = #"{"clients": [{"id": "claude", "name": "Claude Code", "installed": true, "state": "failed"}]}"#
+        #expect(AgentToolsAgent.agents(setupReport: Data(failed.utf8))?.map(\.state) == [.failed])
         #expect(AgentToolsAgent.agents(setupReport: Data("not json".utf8)) == nil)
     }
 
     // MARK: The step
 
-    @Test func addAnswersYesBeforeTheCLIRunsAndNotNowWritesNothingToAnyAgent() async {
+    @Test func turnOnAnswersYesThenReadsAndNotNowOnlyAnswers() async {
         let yes = Source()
         let add = AgentToolsStepModel(source: yes)
         add.start()
@@ -82,7 +75,7 @@ import Testing
         #expect(yes.calls == ["read"], "showing the step reads only")
         add.add()
         await Self.until { !add.applying && add.addedCount == 2 }
-        #expect(yes.calls == ["read", "set on", "add with on"], "the answer reaches the settings file before setup mcp reads it")
+        #expect(yes.calls == ["read", "set on", "read"], "the answer, then a read that shows it")
         #expect(add.answered && add.choice == .on && !add.failed)
 
         let no = Source()
@@ -91,12 +84,11 @@ import Testing
         await Self.until { decline.loaded }
         decline.decline()
         await Self.until { no.calls.count == 2 }
-        #expect(no.calls == ["read", "set off"], "Not Now runs no setup mcp")
+        #expect(no.calls == ["read", "set off"], "Not Now only answers")
         #expect(decline.answered && decline.choice == .off)
     }
 
-    /// The answer must reach the settings file before `cmux setup mcp` reads it: a refused write runs no
-    /// CLI and shows as failed, never as added.
+    /// A refused answer reads nothing more and shows as failed, never as on.
     @Test func aRefusedAnswerRunsNothingAndSaysSo() async {
         let source = Source()
         source.writes = false
@@ -105,7 +97,7 @@ import Testing
         await Self.until { model.loaded }
         model.add()
         await Self.until { !model.applying && model.failed }
-        #expect(source.calls == ["read", "set on"], "no setup mcp after a refused write")
+        #expect(source.calls == ["read", "set on"], "no read after a refused write")
         #expect(model.failed && model.addedCount == 0)
     }
 
@@ -118,17 +110,6 @@ import Testing
         #expect(model.choice == .ask)
         source.choice = .off
         #expect(model.choice == .off && !model.answered)
-    }
-
-    @Test func aServerOfThePersonsNamedCmuxMarksTheRunAsNotComplete() async {
-        let source = Source(agents: [AgentToolsAgent(id: "claude", name: "Claude Code", state: .ready),
-                                     AgentToolsAgent(id: "codex", name: "Codex", state: .conflict)])
-        let model = AgentToolsStepModel(source: source)
-        model.start()
-        await Self.until { model.loaded }
-        model.add()
-        await Self.until { !model.applying && model.addedCount == 1 }
-        #expect(model.failed)
     }
 
     @Test func theWindowsReturnAddsAndItsEscapeDeclinesThenDoneCloses() async throws {
@@ -164,34 +145,21 @@ import Testing
         #expect(declined.calls == ["read", "set off"])
     }
 
-    /// Not Now on a Mac whose agent already has cmux's server (added before the question existed)
-    /// takes cmux's own entry out after the answer is written; with none there it touches no config.
-    @Test func notNowTakesOutAServerAlreadyThere() async {
-        let had = Source(agents: [AgentToolsAgent(id: "claude", name: "Claude Code", state: .added),
-                                  AgentToolsAgent(id: "codex", name: "Codex", state: .ready)])
-        let model = AgentToolsStepModel(source: had)
-        model.start()
-        await Self.until { model.loaded }
-        model.decline()
-        await Self.until { had.calls.contains("remove") && !model.applying }
-        #expect(had.calls == ["read", "set off", "remove"], "the answer first, then cmux's entry comes out")
-        #expect(model.choice == .off && model.addedCount == 0 && !model.failed)
-    }
-
-    /// Not Now before the agents were read (Escape at once) still takes out an entry that may be there.
-    @Test func notNowBeforeTheReadStillRemoves() async {
+    /// Not Now before the agents were read (Escape at once) only answers.
+    @Test func notNowBeforeTheReadOnlyAnswers() async {
         let source = Source()
         let model = AgentToolsStepModel(source: source)
         model.decline()
-        await Self.until { source.calls.contains("remove") && !model.applying }
-        #expect(source.calls == ["set off", "remove"], "no read needed to take cmux's entry out")
-        #expect(model.choice == .off)
+        await Self.until { source.calls.contains("set off") && !model.applying }
+        #expect(source.calls == ["set off"])
+        #expect(model.choice == .off && !model.failed)
     }
 
     // MARK: First run
 
-    /// The step is asked at launch, a first run or an existing installation, once: while nobody
-    /// answered and an agent is there; an answer, no agent, or an earlier showing keeps it quiet.
+    /// The step is asked at launch, a first run or an existing installation (an upgrade too), once
+    /// under the launch-only rule: while the answer is not `on`; a yes or an earlier showing keeps
+    /// it quiet.
     @Test func launchAsksOnceWhileNobodyAnsweredAndAnAgentIsThere() async throws {
         func presenter() -> (OnboardingWindowPresenter, () -> [OnboardingModel.Step]) {
             var shown: [OnboardingModel.Step] = []
@@ -211,11 +179,22 @@ import Testing
         let (again, shownAgain) = presenter()
         await again.askAgentToolsOnce(source: Source(), defaults: defaults)
         #expect(shownAgain().isEmpty)
-        for source in [Source(choice: .on), Source(choice: .off), Source(agents: [])] {
-            let (quiet, shown) = presenter()
-            await quiet.askAgentToolsOnce(source: source, defaults: try fresh())
-            #expect(shown().isEmpty, "answer \(source.choice), \(source.agents.count) agents")
+        // Only a yes keeps it quiet: a no is asked once more under the launch-only rule, and so is a
+        // Mac with no coding agent's CLI on the PATH (agent chats need none).
+        let (quiet, shownOn) = presenter()
+        await quiet.askAgentToolsOnce(source: Source(choice: .on), defaults: try fresh())
+        #expect(shownOn().isEmpty)
+        for source in [Source(choice: .off), Source(agents: [])] {
+            let (asking, shown) = presenter()
+            await asking.askAgentToolsOnce(source: source, defaults: try fresh())
+            #expect(shown() == [.agentTools], "answer \(source.choice), \(source.agents.count) agents")
         }
+        // An install asked under the old rule (its old flag set) is asked once more.
+        let upgraded = try fresh()
+        upgraded.set(true, forKey: "cmux.onboarding.agentToolsAsked")
+        let (again2, shownUpgraded) = presenter()
+        await again2.askAgentToolsOnce(source: Source(choice: .off), defaults: upgraded)
+        #expect(shownUpgraded() == [.agentTools])
         let (none, shown) = presenter()
         await none.askAgentToolsOnce(source: nil, defaults: try fresh())
         #expect(shown().isEmpty)
@@ -223,7 +202,7 @@ import Testing
 
     // MARK: The Set Up cmux card
 
-    /// The card's row asks while nobody answered and an agent is found; Add runs setup mcp, Not Now does not;
+    /// The card's row asks while nobody answered and an agent is found; Turn On answers yes and reads, Not Now answers no;
     /// either answer finishes the row. Answered before, or no agent: no row, and the card does not wait on it.
     @Test func theSetUpCardRowAsksOnceAndEitherAnswerFinishesIt() async throws {
         let suite = "cmux-agent-tools-card-\(UUID().uuidString)"
@@ -245,7 +224,7 @@ import Testing
         #expect(!provider.toolsDone)
         _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "addTools"]], context: click(1))
         await Self.until { !provider.tools.applying && provider.tools.addedCount == 2 }
-        #expect(yes.calls == ["read", "set on", "add with on"])
+        #expect(yes.calls == ["read", "set on", "read"])
         #expect(provider.toolsDone && provider.state["tools"]?["choice"] == "on")
 
         let no = Source()

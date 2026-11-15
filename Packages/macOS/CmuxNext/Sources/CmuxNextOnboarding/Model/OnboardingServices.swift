@@ -51,7 +51,7 @@ public protocol OnboardingServices: AnyObject {
     var agentSignIns: (any AgentSignInSource)? { get }
 
     // cmux Tools
-    /// The `agents.cmuxMcp` answer and `cmux setup mcp`, or nil when this app has no bundled CLI.
+    /// The `agents.cmuxMcp` answer and `cmux setup mcp`'s report, or nil when this app has no bundled CLI.
     var agentTools: (any AgentToolsSource)? { get }
 }
 

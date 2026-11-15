@@ -219,6 +219,10 @@ pub struct Session {
     /// launched yet, 1: with, 2: without), so forum rules follow the launch,
     /// not a profile reloaded since (`hub/tools.rs`).
     pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
+    /// Codex's answer for the person's own `cmux` entry for the start in progress
+    /// (`agent_tools::CodexAnswer`): set by `record_spawn_inputs` at each start, read by its
+    /// `session/new` or `session/load` (`spawn.rs` `acp_params`); never kept across starts.
+    pub(super) codex_answer: std::sync::Mutex<crate::agent_tools::CodexAnswer>,
     /// The profile env its running agent was started with (`Hub::ensure_child`): its family
     /// defaults, preset, session env and route included. The read-only shell probe judges a
     /// command in it (`permissions.rs`); None until this daemon starts an agent for it.

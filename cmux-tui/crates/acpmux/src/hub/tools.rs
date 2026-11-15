@@ -44,10 +44,34 @@ impl Hub {
         let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
         session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
         self.record_preview_format(session, crate::agent::preview_format(profile));
+        // Codex's answer for the person's own `cmux` entry, asked once for this start: the one a
+        // claimed pooled session's claim asked (`pool_claimed_codex_answer`), else asked here off
+        // the runtime. Its `session/new` or `session/load` reads it (`spawn.rs` `acp_params`).
+        let answer = self.pool_claimed_codex_answer(&session.id).unwrap_or_default();
+        *session.codex_answer.lock().unwrap_or_else(|e| e.into_inner()) = answer.clone();
+        let codex = crate::agent_tools::is_codex(&meta, Some(profile));
+        if codex && !remote {
+            crate::agent_tools::warm_codex_answer(&meta.cwd, &profile.argv, &profile.env, &answer)
+                .await;
+        }
         let tools = if left_out {
             crate::agent_tools::AgentTools::default()
         } else {
-            crate::agent_tools::current().scoped(&profile.env)
+            let tools = crate::agent_tools::current().scoped(&profile.env);
+            // The list a Codex chat gets (`spawn.rs` `acp_params`): no `cmux` beside the
+            // person's own HTTP `cmux` entry.
+            if codex {
+                tools.without_cmux_beside_an_http_entry(
+                    crate::agent_tools::CodexLaunch {
+                        cwd: &meta.cwd,
+                        argv: &profile.argv,
+                        answer: Some(&answer),
+                    },
+                    &profile.env,
+                )
+            } else {
+                tools
+            }
         };
         let mut cmux = tools.tool_rows(claude, claude);
         let all =

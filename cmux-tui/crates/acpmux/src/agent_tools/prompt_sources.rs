@@ -198,6 +198,7 @@ mod tests {
                 })
                 .collect(),
             plugin_dir: Some("/private/plugin".into()),
+            cmux_for_agents: true,
             user_plugin_dir: None,
             displays: None,
         }

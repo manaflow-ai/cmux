@@ -467,6 +467,11 @@ async fn dispatch_brief(
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, &original, &mut params);
         // Its session there is this caller's (a workflow's remote activity: its owning agent).
         crate::hub::merge_mux_meta(&mut params, created_by_stamp(hub, conn, &original));
+        // Its chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
+        crate::hub::cmux_tools_answer::stamp(
+            &mut params,
+            crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+        );
         let mut result = match peer.request_on(method::MUX_DISPATCH, params, epoch).await {
             Ok(result) => result,
             Err(e) => {
@@ -556,6 +561,12 @@ async fn dispatch_brief(
             params.pointer(&format!("/_meta/acpmux/{}", crate::hub::created_by::FIELD))
         {
             obj.insert(crate::hub::created_by::FIELD.into(), by.clone());
+        }
+        // The forwarding Mac's answer to cmux's tools; the session/new below takes it from a
+        // peer daemon only (`cmux_tools_answer::asked`).
+        let answer = format!("/_meta/acpmux/{}", crate::hub::cmux_tools_answer::FIELD);
+        if let Some(answer) = params.pointer(&answer) {
+            obj.insert(crate::hub::cmux_tools_answer::FIELD.into(), answer.clone());
         }
     }
     if durable && let Some(ceiling) = params.get("allowedTools") {
@@ -1421,6 +1432,11 @@ async fn dispatch_request_with_identity(
                 }
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
+                // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
+                crate::hub::cmux_tools_answer::stamp(
+                    &mut p,
+                    crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+                );
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
                 let unattended =
@@ -1499,6 +1515,13 @@ async fn dispatch_request_with_identity(
                 .await?;
             }
             let mut env = crate::session_env::parse(meta)?;
+            // A chat started from another Mac follows that Mac's answer (`cmux_tools_answer.rs`).
+            if let Some(answer) = crate::hub::cmux_tools_answer::asked(conn.auth, &params) {
+                env.insert(
+                    crate::hub::cmux_tools_answer::TOOLS_ANSWER_ENV.to_owned(),
+                    answer.to_owned(),
+                );
+            }
             if fixed_id.is_some()
                 && let Some(ceiling) = meta.and_then(|meta| meta.get("workflowAllowedTools"))
             {
