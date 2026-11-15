@@ -99,25 +99,20 @@ public struct ComposerDictationTextMerger: Sendable {
         let validTiming = startTime.map { $0.isFinite && $0 >= 0 } == true
             && endTime.map { $0.isFinite && $0 > (startTime ?? 0) } == true
         if validTiming, let startTime {
+            var removedIndices = Set<Int>()
             // A cumulative result from the beginning of the recording can
             // include a finalized phrase whose own result had no segment
             // timing. Remove that committed prefix before replacing the
             // timed hypotheses, otherwise it would be duplicated.
             if startTime <= 0 {
-                let cumulativeUntimedFinals = cumulativeUntimedFinalPhraseIndices(
+                removedIndices = cumulativeUntimedFinalPhraseIndices(
                     in: transcript
                 )
-                if !cumulativeUntimedFinals.isEmpty {
-                    phrases = phrases.enumerated().compactMap { index, phrase in
-                        cumulativeUntimedFinals.contains(index) ? nil : phrase
-                    }
-                }
             }
             // Remove every overlapping timed hypothesis, even when an
             // untimed finalized phrase sits between it and the new result.
             // Insert the replacement where the first removed phrase lived so
             // committed untimed phrases stay in their original order.
-            var removedIndices = Set<Int>()
             for (index, phrase) in phrases.enumerated() {
                 if let endTime = phrase.endTime {
                     if endTime > startTime {
