@@ -478,7 +478,7 @@ fn submit_remote_id(v1: &Hub, v2: &V2, state: &TeeState, peer: &str, id: &str) -
     }
     if source.is_some() && state.refused_any.load(Ordering::Acquire) {
         let mut refused = state.refused.lock().unwrap_or_else(|e| e.into_inner());
-        refused.admitted(peer);
+        refused.admitted(&v2.hub, peer);
         state.refused_any.store(!refused.is_empty(), Ordering::Release);
     }
     match remote_row_summary(v1, peer, id) {
@@ -651,6 +651,7 @@ pub(crate) fn start_v2_tee(
     });
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
+        let mut slots_seen = v2.hub.origin_slots_freed();
         let (mut expiries, initial_complete) = reconcile(&v1, &v2, &state).await;
         let mut rebuild_seen = v2.hub.rebuild_count();
         if rebuild_seen != 0 {
@@ -687,6 +688,18 @@ pub(crate) fn start_v2_tee(
             if state.remote_ready.load(Ordering::Acquire) && !remote_reconciled {
                 reconcile_remote(&v1, &v2, &state).await;
                 remote_reconciled = true;
+            }
+            // One atomic load a turn: the writer dropped an origin's source or record since the
+            // last, so the origins the index refused are offered again (`refused.rs`).
+            let slots = v2.hub.origin_slots_freed();
+            if slots != slots_seen {
+                slots_seen = slots;
+                if state.refused_any.load(Ordering::Acquire)
+                    && refused::release(&v1, &v2.hub, &state)
+                    && remote_reconciled
+                {
+                    reconcile_remote(&v1, &v2, &state).await;
+                }
             }
             let clock_tick = tokio::select! {
                 biased;
@@ -800,6 +813,8 @@ mod gates;
 mod hub_rows_tests;
 #[cfg(test)]
 mod roundtrip_tests;
+#[cfg(test)]
+mod slot_release_tests;
 #[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]
