@@ -101,7 +101,8 @@ test("scrolling up a long chat to its first message: the reader's wait at the to
     while (snapshot()?.canLoadOlder && asks < TURNS) {
       const before = prompts(snapshot()).length;
       const start = performance.now();
-      await client.loadOlder();
+      // The reader is scrolling up through the chat: the ask a scroll makes (OlderAhead.rising).
+      await client.loadOlder(undefined, false, true);
       const wait = performance.now() - start;
       waited += wait;
       worst = Math.max(worst, wait);

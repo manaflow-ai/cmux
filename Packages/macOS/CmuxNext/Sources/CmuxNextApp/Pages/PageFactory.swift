@@ -156,8 +156,8 @@ struct PageFactory {
                           })
     }
 
-    /// The Settings page's engine options.
-    static let settingsEngineOptions = PageEngineOptions.standard
+    /// Settings' engine options: WebKit, so an open claims the pool's painted spare (``PageWebKitReason/pooledInstantOpen``).
+    static let settingsEngineOptions = PageEngineOptions(requiresWebKit: .pooledInstantOpen)
 
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
