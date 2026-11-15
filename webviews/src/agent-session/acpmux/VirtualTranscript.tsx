@@ -1645,6 +1645,7 @@ function TranscriptView({
   focusComposer,
   openAt,
   onAnchor,
+  onFollowingAnchor,
   anchorNow,
   placeNow,
   inViewNow,
@@ -1685,6 +1686,10 @@ function TranscriptView({
   openAt?: ScrollAnchor;
   /// Where it rests after each settled scroll (null at the latest message).
   onAnchor?: (anchor: ScrollAnchor | null) => void;
+  /// Where it rests the moment following starts or stops, before the scroll settles: Toggle
+  /// Terminal and Chat reads whether the chat is at its latest message on the next key
+  /// (AgentPaneView+TogglePlace.swift). `onAnchor` still reports once per settled scroll.
+  onFollowingAnchor?: (anchor: ScrollAnchor | null) => void;
   /// Filled with where it last rested in view (null at the latest message, undefined when it was
   /// never in view), for a page about to let go.
   anchorNow?: React.MutableRefObject<(() => ScrollAnchor | null | undefined) | undefined>;
@@ -1968,9 +1973,13 @@ function TranscriptView({
     // comes after (followChase `resume`).
     if (next && !followingRef.current) resumeFollowMotion();
     if (next) heldPlace.current = undefined;
-    // Following starting or stopping is reported at once, not after the scroll settles: Toggle
-    // Terminal and Chat reads the kept place on the next key (AgentPaneView+TogglePlace.swift).
-    if (next !== followingRef.current) queueMicrotask(() => reportAnchorRef.current());
+    // Following starting or stopping goes to the host at once, apart from the settled report
+    // (`onAnchor`, once per rested scroll): Toggle Terminal and Chat reads it on the next key.
+    if (next !== followingRef.current && onFollowingAnchorRef.current)
+      queueMicrotask(() => {
+        const here = anchorHereRef.current();
+        if (here) onFollowingAnchorRef.current?.(here.anchor);
+      });
     followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
@@ -5570,25 +5579,36 @@ function TranscriptView({
       holdWebSwap(() => (onAnchorRef.current && anchorTimer.current !== undefined ? "transcript.place-unsaved" : null)),
     [],
   );
-  const reportAnchor = () => {
-    anchorTimer.current = undefined;
+  /// Where the reader rests now; undefined before the chat opens (its offset is not the reader's)
+  /// and while hidden with no place seen. `deferred`: hidden, so it is the place last seen.
+  const anchorHere = (): { anchor: ScrollAnchor | null; deferred: boolean } | undefined => {
     const node = ref.current;
-    // Before the chat opens its offset is not the reader's: the kept place stays.
-    if (!node || !onAnchor || !didOpenAtLatest.current) return;
+    if (!node || !didOpenAtLatest.current) return undefined;
     // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
-    anchorDeferred.current = node.clientHeight === 0;
-    // Meanwhile it keeps where the reader last saw it (as `pane.wakeState` does); the report comes
-    // again once it shows.
-    if (anchorDeferred.current && seenAnchor.current === undefined) return;
+    const deferred = node.clientHeight === 0;
+    // Meanwhile it keeps where the reader last saw it (as `pane.wakeState` does).
+    if (deferred) return seenAnchor.current === undefined ? undefined : { anchor: seenAnchor.current, deferred };
     const { layout: placed, rows: shown } = latestLayout.current;
     const logicalTop = layoutScrollTop(node);
     const index = visibleLayoutRange(placed, logicalTop, 0, 0).first;
     const row = shown[index];
-    const anchor: ScrollAnchor | null = anchorDeferred.current
-      ? (seenAnchor.current ?? null)
-      : scrolledTo.current.atLatest || !row
-        ? null
-        : { rowId: row.id, offset: logicalTop - placed.geometry.topAt(index) };
+    const anchor: ScrollAnchor | null =
+      scrolledTo.current.atLatest || !row ? null : { rowId: row.id, offset: logicalTop - placed.geometry.topAt(index) };
+    return { anchor, deferred };
+  };
+  const anchorHereRef = useRef(anchorHere);
+  anchorHereRef.current = anchorHere;
+  const onFollowingAnchorRef = useRef(onFollowingAnchor);
+  onFollowingAnchorRef.current = onFollowingAnchor;
+  const reportAnchor = () => {
+    anchorTimer.current = undefined;
+    const node = ref.current;
+    if (!node || !onAnchor || !didOpenAtLatest.current) return;
+    anchorDeferred.current = node.clientHeight === 0;
+    // The report comes again once a hidden pane shows.
+    const here = anchorHere();
+    if (!here) return;
+    const { anchor } = here;
     const key = JSON.stringify(anchor);
     if (key === reportedAnchor.current) return;
     reportedAnchor.current = key;

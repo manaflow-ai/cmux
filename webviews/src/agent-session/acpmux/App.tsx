@@ -11739,6 +11739,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                         : (anchor) =>
                                                                             postScrollAnchor(shownSessionId, anchor)
                                                                     }
+                                                                    onFollowingAnchor={
+                                                                      quick || childRows || !shownSessionId
+                                                                        ? undefined
+                                                                        : (anchor) =>
+                                                                            postScrollAnchor(shownSessionId, anchor)
+                                                                    }
                                                                     expanded={folds}
                                                                     showMinimap={minimapVisible}
                                                                     reveal={
