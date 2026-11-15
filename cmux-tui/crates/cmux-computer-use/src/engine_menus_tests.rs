@@ -322,3 +322,30 @@ fn a_protected_item_is_hidden_from_a_menu_listing_with_nothing_denied() {
     assert_eq!(out.body["menu"]["hidden"], 1);
     assert!(!out.body["menu"].to_string().contains("cmux Remote"));
 }
+
+/// Menu mode: a click opens the pop-up's menu, the state lists only its
+/// items with ids, and a click on an item's id picks it.
+#[test]
+fn an_item_listed_by_an_open_menu_is_picked_by_its_id() {
+    let (d, e) = rig(MenuMode::Open);
+    e.call(&ctx("t0"), "get_ui_tree", &json!({"window_id": "1"}));
+    let out = e.call(&ctx("c1"), "click", &json!({"window_id": "1", "element_id": "p1"}));
+    let tree =
+        out.body["state"]["tree"].as_str().unwrap_or_else(|| panic!("{}", out.body)).to_string();
+    let never = tree
+        .lines()
+        .find(|l| l.contains("menu item \"Never\""))
+        .and_then(|l| l.split('[').nth(1))
+        .and_then(|l| l.split(']').next())
+        .unwrap_or_else(|| panic!("{tree}"))
+        .to_string();
+    let pick = e.call(&ctx("c2"), "click", &json!({"window_id": "1", "element_id": never}));
+    assert!(!pick.is_error, "{:?}", pick.body);
+    assert!(
+        d.events()
+            .iter()
+            .any(|ev| matches!(ev, Event::Click { element: Some(id), .. } if id == "p1.2")),
+        "{:?}",
+        d.events()
+    );
+}

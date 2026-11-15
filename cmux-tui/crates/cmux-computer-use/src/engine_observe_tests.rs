@@ -531,3 +531,100 @@ fn a_same_looking_element_swapped_in_under_a_kept_id_is_refused_at_use_time() {
     );
     assert!(d.events().is_empty());
 }
+
+/// The id of the first element of a JSON tree with `role` and `name`.
+fn json_id(root: &Value, role: &str, name: &str) -> Option<String> {
+    if root["role"] == role && root["name"] == name {
+        return root["id"].as_str().map(str::to_string);
+    }
+    root["children"].as_array()?.iter().find_map(|c| json_id(c, role, name))
+}
+
+#[test]
+fn a_menu_item_id_read_from_a_look_runs_without_opening_the_menu() {
+    // The eval's flow: get_ui_tree (max_nodes 5000), a menu item's id read out
+    // of the returned tree, then a click on that id in the same window.
+    let (d, e) = rig();
+    let look = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1", "max_nodes": 5000}));
+    let id = json_id(&look.body["root"], "menu_item", "Save As…").expect("menu item in the tree");
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": id}));
+    assert!(!out.is_error, "{}", out.body);
+    let Event::Click { element: Some(platform), .. } = &d.events()[0] else {
+        panic!("{:?}", d.events())
+    };
+    assert!(platform.ends_with(".12"), "{platform}");
+}
+
+#[test]
+fn a_menu_items_id_from_the_menu_bar_listing_runs() {
+    // The docs' flow: get_ui_tree lists the menu bar; click the menu's id
+    // (its items, the menu stays closed); click an item's id.
+    let (d, e) = rig();
+    let look = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    let file = tree_text(&look)
+        .lines()
+        .find(|l| l.contains("menu bar item \"File\""))
+        .and_then(|l| l.trim().strip_prefix('['))
+        .and_then(|l| l.split(']').next())
+        .unwrap()
+        .to_string();
+    let listing = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": file}));
+    let item = tree_text(&listing)
+        .lines()
+        .find(|l| l.contains("Save As"))
+        .and_then(|l| l.trim().strip_prefix('['))
+        .and_then(|l| l.split(']').next())
+        .unwrap()
+        .to_string();
+    // A later walk of the window (an action's state) leaves the menus out.
+    set_tree(&d, form(2, false, false, ""));
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": item}));
+    assert!(!out.is_error, "{}", out.body);
+}
+
+#[test]
+fn a_file_name_field_in_a_recycled_row_keeps_its_id_across_walks() {
+    // Finder's list: rows of cells holding the file name in a text field (a
+    // value, no label), the same views across walks with new desktop ids.
+    let (d, e) = rig();
+    let finder = |g: u32| {
+        let mut f = form(g, false, false, "");
+        let rows = ["a.txt", "b.txt"]
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let mut field = framed(
+                    el(&format!("{g}.6{i}"), "text_field", ""),
+                    420.0,
+                    300.0 + 22.0 * i as f64,
+                    150.0,
+                    20.0,
+                );
+                field.value = (*name).into();
+                let cell =
+                    Element { children: vec![field], ..el(&format!("{g}.5{i}"), "cell", "") };
+                Element { children: vec![cell], ..el(&format!("{g}.4{i}"), "row", "") }
+            })
+            .collect();
+        f.children.push(Element { children: rows, ..el(&format!("{g}.39"), "outline", "") });
+        identify(&mut f, 1);
+        f
+    };
+    set_tree(&d, finder(1));
+    let look = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1", "max_nodes": 5000}));
+    let mut field = None;
+    fn find_field(v: &Value, out: &mut Option<String>) {
+        if v["role"] == "text_field" && v["value"] == "a.txt" {
+            *out = v["id"].as_str().map(str::to_string);
+        }
+        v["children"].as_array().into_iter().flatten().for_each(|c| find_field(c, out));
+    }
+    find_field(&look.body["root"], &mut field);
+    set_tree(&d, finder(2));
+    let out = e.call(
+        &ctx(),
+        "click",
+        &json!({"window_id": "1", "element_id": field.unwrap(), "observe": false}),
+    );
+    assert!(!out.is_error, "{}", out.body);
+}

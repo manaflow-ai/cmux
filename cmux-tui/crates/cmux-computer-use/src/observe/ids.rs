@@ -284,7 +284,7 @@ fn label_of(e: &Element) -> String {
     // names its kind of view, never the item ("cell-view").
     if ITEM_ROLES.contains(&e.role.as_str()) {
         let mut texts = Vec::new();
-        inner_text(e, &mut texts, 0);
+        inner_text(e, &mut texts, 0, RECYCLED_ROLES.contains(&e.role.as_str()));
         let mut label = texts.join("|");
         if label.chars().count() > LABEL_TEXT_MAX {
             label = label.chars().take(LABEL_TEXT_MAX).collect();
@@ -301,7 +301,9 @@ fn label_of(e: &Element) -> String {
 
 /// The first few names and static texts below `e` (not editable values,
 /// which change as the person types).
-fn inner_text(e: &Element, out: &mut Vec<String>, depth: usize) {
+/// `values`: a recycled row is also named by the text in its fields (Finder
+/// shows a file's name in a text field, not a label).
+fn inner_text(e: &Element, out: &mut Vec<String>, depth: usize, values: bool) {
     // Two levels: a row's cells' text, never a list's rows' (a list whose
     // rows change is the same list).
     if out.len() >= 3 || depth >= 2 {
@@ -310,7 +312,9 @@ fn inner_text(e: &Element, out: &mut Vec<String>, depth: usize) {
     for c in &e.children {
         let t = if !c.name.trim().is_empty() {
             c.name.trim()
-        } else if super::outline::is_static_text(&c.role) {
+        } else if super::outline::is_static_text(&c.role)
+            || (values && super::guards::is_text_input(&c.role))
+        {
             c.value.trim()
         } else {
             ""
@@ -321,7 +325,7 @@ fn inner_text(e: &Element, out: &mut Vec<String>, depth: usize) {
         if out.len() >= 3 {
             return;
         }
-        inner_text(c, out, depth + 1);
+        inner_text(c, out, depth + 1, values);
     }
 }
 

@@ -223,6 +223,7 @@ impl FakeDesktop {
     }
 
     fn popup_elements(&self, window_id: &str) -> Vec<Element> {
+        // As on macOS, every element has its identity, the same across walks.
         let node = |id: &str, role: &str, name: &str, children: Vec<Element>| Element {
             id: id.into(),
             role: role.into(),
@@ -233,6 +234,7 @@ impl FakeDesktop {
             focused: false,
             disabled: false,
             children,
+            identity: Some(crate::observe::hash_identity(id)),
             ..Element::default()
         };
         lock(&self.popups)

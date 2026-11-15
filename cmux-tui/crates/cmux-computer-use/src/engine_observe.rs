@@ -295,27 +295,18 @@ impl Engine {
         body.insert("root".into(), serde_json::to_value(root).unwrap_or(Value::Null));
         body.insert("frames_in".into(), json!("screenshot pixels"));
         body.insert("truncated".into(), json!(truncated));
-        // What the agent is shown, for the use-time check: every element of a
-        // JSON tree; an outline's lines; a menu-only look's items.
-        let shown_ids: Vec<u32> = if look.json {
-            let mut all = Vec::new();
-            fn walk(e: &Element, out: &mut Vec<u32>) {
-                if let Ok(n) = e.id.parse() {
-                    out.push(n);
-                }
-                e.children.iter().for_each(|c| walk(c, out));
+        // What the agent is shown, for the use-time check: every element of
+        // the tree the result carries (the JSON `root` goes back with every
+        // look, and a direct caller reads menu items out of it), the menu bar's
+        // items included, each with its own chain (menu bar, menu).
+        let mut shown_ids = Vec::new();
+        fn walk(e: &Element, out: &mut Vec<u32>) {
+            if let Ok(n) = e.id.parse() {
+                out.push(n);
             }
-            walk(root, &mut all);
-            all
-        } else if !menus.is_empty() {
-            menus
-                .iter()
-                .flat_map(|m| outline::build_items(m, &opts).lines.into_iter().map(|l| l.id))
-                .chain(menu_only)
-                .collect()
-        } else {
-            new.lines.iter().map(|l| l.id).collect()
-        };
+            e.children.iter().for_each(|c| walk(c, out));
+        }
+        walk(root, &mut shown_ids);
         self.record_shown(session, window_id, &shown_ids);
         if look.json {
             if !windows.is_empty() {
