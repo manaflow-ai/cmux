@@ -5,6 +5,7 @@ use crate::wire::{
     Anchor, FolderPageResult, FolderPosition, FolderRow, FolderWindow, ListView, Page, PageSide,
     Position, Sub,
 };
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use acpmux_book::index::{RowKey, Summary};
 use serde_json::value::RawValue;
 use std::fs::OpenOptions;
@@ -13,20 +14,6 @@ use std::time::Instant;
 
 const ROUNDS: usize = 5;
 const SAMPLES: usize = 200;
-
-fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    let index = ((values.len() * 95).saturating_add(99) / 100).saturating_sub(1);
-    values.get(index).copied().unwrap_or(1)
-}
-
-fn best_p95(rounds: &[Vec<u128>]) -> u128 {
-    rounds.iter().map(|round| p95(&mut round.clone())).min().unwrap_or(1)
-}
-
-fn pooled_p95(rounds: &[Vec<u128>]) -> u128 {
-    p95(&mut rounds.iter().flatten().copied().collect::<Vec<_>>())
-}
 
 fn gate(name: &str, small: u128, god: u128, god_all: u128) {
     let line = format!(
@@ -151,9 +138,13 @@ fn folders_serving_release_gates() {
     assert!(small_window.has_after && god_window.has_after);
     let small_window = measure_window(&small_hub, &request);
     let god_window = measure_window(&god_hub, &request);
+    gate_rounds::report(
+        "v2.pr05f.serving_window",
+        &[("small", &small_window), ("god", &god_window)],
+    );
     let small = best_p95(&small_window);
     let god = best_p95(&god_window);
-    let all_god = pooled_p95(&god_window);
+    let all_god = all_p95(&god_window);
     assert!(god <= small.saturating_mul(12) / 10, "window ratio {god}/{small}");
     assert!(all_god <= small.saturating_mul(2), "window pooled ratio {all_god}/{small}");
     gate("v2.pr05f.serving_window", small, god, all_god);
@@ -175,9 +166,10 @@ fn folders_serving_release_gates() {
     assert!(small_page_result.has_after && god_page_result.has_after);
     let small_rounds = measure_page(&small_hub, &small_page);
     let god_rounds = measure_page(&god_hub, &god_page);
+    gate_rounds::report("v2.pr05f.serving_page", &[("small", &small_rounds), ("god", &god_rounds)]);
     let small = best_p95(&small_rounds);
     let god = best_p95(&god_rounds);
-    let all_god = pooled_p95(&god_rounds);
+    let all_god = all_p95(&god_rounds);
     assert!(god <= small.saturating_mul(12) / 10, "page ratio {god}/{small}");
     assert!(all_god <= small.saturating_mul(2), "page pooled ratio {all_god}/{small}");
     gate("v2.pr05f.serving_page", small, god, all_god);
