@@ -1258,6 +1258,9 @@ export type SettingsOps = {
   "cmux.settings.theme.overrides.release": [Record<string, never>, { files: number }];
   /** Native: open the file of the first `theme_overrides` line in cmux's editor, at that line. */
   "cmux.settings.theme.overrides.open": [Record<string, never>, unknown];
+  /** Native, person only: open the active theme file (`appearance.themeFile`) in the default editor;
+   * with none active the bundled `cmux theme export --save my-look --use` makes one from the current look. */
+  "cmux.settings.theme.file.open": [Record<string, never>, unknown];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */

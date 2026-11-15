@@ -274,6 +274,7 @@ struct PageFactory {
             return services.linkOpener.openFile(URL(fileURLWithPath: override.file), from: services.windows.active?.focusedPane,
                                                 asText: true, at: FilePosition(line: override.line))
         }
+        provider.openThemeFile = SettingsThemeFileOpener(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settingsFile: { settings.file.url }, root: { settings.snapshot.root })
         provider.themeFiles = SettingsThemeFiles(
             folders: {
                 .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,

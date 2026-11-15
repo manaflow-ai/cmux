@@ -184,6 +184,8 @@ impl Backend for Fake {
             match method {
                 "computer_use.status" => Ok(status.clone()),
                 "permissions.request" => Ok(outcome.clone()),
+                // Restart Computer Use Helper (`cua_recovery.rs`).
+                "action.run" => Ok(json!({"ran": true})),
                 other => panic!("unexpected app call {other}"),
             }
         }))
@@ -1914,6 +1916,9 @@ fn the_subsession_servers_instructions_name_real_cmux_tools() {
 
 #[path = "upstream_tests.rs"]
 mod upstream_tests;
+
+#[path = "cua_recovery_tests.rs"]
+mod cua_recovery_tests;
 
 /// With no app, a link an agent opens keeps the daemon's `workspace.open_url`:
 /// the app's `browser.open_split` cannot run without the app (review of the

@@ -6,19 +6,16 @@
 //! a tab title, an unread marker, the selection or a git branch changes none
 //! of them. Every change the reply shows reaches clients as a mux event, so
 //! the revision counts the events that can change it ([`changes_tree`]), and
-//! a git HEAD that a refresh reads differently (presentation.rs). An event a
-//! client cannot see in the tree, such as terminal output, leaves it alone.
+//! a git HEAD that a refresh reads differently (presentation/git_heads.rs). An
+//! event a client cannot see in the tree, such as terminal output, leaves it
+//! alone.
 //!
 //! The value is `"<boot>.<count>"`: the boot part is random per daemon, so a
 //! count from before a restart never matches one after it.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
 
 use super::MuxEvent;
-use super::presentation::GitHead;
 
 pub(crate) struct TreeRevision {
     boot: String,
@@ -41,30 +38,6 @@ impl TreeRevision {
     /// Something the tree shows changed (call after the change is visible).
     pub(crate) fn bump(&self) {
         self.changes.fetch_add(1, Ordering::SeqCst);
-    }
-
-    /// Store in `cache` the git HEAD a refresh read for `cwd` and count it
-    /// when it differs from the one stored: a branch switched with no
-    /// directory change has no event. A full cache is cleared first, and the
-    /// clear counts too, since it forgets what it could compare with.
-    pub(super) fn store_git_head(
-        &self,
-        cache: &Mutex<HashMap<String, (Instant, Option<GitHead>)>>,
-        cwd: &str,
-        now: Instant,
-        head: Option<GitHead>,
-    ) -> Option<GitHead> {
-        let mut cache = cache.lock().unwrap();
-        let cleared = cache.len() >= super::presentation::GIT_HEAD_CACHE_LIMIT;
-        if cleared {
-            cache.clear();
-        }
-        let previous = cache.insert(cwd.to_string(), (now, head.clone()));
-        drop(cache);
-        if cleared || previous.is_some_and(|(_, previous)| previous != head) {
-            self.bump();
-        }
-        head
     }
 
     /// The current revision. A reader takes it before it reads the tree, so
