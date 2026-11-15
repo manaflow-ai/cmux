@@ -2586,6 +2586,21 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
             with self.subTest(where=where):
                 self.assertTrue(self.blacksmith_labels(routes[where], ("on",)), where)
 
+    def test_reload_dispatch_requires_trusted_source_for_owned_fallback(self):
+        job = yaml.safe_load((WORKFLOWS / "reload-build.yml").read_text())["jobs"]["build"]
+        for requested in ("", "auto", SMALL, "depot-legacy"):
+            for trusted in ("true", "false", ""):
+                for attempt in (1, 2, 3):
+                    with self.subTest(requested=requested, trusted=trusted, attempt=attempt):
+                        context = github_context("workflow_dispatch", CI_BLACKSMITH_MACOS="",
+                                                 CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
+                                                 RUNNER_POOLS=json.dumps({"macos_26": SMALL}))
+                        context["github"]["run_attempt"] = str(attempt)
+                        context["inputs"].update(runner=requested, platform="macos")
+                        context["needs"] = {"resolve-ref": {"outputs": {"trusted_ref": trusted}}}
+                        self.assertEqual(evaluate(runs_on_of(job), context),
+                                         SIDE if trusted == "true" else SMALL)
+
     def test_the_incident_rerun_takes_the_owned_label(self):
         """Run 43590543702's attempt 3: a bot re-run with attempt 1's placement carried, CI_PR_POOL_OWNED on."""
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
