@@ -36,8 +36,8 @@ pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, UNIT_SHOW, migrate, migrate_back, unit_back};
 pub(crate) use host_update::{
-    CLOUD_VM_MARK, Caller, RESTART_WINDOW, UpdateOptions, cloud_vm_check, restart_window_check,
-    self_update, stamp_restart, update,
+    CLOUD_VM_MARK, Caller, RESTART_WINDOW, ServiceEnv, UpdateOptions, cloud_vm_check,
+    restart_window_check, self_update, stamp_restart, update,
 };
 
 /// Where `host setup` installs acpmux and what its daemon runs.
@@ -1001,20 +1001,24 @@ pub(crate) struct SetupOptions {
 /// otherwise push the binary, start the daemon and stamp the restart
 /// ([`stamp_restart`]), so the next update of any kind keeps the window.
 /// The pushed version, the daemon's status, and why auto-update is off.
+/// The window's ask and the install step run with the daemon's environment
+/// ([`ServiceEnv`]), as an update's do: the unit's window length, and its
+/// home and socket, so "a daemon answers" asks the daemon the unit runs.
 pub(crate) fn setup_locked(
     remote: &dyn Remote,
     opts: &SetupOptions,
 ) -> Result<(String, String, Option<String>)> {
+    let service = &ServiceEnv(remote);
     let ask = format!(
         "acpmux_nw={}\n{}if acpmux_window; then printf '%s\\n' \"$acpmux_why\"; fi",
         u8::from(opts.now),
         restart_window_check()
     );
-    let held = run(remote, &ask)?;
+    let held = run(service, &ask)?;
     if !held.is_empty() {
         return Err(RestartWindow(format!("{}: {held}", remote.host())).into());
     }
-    let version = push_binary(remote, DAEMON_BIN, opts.allow_downgrade, opts.now)?;
+    let version = push_binary(service, DAEMON_BIN, opts.allow_downgrade, opts.now)?;
     if !opts.auto_update {
         let mark = host_auto_update::NO_AUTO_UPDATE;
         run(remote, &format!("mkdir -p {REMOTE_HOME} && touch {REMOTE_HOME}/{mark}"))?;

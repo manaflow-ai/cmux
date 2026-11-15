@@ -82,7 +82,7 @@ fi
 "#;
 
 /// A host whose every script starts with [`SERVICE_ENV`].
-struct ServiceEnv<'a>(&'a dyn Remote);
+pub(crate) struct ServiceEnv<'a>(pub(crate) &'a dyn Remote);
 
 impl Remote for ServiceEnv<'_> {
     fn host(&self) -> &str {
