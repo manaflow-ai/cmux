@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Key to frame for the three typing surfaces of cmux NEXT (perf-lead.md issue 5; target p95 < 8 ms).
+"""Key to frame for the native typing surfaces of cmux NEXT (perf-lead.md issue 5; target p95 < 8 ms).
 
 Launches the tagged DEBUG app itself on a GUI host (no activation, scratch cmux.json and Ghostty config, an
 isolated Chief home, the mock agent host, the typing probe on, the hang watchdog at 8 ms) and types one key at a
@@ -11,6 +11,8 @@ real key waits in the event queue) into:
              owner): send to the end of the run-loop turn that committed the edit (`commit_ms`)
   dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
   omnibar    the omnibar of a Chromium tab: send to the commit of the edit (`commit_ms`)
+  agentpane  the native agent chat composer: send through the page target, validate exact key order/text, and
+             join `typing_stats.paint_epoch_ms` to the native dispatch clock (a paint proxy, not presentation)
 
 each in two phases:
 
@@ -37,7 +39,7 @@ frame), main-thread hangs over 8 ms (`debug.hangs`), and with --sample a `/usr/b
 load phase's keys (the main thread's heaviest frames). The display's refresh rate is in the report (judge drops in
 frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
 
-  typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
+  typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar,agentpane]
       [--phases idle,load | --modes L0,L1,L2,L4,L5|all] [--samples 80] [--busy 20] [--chats 2] [--cpu-burners N]
       [--sample] [--gate-p95-ms 8]
 
@@ -46,7 +48,7 @@ Fleet (an owned mini with a console; the step builds the app):
     --artifact artifacts/split-spring/report.json --arg=--suite=typing-frame [--arg=--stress] [--arg=--sample] \\
     [--arg=--gate-p95-ms=8]
 """
-import argparse, csv, glob, json, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
+import argparse, csv, glob, json, math, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import load_modes  # noqa: E402
 from bench_launch import BenchApp, LaunchError  # noqa: E402
@@ -56,7 +58,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
-parser.add_argument("--surfaces", default="dock,terminal,home,omnibar")
+parser.add_argument("--surfaces", default="dock,terminal,home,omnibar,agentpane")
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--modes", help="the shared load modes instead of --phases: a comma list of ids (L0,L1,...) or "
                                     "`all`; one app launch each, knobs from webviews/bench/load-modes.json")
@@ -182,6 +184,34 @@ def pct(values):
             "max": round(s[-1], 2), "mean": round(statistics.fmean(s), 2)}
 
 
+def frame_metrics(frames):
+    """Summarize the display and main-thread counters without assuming one DEBUG reply shape."""
+    if not isinstance(frames, dict):
+        return {"raw": frames, "frames_over_16ms": None, "frame_bursts": None, "main_thread_cost": None}
+    intervals = [x for x in (frames.get("intervals_ms") or []) if isinstance(x, (int, float)) and x >= 0]
+    main = [x for x in (frames.get("main_ms") or []) if isinstance(x, (int, float)) and x >= 0]
+    refresh = frames.get("refresh_ms")
+    burst_limit = refresh * 0.5 if isinstance(refresh, (int, float)) and refresh > 0 else 8.33
+    burst_runs, current = [], 0
+    for interval in intervals:
+        if interval <= burst_limit:
+            current += 1
+        elif current:
+            burst_runs.append(current)
+            current = 0
+    if current:
+        burst_runs.append(current)
+    return {
+        "refresh_ms": refresh,
+        "frames": frames.get("frames", len(intervals)),
+        "intervals_ms": intervals,
+        "frames_over_16ms": sum(interval > 16 for interval in intervals),
+        "frame_bursts": {"threshold_ms": burst_limit, "count": len(burst_runs),
+                         "max_length": max(burst_runs, default=0), "total_frames": sum(burst_runs)},
+        "main_thread_cost": {"samples": len(main), "total_ms": round(sum(main), 2), "distribution": pct(main)},
+    }
+
+
 def probe_rows():
     try:
         with open(PROBE) as handle:
@@ -262,8 +292,8 @@ def make_load(surface_ws):
     note(f"load: {LOADSPEC['busy']} busy terminals ({visible} visible), {len(LOAD['chat_panes'])} agent chats")
 
 
-def chat_streams():
-    panes = [p for p in LOAD["chat_panes"] if p]
+def chat_streams(panes=None):
+    panes = [p for p in (panes if panes is not None else LOAD["chat_panes"]) if p]
     if not panes:
         return None
 
@@ -275,6 +305,201 @@ def chat_streams():
             if len(replies) < 4 or (isinstance(reply, dict) and reply.get("error")):
                 replies.append(json.dumps(reply)[:200])
     return Streamer(step, 3.0)
+
+
+def agent_expected_text(count):
+    """Stable ordinary keys: the report can prove order and exact composer text."""
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    return "".join(letters[index % len(letters)] for index in range(count))
+
+
+def agent_typing_verdict(stats, expected, dispatch):
+    """Validate page telemetry and join its paint epoch to the native dispatch clock."""
+    stats = stats if isinstance(stats, dict) else {}
+    samples = stats.get("samples") if isinstance(stats.get("samples"), list) else []
+    keys = [sample.get("key") for sample in samples if isinstance(sample, dict)]
+    ordered = (len(keys) == len(samples) == len(expected) and all(isinstance(key, str) for key in keys)
+               and "".join(keys) == expected)
+    exact = stats.get("composer_text") == expected
+    finite = bool(samples) and len(samples) == len(expected)
+    for sample in samples:
+        if not isinstance(sample, dict):
+            finite = False
+            break
+        for field in ("frame", "paint", "listener", "work"):
+            value = sample.get(field)
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                finite = False
+                break
+        if not finite:
+            break
+    paints = [sample["paint"] for sample in samples if isinstance(sample, dict)
+              and isinstance(sample.get("paint"), (int, float))]
+    paint_distribution = pct(paints)
+    after_frame = []
+    if len(dispatch) == len(samples):
+        for sample, sent in zip(samples, dispatch):
+            painted = sample.get("paint_epoch_ms") if isinstance(sample, dict) else None
+            if not isinstance(painted, (int, float)) or not isinstance(sent.get("epoch_ms"), (int, float)):
+                after_frame = []
+                break
+            after_frame.append(painted - sent["epoch_ms"])
+    joined = len(after_frame) == len(expected) and all(0 <= value < 60000 for value in after_frame)
+    after_distribution = pct(after_frame)
+    return {
+        "complete": finite and ordered and exact and joined,
+        "key_order_ok": ordered,
+        "text_exact": exact,
+        "expected_keys": len(expected),
+        "observed_keys": len(samples),
+        "key_to_frame_ms": paint_distribution,
+        "paint_p50_ms": (paint_distribution or {}).get("p50"),
+        "paint_p95_ms": (paint_distribution or {}).get("p95"),
+        "paint_p99_ms": (paint_distribution or {}).get("p99"),
+        "paint_max_ms": (paint_distribution or {}).get("max"),
+        "dispatch_to_after_frame_ms": after_frame,
+        "dispatch_to_after_frame": after_distribution,
+        "dispatch_to_after_frame_p50_ms": (after_distribution or {}).get("p50"),
+        "dispatch_to_after_frame_p95_ms": (after_distribution or {}).get("p95"),
+        "dispatch_to_after_frame_p99_ms": (after_distribution or {}).get("p99"),
+        "dispatch_to_after_frame_max_ms": (after_distribution or {}).get("max"),
+        "renderer_budget_met": bool(finite and ordered and exact and (paint_distribution or {}).get("p95", float("inf")) <= 16
+                                     and (paint_distribution or {}).get("p99", float("inf")) <= 33),
+    }
+
+
+def foreground_activation():
+    """Bring the already-running tagged app front through LaunchServices and prove NSApp is active."""
+    opened = subprocess.run(["open", APP], capture_output=True, text=True, timeout=30)
+    focus = wait(lambda: (lambda report: report if report.get("app_active") is True else None)(rpc("debug.focus") or {}),
+                 15, step=0.25)
+    return {"method": "launchservices_open", "returncode": opened.returncode,
+            "stderr": opened.stderr.strip()[:200], "app_active": bool(focus), "focus": focus or rpc("debug.focus")}
+
+
+def ensure_agentpane():
+    if LOAD.get("agentpane_pane"):
+        return LOAD["agentpane_pane"]
+    opened = action("palette.newAgentChat", settle=1.0, timeout=120)
+    ready = wait(lambda: (lambda report: report if report.get("document_ready") and report.get("composer_visible") else None)(
+        rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}), 40, step=0.5)
+    engine = rpc("debug.agent_pane", {"action": "engine"}, timeout=10) or {}
+    pane = engine.get("pane")
+    if not pane:
+        raise RuntimeError(f"agent pane did not open: {json.dumps({'action': opened, 'ready': ready, 'engine': engine})[:500]}")
+    rpc("debug.agent_pane", {"action": "select_session", "pane": pane, "session": "mock-session"}, timeout=30)
+    ready = wait(lambda: (lambda report: report if report.get("document_ready") and report.get("composer_visible") else None)(
+        rpc("debug.agent_pane", {"action": "readiness", "pane": pane}, timeout=5) or {}), 30, step=0.25) or ready
+    LOAD["agentpane_pane"] = pane
+    LOAD["agentpane_engine"] = engine.get("engine")
+    LOAD["agentpane_ready"] = ready
+    return pane
+
+
+def measure_agentpane(phase, pid, pane, streams=()):
+    """Native agent composer path: exact key samples, page paint epoch, foreground proof and load provenance."""
+    activation = foreground_activation()
+    focus_reply = rpc("debug.agent_pane", {"action": "focus_composer", "pane": pane}, timeout=30) or {}
+    focus = wait(lambda: (lambda report: report if report.get("app_active") is True else None)(rpc("debug.focus") or {}),
+                 10, step=0.25) or (rpc("debug.focus") or {})
+    entry = {
+        "session": SESSION, "surface": "agentpane", "phase": phase, "mode": (MODE or {}).get("id"),
+        "mode_missing": (MODE or {}).get("nativeMissing") or [], "pane": pane,
+        "engine": LOAD.get("agentpane_engine"), "foreground": activation,
+        "focus": {"composer": focus_reply, "report": focus, "app_active": focus.get("app_active") is True},
+        "capabilities": {
+            "typing": "debug.key -> agent page",
+            "telemetry": "debug.agent_pane typing_stats (paint_epoch_ms proxy)",
+            "foreground_activation": "LaunchServices open + debug.focus.app_active",
+            "load_source": "mock_stream" if streams else "none",
+            "daemon_wake": "not_exercised",
+            "three_chat_acceptance": {
+                "requested": 3 if MODE is None and phase == "load" else 0,
+                "observed": len(LOAD.get("chat_panes") or []) + 1,
+                "complete": None if MODE is not None or phase != "load"
+                             else len(LOAD.get("chat_panes") or []) + 1 >= 3,
+                "status": "legacy acceptance" if MODE is None and phase == "load" else "covered by L0-L5 mode registry",
+            },
+            "background_wake": {"supported": False, "status": "not_exercised",
+                                "reason": "canonical L0-L5 path uses mock_stream; daemon wake is reported separately"},
+        },
+    }
+    if focus.get("app_active") is not True:
+        entry.update({"error": "LaunchServices activation did not produce debug.focus.app_active=true",
+                      "complete": False, "keys": 0, "measured": 0})
+        results["runs"].append(entry)
+        return entry
+    for stream in streams:
+        stream.start()
+    if streams:
+        time.sleep(1.0)
+    target = {"pane": pane}
+    if LOAD.get("agentpane_engine") == "cef":
+        target["target"] = "page"
+    stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
+    before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
+    clear_select = rpc("debug.key", dict(target, key="a", modifiers=["command"]), timeout=10)
+    clear_delete = rpc("debug.key", dict(target, key="delete"), timeout=10)
+    cleared = wait(lambda: (lambda report: report if report.get("composer_text") == "" and
+                             report.get("keys", 0) >= before_keys + 2 else None)(
+        rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 5, step=0.2)
+    reset = rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=10)
+    rpc("debug.hangs", {"clear": True})
+    rpc("debug.timings", {"clear": True})
+    rpc("debug.frames", {"action": "start"})
+    sampler = None
+    if opts.sample and phase == "load":
+        sample_path = os.path.join(OUT, f"sample-{SESSION}-agentpane-{phase}.txt")
+        seconds = max(3, int(opts.samples * opts.interval))
+        sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", sample_path],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), sample_path)
+    expected = agent_expected_text(opts.samples)
+    dispatch, trips = [], []
+    send_start = time.monotonic()
+    for index, key in enumerate(expected):
+        deadline = send_start + index * opts.interval
+        time.sleep(max(0, deadline - time.monotonic()))
+        started = time.monotonic()
+        epoch_ms = time.time() * 1000
+        reply = rpc("debug.key", dict(target, key=key), timeout=10)
+        dispatch.append({"index": index, "key": key, "epoch_ms": epoch_ms,
+                         "late_ms": (started - deadline) * 1000,
+                         "rpc_ms": (time.monotonic() - started) * 1000, "reply": reply})
+        trips.append(dispatch[-1]["rpc_ms"])
+    typing = wait(lambda: (lambda report: report if report.get("keys", 0) >= len(expected) else None)(
+        rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 15, step=0.25)
+    typing = typing or (rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {})
+    if streams:
+        for stream in streams:
+            stream.stop()
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}, timeout=20)
+    hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
+    main_profile = None
+    if sampler:
+        try:
+            sampler[0].wait(timeout=opts.samples * opts.interval + 60)
+        except subprocess.TimeoutExpired:
+            sampler[0].terminate()
+        try:
+            main_profile = digest_sample(open(sampler[1], errors="replace").read())
+        except OSError:
+            main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
+    verdict = agent_typing_verdict(typing, expected, dispatch)
+    entry.update({"keys": len(expected), "measured": verdict["observed_keys"], "expected_text": expected,
+                  "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
+                            "verified": bool(cleared), "reset": reset},
+                  "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,
+                  "driver_p95_late_ms": pct([item["late_ms"] for item in dispatch]).get("p95"),
+                  "driver_p99_rpc_ms": pct(trips).get("p99"),
+                  "frames": frames, "frame_metrics": frame_metrics(frames), "hangs": hangs,
+                  "streams": [stream.calls for stream in streams], "main_profile": main_profile,
+                  "complete": bool(verdict["complete"] and cleared)})
+    results["runs"].append(entry)
+    if opts.json:
+        json.dump(results, open(opts.json, "w"), indent=1)
+    note(f"{SESSION} agentpane.{phase}: key-to-frame {entry.get('key_to_frame_ms')} dispatch-to-after-frame "
+         f"p95={entry.get('dispatch_to_after_frame_p95_ms')} exact={verdict['text_exact']} active={focus.get('app_active')}")
+    return entry
 
 
 def home_stream(tab=None):
@@ -435,7 +660,8 @@ def measure(surface, phase, params, column, pid, streams=()):
         "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
-        "frames": frames, "streams": [s.calls for s in streams], "round": ROUND, "focus": LOAD.get("focus"),
+        "frames": frames, "frame_metrics": frame_metrics(frames), "streams": [s.calls for s in streams],
+        "round": ROUND, "focus": LOAD.get("focus"),
         "view_churn": churn, "control_publishes": {"count": len(publishes), "ms": pct(publishes),
                                                    "total_ms": round(sum(publishes), 1)},
         "probe_rows": {"all": len(every), "complete": sum(r.get("complete") == "1" for r in every),
@@ -567,7 +793,29 @@ def surface_omnibar(phase, pid):
     return entry
 
 
-SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
+def surface_agentpane(phase, pid):
+    pane = ensure_agentpane()
+    streams = []
+    if phase == "load":
+        make_load(None)
+        mode_id = (MODE or {}).get("id")
+        # L1/L3 type into the focused chat while it streams; L2 adds the ten background chats;
+        # L5 combines both. The legacy --phases path preserves its existing mock-chat load.
+        source = []
+        if mode_id in ("L1", "L3", "L5"):
+            source.append(pane)
+        if mode_id in ("L2", "L5"):
+            source.extend(LOAD.get("chat_panes") or [])
+        if not mode_id:
+            source.extend(LOAD.get("chat_panes") or [])
+        stream = chat_streams(source)
+        if stream:
+            streams.append(stream)
+    return measure_agentpane(phase, pid, pane, streams)
+
+
+SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock,
+            "omnibar": surface_omnibar, "agentpane": surface_agentpane}
 
 
 def run_session(session, phases=None):
