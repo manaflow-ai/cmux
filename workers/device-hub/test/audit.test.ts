@@ -4,7 +4,7 @@ import { approvedSession, hubEnv, setup, waitFor } from "./helpers";
 
 describe("audit", () => {
   it("records every event kind, newest first, with paging", async () => {
-    const { host, viewer } = await setup();
+    const { host, viewer } = await setup({ ask: true });
     // requested + denied
     const r = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
     await host.call("POST", `/v1/sessions/${r.json.session.id}/decision`, { decision: "deny" });

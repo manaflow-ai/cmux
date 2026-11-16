@@ -33,7 +33,7 @@ import Testing
         let hub = makeHub(stub)
         await hub.handle(.push(.permissionsChanged(hostID: "h1")))
         #expect(hub.scope(host: "h1", viewer: "v1") == .full)
-        #expect(hub.scope(host: "h1", viewer: "v2") == .ask)
+        #expect(hub.scope(host: "h1", viewer: "v2") == .full)
         #expect(stub.requests.last?.pathAndQuery == "/v1/permissions?host=h1")
     }
 

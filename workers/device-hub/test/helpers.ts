@@ -277,13 +277,15 @@ export class Device {
 }
 
 /** One account with a shared, connected Mac host and a connected viewer. */
-export async function setup(opts: { userId?: string; share?: boolean; account?: Awaited<ReturnType<typeof signIn>> } = {}) {
+/** `ask`: the host saves Ask for the viewer, so its requests wait for the host's decision (the default is Full). */
+export async function setup(opts: { userId?: string; share?: boolean; ask?: boolean; account?: Awaited<ReturnType<typeof signIn>> } = {}) {
   const account = opts.account ?? (await signIn(opts.userId));
   const host = await Device.create(account, "Studio", "macos");
   const viewer = await Device.create(account, "Laptop", "macos");
   await host.register();
   await viewer.register();
   if (opts.share !== false) await host.share(true);
+  if (opts.ask) expect((await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" })).status).toBe(200);
   await host.connect();
   await viewer.connect();
   return { account, host, viewer };

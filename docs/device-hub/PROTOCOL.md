@@ -64,7 +64,7 @@ devices(id TEXT PK, name, platform 'macos'|'ios'|'linux', signing_key, agreement
         name_pinned INT 0/1, owner_kind, owner_id)
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
         owner_kind, owner_id,
-        PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
+        PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'full' (same account)
 relays(id TEXT PK, owner_kind 'user'|'team', owner_id, name, urls JSON,
         auth_mode 'shared_secret'|'static', sealed JSON {deviceId: base64},
         enabled INT, priority INT, updated_at)   -- v1 writes owner_kind 'user'
@@ -110,7 +110,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
 | `PUT /v1/devices/:id/mac-screen` | `{shared}` | `{device}` | Only device `:id` itself may change its own sharing. |
 | `POST /v1/devices/:id/sign-out` | | `{}` | Only device `:id` itself (403 `not_host` otherwise). Ends its sessions at once with reason `signed_out`, closes its User DO socket (code 4003), lists it offline at once and pushes `devices.changed` to the other devices. The device stays registered. Call it before dropping the account session. |
-| `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `ask`. |
+| `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `full`: every device in a user's hub is that person's own, so it views and controls the others with no prompt on the host unless the host saved a lower scope. |
 | `PUT /v1/permissions/:hostId/:viewerId` | `{scope}` | `{permission:{hostId, viewerId, scope, previous, updatedAt}}` | Only device `:hostId` itself (403 `not_host` otherwise). A viewer raises its access only by requesting a session; the host's `always` decision stores the permission. Lowering a scope revokes sessions that exceed it: `none` ends every open session of the pair, `view` ends `full` ones; `ask` and `full` end none. |
 | `POST /v1/sessions` | `{hostId, scope}` | `{session:{id, state, scope}}` | From the viewer. See flow. |
 | `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min: the server ends them (`session.revoked`, reason `expired`) without waiting for a decision. If setting up the approved session fails, it ends with `approve_failed` and the call returns 500. |
@@ -173,8 +173,8 @@ to each host), so a change made while it was away never leaves an old value.
 1. Viewer `POST /v1/sessions {hostId, scope}`. Server checks: host not removed,
    host `mac_screen_shared`, permission(host, viewer):
    - `none` → 403 `permission_none`, with no prompt;
-   - `view`/`full` (covering the scope) → approved at once;
-   - `ask` or absent, or a scope above the permission (`view` asking for
+   - `view`/`full` (covering the scope), or absent (reads `full`) → approved at once;
+   - `ask`, or a scope above the permission (`view` asking for
      `full`: the app's Ask for Access) → `pending`; push `session.request` to
      the host device, whose prompt names the requested scope. Its decision
      works as under `ask`: `once` grants the session only, `always` stores the

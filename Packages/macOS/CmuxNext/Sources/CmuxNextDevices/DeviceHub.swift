@@ -98,9 +98,9 @@ public final class DeviceHub {
     /// The user's other devices.
     public var otherDevices: [HubDevice] { devices.filter { $0.id != identity.id } }
 
-    /// What `viewer` may do on `host`'s screen; `ask` when no permission is stored.
+    /// What `viewer` may do on `host`'s screen; `full` when no permission is stored, as the hub reads it: every device in the hub is the same account's.
     public func scope(host: String, viewer: String) -> DeviceScope {
-        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .ask
+        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .full
     }
 
     // MARK: Lifecycle

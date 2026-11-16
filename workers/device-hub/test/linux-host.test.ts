@@ -50,11 +50,25 @@ describe("a Linux desktop as a screen host", () => {
     expect((await worker.fetch(`${BASE}/v1/user/ws`, { headers })).status).toBe(101);
   });
 
-  it("an unknown viewer asks first: the request waits for the Linux host's decision", async () => {
+  it("the account's own Mac views and controls it with no request to the Linux host", async () => {
     const { linux, mac } = await linuxHost();
     await linux.share(true);
     await linux.connect();
     await mac.connect();
+    const res = await mac.call("POST", "/v1/sessions", { hostId: linux.id, scope: "full" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(res.json.session).toMatchObject({ state: "approved", scope: "full" });
+    const sid = res.json.session.id as string;
+    expect((await linux.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid)).scope).toBe("full");
+    expect(linux.user!.frames.some((f) => f.type === "session.request")).toBe(false);
+  });
+
+  it("a viewer the Linux host set to Ask asks first: the request waits for its decision", async () => {
+    const { linux, mac } = await linuxHost();
+    await linux.share(true);
+    await linux.connect();
+    await mac.connect();
+    expect((await linux.call("PUT", `/v1/permissions/${linux.id}/${mac.id}`, { scope: "ask" })).status).toBe(200);
     const res = await mac.call("POST", "/v1/sessions", { hostId: linux.id, scope: "view" });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     expect(res.json.session.state).toBe("pending");

@@ -89,6 +89,14 @@ export const SILENT_MS = 75_000;
 /** Close code for a socket closed for silence. Not terminal: the app reconnects. */
 export const SILENT_CLOSE = 4004;
 const PERMISSION_SCOPES: PermissionScope[] = ["none", "ask", "view", "full"];
+/**
+ * A viewer's access when its host saved none. Every device in this hub is the same account's, joined
+ * by that person, so it views and controls the others with no prompt on the host: consent is given on
+ * the device the person starts from, and joining is that consent (Leo, 2026-11-16: "if you have indeed
+ * connected a machine, you should be able to just screen share onto it freely"). A host that saves
+ * `ask`, `view` or `none` for a viewer keeps it.
+ */
+export const DEFAULT_PERMISSION: PermissionScope = "full";
 const RELAY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PING = JSON.stringify({ type: "ping" });
@@ -250,7 +258,7 @@ export class UserDO extends DurableObject<Env> {
 
   private permission(hostId: string, viewerId: string): PermissionScope {
     const row = this.sql.exec("SELECT scope FROM permissions WHERE host_id = ? AND viewer_id = ?", hostId, viewerId).toArray()[0];
-    return (row?.scope as PermissionScope | undefined) ?? "ask";
+    return (row?.scope as PermissionScope | undefined) ?? DEFAULT_PERMISSION;
   }
 
   /**

@@ -106,7 +106,7 @@ describe("session bookkeeping", () => {
   });
 
   it("ends a session whose approval fails instead of leaving it approved", async () => {
-    const { host, viewer } = await setup();
+    const { host, viewer } = await setup({ ask: true });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
     const sid = res.json.session.id;
     // A Session DO that already exists makes init fail.
@@ -123,7 +123,7 @@ describe("session bookkeeping", () => {
   });
 
   it("expires a pending request on the server after 5 minutes", async () => {
-    const { account, host, viewer } = await setup();
+    const { account, host, viewer } = await setup({ ask: true });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
     const sid = res.json.session.id;
     const stub = userStub(account.userId);

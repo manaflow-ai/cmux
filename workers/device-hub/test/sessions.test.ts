@@ -3,10 +3,10 @@ import { keyFingerprint } from "../src/crypto";
 import { Device, approvedSession, auditEvents, billingPlans, setup, signIn } from "./helpers";
 
 describe("permissions", () => {
-  it("defaults to ask and lists every other device", async () => {
+  it("defaults to full (the same account, no prompt) and lists every other device", async () => {
     const { host, viewer } = await setup();
     const res = await viewer.call("GET", `/v1/permissions?host=${host.id}`);
-    expect(res.json.permissions).toEqual([{ viewerId: viewer.id, scope: "ask" }]);
+    expect(res.json.permissions).toEqual([{ viewerId: viewer.id, scope: "full" }]);
     const set = await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" });
     expect(set.json.permission).toMatchObject({ hostId: host.id, viewerId: viewer.id, scope: "view" });
     expect((await host.user!.next((f) => f.type === "permissions.changed")).hostId).toBe(host.id);
@@ -45,7 +45,7 @@ describe("session flow", () => {
   });
 
   it("asks the host when permission is ask; deny tells the viewer", async () => {
-    const { host, viewer } = await setup();
+    const { host, viewer } = await setup({ ask: true });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
     expect(res.json.session).toMatchObject({ state: "pending", scope: "full" });
     const sid = res.json.session.id;
@@ -64,7 +64,7 @@ describe("session flow", () => {
   });
 
   it("once approves without storing; the host may downgrade full to view but not upgrade", async () => {
-    const { host, viewer } = await setup();
+    const { host, viewer } = await setup({ ask: true });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
     const sid = res.json.session.id;
     expect((await host.call("POST", `/v1/sessions/${sid}/decision`, { decision: "once", scope: "full" })).status).toBe(400);
@@ -81,7 +81,7 @@ describe("session flow", () => {
   });
 
   it("always stores the chosen scope so the next request is approved at once", async () => {
-    const { host, viewer } = await setup();
+    const { host, viewer } = await setup({ ask: true });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
     const sid = res.json.session.id;
     await host.call("POST", `/v1/sessions/${sid}/decision`, { decision: "always", scope: "full" });
