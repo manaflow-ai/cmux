@@ -8,8 +8,14 @@ import Testing
 /// only on Return/Escape (#39077).
 @MainActor
 struct WorkspacesTemplateRenameTests {
-    private func pumpActions() async {
-        for _ in 0..<5 { await Task.yield() }
+    /// `SidebarJSRuntime` runs each `cmux(...)` action from
+    /// `DispatchQueue.main.async`, in order. A marker queued after the event
+    /// runs only once every action the event queued has run, so assertions
+    /// after this see all of them, including "no rename was sent".
+    private func drainQueuedActions() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     private func templateSource() throws -> String {
@@ -105,7 +111,7 @@ struct WorkspacesTemplateRenameTests {
 
         let other = try #require(node(runtime, "tappable", showing: "Loose"))
         runtime.dispatchEvent(nodeId: other.id, event: "tap")
-        await pumpActions()
+        await drainQueuedActions()
 
         #expect(editor(runtime) == nil)
         #expect(renames(box.commands) == [
@@ -121,7 +127,7 @@ struct WorkspacesTemplateRenameTests {
 
         let other = try #require(node(runtime, "tappable", showing: "Member"))
         runtime.dispatchEvent(nodeId: other.id, event: "tap")
-        await pumpActions()
+        await drainQueuedActions()
 
         #expect(editor(runtime) == nil)
         #expect(renames(box.commands).isEmpty)
@@ -135,7 +141,7 @@ struct WorkspacesTemplateRenameTests {
         runtime.dispatchEvent(nodeId: field.id, event: "edit", payload: ["text": "Typed"])
 
         seed(runtime, selected: "w2") // e.g. Cmd+2
-        await pumpActions()
+        await drainQueuedActions()
 
         #expect(editor(runtime) == nil)
         #expect(renames(box.commands).isEmpty)
@@ -161,7 +167,7 @@ struct WorkspacesTemplateRenameTests {
         runtime.dispatchEvent(nodeId: row.id, event: "doubletap")
         let field = try #require(editor(runtime))
         runtime.dispatchEvent(nodeId: field.id, event: "submit", payload: ["text": "ByReturn"])
-        await pumpActions()
+        await drainQueuedActions()
         #expect(editor(runtime) == nil)
         #expect(renames(box.commands) == [
             .cmux(method: "workspace.action", params: ["action": "rename", "workspace_id": "w3", "title": "ByReturn"]),
