@@ -28,13 +28,13 @@
     "net:api.open-meteo.com": "Read the weather and the next 12 hours for that place (Open-Meteo, no account)."
   },
   "optionalScopes": {
-    "net:get.geojs.io": "Only if you turn on Approximate location: look up the city your IP address maps to (GeoJS, no account)."
+    "net:get.geojs.io": "Only if you turn on Approximate location: look up the city your IP address maps to (get.geojs.io, no account)."
   },
   "settings": {
     "type": "object",
     "properties": {
       "place": { "type": "string", "title": "Place", "description": "A city or town, for example Lisbon or Austin, Texas.", "default": "" },
-      "approximateLocation": { "type": "boolean", "title": "Approximate location from my IP address", "description": "When Place is empty, ask GeoJS which city your IP address maps to. Off until you turn it on.", "default": false },
+      "approximateLocation": { "type": "boolean", "title": "Approximate location from my IP address", "description": "When Place is empty, ask get.geojs.io which city your IP address maps to. Off until you turn it on.", "default": false },
       "units": { "type": "string", "title": "Units", "enum": ["celsius", "fahrenheit"], "default": "celsius" },
       "variant": { "type": "string", "title": "Look", "enum": ["sky", "card", "minimal"], "default": "sky" },
       "preview": { "type": "string", "title": "Preview a sky", "description": "Show a made-up sky instead of the live one, to see each animation.", "enum": ["live", "sun", "cloudy", "rain", "snow", "storm", "night"], "default": "live" }
