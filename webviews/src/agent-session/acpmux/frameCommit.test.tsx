@@ -83,7 +83,8 @@ test("with a key waiting, the snapshot is not flushed ahead of it and commits af
     () => true,
   );
   expect(container.textContent).toBe("0 rows");
-  await new Promise((done) => setTimeout(done, 50));
+  // React commits it as it schedules: once its scheduler has no work left.
+  await settleReact();
   expect(container.textContent).toBe("1 rows");
 });
 
