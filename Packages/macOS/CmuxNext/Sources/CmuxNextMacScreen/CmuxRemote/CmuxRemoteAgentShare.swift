@@ -14,6 +14,8 @@ nonisolated struct CmuxRemoteAgentGrant: Sendable {
     /// How the notice names it (its name, else its session id).
     var label: String
     var notice: CmuxNextDaemon.JSONValue
+    /// The change the ticket was minted for (`share` or `unshare`), as the daemon bound it.
+    var action: String = ""
 }
 
 @MainActor
@@ -47,7 +49,7 @@ enum CmuxRemoteAgentShare {
         guard answer["dialog"]?.boolValue == false else { return nil }
         return CmuxRemoteAgentGrant(session: answer["agent"]?["session"]?.stringValue ?? "",
                                     label: answer["agent_label"]?.stringValue ?? "",
-                                    notice: answer["notice"] ?? .null)
+                                    notice: answer["notice"] ?? .null, action: answer["action"]?.stringValue ?? "")
     }
 
     /// The person turned sharing on or off themselves: an agent's share stops counting down.

@@ -51,7 +51,10 @@ extension CmuxRemoteActionEnvironment {
     public func bind(into registry: ActionRegistry) {
         let environment = self
         let remote = environment.remote
-        let host: (ActionID, String, CmuxNextDaemon.JSONValue) -> Void = { id, method, params in
+        // Every person's switch of sharing (Devices, Home, the palette, the setup sheet, a notice's
+        // Turn Off) goes through `setSharing`: an agent's share stops counting down then.
+        screenHost.personChangedSharing = { await CmuxRemoteAgentShare.personChanged(remote) }
+        let host:(ActionID, String, CmuxNextDaemon.JSONValue) -> Void = { id, method, params in
             _ = registry.bindEffect(id, unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
                 // action-wait-allow: the request runs in cmux Remote, another process; it shows its own prompt or restarts a worker.
                 .waiting(.externalProcess) {
@@ -91,8 +94,6 @@ extension CmuxRemoteActionEnvironment {
             return .applied(result: {
                 do { try await environment.screenHost.setSharing(false) }
                 catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
-                // The person turned it off: an agent's share stops counting down.
-                await CmuxRemoteAgentShare.personChanged(remote)
                 return .success([:])
             })
         })
@@ -175,11 +176,15 @@ extension CmuxRemoteActionEnvironment {
                             guard let window else { return false }
                             return try await CmuxRemoteSharingSetup(host: screenHost).confirm(in: window)
                         },
-                        apply: { await CmuxRemoteAgentShare.personChanged(remote) })
+                        apply: {})
                 }
                 return .followUp {
                     if let ticket, action != "access",
                        let grant = try await CmuxRemoteAgentShare.redeem(ticket, hub: hub, remote: remote) {
+                        // The daemon decided (and arms its timer) for the ticket's own change: make that one.
+                        guard grant.action == action else {
+                            throw ControlError.invalidParams("the agent ticket is for \(grant.action), not \(action)")
+                        }
                         let device = try await Self.applyForAgent(grant, action: action, hub: hub, remote: remote,
                                                                   window: windowSource, hubHost: hubHost)
                         return ["ok": true, "agent": true, "device_name": .string(device)]
@@ -214,8 +219,8 @@ extension CmuxRemoteActionEnvironment {
                     try? await host.setSharing(false)
                 } else {
                     try? await Self.apply("unshare", device: "", scope: nil, hub: hub, remote: remote)
+                    await CmuxRemoteAgentShare.personChanged(remote)
                 }
-                await CmuxRemoteAgentShare.personChanged(remote)
             }
         }
         CmuxRemoteAgentShare.post(grant, in: window(), turnOff: turnOff)

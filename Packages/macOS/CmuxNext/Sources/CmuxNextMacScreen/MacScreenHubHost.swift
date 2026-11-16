@@ -31,6 +31,9 @@ public final class MacScreenHubHost {
     public private(set) var busy = false
     public private(set) var lastError: String?
 
+    /// After a person's own switch of sharing (every `setSharing` caller is one; an owner's agent
+    /// changes it on the hub directly): an agent's share stops counting down (`agent.person`).
+    @ObservationIgnored var personChangedSharing: @MainActor () async -> Void = {}
     @ObservationIgnored var hub: @MainActor () -> DeviceHub? = { nil }
     @ObservationIgnored public let share: MacScreenShareHost
     @ObservationIgnored private var host: MacScreenRdHost?
@@ -96,6 +99,7 @@ public final class MacScreenHubHost {
             awaitingConsent.removeAll()
             closeLocal()
         }
+        await personChangedSharing()
     }
 
     // MARK: Pushes
