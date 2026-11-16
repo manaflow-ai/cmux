@@ -284,7 +284,7 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         let document = Document()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(rowStack)
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
