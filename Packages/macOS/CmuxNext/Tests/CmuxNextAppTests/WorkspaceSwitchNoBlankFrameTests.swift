@@ -77,6 +77,27 @@ import Testing
         #expect(old.isHidden)
     }
 
+    /// Fifty quick Cmd-Ns (`RapidWorkspaceCreateTests`): a held workspace is laid out by the window's own pass, not in the
+    /// press's turn, so one the next press passes over before that pass costs no layout (worst press-to-row 424 ms with a
+    /// layout per press, cmux#44329).
+    @Test func aHeldWorkspaceIsNotLaidOutInThePresssTurn() {
+        let (window, root) = WorkspaceSwitchRedrawHoldTests.root()
+        defer { window.close() }
+        let old = WorkspaceSwitchRedrawHoldTests.workspace(NSView())
+        WorkspaceSwitchRedrawHoldTests.show(old, in: root)
+        let first = UnpaintedPage(), second = UnpaintedPage()
+        let a = WorkspaceSwitchRedrawHoldTests.workspace(first), b = WorkspaceSwitchRedrawHoldTests.workspace(second)
+        root.show(a)
+        #expect(a.needsLayout, "the held workspace was laid out in the press's turn")
+        root.show(b)
+        #expect(a.isHidden && a.needsLayout, "the workspace passed over was laid out")
+        #expect(!old.isHidden && old.alphaValue == 1 && b.alphaValue == 0)
+        root.layoutSubtreeIfNeeded()
+        #expect(!b.needsLayout, "the window's pass did not lay out the held workspace")
+        second.paint()
+        #expect(b.alphaValue == 1 && old.isHidden)
+    }
+
     /// A page its own pane keeps unseen (its tab-switch hold) is not the workspace's to wait for: the pane shows what it kept.
     @Test func aPageItsPaneAlreadyHoldsDoesNotHoldTheSwitch() {
         let (window, root) = WorkspaceSwitchRedrawHoldTests.root()
