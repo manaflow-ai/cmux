@@ -27,7 +27,8 @@ pub enum Entry<'a> {
 /// The timing flag is reset at every harness start, including re-adoption.
 #[derive(Default)]
 pub struct Context {
-    pub turn_open: bool,
+    /// True only when v1 status is Idle (no child), not Ready (a live child with no turn).
+    pub idle: bool,
     pub closed: bool,
     pub hibernate: bool,
     pub loading: bool,
@@ -111,7 +112,7 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
         Entry::Stderr { text } => return Some(Record::new("mux", "stderr", json!({"text": text}))),
         Entry::Exit { code } => {
             let hibernating = context.hibernate && !context.closed;
-            let intentional = hibernating || !context.turn_open || context.closed;
+            let intentional = hibernating || context.idle || context.closed;
             let body = if hibernating {
                 json!({"code": code, "hibernated": true})
             } else {

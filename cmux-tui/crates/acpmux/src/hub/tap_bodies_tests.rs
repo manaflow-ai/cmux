@@ -179,7 +179,7 @@ mod pure_table {
         let hub = hub();
         let s = claude_chat(&hub, "pure-table");
         let tap = hub.session_tap(&s);
-        let mut context = Context { turn_open: true, ..Context::default() };
+        let mut context = Context::default();
         let long = "long prompt ".repeat(300);
         // The scrubber identifies the PNG mark without decoding the image payload.
         use base64::Engine;
@@ -322,16 +322,23 @@ mod pure_table {
 
     #[test]
     fn v2_record_exit_table_matches_v1_including_reconstructed_context() {
-        for status in [SessionStatus::Running, SessionStatus::Idle, SessionStatus::Closed] {
+        for status in [
+            SessionStatus::Ready,
+            SessionStatus::Running,
+            SessionStatus::Waiting,
+            SessionStatus::Disconnected,
+            SessionStatus::Idle,
+            SessionStatus::Closed,
+        ] {
             for hibernate in [false, true] {
                 let hub = hub();
                 let s = claude_chat(&hub, "exit-table");
                 s.meta.lock().unwrap().status = status;
                 s.hibernated_at.store(u64::from(hibernate), Ordering::SeqCst);
                 let tap = hub.session_tap(&s);
-                // These fields are reconstructed from claim/mark lines after a restart.
+                // The exit reads status, independently of whether a turn is open.
                 let mut context = Context {
-                    turn_open: status == SessionStatus::Running,
+                    idle: status == SessionStatus::Idle,
                     closed: status == SessionStatus::Closed,
                     hibernate,
                     ..Context::default()
@@ -345,6 +352,30 @@ mod pure_table {
                     Message::notification(crate::agent::HOST_EXIT, json!({"code": 7})),
                     false,
                 );
+                let records = hub.store.events(&s.id, 0, usize::MAX).unwrap();
+                let exit = records.iter().find(|record| record.host_seq == Some(71)).unwrap();
+                let marked = hibernate && status != SessionStatus::Closed;
+                let expected =
+                    if marked || matches!(status, SessionStatus::Idle | SessionStatus::Closed) {
+                        "stopped"
+                    } else {
+                        "exited"
+                    };
+                assert_eq!(exit.kind, expected, "status={status}, hibernate={hibernate}");
+                assert_eq!(exit.msg.get("hibernated"), marked.then_some(&Value::Bool(true)));
+
+                // A persisted hibernation mark restored before redelivered Exit must retain
+                // the same classification; neither the turn nor a live child is required.
+                let mut restored = Context {
+                    idle: context.idle,
+                    closed: context.closed,
+                    hibernate: context.hibernate,
+                    ..Context::default()
+                };
+                let replay =
+                    record::record_of(Entry::Exit { code: json!(7) }, &mut restored).unwrap();
+                assert_eq!(replay.kind, exit.kind);
+                assert_eq!(replay.msg, exit.msg);
             }
         }
     }
