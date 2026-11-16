@@ -15,6 +15,7 @@
 
 pub mod claude;
 pub mod hybrid;
+pub mod lean;
 pub mod stream;
 pub mod vt;
 
