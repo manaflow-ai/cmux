@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43796671853",
+  "recorded_at": "2026-11-16T03:19:17Z",
+  "reason": "cmux-tui 69400ff148b2 changes the image's cmux-tui (pinned 432e54bbba13)",
+  "dry_run": false,
+  "cmux_tui": "69400ff148b20f0f79d350134e4a6f720e08d5cf",
+  "fixes": [
+    {
+      "sha": "69400ff148b20f0f79d350134e4a6f720e08d5cf",
+      "mergedAt": "2026-11-15T18:56:50-08:00",
+      "subject": "cmux-rd serve: start at 30 Mbps on LAN, send the frame after an input at once, VT speed keys (#44066)"
+    },
+    {
+      "sha": "f2186cbc8970f65549ba22262eac73d80a212c2c",
+      "mergedAt": "2026-11-15T18:50:04-08:00",
+      "subject": "acpmux conn: an unsub or credit for a sid the connection ended itself is not an error (#44095)"
+    },
+    {
+      "sha": "1f7c9204263fb8cdbe5b4738dbc69d894931c23a",
+      "mergedAt": "2026-11-16T02:29:36Z",
+      "subject": "Terminal menu: Fix and Send to Chat go in the Tools folder (FFI step A2 of #38590) (#44028)"
+    },
+    {
+      "sha": "6efd7b79e9214f2976ff389730ce42de1bfaf2a9",
+      "mergedAt": "2026-11-16T02:23:57Z",
+      "subject": "ext dev reloads a change at once under any load; a New Tab page is shown only once picked (#44062)"
+    },
+    {
+      "sha": "4bc42c877de6b2b4adf1b9e71c7b376e2a41249d",
+      "mergedAt": "2026-11-15T18:12:21-08:00",
+      "subject": "Wallpaper switching: Light and Dark, Time of Day, and dynamic wallpapers by the sun (#43388)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T03:19:17Z",
+    "snapshot_id": "sh-1165d2c5ca06434a8a7cf3aefd92bd06",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43796671853): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a762052943c516fdba627b22965698fc3a49bd2e",
+    "image": "cloud-native-auto-69400ff1-43796671853-1",
+    "revision": "ci-43796671853-1",
+    "at": "2026-11-16T03:19:17Z"
+  },
+  "rolled_back": false
+}
