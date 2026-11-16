@@ -242,7 +242,7 @@ struct AcpmuxClientTests {
 
         // A second arrival is held while the first batch is outstanding.
         driver.feedForTesting(bytes)
-        try await Task.sleep(for: .milliseconds(20))
+        await driver.flushForTesting()
         #expect(await recorder.count() == 1)
         driver.acknowledgeBatch()
         await recorder.waitForCount(2)
