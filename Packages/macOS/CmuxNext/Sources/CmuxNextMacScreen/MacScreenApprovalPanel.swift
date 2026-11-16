@@ -199,16 +199,15 @@ final class MacScreenApprovalView: MacScreenThemedView {
         background.setAccessibilityIdentifier("macScreen.approval")
         addSubview(background)
         background.addSubview(stack)
+        // Anchored at the top only: the panel is exactly as tall as its content (fittingSize), so a
+        // frame that lags a change never stretches or squeezes the rows; nothing above the buttons moves.
         let trailing = stack.trailingAnchor.constraint(equalTo: background.trailingAnchor)
-        let bottom = stack.bottomAnchor.constraint(equalTo: background.bottomAnchor)
         trailing.priority = .init(999)
-        bottom.priority = .init(999)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             stack.topAnchor.constraint(equalTo: background.topAnchor),
             stack.widthAnchor.constraint(equalToConstant: Self.width),
             trailing,
-            bottom,
         ])
         render()
     }
@@ -293,6 +292,7 @@ final class MacScreenApprovalView: MacScreenThemedView {
                 ]))
             }
             lines.append(answer(.once, title: MacScreenApprovalWords.onlyThisTime, role: .quiet, compact: true, id: "macScreen.approval.once"))
+            lines[0].widthAnchor.constraint(equalToConstant: Self.width - 2 * Self.inset).isActive = true
             let column = MacScreenStack.make(.vertical, spacing: 6, alignment: .leading, lines)
             MacScreenStack.addFullWidth(column, to: stack)
         }
