@@ -1,0 +1,10 @@
+{
+  "name": "cmux-extension-leo-weather",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Example cmux extension built only against cmux-extension-sdk: the live sky where you are, animated, on the New Tab page, a pane and a sidebar section.",
+  "dependencies": {
+    "cmux-extension-sdk": "file:../../../cmux-tui/crates/cmux-extension-sdk/typescript"
+  }
+}

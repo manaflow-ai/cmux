@@ -1,0 +1,45 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/leo-weather",
+  "name": { "en": "Leo weather" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension from the Leo collection: the live sky where you are, animated by cmux (rain, snow and stars, a spinning sun, floating clouds, a sky that follows the hour, hourly bars that spring), on the New Tab page, in a pane and in a sidebar section." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "cloud.sun.rain" },
+  "categories": ["sidebar"],
+  "keywords": ["weather", "forecast", "animation", "example", "leo collection"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.newtab/1": { "export": "renderNewTab", "title": { "en": "Weather" }, "symbol": "cloud.sun.rain" },
+    "cmux.pane/1": { "export": "renderPane", "title": { "en": "Weather" }, "symbol": "cloud.sun.rain" },
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": { "en": "Weather" },
+      "symbol": "cloud.sun.rain",
+      "options": { "defaultRegion": "bottom", "maxRows": 4 }
+    }
+  },
+  "scopes": {
+    "net:geocoding-api.open-meteo.com": "Find the place you type on the map (Open-Meteo, no account).",
+    "net:api.open-meteo.com": "Read the weather and the next 12 hours for that place (Open-Meteo, no account)."
+  },
+  "optionalScopes": {
+    "net:get.geojs.io": "Only if you turn on Approximate location: look up the city your IP address maps to (GeoJS, no account)."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "place": { "type": "string", "title": "Place", "description": "A city or town, for example Lisbon or Austin, Texas.", "default": "" },
+      "approximateLocation": { "type": "boolean", "title": "Approximate location from my IP address", "description": "When Place is empty, ask GeoJS which city your IP address maps to. Off until you turn it on.", "default": false },
+      "units": { "type": "string", "title": "Units", "enum": ["celsius", "fahrenheit"], "default": "celsius" },
+      "variant": { "type": "string", "title": "Look", "enum": ["sky", "card", "minimal"], "default": "sky" },
+      "preview": { "type": "string", "title": "Preview a sky", "description": "Show a made-up sky instead of the live one, to see each animation.", "enum": ["live", "sun", "cloudy", "rain", "snow", "storm", "night"], "default": "live" }
+    }
+  },
+  "activation": ["onInterface:cmux.newtab/1", "onInterface:cmux.pane/1", "onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}
