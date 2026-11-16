@@ -166,6 +166,46 @@ def motion_link(series):
         "loss_pct_mean": round(statistics.mean(loss), 3) if loss else None,
         "loss_pct_max": round(max(loss), 3) if loss else None,
         "target_kbps_last": kbps[-1] if kbps else None,
+        "target_kbps_series": kbps,
+    }
+
+
+def host_frames(lines, cap_fps):
+    """Where a tick run's frames went, from the host's CMUX_RD_TIMING_LOG frame lines (µs on
+    the host clock): how many the host encoded a second against the cap, the gaps between
+    them, how long each waited at the frame gate (damage to release) and in the encoder
+    (release to encoded), and the encoder's output a second (encoded bytes, before packets and
+    FEC), to set beside the controller's target (`target_kbps_series`)."""
+    frames = sorted((x for x in lines if x.get("release_us") is not None),
+                    key=lambda x: x["release_us"])
+    if len(frames) < 2:
+        return {"frames": len(frames)}
+    t0 = frames[0]["release_us"]
+    span_s = (frames[-1]["release_us"] - t0) / 1e6
+    slot_ms = 1000.0 / max(cap_fps, 1)
+    gaps = [(b["release_us"] - a["release_us"]) / 1e3 for a, b in zip(frames, frames[1:])]
+    gate = [(x["release_us"] - x["damage_us"]) / 1e3 for x in frames if x.get("damage_us")]
+    encode = [(x["encoded_us"] - x["release_us"]) / 1e3 for x in frames if x.get("encoded_us")]
+    seconds = int(span_s) + 1
+    kbps = [0.0] * seconds
+    count = [0] * seconds
+    for x in frames:
+        s = min(int((x["release_us"] - t0) / 1e6), seconds - 1)
+        kbps[s] += x.get("encoded_bytes", 0) * 8 / 1000
+        count[s] += 1
+    whole = int(span_s)  # the last bucket is a part second
+    return {
+        "frames": len(frames),
+        "host_fps": round((len(frames) - 1) / max(span_s, 1e-6), 2),
+        "cap_fps": cap_fps,
+        "gap_ms": summary(gaps),
+        "gaps_over_1_5_slots": sum(g > 1.5 * slot_ms for g in gaps),
+        "missed_slots": sum(max(0, round(g / slot_ms) - 1) for g in gaps),
+        "gate_wait_ms": summary(gate),
+        "encode_ms": summary(encode),
+        "idr": sum(bool(x.get("idr")) for x in frames),
+        "encoded_kbps_series": [round(k) for k in kbps[:whole]],
+        "frames_series": count[:whole],
     }
 
 
@@ -1258,6 +1298,8 @@ class Orchestrator:
             bench += f"--input key --samples {self.a.samples}"
         else:
             bench += f"--input none --duration-s {self.a.fps_seconds}"
+            if getattr(self.a, "marker_log", False):
+                bench += " --marker-log 1"
             if snapshot:
                 bench += f" --snapshot {snapshot}"
         viewer = self.viewer.popen(bench)
@@ -1335,6 +1377,11 @@ class Orchestrator:
                     rec["fps"] = rep.get("fps")
                     rec["mbit_per_s"] = rep.get("bytes", 0) * 8 / max(rep.get("seconds", 1), 1e-3) / 1e6
                     rec.update(motion_link(rep.get("series") or []))
+                    if rep.get("marker_log") is not None:
+                        rec["marker_log"] = rep["marker_log"]
+                        # Each second's end (viewer wall ms) and the host's newest stats then.
+                        rec["series_stats"] = [[b.get("unix_ms"), (b.get("host_stats") or {}).get("kbps")]
+                                               for b in rep.get("series") or []]
             else:
                 rec["error"] = (viewer.stderr.read() if viewer.poll() is not None else "timeout")[-400:]
         except Exception as e:  # noqa: BLE001 - a broken attempt is a failed attempt
@@ -1447,11 +1494,14 @@ class Orchestrator:
         argv = [f"{self.root}/bin/cmux-rd", "serve", "--profile", "high", "--source", source]
         if self.a.synthetic_size:
             argv += ["--synthetic-size", self.a.synthetic_size]
+        if getattr(self.a, "synthetic_scene", None):
+            argv += ["--synthetic-scene", self.a.synthetic_scene]
         if self.a.link_bind:
             ipaddress.IPv4Address(self.a.link_bind)  # an IPv4 literal, or this attempt fails
             argv += ["--link-bind", f"{self.a.link_bind}:0"]
+        # Both modes log timing: key trials for the breakdown, fps trials for `host_frames`.
         timing = self.synthetic_timing_path()
-        env = f": > {timing} && CMUX_RD_TIMING_LOG={timing} " if mode == "key" else ""
+        env = f": > {timing} && CMUX_RD_TIMING_LOG={timing} "
         err = shlex.quote(f"{self.root}/state/serve.err")
         return env + " ".join(shlex.quote(a) for a in argv) + f" 2> {err}"
 
@@ -1504,6 +1554,13 @@ class Orchestrator:
             snap = f"{self.root}/state/motion-{n}.ppm" if geo else None
             rec = self.cmux_attempt(origin, "fps", snap)
             rec["trial"] = n
+            if self.synthetic:
+                lines = self.host_timing()
+                rec["host_frames"] = host_frames(lines, self.a.max_fps)
+                if getattr(self.a, "marker_log", False):
+                    # Frame k of the log carries marker k (tick mode), for stall analysis.
+                    rec["host_frame_times"] = [[x["release_us"], x.get("sent_us")]
+                                               for x in lines if x.get("release_us") is not None]
             if rec["ok"]:
                 fps.append(rec["marker_fps"])
                 self.motion_rows.append(rec)
@@ -1746,6 +1803,12 @@ def main():
                    "(`cmux-rd serve --source synthetic-*`), input bumps the marker; no rig, "
                    "marker app or Screen Recording/Accessibility grant (cmux leg only)")
     r.add_argument("--synthetic-size", help="WxH of the synthetic picture (default 1920x1080)")
+    r.add_argument("--marker-log", action="store_true",
+                   help="fps trials keep every decoded marker change and, with --source synthetic, "
+                   "the host's frame times (frame-by-frame recovery after a stall)")
+    r.add_argument("--synthetic-scene", choices=["bars", "text", "noise", "churn"],
+                   help="what the synthetic picture shows under the marker (default bars; text "
+                   "and noise translate; churn is new content every frame)")
     r.add_argument("--trials", type=int, default=10)
     r.add_argument("--warmup", type=int, default=1, help="uncounted key attempts first")
     r.add_argument("--fps-trials", type=int, default=3)

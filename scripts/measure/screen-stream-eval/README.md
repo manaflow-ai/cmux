@@ -383,6 +383,31 @@ Trust: the run token, rd's stream token and the WebRTC pairing link cross the LA
 The agent runs only the fixed view verbs, with checked arguments, from its own checkout. A measure
 Mac's LAN is the boundary, as its console is (below).
 
+### Held-and-burst link profiles
+
+`mac-holds.sh` shapes the host Mac's egress to the viewer's addresses with dummynet, as root (on the
+fleet, `fleet-sudo HOST /bin/bash mac-holds.sh ...`), and nothing else on the Mac:
+
+```
+mac-holds.sh start wifi-away 900 VIEWER_IP [VIEWER_WIFI_IP]   # a watchdog clears it after 900 s
+mac-holds.sh holds                                            # each hold's start and end, CLOCK_MONOTONIC and wall
+mac-holds.sh clear; mac-holds.sh show                         # show must list no pipe 07730
+```
+
+`wifi-away` comes from a Wi-Fi capture of a laptop away from its access point:
+- 4 ms base delay and 2% random loss
+- a 50 to 100 ms hold every 0.53 s
+- long holds of 300 to 580 ms (median about 455 ms) at irregular gaps (median 3.4 s, 0.5 to 11 s)
+
+A held packet is not dropped: it waits and leaves with the others at the hold's end. The schedule
+comes from a fixed seed, and `wifi-away-schedule.jsonl` is that schedule for 900 s (`mac-holds.sh
+schedule wifi-away 900`), so a later run can check it gets the same holds.
+`wifi-short`, `wifi-long` and `wifi-loss` keep only the short holds, only the long holds, or only the
+loss. `stall` is a 600 ms hold every 5 s.
+
+The script refuses any pipe delay under 1 ms. A zero-delay dummynet pipe panicked a macOS fleet Mac
+twice. `bash test-mac-holds.sh` checks the refusal with a stub `dnctl`, needs no root, and runs on Linux.
+
 ## Needs
 
 A console worker, and the grants: the hosts capture with ScreenCaptureKit and inject input with
