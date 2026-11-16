@@ -111,7 +111,7 @@ struct AgentCLIHybridLeanDecoder: Sendable {
 
     private mutating func readStyle(_ reader: inout AgentCLIHybridFrame.Reader) -> AgentCLIHybridFrame.Style? {
         guard let index = reader.varint().flatMap(Int.init(exactly:)) else { return nil }
-        if index < styles.count { return styles[index] }
+        if index < styles.count { return styles[0] }
         guard index == styles.count, let fg = reader.color(), let bg = reader.color(),
               let attrs = reader.varint(), attrs <= UInt64(UInt16.max) else { return nil }
         let style = AgentCLIHybridFrame.Style(fg: fg, bg: bg, attrs: Int(attrs))
