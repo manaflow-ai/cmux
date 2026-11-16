@@ -13728,7 +13728,8 @@ class AnExpressionNameBesideAnExactOneIsNotJob(RealShapesOfNovember11):
                 else:
                     self.assertLessEqual(set(self.RED), {name for name, status in sections if status == "errored"})
                 _, _, errors = excuse.signature(view)
-                self.assertTrue(any("CEFPageRendererGC.swift" in error for error in errors), errors)
+                self.assertIn('python# -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"', errors)
+                self.assertIn("red check: Motion and colour tokens", errors)
 
     def test_the_expression_job_is_what_unplaced_it(self):
         # The workflow without cmux-scheme-compile reads the same headers as with it: that job alone was the cause.
