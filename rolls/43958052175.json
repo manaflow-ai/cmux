@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43958052175",
+  "recorded_at": "2026-11-16T22:35:23Z",
+  "reason": "dispatched: rebake the tip's image inputs with the pinned cmux-tui",
+  "dry_run": false,
+  "cmux_tui": "c2ccb8326c93be65aac31d76c30a64951b658954",
+  "fixes": [],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T22:35:23Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
