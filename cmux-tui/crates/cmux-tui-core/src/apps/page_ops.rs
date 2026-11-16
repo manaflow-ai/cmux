@@ -116,7 +116,7 @@ fn selectors(params: &Value, field: &str) -> Result<Vec<String>, PageError> {
     Ok(out)
 }
 
-/// `page.style.set` params: the origin and its rules (both lists empty
+/// `browser.site.style.set` params: the origin and its rules (both lists empty
 /// clears the site).
 pub fn parse_set(params: &Value) -> Result<(String, Rules), PageError> {
     let raw = params
@@ -141,13 +141,16 @@ pub fn installer(app: &str, css: &str) -> String {
     )
 }
 
+/// (app, origin) -> the css a provider connection holds.
+type Told = BTreeMap<(String, String), String>;
+
 /// Every extension's site rules, persisted, and what the provider was told.
 #[derive(Debug, Default)]
 pub struct PageStyles {
     /// app -> origin -> rules.
     pub sites: BTreeMap<String, BTreeMap<String, Rules>>,
     /// The provider connection told last and the (app, origin) -> css it holds.
-    told: Option<(u64, BTreeMap<(String, String), String>)>,
+    told: Option<(u64, Told)>,
     /// Bumped by each change of `sites`; with the caller's own key it lets
     /// an emit with nothing new skip the snapshot (emits are frequent).
     revision: u64,
@@ -249,7 +252,7 @@ impl PageStyles {
             self.told = None;
             return None;
         };
-        let now: BTreeMap<(String, String), String> = self
+        let now: Told = self
             .sites
             .iter()
             .filter(|(app, _)| active(app))
@@ -301,7 +304,7 @@ impl super::supervisor::Supervisor {
             .map(|(client, event)| super::supervisor::Out::Client(client, event))
     }
 
-    /// `page.style.get` / `page.style.set` for `app` (scope and grant checked).
+    /// `browser.site.style.get` / `.set` for `app` (scope and grant checked).
     pub(super) fn page_style_call(
         &self,
         app: &str,
