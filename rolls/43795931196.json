@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43795931196",
+  "recorded_at": "2026-11-16T03:11:36Z",
+  "reason": "cmux-tui f2186cbc8970 changes the image's cmux-tui (pinned 432e54bbba13)",
+  "dry_run": false,
+  "cmux_tui": "f2186cbc8970f65549ba22262eac73d80a212c2c",
+  "fixes": [
+    {
+      "sha": "f2186cbc8970f65549ba22262eac73d80a212c2c",
+      "mergedAt": "2026-11-15T18:50:04-08:00",
+      "subject": "acpmux conn: an unsub or credit for a sid the connection ended itself is not an error (#44095)"
+    },
+    {
+      "sha": "1f7c9204263fb8cdbe5b4738dbc69d894931c23a",
+      "mergedAt": "2026-11-16T02:29:36Z",
+      "subject": "Terminal menu: Fix and Send to Chat go in the Tools folder (FFI step A2 of #38590) (#44028)"
+    },
+    {
+      "sha": "6efd7b79e9214f2976ff389730ce42de1bfaf2a9",
+      "mergedAt": "2026-11-16T02:23:57Z",
+      "subject": "ext dev reloads a change at once under any load; a New Tab page is shown only once picked (#44062)"
+    },
+    {
+      "sha": "4bc42c877de6b2b4adf1b9e71c7b376e2a41249d",
+      "mergedAt": "2026-11-15T18:12:21-08:00",
+      "subject": "Wallpaper switching: Light and Dark, Time of Day, and dynamic wallpapers by the sun (#43388)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T03:11:36Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
