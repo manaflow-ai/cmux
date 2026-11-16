@@ -597,7 +597,7 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["sidebar", "custom", "customize", "custom views", "my views", "section", "show", "hide", "switch", "starter"],
         default_shortcut: Some(Shortcut { key: "b", modifiers: CTRL | OPT | CMD }),
         category: "sidebar",
-        symbol: "square.grid.2x2",
+        symbol: "rectangle.3.group",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 141).folder("options")], ..SurfacePlan::DEFAULT },
         cli_name: "sidebar toggle-custom",
