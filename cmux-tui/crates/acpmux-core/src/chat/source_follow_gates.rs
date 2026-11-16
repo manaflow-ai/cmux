@@ -55,10 +55,7 @@ fn fixture(rows: usize) -> io::Result<FollowFixture> {
     Ok(FollowFixture { file, source, cursor, lines: rows })
 }
 
-fn side_mut<'a>(
-    fixtures: &'a mut [FollowFixture; 2],
-    side: usize,
-) -> io::Result<&'a mut FollowFixture> {
+fn side_mut(fixtures: &mut [FollowFixture; 2], side: usize) -> io::Result<&mut FollowFixture> {
     fixtures.get_mut(side).ok_or_else(|| invalid("follow fixture side"))
 }
 
@@ -78,7 +75,7 @@ fn v2_pr12_follow_append() -> io::Result<()> {
         for side in order {
             let fixture = side_mut(&mut fixtures, side)?;
             let mut samples = Vec::with_capacity(FOLLOW_GATE_SAMPLES);
-            for sample in 0..FOLLOW_GATE_SAMPLES {
+            for _sample in 0..FOLLOW_GATE_SAMPLES {
                 assert_fixture_shape(fixture)?;
                 let line = format!("append-{round}-{sample}\n");
                 writeln!(fixture.file, "append-{round}-{sample}")?;
@@ -111,7 +108,7 @@ fn v2_pr12_follow_scan_bytes() -> io::Result<()> {
         for side in order {
             let fixture = side_mut(&mut fixtures, side)?;
             let mut samples = Vec::with_capacity(FOLLOW_GATE_SAMPLES);
-            for sample in 0..FOLLOW_GATE_SAMPLES {
+            for _sample in 0..FOLLOW_GATE_SAMPLES {
                 assert_fixture_shape(fixture)?;
                 let before = fixture.source.stats();
                 let appended = CHUNK_BYTES * 3 + 1;

@@ -912,7 +912,6 @@ impl FileSource {
         let Some(head_len) = fixed_len else {
             return Ok((false, 0, 0));
         };
-        let head_len = usize::try_from(head_len).map_err(io::Error::other)?;
         Ok((true, head_len as u64, fnv1a(bytes.get(..head_len).unwrap_or_default())))
     }
 }
