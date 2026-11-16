@@ -677,88 +677,107 @@ fn the_daemons_stream_keeps_every_frame_at_parity_through_a_drop() {
     }
 }
 
+fn b64(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// A frame as the daemon sends it (`agent-cli-frame`, `HybridViewer::event` in cmux-tui-core).
+fn frame_event(frame: &cmux_agent_cli_render::stream::Frame, cursor: vt::Cursor) -> Value {
+    json!({
+        "event": "agent-cli-frame", "surface": 1, "stream": "bench", "frame": frame.frame,
+        "base": frame.base, "cols": COLS, "rows": ROWS, "data": b64(&frame.data),
+        "cursor_x": cursor.x, "cursor_y": cursor.y, "cursor_visible": cursor.visible,
+    })
+}
+
+/// The bench's stream as the daemon runs it: one frame check, the frame (if any) into
+/// `frames`, and the text the viewer shows after it.
+struct BenchStream {
+    hybrid: HybridStream,
+    frames: Vec<Value>,
+    shown: String,
+    cursor: vt::Cursor,
+}
+
+impl BenchStream {
+    fn check(&mut self, mac: &mut ghostty_vt::Terminal, at_ms: u64) {
+        let (real, cursor) = live_screen(mac);
+        if let Some(frame) = self.hybrid.update(&real, at_ms) {
+            self.frames.push(json!([at_ms, frame_event(&frame, cursor)]));
+        }
+        self.cursor = cursor;
+        self.shown = mac.viewport_text().unwrap();
+    }
+}
+
 /// A session as the phone's in-app bench (`AgentCLIHybridBench`, cmux-next-ios) replays it:
 /// its PTY chunks, the daemon's `agent-cli-frame` events paced as the daemon paces them, what
 /// a viewer attaching at the `working` moment gets each way (the `vt-state` replay of the
-/// screen, or a keyframe), and at every moment the real screen's text (`text`) and the text a
-/// hybrid viewer shows then, as of the newest frame check (`shown`). Written only when
-/// `HYBRID_EXPORT_DIR` names a directory.
+/// screen, or the stream's keyframe), and at every moment the real screen's text (`text`) and
+/// the text a hybrid viewer shows then, as of the newest frame check (`shown`). Written only
+/// when `HYBRID_EXPORT_DIR` names a directory.
 fn export(session: &Session) -> Value {
-    let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
     let origin = std::time::Instant::now();
     let at = |ms: u64| origin + std::time::Duration::from_millis(ms);
+    let ms = |due: std::time::Instant| u64::try_from((due - origin).as_millis()).unwrap();
     let start = session.chunks.first().unwrap().0;
     let end = session.moments.last().unwrap().1;
     let attach = session.moments.iter().find(|(name, _)| name == "working").unwrap().1;
     let mut mac = terminal();
-    let mut hybrid = HybridStream::new(COLS, ROWS);
     let mut pacer = FramePacer::default();
-    let event = |frame: &cmux_agent_cli_render::stream::Frame, cursor: vt::Cursor| {
-        json!({
-            "event": "agent-cli-frame", "surface": 1, "stream": "bench", "frame": frame.frame,
-            "base": frame.base, "cols": COLS, "rows": ROWS, "data": b64(&frame.data),
-            "cursor_x": cursor.x, "cursor_y": cursor.y, "cursor_visible": cursor.visible,
-        })
+    let mut stream = BenchStream {
+        hybrid: HybridStream::new(COLS, ROWS),
+        frames: Vec::new(),
+        shown: String::new(),
+        cursor: vt::Cursor::default(),
     };
-    let mut frames = vec![json!([0, event(&hybrid.keyframe(0), vt::Cursor::default())])];
+    let first = stream.hybrid.keyframe(0);
+    stream.frames.push(json!([0, frame_event(&first, vt::Cursor::default())]));
     let mut attached = None;
     let mut moments = Vec::new();
     let mut next_moment = 0;
     let mut pty = Vec::new();
-    // After a frame check the viewer shows the screen as it was then.
-    let mut shown = String::new();
-    let mut send = |now: u64, mac: &mut ghostty_vt::Terminal, frames: &mut Vec<Value>| {
-        let (real, cursor) = live_screen(mac);
-        if let Some(frame) = hybrid.update(&real, now - start) {
-            frames.push(json!([now - start, event(&frame, cursor)]));
-        }
-        mac.viewport_text().unwrap()
-    };
-    for (t, bytes) in session.chunks.iter().filter(|(t, _)| *t <= end) {
-        while let Some(due) = pacer.due().filter(|due| *due <= at(*t)) {
-            let now = u64::try_from((due - origin).as_millis()).unwrap();
-            shown = send(now, &mut mac, &mut frames);
-            pacer.sent(due);
-        }
-        while let Some((name, moment)) = session.moments.get(next_moment).filter(|m| m.1 < *t) {
+    let mut note_moments = |until: u64,
+                            mac: &mut ghostty_vt::Terminal,
+                            stream: &BenchStream,
+                            moments: &mut Vec<Value>| {
+        while let Some((name, moment)) = session.moments.get(next_moment).filter(|m| m.1 < until) {
             let text = mac.viewport_text().unwrap();
             moments.push(json!({
-                "name": name, "t_ms": moment - start, "text": text, "shown": shown,
+                "name": name, "t_ms": moment - start, "text": text, "shown": stream.shown,
             }));
             if attached.is_none() && *moment >= attach {
-                // A new viewer's stream: one keyframe of the screen now.
-                let (real, cursor) = live_screen(&mut mac);
-                let mut fresh = HybridStream::new(COLS, ROWS);
-                fresh.update(&real, moment - start);
-                let key = fresh.keyframe(moment - start);
                 let replay = mac
                     .vt_replay_tail_theme_portable_with_aliases(4 << 20, 0)
                     .unwrap()
                     .replay
                     .into_self_contained_bytes();
+                let key = stream.hybrid.keyframe(moment - start);
                 attached = Some(json!({
-                    "t_ms": moment - start, "pty": b64(&replay), "hybrid": event(&key, cursor),
+                    "t_ms": moment - start, "pty": b64(&replay), "text": text,
+                    "hybrid": frame_event(&key, stream.cursor), "shown": stream.shown,
                 }));
             }
             next_moment += 1;
         }
+    };
+    for (t, bytes) in session.chunks.iter().filter(|(t, _)| *t <= end) {
+        while let Some(due) = pacer.due().filter(|due| *due <= at(*t)) {
+            stream.check(&mut mac, ms(due) - start);
+            pacer.sent(due);
+        }
+        note_moments(*t, &mut mac, &stream, &mut moments);
         mac.vt_write(bytes);
         pty.push(json!([t - start, b64(bytes)]));
         pacer.wrote(at(*t));
     }
     if let Some(due) = pacer.due() {
-        let now = u64::try_from((due - origin).as_millis()).unwrap();
-        shown = send(now, &mut mac, &mut frames);
+        stream.check(&mut mac, ms(due) - start);
     }
-    for (name, moment) in &session.moments[next_moment..] {
-        let text = mac.viewport_text().unwrap();
-        moments.push(json!({
-            "name": name, "t_ms": moment - start, "text": text, "shown": shown,
-        }));
-    }
+    note_moments(u64::MAX, &mut mac, &stream, &mut moments);
     json!({
-        "cols": COLS, "rows": ROWS, "duration_ms": end - start, "pty": pty, "frames": frames,
-        "attach": attached, "moments": moments,
+        "cols": COLS, "rows": ROWS, "duration_ms": end - start, "pty": pty,
+        "frames": stream.frames, "attach": attached, "moments": moments,
     })
 }
 
