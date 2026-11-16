@@ -753,6 +753,8 @@ jobs:
           cp scripts/ci/run-webviews-tests.sh scripts/ci/timeout.sh scripts/ci/webviews_test_results.py scripts/ci/webviews_test_shards.py \
             scripts/ci/guards_new_reds.py scripts/ci/webviews_test_history.py scripts/ci/test_reds.py "$runner/"
           cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
+          # The head's Node pin: the base checked out next may predate .node-version.
+          echo "node_version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
           # The head shards run only the change's affected files (empty: every file), so only those can be red there.
           only=()
           if [ "$FULL_CI" != true ]; then
@@ -796,7 +798,7 @@ jobs:
         if: ${{ steps.pick.outputs.files != '0' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version-file: .node-version
+          node-version: ${{ steps.pick.outputs.node_version }}
 
       - name: Install webview dependencies
         if: ${{ steps.pick.outputs.files != '0' }}
@@ -914,6 +916,8 @@ jobs:
           # The head's font pin, kept for the base's engines: a base from before it has no such script, and the
           # comparison has to draw the same face as the head did (pin-browser-test-font.sh needs no checkout).
           cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
+          # The head's Node pin: the base checked out next may predate .node-version.
+          echo "node_version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
           git checkout -q --detach HEAD^1
           if failed="$(python3 scripts/ci/webviews_test_results.py --failed-files "$RUNNER_TEMP/head-results/webviews-head-results.json")"; then
             reds="$(printf '%s' "$failed" | grep -c . || true)"
@@ -1005,7 +1009,7 @@ jobs:
         if: ${{ steps.head.outputs.reds != '0' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version-file: .node-version
+          node-version: ${{ steps.head.outputs.node_version }}
 
       - name: Install webview dependencies
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}

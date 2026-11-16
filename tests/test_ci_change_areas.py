@@ -3336,10 +3336,17 @@ def _assert_setup_node_reads_a_pin_file(workflows: Path) -> None:
             value = literal.group(1).strip()
             # A job that checks out another commit (the nightly build commit) or nothing (a token
             # job) takes the pin from a job that read it at this workflow's commit.
-            relayed = re.fullmatch(r"\$\{\{ needs\.([A-Za-z0-9_-]+)\.outputs\.(node_version(?:_22)?) \}\}", value)
+            # A job that switches to the PR base reads the head's pin first, in that step.
+            relayed = re.fullmatch(
+                r"\$\{\{ (needs|steps)\.([A-Za-z0-9_-]+)\.outputs\.(node_version(?:_22)?) \}\}", value)
             if relayed:
-                source_job, output = relayed.groups()
-                source = yaml.safe_dump(jobs.get(source_job) or {}, width=10_000)
+                kind, source_job, output = relayed.groups()
+                if kind == "steps":
+                    steps = [step for job in jobs.values() for step in (job.get("steps") or [])
+                             if step.get("id") == source_job]
+                    source = yaml.safe_dump(steps, width=10_000)
+                else:
+                    source = yaml.safe_dump(jobs.get(source_job) or {}, width=10_000)
                 pin = ".node-version-22" if output.endswith("_22") else ".node-version"
                 assert f"{output}=$(tr -d '[:space:]' < {pin})" in source, (
                     f"{rel}:{number}: job {source_job} must read output {output} from {pin}"
