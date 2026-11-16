@@ -153,8 +153,10 @@ struct MultiWindowRestoreTests {
 
             var atRestore: (controllers: Int, made: Int, deferred: Int)?
             let after = try await Self.launch(launcher) { services in
-                services.windows.onRestored = { [unowned services] in
-                    atRestore = (services.windows.controllers.count, services.windows.shownContentsMade, services.windows.deferredWindows.count)
+                services.windows.deferredWindows.onStart = { [unowned services] in
+                    let windows = services.windows
+                    atRestore = (windows.controllers.count, windows.controllers.map { ($0.workspaceContent != nil ? 1 : 0) + $0.parked.count }.reduce(0, +),
+                                 others.filter(windows.deferredWindows.contains).count)
                 }
             }
             let restored = await Self.capture {
@@ -166,17 +168,22 @@ struct MultiWindowRestoreTests {
                 let all = [front] + others
                 try await Self.until({ all.allSatisfy { after.windows.controller(for: $0)?.workspaceContent != nil } && after.windows.deferredWindows.isEmpty },
                                      within: .seconds(60), report: { Self.report(after, all) })
-                #expect(after.windows.shownContentsMade == 3, "views made for \(after.windows.shownContentsMade) workspaces, one per window expected")
+                let made = all.map { (after.windows.controller(for: $0)?.parked.count ?? 0) + 1 }.reduce(0, +)
+                #expect(made == 3, "views made for \(made) workspaces, one per window expected")
                 #expect(after.windows.registry.value.recency.first == front, "the front window is \(String(describing: after.windows.registry.value.recency.first)), was \(front)")
 
                 // Selecting another workspace makes its views once; switching back and forth makes none.
                 let window = try #require(after.windows.controller(for: front))
                 let shown = try #require(window.state.workspaceID)
                 let other = try #require(after.windows.registry.value.window(front)?.workspaceIDs.first { $0 != shown })
-                for (target, made) in [(other, 4), (shown, 4), (other, 4)] {
+                var views: [String: ObjectIdentifier] = [:]
+                for target in [other, shown, other, shown] {
                     after.windows.show(workspaceID: target, in: window.state, from: .thisWindow)
                     try await Self.until({ window.workspaceContent?.workspace.id == target }, report: { Self.report(after, [front]) })
-                    #expect(after.windows.shownContentsMade == made, "after showing \(target): views made for \(after.windows.shownContentsMade) workspaces, expected \(made)")
+                    let view = ObjectIdentifier(try #require(window.workspaceContent))
+                    #expect(views[target, default: view] == view, "showing \(target) again made its views again")
+                    views[target] = view
+                    #expect(window.parked.count == 1, "\(window.parked.count) workspaces parked, only the one shown before expected")
                 }
             }
             await Self.quit(after, endingDaemon: true)

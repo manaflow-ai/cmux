@@ -43,7 +43,7 @@ extension WindowManager {
     /// Windows whose membership did not change keep their state untouched.
     func sync(previous: [String: [String]], preferred: [String: [String]] = [:], receivers: [String] = [], gesture: Bool = false) {
         let value = registry.value
-        for window in value.openWindows where controller(for: window.id) == nil && !isDeferred(window.id) {
+        for window in value.openWindows where controller(for: window.id) == nil && !deferredWindows.contains(window.id) {
             makeController(for: window)
         }
         repairSelections(previous: previous, preferred: preferred, gesture: gesture)

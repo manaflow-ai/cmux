@@ -25,30 +25,54 @@ extension WindowRules {
     }
 }
 
-/// Saved windows a launch has not made yet, front to back (``WindowRules/restoredLater(_:adopted:)``): they come
-/// back one per main-thread turn after the front window's frame, and a show aimed at one makes it at once.
-public struct DeferredWindows: Sendable {
-    public private(set) var waiting: [String] = []
+/// Saved windows a launch has not made yet, front to back (``WindowRules/restoredLater(_:adopted:)``). After the front
+/// window's frame each comes back in its own main-thread turn (``start(make:stopped:done:)``); a show aimed at one makes
+/// it at once (``makeNow(_:)``).
+@MainActor public final class DeferredWindows {
+    private var waiting: [String] = []
+    private var make: ((String) -> Void)?
+    private let afterFrame: (@escaping @MainActor () -> Void) -> Void
+    /// Runs at ``start(make:stopped:done:)``, before any waiting window is made (tests: what the restore made alone).
+    public var onStart: (() -> Void)?
 
-    public init() {}
+    /// `afterFrame`: runs its work once the current pass's frame committed (the app's `AfterFrameCommit`).
+    public init(afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void) {
+        self.afterFrame = afterFrame
+    }
 
     public var isEmpty: Bool { waiting.isEmpty }
 
     public func contains(_ id: String) -> Bool { waiting.contains(id) }
 
-    /// The launch's order: these wait, in this order.
-    public mutating func wait(_ ids: [String]) { waiting = ids }
+    /// These wait, in this order (set before the restore makes its windows, so it skips them).
+    public func queue(_ ids: [String]) { waiting = ids }
 
-    /// Takes `id` out (it is made now, or gone); whether it was waiting.
+    /// Makes the waiting windows, one per turn after a frame commit. `make` makes one (a gone or closed one makes
+    /// nothing and the next goes in the same turn); `stopped` drops the rest (a quit); `done` runs once none waits.
+    public func start(make: @escaping (String) -> Bool, stopped: @escaping () -> Bool, done: @escaping () -> Void) {
+        self.make = { _ = make($0) }
+        onStart?()
+        guard !waiting.isEmpty else { return done() }
+        step(make: make, stopped: stopped, done: done)
+    }
+
+    /// Makes window `id` now when it waits and the queue started (before that the restore is still placing windows,
+    /// and it stays queued); whether it was made.
     @discardableResult
-    public mutating func take(_ id: String) -> Bool {
-        guard let index = waiting.firstIndex(of: id) else { return false }
+    public func makeNow(_ id: String) -> Bool {
+        guard make != nil, let index = waiting.firstIndex(of: id) else { return false }
         waiting.remove(at: index)
+        make?(id)
         return true
     }
 
-    /// The next window to make, taken out; nil when none waits.
-    public mutating func next() -> String? { waiting.isEmpty ? nil : waiting.removeFirst() }
-
-    public mutating func removeAll() { waiting.removeAll() }
+    private func step(make: @escaping (String) -> Bool, stopped: @escaping () -> Bool, done: @escaping () -> Void) {
+        afterFrame { [weak self] in
+            guard let self else { return }
+            if stopped() { return waiting.removeAll() }
+            while !waiting.isEmpty, !make(waiting.removeFirst()) {}
+            if waiting.isEmpty { return done() }
+            step(make: make, stopped: stopped, done: done)
+        }
+    }
 }
