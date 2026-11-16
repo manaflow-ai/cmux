@@ -438,14 +438,11 @@ def print_attribution(label: str, found: dict):
     sys.stdout.flush()
 
 
-# CMUX_BENCH_VMMAP_KINDS=tui-daemon,app (cmux-ci run --env): after each sample, `vmmap --summary` of every process of
-# those kinds, as VMMAP lines: where a process's footprint is (MALLOC zones, a framework's __DATA, stacks...). vmmap
-# suspends the process while it reads it, so it runs after the sample's window and only when asked.
-VMMAP_KINDS_ENV = "CMUX_BENCH_VMMAP_KINDS"
-
-
-def print_vmmap(result) -> None:
-    kinds = {k for k in os.environ.get(VMMAP_KINDS_ENV, "").split(",") if k}
+# --vmmap-kinds tui-daemon,app: after each sample, `vmmap --summary` of every process of those kinds, as VMMAP
+# lines: where a process's footprint is (MALLOC zones, a framework's __DATA, stacks...). vmmap suspends the process
+# while it reads it, so it runs after the sample's window and only when asked.
+def print_vmmap(result, kinds_arg: str | None) -> None:
+    kinds = {k for k in (kinds_arg or "").split(",") if k}
     if not kinds or not shutil.which("vmmap"):
         return
     for row in result["processes"]:
@@ -1197,6 +1194,73 @@ def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
 
+APP_VM_TOOLS = (
+    # (tool, its arguments, lines kept): the app process's own memory by region, by footprint category, and by malloc
+    # zone and class. The goal's app process (~250 MB idle) had never been broken down (ram-baseline, CMUX-571).
+    ("vmmap", ["--summary"], 400),
+    ("footprint", [], 400),
+    ("heap", ["--sortBySize"], 160),
+)
+
+
+def app_vm_stacks(pid: int, pattern: str, limit: int = 40) -> dict:
+    """--app-vm-stacks: the address and size of each live block of a class `heap` names (`heap -addresses PATTERN`), and
+    for up to `limit` of them, largest first, the stack that allocated it (`malloc_history`; the app runs with
+    MallocStackLogging=lite for this). Says which code keeps the copies a class count shows (CMUX-571: 36 copies of the
+    palette's item list in the idle app)."""
+    try:
+        # heap matches the whole type name; a step argument carries no regex characters, so a substring is wrapped here.
+        proc = subprocess.run(["heap", str(pid), "-addresses", f".*{pattern}.*"], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"error": str(e)[:300]}
+    blocks = []
+    for line in proc.stdout.splitlines():
+        m = re.match(r"\s*(0x[0-9a-f]+): .*?\((\d+) bytes\)", line)
+        if m:
+            blocks.append((int(m.group(2)), m.group(1), line.strip()[:200]))
+    blocks.sort(reverse=True)
+    out = {"rc": proc.returncode, "blocks": [b[2] for b in blocks], "stderr": proc.stderr[-400:], "head": proc.stdout.splitlines()[:120],
+           "stacks": {}}
+    for size, address, _ in blocks[:limit]:
+        try:
+            hist = subprocess.run(["malloc_history", str(pid), address], capture_output=True, text=True, timeout=120)
+            out["stacks"][f"{address} {size}"] = hist.stdout.splitlines()[-80:] + hist.stderr.splitlines()[-5:]
+        except (OSError, subprocess.TimeoutExpired) as e:
+            out["stacks"][f"{address} {size}"] = [str(e)[:200]]
+    return out
+
+
+def app_vm(pid: int) -> dict:
+    """--app-vm: the app process's `vmmap --summary`, `footprint` and `heap --sortBySize` (each output's first lines;
+    heap lists its zones, then the largest classes). A tool that fails keeps its error, so the report says why."""
+    out = {}
+    for tool, extra, keep in APP_VM_TOOLS:
+        if not shutil.which(tool):
+            out[tool] = {"error": "not installed"}
+            continue
+        try:
+            proc = subprocess.run([tool, *extra, str(pid)], capture_output=True, text=True, timeout=180)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            out[tool] = {"error": str(e)[:300]}
+            continue
+        lines = proc.stdout.splitlines()
+        out[tool] = {"rc": proc.returncode, "lines": lines[:keep], "total_lines": len(lines),
+                     "stderr": proc.stderr[-600:]}
+    return out
+
+
+def print_app_vm(label: str, vm: dict) -> None:
+    for tool, entry in ((t, e) for t, e in vm.items() if t not in ("pages", "stacks")):
+        if "error" in entry:
+            print(f"APP-VM {label} {tool} error: {entry['error']}", flush=True)
+            continue
+        print(f"APP-VM {label} {tool} rc={entry.get('rc')} lines={entry.get('total_lines')}", flush=True)
+        for line in entry.get("lines") or []:
+            print(f"APP-VM {label} {tool}| {line}", flush=True)
+        if entry.get("stderr") and entry.get("rc"):
+            print(f"APP-VM {label} {tool} stderr: {entry['stderr']}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="the .app bundle")
@@ -1215,6 +1279,8 @@ def main():
     parser.add_argument("--cef-switches", default="",
                         help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
+    parser.add_argument("--vmmap-kinds", help="after each sample, vmmap --summary of every process of these kinds "
+                        "(comma list, e.g. tui-daemon,app), as VMMAP lines")
     parser.add_argument("--config", default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
     parser.add_argument("--fake-agent", metavar="SCRIPT",
@@ -1251,6 +1317,13 @@ def main():
     parser.add_argument("--js-heap", action="store_true",
                         help="after each sample: every cmux page's V8 heap (Runtime.getHeapUsage), summed by page path "
                              "(`js_heap` in the sample; a bench or DEV build)")
+    parser.add_argument("--app-vm", action="store_true",
+                        help="after the idle-launch sample: the app process's vmmap --summary, footprint and "
+                             "heap --sortBySize (`app_vm` in the sample, APP-VM lines)")
+    parser.add_argument("--app-vm-stacks", metavar="PATTERN",
+                        help="with --app-vm: launch with MallocStackLogging=lite and print each live block of the classes "
+                             "`heap -addresses PATTERN` names with the stack that allocated it (a diagnostic run: the "
+                             "logging itself costs memory, so its footprint is not a measurement)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1288,6 +1361,8 @@ def main():
         socket_path, app_pid = args.socket, args.app_pid
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
+        if args.app_vm_stacks:
+            extra["MallocStackLogging"] = "lite"  # --app-vm-stacks: malloc_history needs the allocation stacks
         config = json.loads(args.config)
         if chat_renderer_crash.enabled():
             config = merged(config, chat_renderer_crash.CONFIG)
@@ -1339,11 +1414,31 @@ def main():
             print(f"   JS heap: {heap.get('pages', 0)} cmux pages ({heap.get('hidden_pages', 0)} hidden) in "
                   f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
                   f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
+        if args.app_vm and label == "idle-launch":
+            result["app_vm"] = app_vm(app_pid)
+            if args.app_vm_stacks:
+                stacks = app_vm_stacks(app_pid, args.app_vm_stacks)
+                result["app_vm"]["stacks"] = stacks
+                print(f"APP-VM {label} stacks rc={stacks.get('rc')} blocks={len(stacks.get('blocks') or [])} "
+                      f"error={stacks.get('error')} stderr={stacks.get('stderr')!r}", flush=True)
+                for line in stacks.get("head") or []:
+                    print(f"APP-VM {label} stacks-head| {line}", flush=True)
+                for line in stacks.get("blocks") or []:
+                    print(f"APP-VM {label} block| {line}", flush=True)
+                for key, frames in (stacks.get("stacks") or {}).items():
+                    for frame in frames:
+                        print(f"APP-VM {label} stack {key}| {frame}", flush=True)
+            try:  # which pages are live at idle (their engines own the WebContent and renderer processes)
+                result["app_vm"]["pages"] = (app.call("debug.page", {"action": "list"}, timeout=30) or {}).get("pages")
+            except Exception as e:  # noqa: BLE001 - a build without the debug op still gets its vmmap
+                result["app_vm"]["pages"] = {"error": str(e)[:300]}
+            print(f"APP-VM {label} pages: {json.dumps(result['app_vm']['pages'])[:3000]}", flush=True)
+            print_app_vm(label, result["app_vm"])
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
-        print_vmmap(result)
+        print_vmmap(result, args.vmmap_kinds)
         return result
 
     try:

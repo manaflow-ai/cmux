@@ -831,6 +831,47 @@ struct MacScreenDeviceActionTests {
         #expect((await settings.run(run("shareThisMac", id: remote))).error != nil)
         #expect(shares == 2)
     }
+
+    /// A Linux desktop (`cmux-rd linux-host`) is a screen this Mac views: Settings > Devices offers View screen and
+    /// opens it, and the sidebar's screen actions know it. An iPhone is neither.
+    @Test func aLinuxDesktopIsViewableFromSettingsAndTheSidebar() async throws {
+        let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
+        let linux = "9a1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let mac = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let phone = "8f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let devicesBody = #"{"devices":[{"id":"\#(identity.id)","name":"This Mac","platform":"macos","online":true},{"id":"\#(linux)","name":"Desktop","platform":"linux","macScreenShared":1,"online":true},{"id":"\#(mac)","name":"Remote Mac","platform":"macos","online":true},{"id":"\#(phone)","name":"Phone","platform":"ios","online":true}]}"#
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Test-Devices": devicesBody]
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { "stack-token" },
+                                     session: URLSession(configuration: configuration))
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "This Mac")
+        await hub.refreshDevices()
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.hubConfigured = true
+        pages.hub = hub
+        let settings = MacScreenDevicesSettings(pages: pages)
+        var opened: String?
+        settings.openScreen = { opened = $0 }
+
+        let rows = Dictionary(uniqueKeysWithValues: settings.state.others.map { ($0.id, $0) })
+        #expect(rows[linux]?.screenAction?.kind == "view", "a Linux desktop row offers View screen")
+        #expect(rows[linux]?.screenAction?.disabled == false)
+        #expect(rows[mac]?.screenAction?.kind == "view")
+        #expect(rows[phone]?.screenAction == nil, "an iPhone hosts no screen this Mac views")
+
+        let result = await settings.run(.init(action: "openScreen", id: linux, name: nil, scope: nil, on: nil, relay: nil))
+        #expect(result.error == nil)
+        #expect(opened == linux)
+
+        let availability = hub.macScreenAvailability
+        #expect(availability[linux] == true, "the sidebar's screen action reaches a Linux desktop")
+        #expect(availability[mac] == true)
+        #expect(availability[phone] == nil)
+    }
 }
 
 /// The host's controls tell the hub the cause before anything closes here.
