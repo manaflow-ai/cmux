@@ -428,8 +428,8 @@ fn an_owner_that_keeps_its_session_says_what_of_it_still_lives() {
     let freed = refusal(&root, session);
     let _ = std::fs::remove_dir_all(&root);
     let names = match &release {
-        super::super::lifecycle::OwnershipRelease::KeptUntilExit { alive, .. } => alive.clone(),
-        super::super::lifecycle::OwnershipRelease::Released => Vec::new(),
+        lifecycle::OwnershipRelease::KeptUntilExit { alive, .. } => alive.clone(),
+        lifecycle::OwnershipRelease::Released => Vec::new(),
     };
     assert!(
         names == ["session journal writer"],
