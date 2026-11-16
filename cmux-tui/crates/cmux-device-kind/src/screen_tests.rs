@@ -31,6 +31,9 @@ fn every_kind_says_what_the_screen_sharing_page_offers() {
     // or a server, so it is listed as unknown rather than given a button that may be dead.
     assert_eq!(offer(DeviceKind::Generic, Some("macOS"), true), view(ScreenRoute::Hub));
     assert_eq!(offer(DeviceKind::Generic, Some("macOS"), false), none(NoScreen::Offline));
+    // A Windows PC (`cmux-rd windows-host`, platform "windows" on the device hub) is viewed the same way.
+    assert_eq!(offer(DeviceKind::Generic, Some("windows"), true), view(ScreenRoute::Hub));
+    assert_eq!(offer(DeviceKind::Generic, Some("Windows"), false), none(NoScreen::Offline));
     assert_eq!(offer(DeviceKind::Generic, Some("linux"), true), none(NoScreen::Unknown));
     assert_eq!(offer(DeviceKind::Generic, Some("android"), true), none(NoScreen::Phone));
     assert_eq!(offer(DeviceKind::Generic, None, true), none(NoScreen::Unknown));
