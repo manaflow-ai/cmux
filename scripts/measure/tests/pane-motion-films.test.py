@@ -312,6 +312,16 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual(hosts, ["PREFLIGHT host: " + report["host"]])
         self.assertIn(", python ", hosts[0])
 
+    def test_a_host_that_cannot_be_read_is_a_note_and_the_films_are_made(self):
+        with mock.patch.object(M.platform, "mac_ver", side_effect=OSError("a fake fault")):
+            try:
+                code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D")
+            except OSError as error:
+                self.fail(f"the read of the host ended the run: {error!r}")
+        hosts = [line for line in lines if line.startswith("PREFLIGHT host: ")]
+        self.assertEqual((code, hosts), (0, ["PREFLIGHT host: " + report["host"]]))
+        self.assertTrue(report["host"].startswith("not read"), report["host"])
+
     def test_one_open_makes_the_app_active_and_the_films_are_of_the_activate_form(self):
         code, report, lines, launches = self.run_films({"open-activates"}, "--films", "T-D,T-Z")
         self.assertEqual((code, self.forms(launches), launches[0].world.opens), (0, ["activate"], [[BUNDLE]]))

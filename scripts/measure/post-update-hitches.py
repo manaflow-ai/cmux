@@ -11,7 +11,7 @@ try to iron out all the lag spikes". This measures them:
   2. seeds a home while FROM runs: WORKSPACES terminal workspaces (half print in a loop, each with a second tab),
      one long agent chat on the app's own acpmux (chat_open_agent.py's realistic turns, CHAT_TURNS of them, opened
      as its own workspace), a couple of New Tabs and a typing workspace with scrollback; lets it settle 30 s;
-  3. stages the update (updates.downloadAutomatically on, palette.checkForUpdates until updates.status is "installing"), quits (action quit: Sparkle
+  3. stages the update (downloadAutomatically on in the home's cmux-next.json, palette.checkForUpdates until updates.status is "installing"), quits (action quit: Sparkle
      installs on quit), waits until the bundle's CFBundleVersion is TO, and never lets Sparkle relaunch it;
   4. measures launch A (the first of TO, from the same home) and launch B (TO again after a normal quit) for
      SECONDS each from the launch, with the same script:
@@ -26,6 +26,10 @@ try to iron out all the lag spikes". This measures them:
          (goToWorkspace, reply and shown), scroll (terminal.scrollPageUp/Down on the typing workspace: no shipped
          control action scrolls the agent pane), 5 New Tabs opened and closed, 20 typed lines timed to the shell;
        - launch marks, `log stream` of subsystem com.cmuxterm*, hang files under the private home, updates.status.
+  Diagnostics (hq#11994): when a control call goes unanswered (a socket timeout, or an action `not_run`) in any
+  phase, it keeps `sample PID 3`, a `screencapture`, the app's on-screen windows and the home's Library/Logs under
+  OUT/<phase>/diagnostics/, at once and again 60, 300 and 600 s later, and prints a DIAG line with the top of the
+  main thread's heaviest stack. FROM's phase (seed, stage) also keeps a `log stream` with Sparkle's processes.
 
 Isolation: the app's daemon (cmux-tui) socket is the account's temp dir by session name (DaemonLauncher
 runtimeBase is confstr(_CS_DARWIN_USER_TEMP_DIR), not TMPDIR), and its remembered daemon socket and its other state
@@ -68,18 +72,30 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "ci"))
 import fresh_home_launch_smoke as smoke  # noqa: E402
 
-FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+# The live nightly-next feed (Info.plist's SUFeedURL; next/appcast-arm64.xml stopped at 2026-11-05's builds, before the
+# staged-update pre-warm, so FROM there never pre-warms).
+FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
+# The live feed republishes each cmux NEXT build as cmux NIGHTLY (publish-nightly-identity-legacy), the copy people
+# run; only the cmux NEXT feed (nightly-next/next/) carries BUNDLE_ID.
+NIGHTLY_BUNDLE_ID = "com.cmuxterm.app.nightly"
+
+
+def feed_bundle_id(feed):
+    """The bundle id of the app FEED publishes."""
+    return BUNDLE_ID if "/nightly-next/next/" in feed else NIGHTLY_BUNDLE_ID
 RECORDER_SRC = REPO / "scripts/measure/tab-switch-frames/recorder.swift"
 TURNS_AGENT = ("puh-turns", REPO / "scripts/cmux-next/chat_open_agent.py")
 PROBE_METHOD = "notifications.status"
 PROBE_EVERY_S, STALL_MS = 0.020, 50.0
+PROBE_DIAG_S = 2.0  # a probe unanswered this long takes the diagnostics (Diagnostics) while the stall lasts
 ROUNDS_AT_S = (None, 30.0, 90.0, 150.0)  # None: 5 s after the socket answers
 SYSTEM = ("amfid", "syspolicyd", "XprotectService", "XProtect", "XProtectPluginService", "XProtectBehaviorService",
           "trustd", "mds", "mds_stores", "mdworker_shared", "mdworker", "kernel_task", "launchservicesd", "lsd",
           "WindowServer", "cfprefsd", "tccd", "fseventsd")
 LOOP = "while :; do date; ls -la /usr/bin | tail -n 20; sleep 0.05; done\r"
 USER_AGENT = {"User-Agent": "cmux-post-update-hitches/1"}
+DIAG_AT_S = (0, 60, 300, 600)  # diagnostics at the first unanswered control call and this long after it
 
 
 def say(*parts):
@@ -310,6 +326,152 @@ def rpc(path, method, params=None, timeout=30.0):
     return reply.get("result") if reply.get("result") is not None else {}
 
 
+def unanswered(reply):
+    """Whether a control reply means the app never got to the call: a socket timeout, or an action its main actor
+    did not run within the deadline (`not_run`)."""
+    error = reply.get("error") if isinstance(reply, dict) else None
+    text = json.dumps(error) if error is not None else ""
+    return "timed out" in text or "not_run" in text
+
+
+class Diagnostics:
+    """What the app was doing when a control call went unanswered (hq#11994): `sample PID 3` (a hang is one main-thread
+    stack, a modal loop shows -[NSApplication runModal...]), `screencapture` of the console (a window the socket can't
+    see), the app's on-screen windows, and the private home's Library/Logs. Taken at the first unanswered call and
+    again DIAG_AT_S after it, under OUT/diagnostics/<n>-at<s>s/."""
+
+    def __init__(self, out: Path, home: Path, tools: Path):
+        self.out, self.home, self.tools = out / "diagnostics", home, tools
+        self.first_at, self.taken = None, []
+        self.lock = threading.Lock()
+
+    def on_unanswered(self, app, method, reply):
+        if app.pid is None or not app.alive() or not self.lock.acquire(blocking=False):
+            return  # another thread is taking them now
+        try:
+            now = time.monotonic()
+            if self.first_at is None:
+                self.first_at = now
+            due = [at for at in DIAG_AT_S if at not in self.taken and now - self.first_at >= at]
+            if due:
+                self.taken.append(due[-1])
+                self.take(app, f"{len(self.taken)}-at{int(now - self.first_at)}s", method, reply)
+        finally:
+            self.lock.release()
+
+    def take(self, app, label, method, reply):
+        folder = self.out / label
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "reason.txt").write_text(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} pid {app.pid} "
+                                           f"{method}: {json.dumps(reply)[:400]}\n")
+        results = {}
+        for name, args, limit in (("sample", ["/usr/bin/sample", str(app.pid), "3", "-file", str(folder / "sample.txt")], 60),
+                                  ("screencapture", ["/usr/sbin/screencapture", "-x", str(folder / "screen.png")], 30)):
+            try:
+                results[name] = subprocess.run(args, capture_output=True, text=True, timeout=limit).returncode
+            except (OSError, subprocess.SubprocessError) as error:
+                results[name] = str(error)
+        lister = build_window_lister(self.tools)
+        if lister:
+            try:
+                listed = subprocess.run([str(lister), str(app.pid)], capture_output=True, text=True, timeout=30)
+                (folder / "windows.txt").write_text(listed.stdout + listed.stderr)
+                results["windows"] = listed.stdout.count("\n")
+            except (OSError, subprocess.SubprocessError) as error:
+                results["windows"] = str(error)
+        logs = self.home / "Library/Logs"
+        if logs.is_dir():
+            shutil.copytree(logs, folder / "Logs", dirs_exist_ok=True, symlinks=True,
+                            ignore=lambda _d, names: [n for n in names if n.endswith(".sock")])
+        stack = main_thread_stack(folder / "sample.txt")
+        (folder / "main-thread.txt").write_text("\n".join(stack) + "\n")
+        say(f"DIAG {label} after unanswered {method}: {json.dumps(results)}; main thread (innermost first): "
+            + (" < ".join(stack[::-1][:8]) if stack else "no stack read"))
+
+
+class LogStream:
+    """`log stream --style ndjson` of PREDICATE into PATH while the block runs; stopped by its own pid after."""
+
+    def __init__(self, path: Path, predicate: str):
+        self.path, self.predicate = path, predicate
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.file = open(self.path, "wb")
+        self.process = subprocess.Popen(["/usr/bin/log", "stream", "--style", "ndjson", "--level", "debug",
+                                         "--predicate", self.predicate], stdout=self.file, stderr=subprocess.STDOUT,
+                                        start_new_session=True)
+        return self
+
+    def __exit__(self, *_exc):
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        self.file.close()
+        return False
+
+
+def main_thread_stack(sample_file: Path, limit=80):
+    """The main thread's heaviest path in a `sample` report, outermost frame first: at each depth, the first (heaviest)
+    child. `sample` prints a call graph per thread: `Thread_N  DispatchQueue_1: com.apple.main-thread`, then lines
+    like `    + 2345 symbol  (in Image) + 12  [0x...]` indented by depth."""
+    try:
+        lines = sample_file.read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    frames, inside, last_depth = [], False, -1
+    for line in lines:
+        if not inside:
+            inside = "Thread_" in line and "com.apple.main-thread" in line
+            continue
+        if not line.strip() or "Thread_" in line:
+            break
+        match = re.match(r"^([\s+!:|]*)\d+\s+(.*?)(?:\s{2}\(in |\s+\[0x|$)", line)
+        if not match:
+            continue
+        depth = len(match.group(1))
+        if depth <= last_depth:
+            continue  # a sibling (lighter branch) of a frame already kept
+        frames.append(match.group(2).strip())
+        last_depth = depth
+        if len(frames) >= limit:
+            break
+    return frames
+
+
+WINDOW_LISTER_SRC = r"""
+import CoreGraphics
+import Foundation
+// post-update-hitches window lister: the on-screen windows of PID (every window with no PID): layer, owner, name, bounds.
+let pid = CommandLine.arguments.count > 1 ? Int32(CommandLine.arguments[1]) : nil
+let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+for w in list {
+    let owner = w[kCGWindowOwnerPID as String] as? Int32 ?? -1
+    if let pid, owner != pid { continue }
+    let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+    print("pid \(owner) layer \(w[kCGWindowLayer as String] ?? "?") owner \(w[kCGWindowOwnerName as String] ?? "?") name \(w[kCGWindowName as String] ?? "") bounds \(b["X"] ?? 0),\(b["Y"] ?? 0) \(b["Width"] ?? 0)x\(b["Height"] ?? 0)")
+}
+"""
+
+
+def build_window_lister(cache: Path):
+    binary = cache / "window-lister"
+    if binary.exists():
+        return binary
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        source = cache / "window-lister.swift"
+        source.write_text(WINDOW_LISTER_SRC)
+        done = subprocess.run(["swiftc", "-O", "-o", str(binary), str(source)], capture_output=True, text=True,
+                              timeout=600)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return binary if done.returncode == 0 and binary.exists() else None
+
+
 class Probe(threading.Thread):
     """`notifications.status` every 20 ms, one request in flight, new connection each: [(t_send, ms | None)]."""
 
@@ -318,6 +480,17 @@ class Probe(threading.Thread):
         self.sock, self.t0, self.seconds = sock, t0, seconds
         self.samples, self.socket_at, self.first_reply_at = [], None, None
         self.stop = threading.Event()
+        self.app = None  # App: a probe unanswered for PROBE_DIAG_S takes the app's diagnostics, during the stall
+        self.in_flight_since = None
+
+    def watch(self):
+        """The probe's stall watchdog: one in flight PROBE_DIAG_S or longer takes the diagnostics while it hangs."""
+        while not self.stop.wait(0.25):
+            since = self.in_flight_since
+            if since is not None and self.first_reply_at is not None and time.monotonic() - since >= PROBE_DIAG_S \
+                    and self.app is not None and self.app.diagnostics is not None:
+                self.app.diagnostics.on_unanswered(self.app, PROBE_METHOD,
+                                                   {"error": f"in flight {time.monotonic() - since:.1f} s"})
 
     def run(self):
         while not self.stop.is_set() and time.monotonic() - self.t0 < self.seconds:
@@ -328,9 +501,11 @@ class Probe(threading.Thread):
                     time.sleep(0.005)  # harness: waiting for the socket file
                     continue
             sent = time.monotonic()
+            self.in_flight_since = sent
             reply = rpc(self.sock, PROBE_METHOD, timeout=30)
             ms = (time.monotonic() - sent) * 1000
             ok = not (isinstance(reply, dict) and reply.get("error"))
+            self.in_flight_since = None
             if ok and self.first_reply_at is None:
                 self.first_reply_at = time.monotonic() - self.t0
             if self.first_reply_at is not None:
@@ -448,6 +623,7 @@ class App:
         self.bundle_id, self.executable = smoke.bundle_info(path)
         self.process = None
         self.pid = None
+        self.diagnostics = None  # Diagnostics, set per phase: kept when a control call goes unanswered
 
     def env(self, marks_path, activate):
         env = smoke.fresh_env(self.root, self.sock, 0)
@@ -529,7 +705,10 @@ class App:
         return self.pid is not None and smoke.alive(self.pid)
 
     def call(self, method, params=None, timeout=30):
-        return rpc(self.sock, method, params, timeout)
+        reply = rpc(self.sock, method, params, timeout)
+        if self.diagnostics is not None and unanswered(reply):
+            self.diagnostics.on_unanswered(self, method, reply)
+        return reply
 
     def action(self, action_id, /, focus=True, timeout=60, **args):
         params = {"action": action_id, "args": args, "origin": "script", "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
@@ -850,9 +1029,12 @@ def measure(app: App, name, opts, seed_info, recorder_bin, out: Path, resident_s
     probe = Probe(app.sock, t0, opts.seconds)
     if app.sock.exists():
         app.sock.unlink()  # a socket file left by the quit would count as "socket exists"
+    app.diagnostics = Diagnostics(out, app.root / "h", Path(opts.tools))
+    probe.app = app
     t0 = app.launch(out, activate=recorder_bin is not None)
     sampler.t0 = probe.t0 = t0
     probe.start()
+    threading.Thread(target=probe.watch, daemon=True).start()
     result["pid"] = app.pid
     ready = app.wait_ready(120)
     result["ready_s"] = round(time.monotonic() - t0, 2) if ready else None
@@ -919,6 +1101,7 @@ def measure(app: App, name, opts, seed_info, recorder_bin, out: Path, resident_s
         json.dump(sampler.rows, handle)
     result["cpu_windows"], result["disk"] = cpu_windows(sampler.rows, opts.seconds)
     result["logs"] = log_digest(out / "log-stream.ndjson")
+    result["diagnostics"] = list(app.diagnostics.taken)
     return result
 
 
@@ -982,7 +1165,7 @@ def round_line(row):
     def stat(values):
         return f"{pct(values, 50)}/{max(values) if values else None}"
     parts = [f"switch shown p50/max {stat([s['shown_ms'] for s in row['switch']])} ms",
-             f"scroll {stat([s['reply_ms'] for s in row['scroll']])}",
+             f"scroll post {stat([s['post_ms'] for s in row['scroll'] if 'post_ms' in s])}",
              f"newtab {stat([s['reply_ms'] for s in row['newtab']])}",
              f"type ran {stat([t['ran_ms'] for t in row['type']])}"]
     if "frames" in row:
@@ -992,12 +1175,12 @@ def round_line(row):
 
 def interaction_summary(rounds):
     out = {}
-    for key, field in (("switch", "shown_ms"), ("switch_reply", "reply_ms"), ("scroll", "reply_ms"),
+    for key, field in (("switch", "shown_ms"), ("switch_reply", "reply_ms"), ("scroll", "post_ms"),
                        ("newtab", "reply_ms"), ("type", "ran_ms")):
         src = "switch" if key.startswith("switch") else key
         per_round = []
         for row in rounds:
-            values = [r[field] for r in row[src]]
+            values = [r[field] for r in row[src] if field in r]
             per_round.append({"round": row["label"], "at_s": row["at_s"], "median": pct(values, 50),
                               "max": max(values) if values else None, "n": len(values),
                               "failed": sum(1 for r in row[src] if r.get("error") or r.get("shown") is False or r.get("ok") is False)})
@@ -1081,7 +1264,9 @@ def run(opts, root: Path, report):
                   seconds=opts.seconds, host=os.uname().nodename, launch=opts.launch)
     say(f"FROM {from_item['build']} ({from_item['short']}) TO {to_item['build']} ({to_item['short']}); "
         f"delta from FROM in feed: {from_item['build'] in to_item['delta_from']}")
-    preflight(BUNDLE_ID, root)
+    bundle_id = feed_bundle_id(opts.feed)
+    report["bundle_id"] = bundle_id
+    preflight(bundle_id, root)
     if opts.preflight_only:
         say("preflight ok: no other copy of the bundle id, no remembered or session daemon socket")
         return 0
@@ -1102,38 +1287,59 @@ def run(opts, root: Path, report):
     if bundle_build(path) != from_item["build"]:
         raise StepFailed(f"installed {bundle_build(path)}, want {from_item['build']}")
     app = App(path, root, opts)
-    if app.bundle_id != BUNDLE_ID:
-        raise CannotRun(f"the feed's app is {app.bundle_id}, not {BUNDLE_ID}")
+    if app.bundle_id != bundle_id:
+        raise CannotRun(f"the feed's app is {app.bundle_id}, not {bundle_id}")
     resident = resident_daemon_sockets(root)
-    with smoke.DefaultsAside(BUNDLE_ID, root):
-        subprocess.run(["defaults", "write", BUNDLE_ID, "home.firstRun.historyImportShown", "-bool", "YES"],
+    with smoke.DefaultsAside(bundle_id, root):
+        subprocess.run(["defaults", "write", bundle_id, "home.firstRun.historyImportShown", "-bool", "YES"],
                        capture_output=True, timeout=30)
         home = root / "h"
         (home / ".config/cmux").mkdir(parents=True, exist_ok=True)
         (home / ".config/cmux/cmux-next.json").write_text(json.dumps(
-            {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True}}, indent=1))
+            # downloadAutomatically: a person who keeps automatic updates; it is user-only over the socket
+            # (setting_user_only), so it goes in the person's own file, before the launch.
+            {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}},
+            indent=1))
+        # A file that already went through the one-time "forget stored defaults" pass
+        # (SettingsController+StoredDefaults.swift, record `cmux-next.json.defaults-forgotten.json`), as a person's
+        # file has: without the record, FROM's first launch drops installOnQuit (true was a former default) and
+        # quit cancels the staged update instead of installing it (cmux9s, 2026-11-16, builds 438256712380x).
+        (home / ".config/cmux/cmux-next.json.defaults-forgotten.json").write_text(json.dumps(
+            {"note": "post-update-hitches: this home's settings are a person's picks, not copies of defaults",
+             "dropped": {}, "kept": {}}, indent=1))
         (home / ".zshrc").touch()
-        # N: seed, settle, stage, quit -> install.
-        app.launch(out / "N")
-        if not app.wait_ready(120):
-            raise StepFailed("FROM: the control socket never answered")
-        report["N_isolation"] = check_isolation(app, resident)
-        seed_info = seed(app, opts, report)
-        time.sleep(opts.settle)  # the asked settle before staging
-        # A fresh home downloads nothing on its own (updates.downloadAutomatically is off): turn it on, as a person
-        # who keeps automatic updates would have it, so the check downloads, verifies and stages the update.
-        report["download_setting"] = app.call("settings.set", {"path": "updates.downloadAutomatically", "value": True}, timeout=30)
-        app.action("palette.checkForUpdates", focus=False)
-        staged, deadline = None, time.monotonic() + 900
-        while time.monotonic() < deadline and not staged:
-            status = app.call("updates.status", timeout=10)
-            staged = status if isinstance(status, dict) and status.get("phase") == "installing" else None
-            time.sleep(2)  # harness: Sparkle downloads and verifies
-        report["staged_status"] = app.call("updates.status", timeout=10)
-        if not staged:
-            raise StepFailed(f"no update staged in 900 s: {json.dumps(report['staged_status'])[:400]}")
-        say(f"STAGED {staged.get('detected_version')}")
-        app.quit()
+        # Sparkle's installer runs from launchd with the account's own home, so it stages under the account's
+        # Library/Caches, while the app (CFFIXED_USER_HOME = the private home) looks for the staged bundle under the
+        # private one: its pre-warm found nothing (cmux9s, 2026-11-16: "no staged bundle ... (scan 0 ms)"), which a
+        # person's app never sees. The private folder points at the account's, so the app and Sparkle share it.
+        sparkle = Path("Library/Caches") / bundle_id / "org.sparkle-project.Sparkle"
+        account_sparkle = Path(os.path.expanduser("~")) / sparkle
+        account_sparkle.mkdir(parents=True, exist_ok=True)
+        (home / sparkle).parent.mkdir(parents=True, exist_ok=True)
+        if not (home / sparkle).exists():
+            (home / sparkle).symlink_to(account_sparkle, target_is_directory=True)
+        # N: seed, settle, stage, quit -> install. Its own log stream (with Sparkle's processes) and diagnostics.
+        app.diagnostics = Diagnostics(out / "N", home, Path(opts.tools))
+        report["N_diagnostics"] = app.diagnostics.taken  # the list itself: filled as they are taken
+        with LogStream(out / "N" / "log-stream.ndjson", 'subsystem BEGINSWITH "com.cmuxterm" OR '
+                       'process == "Autoupdate" OR process == "Updater"'):
+            app.launch(out / "N")
+            if not app.wait_ready(120):
+                raise StepFailed("FROM: the control socket never answered")
+            report["N_isolation"] = check_isolation(app, resident)
+            seed_info = seed(app, opts, report)
+            time.sleep(opts.settle)  # the asked settle before staging
+            app.action("palette.checkForUpdates", focus=False)
+            staged, deadline = None, time.monotonic() + 900
+            while time.monotonic() < deadline and not staged:
+                status = app.call("updates.status", timeout=10)
+                staged = status if isinstance(status, dict) and status.get("phase") == "installing" else None
+                time.sleep(2)  # harness: Sparkle downloads and verifies
+            report["staged_status"] = app.call("updates.status", timeout=10)
+            if not staged:
+                raise StepFailed(f"no update staged in 900 s: {json.dumps(report['staged_status'])[:400]}")
+            say(f"STAGED {staged.get('detected_version')}")
+            app.quit()
         deadline = time.monotonic() + 300
         while time.monotonic() < deadline and bundle_build(path) != to_item["build"]:
             time.sleep(1)  # harness: Sparkle's installer replaces the bundle
