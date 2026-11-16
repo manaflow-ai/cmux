@@ -336,9 +336,6 @@ fn plan(socket: &Path) -> Result<Value, Failure> {
     Ok(json!({"harnesses": harnesses, "live_threads": live, "running_threads": running}))
 }
 
-/// The capability of a daemon that answers rows by key (`_acpmux/info` with `sessionIds`).
-const INFO_ROWS: &str = "info-rows-v1";
-
 /// [`threads`] from the v2 list (row 7c): a walk of `live` with origin `local`, each summary
 /// counted as v1's row is. A summary whose `extra` was bounded away holds neither the tags nor
 /// the name the Chief test reads: its row is read by key, a hundred keys a request. `None`:
@@ -360,7 +357,7 @@ struct ListRead {
 /// [`list_threads`], with the rows it read.
 fn list_read(link: &AcpmuxLink, socket: &Path) -> Result<Option<ListRead>, Failure> {
     use crate::server::agent_session_attach::agent_session_link::list_source::{
-        self, Opened, bounded_away, extras, v1_status,
+        self, INFO_ROWS, Opened, bounded_away, extras, v1_status,
     };
     use acpmux_client::wire::{ListFilter, ListView};
     use std::ops::ControlFlow;
