@@ -90,7 +90,7 @@ public final class AcpmuxPersonLine {
         }
         // Once per daemon instance (pid): a daemon that keeps refusing (a DEV one with another launch's key)
         // is not enrolled again on every read, app activation or Mac Screen ticket, and its first line answers.
-        guard let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(5)),
+        guard let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(1)),
               status.serves(home: environment.home), let pid = status.pid,
               AcpmuxPersonKey.claimReenroll(for: environment.socketPath, pid: pid) else { return first }
         // The first line's deadline runs from its connect: closed here, and the answer is a fresh line.

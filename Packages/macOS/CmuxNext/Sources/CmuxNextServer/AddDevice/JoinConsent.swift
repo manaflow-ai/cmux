@@ -634,8 +634,9 @@ public final class JoinConsentModel {
         let (reading, current) = await read()
         guard current, !writing else { return false }
         if Self.permits(reading, control: control) { return true }
-        if reading.supported == false || reading.consent != nil, Self.joined(reading) {
-            refused(JoinConsentRefusal(requester: requester, surface: reading.consent?.screen == true ? .control : .screen))
+        // Not for another install's record (gating nil): its Allow can never take, and the Mac's one ask would be spent.
+        if reading.supported == false || reading.gating != nil, Self.joined(reading) {
+            refused(JoinConsentRefusal(requester: requester, surface: reading.gating?.screen == true ? .control : .screen))
         }
         return false
     }

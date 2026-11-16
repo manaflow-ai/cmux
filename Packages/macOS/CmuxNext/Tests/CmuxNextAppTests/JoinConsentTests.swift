@@ -798,6 +798,7 @@ import Testing
         #expect(switches.first { $0["surface"] as? String == "screen" }?["on"] as? Bool == true, "shows what acpmux holds")
         #expect(!model.permitsMacScreen(control: false) && !model.permitsMacScreen(control: true), "Mac Screen never follows another install's record")
         #expect(!(await model.allowsMacScreen(control: false, requester: "lane-vm-3")))
+        #expect(model.ask == nil, "no sheet whose Allow could never take, and the one ask is not spent")
     }
 
     @Test func noAcpmuxIsAFailureNeverAnOn() async {
