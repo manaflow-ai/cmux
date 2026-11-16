@@ -29,7 +29,15 @@ import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
-import { isEmptyFooter, isStopped, offersRetry, workedCallsText, workedLabel, workedMessagesText } from "./turns";
+import {
+  isEmptyFooter,
+  isStopped,
+  offersRetry,
+  turnTimeKey,
+  workedCallsText,
+  workedLabel,
+  workedMessagesText,
+} from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
@@ -69,7 +77,7 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   let label: ReactNode;
   if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
   else {
-    const key = row.status === "cancelled" || row.status === "interrupted" ? "turn.stopped" : "turn.worked";
+    const key = turnTimeKey(row);
     // A line that names its runs' work leaves their count to it.
     const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
     label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
