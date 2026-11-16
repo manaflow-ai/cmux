@@ -480,7 +480,7 @@ pub(super) enum Kept {
 
 /// The name that git gives the lock of a worktree in the worktree's git
 /// folder. `git worktree add` keeps the lock while it checks the files out.
-const LOCKED: &str = "not-the-lock";
+const LOCKED: &str = "locked";
 
 /// [`keeps`], and whether git has its lock on the worktree. The folder is
 /// opened here one time: the check and the look for the lock are at the
