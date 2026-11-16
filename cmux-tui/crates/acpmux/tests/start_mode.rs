@@ -1313,6 +1313,34 @@ async fn a_policy_holds_on_an_asks_before_tools_claim_only_from_an_unchanged_con
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The Cloud carrier drill's no-model agent (cmuxterm-hq run 43973035740): a config harness that
+/// runs `cli-agent` on a program that only prints. Every remote start asks for `ask`, which a plain
+/// `cli-agent` cannot keep (`policy_unenforceable`, the machine's bare `agent_session.refused`);
+/// with `--prints-only` it says it asks before every tool call (it makes none), acpmux believes
+/// it from its own config entry, and the chat starts and answers.
+#[tokio::test]
+async fn a_prints_only_cli_agent_starts_under_ask() {
+    let agent = |extra: &[&str]| {
+        let mut argv = vec![daemon_env::bin().to_string_lossy().into_owned(), "cli-agent".into()];
+        argv.extend(extra.iter().map(|s| s.to_string()));
+        argv.extend(["--", "/bin/echo", "drill"].map(str::to_owned));
+        json!({"argv": argv})
+    };
+    let dir = home(
+        "prints-only",
+        json!({"harnesses": {"drill": agent(&[]), "drill-prints": agent(&["--prints-only"])}}),
+    );
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let r = app.new_chat_with_policy(&dir, "drill", "ask").await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{r}");
+    let (id, _) = app.chat_with_policy(&dir, "drill-prints", "ask").await;
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "{claims:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The median, the 95th percentile and the largest of `ms`, sorted in place.
 fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
     ms.sort_by(f64::total_cmp);

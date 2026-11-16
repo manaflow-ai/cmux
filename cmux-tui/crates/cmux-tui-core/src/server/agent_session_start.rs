@@ -681,6 +681,18 @@ pub(super) struct StartRefused(Refusal, Option<Value>);
 /// acpmux's `data.reason` for a route that cannot serve a spawn (`routes::RouteError::reason`).
 const ROUTE_REASONS: [&str; 3] = ["route.unavailable", "route.not_found", "route.invalid"];
 
+/// acpmux's `data.reason` when it is a short code (letters, digits, `._-`, at most 64): the only
+/// part of an acpmux error a start's refusal passes on (as `Refused::of_prompt` does).
+fn acpmux_reason(data: &Value) -> Option<String> {
+    data.get("reason")
+        .and_then(Value::as_str)
+        .filter(|code| {
+            (1..=64).contains(&code.len())
+                && code.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        })
+        .map(str::to_owned)
+}
+
 impl From<Refusal> for StartRefused {
     fn from(refusal: Refusal) -> Self {
         Self(refusal, None)
@@ -726,7 +738,30 @@ impl StartRefused {
         {
             return Self(Refusal::RouteUnavailable, Some(json!({"reason": reason})));
         }
-        Refusal::of(error).into()
+        // A permission policy the agent cannot keep (acpmux `policy_unenforceable`: a remote
+        // start asks for `ask`, and an ACP agent with no mode that asks cannot hold it) is
+        // `not_asking`, the refusal the app names, with the harness acpmux named.
+        if let LinkError::Rpc(_, data) = &error
+            && data.get("reason").and_then(Value::as_str) == Some("policy_unenforceable")
+        {
+            let mut facts = json!({"reason": "policy_unenforceable"});
+            if let Some(harness) = data
+                .get("harness")
+                .and_then(Value::as_str)
+                .filter(|harness| validate_harness(harness).is_ok())
+            {
+                facts.insert("harness", json!(harness));
+            }
+            return Self(Refusal::NotAsking, Some(facts));
+        }
+        // Any other refusal keeps acpmux's reason code (`data.reason`, never its message text),
+        // so the app and the CLI can say why: a bare `agent_session.refused` named no cause
+        // (the carrier drill, cmuxterm-hq run 43973035740).
+        let reason = match &error {
+            LinkError::Rpc(_, data) => acpmux_reason(data),
+            _ => None,
+        };
+        Self(Refusal::of(error), reason.map(|reason| json!({"reason": reason})))
     }
 
     /// The start's refusal with `harness`, the agent the start asked for, named in its facts:
@@ -1226,15 +1261,55 @@ mod tests {
         let StartRefused(refusal, data) = StartRefused::of_session_new(odd);
         assert_eq!(refusal, Refusal::SignInRequired);
         assert_eq!(data, Some(json!({"reason": "agent.sign_in_required"})));
-        for other in [
-            LinkError::Rpc("Authentication required".into(), Value::Null),
-            LinkError::Rpc("x".into(), json!({"reason": "remote.local_claude_session"})),
-        ] {
-            assert_eq!(StartRefused::of_session_new(other), StartRefused(Refusal::Refused, None));
-        }
+        assert_eq!(
+            StartRefused::of_session_new(LinkError::Rpc(
+                "Authentication required".into(),
+                Value::Null
+            )),
+            StartRefused(Refusal::Refused, None)
+        );
         assert_eq!(
             StartRefused::of_session_new(LinkError::Timeout),
             StartRefused(Refusal::Timeout, None)
+        );
+    }
+
+    /// The carrier drill (cmuxterm-hq run 43973035740): acpmux refused `session/new` because the
+    /// remote start's `ask` cannot hold on an ACP agent with no asking mode
+    /// (`policy_unenforceable`), and the machine answered a bare `agent_session.refused` that
+    /// named no cause. It is `not_asking` naming the harness; any other acpmux refusal keeps its
+    /// reason code (never its message text, nor a reason that is no short code).
+    #[test]
+    fn a_start_acpmux_refused_says_why() {
+        let unenforceable = LinkError::Rpc(
+            "permission policy ask cannot be enforced on harness carrier-drill: ...".into(),
+            json!({
+                "reason": "policy_unenforceable",
+                "policy": "ask",
+                "harness": "carrier-drill",
+                "why": "this agent has no mode that asks before each change",
+            }),
+        );
+        let StartRefused(refusal, data) = StartRefused::of_session_new(unenforceable);
+        assert_eq!(refusal.code(), "agent_session.not_asking");
+        assert_eq!(
+            data,
+            Some(json!({"reason": "policy_unenforceable", "harness": "carrier-drill"}))
+        );
+        let other = LinkError::Rpc("x".into(), json!({"reason": "remote.local_claude_session"}));
+        assert_eq!(
+            StartRefused::of_session_new(other),
+            StartRefused(Refusal::Refused, Some(json!({"reason": "remote.local_claude_session"})))
+        );
+        let prose = LinkError::Rpc("x".into(), json!({"reason": "not a code: secret text"}));
+        assert_eq!(StartRefused::of_session_new(prose), StartRefused(Refusal::Refused, None));
+        assert_eq!(
+            super::super::refusal_text(Refusal::Refused, &json!({"reason": "permission.denied"})),
+            "acpmux refused the request (permission.denied)"
+        );
+        assert_eq!(
+            super::super::refusal_text(Refusal::NotAsking, &json!({"reason": "x"})),
+            Refusal::NotAsking.message()
         );
     }
 

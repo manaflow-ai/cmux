@@ -475,6 +475,22 @@ struct CloudStartSessionTests {
         #expect(route.userMessage.hasPrefix("\("cursor".chiefHarnessName)'s model route isn't available on devbox-3."), "\(route.userMessage)")
     }
 
+    /// The Cloud carrier drill (cmuxterm-hq run 43973035740): the machine refused the start with acpmux's reason in
+    /// `data.reason`, and the CLI said only "refused to start the agent chat (agent_session.refused)". The machine's
+    /// reason code goes with the code; prose in its place never does.
+    @Test func aGenericRefusalCarriesTheMachinesReason() {
+        func refusal(_ data: [String: CmuxNextDaemon.JSONValue]) -> AgentRemoteStartRefusal {
+            AgentRemoteStartRefusal.refused(AgentSessionAttachError(code: "agent_session.refused", message: "acpmux refused the request (permission.denied)",
+                                                                    details: .object(data)),
+                                            code: "agent_session.refused", machine: "devbox-3", folder: nil, harness: "carrier-drill", name: \String.chiefHarnessName)
+        }
+        let refused = refusal(["reason": .string("permission.denied")])
+        #expect(refused.userMessage == "devbox-3 refused to start the agent chat (agent_session.refused: permission.denied).")
+        let cli = CloudStartSession.startFailure(refused, name: "devbox-3", id: "vm-devbox3", agent: "carrier-drill")
+        #expect(cli.contains("permission.denied"), "\(cli)")
+        #expect(refusal(["reason": .string("some prose, not a code")]).userMessage == "devbox-3 refused to start the agent chat (agent_session.refused).")
+    }
+
     @Test(arguments: [AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home"])
     func aStartWithNoFolderSaysToPassOne(code: String) {
         let message = CloudStartSession.startFailure(AgentRemoteStartRefusal(code: code, machine: "devbox-3"), name: "devbox-3", id: "vm-devbox3", agent: "claude")

@@ -1899,7 +1899,8 @@ fn refuse(writer: &MessageWriter, id: Option<Value>, refusal: Refusal) -> bool {
     )
 }
 
-/// A refusal with its typed reason in `data` (`needs_keyed_start`).
+/// A refusal with its typed reason in `data` (`needs_keyed_start`). The generic `refused` also
+/// names acpmux's reason code in its text, as a prompt's refusal does ([`Refused::send`]).
 fn refuse_with_data(
     writer: &MessageWriter,
     id: Option<Value>,
@@ -1911,12 +1912,21 @@ fn refuse_with_data(
         Response {
             id,
             ok: false,
+            error: Some(refusal_text(refusal, &data)),
             data: Some(data),
-            error: Some(refusal.message().to_string()),
             error_code: Some(refusal.code().to_string()),
             error_delivery: None,
         },
     )
+}
+
+/// The text of `refusal` with `data`: the generic `refused` names `data.reason` (acpmux's code)
+/// so a reader of the error alone sees why; every other refusal's text is its own.
+fn refusal_text(refusal: Refusal, data: &Value) -> String {
+    match (refusal, data.get("reason").and_then(Value::as_str)) {
+        (Refusal::Refused, Some(reason)) => format!("{} ({reason})", refusal.message()),
+        _ => refusal.message().to_string(),
+    }
 }
 
 impl Mux {
