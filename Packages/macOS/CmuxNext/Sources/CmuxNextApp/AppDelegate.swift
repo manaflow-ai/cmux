@@ -427,7 +427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             Task { [daemon = services.daemon] in await settings.waitForLoad(atLeast: 1); await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy keys, classic imports, stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
-                try await control.start(registry: registry, settings: settings, launch: environment.launch, services: services, afterFirstFrame: { await firstFrame.opened() })
+                try await control.start(registry: registry, settings: settings, launch: environment.launch, services: services, afterFirstFrame: { await self.firstFrame.opened() })
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
