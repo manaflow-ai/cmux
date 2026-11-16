@@ -99,7 +99,8 @@ import Testing
         #expect(feed.receive(datagram: datagram(seq: 2, shape: 9, x: 0, y: 0)) == .dropped, "a repeat")
         // The shape arrives after the position that named it: the state wears it now.
         let arrow = try #require(Self.arrow)
-        let shaped = try #require(feed.receive(shape: arrow))
+        let received = feed.receive(shape: arrow)
+        let shaped = try #require(received)
         #expect(shaped.shape?.id == 9 && shaped.position == CGPoint(x: -4, y: 30))
         guard case let .state(next) = feed.receive(datagram: datagram(seq: 3, shape: 9, x: 5, y: 6, visible: false)) else {
             Issue.record("no state"); return
