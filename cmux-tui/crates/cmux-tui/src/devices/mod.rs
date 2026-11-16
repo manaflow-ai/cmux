@@ -590,9 +590,7 @@ fn invite(args: &[String]) -> anyhow::Result<()> {
     )?;
     let role = flags.value("role").unwrap_or("client");
     if !matches!(role, "client" | "read-only") {
-        return Err(usage(
-            "--role must be client or read-only",
-        ));
+        return Err(usage("--role must be client or read-only"));
     }
     let auth = crate::cli::PlatformAuth {
         platform: flags.value("platform").map(str::to_owned),
@@ -600,27 +598,20 @@ fn invite(args: &[String]) -> anyhow::Result<()> {
         token_stdin: flags.has("cloud-token-stdin"),
     };
     let env = |key: &str| std::env::var(key).ok();
-    let credential = crate::cli::read_platform_credential(
-        &auth,
-        &env,
-        &mut std::io::stdin().lock(),
-    )
-    .map_err(usage)?
-    .ok_or_else(|| usage("sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN)"))?;
+    let credential =
+        crate::cli::read_platform_credential(&auth, &env, &mut std::io::stdin().lock())
+            .map_err(usage)?
+            .ok_or_else(|| {
+                usage("sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN)")
+            })?;
     let origin = crate::cli::platform_origin(auth.platform.as_deref(), &env).map_err(usage)?;
-    let platform = crate::cli::Platform::new(origin, credential, std::time::Duration::from_secs(20))?;
-    let ttl = flags
-        .value("ttl")
-        .map(crate::cli::parse_ttl)
-        .transpose()
-        .map_err(anyhow::Error::from)?;
-    let mut v = crate::cli::mint_invite(
-        &platform,
-        flags.value("label"),
-        ttl,
-        crate::cli::invite_channel(),
-    )
-    .map_err(anyhow::Error::from)?;
+    let platform =
+        crate::cli::Platform::new(origin, credential, std::time::Duration::from_secs(20))?;
+    let ttl =
+        flags.value("ttl").map(crate::cli::parse_ttl).transpose().map_err(anyhow::Error::from)?;
+    let mut v =
+        crate::cli::mint_invite(&platform, flags.value("label"), ttl, crate::cli::invite_channel())
+            .map_err(anyhow::Error::from)?;
     v.set("role", json!(role));
     record(
         "device.invited",
@@ -629,10 +620,7 @@ fn invite(args: &[String]) -> anyhow::Result<()> {
     if flags.has("json") {
         println!("{v}");
     } else {
-        println!(
-            "On the new computer, run:\n\n  {}\n",
-            v["line"].as_str().unwrap_or_default()
-        );
+        println!("On the new computer, run:\n\n  {}\n", v["line"].as_str().unwrap_or_default());
         println!(
             "It installs the {} channel for that computer and works once, until {}.",
             v["channel"].as_str().unwrap_or_default(),

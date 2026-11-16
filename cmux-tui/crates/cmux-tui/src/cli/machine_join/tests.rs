@@ -327,8 +327,8 @@ fn add_json_prints_the_env_form_line_and_the_token_only_in_line_and_token() {
 #[test]
 fn device_invite_uses_the_hub_join_script_and_pins_the_minter_channel() {
     let (origin, requests) = fake(joining(vec![json!([])], far()));
-    let value = mint_invite(&platform(&origin), Some("build-box"), Some(300), "nightly-next")
-        .unwrap();
+    let value =
+        mint_invite(&platform(&origin), Some("build-box"), Some(300), "nightly-next").unwrap();
     assert_eq!(
         value["line"],
         format!(

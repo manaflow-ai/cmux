@@ -166,9 +166,8 @@ mod machine_link;
 pub(crate) use machine_join::{
     Auth as PlatformAuth, CallError as PlatformCallError, Platform,
     device_credential as joined_machine_credential, invite_channel, mint_invite, parse_ttl,
-    platform_origin,
-    read_credential as read_platform_credential, refusal_reason as platform_refusal_reason,
-    rows_for_devices as joined_machine_rows,
+    platform_origin, read_credential as read_platform_credential,
+    refusal_reason as platform_refusal_reason, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]

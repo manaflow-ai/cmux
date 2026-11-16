@@ -887,7 +887,9 @@ pub(super) fn join_line(origin: &str, token: &str) -> String {
 /// The invite line names the channel explicitly so it cannot silently install a different
 /// build when the channel pointer moves between minting and redemption.
 pub(crate) fn invite_join_line(origin: &str, token: &str, channel: &str) -> String {
-    format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN_CHANNEL={channel} CMUX_JOIN={token} sh")
+    format!(
+        " curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN_CHANNEL={channel} CMUX_JOIN={token} sh"
+    )
 }
 
 /// A minted join token, checked: the token is `cmj_` and shell-safe, and no
