@@ -18,6 +18,9 @@
 //!   bars   flat bars moving 8 px a frame (the default)
 //!   text   dense pseudo-text, 8x16 glyph cells with tinted tokens, scrolling up 4 px a frame
 //!   noise  the bars with per-pixel grain baked in, moving 8 px a frame
+//!   churn  the same grain at a new random offset every frame: no motion search finds it, so
+//!          every frame is new content (text and noise only translate, which an encoder
+//!          predicts almost for free: on a fleet Mac both spent 2-3 Mbps under a 40 Mbps target)
 // Only the macOS host streams it; elsewhere `--source synthetic` is refused and the generator
 // runs in tests.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -55,6 +58,7 @@ pub enum Scene {
     Bars,
     Text,
     Noise,
+    Churn,
 }
 
 /// The synthetic source of a host process.
@@ -155,7 +159,10 @@ pub fn parse(
         None | Some("bars") => Scene::Bars,
         Some("text") => Scene::Text,
         Some("noise") => Scene::Noise,
-        Some(other) => return Err(format!("--synthetic-scene {other}: use bars, text or noise")),
+        Some("churn") => Scene::Churn,
+        Some(other) => {
+            return Err(format!("--synthetic-scene {other}: use bars, text, noise or churn"))
+        }
     };
     Ok(Some(Synthetic { motion, scene, size }))
 }
@@ -240,7 +247,7 @@ impl Painter {
         let texture = match scene {
             Scene::Bars => None,
             Scene::Text => Some(Texture::text(width & !1, TEXT_ROWS)),
-            Scene::Noise => Some(Texture::noise(NOISE_TILE, rows)),
+            Scene::Noise | Scene::Churn => Some(Texture::noise(NOISE_TILE, rows)),
         };
         Self { scene, texture }
     }
@@ -255,6 +262,15 @@ impl Painter {
             // Scrolls up 4 px a frame (even, so chroma rows stay with their luma).
             Scene::Text => texture.copy_into(p, 0, phase as usize / 2),
             Scene::Bars | Scene::Noise => texture.copy_into(p, phase as usize, 0),
+            // A new place in the grain every frame (even rows, so chroma stays with luma).
+            Scene::Churn => {
+                let jump = mix(u64::from(phase) ^ 0x6368_7572_6e00);
+                let (dx, dy) = (
+                    (jump % NOISE_TILE as u64) as usize,
+                    ((jump >> 32) as usize % texture.rows) & !1,
+                );
+                texture.copy_into(p, dx, dy)
+            }
         }
     }
 }
@@ -529,6 +545,10 @@ mod tests {
         }
         assert!(parse(Some("camera"), None, None).is_err());
         assert!(parse(Some("synthetic"), None, Some("video")).is_err());
+        assert_eq!(
+            parse(Some("synthetic"), None, Some("churn")).map(|s| s.map(|s| s.scene)),
+            Ok(Some(Scene::Churn))
+        );
     }
 
     fn scene_picture(painter: &Painter, w: usize, h: usize, counter: u32, ph: u32) -> Vec<u8> {
@@ -567,7 +587,7 @@ mod tests {
     #[test]
     fn every_scene_carries_the_marker_and_moves_under_it() {
         let (w, h, stride) = (1280, 720, 1280 + 64);
-        for scene in [Scene::Bars, Scene::Text, Scene::Noise] {
+        for scene in [Scene::Bars, Scene::Text, Scene::Noise, Scene::Churn] {
             let painter = Painter::new(scene, w, h);
             let a = scene_picture(&painter, w, h, 0x2a5, phase(0));
             let b = scene_picture(&painter, w, h, 0x2a5, phase(1));
