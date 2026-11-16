@@ -165,7 +165,7 @@ pub fn status_json(facts: &Facts, version: &str) -> Value {
         }),
         _ => Value::Null,
     };
-    // `getimage` is a capture 20x slower than `xshm`: the status says so, not only a log.
+    // `getimage` is a slower capture than `xshm`: the status says so, not only a log.
     let capture_backend = match (capture.backend, capture.readback) {
         (CaptureBackend::Portal, _) => Some("portal"),
         (CaptureBackend::X11, readback) => readback.map(Readback::name),

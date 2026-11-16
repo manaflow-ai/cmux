@@ -37,11 +37,12 @@ pub struct DamageEvent {
 /// How pixels come back from the X server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Readback {
-    /// MIT-SHM into a segment both sides map: 1.06 ms for a 1080p frame (fleet Linux pool).
+    /// MIT-SHM into a segment both sides map: 0.96 ms p50 to capture and convert a 1080p
+    /// frame on a local Xvfb (fleet Linux pool, cmux#44552).
     Shm,
-    /// The core protocol's GetImage, every pixel through the socket: 19.9 ms for the same
-    /// frame, 20x the capture floor. Only when the server refuses a shared segment (a
-    /// display over TCP, no MIT-SHM, a sandbox that blocks memfd).
+    /// The core protocol's GetImage, every pixel through the X socket: 2.14 ms for the same
+    /// frame on the same Xvfb, and more on a busy or remote server. Only when the server
+    /// refuses a shared segment (a display over TCP, no MIT-SHM, a sandbox that blocks memfd).
     Core,
 }
 
@@ -64,8 +65,9 @@ pub fn shm_works(conn: &RustConnection, len: usize) -> Res<ShmSeg> {
 pub fn core_fallback_warning(display: &str, why: &dyn std::fmt::Display) -> String {
     format!(
         "cmux-rd: warning: XShm refused on {display} ({why}); capturing with core GetImage, \
-         about 20x slower (19.9 ms against 1.06 ms per 1080p frame). Run the host on the \
-         display's own machine with MIT-SHM enabled."
+         which copies every pixel through the X socket (2.2x the capture time on a local \
+         Xvfb at 1080p, more on a busy or remote server). Run the host on the display's own \
+         machine with MIT-SHM enabled."
     )
 }
 
