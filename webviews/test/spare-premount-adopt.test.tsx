@@ -246,6 +246,10 @@ test("a spare parked drawn but invisible has run its chat view's effects before 
     const editor = host.querySelector(".acpmux-composer-prompt [contenteditable]");
     expect(stage()?.style.visibility, "parked invisible").toBe("hidden");
     expect(stage()?.hasAttribute("inert"), "parked inert").toBe(true);
+    // Its window-wide keys stay off while parked: Cmd-Ctrl-M (the model picker) is not taken under New Tab.
+    const press = new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, cancelable: true });
+    await act(async () => void dom.window.dispatchEvent(press));
+    expect(press.defaultPrevented, "the parked model picker took Cmd-Ctrl-M").toBe(false);
     const { SESSION_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
     await act(async () =>
       dom.window.dispatchEvent(
