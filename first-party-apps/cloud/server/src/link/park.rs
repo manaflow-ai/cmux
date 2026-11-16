@@ -15,11 +15,19 @@
 //! state the host pushes (`cloud.machine.state`, crate::api::events) wakes
 //! its op on the push; its reads are only a fallback, every
 //! [`PUSHED_READ_DELAY`], at most [`MAX_PUSHED_READS`].
+//!
+//! A paused machine's start that fails (`cloud.machine.start`, which Resume
+//! and the app's Reconnect run, or the start inside a connect) parks the same way when the
+//! refusal is transient (a 503 or 502): the op runs again after its backoff
+//! wait, until it succeeds or the waits reach the bound; a final refusal (a
+//! 404) answers at once and is never retried. The rule and its bound are
+//! crate::ops::start_retry.
 
 use super::ops::{LINK_UNAVAILABLE, link_failure_for, starting};
 use crate::api::{CloudError, ControlPlane, Request};
 use crate::clock::Timer;
 use crate::ops::Server;
+use crate::ops::start_retry::{self, Tries};
 use cmux_cloud_wire::CloudMachineStatus;
 use serde_json::Value;
 use std::sync::Arc;
@@ -78,6 +86,39 @@ enum Wait {
         due: Arc<AtomicBool>,
         _timer: Timer,
     },
+    /// A start that failed transiently runs again when `due` is set (by
+    /// `_timer`, after its backoff wait; dropping the op cancels it).
+    Start {
+        tries: Tries,
+        due: Arc<AtomicBool>,
+        _timer: Timer,
+    },
+}
+
+/// A flag set by a timer of `clock` after `delay`; the timer wakes the loop.
+fn due_after<C: ControlPlane>(server: &mut Server<C>, delay: Duration) -> (Arc<AtomicBool>, Timer) {
+    let due = Arc::new(AtomicBool::new(false));
+    let attach = server.attach_mut();
+    let (fired, wake) = (Arc::clone(&due), attach.wake.clone());
+    let timer = attach.wait_clock.after(
+        delay,
+        Box::new(move || {
+            fired.store(true, Ordering::Release);
+            if let Some(wake) = wake {
+                wake();
+            }
+        }),
+    );
+    (due, timer)
+}
+
+/// The machine of `request` when it is a start (`cloud.machine.start` or an
+/// alias such as `vm.resume`).
+fn start_machine(request: &Request) -> Option<String> {
+    if crate::ops::canonical_name(&request.op) != Some("cloud.machine.start") {
+        return None;
+    }
+    request.args["machine"].as_str().map(str::to_owned)
 }
 
 impl<C: ControlPlane> Server<C> {
@@ -89,20 +130,59 @@ impl<C: ControlPlane> Server<C> {
         id: &Value,
     ) -> Option<Result<Value, CloudError>> {
         self.attach_mut().park_link_waits = true;
-        let outcome = self.handle(request);
-        self.park_or_answer(id, request, outcome, 0)
+        let outcome = self.run_once(request);
+        self.park_or_answer(id, request, outcome, 0, Tries::default())
     }
 
-    /// `reads`: the reads of a starting machine this op already made.
+    /// One run of a loop op, with no note left from an earlier one.
+    fn run_once(&mut self, request: &Request) -> Result<Value, CloudError> {
+        self.attach_mut().start_failed = None;
+        self.handle(request)
+    }
+
+    /// `reads`: the reads of a starting machine this op already made;
+    /// `tries`: the transient start failures it already waited out.
     fn park_or_answer(
         &mut self,
         id: &Value,
         request: &Request,
         outcome: Result<Value, CloudError>,
         reads: u32,
+        tries: Tries,
     ) -> Option<Result<Value, CloudError>> {
         let parked = self.attach_mut().parked.take();
         let parked_machine = self.attach_mut().parked_machine.take();
+        // A start that failed: the op's own (`cloud.machine.start`) or the
+        // one inside its connect. Bad args never reached the backend.
+        let start_failed = self.attach_mut().start_failed.take().or_else(|| {
+            outcome
+                .as_ref()
+                .err()
+                .filter(|e| e.code != crate::api::codes::INVALID_ARGS)
+                .and_then(|_| start_machine(request))
+        });
+        let outcome = match (outcome, start_failed) {
+            (Err(error), Some(machine)) if start_retry::transient(&error) => {
+                let Some((tries, wait)) = start_retry::next(tries) else {
+                    return Some(Err(start_retry::stopped(&machine, error, tries)));
+                };
+                if self.attach().parked_ops.len() >= MAX_PARKED {
+                    return Some(Err(start_retry::stopped(&machine, error, tries)));
+                }
+                let (due, timer) = due_after(self, wait);
+                self.attach_mut().parked_ops.push(Parked {
+                    id: id.clone(),
+                    request: request.clone(),
+                    machine,
+                    wait: Wait::Start { tries, due, _timer: timer },
+                });
+                return None;
+            }
+            (Err(error), Some(machine)) => {
+                Err(start_retry::refused(&machine, error, self.projection()))
+            }
+            (outcome, _) => outcome,
+        };
         let full = self.attach().parked_ops.len() >= MAX_PARKED;
         let too_many = || {
             Some(Err(CloudError {
@@ -134,19 +214,8 @@ impl<C: ControlPlane> Server<C> {
                     return too_many();
                 }
                 let attempt = reads + 1;
-                let due = Arc::new(AtomicBool::new(false));
-                let attach = self.attach_mut();
-                let (fired, wake) = (Arc::clone(&due), attach.wake.clone());
-                let timer = attach.wait_clock.after(
-                    read_delay(attempt, pushed),
-                    Box::new(move || {
-                        fired.store(true, Ordering::Release);
-                        if let Some(wake) = wake {
-                            wake();
-                        }
-                    }),
-                );
-                attach.parked_ops.push(Parked {
+                let (due, timer) = due_after(self, read_delay(attempt, pushed));
+                self.attach_mut().parked_ops.push(Parked {
                     id: id.clone(),
                     request: request.clone(),
                     machine,
@@ -202,8 +271,25 @@ impl<C: ControlPlane> Server<C> {
                 // It runs, or the next read is due: run the op again with a
                 // fresh read of the machine's link facts.
                 self.attach_mut().infos.forget(&op.machine);
-                let outcome = self.handle(&op.request);
-                if let Some(answer) = self.park_or_answer(&op.id, &op.request, outcome, reads) {
+                let outcome = self.run_once(&op.request);
+                if let Some(answer) =
+                    self.park_or_answer(&op.id, &op.request, outcome, reads, Tries::default())
+                {
+                    settled.push((op.id, answer));
+                }
+                continue;
+            }
+            if let Wait::Start { tries, due, .. } = &op.wait {
+                if !due.load(Ordering::Acquire) {
+                    self.attach_mut().parked_ops.push(op);
+                    continue;
+                }
+                // The backoff wait passed: the same request again (the
+                // same key for the op's own start), with fresh link facts.
+                let tries = *tries;
+                self.attach_mut().infos.forget(&op.machine);
+                let outcome = self.run_once(&op.request);
+                if let Some(answer) = self.park_or_answer(&op.id, &op.request, outcome, 0, tries) {
                     settled.push((op.id, answer));
                 }
                 continue;
@@ -219,8 +305,10 @@ impl<C: ControlPlane> Server<C> {
                 None => self.attach_mut().parked_ops.push(op),
                 Some(Ok(_)) => {
                     // The link is up: run the op again; it finds the carrier.
-                    let outcome = self.handle(&op.request);
-                    if let Some(answer) = self.park_or_answer(&op.id, &op.request, outcome, 0) {
+                    let outcome = self.run_once(&op.request);
+                    if let Some(answer) =
+                        self.park_or_answer(&op.id, &op.request, outcome, 0, Tries::default())
+                    {
                         settled.push((op.id, answer));
                     }
                 }
