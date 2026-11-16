@@ -4,7 +4,8 @@
 use std::time::Duration;
 
 use boringtun::noise::TunnResult;
-use cmux_transport::{DatagramClass, WG_DATA_MIN_LEN, classify};
+use cmux_transport::classify::WG_DATA_MIN_LEN;
+use cmux_transport::{DatagramClass, classify};
 use tokio::time::Instant;
 
 use super::Driver;
