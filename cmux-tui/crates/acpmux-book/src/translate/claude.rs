@@ -143,7 +143,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                 state.prompt(
                     super::PromptEvent {
                         key: &rec.uuid,
-                        prompt_key: "",
+                        prompt_key: &rec.uuid,
                         steer: attachment.command_mode == "prompt",
                         notice: attachment.command_mode == "task-notification",
                         body: Some(command),
