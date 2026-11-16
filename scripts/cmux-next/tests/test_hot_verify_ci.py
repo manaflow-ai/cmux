@@ -300,6 +300,33 @@ class Comment(unittest.TestCase):
             hv.gh = original
 
 
+    def test_a_look_at_a_merged_prs_merge_commit_posts_and_a_receipt_is_found(self) -> None:
+        merge = "c" * 40
+
+        def fake(*args, body=None):
+            if args[1].endswith("/pulls/7") and args[3].startswith(".head.sha"):
+                return f"{OTHER} {merge}\n"
+            if args[1].endswith("/pulls/8") and args[3].startswith(".head.sha"):
+                return f"{OTHER} \n"  # open: no merge commit to take
+            if args[1].endswith("/pulls/7"):
+                return "no marker here\n"
+            if args[1].endswith("/pulls/8"):
+                return f"text\n{MARKER}\n"
+            if "/issues/7/comments?per_page=100&page=1" in args[1]:
+                return json.dumps({"id": 5, "login": "someone", "head": "lgtm"}) + "\n"
+            if "/comments?per_page=100&page=1" in args[1]:
+                return ""
+            return "{}"
+
+        with mock.patch.object(hv, "gh", side_effect=fake):
+            self.assertEqual(hv.post("body", 7, merge), "posted a comment")
+            self.assertIn("moved", hv.post("body", 8, merge))
+            self.assertFalse(hv.has_receipt(7))
+            self.assertTrue(hv.has_receipt(8))
+        listing = json.dumps({"id": 6, "login": "github-actions[bot]", "head": MARKER[:40]}) + "\n"
+        with mock.patch.object(hv, "gh", side_effect=lambda *a, body=None: listing if "comments" in a[1] else ""):
+            self.assertTrue(hv.has_receipt(7))
+
     def test_a_call_out_of_quota_waits_for_the_reset_then_retries(self) -> None:
         # Run 43790108433 (cmux#44086, 2026-11-16): the look passed, then "post the look" died on
         # "API rate limit exceeded for installation" and the finished look was never posted.
@@ -461,7 +488,7 @@ class Workflow(unittest.TestCase):
 
     def test_a_look_lost_on_the_fleet_is_started_once_more_and_only_once(self) -> None:
         # 2026-11-16: run 43788086518's step failed on three lent Macs' disk declines, run 43788591989's worker
-        # stopped renewing its lease, and cmux8s's gateway runner refused 8 looks under a reservation (runs
+        # stopped renewing its lease, and a reserved fleet Mac's gateway runner refused 8 looks (runs
         # 43833883489, 43834069668, ...). Each lost its look for good: nothing started one again.
         block = "\n".join(self.job_block("again"))
         self.assertIn("needs: [target, look]", block)
@@ -476,6 +503,33 @@ class Workflow(unittest.TestCase):
         self.assertIn("cmux-next-hot-verify.yml", argv)
         for field in ("pr=7", f"head={HEAD}", "layers=web,rust", "event_at=1794800000", "attempt=1"):
             self.assertIn(field, argv)
+        done, _, argv = self.run_block("again", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "rust", "EVENT_AT": "",
+                                                      "KIND": "merge"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("kind=merge", argv)
+
+    def test_a_merged_pr_with_no_receipt_is_looked_at_at_its_merge_commit(self) -> None:
+        # A look at the PR head that needs the change's own Rust (8 of 90 looks, 2026-11-15/16) cannot run on the
+        # nightly copy; at the merge commit the tree is published and the engine plans from its first parent. The
+        # closed event plans and dispatches that look once, and only when the PR has no receipt yet.
+        text = WORKFLOW.read_text()
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed]", text)
+        self.assertIn("(github.event.action != 'closed' || github.event.pull_request.merged)", "\n".join(self.job_block("plan")))
+        self.assertIn("hot-verify-ci.py receipt --pr", "\n".join(self.job_block("plan")))
+        hand_off = "\n".join(self.job_block("hand-off"))
+        self.assertIn("github.event.action == 'closed' && github.event.pull_request.merge_commit_sha", hand_off)
+        self.assertIn('-f kind="$KIND"', hand_off)
+        # its own concurrency group: it never cancels a head look still queued when the PR merged
+        self.assertIn("inputs.kind == 'merge') && '-merge'", text)
+        merge = "c" * 40
+        row = f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\tclosed\tfalse\t2026-11-16T10:00:00Z\t{merge}"
+        done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "web,rust"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("ok=true\n", out.read_text())
+        self.assertIn(f"pr_head={OTHER}\n", out.read_text())  # the web layer waits for the PR's own head
+        unmerged = f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\topen\tfalse\t-\t{merge}"
+        done, out, _ = self.run_block("target", unmerged, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "rust"})
+        self.assertIn("ok=false\n", out.read_text())
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()

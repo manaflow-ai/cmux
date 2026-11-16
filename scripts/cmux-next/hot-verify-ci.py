@@ -438,9 +438,28 @@ def comment_listing(pr: int, repo: str = REPO) -> str:
     raise Refused(f"#{pr} has more than {COMMENT_PAGES * 100} comments")
 
 
+def has_receipt(pr: int, repo: str = REPO) -> bool:
+    """Whether PR already carries a look receipt: a body line or a comment starting with the marker, by anyone (the
+    metric's own reading). A merged PR with one gets no look at its merge commit."""
+    body = gh("api", f"repos/{repo}/pulls/{pr}", "--jq", '.body // ""')
+    if any(line.startswith(MARKER_PREFIX) for line in body.splitlines()):
+        return True
+    for line in comment_listing(pr, repo).splitlines():
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict) and str(item.get("head") or "").startswith(MARKER_PREFIX):
+            return True
+    return False
+
+
 def post(body: str, pr: int, head: str, repo: str = REPO) -> str:
-    live = gh("api", f"repos/{repo}/pulls/{pr}", "--jq", ".head.sha").strip()
-    if live != head:
+    # A look at a merged PR's merge commit (cmux-next-hot-verify.yml after the merge) posts too: the PR names that
+    # commit as its merge_commit_sha. Any other head the PR is not at is an older look's.
+    live, _, merge = gh("api", f"repos/{repo}/pulls/{pr}", "--jq",
+                        '.head.sha + " " + (if .merged_at then (.merge_commit_sha // "") else "" end)').strip().partition(" ")
+    if head not in (live, merge.strip()):
         return f"#{pr} moved to {live[:12]}; its own run comments"
     listing = comment_listing(pr, repo)
     existing = our_comment(listing)
@@ -471,6 +490,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("unpack")
     p.add_argument("tar", type=Path)
     p.add_argument("dir", type=Path)
+    p = sub.add_parser("receipt")
+    p.add_argument("--pr", type=int, required=True)
+    p.add_argument("--repo", default=REPO)
     for name in ("stage", "render", "post"):
         p = sub.add_parser(name)
         p.add_argument("path", type=Path)
@@ -497,6 +519,8 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(pack(step_inputs(a.pr, a.head, a.nonce, a.video))))
         elif a.command == "unpack":
             print(unpack(a.tar, a.dir))
+        elif a.command == "receipt":
+            print(f"receipt={'true' if has_receipt(a.pr, a.repo) else 'false'}")
         elif a.command == "stage":
             print(json.dumps(stage(a.path, a.pr, a.head, a.stage, a.text)))
         elif a.command == "render":
