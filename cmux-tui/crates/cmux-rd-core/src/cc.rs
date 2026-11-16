@@ -92,7 +92,7 @@ const PROBE_GROWTH_PER_S: f64 = 2.0;
 /// a loss burst or a quiet screen).
 const RECOVER_GROWTH_PER_S: f64 = 4.0;
 /// Growth per second near the measured capacity.
-const NEAR_GROWTH_PER_S: f64 = 1.08;
+const NEAR_GROWTH_PER_S: f64 = 1.15;
 /// Time credited to one increase at most, so a long quiet gap is not one jump.
 const MAX_STEP_US: u64 = 200_000;
 /// Shortest time between two cuts.
@@ -503,7 +503,16 @@ impl CongestionController {
             }
         }
         if loss > 0.10 {
-            let target = self.target_bps as f64 * (1.0 - 0.5 * loss.min(1.0));
+            let before = self.target_bps as f64;
+            let mut target = before * (1.0 - 0.5 * loss.min(1.0));
+            // Heavy loss while the stream fills the target is a full queue (a queue too
+            // short or too fast-filling for the delay trend to see): what still arrives
+            // is the capacity, so growth afterwards is slow near it, not a 2x probe.
+            if let Some(acked) = self.acked_bps().filter(|&a| a >= 0.5 * before || loss > 0.3) {
+                self.capacity_bps = Some(acked);
+                // A full queue holds its delay flat, so the cut goes under what arrives.
+                target = target.min(BETA * acked);
+            }
             self.target_bps = target as u64;
             self.last_increase_us = Some(now_us);
         }
@@ -559,7 +568,7 @@ impl CongestionController {
         }
         let growth = match self.capacity_bps {
             Some(c) if target < 0.8 * c => RECOVER_GROWTH_PER_S,
-            Some(c) if target <= 1.5 * c => NEAR_GROWTH_PER_S,
+            Some(c) if target <= 1.25 * c => NEAR_GROWTH_PER_S,
             _ => {
                 // Well over the last measured capacity without a queue: it moved.
                 self.capacity_bps = None;

@@ -60,6 +60,9 @@ struct Sim {
     next_feedback: u64,
     sent: u64,
     dropped: u64,
+    /// Tail drops in the current 500 ms loss window, as the host's loss meter reports them:
+    /// (window start, sent, dropped).
+    loss_window: (u64, u64, u64),
     queue_delays_us: Vec<u64>,
     bytes_delivered: u64,
     /// Viewer clock = host clock + this (only differences matter to the controller).
@@ -82,6 +85,7 @@ impl Sim {
             next_feedback: FEEDBACK_US,
             sent: 0,
             dropped: 0,
+            loss_window: (0, 0, 0),
             queue_delays_us: Vec::new(),
             bytes_delivered: 0,
             viewer_offset: u64::from(u32::MAX) - 3_000_000,
@@ -122,7 +126,14 @@ impl Sim {
             }
             while self.returning.front().is_some_and(|(t, _)| *t <= self.now) {
                 let (_, arrivals) = self.returning.pop_front().unwrap();
-                self.cc.on_feedback(&arrivals, 0.0, self.now);
+                let (since, sent, dropped) = self.loss_window;
+                let loss = if self.now - since >= 500_000 && sent >= 20 {
+                    self.loss_window = (self.now, 0, 0);
+                    dropped as f64 / sent as f64
+                } else {
+                    0.0
+                };
+                self.cc.on_feedback(&arrivals, loss, self.now);
             }
             if self.now >= next_sample {
                 next_sample += 100_000;
@@ -137,11 +148,13 @@ impl Sim {
         let seq = self.seq;
         self.seq = self.seq.wrapping_add(1);
         self.sent += 1;
+        self.loss_window.1 += 1;
         self.cc.on_sent_bytes(seq, self.now, len);
         let at_bottleneck = (self.now + path.base_us) as f64;
         let queue_us = (self.queue_free_at - at_bottleneck).max(0.0);
         if queue_us > path.buffer_us {
             self.dropped += 1;
+            self.loss_window.2 += 1;
             return;
         }
         self.queue_delays_us.push(queue_us as u64);
