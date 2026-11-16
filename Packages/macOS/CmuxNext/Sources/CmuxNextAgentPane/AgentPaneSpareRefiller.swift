@@ -13,12 +13,23 @@ public import CmuxNextWakeups
 /// each key, click or scroll pushed that wait back, so a person who went on reading, scrolling and clicking kept the
 /// pool empty.
 ///
-/// A make never runs while an input event is in dispatch (``Counts/heldForInput``): a frame that comes inside a
-/// drag's or a menu's own run loop makes nothing, and the make waits ``settle`` again. It does not ask every frame:
-/// a modal panel can keep one event in dispatch for minutes, and a waiting make must not keep the frames running.
+/// A refill's make never runs while an input event is in dispatch (``Counts/heldForInput``): a frame that comes
+/// inside a drag's or a menu's own run loop makes nothing, and the make waits ``settle`` again. It does not ask every
+/// frame: a modal panel can keep one event in dispatch for minutes, and a waiting make must not keep the frames
+/// running. Limit: the frame after a key's or a scroll's dispatch is not held, so a make can run in the frame that
+/// shows that key or scroll (the frame budget makes a background task yield once to input still in the queue).
+///
+/// A refill's make never runs while another chat's page on screen has not drawn (``Counts/heldForOpen``): a second
+/// chat that found no page builds its own, and a make in that open would add its main-thread tasks to the wait
+/// for that chat's content. The make waits for that page's paint, then ``settle`` again. It waits on no clock
+/// meanwhile: a page that never draws, or that closes first, leaves the refill to the pool's quiet-input warm.
+/// A New Tab page that loads holds nothing.
+///
+/// The pool's own quiet-input warm is not a refill: it has neither hold, and it ends a refill that waits.
 ///
 /// ```swift
-/// let refills = AgentPaneSpareRefiller(on: mainWork, inInput: { dispatch.event != nil }) { pool.warmNow() }
+/// let refills = AgentPaneSpareRefiller(on: mainWork, inInput: { dispatch.event != nil },
+///                                      loading: { shownChats.loadingNow(tabs.views.values) }) { pool.warmNow() }
 /// refills.afterOpen(shown: view) { strip.whenStill($0) }
 /// refills.afterPaint(of: chatPage)
 /// ```
@@ -143,6 +154,8 @@ public final class AgentPaneSpareRefiller {
 
     /// One background task on the app's scheduler. A frame that comes while an input event is in dispatch makes
     /// nothing: the make waits the settle again (the pool's quiet-input warm ends that wait when it runs first).
+    /// A frame that comes while a chat page on screen has not drawn makes nothing either: the make waits for the
+    /// paint of each such page, then the settle again.
     private func enqueueMake(for open: Int) {
         guard open == generation else { return }
         queue.enqueue { [weak self] in
@@ -152,9 +165,27 @@ public final class AgentPaneSpareRefiller {
                 scheduleMake(for: open)
                 return
             }
+            let pages = loading()
+            guard pages.isEmpty else {
+                counts.heldForOpen += 1
+                wait(for: pages, then: open)
+                return
+            }
             isOpening = false
             counts.makes += 1
             make()
+        }
+    }
+
+    /// The open `open`'s make once each of `pages` drew: the settle again from the last paint, unless a later open
+    /// overtook it. A page that never draws leaves the refill to the pool's quiet-input warm.
+    private func wait(for pages: [AgentPaneShownChatsWait.WhenPainted], then open: Int) {
+        var left = pages.count
+        for whenPainted in pages {
+            whenPainted { [weak self] in
+                left -= 1
+                if left == 0 { self?.scheduleMake(for: open) }
+            }
         }
     }
 }
