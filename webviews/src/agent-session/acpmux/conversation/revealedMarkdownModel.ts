@@ -139,7 +139,7 @@ function revealFrame(now: number): void {
   let ran = 0;
   const run = () => {
     const fadeMs = freshFadeMs();
-    for (; ran < due.length; ) {
+    while (ran < due.length) {
       const tick = due[ran]!;
       ran += 1;
       if (!clock.gone.has(tick) && tick(now, away, fadeMs) && !clock.gone.has(tick)) clock.rows.add(tick);
