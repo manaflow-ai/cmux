@@ -1,10 +1,11 @@
-//! The device hub client of the Linux screen host (docs/device-hub/PROTOCOL.md): device-signed
+//! The device hub client of a screen host (docs/device-hub/PROTOCOL.md): device-signed
 //! requests, the account session (a Stack token exchanged once at `enable`, then device-key
-//! renewal of a host-scoped session), and the hub's two WebSockets.
+//! renewal of a host-scoped session; or a joined machine's sign-in with its machine
+//! credential), and the hub's two WebSockets.
 
-use super::b64;
-use super::identity::{Device, Signer};
-use super::net::{self, Url, WebSocket};
+use crate::b64;
+use crate::identity::{Device, Signer};
+use crate::net::{self, Url, WebSocket};
 use crate::Res;
 use serde_json::{json, Value};
 use std::sync::Mutex;
@@ -22,6 +23,10 @@ pub struct HubError {
 }
 
 impl HubError {
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "serde_json's Value index reads Null for a missing key; the cut is within the body"
+    )]
     pub fn from_body(status: u16, body: &[u8]) -> Self {
         let value: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
         let field = |k: &str| value["error"][k].as_str().unwrap_or_default().to_owned();
@@ -40,8 +45,8 @@ impl std::fmt::Display for HubError {
             f,
             "device hub {} {}: {}",
             self.status,
-            super::printable(&self.code),
-            super::printable(&self.message)
+            crate::printable(&self.code),
+            crate::printable(&self.message)
         )
     }
 }
@@ -51,7 +56,7 @@ impl std::error::Error for HubError {}
 /// The string a device signs: `"<METHOD>\n<path+query>\n<ts>\n<hex sha256 of body or empty>"`.
 pub fn signing_string(method: &str, target: &str, ts: u64, body: Option<&[u8]>) -> String {
     let digest = body
-        .map(|b| crate::serve::hex(ring::digest::digest(&ring::digest::SHA256, b).as_ref()))
+        .map(|b| crate::hex(ring::digest::digest(&ring::digest::SHA256, b).as_ref()))
         .unwrap_or_default();
     format!("{method}\n{target}\n{ts}\n{digest}")
 }
@@ -60,22 +65,55 @@ pub fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
+/// How the hub client renews the account session when it is about to end.
+#[derive(Clone, PartialEq)]
+pub enum Renewal {
+    /// `POST /v1/auth/device`: the device key alone, for a device `enable` anchored.
+    DeviceAnchor,
+    /// `POST /v1/auth/machine`: a machine the person joined to cmux signs in again with its
+    /// cmux-platform machine credential (the hub never anchors it).
+    Machine { credential: String },
+}
+
+impl std::fmt::Debug for Renewal {
+    // The credential is a secret: never in a log line.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DeviceAnchor => f.write_str("DeviceAnchor"),
+            Self::Machine { .. } => f.write_str("Machine { credential: <redacted> }"),
+        }
+    }
+}
+
 pub struct Hub {
     pub origin: String,
     pub device: Device,
     signer: Signer,
+    renewal: Renewal,
     user_id: Mutex<Option<String>>,
     /// The account session and when it ends (ms).
     session: Mutex<Option<(String, u64)>>,
 }
 
 impl Hub {
+    /// A hub client that renews with the device anchor.
     pub fn new(origin: &str, device: Device, user_id: Option<String>) -> Res<Self> {
+        Self::with_renewal(origin, device, user_id, Renewal::DeviceAnchor)
+    }
+
+    /// A hub client that renews the account session the way `renewal` says.
+    pub fn with_renewal(
+        origin: &str,
+        device: Device,
+        user_id: Option<String>,
+        renewal: Renewal,
+    ) -> Res<Self> {
         Url::parse(origin)?;
         Ok(Self {
             origin: origin.trim_end_matches('/').to_owned(),
             signer: device.signer()?,
             device,
+            renewal,
             user_id: Mutex::new(user_id),
             session: Mutex::new(None),
         })
@@ -139,6 +177,10 @@ impl Hub {
     }
 
     /// `POST /v1/auth/stack`: the account session for a Stack access token (`enable`).
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "serde_json's Value index reads Null for a missing key"
+    )]
     pub fn sign_in_with_stack(&self, token: &str) -> Res<String> {
         let answer =
             self.send("POST", "/v1/auth/stack", Some(&json!({ "token": token })), None, false)?;
@@ -151,12 +193,32 @@ impl Hub {
         Ok(user)
     }
 
-    /// `POST /v1/auth/device`: a host-scoped session from the device key alone (the anchor
-    /// that `enable` recorded lets this device renew for 30 days).
+    /// A fresh account session and when it ends (ms), the way `renewal` says.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "serde_json's Value index reads Null for a missing key"
+    )]
     fn renew(&self) -> Res<(String, u64)> {
-        let user = self.user_id().ok_or("not enabled: run `cmux-rd linux-host enable` first")?;
-        let answer =
-            self.send("POST", "/v1/auth/device", Some(&json!({ "userId": user })), None, true)?;
+        let answer = match &self.renewal {
+            // A host-scoped session from the device key alone (the anchor that `enable`
+            // recorded lets this device renew for 30 days).
+            Renewal::DeviceAnchor => {
+                let user =
+                    self.user_id().ok_or("not enabled: run `cmux-rd linux-host enable` first")?;
+                let body = json!({ "userId": user });
+                self.send("POST", "/v1/auth/device", Some(&body), None, true)?
+            }
+            // A `machine` session for this one device. Unsigned, like `/v1/auth/stack`: the
+            // hub asks cmux-platform whose credential it is and names that person in `userId`.
+            Renewal::Machine { credential } => {
+                let body = json!({ "credential": credential, "deviceId": self.device.id });
+                let answer = self.send("POST", "/v1/auth/machine", Some(&body), None, false)?;
+                let user =
+                    answer["userId"].as_str().ok_or("no userId in the hub's answer")?.to_owned();
+                *self.user_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(user);
+                answer
+            }
+        };
         let session =
             answer["session"].as_str().ok_or("no session in the hub's answer")?.to_owned();
         let expires = answer["expiresAt"].as_u64().unwrap_or(now_ms() + 30 * 60 * 1000);
@@ -183,12 +245,12 @@ impl Hub {
         self.send(method, path, body, Some(&session), true)
     }
 
-    /// `POST /v1/devices`: registers this device as `linux`.
-    pub fn register(&self) -> Res<Value> {
+    /// `POST /v1/devices`: registers this device as `platform` (`linux`, `macos`).
+    pub fn register(&self, platform: &str) -> Res<Value> {
         let body = json!({
             "id": self.device.id,
             "name": self.device.name,
-            "platform": "linux",
+            "platform": platform,
             "signingKey": self.signer.public_key(),
             "agreementKey": self.device.agreement_key()?,
         });
@@ -197,6 +259,10 @@ impl Hub {
 
     /// `POST /v1/auth/device/anchor`: lets this device renew its own host session. Returns
     /// when the anchor ends (ms).
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "serde_json's Value index reads Null for a missing key"
+    )]
     pub fn anchor(&self) -> Res<u64> {
         let answer = self.call("POST", "/v1/auth/device/anchor", Some(&json!({})))?;
         Ok(answer["anchoredUntil"].as_u64().unwrap_or(0))
@@ -209,6 +275,10 @@ impl Hub {
     }
 
     /// `POST /v1/sessions/:id/decision`.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "the body is a JSON object, so setting a key cannot fail"
+    )]
     pub fn decide(&self, session: &str, decision: &str, scope: Option<&str>) -> Res<Value> {
         let mut body = json!({ "decision": decision });
         if let Some(scope) = scope {
@@ -316,5 +386,113 @@ mod tests {
         let err =
             hub.session_socket("wss://hub.example:8443/v1/sessions/s/ws", "a.b.c").err().unwrap();
         assert!(err.to_string().contains("not on"), "{err}");
+    }
+
+    /// One request a fake hub received: its request line, headers (lowercase names) and body.
+    struct Received {
+        line: String,
+        headers: Vec<(String, String)>,
+        body: Value,
+    }
+
+    impl Received {
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        }
+    }
+
+    /// A loopback hub that answers one request per connection with `answers`, in order, and
+    /// returns what it received.
+    fn fake_hub(answers: Vec<Value>) -> (String, std::thread::JoinHandle<Vec<Received>>) {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let server = std::thread::spawn(move || {
+            let mut received = Vec::new();
+            for answer in answers {
+                let (stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let mut headers = Vec::new();
+                loop {
+                    let mut header = String::new();
+                    reader.read_line(&mut header).unwrap();
+                    let Some((k, v)) = header.trim_end().split_once(": ") else { break };
+                    headers.push((k.to_ascii_lowercase(), v.to_owned()));
+                }
+                let length = headers
+                    .iter()
+                    .find(|(k, _)| k == "content-length")
+                    .map_or(0, |(_, v)| v.parse().unwrap());
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let text = answer.to_string();
+                let mut out = &stream;
+                write!(out, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{text}", text.len())
+                    .unwrap();
+                received.push(Received {
+                    line: line.trim_end().to_owned(),
+                    headers,
+                    body: serde_json::from_slice(&body).unwrap_or(Value::Null),
+                });
+            }
+            received
+        });
+        (origin, server)
+    }
+
+    #[test]
+    fn a_joined_machine_renews_with_its_credential_and_learns_its_person() {
+        let in_an_hour = now_ms() + 60 * 60 * 1000;
+        let (origin, server) = fake_hub(vec![
+            json!({"session": "sess-1", "userId": "p:u", "scope": "machine", "ownerKind": "user",
+                   "machineId": "machine_1", "teamId": "team_1", "expiresAt": in_an_hour}),
+            json!({"device": {}}),
+        ]);
+        let device = Device::generate("desk").unwrap();
+        let id = device.id.clone();
+        let renewal = Renewal::Machine { credential: "cmm_secret".into() };
+        let hub = Hub::with_renewal(&origin, device, None, renewal).unwrap();
+        assert_eq!(hub.user_id(), None);
+        hub.register("macos").unwrap();
+        assert_eq!(hub.user_id().as_deref(), Some("p:u"));
+        let received = server.join().unwrap();
+        // The sign-in: the credential and this device, unsigned.
+        assert_eq!(received[0].line, "POST /v1/auth/machine HTTP/1.1");
+        assert_eq!(received[0].body, json!({"credential": "cmm_secret", "deviceId": id}));
+        assert_eq!(received[0].header("x-device-sig"), None);
+        assert_eq!(received[0].header("authorization"), None);
+        // Then the call itself, with the machine session and the device's signature.
+        assert_eq!(received[1].line, "POST /v1/devices HTTP/1.1");
+        assert_eq!(received[1].body["platform"], "macos");
+        assert_eq!(received[1].header("authorization"), Some("Bearer sess-1"));
+        assert!(received[1].header("x-device-sig").is_some());
+    }
+
+    #[test]
+    fn an_anchored_device_renews_with_its_signed_user_id() {
+        let in_an_hour = now_ms() + 60 * 60 * 1000;
+        let (origin, server) = fake_hub(vec![
+            json!({"session": "sess-2", "expiresAt": in_an_hour}),
+            json!({"device": {}}),
+        ]);
+        let hub = Hub::new(&origin, Device::generate("desk").unwrap(), Some("p:u".into())).unwrap();
+        hub.register("linux").unwrap();
+        // The session is kept until it is about to end: one renewal for two calls.
+        assert_eq!(hub.session().unwrap(), "sess-2");
+        let received = server.join().unwrap();
+        assert_eq!(received[0].line, "POST /v1/auth/device HTTP/1.1");
+        assert_eq!(received[0].body, json!({"userId": "p:u"}));
+        assert!(received[0].header("x-device-sig").is_some());
+        assert_eq!(received[1].body["platform"], "linux");
+        assert_eq!(received[1].header("authorization"), Some("Bearer sess-2"));
+    }
+
+    #[test]
+    fn the_machine_credential_is_never_printed() {
+        let renewal = Renewal::Machine { credential: "cmm_secret".into() };
+        assert!(!format!("{renewal:?}").contains("cmm_secret"));
+        assert_eq!(format!("{:?}", Renewal::DeviceAnchor), "DeviceAnchor");
     }
 }

@@ -4,6 +4,10 @@
 const STD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Standard base64 with padding.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "chunks(3) yields no empty chunk and every table index is masked to 0..64"
+)]
 pub fn encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
