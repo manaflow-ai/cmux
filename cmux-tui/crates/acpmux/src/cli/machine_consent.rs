@@ -198,22 +198,17 @@ impl Authority {
         granted: bool,
         user: Option<String>,
     ) -> Result<Consent> {
+        if matches!(surface, "screen" | "control") {
+            let account = super::cloud_join::machine_user_id();
+            return self.set_local(surface, Some(granted), account.as_deref());
+        }
         self.prepare()?;
         // Serialize read/modify/write across app tags; disjoint grant changes
         // must never resurrect a concurrently revoked surface.
         let _lock = self.lock()?;
         let mut consent = self.consent();
         let state = if granted { ConsentState::Granted } else { ConsentState::None };
-        // A local change is the person's own here: the surface no longer holds a remote grant.
         match surface {
-            "screen" => {
-                consent.screen = state;
-                consent.screen_granted_by = None;
-            }
-            "control" => {
-                consent.control = state;
-                consent.control_granted_by = None;
-            }
             super::cloud_join::SIGNED_IN_MACHINES => {
                 anyhow::ensure!(
                     !granted || user.is_some(),
@@ -235,7 +230,44 @@ impl Authority {
             &serde_json::to_vec(&consent)?,
         )?;
         // The change is made; a log that cannot be written does not undo it.
-        let _ = super::consent_grant::log_local(self, surface, granted);
+        let _ = super::consent_grant::log_local(self, surface, Some(granted));
+        Ok(consent)
+    }
+
+    /// The person's own setting of `screen` or `control` here: Some sets it (it wins over any
+    /// signed grant), None clears it so the signed grants decide again. `consent.json` then holds
+    /// the effective value (`consent_grant::recompute`), with `account` the account (hub user id)
+    /// this machine is joined as, whose grants count.
+    pub(super) fn set_local(
+        &self,
+        surface: &str,
+        local: Option<bool>,
+        account: Option<&str>,
+    ) -> Result<Consent> {
+        self.prepare()?;
+        let _lock = self.lock()?;
+        let mut consent = self.consent();
+        // Read before the change: a file an older build wrote holds its local setting as the value.
+        let (control, screen) = (
+            super::consent_grant::local_of(&consent, "control"),
+            super::consent_grant::local_of(&consent, "screen"),
+        );
+        consent.control_local = control;
+        consent.screen_local = screen;
+        match surface {
+            "screen" => consent.screen_local = local,
+            "control" => consent.control_local = local,
+            _ => anyhow::bail!("unknown consent surface"),
+        }
+        super::consent_grant::recompute(&self.root, &mut consent, account);
+        if local == Some(true) {
+            consent.granted_at = Some(crate::store::now_ms().to_string());
+        }
+        crate::config::write_atomic(
+            &self.root.join("consent.json"),
+            &serde_json::to_vec(&consent)?,
+        )?;
+        let _ = super::consent_grant::log_local(self, surface, local);
         Ok(consent)
     }
 

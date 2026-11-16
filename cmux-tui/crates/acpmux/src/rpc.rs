@@ -884,6 +884,11 @@ pub mod method {
     pub const MUX_CONSENT_REMOTE_SET: &str = "_acpmux/consent_remote_set";
     /// `{id, trusted}` on the machine a grant reached: pins the pending ask's key, or unpins.
     pub const MUX_CONSENT_GRANTOR_TRUST: &str = "_acpmux/consent_grantor_trust";
+    /// `{grant}`: an account-wide (`*`) grant this machine's own app key signed, applied here and
+    /// handed to every listed machine of the account.
+    pub const MUX_CONSENT_ACCOUNT_SET: &str = "_acpmux/consent_account_set";
+    /// `{}`: opens this machine's enrollment window and collects its app's and its peers' keys.
+    pub const MUX_CONSENT_TRUST_REFRESH: &str = "_acpmux/consent_trust_refresh";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
     /// The person's other machines' workspace routes (`machine_routes.rs`): `{}` ->
     /// `{machines: [{host, daemonId, via, route, socket, state, refusal}]}`. Local socket only.

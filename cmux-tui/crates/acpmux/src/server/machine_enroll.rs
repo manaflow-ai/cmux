@@ -64,16 +64,25 @@ pub(super) async fn enroll(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
 }
 
 /// A sign-in's enroll (`enroll`) with the join transition held, then the relay as config.json
-/// says once it is done (`on_disk`), and the hub carrier on that join.
+/// says once it is done (`on_disk`), and the hub carrier on that join. A new join (not one kept)
+/// opens the consent enrollment window, which pins this Mac's own app key and its peers' with no
+/// ask (`consent_grant_service::enrolled`).
 pub(super) async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>>>(
     hub: &Arc<Hub>,
     enroll: impl Future<Output = EnrollOutcome>,
     on_disk: impl FnOnce() -> D,
 ) -> (EnrollOutcome, Option<&'static str>) {
-    enroll_transition_with(hub, enroll, on_disk, |hub: Arc<Hub>| -> BoxFuture<'static, ()> {
-        Box::pin(async move { start_carrier(&hub, carrier_websocket(&hub)).await })
-    })
-    .await
+    let done =
+        enroll_transition_with(hub, enroll, on_disk, |hub: Arc<Hub>| -> BoxFuture<'static, ()> {
+            Box::pin(async move { start_carrier(&hub, carrier_websocket(&hub)).await })
+        })
+        .await;
+    // Unit tests' hubs share the OS account's consent store; they never open its window.
+    #[cfg(all(feature = "hub-carrier", not(test)))]
+    if done.0 == EnrollOutcome::Joined {
+        crate::consent_grant_service::enrolled(hub);
+    }
+    done
 }
 
 /// [`enroll_transition`] with the carrier's start (`carrier`; tests put their own).
@@ -261,6 +270,9 @@ async fn start_carrier(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
     if hub.hub_carrier_serve.lock_or_recover().is_none() {
         if carrier.is_some() {
             crate::hub_carrier::start_kept(hub, carrier).await;
+            // A join line that just ran opened the consent enrollment window: collect now.
+            #[cfg(not(test))]
+            crate::consent_grant_service::collect_if_open(hub);
         } else if joined(hub).await {
             tracing::warn!("hub carrier off: this home is a copy, or the daemon has no listener");
         }

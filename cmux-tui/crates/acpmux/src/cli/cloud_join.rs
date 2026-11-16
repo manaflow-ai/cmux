@@ -210,6 +210,21 @@ pub struct Consent {
     /// [`Self::control_granted_by`] for [`Self::screen`].
     #[serde(rename = "screenGrantedBy", default, skip_serializing_if = "Option::is_none")]
     pub screen_granted_by: Option<GrantedBy>,
+    /// The person's own setting of [`Self::control`] on this machine (`machine_consent_set`):
+    /// it wins over anything signed elsewhere. None: no local setting, the signed grants decide.
+    #[serde(rename = "controlLocal", default, skip_serializing_if = "Option::is_none")]
+    pub control_local: Option<bool>,
+    /// [`Self::control_local`] for [`Self::screen`].
+    #[serde(rename = "screenLocal", default, skip_serializing_if = "Option::is_none")]
+    pub screen_local: Option<bool>,
+    /// What decided [`Self::control`]: `local`, `machine` (a grant for this machine), `account`
+    /// (the account-wide grant) or `none` (`consent_grant.rs`). None on a file an older build
+    /// wrote, whose `control` is then the person's local setting.
+    #[serde(rename = "controlSource", default, skip_serializing_if = "Option::is_none")]
+    pub control_source: Option<String>,
+    /// [`Self::control_source`] for [`Self::screen`].
+    #[serde(rename = "screenSource", default, skip_serializing_if = "Option::is_none")]
+    pub screen_source: Option<String>,
 }
 
 /// Who turned a surface on from elsewhere: the pinned grantor (a Mac approver id), the account
@@ -907,7 +922,30 @@ pub async fn join_with_token(
     json_out: bool,
     token: Option<String>,
 ) -> Result<()> {
-    recovery::join(hub, name, replace, Report::from_json(json_out), token, None).await
+    let before = credential_now().await;
+    recovery::join(hub, name, replace, Report::from_json(json_out), token, None).await?;
+    // A new join opens the consent enrollment window: the daemon's carrier, when it starts on
+    // this join, pins this Mac's own app key and its peers' with no ask (`consent_grant.rs`).
+    let after = credential_now().await;
+    if after.is_some() && after != before {
+        let _ = tokio::task::spawn_blocking(|| {
+            authority().and_then(|authority| {
+                super::consent_grant::open_window(&authority, crate::store::now_ms())
+            })
+        })
+        .await;
+    }
+    Ok(())
+}
+
+/// The joined record's credential now, when there is a live one.
+async fn credential_now() -> Option<String> {
+    tokio::task::spawn_blocking(|| {
+        machine_credential().ok().flatten().filter(|record| !record.revoked).map(|r| r.credential)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// `acpmux machine leave` (`cloud_join/leave.rs`).
@@ -1040,6 +1078,12 @@ pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Con
     authority()?.set(surface, granted)
 }
 
+/// `machine_consent_set {surface, granted: null}`: clears the person's own setting of `screen` or
+/// `control` here, so the signed grants decide again (`consent_grant.rs`). The person only.
+pub(crate) fn clear_consent_for_person(surface: &str) -> Result<Consent> {
+    authority()?.set_local(surface, None, machine_user_id().as_deref())
+}
+
 pub(crate) fn consent_status() -> Value {
     authority().map(|authority| authority.status()).unwrap_or_else(
         |_| json!({"consentRequired":true,"consent":Consent::default(),"lastRefusal":null}),
@@ -1048,11 +1092,14 @@ pub(crate) fn consent_status() -> Value {
 
 /// `_acpmux/machine_consent_get`'s answer: [`consent_status_for`] plus the pinned grantors, the
 /// pending grantor ask and the last lines of the grant log (`consent_grant.rs`).
-pub(crate) fn consent_status_with_grants(params: &Value) -> Value {
+pub(crate) fn consent_status_with_grants(
+    params: &Value,
+    own: Option<&super::consent_grant::OwnGrantor>,
+) -> Value {
     let mut status = consent_status_for(params);
     if let (Ok(authority), Some(fields)) = (authority(), status.as_object_mut()) {
         let account = machine_user_id();
-        fields.extend(super::consent_grant::status_fields(&authority, account.as_deref()));
+        fields.extend(super::consent_grant::status_fields(&authority, account.as_deref(), own));
     }
     status
 }

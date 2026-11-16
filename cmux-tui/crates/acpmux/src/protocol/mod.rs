@@ -507,6 +507,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONSENT_REMOTE_STATUS, Request),
         untyped(method::MUX_CONSENT_REMOTE_SET, Request),
         untyped(method::MUX_CONSENT_GRANTOR_TRUST, Request),
+        untyped(method::MUX_CONSENT_ACCOUNT_SET, Request),
+        untyped(method::MUX_CONSENT_TRUST_REFRESH, Request),
         untyped(method::MUX_MACHINE_ROUTES, Request),
         untyped(method::MUX_MACHINE_ROUTE_PROBE, Request),
         untyped(method::MUX_MACHINE_ENROLL, Request),

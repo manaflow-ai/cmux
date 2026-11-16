@@ -1874,6 +1874,7 @@ async fn hub_carrier_consent_service_applies_a_pinned_grant_and_refuses_an_unlis
         machine_id: Some("machine_b".into()),
         node_key: None,
         name: Some("mini-b".into()),
+        own_grantor: None,
     };
     carrier_b.set_consent_gate(Arc::new(ConfiguredConsentGate::at(&hub_b, root.clone(), target)));
     let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();

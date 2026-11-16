@@ -21,7 +21,7 @@ use cmux_remote::link::FrameLink;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::cli::consent_grant::{self, MAX_REQUEST_BYTES, Target};
+use crate::cli::consent_grant::{self, MAX_REQUEST_BYTES, OwnGrantor, Target};
 use crate::hub::Hub;
 use crate::hub_carrier::{CircuitService, HubCarrier, ServiceRefusal};
 
@@ -79,6 +79,7 @@ impl ConsentGate for ConfiguredConsentGate {
             return json!({"ok": false, "reason": "service.off", "error": "stopping"});
         };
         let node_key = hub.hub_carrier.get().map(|carrier| carrier.public_key());
+        let own = own_grantor(&hub);
         let fixed = self.fixed.clone();
         let host = host.to_owned();
         tokio::task::spawn_blocking(move || {
@@ -88,7 +89,7 @@ impl ConsentGate for ConfiguredConsentGate {
                     (crate::cli::machine_consent::Authority::at(root, legacy), target)
                 }
                 None => match crate::cli::cloud_join::authority() {
-                    Ok(authority) => (authority, daemon_target()),
+                    Ok(authority) => (authority, daemon_target(None, own)),
                     Err(_) => {
                         return json!({"ok": false, "reason": consent_grant::STORE,
                             "error": "this machine's consent store is unavailable"});
@@ -106,9 +107,14 @@ impl ConsentGate for ConfiguredConsentGate {
     }
 }
 
-/// This machine as its joined record names it: the account, the machine id and its name. The
-/// node key is the carrier's.
-fn daemon_target() -> Target {
+/// This machine's own app key, as the app here gave it (`_acpmux/mac_approver_set`).
+pub fn own_grantor(hub: &Hub) -> Option<OwnGrantor> {
+    OwnGrantor::of(&hub.person.macs.view(&json!({})))
+}
+
+/// This machine as its joined record names it: the account, the machine id, its name, its node
+/// key (`node_key`, the carrier's) and its own app key. Blocking: it reads the record.
+fn daemon_target(node_key: Option<String>, own: Option<OwnGrantor>) -> Target {
     let record = crate::cli::cloud_join::machine_credential()
         .ok()
         .flatten()
@@ -116,9 +122,223 @@ fn daemon_target() -> Target {
     Target {
         account: crate::cli::cloud_join::machine_user_id(),
         machine_id: record.as_ref().map(|record| record.machine_id.clone()),
-        node_key: None,
+        node_key,
         name: record.map(|record| record.name),
+        own_grantor: own,
     }
+}
+
+/// [`daemon_target`] for `hub`, off the async thread.
+async fn this_target(hub: &Hub) -> Target {
+    let node_key = hub.hub_carrier.get().map(|carrier| carrier.public_key());
+    let own = own_grantor(hub);
+    tokio::task::spawn_blocking(move || daemon_target(node_key, own)).await.unwrap_or_default()
+}
+
+/// Runs `work` on the account's consent authority off the async thread; None when it is
+/// unavailable.
+async fn with_authority<T: Send + 'static>(
+    work: impl FnOnce(&crate::cli::machine_consent::Authority) -> T + Send + 'static,
+) -> Option<T> {
+    tokio::task::spawn_blocking(move || {
+        crate::cli::cloud_join::authority().ok().map(|authority| work(&authority))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// `_acpmux/consent_account_set {grant}`: an account-wide grant this machine's own app key
+/// signed, applied here, then handed to every listed machine of the account through the carrier.
+/// `{"ok", "reason"?, "error"?, "self": {ok, reason?}, "applied": [{daemonId, host, ok, reason?}]}`;
+/// `ok` is false only when the grant is not this Mac's own (nothing is applied or sent then).
+pub async fn account_set(hub: &Arc<Hub>, grant: &Value) -> Value {
+    let own = own_grantor(hub);
+    if let Err(refusal) = consent_grant::own_account_grant(grant, own.as_ref()) {
+        return refusal.answer();
+    }
+    let target = this_target(hub).await;
+    let local = grant.clone();
+    let here = with_authority(move |authority| {
+        let now = crate::store::now_ms();
+        consent_grant::apply(authority, &local, &target, None, now).map(|_| ())
+    })
+    .await;
+    let here = match here {
+        Some(Ok(())) => json!({"ok": true}),
+        Some(Err(refusal)) => {
+            json!({"ok": false, "reason": refusal.reason, "error": refusal.error})
+        }
+        None => json!({"ok": false, "reason": consent_grant::STORE}),
+    };
+    let request = json!({"op": "set", "grant": grant});
+    let mut asks = tokio::task::JoinSet::new();
+    for (daemon, host) in hub.mesh_book_machines() {
+        let hub = Arc::clone(hub);
+        let request = request.clone();
+        asks.spawn(async move {
+            let answer = remote(&hub, &daemon, &request).await;
+            let mut row = json!({"daemonId": daemon, "host": host, "ok": answer["ok"] == true});
+            if let (Some(reason), Some(fields)) = (answer.get("reason"), row.as_object_mut()) {
+                fields.insert("reason".into(), reason.clone());
+            }
+            row
+        });
+    }
+    let mut applied = Vec::new();
+    while let Some(row) = asks.join_next().await {
+        if let Ok(row) = row {
+            applied.push(row);
+        }
+    }
+    json!({"ok": true, "self": here, "applied": applied})
+}
+
+/// One enrollment collection at a time per daemon.
+static COLLECTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// After a step the person took here that enrolls this machine (a sign-in's new join): opens the
+/// enrollment window and collects in the background ([`collect_while_open`]).
+pub fn enrolled(hub: &Arc<Hub>) {
+    let hub = Arc::clone(hub);
+    hub.clone().scope.spawn_until_cancelled("consent-enrollment", async move {
+        let now = crate::store::now_ms();
+        if with_authority(move |authority| consent_grant::open_window(authority, now).is_ok()).await
+            == Some(true)
+        {
+            collect_while_open(&hub).await;
+        }
+    });
+}
+
+/// When the carrier starts with the enrollment window open (a join line just ran), collects in
+/// the background ([`collect_while_open`]).
+pub fn collect_if_open(hub: &Arc<Hub>) {
+    let hub = Arc::clone(hub);
+    hub.clone().scope.spawn_until_cancelled("consent-enrollment", async move {
+        let now = crate::store::now_ms();
+        if with_authority(move |authority| consent_grant::window_open(authority, now)).await
+            == Some(true)
+        {
+            collect_while_open(&hub).await;
+        }
+    });
+}
+
+/// Passes of [`collect`] every few seconds while the window is open, until every listed machine
+/// answered.
+async fn collect_while_open(hub: &Arc<Hub>) {
+    use std::sync::atomic::Ordering;
+    if COLLECTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let mut done = std::collections::BTreeSet::new();
+    loop {
+        let pass = collect(hub, &mut done).await;
+        tracing::info!(pinned = %pass["pinned"], "consent: enrollment collection pass");
+        let now = crate::store::now_ms();
+        let open = with_authority(move |authority| consent_grant::window_open(authority, now))
+            .await
+            == Some(true);
+        let listed = hub.mesh_book_machines();
+        let all = !listed.is_empty() && listed.iter().all(|(daemon, _)| done.contains(daemon));
+        if !open || all {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    COLLECTING.store(false, Ordering::SeqCst);
+}
+
+/// `_acpmux/consent_trust_refresh {}`: the person's Refresh trusted Macs. Opens the enrollment
+/// window and runs one collection pass now: `{"ok", "pinned": [id], "policy": bool,
+/// "peers": [{daemonId, host, ok, reason?}]}`.
+pub async fn trust_refresh(hub: &Arc<Hub>) -> Value {
+    let now = crate::store::now_ms();
+    if with_authority(move |authority| consent_grant::open_window(authority, now).is_ok()).await
+        != Some(true)
+    {
+        return json!({"ok": false, "reason": consent_grant::STORE,
+            "error": "this machine's consent store is unavailable"});
+    }
+    collect(hub, &mut std::collections::BTreeSet::new()).await
+}
+
+/// One enrollment collection pass while the window is open: pins this machine's own app key, then
+/// asks each listed machine of the account not yet in `done` for the key its app reported
+/// (`op: "status"`, `ownGrantor`) and pins it, then for its account policy (`op: "policy"`),
+/// which is applied here when it is newer than the one kept (its signer must be pinned).
+async fn collect(hub: &Arc<Hub>, done: &mut std::collections::BTreeSet<String>) -> Value {
+    let target = this_target(hub).await;
+    let Some(account) = target.account.clone() else {
+        return json!({"ok": false, "reason": consent_grant::NOT_JOINED,
+            "error": "this machine is not joined to an account", "pinned": []});
+    };
+    let mut pinned = Vec::new();
+    let mut policy = false;
+    if let Some(own) = target.own_grantor.clone() {
+        let account = account.clone();
+        let pin = with_authority(move |authority| {
+            let now = crate::store::now_ms();
+            consent_grant::pin_enrolled(authority, &own.public_key, &own.name, &account, now)
+                .map(|new| new.then_some(own.id))
+        })
+        .await;
+        if let Some(Ok(Some(id))) = pin {
+            pinned.push(id);
+        }
+    }
+    let mut peers = Vec::new();
+    for (daemon, host) in hub.mesh_book_machines() {
+        if done.contains(&daemon) {
+            continue;
+        }
+        let status = remote(hub, &daemon, &json!({"op": "status"})).await;
+        if status["ok"] != true {
+            peers.push(json!({"daemonId": daemon, "host": host, "ok": false,
+                "reason": status.get("reason")}));
+            continue;
+        }
+        done.insert(daemon.clone());
+        peers.push(json!({"daemonId": daemon, "host": host, "ok": true}));
+        if status["account"].as_str() != Some(account.as_str()) {
+            continue;
+        }
+        let reported = status.get("ownGrantor").and_then(|own| {
+            let key = own.get("publicKey")?.as_str().and_then(consent_grant::unhex)?;
+            let name = own.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+            (own.get("id")?.as_str()? == consent_grant::grantor_id(&key)).then_some((key, name))
+        });
+        if let Some((key, name)) = reported {
+            let account = account.clone();
+            let pin = with_authority(move |authority| {
+                let now = crate::store::now_ms();
+                consent_grant::pin_enrolled(authority, &key, &name, &account, now)
+                    .map(|new| new.then(|| consent_grant::grantor_id(&key)))
+            })
+            .await;
+            if let Some(Ok(Some(id))) = pin {
+                pinned.push(id);
+            }
+        }
+        let handed = remote(hub, &daemon, &json!({"op": "policy"})).await;
+        let Some(grant) = handed.get("grant").filter(|grant| grant.is_object()).cloned() else {
+            continue;
+        };
+        let issued = grant.get("issuedAt").and_then(Value::as_u64).unwrap_or_default();
+        let (account, target) = (account.clone(), target.clone());
+        let applied = with_authority(move |authority| {
+            let kept = consent_grant::policy_issued_at(authority, &account);
+            if kept.is_some_and(|kept| kept >= issued) {
+                return false;
+            }
+            let now = crate::store::now_ms();
+            consent_grant::apply(authority, &grant, &target, Some(&host), now).is_ok()
+        })
+        .await;
+        policy |= applied == Some(true);
+    }
+    json!({"ok": true, "pinned": pinned, "policy": policy, "peers": peers})
 }
 
 /// Serves one consent circuit whose hello was read: the gate admits `from` or the refusal is the

@@ -139,6 +139,8 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_CONSENT_REMOTE_STATUS,
             method::MUX_CONSENT_REMOTE_SET,
             method::MUX_CONSENT_GRANTOR_TRUST,
+            method::MUX_CONSENT_ACCOUNT_SET,
+            method::MUX_CONSENT_TRUST_REFRESH,
         ],
     },
     // Signing in enrolls this machine on the hub; signing out leaves only that join

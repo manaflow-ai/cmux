@@ -4,6 +4,9 @@
 //!   with `self` (this machine's account, its app's approver id and the words of its key).
 //! - `_acpmux/consent_remote_set {daemonId, grant}`: a grant the app signed, carried there.
 //! - `_acpmux/consent_grantor_trust {id, trusted}`: pins the pending ask's key here, or unpins.
+//! - `_acpmux/consent_account_set {grant}`: an account-wide grant this Mac's own app key signed,
+//!   applied here, then handed to every listed machine of the account.
+//! - `_acpmux/consent_trust_refresh {}`: opens the enrollment window and collects the keys.
 
 use std::sync::Arc;
 
@@ -25,6 +28,8 @@ pub(super) async fn dispatch(
         method::MUX_CONSENT_REMOTE_STATUS
             | method::MUX_CONSENT_REMOTE_SET
             | method::MUX_CONSENT_GRANTOR_TRUST
+            | method::MUX_CONSENT_ACCOUNT_SET
+            | method::MUX_CONSENT_TRUST_REFRESH
     ) {
         return None;
     }
@@ -34,6 +39,8 @@ pub(super) async fn dispatch(
     Some(match m {
         method::MUX_CONSENT_GRANTOR_TRUST => trust(params).await,
         method::MUX_CONSENT_REMOTE_STATUS => remote_status(hub, params).await,
+        method::MUX_CONSENT_ACCOUNT_SET => account_set(hub, params).await,
+        method::MUX_CONSENT_TRUST_REFRESH => trust_refresh(hub).await,
         _ => remote_set(hub, params).await,
     })
 }
@@ -116,6 +123,34 @@ async fn remote_set(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         .ok_or_else(|| RpcError::invalid_params("grant is required"))?;
     let request = json!({"op": "set", "grant": grant});
     Ok(crate::consent_grant_service::remote(hub, &daemon, &request).await)
+}
+
+#[cfg(feature = "hub-carrier")]
+async fn account_set(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let grant = params
+        .get("grant")
+        .filter(|grant| grant.is_object())
+        .ok_or_else(|| RpcError::invalid_params("grant is required"))?;
+    Ok(crate::consent_grant_service::account_set(hub, grant).await)
+}
+
+#[cfg(feature = "hub-carrier")]
+async fn trust_refresh(hub: &Arc<Hub>) -> Result<Value, RpcError> {
+    Ok(crate::consent_grant_service::trust_refresh(hub).await)
+}
+
+#[cfg(not(feature = "hub-carrier"))]
+async fn account_set(_hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    params
+        .get("grant")
+        .filter(|grant| grant.is_object())
+        .ok_or_else(|| RpcError::invalid_params("grant is required"))?;
+    Ok(no_carrier())
+}
+
+#[cfg(not(feature = "hub-carrier"))]
+async fn trust_refresh(_hub: &Arc<Hub>) -> Result<Value, RpcError> {
+    Ok(no_carrier())
 }
 
 #[cfg(not(feature = "hub-carrier"))]
