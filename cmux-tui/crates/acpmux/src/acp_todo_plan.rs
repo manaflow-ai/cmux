@@ -27,6 +27,18 @@ pub use acpmux_core::chat::todo::{Watch, entries};
 
 static WATCHES: LazyLock<Mutex<HashMap<String, Watch>>> = LazyLock::new(Default::default);
 
+/// Scoped access for the shared tap stage. The watch is removed from the
+/// process map while the closure runs, then retained only while non-empty.
+pub(crate) fn with_watch<R>(session: &str, f: impl FnOnce(&mut Option<Watch>) -> R) -> R {
+    let mut watches = WATCHES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut watch = watches.remove(session);
+    let result = f(&mut watch);
+    if watch.as_ref().is_some_and(|w| !w.is_empty()) {
+        watches.insert(session.to_owned(), watch.expect("watch present"));
+    }
+    result
+}
+
 /// A live update of chat `session`'s own thread (`hub/tap.rs`): see [`Watch::observe`].
 pub fn observe(session: &str, update: &mut Value) -> Option<Value> {
     let kind = update.get("sessionUpdate").and_then(Value::as_str);

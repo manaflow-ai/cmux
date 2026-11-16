@@ -43,6 +43,52 @@ impl acpmux_core::chat::record::RecordState for SessionRecordState<'_> {
     }
 }
 
+impl acpmux_core::chat::record::ContextState for SessionRecordState<'_> {
+    fn stream<R>(
+        &mut self,
+        f: impl FnOnce(&mut acpmux_core::chat::stream_state::StreamState) -> R,
+    ) -> R {
+        let mut guard = self.session.stream.lock().unwrap_or_else(|e| e.into_inner());
+        f(&mut guard)
+    }
+    fn todo<R>(&mut self, f: impl FnOnce(&mut Option<acpmux_core::chat::todo::Watch>) -> R) -> R {
+        crate::acp_todo_plan::with_watch(&self.session.id, f)
+    }
+    fn subagents<R>(
+        &mut self,
+        f: impl FnOnce(&mut acpmux_core::chat::subagent::SubagentTree) -> R,
+    ) -> R {
+        let mut guard = self.session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+        f(&mut guard)
+    }
+    fn background<R>(
+        &mut self,
+        f: impl FnOnce(&mut acpmux_core::chat::background_turn::BackgroundTurns) -> R,
+    ) -> R {
+        let mut guard = self.session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
+        f(&mut guard)
+    }
+    fn processes<R>(
+        &mut self,
+        f: impl FnOnce(&mut acpmux_core::chat::process::ProcessTable) -> R,
+    ) -> R {
+        let mut guard = self.session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        f(&mut guard)
+    }
+    fn set_compacting(&mut self, value: bool) {
+        self.session.compacting.store(value, Ordering::SeqCst);
+    }
+    fn compacting(&self) -> bool {
+        self.session.compacting.load(Ordering::SeqCst)
+    }
+    fn set_compaction_metadata_fenced(&mut self, value: bool) {
+        self.session.compaction_metadata_fenced.store(value, Ordering::SeqCst);
+    }
+    fn compaction_metadata_fenced(&self) -> bool {
+        self.session.compaction_metadata_fenced.load(Ordering::SeqCst)
+    }
+}
+
 /// Raw Claude `stream_event` lines (text and tool-input deltas) are mostly not logged: the
 /// translated `session/update` records that follow carry their content. They were most of a
 /// Claude chat's log (44,000 of 54,000 records in 24 minutes on huge-blue, 2026-10-21), and each

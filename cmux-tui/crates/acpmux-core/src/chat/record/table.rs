@@ -226,7 +226,7 @@ pub fn record_of<S: RecordState>(entry: Entry<'_>, context: &mut S) -> Option<Re
 
 /// Scoped access to the stateful pieces held by one chat registry entry.
 /// Closures must not append records or call hub functions; the caller owns those effects.
-pub trait ContextState {
+pub trait ContextState: RecordState {
     fn stream<R>(&mut self, f: impl FnOnce(&mut StreamState) -> R) -> R;
     fn todo<R>(&mut self, f: impl FnOnce(&mut Option<Watch>) -> R) -> R;
     fn subagents<R>(&mut self, f: impl FnOnce(&mut SubagentTree) -> R) -> R;
