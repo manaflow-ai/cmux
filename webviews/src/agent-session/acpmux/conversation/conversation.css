@@ -3023,10 +3023,17 @@ pre.cv-math-source {
   }
 }
 
+/* A row's one-line entries (a thought, a tool run's line, a group's line) stack flush on the one
+   22 pitch (--cv-tool-row-height), as consecutive rows do across the stack: one rhythm for every line
+   in a turn, whichever row it was drawn in (design/chat-transcript.md "One-line row pitch"). A 4px
+   gap here put a row's first line 26 over the next while every other line was 22 (Leo, 2026-11-16:
+   "why is the spacing different on the first thinking tool call?";
+   test/agent-pane-worked-group-pitch-browser.test.ts). The room between a line and the body it
+   opens is the body's own (`.cv-fold::before`, below). */
 .cv-tools {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-base);
+  gap: 0;
   margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -3445,16 +3452,12 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 .cv-fold {
   display: flow-root;
 }
-/* The space between a line and the body it opens (`.cv-tools`' gap) is the body's own first item,
-   not the flex gap over it. The gap lies outside the height the fold animates: it stayed whole while
-   the body closed and left in one frame when the body was removed, so a close at the latest row
-   stopped one gap short for some frames and then jumped (transcript-details-toggle-steady-browser.test.ts,
-   "the clicked line stalled"), and an open began with the same step. The body takes the gap back and
-   holds the same space inside its box, so the layout at rest is the same and the space grows in and
-   folds away with the body, as the tray's divider does (subagents.css, `.acpmux-running-tray__fold::before`). */
-.cv-tools > * + .cv-fold {
-  margin-top: calc(-1 * var(--grid-base));
-}
+/* The space between a line and the body it opens is the body's own first item, never a flex gap
+   over it. A gap lies outside the height the fold animates: it stayed whole while the body closed
+   and left in one frame when the body was removed, so a close at the latest row stopped one gap
+   short for some frames and then jumped (transcript-details-toggle-steady-browser.test.ts, "the
+   clicked line stalled"), and an open began with the same step. The space grows in and folds away
+   with the body, as the tray's divider does (subagents.css, `.acpmux-running-tray__fold::before`). */
 .cv-tools > * + .cv-fold::before {
   content: "";
   display: block;
