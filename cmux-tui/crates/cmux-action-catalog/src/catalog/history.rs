@@ -221,7 +221,7 @@ pub static ACTIONS: &[Action] = &[
         category: "window",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::SITE_HOST],
+        arguments: &[args::SITE_HOST, args::CONFIRM.optional()],
         cli_name: "history remove-site",
         is_destructive: true,
         request: Some(Request {
@@ -239,6 +239,7 @@ pub static ACTIONS: &[Action] = &[
         category: "window",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::CONFIRM.optional()],
         cli_name: "closed clear",
         is_destructive: true,
         request: Some(Request {
@@ -256,7 +257,7 @@ pub static ACTIONS: &[Action] = &[
         category: "window",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::CLOSED_ITEM],
+        arguments: &[args::CLOSED_ITEM, args::CONFIRM.optional()],
         cli_name: "closed delete",
         is_destructive: true,
         request: Some(Request {
