@@ -145,7 +145,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.eligible == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 5
+    timeout-minutes: 25
     # actions: write starts the run; nothing here can write pr-media or the PR.
     permissions:
       actions: write
@@ -160,12 +160,31 @@ jobs:
         run: |
           set -uo pipefail
           event_at="$(date -u -d "$EVENT_AT" +%s 2>/dev/null || date -u +%s)"
-          if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
-              -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" 2> "$RUNNER_TEMP/dispatch.err"; then
-            echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            echo "hot verify: could not start the look on feat-cmux-next ($(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)); this workflow may not be there yet" | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
+          # A dispatch that fails is a PR with no look. It used to print a line and end green, so no one saw the
+          # PRs it lost. It now retries for at most 20 minutes (a rate limit waits for its reset, read from the
+          # rate_limit endpoint, which costs no quota) and ends red if the look never started.
+          deadline=$(( $(date +%s) + 20 * 60 ))
+          pause=30
+          for attempt in 1 2 3 4 5 6; do
+            if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+                -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" 2> "$RUNNER_TEMP/dispatch.err"; then
+              echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12} (attempt $attempt)" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            why="$(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)"
+            echo "hot verify: attempt $attempt could not start the look: $why"
+            wait_s=$pause
+            if grep -qi "rate limit" "$RUNNER_TEMP/dispatch.err"; then
+              reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
+              [[ "$reset" =~ ^[0-9]+$ ]] && (( reset > $(date +%s) )) && wait_s=$(( reset - $(date +%s) + 5 ))
+            fi
+            (( $(date +%s) + wait_s < deadline )) || break
+            sleep "$wait_s"
+            pause=$(( pause * 2 ))
+          done
+          echo "::error title=hot verify::could not start the look on feat-cmux-next for ${HEAD_SHA:0:12}: $why"
+          echo "hot verify: no look for ${HEAD_SHA:0:12}; the dispatch failed: $why" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
   # The feat-cmux-next half. The pull request, read again: open, into feat-cmux-next, from this repository,
   # still at the head the plan saw.
