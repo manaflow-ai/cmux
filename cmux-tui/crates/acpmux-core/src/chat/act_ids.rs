@@ -80,19 +80,19 @@ impl ActIdRing {
         let path = book.join(ACT_IDS_FILE);
         let (entries, floor, through) = match File::open(&path) {
             Ok(mut file) => match decode(&mut file) {
-                Ok((entries, floor, through)) => (entries, floor, through),
+                Ok((entries, floor, through)) => (entries, floor, Some(through)),
                 Err(error)
                     if matches!(
                         error.kind(),
                         io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof
                     ) =>
                 {
-                    (VecDeque::new(), checkpoint_seq, checkpoint_seq.unwrap_or_default())
+                    (VecDeque::new(), checkpoint_seq, Some(checkpoint_seq.unwrap_or_default()))
                 }
                 Err(error) => return Err(error),
             },
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                (VecDeque::new(), checkpoint_seq, checkpoint_seq.unwrap_or_default())
+                (VecDeque::new(), checkpoint_seq, Some(checkpoint_seq.unwrap_or_default()))
             }
             Err(error) => return Err(error),
         };
