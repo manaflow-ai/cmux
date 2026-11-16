@@ -306,7 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
-        firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
+        firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups(bare: launch.kind == .bare) }
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,

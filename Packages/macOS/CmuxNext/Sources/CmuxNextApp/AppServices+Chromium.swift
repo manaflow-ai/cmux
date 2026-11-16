@@ -10,10 +10,10 @@ import Observation
 // from SettingsHandlers.
 extension AppServices {
     /// Starts the launch preload and the likelihood observers.
-    func startChromiumWarmup() {
+    func startChromiumWarmup(bare: Bool) { // bare: nothing restored, so the default engine waits for a page to ask (piece 8)
         let machines = machines
         let preference = cache.browserTabs.preference
-        chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium }, pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false }, webTabsOpen: { machines.hasChromiumTab })
+        chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium }, pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false }, webTabsOpen: { machines.hasChromiumTab }, bare: bare)
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere. While Chromium is the

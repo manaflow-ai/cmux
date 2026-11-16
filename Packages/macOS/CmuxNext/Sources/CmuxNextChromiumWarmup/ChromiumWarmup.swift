@@ -170,10 +170,15 @@ public final class ChromiumWarmup {
     /// thread (`mapAtFirstFrame`); `launchPreloadDelay` later, while new tabs open in Chromium, starts
     /// it (CefInitialize, then the spare window, at idle moments). Anyone else pays nothing until a
     /// signal (`chromiumLikely`).
+    /// - Parameter bare: the launch restored nothing (`LaunchKind.bare`, piece 8 of hq
+    ///   `docs/design/launch-shell-first.md`): no page asks for Chromium yet, so the default engine neither maps
+    ///   it at the first frame nor starts it after `launchPreloadDelay`; Chromium loads when a page asks (a
+    ///   `chromiumLikely` signal or the page itself). Recent use still maps it at the first frame.
     public func start(
         defaultIsChromium: @escaping @MainActor () -> Bool,
         pagesPending: @escaping @MainActor () -> Bool = { false },
-        webTabsOpen: @escaping @MainActor () -> Bool = { true }
+        webTabsOpen: @escaping @MainActor () -> Bool = { true },
+        bare: Bool = false
     ) {
         guard !launchTimer.isScheduled, loading.isAvailable() else { return }
         self.defaultIsChromium = defaultIsChromium
@@ -188,9 +193,9 @@ public final class ChromiumWarmup {
             guard let self, !stopped else { return }
             // While new browser tabs open in Chromium, any browser tab is a Chromium tab: start it
             // at the first idle moment after launch, so no Cmd-Shift-L pays CefInitialize.
-            if self.defaultIsChromium() { chromiumLikely(.launch) }
+            if !bare, self.defaultIsChromium() { chromiumLikely(.launch) }
         }
-        mapAtFirstFrame()
+        mapAtFirstFrame(bare: bare)
     }
 
     /// Starts the framework map now, at the first frame, for a person likely to open a Chromium page:
@@ -198,8 +203,8 @@ public final class ChromiumWarmup {
     /// runs on a background thread (`CEFEngine.preload`); the main thread takes its result only when a
     /// page first asks for Chromium (or the warm start's idle moment), so the first Chromium page of
     /// the launch's first seconds no longer waits for a load that began 3 s after the frame.
-    private func mapAtFirstFrame() {
-        if defaultIsChromium() { return loading.preload() }
+    private func mapAtFirstFrame(bare: Bool) {
+        if !bare, defaultIsChromium() { return loading.preload() }
         // task-owner: one launch check per process; reads one small file off the main thread
         Task { [weak self] in
             guard let self, await loading.usedRecently(policy.recentUse), !stopped else { return }
