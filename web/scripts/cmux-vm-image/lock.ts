@@ -25,6 +25,9 @@ export const KNOWN_PROGRAMS = [
   "codex",
   "opencode",
   "pi",
+  // pi's ACP adapter: acpmux lists pi only when `pi-acp` is on PATH (acpmux config/discover.rs), so an
+  // image with pi and no adapter refused every pi start (hq#11225).
+  "pi-acp",
   // Cursor's agent CLI (Leo 2026-11-10: "if somebody has a ChatGPT subscription or a Cursor
   // subscription"); acpmux runs it as `cursor-agent acp` (acpmux config/discover.rs).
   "cursor-agent",
