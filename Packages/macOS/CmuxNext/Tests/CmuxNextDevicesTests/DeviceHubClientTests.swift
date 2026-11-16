@@ -44,6 +44,26 @@ import Testing
         #expect(body["platform"] as? String == "macos")
         #expect(body["signingKey"] as? String == identity.signingKey)
         #expect(body["agreementKey"] as? String == identity.agreementKey)
+        // No machine fields unless asked: an older hub never sees them from a caller that has none.
+        #expect(body["machineKey"] == nil && body["appId"] == nil)
+    }
+
+    /// Every build on a Mac registers with one `machineKey` (and its own bundle id), so the hub lists
+    /// NIGHTLY and DEV as one machine and retires only this install's renewal leftovers.
+    @Test func registrationSendsThisMacsMachineKeyAndAppId() async throws {
+        let identity = DeviceIdentity.software()
+        let hub = StubHub.routes(["POST /v1/devices": (200, #"{"device":{"id":"x","name":"Studio","machineId":"m1","appId":"com.example.nightly"}}"#)])
+        let key = MachineKey.key(platformUUID: "0a1b2c3d-0000-1111-2222-333344445555")
+        let device = try await makeClient(hub, identity: identity)
+            .registerDevice(name: "Studio", platform: .macos, machineKey: key, appId: "com.example.nightly")
+        #expect(device.machineId == "m1" && device.appId == "com.example.nightly")
+        let body = try #require(hub.requests.last?.jsonBody)
+        #expect(body["machineKey"] as? String == key)
+        #expect(body["appId"] as? String == "com.example.nightly")
+        // The key is a lowercase 64-hex digest, the same for any case of the UUID, never the UUID itself.
+        #expect(key.count == 64 && key.allSatisfy { "0123456789abcdef".contains($0) })
+        #expect(key == MachineKey.key(platformUUID: "0A1B2C3D-0000-1111-2222-333344445555"))
+        #expect(MachineKey.current.map { $0.count == 64 } ?? true)
     }
 
     /// Sign-out ends this device's sessions on the hub (reason `signed_out`) before the account session goes.

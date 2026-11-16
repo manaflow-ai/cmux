@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
+import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex, sha256Hex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
 import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
@@ -46,6 +46,21 @@ interface DeviceRow {
   last_seen_at: number;
   removed_at: number | null;
   mac_screen_shared: number;
+  /** This account's id for the physical machine (`machineIdFor`), NULL when the app sent no `machineKey`. */
+  machine_id: string | null;
+  /** The app install whose identity this is (the macOS bundle id), NULL when the app sent none. */
+  app_id: string | null;
+}
+
+/** A client's `machineKey`: lowercase hex SHA-256 of a hardware id (PROTOCOL.md, One record per machine). */
+const MACHINE_KEY = /^[0-9a-f]{64}$/;
+
+/**
+ * The machine id the hub stores and lists: the client's `machineKey` salted with the account, so one
+ * Mac signed in to two accounts has two unrelated ids and no listing links accounts.
+ */
+export async function machineIdFor(userId: string, machineKey: string): Promise<string> {
+  return sha256Hex(`cmux-device-hub machine v1\n${userId}\n${machineKey}`);
 }
 
 interface SessionRow {
@@ -116,7 +131,8 @@ CREATE TABLE IF NOT EXISTS devices(
   created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
   removed_at INTEGER, mac_screen_shared INTEGER NOT NULL DEFAULT 0,
   name_pinned INTEGER NOT NULL DEFAULT 0,
-  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '');
+  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '',
+  machine_id TEXT, app_id TEXT);
 CREATE TABLE IF NOT EXISTS permissions(
   host_id TEXT NOT NULL, viewer_id TEXT NOT NULL, scope TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -160,6 +176,8 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "device_id", "TEXT"],
   ["audit", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  ["devices", "machine_id", "TEXT"],
+  ["devices", "app_id", "TEXT"],
 ];
 const OWNED_TABLES = ["devices", "permissions", "sessions", "audit"];
 
@@ -187,6 +205,8 @@ function publicDevice(d: DeviceRow, online: boolean) {
     createdAt: d.created_at,
     lastSeenAt: d.last_seen_at,
     macScreenShared: d.mac_screen_shared === 1,
+    machineId: d.machine_id ?? null,
+    appId: d.app_id ?? null,
     online,
   };
 }
@@ -416,6 +436,12 @@ export class UserDO extends DurableObject<Env> {
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
     const signingKey = body.signingKey as string;
     const agreementKey = body.agreementKey as string;
+    const machineKey = body.machineKey ?? null;
+    if (machineKey !== null && (typeof machineKey !== "string" || !MACHINE_KEY.test(machineKey))) {
+      throw badRequest("machineKey must be 64 lowercase hex characters");
+    }
+    const appId = body.appId === undefined || body.appId === null ? null : str(body.appId, "appId", 200);
+    const machineId = machineKey === null ? null : await machineIdFor(this.ownerId, machineKey);
     await checkDeviceSignature(signingKey, request.method, url, raw, h);
     const existing = this.device(h.id);
     if (existing?.removed_at != null) throw new ApiError(403, "device_removed", "this device was removed; register a new device id");
@@ -423,16 +449,19 @@ export class UserDO extends DurableObject<Env> {
     this.burnSignature(h.id, h.ts, h.sig, now);
     if (existing) {
       this.sql.exec(
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ? WHERE id = ?",
+        // A client that sends no machine fields (a build from before them) keeps what a newer one recorded.
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine_id = COALESCE(?, machine_id), app_id = COALESCE(?, app_id) WHERE id = ?",
         name,
         body.platform,
         agreementKey,
         now,
+        machineId,
+        appId,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?)",
+        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine_id, app_id) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?, ?)",
         h.id,
         name,
         body.platform,
@@ -441,9 +470,12 @@ export class UserDO extends DurableObject<Env> {
         now,
         now,
         this.ownerId,
+        machineId,
+        appId,
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }
+    if (machineId !== null && appId !== null) await this.retireReplaced(h.id, machineId, appId, body.platform as DevicePlatform);
     this.broadcast({ type: "devices.changed" });
     return json({ device: publicDevice(this.device(h.id)!, this.online(h.id)) });
   }
@@ -667,6 +699,32 @@ export class UserDO extends DurableObject<Env> {
 
   private async removeDevice(id: string): Promise<Response> {
     const target = this.liveDevice(id);
+    await this.retire(target, `${id} ${target.name}`);
+    return json({});
+  }
+
+  /**
+   * One record per app install on a machine (PROTOCOL.md, One record per machine): a record that
+   * registers with a machine id and an app id replaces that install's older records on the machine,
+   * the ones a renewal (`device_removed`, `device_key_mismatch`) left behind: an install has one
+   * identity at a time, so they are never used again. The machine's other installs' records (NIGHTLY
+   * beside DEV: another bundle id, another identity, still in use) stay, listed with the same
+   * `machineId` for the app to show as one device. A record still online is kept until a later
+   * registration finds it offline.
+   */
+  private async retireReplaced(id: string, machineId: string, appId: string, platform: DevicePlatform) {
+    const replaced = this.sql
+      .exec("SELECT * FROM devices WHERE removed_at IS NULL AND id != ? AND machine_id = ? AND app_id = ? AND platform = ?", id, machineId, appId, platform)
+      .toArray() as unknown as DeviceRow[];
+    for (const old of replaced) {
+      if (this.online(old.id)) continue;
+      await this.retire(old, `${old.id} ${old.name} (replaced by ${id})`);
+    }
+  }
+
+  /** Removes a device: its anchor, every permission naming it, its open sessions, its sockets. */
+  private async retire(target: DeviceRow, detail: string) {
+    const id = target.id;
     this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
     this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
     // No permission outlives its device, as host or as viewer; the hosts that listed it hear so.
@@ -674,11 +732,10 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM permissions WHERE host_id = ? OR viewer_id = ?", id, id);
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, `device_removed:${s.viewer_id === id ? "viewer" : "host"}`, "revoked", true);
-    this.audit("device_removed", { deviceId: id, detail: `${id} ${target.name}` });
+    this.audit("device_removed", { deviceId: id, detail });
     this.closeSockets(id, 4001, "device removed");
     this.broadcast({ type: "devices.changed" });
     for (const hostId of hosts) this.broadcast({ type: "permissions.changed", hostId });
-    return json({});
   }
 
   /** Ends this device's sessions now (reason signed_out) and closes its socket; the device stays registered. */

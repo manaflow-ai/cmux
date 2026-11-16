@@ -55,6 +55,9 @@ public final class DeviceHub {
     /// The relay secret store (the Keychain): every call off the main actor, one at a time.
     @ObservationIgnored let vault: RelaySecretVault
     @ObservationIgnored let platform: DevicePlatform
+    /// What registration names this Mac and this install by (``MachineKey``, the bundle id); nil omits it.
+    @ObservationIgnored let machineKey: String?
+    @ObservationIgnored let appId: String?
     @ObservationIgnored let now: @Sendable () -> Date
     /// Makes a new identity when the hub refuses this one (`device_removed`, `device_key_mismatch`).
     @ObservationIgnored let renewIdentity: (@Sendable () throws -> DeviceIdentity)?
@@ -65,13 +68,16 @@ public final class DeviceHub {
     @ObservationIgnored private var generation = 0
 
     public init(client: DeviceHubClient, socket: DeviceHubSocket? = nil, secrets: any RelaySecretStore, deviceName: String,
-                platform: DevicePlatform = .macos, renewIdentity: (@Sendable () throws -> DeviceIdentity)? = nil,
+                platform: DevicePlatform = .macos, machineKey: String? = nil, appId: String? = nil,
+                renewIdentity: (@Sendable () throws -> DeviceIdentity)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.client = client
         self.socket = socket ?? DeviceHubSocket(connector: URLSessionDeviceHubConnector(client: client))
         vault = RelaySecretVault(store: secrets)
         self.deviceName = deviceName
         self.platform = platform
+        self.machineKey = machineKey
+        self.appId = appId
         self.renewIdentity = renewIdentity
         self.now = now
     }
@@ -84,6 +90,7 @@ public final class DeviceHub {
         let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) }
         return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain), deviceName: deviceName,
+                         machineKey: MachineKey.current, appId: bundleIdentifier,
                          renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) })
     }
 
@@ -114,7 +121,7 @@ public final class DeviceHub {
         status = .starting
         do {
             do {
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                _ = try await client.registerDevice(name: deviceName, platform: platform, machineKey: machineKey, appId: appId)
             } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
@@ -122,7 +129,7 @@ public final class DeviceHub {
                 do { fresh = try await Self.loadIdentity(renewIdentity) } catch { throw DeviceHubError.identity("\(error)") }
                 guard run == generation else { return }
                 client.setIdentity(fresh)
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                _ = try await client.registerDevice(name: deviceName, platform: platform, machineKey: machineKey, appId: appId)
             }
             guard run == generation else { return }
             status = .ready

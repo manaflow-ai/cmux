@@ -76,12 +76,40 @@ host-signed allow lists are later work.
   `updatedAt`, audit `ts`) are Unix milliseconds. JWT/ticket claims and
   `X-Device-Ts` are Unix seconds.
 
+## One record per machine
+
+Each cmux build keeps its own identity (the Keychain service `<bundle id>.device-hub`), so one Mac
+running NIGHTLY and DEV is two device records, and a renewal (`device_removed`,
+`device_key_mismatch`) makes a third. Leo, 2026-11-16, on Settings > Screen Sharing listing each
+Mac twice: "this needs to quiet down ... stop writing so much". So registration may name the
+machine and the install:
+
+- `machineKey`: lowercase hex SHA-256 (64 characters) of `"cmux-device-hub machine v1\n"` and the
+  Mac's IOPlatformUUID, uppercased (`CmuxNextDevices/MachineKey.swift`). Every build on the Mac
+  sends the same key; the hardware id never leaves the Mac.
+- `appId`: the install whose identity this is (the bundle id), 1-200 characters.
+
+The hub stores `machineId` = lowercase hex SHA-256 of
+`"cmux-device-hub machine v1\n<userId>\n<machineKey>"`, so one Mac signed in to two accounts has two
+unrelated ids and no listing links accounts. A device lists `machineId` and `appId` (null when it
+never sent them). A registration without them (an older build) keeps what a newer one recorded.
+
+When a record registers with both, the hub removes that install's other records on the machine
+(same `machineId`, `appId` and platform) that are offline: an install holds one identity at a
+time, so those are a renewal's leftovers and are never used again. The removal is `DELETE
+/v1/devices/:id` (sessions end with `device_removed:*`, permissions naming it go, audit
+`device_removed` with detail `<id> <name> (replaced by <new id>)`). A record still online is kept
+until a later registration finds it offline. The machine's other installs' records (NIGHTLY beside
+DEV) are never removed: each build still uses its own, and removing it would make that build renew
+and remove the other's in turn. Apps show the records of one `machineId` as one device
+(`cmux-cloud-config` `device_list`: machine id first, the folded name for records without one).
+
 ## Records (User DO SQLite)
 
 ```
 devices(id TEXT PK, name, platform 'macos'|'ios'|'linux', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
-        name_pinned INT 0/1, owner_kind, owner_id)
+        name_pinned INT 0/1, owner_kind, owner_id, machine_id NULL, app_id NULL)
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
         owner_kind, owner_id,
         PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
@@ -111,7 +139,7 @@ digest, expires_at)` table (digest = ts and low-S signature) for the 120 s
 replay cache.
 
 JSON shapes: a device is `{id, name, platform, signingKey, agreementKey,
-createdAt, lastSeenAt, macScreenShared, online}`; an ICE server is
+createdAt, lastSeenAt, macScreenShared, machineId, appId, online}`; an ICE server is
 `{urls:[…], username?, credential?}`; an audit entry is `{id, ts, event,
 viewerId, hostId, deviceId, viewerName, hostName, deviceName, scope, sessionId,
 detail, durationS}` (`detail` carries the
@@ -125,7 +153,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
 | `POST /v1/auth/machine` | `{credential, deviceId}` | `{session, userId, scope, ownerKind, machineId, teamId, expiresAt}` | A joined machine's sign-in (Identity, Machine sign-in): cmux-platform names the person; the `machine` session sets up and serves only `deviceId`. 401 when cmux-platform does not accept the credential or it expired, 403 `machine_no_person` or `account_not_on_hub`, 503 `machine_auth_unavailable`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, machineKey?, appId?}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. With `machineKey` and `appId` it removes this install's offline older records on the machine (One record per machine). |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |

@@ -134,12 +134,18 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers.
-    public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String }
+    /// Registers or updates this device, signed by the key it registers. With `machineKey` (``MachineKey``)
+    /// and `appId` (the bundle id) the hub lists the record under this Mac's machine id and retires this
+    /// install's older records on the Mac (PROTOCOL.md, One record per machine); nil omits the field.
+    public func registerDevice(name: String, platform: DevicePlatform, machineKey: String? = nil,
+                               appId: String? = nil) async throws -> HubDevice {
+        struct Body: Encodable {
+            var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String
+            var machineKey, appId: String?
+        }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey)
+                        agreementKey: identity.agreementKey, machineKey: machineKey, appId: appId)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 
