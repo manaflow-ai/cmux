@@ -105,20 +105,6 @@ struct AppLanguageTests {
         #expect(language.code == "ja")
     }
 
-    /// The app's path: every `*.bundle` of its resources folder is adopted, off the main thread.
-    @Test(.timeLimit(.minutes(1)))
-    func theResourcesFoldersBundlesAreAdopted() async throws {
-        let scratch = try Scratch()
-        let bundle = try scratch.bundle(Self.tables)
-        let language = AppLanguage()
-        language.set("ja")
-        language.adoptResourceBundles(in: scratch.root)
-        for _ in 0..<400 where String(localized: "greeting", defaultValue: "Hello", bundle: bundle) != "こんにちは" {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        #expect(String(localized: "greeting", defaultValue: "Hello", bundle: bundle) == "こんにちは")
-    }
-
     /// A key of a real cmux string table (CmuxNextUpdater's sidebar "Did you know?" card heading).
     @Test func aCmuxStringSwitchesToJapaneseAndBack() throws {
         let scratch = try Scratch()

@@ -7,7 +7,7 @@ internal import ObjectiveC
 /// settings snapshot's; this only makes cmux's own string bundles answer in it.
 ///
 /// Every native string is a `String(localized:bundle: .module)` read of a SwiftPM resource bundle
-/// (`Contents/Resources/*.bundle`). Each such bundle is adopted (``adoptResourceBundles(in:)``):
+/// (`Contents/Resources/*.bundle`). Each such bundle is adopted (``adoptResourceBundles()``):
 /// its class becomes ``AppLanguageBundle``, which answers `localizedString(forKey:value:table:)`
 /// from the chosen language's `.lproj`, and with no chosen language (System) exactly as before.
 /// Only cmux's own resource bundles are adopted: never `Bundle.main`, a framework or the system's.
@@ -46,19 +46,11 @@ public final class AppLanguage: Observable, @unchecked Sendable { // crash-allow
         }
     }
 
-    /// Adopts every SwiftPM resource bundle in `resources` (the app's `Contents/Resources`), on a
-    /// background thread: the folder listing and a bundle's first open never touch the main thread.
+    /// Adopts every SwiftPM resource bundle of the app (`Contents/Resources/*.bundle`), the ones the
+    /// launch warm-up opened (``Bundle/warmResourceBundlesInBackground(in:)``): no disk access here.
     /// NSBundle keeps one instance per path, so each module's `Bundle.module` is the adopted one.
-    public func adoptResourceBundles(in resources: URL? = Bundle.main.resourceURL) {
-        let thread = Thread { [self] in
-            guard let resources, let names = try? FileManager.default.contentsOfDirectory(atPath: resources.path) else { return }
-            for name in names where name.hasSuffix(".bundle") {
-                if let bundle = Bundle(url: resources.appending(path: name, directoryHint: .isDirectory)) { adopt(bundle) }
-            }
-        }
-        thread.name = "cmux-next app language bundles"
-        thread.qualityOfService = .userInitiated
-        thread.start()
+    public func adoptResourceBundles() {
+        Bundle.forEachWarmedResourceBundle { [self] in adopt($0) }
     }
 
     /// Makes `bundle` (one of cmux's own resource bundles) answer in this language. A plain `Bundle`
