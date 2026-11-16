@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43810013411",
+  "recorded_at": "2026-11-16T05:30:10Z",
+  "reason": "cmux-tui 66859f299e11 changes the image's cmux-tui (pinned 379e8982edc0)",
+  "dry_run": false,
+  "cmux_tui": "66859f299e113faac6e9af349ff6ae850c886086",
+  "fixes": [
+    {
+      "sha": "66859f299e113faac6e9af349ff6ae850c886086",
+      "mergedAt": "2026-11-15T21:08:28-08:00",
+      "subject": "cmux-tui: a layout size command reads one workspace and keeps the indexes (#44201)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T05:30:10Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
