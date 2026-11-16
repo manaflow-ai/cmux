@@ -14,6 +14,8 @@ class AgentCLIHybridBenchUITests: XCTestCase {
     /// Claude Code and opencode; Codex runs in its own suite (``AgentCLIHybridBenchCodexUITests``),
     /// so a recording of this one shows only these two.
     class var sessions: [String] { ["claude-code-2.1.310", "opencode-1.19.5"] }
+    /// How the fake Mac sends each session: today's PTY bytes, then cell changes.
+    class var modes: [String] { ["pty", "hybrid"] }
 
     private func fixture(_ name: String) -> String {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -25,7 +27,7 @@ class AgentCLIHybridBenchUITests: XCTestCase {
         for name in Self.sessions {
             let path = fixture(name)
             XCTAssertTrue(FileManager.default.fileExists(atPath: path), "missing \(path)")
-            for mode in ["pty", "hybrid"] {
+            for mode in Self.modes {
                 let app = XCUIApplication()
                 app.launchArguments += [
                     "-CmuxMobileHybridBench", "-CmuxMobileHybridBenchFile", path,
@@ -60,4 +62,9 @@ class AgentCLIHybridBenchUITests: XCTestCase {
 /// The Codex session of the bench, apart, so the main suite's recording leaves it out.
 final class AgentCLIHybridBenchCodexUITests: AgentCLIHybridBenchUITests {
     override class var sessions: [String] { ["codex-0.164.0"] }
+}
+
+/// Claude Code and opencode as cell changes only: a short recording of the new path.
+final class AgentCLIHybridBenchHybridOnlyUITests: AgentCLIHybridBenchUITests {
+    override class var modes: [String] { ["hybrid"] }
 }
