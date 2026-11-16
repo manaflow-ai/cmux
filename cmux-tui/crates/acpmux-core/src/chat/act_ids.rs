@@ -60,7 +60,7 @@ pub struct ActIdRing {
     /// Set only after an entry is evicted. `open_at` uses the checkpoint as a
     /// conservative floor when the receipt file is absent or damaged.
     floor: Option<u64>,
-    through: Option<u64>,
+    through: u64,
 }
 
 impl ActIdRing {
@@ -80,19 +80,19 @@ impl ActIdRing {
         let path = book.join(ACT_IDS_FILE);
         let (entries, floor, through) = match File::open(&path) {
             Ok(mut file) => match decode(&mut file) {
-                Ok((entries, floor, through)) => (entries, floor, Some(through)),
+                Ok((entries, floor, through)) => (entries, floor, through),
                 Err(error)
                     if matches!(
                         error.kind(),
                         io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof
                     ) =>
                 {
-                    (VecDeque::new(), checkpoint_seq, Some(checkpoint_seq.unwrap_or_default()))
+                    (VecDeque::new(), checkpoint_seq, checkpoint_seq.unwrap_or_default())
                 }
                 Err(error) => return Err(error),
             },
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                (VecDeque::new(), checkpoint_seq, Some(checkpoint_seq.unwrap_or_default()))
+                (VecDeque::new(), checkpoint_seq, checkpoint_seq.unwrap_or_default())
             }
             Err(error) => return Err(error),
         };
@@ -100,7 +100,7 @@ impl ActIdRing {
     }
 
     pub fn empty(book: &Path) -> Self {
-        Self { path: book.join(ACT_IDS_FILE), entries: VecDeque::new(), floor: None, through: None }
+        Self { path: book.join(ACT_IDS_FILE), entries: VecDeque::new(), floor: None, through: 0 }
     }
 
     pub fn len(&self) -> usize {
@@ -119,7 +119,7 @@ impl ActIdRing {
         self.floor
     }
 
-    pub fn through(&self) -> Option<u64> {
+    pub fn through(&self) -> u64 {
         self.through
     }
 
@@ -375,7 +375,7 @@ mod tests {
         ring.remember("tail", "op", &serde_json::json!(true), 10).unwrap();
         ring.save(9).unwrap();
         let ring = ActIdRing::open_at(home.path(), 9).unwrap();
-        assert_eq!(ring.through(), Some(9));
+        assert_eq!(ring.through(), 9);
         assert_eq!(
             ring.lookup("old", "op", &serde_json::json!(true)),
             ActIdLookup::Replay { ack_seq: 9 }
