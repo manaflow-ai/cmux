@@ -5,7 +5,10 @@
 //! the ABI boundary.
 
 use crate::chat::{ChatBlobRequest, ChatChange, ChatPageRequest, ChatSubRequest};
-use crate::page::{DriverError, InvalidCode, ListDriver, NextRequest, OpenRequest, PageRequest};
+use crate::page::{
+    CloseRequest, DriverError, InvalidCode, ListDriver, MAX_REQUEST_BYTES, NextRequest,
+    OpenRequest, PageRequest,
+};
 use crate::wire::{FolderPageResult, FolderWindow, ListKey, Page, Sub};
 use crate::{Change, Client};
 use serde_json::{Value, json};
@@ -64,6 +67,16 @@ fn page_error(error: DriverError) -> i32 {
             InvalidCode::Request | InvalidCode::Page | InvalidCode::Unsupported,
         ) => ACPMUX_PAGE_ERR_REQUEST,
         DriverError::Invalid(InvalidCode::Protocol(_)) => ACPMUX_CLIENT_ERR_INVALID,
+    }
+}
+
+pub fn page_error_text(status: i32) -> Option<&'static str> {
+    match status {
+        ACPMUX_PAGE_ERR_BUSY => Some("list.busy"),
+        ACPMUX_PAGE_ERR_LIMIT => Some("list.limit"),
+        ACPMUX_PAGE_ERR_SID => Some("list.sid"),
+        ACPMUX_PAGE_ERR_REQUEST => Some("list.request"),
+        _ => None,
     }
 }
 
@@ -838,18 +851,20 @@ pub unsafe extern "C" fn acpmux_page_driver_close(
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
-        let value = match serde_json::from_slice::<Value>(bytes) {
-            Ok(value) => value,
+        let request = match serde_json::from_slice::<CloseRequest>(bytes) {
+            Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
-        };
-        let Some(sid) = value.get("sid").and_then(Value::as_str) else {
-            return ACPMUX_CLIENT_ERR_INVALID;
         };
         let driver = match page_driver_mut(handle) {
             Ok(driver) => driver,
             Err(error) => return error,
         };
-        driver.close(sid).map_or_else(page_error, |_| ACPMUX_CLIENT_OK)
+        match request.id {
+            Some(id) => driver
+                .close_question(&request.sid, &id)
+                .map_or_else(page_error, |_| ACPMUX_CLIENT_OK),
+            None => driver.close(&request.sid).map_or_else(page_error, |_| ACPMUX_CLIENT_OK),
+        }
     })
 }
 
@@ -864,6 +879,9 @@ pub unsafe extern "C" fn acpmux_page_driver_want(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -891,6 +909,9 @@ pub unsafe extern "C" fn acpmux_page_driver_unwant(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -919,6 +940,9 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -963,4 +987,17 @@ pub unsafe extern "C" fn acpmux_page_driver_next(
         };
         driver.next(&request.sid, &request.id).map_or_else(page_error, |_| ACPMUX_CLIENT_OK)
     })
+}
+
+/// Returns the stable page error code text for a page status in `out`.
+///
+/// # Safety
+/// `out` is an owned writable pointer; callers free its bytes with
+/// `acpmux_client_bytes_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_page_driver_error_code(status: i32, out: *mut Bytes) -> i32 {
+    let Some(code) = page_error_text(status) else {
+        return ACPMUX_CLIENT_ERR_INVALID;
+    };
+    output(out, code.as_bytes().to_vec())
 }

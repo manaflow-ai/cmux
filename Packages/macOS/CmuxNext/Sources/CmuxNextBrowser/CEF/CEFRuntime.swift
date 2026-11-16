@@ -67,11 +67,7 @@ final class CEFRuntime {
                 return CEFPageRendererGC.Page(browser: browser, isCmuxPage: CEFPageRendererGC.isCmuxPage(tab.state.url), rendererClients: clients)
             }
         },
-        heapUsed: { [weak self] browser in
-            guard let tab = self?.tabsByBrowser[browser],
-                  let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
-            return CEFPageRendererGC.usedSize(reply)
-        },
+        heapUsed: { [weak self] browser in await self?.rendererHeapUsed(browser) },
         collect: { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
             _ = try? await tab.devTools(method: "HeapProfiler.collectGarbage", params: [:], timeout: .seconds(10))
@@ -576,6 +572,15 @@ final class CEFRuntime {
                 CEFRuntime.shared.logger.error("CEF still running at willTerminate; skipping CefShutdown")
             }
         }
+    }
+
+    /// The used heap of the renderer behind `browser`, for ``pageRendererGC``: one `Runtime.getHeapUsage` call,
+    /// its reply decoded off the main actor (`CEFPageRendererGC.usedSize`). A method, not code in the lazy
+    /// initializer, which may not reference both main-actor and nonisolated declarations.
+    private func rendererHeapUsed(_ browser: Int32) async -> Int? {
+        guard let tab = tabsByBrowser[browser],
+              let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
+        return await CEFPageRendererGC.usedSize(reply)
     }
 
     /// The request context key of a pane's store (`CEFProfileStorage.contextKey`).
