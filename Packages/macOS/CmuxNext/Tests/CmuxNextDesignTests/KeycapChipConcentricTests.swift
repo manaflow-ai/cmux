@@ -33,7 +33,9 @@ import Testing
         let chip = try #require(found)
         let outer = try #require(button.layer).cornerRadius
         let radius = try #require(chip.layer).cornerRadius
-        let broken = ConcentricContainer.violations(child: chip.frame, childRadius: radius, in: button.bounds,
+        // The geometry (insets) against the shared rule; the corner below, since a dense button's corner less the inset
+        // can fall under the round floor (6 - 5 = 1 at compact), where the chip keeps the floor.
+        let broken = ConcentricContainer.violations(child: chip.frame, childRadius: max(outer - Self.inset, 0), in: button.bounds,
                                                     outerRadius: outer, padding: Self.inset)
         #expect(broken.isEmpty, "the \(hint.glyph) chip \(chip.frame) r\(radius) in \(button.bounds) r\(outer): \(broken)")
         #expect(abs(radius - max(outer - Self.inset, Self.floor)) <= 0.5, "the \(hint.glyph) chip rounds at \(radius) in a r\(outer) button")
