@@ -10,7 +10,12 @@ import type { Rendered } from "./testing";
 const restore = installDom();
 afterAll(() => restore());
 const { changeValue, click, ops, renderPage, rowElement, settle } = await import("./testing");
-const { setAppLanguage } = await import("../shared/appLanguage");
+const { installAppLanguage, setAppLanguage } = await import("../shared/appLanguage");
+installAppLanguage();
+afterAll(() => {
+  delete globalThis.__cmuxSetAppLanguage;
+  delete globalThis.__cmuxAppLanguage;
+});
 const { menusNeedRelaunch, shippedLanguages } = await import("./components/LanguageRelaunchRow");
 const table = (await import("./generated/strings.json")).default as Record<string, Record<string, string>>;
 

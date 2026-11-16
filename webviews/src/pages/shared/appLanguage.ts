@@ -99,8 +99,19 @@ export function setAppLanguage(code: string | null | undefined): Promise<void> {
   });
 }
 
-globalThis.__cmuxSetAppLanguage = (code) => void setAppLanguage(code);
-
-// A language the host set before this module ran: its tables may not be in yet (the head loader
-// ran first). Once they are, every surface resolves again.
-if (override) void loadLocale(override)?.then(() => announce());
+/**
+ * Installs the host's hook, `window.__cmuxSetAppLanguage`, once per document: page entries call it
+ * (createPageClient, the agent pane's mount), never a module load, so importing the strings stays
+ * free of globals. A language the host set before the page ran may lack its tables (the head
+ * loader ran first): once they are in, every surface resolves again.
+ */
+export function installAppLanguage(): void {
+  if (globalThis.__cmuxSetAppLanguage) return;
+  globalThis.__cmuxSetAppLanguage = (code) => void setAppLanguage(code);
+  const pending = normalize(globalThis.__cmuxAppLanguage);
+  if (pending && pending !== override) {
+    void setAppLanguage(pending);
+  } else if (override) {
+    void loadLocale(override)?.then(() => announce());
+  }
+}

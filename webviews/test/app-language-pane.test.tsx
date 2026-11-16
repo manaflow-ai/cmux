@@ -22,7 +22,8 @@ Object.assign(scope, {
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 
-const { setAppLanguage, appLanguages } = await import("../src/pages/shared/appLanguage");
+const { installAppLanguage, setAppLanguage, appLanguages } = await import("../src/pages/shared/appLanguage");
+installAppLanguage();
 const { useT, currentLanguage, setPaneLanguage, paneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { useNt } = await import("../src/agent-session/acpmux/newtab/strings");
 const table = (await import("../src/agent-session/acpmux/generated/strings.json")).default as Record<
@@ -49,6 +50,8 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await setAppLanguage(null);
+  delete globalThis.__cmuxSetAppLanguage;
+  delete globalThis.__cmuxAppLanguage;
   await act(async () => root.unmount());
   await settleReact();
   for (const [key, had, value] of saved)
