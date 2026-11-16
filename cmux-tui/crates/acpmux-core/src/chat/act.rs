@@ -349,7 +349,6 @@ pub struct QueueReceipt {
     pub result: ActEnvelope,
 }
 
-#[derive(Clone, Debug)]
 /// Queue actions are projected into the translator's packed `QueueEntry`.
 /// Prompt bodies carry `{promptId,at,held,place,span,textLen}`; retract bodies
 /// carry `{promptId}`. The queue never stores a second body map.
@@ -541,8 +540,8 @@ mod tests {
     #[test]
     fn queue_full_is_rejected_before_the_writer_and_replays_after_reopen() {
         let dir = tempdir().unwrap();
-        let writer = writer(dir.path());
-        let mut queue = ActorQueue::new(writer);
+        let first_writer = writer(dir.path());
+        let mut queue = ActorQueue::new(first_writer);
         for n in 0..MAX_QUEUE_ENTRIES {
             queue.entries.push(QueueEntry::new(n as u64, 0, false, 0, 0, 0));
         }
