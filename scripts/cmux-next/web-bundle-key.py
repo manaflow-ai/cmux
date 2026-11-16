@@ -263,23 +263,24 @@ def declared_bun_version(root):
         sys.exit(f"web-bundle-key: {error}")
 
 
-def declared_node_version(root):
-    # .node-version at the repo root is the one Node pin (every setup-node step reads it with
-    # node-version-file). A fixture ROOT without one falls back to this checkout's file.
-    candidates = [os.path.join(root, ".node-version")]
-    if "__file__" in globals():  # run as a script or module, not exec()-ed by a test
-        here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-        candidates.append(os.path.join(here, ".node-version"))
-    for candidate in candidates:
-        try:
-            with open(candidate, encoding="utf-8") as handle:
-                value = handle.read().strip()
-        except OSError:
-            continue
-        if value:
-            return value
-    sys.exit(f"web-bundle-key: no Node pin: {os.path.join(root, '.node-version')} is missing or empty")
+# The Node every tree from before .node-version existed was keyed and built with (the old
+# CMUX_WEB_NODE_VERSION default). A tree without the file keeps the key it always had; it is
+# history, not a pin: a tree that has .node-version is keyed on that file only.
+PRE_NODE_VERSION_FILE_NODE = "24.22.1"
 
+
+def declared_node_version(root):
+    # .node-version at ROOT is the one Node pin (every setup-node step reads it with
+    # node-version-file). A tree from before that file (a web bisect candidate, a fixture repo)
+    # keys as it did then.
+    try:
+        with open(os.path.join(root, ".node-version"), encoding="utf-8") as handle:
+            value = handle.read().strip()
+    except FileNotFoundError:
+        return PRE_NODE_VERSION_FILE_NODE
+    if not value:
+        sys.exit(f"web-bundle-key: {os.path.join(root, '.node-version')} is empty; it must hold one Node version")
+    return value
 
 def toolchain_identity(root):
     # The pins are webviews/package.json devEngines (bun) and .node-version (node).
