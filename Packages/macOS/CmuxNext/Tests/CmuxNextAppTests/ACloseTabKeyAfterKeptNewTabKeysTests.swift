@@ -66,7 +66,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
 
     /// The acts of one test in their order: one line for each key in its own call, and one line for each kept key
     /// when it runs again.
-    @MainActor private final class KeyLog {
+    @MainActor final class KeyLog {
         private(set) var lines: [String] = []
         /// How many kept keys ran again, and how many notes of an action the key router made for them.
         private(set) var replays = 0
@@ -102,7 +102,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
     }
 
     /// The keys of one test, what each did in its own call, and the counts that the keys make in their order.
-    @MainActor private final class Keys {
+    @MainActor final class Keys {
         /// What the key router did with a key in the key's own call.
         enum Outcome: Equatable { case ran, kept, passedOn }
 
@@ -147,12 +147,12 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
 
         private func label(_ id: String) -> String { (start.contains(id) ? "old tab " : "new tab ") + id }
 
-        /// One key-down with Command through the app's key path.
-        private func press(_ name: String, _ characters: String, code: UInt16, repeats: Bool) throws -> (outcome: Outcome, gone: [String]) {
+        /// One key-down through the app's key path, with Command when `flags` does not say another thing.
+        func press(_ name: String, _ characters: String, code: UInt16, repeats: Bool, flags: NSEvent.ModifierFlags = [.command]) throws -> (outcome: Outcome, gone: [String]) {
             stamp += 0.03
             count += 1
             if repeats { self.repeats += 1 }
-            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: stamp,
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: stamp,
                                                       windowNumber: window.windowNumber, context: nil, characters: characters,
                                                       charactersIgnoringModifiers: characters, isARepeat: repeats, keyCode: code),
                                      "setup: no key event")
@@ -222,7 +222,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
 
     /// The end of the keys' work: no hold of the window's keys, and the store's tab list did not change for one second
     /// (a bound of the test, not a time of the product).
-    private static func settle(_ keys: Keys, in window: NSWindow, services: AppServices) async throws {
+    static func settle(_ keys: Keys, in window: NSWindow, services: AppServices) async throws {
         let holds = services.keyRouter.creationInputCoordinator
         var last = keys.tabs
         var since = ContinuousClock.now
@@ -241,7 +241,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
     }
 
     /// The two checks of each test, and the test's counts.
-    private static func check(_ keys: Keys, _ label: String, lateAnswers: Int) {
+    static func check(_ keys: Keys, _ label: String, lateAnswers: Int) {
         print("KEYS-IN-ORDER \(label): \(keys.count) keys, \(keys.repeats) repeats, \(lateAnswers) answers given late, \(keys.keptNewTabKeys) New Tab keys kept by a hold")
         #expect(keys.oldTabsClosedAfterANewTabKey.isEmpty,
                 "a Close Tab key that came after a New Tab key closed \(keys.oldTabsClosedAfterANewTabKey), tabs that were there before the first key; \(keys.keptNewTabKeys) New Tab keys were kept by a hold; \(keys.said)")
@@ -253,7 +253,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
     /// The app with a terminal pane that a split made (the app's first pane can show a chat, where the keys mean other
     /// things): the daemon confirmed the pane, it has the focus and the keyboard, and no hold of the window's keys is
     /// open.
-    private static func withTerminalPane(_ body: (AppServices, NSWindow, KeyLog) async throws -> Void) async throws {
+    static func withTerminalPane(_ body: (AppServices, NSWindow, KeyLog) async throws -> Void) async throws {
         // An inert address for each New Tab page: the pages load nothing.
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
         let log = KeyLog()
