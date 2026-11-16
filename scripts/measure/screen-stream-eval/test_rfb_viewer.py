@@ -19,7 +19,7 @@ spec = importlib.util.spec_from_file_location("rfb_viewer", HERE / "rfb-viewer.p
 rfb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rfb)
 
-CELL, W, H = 16, 400, 200
+CELL, W, H = 16, 680, 200
 NONCE = "00112233445566778899aabbccddeeff"
 
 
@@ -28,25 +28,31 @@ class FakeServer(threading.Thread):
     the counter row (bumped by each key or click, and by every update while `tick`), then the
     nonce rows when `nonce` is set."""
 
-    def __init__(self, nonce=None, tick=False, reject=False):
+    def __init__(self, nonce=None, tick=False, reject=False, split=False, cell=None, top=0):
         super().__init__(daemon=True)
         self.listener = socket.socket()
         self.listener.bind(("127.0.0.1", 0))
         self.listener.listen(1)
         self.port = self.listener.getsockname()[1]
         self.nonce, self.tick, self.reject = nonce, tick, reject
+        # split: each update arrives in two pieces 0.3 s apart, longer than the viewer's 80-200 ms
+        # pause between inputs, so the drain (1 ms deadline) reads only the first piece.
+        self.split, self.cell, self.top = split, cell or CELL, top
         self.counter = 5
         self.z = zlib.compressobj()
         self.login = None
 
     def frame(self):
         px = bytearray(b"\xc0\xc0\xc0" * (W * H))
+        # A white strip above the marker, as a light menu bar.
+        px[:self.top * W * 3] = b"\xff" * (self.top * W * 3)
         words = [self.counter] + (rfb.nonce_words(self.nonce) if self.nonce else [])
+        c, top = self.cell, self.top
         for row, word in enumerate(words):
             for col in range(20):
                 on = (word >> col) & 1 if col < 16 else (1, 0, 1, 0)[col - 16]
-                for y in range(row * CELL, (row + 1) * CELL):
-                    for x in range(col * CELL, (col + 1) * CELL):
+                for y in range(top + row * c, top + (row + 1) * c):
+                    for x in range(col * c, (col + 1) * c):
                         px[(y * W + x) * 3:(y * W + x) * 3 + 3] = b"\xff\xff\xff" if on else b"\x00\x00\x00"
         return px
 
@@ -61,8 +67,13 @@ class FakeServer(threading.Thread):
                         r, g, b = px[(y * W + x) * 3:(y * W + x) * 3 + 3]
                         tiles += bytes((b, g, r))
         data = self.z.compress(bytes(tiles)) + self.z.flush(zlib.Z_SYNC_FLUSH)
-        conn.sendall(struct.pack("!BxH", 0, 1) + struct.pack("!HHHHi", 0, 0, W, H, 16)
-                     + struct.pack("!I", len(data)) + data)
+        message = (struct.pack("!BxH", 0, 1) + struct.pack("!HHHHi", 0, 0, W, H, 16)
+                   + struct.pack("!I", len(data)) + data)
+        if self.split:
+            conn.sendall(message[:6])
+            time.sleep(0.3)
+            message = message[6:]
+        conn.sendall(message)
 
     def run(self):
         conn, _ = self.listener.accept()
@@ -151,6 +162,22 @@ class RFBViewerTests(unittest.TestCase):
         self.assertEqual(result["g2g_ms"]["n"], 5)
         self.assertEqual(result["lost"], 0)
         self.assertEqual(result["geometry"]["cell"], CELL)
+
+    def test_message_split_across_drain_deadline_keeps_stream_in_sync(self):
+        # An update whose bytes straddle the 1 ms drain deadline used to lose its first byte and
+        # desync the stream ("unexpected server message 180" on a real Mac).
+        out = self.dir / "lat.json"
+        self.assertEqual(self.run_viewer(FakeServer(split=True), "latency", "--input", "key", "--samples", "5",
+                                         "--out", str(out)), 0)
+        self.assertEqual(json.loads(out.read_text())["lost"], 0)
+
+    def test_locate_finds_full_size_cells_below_a_light_strip(self):
+        # A 32 px marker under a white menu bar once read as 16 px cells half a row too low.
+        out = self.dir / "lat.json"
+        self.assertEqual(self.run_viewer(FakeServer(cell=32, top=30), "latency", "--input", "key", "--samples", "3",
+                                         "--out", str(out)), 0)
+        geometry = json.loads(out.read_text())["geometry"]
+        self.assertEqual((geometry["marker_y"], geometry["cell"]), (30, 32.0))
 
     def test_pointer_latency_uses_marker_log_geometry(self):
         log = self.dir / "marker.log"

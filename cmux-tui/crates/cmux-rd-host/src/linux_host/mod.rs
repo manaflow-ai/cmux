@@ -15,7 +15,8 @@
 //!   requests                       viewers asking for access, waiting for the person
 //!   approve SESSION [--always] [--scope view|full]
 //!   deny SESSION
-//!   status
+//!   status [--json]                `--json`: the cmux.screen-share.status/1 document cmux
+//!                                  reads from every share host (status_json.rs)
 //!
 //! Consent: a viewer the person already allowed (the hub's `view`/`full` permission) is
 //! served; any other request waits for `approve` and is never answered by the host itself
@@ -30,6 +31,7 @@ mod net;
 mod rd_doc;
 mod session;
 mod stack_login;
+mod status_json;
 
 use crate::capture_backend::CaptureBackend;
 use crate::Res;
@@ -50,7 +52,7 @@ const PING_EVERY: Duration = Duration::from_secs(30);
 const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--allow-control]
        cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
-       cmux-rd linux-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status";
+       cmux-rd linux-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]";
 
 /// The exit code when the host cannot go on until the person acts (the hub removed this
 /// desktop, its device key no longer matches, or its 30-day anchor ended). The user unit lists
@@ -186,7 +188,7 @@ fn ask_line(r: &consent::Request) -> String {
 }
 
 /// Flags that take no value.
-const FLAGS: &[&str] = &["always", "allow-control"];
+const FLAGS: &[&str] = &["always", "allow-control", "json"];
 
 struct Args {
     positional: Vec<String>,
@@ -255,7 +257,14 @@ pub fn run_cli(args: &[String]) -> i32 {
             .map_err(Into::into)
             .and_then(|()| approve(id, &parsed)),
         ["deny", id] => parsed.only(&[]).map_err(Into::into).and_then(|()| deny(id)),
-        ["status"] => parsed.only(&[]).map_err(Into::into).and_then(|()| status()),
+        ["status"] => parsed.only(&["json"]).map_err(Into::into).and_then(|()| {
+            if parsed.flag("json") {
+                print_status_json();
+                Ok(())
+            } else {
+                status()
+            }
+        }),
         _ => {
             eprintln!("{USAGE}");
             return 2;
@@ -445,6 +454,12 @@ fn status() -> Res<()> {
         None => println!("{} ({}), not signed in", device.name, device.id),
     }
     Ok(())
+}
+
+/// `status --json`: never fails; a missing piece is a state (status_json.rs).
+fn print_status_json() {
+    let facts = status_json::gather(now_ms());
+    println!("{}", status_json::status_json(&facts, env!("CARGO_PKG_VERSION")));
 }
 
 /// Why a host whose capture applies no input shares view only.
@@ -819,6 +834,13 @@ mod tests {
         assert!(a.only(&["always", "scope"]).is_ok());
         assert!(a.only(&["always"]).is_err());
         assert!(Args::parse(&["--scope".into()]).is_err());
+    }
+
+    #[test]
+    fn status_takes_json_and_never_fails() {
+        // Whatever this machine has set up, `status --json` maps it to a state.
+        assert_eq!(run_cli(&["status".into(), "--json".into()]), 0);
+        assert_eq!(run_cli(&["status".into(), "--always".into()]), 1);
     }
 
     #[test]
