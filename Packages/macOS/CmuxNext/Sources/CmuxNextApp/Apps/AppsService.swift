@@ -64,7 +64,7 @@ final class AppsService {
         }
         // task-owner: this service, for the app's life; event-driven (Observation).
         Task { [weak self] in
-            for await entries in ObservationStream({ [weak self] in self.map { AppCommandPalette.entries($0).map { .init(app: $0.app.id, appName: $0.app.manifest.name.resolved(), command: $0.command) } } ?? [] }) {
+            for await entries in ObservationStream({ [weak self] () -> [AppCommandShortcuts.Entry] in self.map { apps in AppCommandPalette.entries(apps).map { AppCommandShortcuts.Entry(app: $0.app.id, appName: $0.app.manifest.name.resolved(), command: $0.command) } } ?? [] }) {
                 shortcuts.apply(entries)
             }
         }
