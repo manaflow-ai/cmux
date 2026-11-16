@@ -224,6 +224,19 @@ class ImportTests(unittest.TestCase):
                   '    """\n')
         self.assertEqual(self.problems('"CmuxNextDaemon"', source), [])
 
+    def test_a_source_naming_no_undeclared_module_is_not_masked(self):
+        # The mask of every source took the check past the pre-push gate's 120 s limit on a 2-core host: a file
+        # that names no undeclared local module cannot import one, so it is skipped unmasked.
+        with unittest.mock.patch.object(lint, "mask_swift_source", wraps=lint.mask_swift_source) as mask:
+            self.assertEqual(self.problems('"CmuxNextCompat", "CmuxNextDaemon"',
+                                           "import Foundation\n@testable import CmuxNextDaemon\n"), [])
+        self.assertEqual(mask.call_count, 0)
+        # A comment before the import still counts once masked, so a naming file is masked and judged.
+        with unittest.mock.patch.object(lint, "mask_swift_source", wraps=lint.mask_swift_source) as mask:
+            problems = self.problems('"CmuxNextDaemon"', "/* x */ import CmuxNextCompat\n@testable import CmuxNextDaemon\n")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertGreater(mask.call_count, 0)
+
     def test_a_target_named_with_target_name_is_declared(self):
         # `.target(name: "X")` tells a target from a product of the same name.
         self.assertEqual(self.problems('.target(name: "CmuxNextCompat"), "CmuxNextDaemon"',
