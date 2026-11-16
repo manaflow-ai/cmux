@@ -7,7 +7,8 @@ import Testing
 /// ran, and a pass whose value changed after its last run. A pass with nothing changed does not run, so the call
 /// costs no second run. The window manager calls it before a window is ordered in.
 ///
-/// No test here suspends, so no pass's task runs: each run that a test counts is a call's own.
+/// A test that does not suspend runs no pass's task: each run that it counts is a call's own. The two last tests
+/// suspend, to count what a pass's task runs after the call.
 @MainActor @Suite(.serialized) struct SidebarSameTurnPendingTests {
     /// The runs of one pass.
     @MainActor final class Runs {
@@ -86,5 +87,27 @@ import Testing
         #expect(runs.computes == 1)
         #expect(passes.firstFrame?.passes == 1)
         #expect(passes.firstFrame?.rows == 0, "the model of this test has no row")
+    }
+
+    /// The pass's task runs after the call: it finds nothing changed and computes nothing.
+    @Test func thePassesTaskRunsNoPassThatTheCallRan() async {
+        let model = SidebarModel(), runs = Runs()
+        let passes = make(model, runs)
+        defer { passes.cancel() }
+        passes.runPending()
+        await RestoredWindowSidebarRowsPassTests.drain()
+        #expect(runs.computes == 1, "the pass's task ran a pass that the call ran, with nothing changed: \(runs.computes) computes")
+    }
+
+    /// The control of the test above, and of the drain: a value that changes after the call is the task's run, and
+    /// one drain reaches it.
+    @Test func thePassesTaskRunsAPassWhoseValueChangedAfterTheCall() async {
+        let model = SidebarModel(), runs = Runs()
+        let passes = make(model, runs)
+        defer { passes.cancel() }
+        passes.runPending()
+        model.profiles = [space("a")]
+        await RestoredWindowSidebarRowsPassTests.drain()
+        #expect(runs.applied == [0, 1], "the pass's task did not run the pass for a change after the call: \(runs.applied)")
     }
 }
