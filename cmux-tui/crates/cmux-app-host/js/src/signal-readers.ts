@@ -360,4 +360,30 @@ async function githubChanges(params: Record<string, any>, call: Caller): Promise
   return rows.filter((r) => r.state === "open" || (merged && r.state === "merged")).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
-export const READERS: Record<string, Reader> = { "github.pulls": githubPulls, "github.changes": githubChanges }
+/**
+ * `http.json`: one GET of `params.url` through the daemon's shared cache (`net.fetch` with
+ * `cache: "shared"`, apps/http_cache.rs), parsed as JSON. The daemon fetches each URL once for every
+ * app and mount that reads it, keeps it fresh for max(60 s, the response's max-age) and serves the kept
+ * body while it revalidates; the egress gate checks this app's net:<host> grant on every read.
+ */
+async function httpJson(params: Record<string, any>, call: Caller): Promise<unknown> {
+  const url = String(params.url ?? "")
+  const r = await call<{ status: number; body?: string }>("net.fetch", { url, method: "GET", headers: {}, body: null, cache: "shared" })
+  if (r.status < 200 || r.status >= 300) {
+    const host = (() => {
+      try {
+        return new URL(url).host
+      } catch {
+        return url
+      }
+    })()
+    throw new CmuxError("upstream.failed", `${host} answered ${r.status}`, { signal: "http.json", status: r.status }, r.status === 408 || r.status === 429 || r.status >= 500)
+  }
+  try {
+    return JSON.parse(r.body ?? "")
+  } catch {
+    throw new CmuxError("upstream.failed", "the response is not JSON", { signal: "http.json", status: r.status }, true)
+  }
+}
+
+export const READERS: Record<string, Reader> = { "github.pulls": githubPulls, "github.changes": githubChanges, "http.json": httpJson }

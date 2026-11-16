@@ -324,6 +324,9 @@ pub struct Supervisor {
     /// `integration.request` for provider `github`, answered here
     /// (`github_gateway.rs`). Unset, the call goes to the provider.
     pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
+    /// `net.fetch {cache: "shared"}`: one cache per URL for every app
+    /// (`http_cache.rs`, the `http.json` signal source).
+    pub(super) http_cache: super::http_cache::HttpCache,
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
@@ -470,6 +473,7 @@ impl Supervisor {
             router,
             fetcher,
             github: OnceLock::new(),
+            http_cache: super::http_cache::HttpCache::default(),
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),

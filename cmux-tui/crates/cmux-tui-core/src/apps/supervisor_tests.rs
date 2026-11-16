@@ -593,6 +593,37 @@ fn unknown_ops_ungranted_ops_storage_and_egress() {
     );
 }
 
+/// `net.fetch {cache: "shared"}` (the http.json signal source): mounts that
+/// read one URL share one request, and the egress gate still runs first, so
+/// an app that may not fetch the URL never reads another app's cached body.
+#[test]
+fn shared_fetches_are_one_request_per_url_and_still_need_the_grant() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.install("local/spy");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    f.mount("m2", "cmux/demo", "cmux.section/1", json!({}));
+    f.mount("s1", "local/spy", "cmux.section/1", json!({}));
+    let shared = json!({ "url": "https://api.example.com/weather", "cache": "shared" });
+    let first = f.call("m1", "net.fetch", shared.clone(), false);
+    assert_eq!(first["body"]["value"]["body"], "hi");
+    assert_eq!(first["body"]["value"]["cache"]["hit"], false);
+    let second = f.call("m2", "net.fetch", shared.clone(), false);
+    assert_eq!(second["body"]["value"]["cache"]["hit"], true);
+    assert_eq!(second["body"]["value"]["cache"]["maxAgeSeconds"], 60);
+    assert_eq!(f.fetcher.requests.lock().unwrap().len(), 1, "one request for both mounts");
+    // The sandboxed spy holds net:api.example.com but may not reach the network: refused, cached or not.
+    assert_eq!(f.call("s1", "net.fetch", shared, false)["body"]["code"], "scope.missing");
+    let other = json!({ "url": "https://other.example.org/", "cache": "shared" });
+    assert_eq!(f.call("m1", "net.fetch", other, false)["body"]["code"], "scope.missing");
+    let post =
+        json!({ "url": "https://api.example.com/weather", "method": "POST", "cache": "shared" });
+    assert_eq!(f.call("m1", "net.fetch", post, false)["body"]["code"], "validation.invalid");
+    let unknown = json!({ "url": "https://api.example.com/weather", "cache": "forever" });
+    assert_eq!(f.call("m1", "net.fetch", unknown, false)["body"]["code"], "validation.invalid");
+    assert_eq!(f.fetcher.requests.lock().unwrap().len(), 1);
+}
+
 #[test]
 fn sandboxed_apps_get_no_network_and_previews_get_nothing() {
     let f = fixture();

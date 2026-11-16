@@ -13,6 +13,7 @@ use super::actions::{self, ActionDecision};
 use super::egress;
 use super::grants::{Decision, GestureCheck, Grant, OpClass, ScopeTable, needs_gesture};
 use super::host::HostProcess;
+use super::http_cache;
 use super::mirror::Origin;
 use super::provider;
 use super::supervisor::{HostKey, Inner, Out, Supervisor};
@@ -204,11 +205,24 @@ impl Supervisor {
         if op == "net.fetch" {
             let request = egress::admit(&params, &grant.scopes, grant.sandboxed)
                 .map_err(|e| error(e.code, e.message))?;
-            return self
-                .fetcher
-                .fetch(request)
-                .map(egress::response_json)
-                .map_err(|e| error(e.code, e.message));
+            // `cache: "shared"` (the http.json signal source): one cached
+            // read per URL for every app, after the same gate.
+            let answer = match params.get("cache") {
+                None | Some(Value::Null) => self.fetcher.fetch(request).map(egress::response_json),
+                Some(Value::String(mode)) if mode == "none" => {
+                    self.fetcher.fetch(request).map(egress::response_json)
+                }
+                Some(Value::String(mode)) if mode == "shared" => {
+                    http_cache::shared_request(request)
+                        .and_then(|r| self.http_cache.get(&*self.fetcher, r, Instant::now()))
+                        .map(http_cache::Shared::json)
+                }
+                Some(other) => Err(egress::EgressError {
+                    code: "validation.invalid",
+                    message: format!("cache must be \"shared\" or \"none\", not {other}"),
+                }),
+            };
+            return answer.map_err(|e| error(e.code, e.message));
         }
         if self.github_read(&op, &params)
             && let Some(github) = self.github.get()
