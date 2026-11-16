@@ -52,13 +52,12 @@ struct Phase {
 struct ThreadInfo {
     tid: u64,
     name: String,
-    cpu_us: u64,
+    run_ns: Option<u64>,
+    wait_ns: Option<u64>,
 }
 
 #[cfg(target_os = "linux")]
 fn thread_snapshot() -> Vec<ThreadInfo> {
-    let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
-    let ticks = u64::try_from(ticks).ok().filter(|ticks| *ticks > 0).unwrap_or(100);
     let mut result = Vec::new();
     let Ok(entries) = std::fs::read_dir("/proc/self/task") else { return result };
     for entry in entries.flatten() {
@@ -67,15 +66,14 @@ fn thread_snapshot() -> Vec<ThreadInfo> {
             .unwrap_or_default()
             .trim()
             .to_owned();
-        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else { continue };
-        let Some(after_comm) = stat.rsplit_once(") ") else { continue };
-        let fields: Vec<&str> = after_comm.1.split_whitespace().collect();
-        let (Some(utime), Some(stime)) = (fields.get(11), fields.get(12)) else { continue };
-        let Ok(cpu_ticks) = utime.parse::<u64>().and_then(|u| stime.parse::<u64>().map(|s| u + s))
-        else {
-            continue;
-        };
-        result.push(ThreadInfo { tid, name, cpu_us: cpu_ticks.saturating_mul(1_000_000) / ticks });
+        let schedstat =
+            std::fs::read_to_string(entry.path().join("schedstat")).ok().and_then(|text| {
+                let mut fields = text.split_whitespace();
+                Some((fields.next()?.parse().ok()?, fields.next()?.parse().ok()?))
+            });
+        let (run_ns, wait_ns) =
+            schedstat.map_or((None, None), |(run, wait)| (Some(run), Some(wait)));
+        result.push(ThreadInfo { tid, name, run_ns, wait_ns });
     }
     result.sort_by_key(|thread| thread.tid);
     result
@@ -92,13 +90,26 @@ fn thread_json(threads: &[ThreadInfo]) -> Value {
         .map(|thread| {
             (
                 format!("{}:{}", thread.tid, thread.name),
-                json!({"tid": thread.tid, "name": thread.name, "cpuUs": thread.cpu_us}),
+                json!({
+                    "tid": thread.tid,
+                    "name": thread.name,
+                    "runNs": thread.run_ns,
+                    "waitNs": thread.wait_ns,
+                }),
             )
         })
         .collect::<BTreeMap<_, _>>()
         .into_iter()
         .collect::<serde_json::Map<_, _>>()
         .into()
+}
+
+fn startup_thread_table_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("ACPMUX_STARTUP_THREAD_TABLE")
+            .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+    })
 }
 
 #[derive(Clone, Copy, Default)]
@@ -215,7 +226,8 @@ impl Gauges {
             threads_end: None,
             threads_mark: None,
         });
-        let threads_start = (name == "hub construct").then(thread_snapshot);
+        let threads_start =
+            (startup_thread_table_enabled() && name == "hub construct").then(thread_snapshot);
         if let Some(phase) = phases.last_mut() {
             phase.threads_start = threads_start.clone();
         }
@@ -243,7 +255,8 @@ impl Gauges {
             stats: ThreadStats::default(),
             threads_start: None,
             threads_end: None,
-            threads_mark: (name == "requests ready").then(thread_snapshot),
+            threads_mark: (startup_thread_table_enabled() && name == "requests ready")
+                .then(thread_snapshot),
         });
     }
 

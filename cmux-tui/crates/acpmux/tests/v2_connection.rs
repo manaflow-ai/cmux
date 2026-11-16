@@ -134,13 +134,6 @@ struct PhaseSamples {
     involuntary_switches: Vec<u64>,
 }
 
-#[derive(Default)]
-struct ThreadSamples {
-    start: Vec<u64>,
-    end: Vec<u64>,
-    ready: Vec<u64>,
-}
-
 fn distribution(values: &mut [u64]) -> serde_json::Value {
     if values.is_empty() {
         return json!({"p95": 0, "median": 0, "max": 0});
@@ -204,52 +197,8 @@ fn startup_phase_summary(samples: &[serde_json::Value]) -> serde_json::Value {
     )
 }
 
-fn thread_cpu_by_name(value: &serde_json::Value) -> BTreeMap<String, u64> {
-    value
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter_map(|(_, thread)| {
-            Some((thread["name"].as_str()?.to_owned(), thread["cpuUs"].as_u64()?))
-        })
-        .fold(BTreeMap::new(), |mut by_name, (name, cpu)| {
-            *by_name.entry(name).or_default() += cpu;
-            by_name
-        })
-}
-
 fn startup_thread_summary(samples: &[serde_json::Value]) -> serde_json::Value {
-    let mut by_name: BTreeMap<String, ThreadSamples> = BTreeMap::new();
-    for startup in samples {
-        let Some(phases) = startup.as_array() else { continue };
-        let find = |name: &str| phases.iter().find(|phase| phase["name"] == name);
-        let start = find("hub construct").map(|phase| thread_cpu_by_name(&phase["threadsStart"]));
-        let end = find("hub construct").map(|phase| thread_cpu_by_name(&phase["threadsEnd"]));
-        let ready = find("requests ready").map(|phase| thread_cpu_by_name(&phase["threads"]));
-        for (name, cpu) in start.into_iter().flatten() {
-            by_name.entry(name).or_default().start.push(cpu);
-        }
-        for (name, cpu) in end.into_iter().flatten() {
-            by_name.entry(name).or_default().end.push(cpu);
-        }
-        for (name, cpu) in ready.into_iter().flatten() {
-            by_name.entry(name).or_default().ready.push(cpu);
-        }
-    }
-    by_name
-        .into_iter()
-        .map(|(name, mut samples)| {
-            (
-                name,
-                json!({
-                    "hubStart": distribution(&mut samples.start),
-                    "hubEnd": distribution(&mut samples.end),
-                    "requestsReady": distribution(&mut samples.ready),
-                }),
-            )
-        })
-        .collect::<serde_json::Map<_, _>>()
-        .into()
+    samples.first().cloned().unwrap_or(serde_json::Value::Null)
 }
 
 fn outside_session_file_sizes(root: &std::path::Path) -> BTreeMap<String, u64> {
@@ -335,6 +284,7 @@ fn v2_pr09_listen_start() {
     let mut god = Vec::with_capacity(ROUNDS);
     let mut startup_phases =
         [Vec::with_capacity(ROUNDS * SAMPLES), Vec::with_capacity(ROUNDS * SAMPLES)];
+    let mut diagnostic_threads = [Vec::with_capacity(1), Vec::with_capacity(1)];
     let mut outside_files: Vec<Option<(BTreeMap<String, u64>, BTreeMap<String, u64>)>> =
         vec![None, None];
     let mut forced_kills = 0;
@@ -367,6 +317,18 @@ fn v2_pr09_listen_start() {
         small.push(small_round);
         god.push(god_round);
     }
+    for (side, scratch) in [&small_fixture, &god_fixture].into_iter().enumerate() {
+        let options = daemon_env::ReadyDaemonOptions {
+            env: vec![("ACPMUX_STARTUP_THREAD_TABLE".into(), "1".into())],
+            ..Default::default()
+        };
+        let daemon = daemon_env::spawn_ready_daemon_with(scratch.path(), &options);
+        let runtime = tokio::runtime::Runtime::new().expect("diagnostic gate runtime");
+        runtime.block_on(daemon_hello(&daemon.socket));
+        diagnostic_threads[side]
+            .push(runtime.block_on(daemon_status(&daemon.socket))["gauges"]["startup"].clone());
+        forced_kills += usize::from(daemon.stop());
+    }
     assert_eq!(small.len(), ROUNDS);
     assert_eq!(god.len(), ROUNDS);
     let measures = |rounds: Vec<Vec<u128>>| rounds;
@@ -380,8 +342,8 @@ fn v2_pr09_listen_start() {
         "v2.pr09.listen_start startup phases small={} god={} startup threads small={} god={} outside files small={} god={}",
         startup_phase_summary(&startup_phases[0]),
         startup_phase_summary(&startup_phases[1]),
-        startup_thread_summary(&startup_phases[0]),
-        startup_thread_summary(&startup_phases[1]),
+        startup_thread_summary(&diagnostic_threads[0]),
+        startup_thread_summary(&diagnostic_threads[1]),
         outside_file_summary(&outside_files[0]),
         outside_file_summary(&outside_files[1])
     );
