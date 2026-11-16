@@ -7,7 +7,8 @@
 //
 // A row mounted that far from the view now has its contents skipped until it comes near
 // (conversation/offscreenRows.ts). The run wheels up through older pages and counts, among the
-// mounted rows more than FAR_VIEWPORTS above the view, those whose contents the page laid out. It
+// mounted rows more than FAR_VIEWPORTS window heights above the window, those whose contents the
+// page laid out. It
 // fails when any is, and when a row that came into view since misdraws: one whose rendered height is
 // not the height the transcript placed it at (the row under it then overlaps it or leaves a gap), or
 // whose gap under it no longer takes a click (the clip content-visibility brings along).
@@ -32,8 +33,9 @@ await requireBrowserLane("transcript-offscreen-rows-skipped.test.ts", async () =
   }
 
   const TURNS = 1200;
-  /// Rows this many viewports or more above the view must not be laid out.
-  const FAR_VIEWPORTS = 1.5;
+  /// Rows this many window heights or more above the window must not be laid out: past the margin
+  /// (150% of the window's height) in which Chromium renders a content-visibility: auto element.
+  const FAR_VIEWPORTS = 1.6;
 
   const log = godLog("small", { turns: TURNS, imageEvery: 25, chainEvery: 150 });
   const lead: PapercutStep[] = log.events.map((event) => [
@@ -88,12 +90,16 @@ await requireBrowserLane("transcript-offscreen-rows-skipped.test.ts", async () =
         // Placed offsets from the thread's top, which is read once: no layout read of a row itself.
         const thread = scroller.querySelector<HTMLElement>(".acpmux-thread")!;
         const threadTop = thread.getBoundingClientRect().top - box.top;
-        const farAbove = rows.filter((row) => {
+        // How many window heights above the window's top a row's placed bottom is (negative: below it).
+        // Chromium renders a content-visibility: auto row within 150% of the window's height of it.
+        const above = (row: HTMLElement) => {
           const top = Number.parseFloat(row.style.top) + Number.parseFloat(row.style.marginTop || "0");
           const height = Number.parseFloat(row.style.containIntrinsicHeight.replace("auto", "")) || 0;
-          return threadTop + top + height < -box.height * far;
-        });
+          return -(box.top + threadTop + top + height) / window.innerHeight;
+        };
+        const farAbove = rows.filter((row) => above(row) > far);
         const laid = farAbove.filter(laidOut);
+        const laidAt = laid.map((row) => Math.round(above(row) * 10) / 10);
         // Rows on screen: each placed where it draws (the next row's top is its bottom and gap), and
         // its gap under it hit by a click there.
         const shown = rows
@@ -118,14 +124,21 @@ await requireBrowserLane("transcript-offscreen-rows-skipped.test.ts", async () =
           const rowRect = row.getBoundingClientRect();
           if (rect.top < rowRect.bottom) continue;
           gapsChecked += 1;
+          // A clipped gap lets the click through to the thread under the rows.
           const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-          if (!hit || !row.contains(hit)) gapMisses.push(row.dataset.rowId ?? "?");
+          if (!hit || (scroller.contains(hit) && !hit.closest(".acpmux-row")))
+            gapMisses.push(`${row.dataset.rowId ?? "?"}:${hit?.className ?? "none"}`);
         }
         return {
           mounted: rows.length,
           offscreenClass: rows.filter((row) => row.classList.contains("acpmux-row--offscreen")).length,
           farAbove: farAbove.length,
           laidOutFarAbove: laid.length,
+          laidAt,
+          skippedNearest:
+            Math.round(Math.min(...rows.filter((row) => !laidOut(row) && above(row) > 0).map(above)) * 10) / 10,
+          laidAbove: rows.filter((row) => laidOut(row) && above(row) > 0).length,
+          skippedAbove: rows.filter((row) => !laidOut(row) && above(row) > 0).length,
           shown: shown.length,
           shownSkippable: shown.filter((row) => row.classList.contains("acpmux-row--offscreen")).length,
           overlaps,
@@ -133,12 +146,49 @@ await requireBrowserLane("transcript-offscreen-rows-skipped.test.ts", async () =
           gapMisses,
         };
       }, FAR_VIEWPORTS);
-      console.log(`transcript-offscreen-rows-skipped: ${JSON.stringify({ pages, ...census })}`);
+      // Find in Chat finds text in a row whose contents the page skips: it reads the rows' text, not
+      // their layout.
+      const target = await page.evaluate(() => {
+        const skipped = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row--offscreen")].find(
+          (row) =>
+            ![...row.children].some(
+              (child) =>
+                !child.classList.contains("acpmux-row__gap") &&
+                (child as HTMLElement).checkVisibility({ contentVisibilityAuto: true }),
+            ) && /[A-Za-z]{6,}/.test(row.textContent ?? ""),
+        );
+        return skipped ? { id: skipped.dataset.rowId!, word: /[A-Za-z]{6,}/.exec(skipped.textContent!)![0] } : null;
+      });
+      let foundInSkipped = -1;
+      if (target) {
+        await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), target.word);
+        await page.waitForSelector(".acpmux-find .find-pill__field");
+        foundInSkipped = await page.evaluate(async (id) => {
+          const ranges = () =>
+            [
+              ...((globalThis.CSS as unknown as { highlights?: Map<string, Set<Range>> }).highlights?.get(
+                "acpmux-find",
+              ) ?? []),
+              ...((globalThis.CSS as unknown as { highlights?: Map<string, Set<Range>> }).highlights?.get(
+                "acpmux-find-active",
+              ) ?? []),
+            ].filter(
+              (range) => range.startContainer.parentElement?.closest(".acpmux-row")?.getAttribute("data-row-id") === id,
+            ).length;
+          for (let frame = 0; frame < 120 && ranges() === 0; frame += 1)
+            await new Promise((done) => requestAnimationFrame(() => done(undefined)));
+          return ranges();
+        }, target.id);
+      }
+      console.log(
+        `transcript-offscreen-rows-skipped: ${JSON.stringify({ pages, ...census, findTarget: target, foundInSkipped })}`,
+      );
       expect(pages).toBeGreaterThanOrEqual(1);
       expect(census.farAbove).toBeGreaterThanOrEqual(10);
       expect(census.laidOutFarAbove).toBe(0);
       expect(census.overlaps).toEqual([]);
       expect(census.gapMisses).toEqual([]);
+      if (target) expect(foundInSkipped).toBeGreaterThan(0);
     } finally {
       await pane.close();
     }
