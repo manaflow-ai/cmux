@@ -52,6 +52,28 @@ const DAEMON_REASON_TEXT: Record<string, StringKey> = {
   "remote.cwd_outside_roots": "error.cwdOutsideRoots",
 };
 
+// What a malformed-request refusal blocked, by the method the host names (`data.method`): the
+// line says that much ("cmux blocked opening this chat"), not just "Something went wrong" (#42460:
+// every chat typed on New Tab failed with the generic line, and nothing said the chat's open was
+// what the app refused). Any other method keeps the generic text.
+const INTENT_INVALID_TEXT: Record<string, StringKey> = {
+  "_acpmux/attach": "transport.intentInvalidOpen",
+  "_acpmux/events": "transport.intentInvalidOpen",
+  "_acpmux/watch": "transport.intentInvalidOpen",
+  "session/new": "transport.intentInvalidStart",
+  "session/load": "transport.intentInvalidStart",
+  "session/resume": "transport.intentInvalidStart",
+  "session/prompt": "transport.intentInvalidSend",
+  "session/set_mode": "transport.intentInvalidSetting",
+  "session/set_config_option": "transport.intentInvalidSetting",
+  "session/set_model": "transport.intentInvalidSetting",
+};
+
+function intentInvalidKey(error: unknown): StringKey {
+  const method = typeof error === "object" && error !== null ? (error as { method?: unknown }).method : undefined;
+  return (typeof method === "string" ? INTENT_INVALID_TEXT[method] : undefined) ?? "transport.intentInvalid";
+}
+
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the
 /// generic refusal, never the host's English message), acpmux's worded reasons, else the error's
 /// message.
@@ -73,7 +95,10 @@ export function knownRefusalText(error: unknown): string | undefined {
       : undefined;
   if (key) {
     // A malformed request is the pane's bug, not the user's: log it, show the generic text.
-    if (code === "transport.intent_invalid") console.error("agent pane: the host refused a request", error);
+    if (code === "transport.intent_invalid") {
+      console.error("agent pane: the host refused a request", error);
+      return translate(intentInvalidKey(error));
+    }
     return translate(key);
   }
   return undefined;
