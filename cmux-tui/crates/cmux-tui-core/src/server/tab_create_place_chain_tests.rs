@@ -477,6 +477,156 @@ fn a_tab_that_launched_late_does_not_take_the_active_tab_of_a_later_page() {
     }
 }
 
+/// The tabs of `pane` and the index of its active tab.
+fn strip_now(mux: &Mux, pane: PaneId) -> (Vec<SurfaceId>, usize) {
+    (tabs(mux, pane), active_tab(mux, pane))
+}
+
+/// A terminal tab still launches when a later request makes a page after
+/// it, which is then the active tab and the last tab. The page closes
+/// before the terminal's tab comes. One by one, the close of the last tab
+/// gives the active tab to the tab before it, and that is the terminal's
+/// tab: so the terminal's tab takes the active tab when it comes (decision
+/// of 2026-11-16: the active tab follows a close while a tab still
+/// launches).
+#[test]
+fn a_tab_that_launched_late_takes_the_active_tab_after_the_later_tab_closed() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-later-closed-{kind:?}"));
+        mux.close_surface(b).unwrap();
+        mux.close_surface(c).unwrap();
+        assert_eq!(strip_now(&mux, pane), (vec![a], 0), "{kind:?}");
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, terminal(pane, "t1", json!({"after": a})));
+        connection.send(2, with(kind.request(pane), [("place", json!({"after_creation": "t1"}))]));
+        let second = connection.surface(2);
+        assert_eq!(strip_now(&mux, pane), (vec![a, second], 1), "{kind:?}");
+        mux.close_surface(second).unwrap();
+        assert_eq!(strip_now(&mux, pane), (vec![a], 0), "{kind:?}");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(tabs(&mux, pane), [a, first], "{kind:?}");
+        assert_eq!(active_tab(&mux, pane), 1, "{kind:?}: the terminal's tab is the active tab");
+        mux.shutdown();
+    }
+}
+
+/// The page lands before the slot of the terminal tab that still launches
+/// (it names `a`) and closes while it is the active tab. One by one, the
+/// close gives the active tab to the next tab, and that is the terminal's
+/// tab. Until that tab comes, the next tab of the pane (`b`) is active.
+#[test]
+fn a_tab_that_launched_late_takes_the_active_tab_after_the_tab_before_it_closed() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-earlier-closed-{kind:?}"));
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, terminal(pane, "t1", json!({"after": a})));
+        connection.send(2, with(kind.request(pane), [("place", json!({"after": a}))]));
+        let second = connection.surface(2);
+        assert_eq!(strip_now(&mux, pane), (vec![a, second, b, c], 1), "{kind:?}");
+        mux.close_surface(second).unwrap();
+        assert_eq!(strip_now(&mux, pane), (vec![a, b, c], 1), "{kind:?}");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(tabs(&mux, pane), [a, first, b, c], "{kind:?}");
+        assert_eq!(active_tab(&mux, pane), 1, "{kind:?}: the terminal's tab is the active tab");
+        mux.shutdown();
+    }
+}
+
+/// Two terminal tabs still launch, the second after the first, when a page
+/// after the second is the active tab and the last tab. The page closes.
+/// One by one, the close gives the active tab to the second terminal's tab.
+/// The first terminal's tab does not take it: its turn was before the page.
+#[test]
+fn only_the_tab_next_to_the_closed_tab_takes_the_active_tab_of_two_that_launched_late() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-closed-two-wait-{kind:?}"));
+        mux.close_surface(b).unwrap();
+        mux.close_surface(c).unwrap();
+        let connection = HeldConnection::new(&mux, 2);
+        connection.send(1, terminal(pane, "t1", json!({"after": a})));
+        connection.send(2, terminal(pane, "t2", json!({"after_creation": "t1"})));
+        connection.send(3, with(kind.request(pane), [("place", json!({"after_creation": "t2"}))]));
+        let third = connection.surface(3);
+        assert_eq!(strip_now(&mux, pane), (vec![a, third], 1), "{kind:?}");
+        mux.close_surface(third).unwrap();
+        connection.release(0);
+        connection.release(1);
+        let [first, second] = connection.finish([1, 2]);
+        assert_eq!(tabs(&mux, pane), [a, first, second], "{kind:?}");
+        assert_eq!(active_tab(&mux, pane), 2, "{kind:?}: the second terminal's tab is active");
+        mux.shutdown();
+    }
+}
+
+/// A terminal tab that still launches has its slot before a later page,
+/// which is the active tab. The page closes and the tab after it (`b`) is
+/// there: one by one, `b` gets the active tab. The terminal's tab does not
+/// take it when it comes.
+#[test]
+fn a_tab_that_launched_late_leaves_the_active_tab_to_the_tab_after_the_closed_tab() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-closed-next-stays-{kind:?}"));
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, terminal(pane, "t1", json!({"after": a})));
+        connection.send(2, with(kind.request(pane), [("place", json!({"after_creation": "t1"}))]));
+        let second = connection.surface(2);
+        assert_eq!(strip_now(&mux, pane), (vec![a, second, b, c], 1), "{kind:?}");
+        mux.close_surface(second).unwrap();
+        assert_eq!(strip_now(&mux, pane), (vec![a, b, c], 1), "{kind:?}");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(strip_now(&mux, pane), (vec![a, first, b, c], 2), "{kind:?}: `b` stays active");
+        mux.shutdown();
+    }
+}
+
+/// A tab that is not the active tab closes while a terminal tab launches:
+/// the page of the later request stays the active tab.
+#[test]
+fn a_close_of_a_tab_that_is_not_active_gives_no_active_tab_to_a_tab_that_launched_late() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-closed-not-active-{kind:?}"));
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, terminal(pane, "t1", json!({"after": a})));
+        connection.send(2, with(kind.request(pane), [("place", json!({"after": a}))]));
+        let second = connection.surface(2);
+        mux.close_surface(c).unwrap();
+        assert_eq!(strip_now(&mux, pane), (vec![a, second, b], 1), "{kind:?}");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(strip_now(&mux, pane), (vec![a, second, first, b], 1), "{kind:?}");
+        mux.shutdown();
+    }
+}
+
+/// A page is the active tab; a terminal tab of an earlier request and one
+/// of a later request still launch. The page closes, and the tab before it
+/// is the earlier terminal's. One by one, the later terminal's tab was the
+/// active tab before the close, so the close changes nothing: the later
+/// terminal's tab is the active tab when all launches have ended.
+#[test]
+fn a_tab_of_a_request_after_the_closed_tab_keeps_its_turn_for_the_active_tab() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-closed-later-waits-{kind:?}"));
+        mux.close_surface(b).unwrap();
+        mux.close_surface(c).unwrap();
+        let connection = HeldConnection::new(&mux, 2);
+        connection.send(1, terminal(pane, "t1", json!({"after": a})));
+        connection.send(2, with(kind.request(pane), [("place", json!({"after_creation": "t1"}))]));
+        let second = connection.surface(2);
+        connection.send(3, terminal(pane, "t3", json!({"before": a})));
+        assert_eq!(strip_now(&mux, pane), (vec![a, second], 1), "{kind:?}");
+        mux.close_surface(second).unwrap();
+        connection.release(0);
+        connection.release(1);
+        let [first, third] = connection.finish([1, 3]);
+        assert_eq!(strip_now(&mux, pane), (vec![third, a, first], 0), "{kind:?}");
+        mux.shutdown();
+    }
+}
+
 /// The tab that a new terminal tab names closes while the terminal
 /// launches: the new tab lands where the closed tab was.
 #[test]
