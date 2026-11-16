@@ -1008,7 +1008,7 @@ impl Hub {
         }
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
-            v.set("availableCommands", commands.clone());
+            v.set("availableCommands", Value::clone(commands));
         }
         v.set("forkSeq", json!(m.fork_seq));
         v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
