@@ -9,13 +9,18 @@ const [done, setDone] = signal(0)
 const running = computed(() => left() !== null)
 let tick = null
 
+// Remembering needs storage:local (Settings > Apps > Focus); without it the page still works and
+// forgets on reload.
 const today = () => new Date().toISOString().slice(0, 10)
-cmux.storage.get("focus").then((saved) => {
-  if (!saved) return
-  setTask(saved.task || "")
-  setDone(saved.day === today() ? saved.done || 0 : 0)
-})
-const save = () => cmux.storage.set("focus", { task: task(), day: today(), done: done() })
+cmux.storage
+  .get("focus")
+  .then((saved) => {
+    if (!saved) return
+    setTask(saved.task || "")
+    setDone(saved.day === today() ? saved.done || 0 : 0)
+  })
+  .catch(() => undefined)
+const save = () => cmux.storage.set("focus", { task: task(), day: today(), done: done() }).catch(() => undefined)
 
 const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
 const run = (id, args) =>

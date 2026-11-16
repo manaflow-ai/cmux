@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": "Focus",
   "version": "1.0.0",
-  "description": "A New Tab page with one question, what you are working on, and a timed session that starts a chat on it.",
+  "description": "A New Tab page with one question, what you are working on, and a timed session, with buttons for a chat or a terminal.",
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "main.js" },
   "implements": {

@@ -35,8 +35,8 @@ const needsYou = computed(() => chats().filter(waiting))
 const working = computed(() => chats().filter((c) => c.state === "working"))
 
 function show(chat) {
-  const go = chat.workspace ? cmux.workspace.focus({ workspace: chat.workspace }) : cmux.actions.run("agent.openSessionTab", { session: chat.id })
-  go.catch(refused("Change workspaces"))
+  if (chat.workspace) cmux.workspace.focus({ workspace: chat.workspace }).catch(refused("Change workspaces"))
+  else run("agent.openSessionTab", { session: chat.id })
 }
 
 function chatRow(c) {

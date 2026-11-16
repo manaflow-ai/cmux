@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": "Right-handed",
   "version": "1.0.0",
-  "description": "A compact hover card of your own for the right-hand sidebar: what waits on you, the agent and the branch, nothing else.",
+  "description": "A compact hover card of your own for the right-hand sidebar: what waits on you, the agent, the branch and the PR, nothing else.",
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "main.js" },
   "implements": {

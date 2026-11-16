@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "description": "Mission control: your own New Tab page (what needs you, your PRs, your workspaces), a Needs You section on top of the sidebar, the session tree, Priority View and the Chief docked on the right.",
+  "description": "Mission control: your own New Tab page (what needs you, your PRs, your workspaces), a Needs You section on top of the sidebar, the session tree, Priority View, and a docked Chief on the right.",
   "settings": {
     "tabs.newTabApp": "local/customize",
     "sidebar.priorityView.enabled": true,

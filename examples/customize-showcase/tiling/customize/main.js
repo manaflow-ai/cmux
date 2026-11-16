@@ -11,7 +11,7 @@ function numberRows() {
   return VStack([
     ForEach({ items: () => (workspaces() ?? []).map((w, i) => ({ ...w, index: i })), key: (w) => w.id }, (w) =>
       Group({
-        title: () => w().name,
+        row: () => w().id,
         icon: () => GLYPHS[w().index] ?? "circle.dotted",
         weight: () => (w().focused ? "bold" : "regular"),
         indicator: "dot"

@@ -1,6 +1,6 @@
 {
   "name": "right-handed",
-  "description": "The whole window mirrored: the sidebar on the right with the window buttons over the tab bar, the chat's prompt rail and Session Info chip on the right, spaces on top, the Chief docking on the left, and a compact hover card of your own.",
+  "description": "The whole window mirrored: the sidebar on the right with the window buttons over the tab bar, the chat's prompt rail and Session Info chip on the right, spaces on top, a docked Chief on the left, and a compact hover card of your own.",
   "settings": {
     "sidebar.side": "right",
     "sidebar.spacesPosition": "top",
