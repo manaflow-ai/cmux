@@ -34,6 +34,7 @@ fn repo() -> PathBuf {
 /// - `fields/<id>`: fields of an existing action this crate changed, one JSON pointer into the
 ///   action's catalog row per line (`/surfacePlan/palette`); the dump keeps the old value of each.
 /// - `family/<family>/<id>`: a palette family member the dump does not have yet.
+/// - `tier/<list>/<id>`: an id the crate added to the palette tier list `daily` or `niche`.
 ///
 /// Text after a `#` is a note (which pull request, why). Only `fields/` reads its lines; the
 /// other files may be empty. Each marker fails once the export has what it waits for, naming the
@@ -332,6 +333,7 @@ fn english_catalog_equals_the_swift_dump() {
             .retain(|action| !action["id"].as_str().is_some_and(|id| listed(&AWAITING_REPIN, id)));
     }
     awaiting_family_repin(&mut rust, &swift);
+    awaiting_tier_repin(&mut rust, &swift);
     awaiting_field_repin(&mut rust, &swift);
     for action in rust["actions"].as_array_mut().into_iter().flatten() {
         let Some(id) = action["id"].as_str().map(str::to_owned) else { continue };
@@ -415,6 +417,46 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
             for field in ["palette_family", "palette_tier"] {
                 action["computed"][field] = dumped["computed"][field].clone();
             }
+        }
+    }
+}
+
+/// Ids the crate added to a palette tier list (`palette.daily`, `palette.niche`) that the pinned
+/// app's dump does not have yet. One marker per id: `awaiting-repin/tier/<list>/<id>`. Each
+/// leaves the Rust list here until the re-pin, with the dump's `computed.palette_tier` on the
+/// action's row (the list is what derives it), and fails once the dump's list has it.
+static TIER_AWAITING_REPIN: LazyLock<Vec<(String, Vec<String>)>> = LazyLock::new(|| {
+    ["daily", "niche"]
+        .into_iter()
+        .map(|list| (list.to_owned(), marked(&format!("tier/{list}"))))
+        .filter(|(_, ids)| !ids.is_empty())
+        .collect()
+});
+
+fn awaiting_tier_repin(rust: &mut Value, swift: &Value) {
+    for (list, ids) in TIER_AWAITING_REPIN.iter() {
+        for id in ids {
+            assert!(
+                !swift["palette"][list.as_str()].as_array().into_iter().flatten().any(|m| m == id),
+                "action-catalog.json's palette.{list} has {id}: the re-pin landed, so delete {}",
+                marker(&format!("tier/{list}"), id)
+            );
+            assert!(
+                rust["palette"][list.as_str()].as_array().into_iter().flatten().any(|m| m == id),
+                "{id} is awaiting a palette.{list} re-pin but the crate's list does not have it: delete {}",
+                marker(&format!("tier/{list}"), id)
+            );
+        }
+        if let Some(members) = rust["palette"][list.as_str()].as_array_mut() {
+            members.retain(|m| !m.as_str().is_some_and(|m| listed(ids, m)));
+        }
+        let dump = |id: &str| {
+            swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == id).cloned()
+        };
+        let actions = rust["actions"].as_array_mut().into_iter().flatten();
+        for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| listed(ids, id))) {
+            let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
+            action["computed"]["palette_tier"] = dumped["computed"]["palette_tier"].clone();
         }
     }
 }
@@ -507,8 +549,18 @@ fn action_list_export_matches() {
         }
         let section = &row["palette_section"];
         let category = cmux_action_catalog::category(action.category).expect("a category");
-        assert_eq!(section["title_key"], category.title.key, "{id}");
-        assert_eq!(section["order"], category.palette_section_order(), "{id}");
+        // A moved category moves the palette section; until the re-pin the export has the old one.
+        if field_awaits_repin(id, "/category") {
+            assert_ne!(
+                section["title_key"],
+                category.title.key,
+                "action-surfaces.json has {id}'s palette section: the re-pin landed, so take /category out of {} (delete the file when it is the last)",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(section["title_key"], category.title.key, "{id}");
+            assert_eq!(section["order"], category.palette_section_order(), "{id}");
+        }
     }
 }
 
