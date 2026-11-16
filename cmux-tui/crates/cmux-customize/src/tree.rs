@@ -105,7 +105,7 @@ pub fn app_of(path: &str) -> Option<&str> {
         && name
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
-        && name.as_bytes()[0].is_ascii_alphanumeric();
+        && name.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric());
     (valid && !file.is_empty()).then_some(name)
 }
 
