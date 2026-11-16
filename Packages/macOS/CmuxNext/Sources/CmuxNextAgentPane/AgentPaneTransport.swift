@@ -2,6 +2,7 @@ public import Foundation
 import CmuxNextPages
 import os
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// The host side of the pane's acpmux connection (design B, localapp-isolation-spike.md): the
 /// host owns the WebSocket, puts the LocalApp token in the first frame, checks every page frame
@@ -31,6 +32,18 @@ import CmuxNextCompat
         public var ceilingQueuedBytes = 128 << 20
         public var maximumFramesPerFlush = 512
         public var maximumBytesPerFlush = 4 << 20
+        /// One push while the page has a key or pointer event pending or just handled (its ack's
+        /// `inputPending`): small enough that the page's apply of it leaves the frame to the key.
+        public var inputFramesPerFlush = 64
+        public var inputBytesPerFlush = 64 << 10
+        /// What a pane nobody can see holds of its stream: past it, stream notifications are shed,
+        /// and once the pane shows it reads what it missed after one `_acpmux/lagged`.
+        public var hiddenQueuedFrames = 1024
+        public var hiddenQueuedBytes = 1 << 20
+        /// Longest wait for a page's ack of a push (``AgentPaneTransport/acked(connection:seq:inputPending:)``)
+        /// before the next push goes anyway: a page that never acks (an old page, a lost ack) is
+        /// paced as before, a push per quarter second at worst.
+        public var ackDeadline: Duration = .milliseconds(250)
         public var maximumOutstandingSends = 8192
         public var maximumOutstandingBytes = 64 << 20
         public var connectTimeout: TimeInterval = 10
@@ -258,6 +271,58 @@ import CmuxNextCompat
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
 
+    /// The push the page has not acked yet (``awaitAck(seq:_:)``): its seq and the pacer's completion.
+    private var awaitingAck: (seq: Int, done: @MainActor @Sendable () -> Void)?
+    private let ackTimer = DemandTimer(owner: "agent-pane.transport.ack")
+    /// When the page last acked with a key or pointer event pending (``acked(connection:seq:inputPending:)``).
+    private var inputPendingAt: TimeInterval?
+    /// How long an ack's `inputPending` keeps pushes small: a few frames, so a burst of keys stays
+    /// covered between acks and a person who stopped typing gets full pushes again at once.
+    static let inputRecency: TimeInterval = 0.1
+    /// Acks the page sent, and pushes that went on the deadline instead (tests, `debug.agent_pane pacer`).
+    public private(set) var acks = 0
+    public private(set) var ackTimeouts = 0
+    /// Nobody can see the pane (its pacer says so, ``AgentPaneFramePacer/onHiddenChange``): its socket
+    /// holds the stream within ``Limits/hiddenQueuedBytes`` and sheds past it, and the page reads
+    /// what it missed once it shows.
+    public var paneHidden = false {
+        didSet { if paneHidden != oldValue { socket?.setHidden(paneHidden) } }
+    }
+
+    /// The page host's push carries no completion: the pacer's next push waits for the page's ack
+    /// of `seq` (``acked(connection:seq:inputPending:)``), or ``Limits/ackDeadline``, whichever is first.
+    public func awaitAck(seq: Int, _ done: @escaping @MainActor @Sendable () -> Void) {
+        // A push replaces the one before it only after that one's completion ran; finish it anyway.
+        finishAck(timedOut: false)
+        awaitingAck = (seq, done)
+        ackTimer.schedule(after: limits.ackDeadline) { @MainActor [weak self] in self?.finishAck(timedOut: true) }
+    }
+
+    /// The page applied push `seq` of `connection` (`transport.ack`). `inputPending`: it had a key
+    /// or pointer event waiting, or handled one under 50 ms ago, so the next pushes are small
+    /// (``Limits/inputFramesPerFlush``). A stale or repeated ack only updates `inputPending`.
+    public func acked(connection: Int, seq: Int, inputPending: Bool) {
+        guard connection == current else { return }
+        inputPendingAt = inputPending ? ProcessInfo.processInfo.systemUptime : nil
+        acks += 1
+        guard awaitingAck?.seq == seq else { return }
+        finishAck(timedOut: false)
+    }
+
+    private func finishAck(timedOut: Bool) {
+        guard let waiting = awaitingAck else { return }
+        awaitingAck = nil
+        ackTimer.cancel()
+        if timedOut { ackTimeouts += 1 }
+        waiting.done()
+    }
+
+    /// The page reported input pending recently: the next push is a small one.
+    var inputRecent: Bool {
+        guard let at = inputPendingAt else { return false }
+        return ProcessInfo.processInfo.systemUptime - at < Self.inputRecency
+    }
+
     public init(limits: Limits = Limits(), pacer: (any AgentPaneTransportPacer)? = nil,
                 gestures: AgentPaneUserGestures = AgentPaneUserGestures()) {
         self.limits = limits
@@ -286,6 +351,10 @@ import CmuxNextCompat
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
         pacer.reset()
+        // The old connection's push is forgotten with the pacer's state, never completed.
+        awaitingAck = nil
+        ackTimer.cancel()
+        inputPendingAt = nil
         questionKeyCredit = nil
         questionKeyTickets.removeAll()
         current += 1
@@ -335,6 +404,7 @@ import CmuxNextCompat
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
+        socket.setHidden(paneHidden)
         self.socket = socket
         onQuestionStateChanged?()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
@@ -497,7 +567,10 @@ import CmuxNextCompat
     @discardableResult
     func flush() -> AgentPaneFlush {
         guard let socket else { return AgentPaneFlush(delivered: false, more: false) }
-        let batch = socket.take(maximumFrames: limits.maximumFramesPerFlush, maximumBytes: limits.maximumBytesPerFlush)
+        // While the page has input pending, a push is small, so applying it leaves the frame to the key.
+        let input = inputRecent
+        let batch = socket.take(maximumFrames: input ? limits.inputFramesPerFlush : limits.maximumFramesPerFlush,
+                                maximumBytes: input ? limits.inputBytesPerFlush : limits.maximumBytesPerFlush)
         // A peer of this Mac's daemon that has not enrolled this Mac refused its signed allow; an
         // answer that counted ends what the pane said.
         for answer in decisions.takeAnswers() where !remoteWire {
@@ -515,7 +588,7 @@ import CmuxNextCompat
         if let closed = batch.closed {
             frames += takeQuestionKeyRefusals(connection: current, error: closed.error ?? .closed)
         }
-        let event = AgentPaneTransportEvent(connection: current, frames: frames, closed: batch.closed)
+        var event = AgentPaneTransportEvent(connection: current, frames: frames, closed: batch.closed)
         if batch.closed != nil {
             failHostRequests(connection: current)
             self.socket = nil
@@ -543,12 +616,15 @@ import CmuxNextCompat
         guard let deliver else { return AgentPaneFlush(delivered: false, more: more) }
         deliveries += 1
         let delivery = deliveries
+        // The page acks this push by its seq once it applied it (`transport.ack`).
+        event.seq = delivery
         beforePageWork?()
         deliver(event) { [weak self] in
             guard let self, self.deliveries == delivery else { return }
             self.pacer.delivered()
         }
         if batch.closed != nil { pacer.reset() }
-        return AgentPaneFlush(delivered: batch.closed == nil, more: more)
+        // What is left waits for a pane nobody can see only when its page waits on it, never as a backlog.
+        return AgentPaneFlush(delivered: batch.closed == nil, more: more, moreWaits: more && socket.pageWaits)
     }
 }

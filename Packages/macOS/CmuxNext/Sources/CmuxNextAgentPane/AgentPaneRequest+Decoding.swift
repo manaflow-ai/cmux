@@ -705,6 +705,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "transport.ack":
+            if let connection = params?["connection"] as? Int, let seq = params?["seq"] as? Int {
+                self = .transportAck(connection: connection, seq: seq, inputPending: params?["inputPending"] as? Bool ?? false)
+            } else {
+                self = .unsupported(method)
+            }
         case "externalAccess.openSettings":
             if let params, let raw = params["kind"] as? String, let kind = AgentPaneExternalAccessKind(rawValue: raw),
                Set(params.keys) == ["kind"] {

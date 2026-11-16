@@ -104,6 +104,8 @@ extension AgentPaneView {
         let pacer = AgentPaneFramePacer(view: self)
         transportPacer = pacer
         model.transport.pacer = pacer
+        // A hidden pane's socket holds its stream within a bound and sheds past it (no backlog pushes).
+        pacer.onHiddenChange = { [weak self] hidden in self?.model.transport.paneHidden = hidden }
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.onPersonProof = { [weak self] proven in self?.showPersonProof(proven) }
         model.transport.recoverPersonProof = { [weak self] in await self?.recoverPersonProof() ?? false }
@@ -124,20 +126,41 @@ extension AgentPaneView {
                 if event.connection == self.model.transport.current {
                     pageEvents.transportDidOpen(event.connection)
                 }
-                // The page host's events carry no completion: the next push may follow next turn.
+                // The page host's events carry no completion: the page acks the push once it applied
+                // it (`transport.ack`), and the next push waits for that or the ack deadline. A slow
+                // page makes the host hold and merge frames, never queue pushes behind it.
                 if !pageEvents.publish(.transport(event)) {
                     // Said in the log: this close reaches the page as a clean one with no reason.
                     AgentPaneTransport.logger.notice("agent pane transport closed: the page host fell a full buffer behind connection=\(event.connection, privacy: .public)")
                     self.model.transport.close(connection: event.connection)
                 }
-                // task-owner: one completion for the pacer, on the main actor
-                Task { @MainActor in done() }
-            } else {
+                if let seq = event.seq, event.closed == nil {
+                    self.model.transport.awaitAck(seq: seq, done)
+                } else {
+                    // task-owner: one completion for the pacer, on the main actor
+                    Task { @MainActor in done() }
+                }
+            } else if event.frameBytes <= Self.inlinePushBytes {
                 // The completion runs once the page has run the push.
                 self.webView.evaluateJavaScript(event.script) { _, _ in done() }
+            } else {
+                // A large push's JSON is built off the main actor; one push is in flight at a time,
+                // so pushes keep their order.
+                let webView = self.webView
+                // task-owner: one push's encode and evaluate; the pacer waits on its completion
+                Task { @MainActor [weak webView] in
+                    let script = await Self.encodedScript(event)
+                    guard let webView else { return done() }
+                    webView.evaluateJavaScript(script) { _, _ in done() }
+                }
             }
         }
     }
+
+    /// Above this many frame bytes a WebKit push's script is built off the main actor.
+    nonisolated static let inlinePushBytes = 16 << 10
+
+    @concurrent nonisolated static func encodedScript(_ event: AgentPaneTransportEvent) async -> String { event.script }
 
     /// The native sheet for `asked`: the option and the value it would take.
     static func confirmationSpec(_ asked: AgentPaneModeConfirmation) -> CmuxDialogSpec {

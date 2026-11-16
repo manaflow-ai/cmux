@@ -27,4 +27,11 @@ import CmuxNextCompat
         super.viewDidUnhide()
         onChange?()
     }
+
+    /// Hidden (itself or an ancestor): the pacer tells the transport at once, so the socket holds
+    /// the stream within its hidden bound from here (``AgentPaneFramePacer/onHiddenChange``).
+    override func viewDidHide() {
+        super.viewDidHide()
+        onChange?()
+    }
 }

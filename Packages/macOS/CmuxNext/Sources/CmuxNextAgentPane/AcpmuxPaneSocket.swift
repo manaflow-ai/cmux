@@ -49,15 +49,22 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var challenge: AcpmuxPersonChallenge?
         var challengeWaiters: [CheckedContinuation<AcpmuxPersonChallenge?, Never>] = []
 
-        /// A full flush waits: it goes even to a pane nobody can see (``pageWaits``).
+        /// Nobody can see the pane (``AgentPaneTransport/paneHidden``): its stream waits within
+        /// ``AgentPaneTransport/Limits/hiddenQueuedBytes`` and is shed past it, never pushed as a backlog.
+        var hidden = false
+
+        /// A full flush waits: it goes even to a pane nobody can see (``pageWaits``), unless the pane
+        /// is hidden, whose stream waits within its own bound and is shed past it (``full(_:adding:)``).
         func backlogged(_ limits: AgentPaneTransport.Limits) -> Bool {
-            inbox.count >= limits.maximumFramesPerFlush || inboxBytes >= limits.maximumBytesPerFlush
+            !hidden && (inbox.count >= limits.maximumFramesPerFlush || inboxBytes >= limits.maximumBytesPerFlush)
         }
 
-        /// The page is a full queue behind with `bytes` more: stream notifications are shed.
+        /// The page is a full queue behind with `bytes` more: stream notifications are shed. A hidden
+        /// pane's queue is smaller: what it misses it reads again once shown (``AcpmuxPaneShedding``).
         func full(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
-            raw.count + inbox.count >= limits.maximumQueuedFrames
-                || rawBytes + inboxBytes + bytes > limits.maximumQueuedBytes
+            let frames = hidden ? min(limits.hiddenQueuedFrames, limits.maximumQueuedFrames) : limits.maximumQueuedFrames
+            let most = hidden ? min(limits.hiddenQueuedBytes, limits.maximumQueuedBytes) : limits.maximumQueuedBytes
+            return raw.count + inbox.count >= frames || rawBytes + inboxBytes + bytes > most
         }
 
         /// Past the ceiling with `bytes` more: even a reply no longer queues.
@@ -66,9 +73,10 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 || rawBytes + inboxBytes + bytes > limits.ceilingQueuedBytes
         }
 
-        /// Caught up enough to end a shed episode: a quarter of the queue or less waits.
+        /// Caught up enough to end a shed episode: a quarter of the queue or less waits. A hidden
+        /// pane is never caught up: its episode ends once it shows, so it reads what it missed once.
         func caughtUp(_ limits: AgentPaneTransport.Limits) -> Bool {
-            raw.count + inbox.count <= limits.maximumQueuedFrames / 4
+            !hidden && raw.count + inbox.count <= limits.maximumQueuedFrames / 4
                 && rawBytes + inboxBytes <= limits.maximumQueuedBytes / 4
         }
     }
@@ -457,6 +465,19 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             return batch
         }
     }
+
+    /// Nobody can see the pane, or it shows again (``AgentPaneTransport/paneHidden``). Shown, a shed
+    /// episode ends after the held frames, so the page reads what it missed in one read.
+    func setHidden(_ hidden: Bool) {
+        let shown = state.withLock { state -> Bool in
+            guard state.hidden != hidden else { return false }
+            state.hidden = hidden
+            return !hidden
+        }
+        if shown { endSheddingIfCaughtUp() }
+    }
+
+    var isHidden: Bool { state.withLock { $0.hidden } }
 
     /// Whether a pane nobody can see gets the waiting frames now (``pageWaits(on:)``).
     var pageWaits: Bool { state.withLock { $0.awaitedThrough > 0 || $0.closed != nil || $0.backlogged(limits) } }

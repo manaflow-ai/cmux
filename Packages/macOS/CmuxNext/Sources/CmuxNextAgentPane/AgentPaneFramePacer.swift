@@ -30,7 +30,8 @@ import CmuxNextWakeups
 /// - A pane nobody can see (out of a window, hidden, or in a covered or minimized window): its
 ///   frames wait, and its page gets no call, until it shows (``visibilityChanged()``), or the frames
 ///   are ones the page waits on (``schedule(urgent:_:)``: a reply to its request, a turn's end, the
-///   close, or a backlog). Each call woke the hidden page's web process: a streaming chat behind another tab
+///   close; a stream backlog is held within the socket's hidden bound and shed past it, read again on
+///   show). Each call woke the hidden page's web process: a streaming chat behind another tab
 ///   took 148 calls and 109 web-process sleep and wake cycles in two minutes (2026-10-21). Frames
 ///   the page waits on go at most every ``hiddenInterval``, on the fallback deadline. Twenty mostly
 ///   hidden chats each streaming a call per frame interval kept the main thread busy until the app
@@ -75,6 +76,10 @@ import CmuxNextWakeups
     private var lastCall: TimeInterval = -.infinity
     /// Calls made (tests).
     private(set) var calls = 0
+    /// Told each time whether anybody can see the pane changes (``AgentPaneTransport/paneHidden``):
+    /// a hidden pane's socket holds its stream within a bound and sheds past it.
+    public var onHiddenChange: (@MainActor (Bool) -> Void)?
+    private var reportedHidden: Bool?
 
     public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
                 now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -194,7 +199,9 @@ import CmuxNextWakeups
 
     /// The pane may have come into sight: frames held while it was hidden go now.
     func visibilityChanged() {
-        guard held || waitingWhileHidden, !isHidden() else { return }
+        let hidden = isHidden()
+        reportHidden(hidden)
+        guard held || waitingWhileHidden, !hidden else { return }
         held = false
         if waitingWhileHidden {
             waitingWhileHidden = false
@@ -205,8 +212,10 @@ import CmuxNextWakeups
 
     private func call() {
         guard let flush, pending else { return }
+        let hidden = isHidden()
+        reportHidden(hidden)
         // Every path here has the deadline free: none of the waits that use it is on.
-        if isHidden() {
+        if hidden {
             guard urgent else {
                 held = true
                 return
@@ -228,12 +237,20 @@ import CmuxNextWakeups
         let result = flush()
         if result.delivered { calls += 1 } else { inFlight = false }
         // A capped flush leaves frames: they go when this call is done, or next turn without one.
-        // They are a backlog, which a hidden pane gets too.
+        // A hidden pane gets them only when its page waits on one of them (``AgentPaneFlush/moreWaits``):
+        // its stream backlog waits for the pane to show, within its socket's hidden bound.
         if result.more {
             pending = true
-            urgent = true
+            urgent = result.moreWaits
             if !inFlight { scheduleNextTurn() }
         }
+    }
+
+    /// Tells ``onHiddenChange`` when whether anybody can see the pane changed.
+    private func reportHidden(_ hidden: Bool) {
+        guard reportedHidden != hidden else { return }
+        reportedHidden = hidden
+        onHiddenChange?(hidden)
     }
 
     private func ticked() {
