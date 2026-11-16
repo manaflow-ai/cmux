@@ -142,7 +142,14 @@ extension KeyRouter {
               case .browserPage(_, let shown) = controller.focus.state.resolved, shown == services.cache.key(of: tab),
               Self.allows(.content, focus: controller.focus.state) else { return pageKeys.reset() }
         let context = keyContext(for: controller.focus.state, facts: Facts())
-        if let entry = AppCommandPalette.entries(services.apps).first(where: { $0.command.answers(pageKey: key.character, shift: key.shift, context: context) }) { pageKeys.reset(); services.registry.track(AppCommandPalette.run(entry, services: services, origin: .user, arguments: ["tab": .string(shown)])); return }
+        let pageEntry = AppCommandPalette.entries(services.apps).first {
+            $0.command.answers(pageKey: key.character, shift: key.shift, context: context)
+        }
+        if let entry = pageEntry {
+            pageKeys.reset()
+            services.registry.track(AppCommandPalette.run(entry, services: services, origin: .user, arguments: ["tab": .string(shown)]))
+            return
+        }
         guard services.settings?.snapshot.browserVimKeys != false else { return pageKeys.reset() }
         let bits = context.bits
         // `gg` (Vimium's top of the page) is two keys: the first `g` waits for the second.

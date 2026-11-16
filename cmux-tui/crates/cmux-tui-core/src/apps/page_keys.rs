@@ -59,7 +59,7 @@ fn effective(op: &str, entry: &Value, overrides: Option<&Value>) -> Vec<(String,
         }
     }
     if keys.is_empty() {
-        return keys;
+        return Vec::new();
     }
     let predicates: BTreeSet<&str> = defaults.iter().map(|(_, when)| when.as_str()).collect();
     if predicates.len() != 1 {

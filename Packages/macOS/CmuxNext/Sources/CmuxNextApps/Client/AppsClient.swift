@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextActions
 public import Observation
 
 /// Why a change was not sent.
@@ -164,6 +165,19 @@ public final class AppsClient {
             return try await transport.run(app: app, op: op, args: args, origin: origin, idempotencyKey: "\(keyPrefix)-\(nextKey)")
         } catch {
             throw .refused(error)
+        }
+    }
+
+    /// Starts a palette or keyboard app command and converts transport errors
+    /// into the action work that the registry reports to the person.
+    @MainActor public func runAsAction(app: AppRecord, command: AppRecord.Command, arguments: AppJSON = .object([:]), origin: AppOrigin) -> ActionWork {
+        Task {
+            do throws(AppsClientError) {
+                _ = try await run(app: app.id, op: command.op, args: arguments, origin: origin)
+                return nil
+            } catch {
+                return ActionWorkFailure(error.description)
+            }
         }
     }
 
