@@ -4,7 +4,7 @@
 // erros for acpmux"): the cause in one human line, the way out first, the agent's own words under
 // Details with Copy. Compare arms shows the three surfaces of the `turn-error-card` experiment.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, CATALOG, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, CATALOG, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { TURN_RETRY } from "../model";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
@@ -22,6 +22,24 @@ const failed = (error: string, errorCode?: string, fields: Parameters<typeof cha
     ],
     fields,
   );
+
+/// One dead turn of the run: the calls it got through before the 429, then its failed summary. The
+/// work matters — the time's line only draws over a turn with something to fold, so a prompt and a
+/// summary alone would show no "Failed after" at all (caught in review of #44475).
+const deadTurn = (workAt: number, endAt: number, durationMs: number) => [
+  activity(
+    [
+      tool("git pull -q --ff-only", "execute", "completed", {
+        description: "Pulled the base",
+        output: "ok\n",
+        exitCode: 0,
+      }),
+      tool("Read webviews/src/pages/settings/Sidebar.tsx", "read", "completed", { output: "…\n" }),
+    ],
+    workAt,
+  ),
+  summary(endAt, { status: "failed", durationMs, toolCount: 2, error: rateLimit }),
+];
 
 /// Claude Code's own /compact, as its `available_commands_update` lists it.
 const compactCommand = { name: "compact", description: "Clear conversation history but keep a summary in context" };
@@ -136,11 +154,11 @@ export default agentPaneEntry({
       height: 560,
       snapshot: chat([
         user("Land the sidebar fix", 24),
-        summary(23.4, { status: "failed", durationMs: 38_000, error: rateLimit }),
+        ...deadTurn(23.6, 23.4, 38_000),
         user("Retry the land", 16),
-        summary(15.5, { status: "failed", durationMs: 41_000, error: rateLimit }),
+        ...deadTurn(15.7, 15.5, 41_000),
         user("Try once more", 8),
-        summary(7.6, { status: "failed", durationMs: 36_000, error: rateLimit }),
+        ...deadTurn(7.8, 7.6, 36_000),
       ]),
     },
     "rate-limited-before-work": {

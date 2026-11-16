@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { translate, type Translate } from "../i18n";
-import { footerLabel, isFailed, workedLabel } from "./turns";
+import { footerLabel, isFailed, turnTimeKey, workedLabel } from "./turns";
 import { TurnFooter, WorkedFor } from "./TurnRows";
 
 const t: Translate = (key, values) => translate(key, values, "en");
@@ -51,4 +51,20 @@ test("a failed turn shows its error text as the turn's result", () => {
   const markup = renderToStaticMarkup(<TurnFooter row={row()} />);
   // The card names the cause in its own words; the agent's raw line is reachable under Details.
   expect(markup).toContain("429");
+});
+
+/// The gallery state that shows the symptom has to actually show it. A first version of
+/// `failed-run` held only prompts and summaries, and the time's line draws only over a turn with
+/// work to fold, so the state rendered no "Failed after" at all (caught in review of #44475).
+test("the failed-run gallery state's turns each have work to fold, so the label draws", async () => {
+  const entry = (await import("./turnErrorCard.gallery")).default;
+  const rows = entry.variants["failed-run"]?.snapshot?.rows ?? [];
+  const failedTurns = rows.filter((r) => r.kind === "turnSummary");
+  expect(failedTurns.length).toBeGreaterThan(1);
+  for (const turn of failedTurns) {
+    expect(turnTimeKey(turn)).toBe("turn.failedAfter");
+    // What makes the disclosure draw at all: the turn folds work.
+    expect(turn.toolCount ?? 0).toBeGreaterThan(0);
+  }
+  expect(rows.some((r) => r.kind === "activity")).toBe(true);
 });
