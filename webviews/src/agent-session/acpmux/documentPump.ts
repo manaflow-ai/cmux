@@ -36,12 +36,12 @@ export function createDocumentPump<Batch, Change, Host, Part>(options: DocumentP
 
   function listen(lanes?: Lanes): void {
     if (lanes) documentLanes = lanes;
-    const scope = globalThis as Global;
+    const scope = globalThis as unknown as Global;
     scope[options.globalKey] ??= { receive: receiveDocument };
   }
 
   function reset(): void {
-    const scope = globalThis as Global;
+    const scope = globalThis as unknown as Global;
     if (scope[options.globalKey]?.receive === receiveDocument) delete scope[options.globalKey];
     hosts.clear();
     takenPost = undefined;
