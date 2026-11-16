@@ -141,7 +141,7 @@ fi
 
 # 1d. SDK wire layers. (The SDKs' resource API descriptors, whose pasted
 # catalog_sha256 went stale on catalog changes, #23191 and #34498, are gone:
-# resource-operations-v2.json is the only copy, cmux-tui/scripts/check-catalog-single-source.py.)
+# resource-operations-v2.json is the only copy, cmux-tui/scripts/check-sdk-single-source.py.)
 # A frozen one is put back as it was and reported.
 if (( sdk )); then
   codegen="$repo/cmux-tui/bindings/codegen/generate.py"
