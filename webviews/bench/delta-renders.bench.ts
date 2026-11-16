@@ -16,9 +16,11 @@
 //   bun bench/delta-renders.bench.ts [--lengths 50,500,5000] [--seconds 3]
 // The sidebar is native (Swift) and draws nothing in this page, so it has no row here.
 /// <reference types="bun" />
+import path from "node:path";
 import { chromium } from "./browsers";
 import type { Page } from "playwright";
-import { buildLabel, devRequested, requireProductionReact, serveBenchPage } from "./support/benchPage";
+import { installReactWatch, requireProductionReact } from "./support/benchPage";
+import { warmViteServer } from "../test/support/warmDevServer";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -27,6 +29,7 @@ const flag = (name: string) => {
 };
 const LENGTHS = (flag("--lengths") ?? "50,500,5000").split(",").map(Number);
 const SECONDS = Number(flag("--seconds") ?? 3);
+const webviews = path.resolve(import.meta.dir, "..");
 
 type Renders = Record<string, number>;
 
@@ -62,10 +65,16 @@ function perDelta(renders: Renders, deltas: number) {
   };
 }
 
-async function openChat(page: Page, url: string, turns: number) {
-  await page.goto(url);
-  await requireProductionReact(page, { dev: DEV });
+async function openChat(page: Page, port: number, turns: number) {
+  // Before the page's own code (bench/support/benchPage.ts installReactWatch).
+  await installReactWatch(page);
+  await page.goto(`http://127.0.0.1:${port}/?mock`);
   await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  // After the pane is up: react-dom rides a lazy chunk, so a page asked right after `goto` has not
+  // fetched it yet. This bench counts renders, not milliseconds, and a built pane page never
+  // installs these debug hooks, so it keeps the dev server and labels its numbers dev
+  // (bench/support/benchPage.ts, bench/dev-server-benches.json).
+  await requireProductionReact(page, { dev: true });
   const seeded = (await page.evaluate(
     (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
     turns,
@@ -81,17 +90,21 @@ async function openChat(page: Page, url: string, turns: number) {
   return seeded.rows as number;
 }
 
-/// The agent pane as it ships, from a build of its own config; `--dev` takes its dev server and
-/// labels every number `dev` (bench/support/benchPage.ts).
-const DEV = devRequested();
-const served = await serveBenchPage("/", { dev: DEV, config: "vite.config.acpmux-pane.mjs", query: "?mock" });
+const { createServer } = await import("vite");
+const vite = await createServer({
+  configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+  server: { port: 0, host: "127.0.0.1", strictPort: false },
+  logLevel: "error",
+});
 const browser = await chromium.launch({ headless: true });
 try {
-  console.log(`delta-renders build=${buildLabel({ dev: DEV })}`);
+  await vite.listen();
+  await warmViteServer(vite, "/?mock");
+  const { port } = vite.httpServer!.address() as { port: number };
   const table: ({ rows: number; stream: string } & ReturnType<typeof perDelta>)[] = [];
   for (const length of LENGTHS) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
-    const rows = await openChat(page, served.url, Math.max(1, Math.round(length / 3)));
+    const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
     const text = (await page.evaluate(
       (seconds) =>
         (window as any).cmuxAcpmuxDebug.loadRun({
@@ -116,5 +129,5 @@ try {
   console.log(`DELTA-RENDERS ${JSON.stringify(table)}`);
 } finally {
   await browser.close();
-  await served.close();
+  await vite.close();
 }

@@ -36,7 +36,7 @@ import { chromium, webkit } from "./browsers";
 import { SourceMapConsumer, type RawSourceMap } from "source-map-js";
 import { createServer, type ViteDevServer } from "vite";
 import { warmViteServer } from "../test/support/warmDevServer";
-import { requireProductionReact } from "./support/benchPage";
+import { requireProductionReact, installReactWatch } from "./support/benchPage";
 import { perfRow, TARGET_MS } from "./perfRow";
 
 const SIZES = (process.argv[2] ?? "50,500,3000").split(",").map(Number);
@@ -481,11 +481,15 @@ try {
   const { port } = vite.httpServer!.address() as { port: number };
   for (const turns of SIZES) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    // Before the page's own code (bench/support/benchPage.ts installReactWatch).
+    await installReactWatch(page);
     await page.goto(`http://127.0.0.1:${port}/?mock`);
     // Production unless CMUX_TICK_DEV=1, read from the code the page loaded
     // (bench/support/benchPage.ts).
-    await requireProductionReact(page, { dev: DEV });
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+    // After the pane is up: react-dom rides a lazy chunk the page fetches when it mounts, so asking
+    // right after `goto` read as "no react-dom on this page" (bench/support/benchPage.ts).
+    await requireProductionReact(page, { dev: DEV });
     const seeded = (await page.evaluate(
       (turns) =>
         (

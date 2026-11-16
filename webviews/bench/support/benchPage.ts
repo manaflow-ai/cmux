@@ -197,6 +197,9 @@ export async function gotoBenchPage(page: Page, served: BenchPage): Promise<void
   page.on("console", (message) => {
     if (message.type() === "error") console.error(`bench page console: ${message.text()}`);
   });
+  // Before the page's own code: the recorder has to see react-dom's request, and the pane clears the
+  // resource list as it goes.
+  await installReactWatch(page);
   const response = await page.goto(served.url);
   const status = response?.status();
   if (status !== undefined && status >= 400)
@@ -207,10 +210,10 @@ export async function gotoBenchPage(page: Page, served: BenchPage): Promise<void
 /// actually fetched, not from a bundler's flags, so neither a dev server's module URLs nor a
 /// build's asset names can make this say the wrong thing.
 ///
-/// Two of the three are string literals, which a minifier cannot rename; the development marker is
-/// an identifier, so a *renamed* development bundle falls through to "no production marker either",
-/// which reads as `unknown` and is refused like a dev bundle. The verdict is never "production"
-/// because nothing was found.
+/// Three of the four are string literals, which a minifier cannot rename; the development marker is
+/// an identifier, so a *renamed* development bundle falls through to "react-dom seen, no production
+/// marker", which reads as `unknown` and is refused like a dev bundle. The verdict is never
+/// "production" because nothing was found.
 const REACT_MARKERS = {
   /// `react-dom-client.development.js` and `react-dom-profiling.development.js` define it; no other
   /// bundle has the name. It is one of the three commit-phase instrumentation functions this whole
@@ -223,45 +226,116 @@ const REACT_MARKERS = {
   /// not. A profiling build keeps instrumentation a user does not pay for, so it is not a production
   /// number either.
   profiling: "isProfiling",
+  /// The key react-dom writes its root onto. Every build has it, so this is how the page says
+  /// "react-dom is here at all" — without it there is nothing to judge and the answer is `unknown`.
+  reactDom: "__reactContainer$",
 } as const;
 
-/// Which react-dom the page loaded. `unknown` means no react-dom could be read at all (nothing
-/// fetched, every script cross-origin or 404, a bundle whose markers are gone): a run then says it
-/// could not tell, and is refused unless `--dev` was asked for.
+/// Which react-dom the page loaded. `unknown` means no react-dom could be read (nothing fetched,
+/// every script cross-origin or 404, or a bundle whose markers are gone): a run then says it could
+/// not tell, and is refused unless `--dev` was asked for.
 export type ReactBuild = "development" | "profiling" | "production" | "unknown";
+
+/// How long to wait for react-dom to turn up. The pane loads it in a lazy chunk, so a page asked
+/// right after `goto` has fetched the entry and the runtime and not yet react-dom: reading once gave
+/// "no react-dom" for a production page that was about to load one. So the scripts are re-read until
+/// react-dom appears.
+const REACT_WAIT_MS = 10_000;
 
 /// Reads every same-origin script the page fetched and says which react-dom build it holds. Only a
 /// response the page could actually read counts: a 404 body is not evidence of anything, which is
-/// what made an earlier version of this call a missing chunk "production".
-export async function reactBuildOfPage(page: Page): Promise<ReactBuild> {
+/// what made an earlier version of this call a missing chunk "production". Each script is read once;
+/// new ones are picked up until react-dom is found or the wait runs out.
+export async function reactBuildOfPage(page: Page, waitMs: number = REACT_WAIT_MS): Promise<ReactBuild> {
+  // `CMUX_BENCH_REACT_DEBUG=1` prints every script this read and which markers it carried: when the
+  // answer is `unknown` that list is the only way to tell "nothing was fetched" from "react-dom is
+  // there and its markers moved".
+  if (process.env.CMUX_BENCH_REACT_DEBUG === "1")
+    for (const line of await reactScriptReport(page)) console.log(`bench react: ${line}`);
+  return page.evaluate(
+    async ([markers, wait]: [Record<string, string>, number]) => {
+      const here = location.origin;
+      const seen = { development: false, production: false, profiling: false, reactDom: false };
+      const done = new Set<string>();
+      const deadline = Date.now() + wait;
+      for (;;) {
+        const recorded = (window as unknown as { __benchScripts?: string[] }).__benchScripts;
+        const urls = [
+          ...(recorded ?? []),
+          ...performance.getEntriesByType("resource").map((entry) => entry.name),
+        ].filter((name) => name.startsWith(here) && /\.[cm]?js(\?|$)/.test(name) && !done.has(name));
+        // react-dom's own module first (a dev server serves it as one), then everything else: a build
+        // inlines it into a chunk whose name says nothing.
+        urls.sort((a, b) => Number(/react-dom/i.test(b)) - Number(/react-dom/i.test(a)));
+        for (const url of urls) {
+          done.add(url);
+          let text: string;
+          try {
+            const response = await fetch(url);
+            if (!response.ok) continue;
+            text = await response.text();
+          } catch {
+            // A module the page can no longer fetch says nothing either way.
+            continue;
+          }
+          for (const [which, marker] of Object.entries(markers))
+            if (text.includes(marker)) seen[which as keyof typeof seen] = true;
+          if (seen.development) break;
+        }
+        if (seen.development) return "development" as const;
+        if (seen.reactDom || seen.production) break;
+        if (Date.now() >= deadline) break;
+        await new Promise((resume) => setTimeout(resume, 150));
+      }
+      if (seen.production) return seen.profiling ? ("profiling" as const) : ("production" as const);
+      return "unknown" as const;
+    },
+    [REACT_MARKERS as unknown as Record<string, string>, waitMs] as [Record<string, string>, number],
+  );
+}
+
+/// Records every script the page fetches, before any of the page's own code runs.
+///
+/// Reading `performance.getEntriesByType("resource")` at check time is not enough: the pane's perf
+/// budgets call `performance.clearResourceTimings()`, so by then the list held 40 stylesheets and no
+/// react-dom at all, and the check said "no react-dom on this page" for a page that had loaded one.
+/// A `PerformanceObserver` installed before the page's first script sees every entry as it happens,
+/// and nothing later can clear what it has already written down.
+export async function installReactWatch(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const seen: string[] = [];
+    (window as unknown as { __benchScripts: string[] }).__benchScripts = seen;
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) seen.push(entry.name);
+    }).observe({ type: "resource", buffered: true });
+  });
+}
+
+/// Every same-origin script the page fetched, with the markers each carried: the diagnostic behind
+/// `CMUX_BENCH_REACT_DEBUG=1`.
+async function reactScriptReport(page: Page): Promise<string[]> {
   return page.evaluate(
     async (markers: Record<string, string>) => {
       const here = location.origin;
-      const urls = performance
-        .getEntriesByType("resource")
-        .map((entry) => entry.name)
-        .filter((name) => name.startsWith(here) && /\.[cm]?js(\?|$)/.test(name));
-      // react-dom's own module first (a dev server serves it as one), then everything else: a build
-      // inlines it into a chunk whose name says nothing.
-      urls.sort((a, b) => Number(/react-dom/i.test(b)) - Number(/react-dom/i.test(a)));
-      const seen = { development: false, production: false, profiling: false };
-      for (const url of urls) {
-        let text: string;
+      const rows: string[] = [];
+      const recorded = (window as unknown as { __benchScripts?: string[] }).__benchScripts;
+      const every = new Set([
+        ...(recorded ?? []),
+        ...performance.getEntriesByType("resource").map((entry) => entry.name),
+      ]);
+      for (const url of [...every].filter((name) => name.startsWith(here))) {
         try {
           const response = await fetch(url);
-          if (!response.ok) continue;
-          text = await response.text();
-        } catch {
-          // A module the page can no longer fetch says nothing either way.
-          continue;
+          const text = response.ok ? await response.text() : "";
+          const carries = Object.entries(markers)
+            .filter(([, marker]) => text.includes(marker))
+            .map(([which]) => which);
+          rows.push(`${url.slice(here.length)} ${response.status} ${text.length}B ${carries.join(",") || "-"}`);
+        } catch (error) {
+          rows.push(`${url.slice(here.length)} unread ${String(error)}`);
         }
-        for (const [which, marker] of Object.entries(markers))
-          if (text.includes(marker)) seen[which as keyof typeof seen] = true;
-        if (seen.development) break;
       }
-      if (seen.development) return "development" as const;
-      if (seen.production) return seen.profiling ? ("profiling" as const) : ("production" as const);
-      return "unknown" as const;
+      return rows;
     },
     REACT_MARKERS as unknown as Record<string, string>,
   );

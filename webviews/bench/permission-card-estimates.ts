@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "./browsers";
 import { createServer } from "vite";
-import { buildLabel, requireProductionReact } from "./support/benchPage";
+import { buildLabel, requireProductionReact, installReactWatch } from "./support/benchPage";
 import { refusePlaywrightOnMacs, useSystemChrome } from "../test/support/systemChrome";
 import { galleryFrame, warmGalleryFrame } from "../test/support/galleryFrame";
 
@@ -34,6 +34,8 @@ try {
       for (const width of [360, 720]) {
         const page = await browser.newPage({ viewport: { width, height: 900 }, deviceScaleFactor: 2 });
         try {
+          // Before the page's own code (bench/support/benchPage.ts installReactWatch).
+          await installReactWatch(page);
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry!, { variant, colorScheme: scheme })}`);
           await requireProductionReact(page, { dev: true });
           await page.locator(selector!).waitFor();
