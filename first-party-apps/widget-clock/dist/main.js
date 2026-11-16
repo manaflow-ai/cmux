@@ -2329,6 +2329,7 @@
       "workspace.open_url"
     ]
   };
+  var WIDGET_INSET = { newtab: 16, sidebar: 12 };
   var API_VERSION = scopes_default.apiVersion;
   var g = globalThis;
   var RUNTIME_VERSION = String(globalThis.__cmuxAppRuntimeVersion ?? "");
@@ -2501,7 +2502,7 @@
     ]).frame({ width: dial, height: dial });
   }
   function renderClock(context = {}) {
-    return clockView(context ?? {}).padding(context?.place === "sidebar" ? 12 : 16).frame({ maxWidth: "infinity", minHeight: "infinity", maxHeight: "infinity" });
+    return clockView(context ?? {}).padding(WIDGET_INSET[context?.place === "sidebar" ? "sidebar" : "newtab"]).frame({ maxWidth: "infinity", minHeight: "infinity", maxHeight: "infinity" });
   }
   function minuteClock(context) {
     if (typeof context.now === "function")

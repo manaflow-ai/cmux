@@ -8,6 +8,8 @@ export const AT = Date.UTC(2026, 10, 16, 17, 41, 12)
 export interface Render {
   size: "small" | "medium" | "large"
   settings?: Record<string, unknown>
+  /** "widget" (default): the widget host's mount, whose context has now(); "section": a host without it. */
+  surface?: "widget" | "section"
 }
 
 export async function renderScene(source: string, render: Render): Promise<{ ops: Op[]; host: FakeHost }> {
@@ -15,7 +17,7 @@ export async function renderScene(source: string, render: Render): Promise<{ ops
   // Pin the clock before the app's script runs, so nothing reads the real time.
   host.eval(`Date.now = () => ${AT}`)
   host.eval(source)
-  host.mount("w", "renderClock", { surface: "widget", size: render.size, place: "newtab", instance: `preview-${render.size}`, settings: render.settings ?? {} })
+  host.mount("w", "renderClock", { surface: render.surface ?? "widget", size: render.size, place: "newtab", instance: `preview-${render.size}`, settings: render.settings ?? {} })
   await host.settle()
   return { ops: host.batches("w").flat(), host }
 }

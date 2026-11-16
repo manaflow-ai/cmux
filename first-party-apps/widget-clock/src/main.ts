@@ -8,7 +8,7 @@
 // cmux.time.zone. The view redraws once a minute, just after the minute starts, from a one-shot
 // timer that arms the next; nothing runs between minutes.
 
-import { cmux, computed, ForEach, HStack, onCleanup, signal, Spacer, Text, VStack, ZStack, Circle, type View } from "cmux-extension-sdk"
+import { cmux, computed, ForEach, HStack, onCleanup, signal, Spacer, Text, VStack, ZStack, Circle, WIDGET_INSET, type View } from "cmux-extension-sdk"
 import {
   CITY_COUNT,
   cities,
@@ -105,7 +105,7 @@ export function renderClock(context: WidgetContext = {}): View {
   // The host draws the tile (its card and corner); the widget insets its content as Apple's
   // widgets do: 16 points, 12 in the narrower sidebar.
   return clockView(context ?? {})
-    .padding(context?.place === "sidebar" ? 12 : 16)
+    .padding(WIDGET_INSET[context?.place === "sidebar" ? "sidebar" : "newtab"])
     .frame({ maxWidth: "infinity", minHeight: "infinity", maxHeight: "infinity" })
 }
 
