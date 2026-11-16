@@ -8,9 +8,9 @@ import Testing
 /// A new window's sidebar is complete in its first frame. The band above the list draws each item from the item's
 /// info (its title, its icon, whether it is hidden). The window is ordered in at the end of the turn that makes its
 /// sidebar, so each info has to be written in that turn: an info written by a task that starts later leaves a frame
-/// where a pinned workspace shows its reference in the place of its name, and where a pin of a closed workspace with
-/// no stored name (which draws nothing) is shown. These tests read the model with no suspension after the sidebar is
-/// made, so no task has run. A band item with no info has no view: its place draws nothing, never the reference.
+/// that draws each item from its fallback (`SidebarItemInfo.fallback(for:)`), where the pin of an open workspace with
+/// no stored name is not there and a built-in has no badge. These tests read the model with no suspension after the
+/// sidebar is made, so no task has run. A page item draws under the label stored with it: the app writes no info for it.
 @MainActor @Suite(.serialized) struct NewWindowSidebarFirstFrameTests {
     static let session = "s-local"
     static let home = LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home))
@@ -20,10 +20,12 @@ import Testing
     static let named = LayoutItem(id: LayoutItemID("itm_named"), ref: .workspace("\(session):ws_named"), label: "Docs")
     static let workspaceItems = [open, closed, named]
 
-    static var document: SidebarLayoutDocument {
+    static var document: SidebarLayoutDocument { document(pins: workspaceItems) }
+
+    static func document(pins: [LayoutItem]) -> SidebarLayoutDocument {
         SidebarLayoutDocument(sections: [
             LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, items: [home, page]),
-            SidebarLayoutDocument.pinnedSection(items: workspaceItems),
+            SidebarLayoutDocument.pinnedSection(items: pins),
         ])
     }
 
@@ -59,9 +61,10 @@ import Testing
         try #require(Set(items.map(\.id)) == Set(Self.document.sections.flatMap(\.items).map(\.id)),
                      "the fixture is wrong: the band's layout is not the document that the test set")
         let infos = bridge.model.itemInfo
-        for item in items {
+        for item in items where item.id != Self.page.id {
             #expect(infos[item.id] != nil, "\(item.id.rawValue) has no info in the turn that makes the sidebar")
         }
+        #expect(SidebarFirstFrame(bridge.model).faults.isEmpty)
     }
 
     @Test func noPinnedWorkspaceShowsItsReferenceInThatTurn() throws {
@@ -69,7 +72,7 @@ import Testing
         defer { bridge.teardown() }
         let infos = bridge.model.itemInfo
         for item in Self.workspaceItems {
-            // No info: the view has nothing to draw but the reference.
+            // No info: the view draws the item from its fallback, not from its workspace.
             let info = try #require(infos[item.id], "\(item.id.rawValue) has no info in the turn that makes the sidebar")
             #expect(info.isHidden || info.title != item.ref.value, "\(item.id.rawValue) is drawn with its reference as its title")
         }
@@ -86,25 +89,60 @@ import Testing
         defer { bridge.teardown() }
         #expect(bridge.model.itemInfo[Self.closed.id]?.isHidden == true,
                 "the closed pin with no stored name is not hidden in the turn that makes the sidebar")
-        // What the band reads to leave an item out (`SidebarView.updateBands`).
-        #expect(bridge.model.resolvedItemInfo.filter(\.value.isHidden).keys.contains(Self.closed.id))
+        // What the band reads to leave an item out (`SidebarView.updateBands`); the fallback rule gives it with no info too.
+        #expect(SidebarItemInfo.hiddenItems(in: bridge.model.layout.sections, infos: bridge.model.resolvedItemInfo).contains(Self.closed.id))
     }
 
-    @Test func aBandItemWithNoInfoHasNoView() throws {
-        let region = SidebarRegionView(region: .top)
-        region.frame = NSRect(x: 0, y: 0, width: 240, height: 200)
-        let section = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, items: [Self.open])
-        func content(_ infos: [LayoutItemID: SidebarItemInfo]) -> SidebarRegionView.Content {
-            SidebarRegionView.Content(sections: [section], infos: infos, collapsed: [], look: SidebarSectionTunables.currentLook,
-                                      metrics: .standard, drawsLines: false)
-        }
-        // The control: with its info the item has a view, drawn from the info.
-        region.update(content([Self.open.id: SidebarItemInfo(title: "Build", symbol: "textformat")]), width: 240)
-        let drawn = try #require(region.itemView(Self.open.id), "the fixture is wrong: the band draws no view for an item with an info")
-        #expect(drawn.info.title == "Build")
-        // The info is gone: so is the view. The band never draws an item from its reference.
-        region.update(content([:]), width: 240)
-        let left = region.itemView(Self.open.id)
-        #expect(left == nil, "an item with no info is drawn with the title \(left?.info.title ?? "")")
+    @Test func theCheckNamesEachItemWithNoInfoAndTheDesignedStates() throws {
+        let bridge = try Self.sidebar()
+        defer { bridge.teardown() }
+        let frame = SidebarFirstFrame(bridge.model)
+        #expect(frame.isComplete)
+        // The closed pin with a stored name is dimmed under it; the page item draws under its stored label.
+        #expect(frame.designedStates == Set<SidebarFirstFrame.DesignedState>([.closedPin, .storedLabel]))
+        // With no info at all: each item that the app describes is a fault, the page item is not.
+        let empty = SidebarFirstFrame(layout: bridge.model.layout, infos: [:], rows: [.live, .placeholder, .stale, .creating])
+        #expect(!empty.isComplete)
+        #expect(Set(empty.faults.map(\.id)) == Set([Self.home.id] + Self.workspaceItems.map(\.id)))
+        #expect(empty.designedStates == Set<SidebarFirstFrame.DesignedState>([.loadingRow, .savedRow, .storedLabel]))
+    }
+
+    @Test func theOrderInRunsThePassWhenAnInfoIsNotThere() throws {
+        let bridge = try Self.sidebar()
+        defer { bridge.teardown() }
+        let pass = try #require(bridge.sectionsPass, "the sidebar has no pass for its band items")
+        bridge.model.itemInfo = [:]
+        // What the window manager calls before it orders the window in.
+        pass.completeFirstFrame()
+        #expect(SidebarFirstFrame(bridge.model).isComplete)
+        #expect(bridge.model.itemInfo[Self.open.id]?.workspaceRow != nil)
+    }
+
+    @Test func aNewPinHasItsInfoInTheTurnThatShowsIt() throws {
+        let bridge = try Self.sidebar()
+        defer { bridge.teardown() }
+        let added = LayoutItem(id: LayoutItemID("itm_added"), ref: .workspace("\(Self.session):ws_added"), label: "Notes")
+        bridge.services.sidebarLayout.docLayout = Self.document(pins: Self.workspaceItems + [added])
+        // The rows pass, run in this turn: it writes the band's layout with the new pin.
+        bridge.sameTurn.syncNow(rows: true)
+        try #require(bridge.model.layout.item(added.id) != nil, "the fixture is wrong: the rows pass did not write the band's layout")
+        #expect(bridge.model.itemInfo[added.id]?.title == "Notes", "the new pin has no info in the turn that shows it")
+        #expect(SidebarFirstFrame(bridge.model).isComplete)
+    }
+
+    @Test func anItemTheBandStillListsKeepsItsInfo() throws {
+        let bridge = try Self.sidebar()
+        defer { bridge.teardown() }
+        let pass = try #require(bridge.sectionsPass, "the sidebar has no pass for its band items")
+        // The pin leaves the stored layout. The band's layout has it until the rows pass runs: its info stays.
+        bridge.services.sidebarLayout.docLayout = Self.document(pins: [Self.open, Self.closed])
+        pass.run()
+        try #require(bridge.model.layout.item(Self.named.id) != nil, "the fixture is wrong: the band's layout changed with no rows pass")
+        #expect(bridge.model.itemInfo[Self.named.id]?.title == "Docs")
+        // The rows pass takes the pin out of the band; the next pass drops its info.
+        bridge.sameTurn.syncNow(rows: true)
+        try #require(bridge.model.layout.item(Self.named.id) == nil, "the fixture is wrong: the rows pass kept the pin in the band")
+        pass.run()
+        #expect(bridge.model.itemInfo[Self.named.id] == nil)
     }
 }
