@@ -863,6 +863,7 @@ impl Hub {
         }
         // As session/new: harness discovery and launcher checks finish first.
         self.wait_startup().await;
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         // MDM or the team policy forces full access off: every answer says so, for the mode menu.
         let managed_off = self.full_access_managed_off();
         let mark = |mut answer: Value| {
