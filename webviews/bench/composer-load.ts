@@ -5,6 +5,7 @@ type Surface = Page | Frame;
 type LoadReceipt = {
   running: boolean;
   started_epoch_ms: number;
+  epoch_clock_error_ms: number;
   deltas: number;
   toolLines: number;
   elapsedMs: number;
@@ -190,6 +191,12 @@ export async function runComposerLoad(
     errors.push("key count, order or final text mismatch");
   if (mode === "L3" && rows < 100000) errors.push("fixture has fewer than 100000 rows");
   if ((quantile(late, 0.95) ?? Infinity) > gap) errors.push("driver missed input cadence");
+  if (
+    !Number.isFinite(result.typing.epoch_clock_error_ms) ||
+    Math.abs(result.typing.epoch_clock_error_ms) >= 2 ||
+    loadRates.some((r) => !Number.isFinite(r.epoch_clock_error_ms) || Math.abs(r.epoch_clock_error_ms) >= 2)
+  )
+    errors.push("cross-document epoch clocks do not match wall time within 2ms");
   if (
     loadRates.some(
       (r) =>

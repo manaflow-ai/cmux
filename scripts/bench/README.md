@@ -107,3 +107,7 @@ unsupported engines (including WebKit) report null, never a fabricated zero.
 valid but are not `acceptance_eligible`; acceptance requires `target_met` (valid load,
 at least 200 keys, and both latency limits). Consumers must never interpret `valid` alone
 as a budget pass.
+Tool output updates carry the accumulated output at each reply tick, matching the mock
+tool-update format. This deliberately stresses growing frontend payloads; it does not
+model native provider transport. Cross-document epoch receipts require wall-clock
+agreement within 2 ms or invalidate the run.

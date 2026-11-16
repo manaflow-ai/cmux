@@ -25,18 +25,23 @@ let active:
     }
   | undefined;
 
+function snapshot(receipt: Record<string, unknown>) {
+  return { ...receipt, epoch_clock_error_ms: Date.now() - (performance.timeOrigin + performance.now()) };
+}
+
 export async function typingLoad(
   session: string | undefined,
   options: TypingLoadOptions = {},
 ): Promise<Record<string, unknown>> {
   if (options.stop) {
     if (!active) return { error: "no typing load" };
-    active.stopped = true;
-    await active.done;
-    return { ...active.receipt };
+    const current = active;
+    current.stopped = true;
+    await current.done;
+    return snapshot(current.receipt);
   }
   // With no rate, read the receipt without starting or resetting the generator.
-  if (options.chunks_per_second === undefined) return active ? { ...active.receipt } : { error: "no typing load" };
+  if (options.chunks_per_second === undefined) return active ? snapshot(active.receipt) : { error: "no typing load" };
   if (active?.receipt.running) return { error: "typing load already running" };
   const mock = MockAcpmuxSocket.live;
   if (!mock || !session) return { error: "typing load requires a seeded mock session" };
@@ -85,5 +90,5 @@ export async function typingLoad(
       state.receipt.running = false;
       state.receipt.finished_epoch_ms = performance.timeOrigin + performance.now();
     });
-  return { ...state.receipt };
+  return snapshot(state.receipt);
 }
