@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43869700887",
+  "recorded_at": "2026-11-16T13:00:12Z",
+  "reason": "cmux-tui ac180a2e56eb changes the image's cmux-tui (pinned f12bd4c90023)",
+  "dry_run": false,
+  "cmux_tui": "ac180a2e56eb6bcc67bf4af32344f65a0ca56674",
+  "fixes": [
+    {
+      "sha": "ac180a2e56eb6bcc67bf4af32344f65a0ca56674",
+      "mergedAt": "2026-11-16T12:30:31Z",
+      "subject": "linux-host: your own devices control a joined desktop with no prompt; Wayland asks the portal once, at enable (#44510)"
+    },
+    {
+      "sha": "ef58edf0af755f06ee22a678e28ea0f1ed8556c9",
+      "mergedAt": "2026-11-16T04:24:24-08:00",
+      "subject": "fix: enroll SSH devices across platforms (#44328)"
+    },
+    {
+      "sha": "161e276eb151c9e48ac8511d8304dd9c75cb9046",
+      "mergedAt": "2026-11-16T12:09:13Z",
+      "subject": "Remote desktop Connect card: the machine's name, one line, a status chip and a primary Connect (#44106)"
+    },
+    {
+      "sha": "cbc9d5632a8c748fcc66d179e7a73ea8a41659c0",
+      "mergedAt": "2026-11-16T04:00:05-08:00",
+      "subject": "startup: add bounded launch record foundation (#44351)"
+    },
+    {
+      "sha": "ae5aa80d9466b708b8edfe7f211da0f212ce10b4",
+      "mergedAt": "2026-11-16T03:53:01-08:00",
+      "subject": "Windows PCs join Remote machines with one PowerShell line (#44333)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T13:00:12Z",
+    "snapshot_id": "sh-eff12b839ef04e03959ee8acbc92c3fd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43869700887): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e5e06ef7a9912d4a90d1aaf337ed9ecba46b84fb",
+    "image": "cloud-native-auto-ac180a2e-43869700887-1",
+    "revision": "ci-43869700887-1",
+    "at": "2026-11-16T13:00:12Z"
+  },
+  "rolled_back": false
+}
