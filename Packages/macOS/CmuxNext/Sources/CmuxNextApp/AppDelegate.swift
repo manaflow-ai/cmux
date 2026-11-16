@@ -425,14 +425,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
-            // Bind the probe socket immediately after the first window frame. The fresh-home harness
-            // uses snapshot.get only to discover that frame; making it wait for launchSettle measured
-            // the app's post-frame work as harness time (cx-z9kz0).
-            await settings.waitForLoad(atLeast: 1)
-            await firstFrame.opened()
-            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy keys, classic imports, stored defaults: written by the daemon once it is live; the control socket does not wait
+            Task { [daemon = services.daemon] in await settings.waitForLoad(atLeast: 1); await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy keys, classic imports, stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
-                try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+                try await control.start(registry: registry, settings: settings, launch: environment.launch, services: services, afterFirstFrame: { await firstFrame.opened() })
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
@@ -450,7 +445,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 control.service?.router.attach(health: services.healthFeeds.health) // debug.health, debug.health.inject
-                await launchSettle.settled(within: .seconds(4)) // deferred work still waits for the first frames
                 #if DEBUG
                 // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
                 let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }
