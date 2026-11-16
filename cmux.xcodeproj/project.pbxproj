@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		CE7A00000000000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
+		CE7A00000000000000000045 /* CmuxNextApp in Embed Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CE7A00000000000000000012 /* CmuxNextApp in Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; };
 		CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		CE7A0000000000000000001D /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
@@ -25,6 +26,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		CE7A00000000000000000046 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				CE7A00000000000000000045 /* CmuxNextApp in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -155,6 +167,7 @@
 				CE7A00000000000000000040 /* Verify web bundles */,
 				CE7A00000000000000000009 /* Sources */,
 				CE7A0000000000000000000A /* Frameworks */,
+				CE7A00000000000000000046 /* Embed Frameworks */,
 				CE7A0000000000000000000B /* Resources */,
 				CE7A0000000000000000000D /* Reject Bundled Provider Binaries */,
 				CE7A0000000000000000001B /* Bundle CLI resources */,
