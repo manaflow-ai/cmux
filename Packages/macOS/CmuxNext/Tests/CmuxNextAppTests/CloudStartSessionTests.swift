@@ -51,6 +51,29 @@ struct CloudStartSessionTests {
         return services.registry.capturingRefusal { invoke(invocation) }
     }
 
+    /// A machine made for this start is owned by it until the session starts: a later refusal
+    /// deletes it and says so, while an existing machine is never touched.
+    @Test func aFailedStartDeletesTheMachineItMade() async throws {
+        let services = Self.fixture().services
+        let start = CloudStartSession(services: services)
+        var deleted = false
+        await #expect(throws: ActionFailure.self) {
+            _ = try await start.releasing(made: true, name: "chat-1", id: "vm-chat-1", account: services.cloud.account,
+                                           delete: { deleted = true }) {
+                throw ActionFailure(message: "claude did not start")
+            }
+        }
+        #expect(deleted, "a failed start left its newly created machine behind")
+        do {
+            _ = try await start.releasing(made: true, name: "chat-1", id: "vm-chat-1", account: services.cloud.account,
+                                           delete: { deleted = true }) {
+                throw ActionFailure(message: "claude did not start")
+            }
+        } catch let failure as ActionFailure {
+            #expect(failure.message.contains("was deleted after the start failed"), failure.message)
+        }
+    }
+
     @Test func itIsACLIVerbAndAnMCPToolThatWaitsForThePerson() throws {
         let descriptor = try #require(Self.fixture().services.registry.descriptor(for: CloudStartSession.action))
         let text = try #require(descriptor.description, "no description for cmux action describe and MCP")

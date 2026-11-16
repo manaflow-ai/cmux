@@ -133,7 +133,7 @@ import Testing
     @Test func onlyAKnownUsedUpLimitOnALoginTheMachineGetsRefuses() async {
         let user = person()
         // An allowed answer, a login the provider rejected, no limit headers: the start goes on.
-        for (status, headers) in [(200, ["anthropic-ratelimit-unified-status": "allowed"]), (401, [:]), (429, ["retry-after": "3"])] {
+        for (status, headers) in [(200, ["anthropic-ratelimit-unified-status": "allowed"]), (429, ["retry-after": "3"])] {
             #expect(await refusal(check(status: status, headers: headers), user: user) == nil)
         }
         let sent = Sent()
@@ -152,6 +152,16 @@ import Testing
             forget(chose)
         }
         #expect(sent.requests.isEmpty)
+    }
+
+    /// A cached Claude token that the provider rejects is not usable on a new VM. The preflight
+    /// turns that 401 into the same one-time login-choice refusal as a missing token, before a
+    /// machine lease can be made.
+    @Test func aRejectedCachedLoginRefusesBeforeMakingAMachine() async {
+        let user = person()
+        defer { forget(user) }
+        let refusal = await refusal(check(status: 401, headers: [:]), user: user)
+        #expect(refusal == .login(.loginNeeded))
     }
 
     @Test func onlyTheLimitHeadersLeaveTheReply() {
