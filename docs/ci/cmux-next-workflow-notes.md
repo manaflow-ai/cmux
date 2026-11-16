@@ -3564,3 +3564,50 @@ system" (cmux#43892 daemon test, job 132938818634, cmux11s-mac-mini-glaeda-8, 20
 seeds that cache for CmuxNext's whole package graph with scripts/ci/swiftpm_prefetch_binary_artifacts.py:
 a checksum-keyed store under one host lock, atomic renames into the cache, so SwiftPM only reads it. The
 cache stays shared and warm. tests/test_ci_swiftpm_prefetch_shared_cache.py is the detector.
+
+## note-386
+
+Above `borrow_runner` in `jobs.macos-placement.outputs` and above `BORROW_JOBS` in its `Place the macOS jobs` step
+of `.github/workflows/cmux-next.yml`.
+
+Borrowing an idle pool beside a backed-up one (scripts/ci/side_lane_placement.py borrow_route()). On 2026-11-16
+at 03:16Z macos-pool-load showed glaeda-std-xcode-26.6 48 queued and glaeda-side-std-xcode-26.6 44 (oldest 113
+min) while glaeda-gui-std-xcode-26.6 had 0 queued, and the slowest PR verdicts ended on the Release compile. A
+same-repo PR's Release compile that no idle side or light runner took takes the gui label (`borrow_runner`,
+listed in `borrow_jobs`) only while the side route has a queue, the gui label has nothing queued, more idle
+runners than the reserve (1) plus this run's own GUI jobs, and fewer than BORROW_CAP (2) gui runners already run a
+borrowed job. The gui pool's own jobs keep first claim; a stale or unread reading borrows nothing. The job's
+runs-on reads it only in the attempt the placement ran. The detector is
+tests/test_ci_side_lane_placement.py::BorrowIdlePool.
+
+## note-387
+
+Above `GATEWAY_LABEL` in the `Place the macOS jobs` step of `.github/workflows/cmux-next.yml`.
+
+The build-fleet compiles' gateway, taken (or a wider class of it) only while a runner is idle
+(gateway_runner). With none idle, swift-canary-fleet does not run and swift-canary cascades. The PR's app
+compile took its gateway before the quiet period ended (app-compile-placement); with none, its Mac Release
+compile, which runs when app-compile-fleet gives no verdict, is in CASCADE_RUNS above.
+
+## note-388
+
+Above `PR_HEAD_SHA` in the `Classify pull request paths` step's env and above the
+`cmux_next_base_merge_carry.py` call in its run, in `.github/workflows/cmux-next.yml`.
+
+The base-merge carry. merge_hold asks a pull request whose fast-gates green went stale to merge
+feat-cmux-next in (update-branch), and only after every check at the older head H finished and passed; it
+then lands the base merge M on its merged-tree checks alone (cmux-next/fast-gates on Linux,
+cmux-next/compile on the build fleet, the web compile) and carries the rest from H (merge_hold
+merged_tree_hold). This workflow still ran every Mac tier again at M. On 2026-11-16 at 05:44Z, with
+macos-pool-load at 134 queued on glaeda-std-xcode-26.6 and 126 on glaeda-side-std-xcode-26.6 (oldest 187
+min), 18 of the 60 open cmux-next pull request runs were on base-merge heads and 13 more same-tree dispatches
+tested their trees: Mac jobs no merge waited on, queued in front of pull requests that do wait on theirs. The
+land loops take the update-branch step up to four rounds, so one PR could queue four copies of its Mac tiers.
+
+After the router, a same-repository pull request run asks scripts/ci/cmux_next_base_merge_carry.py. When the
+head is a merge of a feat-cmux-next commit into H, its tree is exactly git's clean merge of the two (no
+resolved conflict, nothing slipped into the merge commit), H has a cmux-next pull_request run that concluded
+success, and the PR has no `full-ci`, the fast tier, generated files, daemon tests, scheme compile, Swift test
+and Swift canary outputs are set false (appended after the router's: the last value wins) and the summary names
+H and its run. The native tier stays as routed. Anything unread is no carry. `CMUX_NEXT_BASE_MERGE_CARRY=0`
+turns it off. tests/test_cmux_next_base_merge_carry.py is the detector.

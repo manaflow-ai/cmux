@@ -4,6 +4,7 @@ hang-watch's issues as the fallback, the perf cron's interaction p95, the god-vs
 slots, and the sticky issue's history. No network: Sentry and gh are fakes.
 Run: python3 -I scripts/cmux-next/tests/test_quality_report.py (also runs in cmux-next-quality-report.yml)."""
 import base64, datetime, importlib.util, json, os, subprocess, tempfile, unittest, zlib
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("quality_report", os.path.join(HERE, "..", "quality-report.py"))
@@ -395,6 +396,88 @@ class Sticky(unittest.TestCase):
         r = self.report(10, 1)
         self.assertNotIn("aaaaaaaaaa", qr.render_markdown(r, public=True))
         self.assertIn("aaaaaaaaaa", qr.render_markdown(r, public=False))
+
+
+class V2Home(unittest.TestCase):
+    """hq#11702: a gate home that writes nothing is the report's first line and the night's history row."""
+    # Nightly quality report run 43783944322 (2026-11-16 01:03Z): the home exited 2 before it wrote anything.
+    STDERR = ("   Compiling acpmux v0.1.0\n"
+              'v2 bench: "/home/runner/_work/_temp/quality/v2-measures.ndjson": '
+              "v2.pr08.mirror_local_row_thirty has no numeric small_p95\n")
+
+    def report(self, state, day=10):
+        return qr.build_report(24, T.replace(day=day), None, None, None, None, hang_watch=lambda since: [],
+                               v2_home_state=state)
+
+    def test_a_home_that_writes_nothing_is_the_first_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = qr.v2_home(2, self.STDERR, os.path.join(d, "v2-god-small.json"))
+        self.assertEqual(state["status"], "no report")
+        self.assertIn("mirror_local_row_thirty has no numeric small_p95", state["error"])
+        self.assertTrue(state["error"].startswith("v2 bench:"), "the home's own line, not cargo's")
+        r = self.report(state)
+        for public in (False, True):
+            md = qr.render_markdown(r, public=public)
+            first = md.split("\n")[2]
+            self.assertTrue(first.startswith("**v2 gates: no report.**"), md)
+            self.assertIn("mirror_local_row_thirty has no numeric small_p95", first)
+            self.assertLess(md.index("v2 gates: no report"), md.index("| Metric |"))
+        self.assertIn("no report (exit 2", qr.headline(r)["v2 gate home"])
+        body = qr.sticky_body(r, qr.render_markdown(r, public=False), "")
+        history = json.loads(qr.HISTORY_RE.search(body).group(1))
+        self.assertEqual(history[-1]["v2_home"], "no report")
+        self.assertIn("(v2 home: no report)", body.split("## Over time")[1])
+
+    def test_a_home_that_writes_has_no_first_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "v2-god-small.json")
+            with open(out, "w") as f:
+                f.write('{"rows": []}')
+            state = qr.v2_home(0, "", out)
+            wrote_nonzero = qr.v2_home(1, "v2 bench: row x failed\n", out)
+        self.assertEqual(state["status"], "wrote")
+        r = self.report(state)
+        md = qr.render_markdown(r, public=False)
+        self.assertNotIn("v2 gates:", md)
+        self.assertEqual(qr.headline(r)["v2 gate home"], "wrote")
+        self.assertEqual(json.loads(qr.HISTORY_RE.search(qr.sticky_body(r, md, "")).group(1))[-1]["v2_home"], "wrote")
+        self.assertEqual(wrote_nonzero["status"], "exited 1")
+        self.assertIn("**v2 gates: the gate home exited 1**", qr.render_markdown(self.report(wrote_nonzero), public=False))
+
+    def test_exit_zero_with_no_output_is_still_no_report(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = qr.v2_home(0, "", os.path.join(d, "missing.json"))
+        self.assertEqual((state["status"], state["error"]), ("no report", "it printed no error"))
+
+    def test_a_home_killed_by_its_timeout_reads_unfinished(self):
+        state = qr.v2_home(qr.V2_HOME_UNFINISHED, "running 40 rows\n", None)
+        self.assertEqual(state["status"], "no report")
+        self.assertIn("did not finish", state["error"])
+        self.assertIn("running 40 rows", state["error"])
+
+    def test_a_long_error_is_cut_and_no_run_is_no_line(self):
+        state = qr.v2_home(2, "v2 bench: " + "x" * 1000, None)
+        self.assertEqual(len(state["error"]), qr.V2_HOME_ERROR_MAX)
+        r = self.report(None)
+        self.assertIsNone(r["v2_home"]["status"])
+        self.assertNotIn("v2 gates:", qr.render_markdown(r, public=False))
+        self.assertIsNone(qr.history_row(r)["v2_home"])
+
+    def test_main_reads_the_three_flags(self):
+        with tempfile.TemporaryDirectory() as d:
+            err = os.path.join(d, "v2-home.stderr")
+            with open(err, "w") as f:
+                f.write(self.STDERR)
+            out_json, out_md = os.path.join(d, "r.json"), os.path.join(d, "r.md")
+            # No gh on PATH: the hang-watch read fails as a source error, with no network.
+            with mock.patch.dict(os.environ, {"PATH": d, "SENTRY_AUTH_TOKEN": ""}):
+                code = qr.main(["report", "--json", out_json, "--md", out_md, "--v2-home-exit", "2",
+                                "--v2-home-stderr", err, "--v2-home-output", os.path.join(d, "v2-god-small.json")])
+            self.assertEqual(code, 0)
+            with open(out_md) as f:
+                self.assertIn("**v2 gates: no report.**", f.read())
+            with open(out_json) as f:
+                self.assertEqual(json.load(f)["v2_home"]["exit"], 2)
 
 
 def ci_commit(oid, at, suites):

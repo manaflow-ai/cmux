@@ -6,6 +6,7 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import type { QuickProviderLook } from "./quickModelMenuModel";
+import { MODEL_PICKER } from "./composerSelectors";
 
 const catalog: ModelPickerProps["catalog"] = [
   {
@@ -51,7 +52,7 @@ const chat = (providers: QuickProviderLook): ModelPickerProps => ({
 });
 
 const open: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-quick-menu [role="menuitemradio"]') !== null);
 };
 

@@ -2134,6 +2134,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tab-discard"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tailnet"
 version = "0.1.0"
 dependencies = [
@@ -2369,6 +2377,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "base64",
+ "cmux-agent-cli-render",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",

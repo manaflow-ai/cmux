@@ -136,6 +136,17 @@ fn kind_schema(row: &Row) -> Value {
             let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
             return json!({ "anyOf": [choice(choices), path] });
         }
+        Validation::Domain(DomainKind::BackdropPicture) => return picture(),
+        Validation::Domain(DomainKind::BackdropSchedule) => {
+            return json!({
+                "type": "object",
+                "propertyNames": { "pattern": super::backdrop::WHEN_PATTERN },
+                "additionalProperties": picture(),
+            });
+        }
+        Validation::Domain(DomainKind::BackdropLocation) => {
+            return json!({ "type": "string", "pattern": super::backdrop::LOCATION_PATTERN });
+        }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
         }
@@ -259,6 +270,12 @@ fn kind_schema(row: &Row) -> Value {
             })
         }
     }
+}
+
+/// A fixed background: a listed one or a `system:` / `file:` absolute path.
+fn picture() -> Value {
+    let listed = json!({ "type": "string", "enum": super::backdrop::picture_choices() });
+    json!({ "anyOf": [listed, { "type": "string", "pattern": super::backdrop::PATH_PATTERN }] })
 }
 
 fn choice(choices: &[Choice]) -> Value {
