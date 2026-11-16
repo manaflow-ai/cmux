@@ -62,7 +62,7 @@ pub trait Desktop {
 pub fn reports_cursor() -> bool {
     #[cfg(target_os = "macos")]
     {
-        synthetic().is_none() && crate::mac::cursor::available()
+        synthetic_size().is_none() && crate::mac::cursor::available()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -144,19 +144,19 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         },
     };
     #[cfg(all(target_os = "macos", feature = "bench"))]
-    if let Some(source) = synthetic() {
+    if let Some(source) = crate::synthetic::selected() {
         return crate::mac::synthetic::open(cfg, source);
     }
     #[cfg(target_os = "macos")]
     return crate::mac::open(cfg, cursor_metadata);
 }
 
-/// The generated picture `--source synthetic` picked instead of the display (macOS bench
-/// builds; src/synthetic.rs), else None.
+/// The size of the generated picture `--source synthetic` picked instead of the display (macOS
+/// bench builds; src/synthetic.rs), else None.
 #[cfg(target_os = "macos")]
-fn synthetic() -> Option<crate::synthetic::Synthetic> {
+fn synthetic_size() -> Option<(u32, u32)> {
     #[cfg(feature = "bench")]
-    return crate::synthetic::selected();
+    return crate::synthetic::selected().map(|source| source.size);
     #[cfg(not(feature = "bench"))]
     None
 }
@@ -166,8 +166,8 @@ fn synthetic() -> Option<crate::synthetic::Synthetic> {
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
 #[cfg(target_os = "macos")]
 pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
-    match synthetic() {
-        Some(source) => Ok((vec![source.size], 0)),
+    match synthetic_size() {
+        Some(size) => Ok((vec![size], 0)),
         None => crate::mac::capture::displays(),
     }
 }
@@ -182,7 +182,7 @@ pub fn default_max_fps(display: &str) -> u32 {
         60
     }
     #[cfg(target_os = "macos")]
-    return match synthetic() {
+    return match synthetic_size() {
         Some(_) => crate::mac::capture::FALLBACK_FPS,
         None => crate::mac::capture::refresh_fps(display),
     };
