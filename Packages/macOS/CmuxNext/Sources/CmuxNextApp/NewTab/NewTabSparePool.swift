@@ -17,7 +17,7 @@ import CmuxNextWakeups
 /// pane content Cmd-T fills (the target window's focused pane) and follows it in one fit once the layout is still, never in
 /// a motion's frames (RESIZE MAIN BUDGET: in a key resize's spring that fit cost a frame); a Cmd-T during a motion puts
 /// it in its pane, whose layout sizes it (`debug.new_tab` records that as `Opening.refit`). Memory pressure drops the spare. A spare
-/// exists while the new tab page is likely: a person's Cmd-T always opens it.
+/// exists while the new tab page is likely: a person's Cmd-T always opens it. A burst of opens raises the count of spares for a minute (`AgentPaneSpareDemand`).
 @MainActor
 final class NewTabSparePool {
     typealias Opening = AgentPaneSpareOpening
@@ -30,7 +30,8 @@ final class NewTabSparePool {
     private unowned let services: AppServices
     /// One spare: each is a renderer and an acpmux client at idle (Home idle memory, Leo 2026-11-14); `debug.new_tab capacity` raises it.
     private var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: 1)
-    private(set) lazy var refills = AgentPaneSpareRefiller(on: services.mainWork, inInput: { [weak self] in self?.services.inputDispatch.event != nil }) { [weak self] in
+    private(set) lazy var refills = AgentPaneSpareRefiller(on: services.mainWork, inInput: { [weak self] in self?.services.inputDispatch.event != nil },
+                                                           room: { [weak self] in self?.room ?? 0 }, resize: { [weak self] in self?.resize(to: $0) }) { [weak self] in
         self?.prepareParked()
         self?.warmNow()
     }
@@ -38,7 +39,7 @@ final class NewTabSparePool {
     /// How many spares the pool keeps (`debug.new_tab capacity`); one already parked over it stays until handed out.
     var capacity: Int {
         get { slot.capacity }
-        set { slot.capacity = newValue; scheduleWarm() }
+        set { resize(to: refills.keeps(atLeast: newValue)) }
     }
     /// Memory pressure dropped the spares: none is made again until it is back to normal.
     private var pressured = false
@@ -129,6 +130,7 @@ final class NewTabSparePool {
         // and the tab opens cold as before: adopted, it would hold the open behind its chat list.
         services.agentTabs.takeConnectedSpare = { [weak self] in
             guard let self else { return nil }
+            refills.asked() // a chat's open counts for the pool's size also when it finds no page
             guard let spare = slot.peek,
                   let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
                 AgentPaneSpareOutcome.empty.trace()
@@ -269,6 +271,7 @@ final class NewTabSparePool {
     /// (nil: not known yet, Cmd-N): its adoption resizes it.
     func take(for window: NSWindow?, size: NSSize?, refill: AgentPaneSpareRefill = .now, still: AgentPaneSpareRefiller.Still? = nil) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
         if refill != .idle { usedThisSession = true } // idle work (Cmd-N's reservation) served no open: a launch keeps one page
+        if size != nil || (refill == .now && slot.peek != nil) { refills.asked() } // a key's own open counts for the pool's size; a tab made after it asks again and counts only with a page
         observeWindows()
         if target == nil, let window { retarget(window) }
         guard let view = slot.take() else { return nil }
@@ -343,11 +346,7 @@ final class NewTabSparePool {
         nativeSpare?.removeFromSuperview()
         nativeSpare = nil
         awaitingPaint.removeAll()
-        for view in slot.dropAll() {
-            covers.forget(view)
-            view.removeFromSuperview()
-            view.close()
-        }
+        covers.discard(slot.dropAll())
     }
 
     static func milliseconds(since start: ContinuousClock.Instant) -> Double { AgentPaneSpareOpening.milliseconds(since: start) }
@@ -357,7 +356,7 @@ final class NewTabSparePool {
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
         guard !pressured else { return }
-        let web = services.agentTabs.canHostChat && wantsPage
+        let web = services.agentTabs.canHostChat && room > 0
         guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
@@ -387,7 +386,8 @@ final class NewTabSparePool {
         warmTimer.schedule(after: launch ? Self.openSettle : idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
-    private var wantsPage: Bool { slot.count < (usedThisSession ? slot.capacity : 1) } // a launch loads one page
+    private var room: Int { max(0, (usedThisSession ? slot.capacity : 1) - slot.count) } // the pages the pool can make now; a launch loads one page
+    private func resize(to count: Int) { let over = slot.trim(to: count); awaitingPaint.subtract(over.map(ObjectIdentifier.init)); covers.discard(over); scheduleWarm() } // the size rule's count changed: the parked pages over it go
 
     private func warmNow() {
         if refills.settled() { schedulePrepare() } // the backstop ends an open whose page never reported its frame
@@ -397,7 +397,7 @@ final class NewTabSparePool {
         guard services.agentTabs.canHostChat else { return }
         returns.expire(after: AgentPaneSpareReturns.limit, in: parking)
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
-        guard wantsPage, !pressured, let content = target?.contentView else { return }
+        guard room > 0, !pressured, let content = target?.contentView else { return }
         let start = ContinuousClock.now, page = NewTabPage.sparePage(services)
         let made = BenchSpans.measure("pool.makeSpare") { makeSpare?(page) ?? services.agentTabs.makeSpare(page) }
         if ContinuousClock.now - start > .seconds(1) { webKit.markSlow() } // it held the main thread
@@ -409,7 +409,7 @@ final class NewTabSparePool {
         slot.parked(view)
         snapshotParked(view)
         schedulePrepare()
-        if wantsPage { scheduleWarm() }
+        if room > 0 { scheduleWarm() }
     }
 
     private func watchMemoryPressure() {
@@ -417,7 +417,7 @@ final class NewTabSparePool {
         pressureObservation = memoryPressure.observe { [weak self] level in
             guard let self else { return }
             pressured = level != .normal
-            if pressured { dropAll() } else { scheduleWarm() }
+            if pressured { refills.forget(); dropAll() } else { scheduleWarm() }
         }
     }
 }

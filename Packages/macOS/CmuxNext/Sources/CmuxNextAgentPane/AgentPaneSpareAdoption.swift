@@ -112,6 +112,15 @@ public nonisolated struct AgentPaneSpareSlot<Spare> {
         spares.isEmpty ? nil : spares.removeFirst()
     }
 
+    /// Sets ``capacity`` to `count` and takes the spares over it out of the queue: the newest ones. The next to
+    /// hand out stays: it drew the context of the next open.
+    public mutating func trim(to count: Int) -> [Spare] {
+        capacity = count
+        let over = Array(spares.dropFirst(capacity))
+        spares.removeLast(over.count)
+        return over
+    }
+
     /// Every spare, out of the queue (memory pressure, the last window closing).
     public mutating func dropAll() -> [Spare] {
         defer { spares.removeAll() }

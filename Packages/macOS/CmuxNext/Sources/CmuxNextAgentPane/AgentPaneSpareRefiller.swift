@@ -17,8 +17,16 @@ public import CmuxNextWakeups
 /// drag's or a menu's own run loop makes nothing, and the make waits ``settle`` again. It does not ask every frame:
 /// a modal panel can keep one event in dispatch for minutes, and a waiting make must not keep the frames running.
 ///
+/// The refiller also holds the pool's size rule (``AgentPaneSpareDemand``, decision 2026-11-16). Each open tells it
+/// (``asked()``), and it tells the pool its size. After a refill's first page, each more page of that size is made
+/// at the next quiet frame, one page for each frame. ``AgentPaneSpareDemand/release`` after the last open, the pool
+/// is back to its own count: the release is one background task too, and never runs while an input event is in
+/// dispatch.
+///
 /// ```swift
-/// let refills = AgentPaneSpareRefiller(on: mainWork, inInput: { dispatch.event != nil }) { pool.warmNow() }
+/// let refills = AgentPaneSpareRefiller(on: mainWork, inInput: { dispatch.event != nil }, room: { pool.room },
+///                                      resize: { pool.resize(to: $0) }) { pool.warmNow() }
+/// refills.asked()
 /// refills.afterOpen(shown: view) { strip.whenStill($0) }
 /// refills.afterPaint(of: chatPage)
 /// ```
@@ -40,8 +48,10 @@ public final class AgentPaneSpareRefiller {
     public struct Counts: Equatable, Sendable {
         /// Makes that ran, each one background task on the app's scheduler.
         public var makes = 0
-        /// Times a make found an input event in dispatch, made nothing and waited the settle again.
+        /// Times a make or a release found an input event in dispatch, did nothing and waited the settle again.
         public var heldForInput = 0
+        /// Releases that ran (the pool went back to its own count), each one background task on the app's scheduler.
+        public var releases = 0
 
         public init() {}
     }
@@ -50,18 +60,29 @@ public final class AgentPaneSpareRefiller {
     public private(set) var counts = Counts()
 
     /// The clock of the refiller's waits. A test sets its own and moves it by hand. A wait that runs at that moment
-    /// ends with no make (the pool's quiet-input warm makes that page), so no wait is left on the old clock.
+    /// ends with no make (the pool's quiet-input warm makes that page) and the bursts' count goes, so no wait and no
+    /// time of the old clock is left.
     public var clock: any Clock<Duration> {
         didSet {
             settled()
+            forget()
             timer = DemandTimer(owner: timer.owner, clock: clock)
+            releaseTimer = DemandTimer(owner: releaseTimer.owner, clock: clock)
+            elapsed = Self.sinceNow(on: clock)
         }
     }
 
     private let queue: FrameBatchQueue
+    private let releaseQueue: FrameBatchQueue
     private var timer: DemandTimer
+    private var releaseTimer: DemandTimer
+    /// The time on ``clock`` since it was set: when each open asked.
+    private var elapsed: @MainActor () -> Duration
+    private var demand = AgentPaneSpareDemand()
     private let make: @MainActor () -> Void
     private let inInput: @MainActor () -> Bool
+    private let room: @MainActor () -> Int
+    private let resize: @MainActor (Int) -> Void
     /// The latest open's number: an earlier open's wait that a later open overtook does nothing.
     private var generation = 0
     /// From a handout until its open settled: the pool changes no parked page meanwhile (no prepare, no make).
@@ -71,16 +92,80 @@ public final class AgentPaneSpareRefiller {
     ///   - work: The app's main-thread scheduler; each make is a background task on it.
     ///   - clock: The settle's clock (tests move it by hand).
     ///   - inInput: Whether an input event (a key, a click, a scroll) is in dispatch now: the app's input dispatch
-    ///     context. A make that would start meanwhile waits the settle again.
+    ///     context. A make or a release that would start meanwhile waits the settle again.
+    ///   - room: How many pages the pool can still make now to reach its size. After a make that lowered it and left
+    ///     some, the next page follows at the next quiet frame.
+    ///   - resize: The pool keeps this many pages from now on (the size rule); it drops the parked ones over it.
     ///   - make: Runs once the latest open settled: the pool prepares its parked pages and makes one when it has room.
     public init(on work: MainWorkScheduler, clock: any Clock<Duration> = ContinuousClock(), inInput: @escaping @MainActor () -> Bool = { false },
+                room: @escaping @MainActor () -> Int = { 0 }, resize: @escaping @MainActor (Int) -> Void = { _ in },
                 make: @escaping @MainActor () -> Void) {
         queue = FrameBatchQueue(owner: "NewTabSparePool.warm", budgeted: .background, on: work)
+        releaseQueue = FrameBatchQueue(owner: "NewTabSparePool.release", budgeted: .background, on: work)
         self.clock = clock
         timer = DemandTimer(owner: "NewTabSparePool.refill", clock: clock)
+        releaseTimer = DemandTimer(owner: "NewTabSparePool.release", clock: clock)
+        elapsed = Self.sinceNow(on: clock)
         self.inInput = inInput
+        self.room = room
+        self.resize = resize
         self.make = make
     }
+
+    /// The time on `clock` since this call.
+    private static func sinceNow<C: Clock<Duration>>(on clock: C) -> @MainActor () -> Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
+    }
+
+    // MARK: The pool's size
+
+    /// The pages the pool keeps now, by the size rule.
+    public var size: Int { demand.size }
+
+    /// An open asked the pool for a page, also one that found none: the pool's size follows the burst, and the
+    /// release comes ``AgentPaneSpareDemand/release`` after the last open.
+    public func asked() {
+        let before = demand.size
+        let size = demand.asked(at: elapsed())
+        if size != before { resize(size) }
+        guard demand.isGrown else { return }
+        releaseTimer.schedule(after: AgentPaneSpareDemand.release) { @MainActor [weak self] in self?.enqueueRelease() }
+    }
+
+    /// The pool's own count is `count` from now on (`debug.new_tab capacity`): the rule never goes below it.
+    /// - Returns: The pages the pool keeps now.
+    public func keeps(atLeast count: Int) -> Int {
+        demand.floor = count
+        return demand.size
+    }
+
+    /// Memory pressure dropped the pages: the bursts' count goes with them, and no release is due.
+    public func forget() {
+        releaseTimer.cancel()
+        let before = demand.size
+        demand.forget()
+        if demand.size != before { resize(demand.size) }
+    }
+
+    /// One background task on the app's scheduler, as a make: the pool goes back to its own count unless an open
+    /// came in the meantime. A frame that comes while an input event is in dispatch releases nothing: closing a
+    /// page is main-thread work too.
+    private func enqueueRelease() {
+        releaseQueue.enqueue { [weak self] in
+            guard let self else { return }
+            guard !inInput() else {
+                counts.heldForInput += 1
+                releaseTimer.schedule(after: Self.settle) { @MainActor [weak self] in self?.enqueueRelease() }
+                return
+            }
+            guard let size = demand.released(at: elapsed()) else { return }
+            counts.releases += 1
+            resize(size)
+        }
+    }
+
+    // MARK: The refill
 
     /// The pool's own quiet-input warm ran: no open is pending any more.
     /// - Returns: Whether an open was pending.
@@ -147,6 +232,8 @@ public final class AgentPaneSpareRefiller {
 
     /// One background task on the app's scheduler. A frame that comes while an input event is in dispatch makes
     /// nothing: the make waits the settle again (the pool's quiet-input warm ends that wait when it runs first).
+    /// When the pool has room for more pages after a make that added one (the size rule), the next make is the next
+    /// frame's task: one page for each frame. A make that added no page ends the row (the pool cannot make one now).
     private func enqueueMake(for open: Int) {
         guard open == generation else { return }
         queue.enqueue { [weak self] in
@@ -158,7 +245,10 @@ public final class AgentPaneSpareRefiller {
             }
             isOpening = false
             counts.makes += 1
+            let before = room()
             make()
+            let left = room()
+            if left > 0, left < before { enqueueMake(for: open) }
         }
     }
 }

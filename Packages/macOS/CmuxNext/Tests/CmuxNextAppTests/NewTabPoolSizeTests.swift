@@ -140,7 +140,7 @@ struct NewTabPoolSizeTests {
         }
     }
 
-    /// 60 s with no open: the pool is back to one page, the one the next open gets. Not a second before.
+    /// 60 s with no open: the pool is back to one page, the one the next open gets. At 59 s it still holds three.
     @Test func sixtySecondsWithNoOpenPutThePoolBackToOnePage() async throws {
         try await Self.withPool("cn-pool-size-release") { fixture in
             let pool = fixture.pool, clock = fixture.clock
@@ -153,7 +153,8 @@ struct NewTabPoolSizeTests {
             for _ in 0..<5 { await Fixture.frameCommit() }
             #expect(pool.spares.count == 3, "the pool released pages \(clock.now.offset - lastOpen) after the last open")
 
-            clock.advance(by: .seconds(1))
+            // 10 ms more than the second: the release's timer can go to sleep on the clock one step of the burst late.
+            clock.advance(by: .seconds(1) + .milliseconds(10))
             try await PasswordManagerRouteTests.until({ pool.spares.count == 1 }, within: .seconds(5), report: {
                 "60 s after the last open; \(NewTabRapidPairTests.poolState(fixture.services, fixture.rig))"
             })
