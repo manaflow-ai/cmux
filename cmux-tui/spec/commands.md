@@ -2301,6 +2301,13 @@ The rules:
   active tab; the page closes. `a` is the active tab until the terminal's
   tab comes, and the terminal's tab is the active tab after that. A close of
   a tab that is not the active tab gives the active tab to no tab.
+- A limit of that rule. A close request of the active tab can fail (the
+  daemon refuses it by a rule of its session), and the tab stays. When the
+  entry that the close gives the active tab to is the slot of a tab that
+  still launches, and the tab that stays moves to another pane before the
+  new tab comes, the daemon reads the move as the close: the new tab takes
+  the active tab of the pane when it comes, also when a later create request
+  took the active tab before.
 - A retry of a create request with an `idempotency_key` sends the same
   `place` and `transaction` as the first request: both are part of the
   request that the key names.
