@@ -32,7 +32,9 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
         super.init(frame: frame)
         drawsBackground = false
         hasVerticalScroller = true
-        SystemScrollers.follow(self)
+        // The sidebar's thin knob on no track: the stock scroller drew a gray track on a Mac set to
+        // show legacy scroll bars and took its width from every row (Lawrence 2026-11-15).
+        SystemScrollers.followThin(self)
         automaticallyAdjustsContentInsets = false
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("palette.column"))
         table.addTableColumn(column)

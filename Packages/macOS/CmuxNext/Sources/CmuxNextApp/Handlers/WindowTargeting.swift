@@ -8,7 +8,7 @@ struct WindowTargeting {
     var keyWindow: NSWindow?
     /// Every app window, front to back (`NSApp.orderedWindows`).
     var ordered: [NSWindow]
-    /// The cmux shell windows.
+    /// The cmux shell windows, in the order they were opened.
     var shells: [NSWindow]
 
     @MainActor
@@ -27,13 +27,13 @@ struct WindowTargeting {
         return shown + shells.filter { window in !shown.contains { $0 === window } }
     }
 
-    /// The shell window `offset` places from the target, front to back,
-    /// wrapping; nil with fewer than two windows.
+    /// The shell window `offset` places from the target in the order of `shells`, wrapping; nil with fewer
+    /// than two windows. That order does not change when a window comes to the front, so repeated presses
+    /// reach each window; front to back, the window a press leaves is next again and a third is not reached.
     func cycled(_ offset: Int) -> NSWindow? {
-        let list = frontToBack
-        guard list.count > 1 else { return nil }
-        let current = target.flatMap { window in list.firstIndex { $0 === window } } ?? 0
-        return list[((current + offset) % list.count + list.count) % list.count]
+        guard shells.count > 1 else { return nil }
+        let current = target.flatMap { window in shells.firstIndex { $0 === window } } ?? 0
+        return shells[((current + offset) % shells.count + shells.count) % shells.count]
     }
 
     /// Closes `window` the way its close button would (its delegate's

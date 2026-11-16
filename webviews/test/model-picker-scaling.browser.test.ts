@@ -5,6 +5,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -61,7 +62,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
           await page.addStyleTag({
             content: `.acpmux-model { position: fixed; left: ${left}px; top: 300px; margin: 0; }`,
           });
-          await page.locator(".acpmux-model .acpmux-picker-button").click();
+          await page.locator(MODEL_PICKER).click();
           await page.addScriptTag({
             type: "module",
             content: `
@@ -230,7 +231,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         const reopen = async () => {
           await page.keyboard.press("Escape");
           await page.locator(".acpmux-cols").waitFor({ state: "detached" });
-          await page.locator(".acpmux-model .acpmux-picker-button").click();
+          await page.locator(MODEL_PICKER).click();
           await page.locator(".acpmux-cols-body").waitFor();
           await page.waitForFunction(
             () => !!document.querySelector<HTMLElement>(".acpmux-cols-frame")?.dataset.fitHeight,
