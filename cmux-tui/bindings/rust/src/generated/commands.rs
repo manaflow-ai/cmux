@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 145ed467dcba51946c60ca8de389e6ef76a985ab08b05534873aa9f18d93e9c0.
+// cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3937,6 +3937,14 @@ pub struct TerminalClipboardSubscribeRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandContextRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub intent: Option<T::TerminalCommandContextIntent>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TerminalEventsRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -5953,6 +5961,10 @@ impl CmuxClient {
 
     pub fn terminal_clipboard_subscribe(&mut self, request: TerminalClipboardSubscribeRequest) -> Result<CmuxStream> {
         self.execute_stream(&TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn terminal_command_context(&mut self, request: TerminalCommandContextRequest) -> Result<T::TerminalCommandContextResult> {
+        self.execute(&TERMINAL_COMMAND_CONTEXT_METADATA, &request)
     }
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {

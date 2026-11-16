@@ -21,8 +21,16 @@ fn repo() -> PathBuf {
 
 /// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
 /// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
-/// these rows with the re-pin, which takes them off this list (#38644, #41954).
-const AWAITING_REPIN: &[&str] = &["app.menu.run"];
+/// these rows with the re-pin, which takes them off this list (#38644, #41954, and the catalog
+/// request rows).
+const AWAITING_REPIN: &[&str] = &[
+    "app.try.run",
+    "app.try.undo",
+    "terminal.fixLastCommand",
+    "terminal.sendLastOutputToChat",
+    "terminal.sendSelectionToChat",
+    "workspace.unpinFromSpace",
+];
 
 /// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
 /// lists) does not have yet: once the export has it, it comes off the list.
@@ -65,7 +73,7 @@ fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
 /// an app FFI change, docs/ci/app-ffi-release.md): until the re-pin the exports still show the
 /// old shortcut. Leo, 2026-11-15, on Toggle Terminal and Chat: "idk if the terminal gui should
 /// even get a hotkey by default".
-const SHORTCUT_REMOVAL_AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat"];
+const SHORTCUT_REMOVAL_AWAITING_REPIN: &[&str] = &[];
 
 /// Whether `id`'s exported shortcut may still be the pinned app's while the crate has none.
 fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
@@ -77,8 +85,21 @@ fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
 /// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
 /// field of the row is still compared. A listed field the dump already shows as this crate has
 /// it fails: the re-pin landed, so take it off.
-const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] =
-    &[("palette.toggleTerminalChat", &["/defaultShortcut"])];
+const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[
+    ("machine.joined.check", JOINED_PALETTE_ROW),
+    ("machine.joined.rotate", JOINED_PALETTE_ROW),
+    ("machine.joined.revoke", JOINED_PALETTE_ROW),
+];
+
+/// The fields a joined machine's action changed when it became a palette row that asks which
+/// joined machine (`palette_target_source` `joined`).
+const JOINED_PALETTE_ROW: &[&str] = &[
+    "/surfaces",
+    "/surfacePlan/palette",
+    "/paletteTarget",
+    "/paletteTargetSource",
+    "/computed/is_palette_visible",
+];
 
 /// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
 /// checking that the two still differ there.
@@ -112,7 +133,12 @@ fn awaiting_field_repin(rust: &mut Value, swift: &Value) {
 /// Whether `id`'s exported arguments may still be the pinned app's (see
 /// [`FIELDS_AWAITING_REPIN`]).
 fn arguments_await_repin(id: &str) -> bool {
-    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| *i == id && fields.contains(&"/arguments"))
+    field_awaits_repin(id, "/arguments")
+}
+
+/// Whether `id`'s FIELD is on [`FIELDS_AWAITING_REPIN`].
+fn field_awaits_repin(id: &str, field: &str) -> bool {
+    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| *i == id && fields.contains(&field))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -301,7 +327,15 @@ fn action_list_export_matches() {
         let id = action.id;
         assert_eq!(row["id"], id);
         assert_eq!(row["cli_name"], action.cli_name, "{id}");
-        assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
+        if field_awaits_repin(id, "/surfacePlan/palette") {
+            assert_ne!(
+                row["palette"],
+                action.surface_plan.palette.wire(),
+                "action-surfaces.json has {id}'s palette decision: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+            );
+        } else {
+            assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
+        }
         assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
         assert_eq!(
             row["context_menu"],
@@ -394,6 +428,29 @@ fn ids_and_cli_names_are_unique() {
     for action in cmux_action_catalog::actions() {
         assert!(ids.insert(action.id), "{} twice", action.id);
         assert!(cli.insert(action.cli_name), "CLI name {} twice", action.cli_name);
+    }
+}
+
+/// ActionSurfaceParityTests.declarationsAreConsistent's MCP rule, checked here at step A: an MCP
+/// exemption needs a CLI verb, since an action the CLI exempts already leaves MCP with the CLI's
+/// reason. Without this, a row like `ownerVerb` plus `systemChange` passes this crate and turns the
+/// Swift suite red only once the re-pin ships it (review F1 on #43637).
+#[test]
+fn mcp_exemptions_have_a_cli_verb() {
+    use cmux_action_catalog::Decision;
+    for action in cmux_action_catalog::actions() {
+        let plan = action.surface_plan;
+        let Some(mcp) = plan.mcp_exemption else { continue };
+        assert!(
+            !matches!(plan.cli, Some(Decision::Exempt(_))),
+            "{}: an MCP exemption without a CLI verb (the CLI exemption already covers MCP)",
+            action.id
+        );
+        assert!(
+            ["credentials", "endsApp", "systemChange"].contains(&mcp),
+            "{}: MCP reason {mcp}",
+            action.id
+        );
     }
 }
 

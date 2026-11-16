@@ -138,7 +138,6 @@ version = "1.0.0"
 name = "acpmux-client"
 version = "1.0.0"
 dependencies = [
- "acpmux-book",
  "acpmux-list-types",
  "serde",
  "serde_json",
@@ -1120,6 +1119,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-cli-render"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
+ "base64",
+ "ghostty-vt",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -1460,6 +1469,7 @@ dependencies = [
  "jsonschema",
  "notify",
  "plist",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1907,11 +1917,15 @@ version = "0.2.3"
 dependencies = [
  "cc",
  "cmux-encode",
+ "cmux-process",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
  "libc",
+ "ring",
+ "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
@@ -2218,6 +2232,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-action-catalog",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -2274,6 +2289,7 @@ dependencies = [
  "core-foundation 0.10.1",
  "crossbeam-channel",
  "crossterm",
+ "dhat",
  "diffy",
  "flate2",
  "fs4",
@@ -2425,6 +2441,7 @@ dependencies = [
  "tungstenite",
  "uds_windows",
  "url",
+ "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
@@ -3927,6 +3944,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "ghostty-vt-sys",
+ "memchr",
  "png",
 ]
 

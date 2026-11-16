@@ -203,6 +203,8 @@ pub(super) struct Fixture {
     /// Peer sessions each list answers beside this machine's ([`peer_rows`]); a served
     /// `localOnly` leaves them out.
     pub(super) peer_rows: usize,
+    /// The attach answers as a peer's chat, forwarded (`peer` on the page).
+    pub(super) attach_peer: bool,
     /// The rows and bytes of every session list the fake answered (`_acpmux/watch` and
     /// `_acpmux/sessions`): what a client read.
     pub(super) list_reads: Arc<Mutex<ListReads>>,
@@ -370,13 +372,17 @@ fn serve(
                     json!({"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}),
                 ];
                 events.extend(fixture.page.iter().cloned());
-                Some(json!({
+                let mut page = json!({
                     "session": {"sessionId": SESSION, "name": "sub", "status": "running",
                                 "pending": [{"permissionId": "perm_attach", "options": []}]},
                     "events": events,
                     "hasMore": false,
                     "lastSeq": 1,
-                }))
+                });
+                if fixture.attach_peer {
+                    page["peer"] = json!("peer-mac");
+                }
+                Some(page)
             }
             // A watch with a page size turns the notices on; the attach reads this machine's own
             // list after it (`localOnly`). A whole watch (no limit) answers that list itself.
@@ -1080,6 +1086,62 @@ fn attach_replays_the_page_and_streams_live_records_of_that_session_only() {
     assert_eq!(changed["event"], json!("agent-session-changed"));
     assert_eq!(changed["change"]["session"]["status"], json!("idle"));
     assert!(client.event(Duration::from_millis(200)).is_none(), "nothing of other sessions");
+}
+
+#[test]
+fn an_unfiltered_stream_closes_on_a_sequence_gap_for_replay() {
+    let mut fake = FakeAcpmux::start("stream-gap");
+    let mux = mux_with(&fake, "asa-stream-gap");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-gap");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // The native client must not accept seq 4 while seq 3 is absent. Closing
+    // makes its normal after-seq attach replay the missing record.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 4, "kind": "agent_message"}));
+    let closed = client.event(WAIT).expect("a close for the gap");
+    assert_eq!(closed["event"], json!("agent-session-closed"));
+    assert_eq!(closed["reason"], json!("gap"));
+}
+
+#[test]
+fn an_unfiltered_stream_passes_an_overlap_without_a_gap_close() {
+    let mut fake = FakeAcpmux::start("stream-overlap");
+    let mux = mux_with(&fake, "asa-stream-overlap");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-overlap");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // A record the page already covers (written while the attach read it) is
+    // an overlap the client drops, not a gap; the next one still continues.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 1, "kind": "agent_message"}));
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 3, "kind": "agent_message"}));
+    for seq in [1, 3] {
+        let event = client.event(WAIT).expect("a record, not a close");
+        assert_eq!(event["event"], json!("agent-session-record"), "{event}");
+        assert_eq!(event["record"]["seq"], json!(seq));
+    }
+}
+
+#[test]
+fn a_peer_chat_stream_passes_its_holes() {
+    let fixture = Fixture { attach_peer: true, ..Fixture::default() };
+    let mut fake = FakeAcpmux::start_with("stream-peer-holes", fixture);
+    let mux = mux_with(&fake, "asa-stream-peer-holes");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-peer-holes");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // A peer's link is not sent every record (`MUX_UNSENT`): its seqs have holes.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 4, "kind": "agent_message"}));
+    let event = client.event(WAIT).expect("the record, not a close");
+    assert_eq!(event["event"], json!("agent-session-record"), "{event}");
 }
 
 #[test]

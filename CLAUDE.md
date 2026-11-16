@@ -6,6 +6,22 @@ Read the matching skill before changing an area, then only the references needed
 
 **Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
 
+## The loop: use it first, then test
+
+Write the code, put it into your running cmux, use it (screenshot, video, click through it), and only then run
+the slow checks: compile, CI, gallery, suites. 70% of recent Mac-app PRs go into a running app with no build (cmuxterm-hq hot-swap layers doc).
+Full loop and examples: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md); for people:
+[docs/cmux-next/hot-reload.md](docs/cmux-next/hot-reload.md#the-loop).
+
+| Layer | Into the running app |
+|---|---|
+| Web (`webviews/`) | `cmux customize use pr:N`, `branch:NAME`, `sha:SHA`, `dir:PATH [--watch]` (re-applied about 19 s after a save on a fleet Mac) or a fork's `OWNER/REPO@REF` (from the fork's own CI); back with `cmux customize library off NAME` or `off --all`. `library status` shows what is on, `library refresh` re-pulls |
+| Terminal daemon, acpmux Rust (`cmux-tui/`) | `scripts/cmux-next/hot-apply.py plan SHA`, `apply SHA`, `rollback` (about 2.7 s; `--restart-sessions` also hands other sessions' daemons over, about 6.9 s once its fix lands) |
+| A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>`, back with `cmux app try undo` |
+| Swift, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
+
+Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a Developer ID NIGHTLY is held back.
+
 ## Verification and isolation
 
 - Before committing, setup or a native build, [choose scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md).

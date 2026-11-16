@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 145ed467dcba51946c60ca8de389e6ef76a985ab08b05534873aa9f18d93e9c0. */
+/* cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "145ed467dcba51946c60ca8de389e6ef76a985ab08b05534873aa9f18d93e9c0" as const;
+export const SDK_IR_SHA256 = "725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3521,6 +3521,17 @@ export const COMMAND_METADATA = {
       "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
     ]
   },
+  "terminal-command-context": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-command-context-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Read from the surface's screen when asked; nothing is read per output line and no command history is needed.",
+      "Null without shell integration, on the alternate screen and while a command runs."
+    ]
+  },
   "terminal-events": {
     "authority": "control",
     "since": 9,
@@ -4362,6 +4373,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "screen-device-changed": {
+    "since": 12,
+    "capability": "screen-device-identity-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -8074,6 +8093,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "required",
         "since": 7,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen_device_id": {
+        "capability": "machine-identity-v1",
+        "constraints": [
+          "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -14152,6 +14184,81 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ColorHex"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalCommandContext": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "cwd": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "exit_code": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "output": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "text": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "truncated": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalCommandContextIntent": {
+    "kind": "enum",
+    "values": [
+      "context",
+      "fix"
+    ]
+  },
+  "TerminalCommandContextResult": {
+    "additional_properties": false,
+    "fields": {
+      "context": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalCommandContext"
         }
       }
     },
@@ -29534,6 +29641,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "TerminalClipboardSubscribeResult"
     }
   },
+  "terminal-command-context": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "intent": {
+          "default": "context",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "TerminalCommandContextIntent"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalCommandContextResult"
+    }
+  },
   "terminal-events": {
     "request": {
       "additional_properties": false,
@@ -33672,6 +33808,33 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "screen-device-changed": {
+    "additional_properties": false,
+    "constraints": [
+      "Delivered only to authenticated owner app subscribers (local Unix or owner WebSocket); page relays, paired clients, and other remote clients do not receive it.",
+      "The subscription sends one current-value replay before live events. A null replay or event means the worker has no available screen identity."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "screen-device-changed"
+        }
+      },
+      "screen_device_id": {
+        "description": "The authenticated worker screen UUID, or null when the worker is unavailable.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
