@@ -1396,6 +1396,16 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func openSurface(argsJson: String, observer: BrowserObserver) async throws  -> BrowserStream
     
+    /**
+     * Before the OS suspends the app: ask the Mac to hold this link for up
+     * to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+     * at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+     * `true`: parked, and nothing on the link wakes the phone until
+     * `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+     * which cannot be held; the link closes on silence as before.
+     */
+    func park(holdMs: UInt32, timeoutMs: UInt32) async throws  -> Bool
+    
     func path()  -> LinkPath
     
     /**
@@ -1419,6 +1429,14 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * heartbeat probes only a link quiet for a whole beat.
      */
     func receivedAgoMs()  -> UInt64
+    
+    /**
+     * Back from the background: the link expects the Mac again. `true` when
+     * it was parked and its hold has not passed. The tunnel then moves onto
+     * a fresh socket (as on a network change) and the caller probes; the
+     * first frame back ends the park on both sides.
+     */
+    func resume()  -> Bool
     
     /**
      * The latest WireGuard roam of this link (`network_changed`,
@@ -1673,6 +1691,31 @@ open func openSurface(argsJson: String, observer: BrowserObserver)async throws  
         )
 }
     
+    /**
+     * Before the OS suspends the app: ask the Mac to hold this link for up
+     * to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+     * at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+     * `true`: parked, and nothing on the link wakes the phone until
+     * `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+     * which cannot be held; the link closes on silence as before.
+     */
+open func park(holdMs: UInt32, timeoutMs: UInt32)async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_park(
+                    self.uniffiCloneHandle(),
+                    FfiConverterUInt32.lower(holdMs),FfiConverterUInt32.lower(timeoutMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_i8,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_i8,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
 open func path() -> LinkPath  {
     return try!  FfiConverterTypeLinkPath_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_path(
@@ -1734,6 +1777,20 @@ open func probe(timeoutMs: UInt32)async throws  -> UInt32?  {
 open func receivedAgoMs() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_received_ago_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Back from the background: the link expects the Mac again. `true` when
+     * it was parked and its hold has not passed. The tunnel then moves onto
+     * a fresh socket (as on a network change) and the caller probes; the
+     * first frame back ends the park on both sides.
+     */
+open func resume() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_resume(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -5180,6 +5237,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_surface() != 44893) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_park() != 63347) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_path() != 46489) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5190,6 +5250,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume() != 43166) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {
