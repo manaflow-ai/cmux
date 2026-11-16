@@ -89,6 +89,9 @@ export class ChatAdapter {
   /// `earlierPrompts`' last answer, by the heads and the first row held it was read from: a text
   /// delta or a settled row below the first makes no new list.
   #earlier: { heads: ChatRowsSnapshot["heads"]; first: number | undefined; list: readonly AcpmuxRow[] } | undefined;
+  /// The line drawn for each hole, by row id: a hole has no ChatRow to key `#made` by, so its line
+  /// is kept while its rev and time stay, and only the holes the last snapshot held are kept.
+  #holes = new Map<number, AcpmuxRow>();
 
   constructor(readonly context: ChatRowsContext) {}
 
@@ -102,10 +105,20 @@ export class ChatAdapter {
     for (const entry of snapshot.rows) if (entry.row) held.set(entry.id, entry.row);
     for (const entry of snapshot.apart) if (entry.row) held.set(entry.id, entry.row);
     const rows: AcpmuxRow[] = [];
+    const holes = new Map<number, AcpmuxRow>();
     for (const entries of [snapshot.rows, snapshot.apart])
-      for (const entry of entries) {
+      for (const [index, entry] of entries.entries()) {
         const row = entry.row;
-        if (!row) continue;
+        if (!row) {
+          // The view's rows are in time order (turns.ts finds a change by `at`): a hole takes the
+          // time of the row before it, or of the first held row after it when it leads.
+          const at = rows.at(-1)?.at ?? nextAt(entries, index);
+          let line = this.#holes.get(entry.id);
+          if (!line || line.version !== holeVersion(entry) || line.at !== at) line = holeRow(entry, at);
+          holes.set(entry.id, line);
+          rows.push(line);
+          continue;
+        }
         const group = row.kind === "notice" && row.group ? held.get(row.group) : undefined;
         let made = this.#made.get(row);
         if (!made || made.group !== group) {
@@ -114,6 +127,7 @@ export class ChatAdapter {
         }
         rows.push(...made.rows);
       }
+    this.#holes = holes;
     const first = snapshot.rows[0]?.id;
     let earlier = this.#earlier;
     if (!earlier || earlier.heads !== snapshot.heads || earlier.first !== first)
@@ -131,7 +145,33 @@ export class ChatAdapter {
   }
 }
 
-/// One held row as the view's rows: none for a group row (the turn's shape reads it) or a hole.
+/// A hole's version: below every real rev, so the row that fills it (same id, `row-<id>`) is a
+/// new version of that one row, never mistaken for the line (decision 377(e)).
+const holeVersion = (entry: ChatRowEntry): number => -1 - entry.rev;
+
+/// A refused row as one line where the row will be: the id the filled row will have, so the list
+/// sees one row change in place when a later window or page holds it.
+function holeRow(entry: ChatRowEntry, at: number): AcpmuxRow {
+  return {
+    id: `row-${entry.id}`,
+    version: holeVersion(entry),
+    at,
+    kind: "notice",
+    text: translate("transcript.rowRefused"),
+  };
+}
+
+/// The time of the first held row after `index` (ms), 0 when none is held.
+function nextAt(entries: readonly ChatRowEntry[], index: number): number {
+  for (let next = index + 1; next < entries.length; next += 1) {
+    const row = entries[next]!.row;
+    if (row) return row.at * 1000;
+  }
+  return 0;
+}
+
+/// One held row as the view's rows: none for a group row (the turn's shape reads it) or a hole
+/// (the adapter draws a hole's line, timed by its neighbours).
 export function adaptRow(
   entry: ChatRowEntry,
   held: ReadonlyMap<number, ChatRow>,
