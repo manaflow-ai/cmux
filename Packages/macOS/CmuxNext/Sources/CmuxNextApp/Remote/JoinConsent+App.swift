@@ -64,7 +64,7 @@ final class JoinConsentPersonLine: JoinConsentLine {
 
     static func open(_ environment: AcpmuxEnvironment?) async -> JoinConsentOpen {
         guard let environment else { return .failed(.notRunning(path: nil)) }
-        switch await AcpmuxPersonLine.connectEnrolling(environment) {
+        return switch await AcpmuxPersonLine.connectEnrolling(environment) {
         case .success(let line): .line(JoinConsentPersonLine(line))
         case .failure(.noSocket(let path)): .failed(.notRunning(path: path))
         case .failure(.refused(let why)): .failed(.refused(why))
@@ -75,6 +75,7 @@ final class JoinConsentPersonLine: JoinConsentLine {
     var isPerson: Bool { line.isPerson }
     var supportsConsent: Bool { line.capabilities.contains(Self.capability) }
     var notProven: JoinConsentUnread? { line.notPersonReason.map { .notProven(foreignPath: line.foreignPeerPath, why: $0.description) } }
+    var readError: String? { line.lastError }
 
     func read() async -> JoinConsentRecord? {
         (await line.call("_acpmux/machine_consent_get", [:])).flatMap(JoinConsentRecord.parse)

@@ -233,7 +233,7 @@ public final class DeviceHubService {
             // wakeup-allow: each failed registration suspends for Rust backoff (capped at 30s); success, cancellation or a replaced hub ends it.
             while !Task.isCancelled {
                 await hub.start()
-                guard case let .failed(detail) = hub.status, !Task.isCancelled, self?.hub === hub else { return }
+                guard case let .failed(detail) = hub.status, hub.connection != .removed, !Task.isCancelled, self?.hub === hub else { return }
                 // DeviceHubError's words: a code, an HTTP status or a transport error, never a token.
                 self?.logger.error("device hub registration failed: \(detail, privacy: .public); trying again")
                 let delay = cmux_retry_pacer_failed(&retry, Double.random(in: 0..<1))

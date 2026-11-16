@@ -52,9 +52,38 @@ public final class JoinConsentAskPanel: NSPanel {
     /// SECURITY: Allow answers here, from the person's click itself, never from the button's action: no
     /// Accessibility press, programmatic click or key reaches a grant, inside a dispatch or out of one.
     func dispatch(_ event: NSEvent, _ body: () -> Void) {
-        guard personClick.dispatch(event, allow: { [content] in content.allow }, in: windowNumber, body) else { return }
+        dispatching += 1
+        let taken = personClick.dispatch(event, allow: { [content] in content.allow }, in: windowNumber, body)
+        dispatching -= 1
+        guard taken else {
+            // A click that ended on Allow but is not the person's own grants nothing, and the sheet says why.
+            if let up = refusedClickOnAllow(event) {
+                model?.allowRefused(why: isPersonEvent(up) ? "a click that began elsewhere, or too soon after the sheet showed"
+                                                            : "a click that is not the HID system's own input (posted by a process or a remote driver)")
+            }
+            return
+        }
         // task-owner: one answer per click; the sheet hides at once and the write ends on its own
         Task { [weak model] in await model?.answer(allow: true) }
+    }
+
+    /// Dispatches in progress: Allow's action inside one is the click's (decided by ``dispatch(_:_:)``).
+    private var dispatching = 0
+
+    /// The mouse-up of `event`'s click when it ended inside the enabled Allow (the click
+    /// ``CmuxDialogPersonClick`` did not take); nil for any other event.
+    private func refusedClickOnAllow(_ event: NSEvent) -> NSEvent? {
+        let up = event.type == .leftMouseDown ? eventInHand() : event
+        guard let up, up.type == .leftMouseUp, up.windowNumber == windowNumber, let allow = content.allow, allow.isEnabled else { return nil }
+        return allow.bounds.contains(allow.convert(up.locationInWindow, from: nil)) ? up : nil
+    }
+
+    /// Allow's action outside any click of this sheet (an Accessibility press, a program's click): it grants
+    /// nothing, and the sheet says why. Inside a click, the click decides.
+    func allowActionPressed() {
+        guard dispatching == 0 else { return }
+        // task-owner: shows the reason after the action returns, so the rebuild never removes a button mid-action
+        Task { [weak model] in model?.allowRefused(why: "a press of Allow that is not a click (Accessibility or a program)") }
     }
 
     /// SECURITY: whether `up` ends the person's own click on `button`, taken once (``CmuxDialogPersonClick``).
@@ -146,8 +175,8 @@ public final class JoinConsentAskView: NSView {
 
     /// SECURITY: a press of Allow through its action (an Accessibility press, a programmatic click, a key)
     /// answers nothing: only the person's own click on Allow allows, read by the panel from the click itself
-    /// (``JoinConsentAskPanel/dispatch(_:_:)``).
-    @objc func allowPressed(_ sender: NSView) {}
+    /// (``JoinConsentAskPanel/dispatch(_:_:)``). Outside a click, the sheet says so (``JoinConsentAskPanel/allowActionPressed()``).
+    @objc func allowPressed(_ sender: NSView) { (window as? JoinConsentAskPanel)?.allowActionPressed() }
     // task-owner: one answer per press; the sheet hides at once and the write ends on its own
     @objc private func denyPressed() { Task { [weak model] in await model?.answer(allow: false) } }
 

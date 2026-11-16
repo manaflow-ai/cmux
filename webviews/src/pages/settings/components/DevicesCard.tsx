@@ -50,6 +50,9 @@ export function DevicesCard() {
 function JoinGroup({ join }: { join: DevicesJoinState }) {
   const store = useStore();
   const [setting, setSetting] = useState<string | null>(null);
+  // The host's refusal of the last switch press itself (not the person's own click): shown, never silent.
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const error = refusal ?? join.error;
   const titleId = useId();
   return (
     <section className="group" data-devices-group="join">
@@ -79,17 +82,21 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
                   labelId={`${titleId}-${item.surface}`}
                   onToggle={(on) => {
                     setSetting(item.surface);
-                    void store.setJoinConsent(item.surface, on).finally(() => setSetting(null));
+                    setRefusal(null);
+                    void store
+                      .setJoinConsent(item.surface, on)
+                      .then(setRefusal)
+                      .finally(() => setSetting(null));
                   }}
                 />
               </div>
             </div>
           </div>
         ))}
-        {join.error && (
+        {error && (
           <div className="row">
             <div className="row-help" role="alert">
-              {join.error}
+              {error}
             </div>
           </div>
         )}

@@ -139,8 +139,8 @@ import CmuxNextServer
     /// reads, and the line says the proof is what is missing.
     @Test func anUnkeyedOwnDaemonReadsAndSaysItIsNotProven() async throws {
         let socket = Self.socketPath()
-        // The status read the line makes before it would enroll answers "method not found" here.
-        let daemon = try FakeAcpmux(socket: socket, key: AcpmuxPersonKey.newKey(), connections: 2)
+        // The first line, the status read before it would enroll ("method not found" here), and the fresh line.
+        let daemon = try FakeAcpmux(socket: socket, key: AcpmuxPersonKey.newKey(), connections: 3)
         defer { daemon.stop() }
         guard case .line(let line) = await JoinConsentPersonLine.open(try Self.environment(socket)) else {
             Issue.record("no line to this app's own daemon")

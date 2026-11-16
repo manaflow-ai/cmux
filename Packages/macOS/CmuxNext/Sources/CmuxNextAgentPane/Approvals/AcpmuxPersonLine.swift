@@ -88,10 +88,15 @@ public final class AcpmuxPersonLine {
         case .noKey?, .refused?: break
         default: return first
         }
-        guard let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(5)),
-              status.serves(home: environment.home) else { return first }
+        // The first line's deadline runs from its connect: closed here, and the answer is a fresh line.
         line.close()
-        _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
+        // Once per daemon instance (pid): a daemon that keeps refusing (a DEV one with another launch's key)
+        // is not enrolled again on every read, app activation or Mac Screen ticket.
+        if let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(5)),
+           status.serves(home: environment.home), let pid = status.pid,
+           AcpmuxPersonKey.claimReenroll(for: environment.socketPath, pid: pid) {
+            _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
+        }
         return await connect(environment, allowForeign: true)
     }
 

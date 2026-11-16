@@ -29,6 +29,8 @@ nonisolated enum AcpmuxPersonKey {
         var key: String
         /// The daemon instance it belongs to, once known.
         var pid: Int32?
+        /// The instance a reader that is not a pane re-enrolled already (``claimReenroll(for:pid:)``).
+        var reenrolled: Int32?
     }
 
     /// Keys by daemon socket path.
@@ -60,6 +62,19 @@ nonisolated enum AcpmuxPersonKey {
             let key = newKey()
             keys[socketPath] = Entry(key: key, pid: pid)
             return key
+        }
+    }
+
+    /// True once per daemon instance (`pid`) on `socketPath`: a reader that is not a pane (the consent
+    /// line) re-enrolls a daemon that did not take its proof, but not again on every read while that
+    /// daemon keeps refusing (a DEV one holding another launch's key).
+    static func claimReenroll(for socketPath: String, pid: Int32) -> Bool {
+        keys.withLock { keys in
+            var entry = keys[socketPath] ?? Entry(key: newKey(), pid: pid)
+            guard entry.reenrolled != pid else { return false }
+            entry.reenrolled = pid
+            keys[socketPath] = entry
+            return true
         }
     }
 

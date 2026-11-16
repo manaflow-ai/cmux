@@ -15458,6 +15458,661 @@
           }
         }
       }
+    },
+    "devices.join.personOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only a click by the person at this Mac can allow this."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن السماح بهذا إلا بنقرة من الشخص الموجود على جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo može dozvoliti samo klik osobe za ovim Macom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun et klik fra personen ved denne Mac kan tillade dette."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur ein Klick der Person an diesem Mac kann dies erlauben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo un clic de la persona que está en este Mac puede permitir esto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seul un clic de la personne devant ce Mac peut autoriser ceci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo un clic della persona davanti a questo Mac può consentirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "これを許可できるのは、このMacの前にいる人のクリックだけです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែការចុចដោយមនុស្សនៅ Mac នេះប៉ុណ្ណោះដែលអាចអនុញ្ញាតការនេះបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac 앞에 있는 사람의 클릭만 이것을 허용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare et klikk fra personen ved denne Macen kan tillate dette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na to może zezwolić tylko kliknięcie osoby przy tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só um clique da pessoa neste Mac pode permitir isso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить это может только щелчок человека за этим Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงการคลิกของผู้ที่อยู่ที่ Mac เครื่องนี้เท่านั้นที่อนุญาตสิ่งนี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buna yalnızca bu Mac'in başındaki kişinin tıklaması izin verebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити це може лише клацання людини за цим Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ cú nhấp của người đang ngồi ở máy Mac này mới cho phép được việc này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有这台 Mac 前的人亲自点按才能允许此操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有這台 Mac 前的人親自點按才能允許此操作。"
+          }
+        }
+      }
+    },
+    "devices.join.notJoined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still off: this Mac is not joined to a team, or its join was revoked."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال متوقفًا: جهاز Mac هذا غير منضم إلى فريق، أو أُلغي انضمامه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I dalje isključeno: ovaj Mac nije pridružen timu ili mu je pridruživanje opozvano."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig slået fra: denne Mac er ikke tilknyttet et team, eller dens tilknytning er tilbagekaldt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiterhin aus: Dieser Mac ist keinem Team beigetreten, oder sein Beitritt wurde widerrufen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigue desactivado: este Mac no está unido a un equipo o se revocó su unión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours désactivé : ce Mac n'a rejoint aucune équipe, ou son adhésion a été révoquée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora disattivato: questo Mac non è unito a un team, oppure la sua unione è stata revocata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフのままです: このMacはチームに参加していないか、参加が取り消されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែបិទ៖ Mac នេះមិនបានចូលរួមក្រុមទេ ឬការចូលរួមរបស់វាត្រូវបានដកហូត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여전히 꺼짐: 이 Mac이 팀에 참여하지 않았거나 참여가 취소되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt av: denne Macen er ikke med i et team, eller medlemskapet er trukket tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal wyłączone: ten Mac nie dołączył do zespołu albo jego dołączenie zostało cofnięte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda desativado: este Mac não entrou em uma equipe, ou a entrada foi revogada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё выключено: этот Mac не присоединён к команде, или его присоединение отозвано."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังปิดอยู่: Mac เครื่องนี้ไม่ได้เข้าร่วมทีม หรือการเข้าร่วมถูกเพิกถอนแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ kapalı: bu Mac bir ekibe katılmadı ya da katılımı iptal edildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі вимкнено: цей Mac не приєднано до команди, або його приєднання відкликано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn tắt: máy Mac này chưa tham gia nhóm nào, hoặc việc tham gia đã bị thu hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍为关闭：这台 Mac 未加入团队，或其加入已被撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍為關閉：這台 Mac 未加入團隊，或其加入已被撤銷。"
+          }
+        }
+      }
+    },
+    "devices.join.changedMeanwhile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still off: the Labs switch or the settings changed while it was being turned on. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال متوقفًا: تغيّر مفتاح Labs أو الإعدادات أثناء تشغيله. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I dalje isključeno: prekidač u Labs ili postavke su se promijenili dok se uključivalo. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig slået fra: Labs-kontakten eller indstillingerne ændrede sig, mens den blev slået til. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiterhin aus: Der Labs-Schalter oder die Einstellungen haben sich beim Einschalten geändert. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigue desactivado: el interruptor de Labs o los ajustes cambiaron mientras se activaba. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours désactivé : l'interrupteur Labs ou les réglages ont changé pendant l'activation. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora disattivato: l'interruttore Labs o le impostazioni sono cambiati durante l'attivazione. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフのままです: オンにしている間にLabsのスイッチまたは設定が変わりました。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែបិទ៖ កុងតាក់ Labs ឬការកំណត់បានផ្លាស់ប្តូរ ពេលកំពុងបើក។ សូមព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여전히 꺼짐: 켜는 동안 Labs 스위치나 설정이 바뀌었습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt av: Labs-bryteren eller innstillingene endret seg mens den ble slått på. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal wyłączone: przełącznik Labs lub ustawienia zmieniły się podczas włączania. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda desativado: a chave do Labs ou os ajustes mudaram enquanto era ativado. Tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё выключено: переключатель Labs или настройки изменились во время включения. Попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังปิดอยู่: สวิตช์ Labs หรือการตั้งค่าเปลี่ยนไประหว่างที่กำลังเปิด ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ kapalı: açılırken Labs anahtarı veya ayarlar değişti. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі вимкнено: перемикач Labs або налаштування змінилися під час увімкнення. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn tắt: công tắc Labs hoặc cài đặt đã thay đổi trong lúc bật. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍为关闭：开启过程中 Labs 开关或设置发生了变化。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍為關閉：開啟過程中 Labs 開關或設定有所變更。請再試一次。"
+          }
+        }
+      }
+    },
+    "devices.join.confirmCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still off: Touch ID or your login password was cancelled, so this Mac could not confirm it was you."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال متوقفًا: أُلغي Touch ID أو كلمة سر تسجيل الدخول، فلم يتمكن جهاز Mac هذا من التأكد من أنك أنت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I dalje isključeno: Touch ID ili lozinka za prijavu su otkazani, pa ovaj Mac nije mogao potvrditi da ste to vi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig slået fra: Touch ID eller din login-adgangskode blev annulleret, så denne Mac kunne ikke bekræfte, at det var dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiterhin aus: Touch ID oder dein Anmeldepasswort wurde abgebrochen, daher konnte dieser Mac nicht bestätigen, dass du es bist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigue desactivado: se canceló Touch ID o la contraseña de inicio de sesión, así que este Mac no pudo confirmar que eras tú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours désactivé : Touch ID ou votre mot de passe de session a été annulé, ce Mac n'a donc pas pu confirmer que c'était vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora disattivato: Touch ID o la password di login sono stati annullati, quindi questo Mac non ha potuto confermare che eri tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフのままです: Touch IDまたはログインパスワードがキャンセルされたため、このMacはあなた本人であることを確認できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែបិទ៖ Touch ID ឬពាក្យសម្ងាត់ចូលរបស់អ្នកត្រូវបានបោះបង់ ដូច្នេះ Mac នេះមិនអាចបញ្ជាក់ថាជាអ្នកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여전히 꺼짐: Touch ID 또는 로그인 암호가 취소되어 이 Mac이 본인임을 확인하지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt av: Touch ID eller påloggingspassordet ble avbrutt, så denne Macen kunne ikke bekrefte at det var deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal wyłączone: Touch ID lub hasło logowania zostało anulowane, więc ten Mac nie mógł potwierdzić, że to Ty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda desativado: o Touch ID ou a senha de login foi cancelado, então este Mac não pôde confirmar que era você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё выключено: Touch ID или пароль входа отменены, поэтому этот Mac не смог подтвердить, что это вы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังปิดอยู่: Touch ID หรือรหัสผ่านเข้าสู่ระบบถูกยกเลิก Mac เครื่องนี้จึงยืนยันไม่ได้ว่าเป็นคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ kapalı: Touch ID veya giriş parolanız iptal edildi, bu yüzden bu Mac sizin olduğunuzu doğrulayamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі вимкнено: Touch ID або пароль входу скасовано, тому цей Mac не зміг підтвердити, що це ви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn tắt: Touch ID hoặc mật khẩu đăng nhập đã bị hủy, nên máy Mac này không thể xác nhận đó là bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍为关闭：触控 ID 或登录密码已取消，因此这台 Mac 无法确认是你本人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍為關閉：Touch ID 或登入密碼已取消，因此這台 Mac 無法確認是你本人。"
+          }
+        }
+      }
+    },
+    "devices.join.acpmuxRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's acpmux did not take it: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يقبله acpmux على جهاز Mac هذا: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux na ovom Macu to nije prihvatio: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macs acpmux tog ikke imod det: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das acpmux dieses Macs hat es nicht angenommen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El acpmux de este Mac no lo aceptó: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'acpmux de ce Mac ne l'a pas accepté : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'acpmux di questo Mac non l'ha accettato: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このMacのacpmuxが受け付けませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux របស់ Mac នេះមិនបានទទួលយកវាទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 acpmux가 받아들이지 않았습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macens acpmux tok ikke imot det: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux na tym Macu tego nie przyjął: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux deste Mac não aceitou: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux на этом Mac не принял это: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ของ Mac เครื่องนี้ไม่รับ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'in acpmux'u bunu kabul etmedi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux на цьому Mac не прийняв це: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux của máy Mac này không nhận: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 的 acpmux 未接受：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 的 acpmux 未接受：%@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

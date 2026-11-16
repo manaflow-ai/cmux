@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+public import CmuxNextPages
 import os
 
 /// What a joined machine's team may do on this Mac only after the person allows it here (the one-line
@@ -483,7 +484,10 @@ public final class JoinConsentModel {
     /// Turns `surface` on or off on this Mac. Returns the error to show, nil when set.
     @discardableResult
     public func set(_ surface: JoinConsentSurface, on: Bool) async -> String? {
-        guard !writing else { return JoinConsentStrings.busy }
+        guard !writing else {
+            Self.logger.error("join consent: \(surface.rawValue, privacy: .public) not written: another write is in flight")
+            return JoinConsentStrings.busy
+        }
         setWriting(true)
         defer { setWriting(false) }
         generation += 1
@@ -536,11 +540,19 @@ public final class JoinConsentModel {
     private func write(_ surface: JoinConsentSurface, on: Bool, generation mine: Int, epoch: Int,
                        ticket: JoinConsentGrantTicket) async -> (String?, JoinConsentRecord?) {
         let failed = on ? JoinConsentStrings.onFailed : JoinConsentStrings.offFailed
+        // Every way it is not written says why on the page (or the sheet) and in the log: never a silent no.
+        let refuse = { (text: String, why: String) -> (String?, JoinConsentRecord?) in
+            Self.logger.error("join consent: \(surface.rawValue, privacy: .public) \(on ? "on" : "off", privacy: .public) not written: \(why, privacy: .public)")
+            return (text, nil)
+        }
         if on {
             // An on only for a joined, unrevoked Mac with the Labs switch on, as this read finds it (acpmux
             // checks the person itself; this keeps a grant off a Mac that shows no switches).
             let (reading, _) = await read(.writeCheck)
-            guard enabled, reading.status?.credentialPresent == true, reading.status?.revoked != true else { return (failed, nil) }
+            guard enabled else { return refuse(JoinConsentStrings.changedMeanwhile, "the Labs switch is off") }
+            guard reading.status?.credentialPresent == true, reading.status?.revoked != true else {
+                return refuse(JoinConsentStrings.notJoined, reading.status?.revoked == true ? "this Mac's join was revoked" : "this Mac is not joined")
+            }
             // SECURITY: the device owner confirms every grant (Touch ID or the login password), whatever the
             // input that asked for it: an event's source fields can be forged by a process allowed to post
             // events, and a posted event can't pass this. The person-input checks before it only refuse
@@ -548,22 +560,34 @@ public final class JoinConsentModel {
             // the grant (checked again below).
             switch await services.confirmOwner(surface) {
             case .confirmed: break
-            case .cancelled: return (failed, nil)
-            case .unavailable: return (JoinConsentStrings.confirmUnavailable, nil)
+            case .cancelled: return refuse(JoinConsentStrings.confirmCancelled, "the device owner's confirm was cancelled or failed")
+            case .unavailable: return refuse(JoinConsentStrings.confirmUnavailable, "this Mac can't ask for Touch ID or the login password")
             }
         }
-        guard let line = await services.openLine() else { return (failed, nil) }
+        let line: any JoinConsentLine
+        switch await services.open() {
+        case .line(let opened): line = opened
+        case .failed(let why): return refuse(why.pageText, "no line to acpmux: \(why.description)")
+        }
         defer { line.close() }
         // SECURITY: only the person at this Mac turns a surface on (acpmux also takes a revoke only from
         // the person's connection; the page asks no gesture for one, since it narrows).
-        if on, !line.isPerson { return (failed, nil) }
-        guard line.supportsConsent else { return (on ? JoinConsentStrings.unsupported : failed, nil) }
+        if on, !line.isPerson {
+            let why = line.notProven ?? .notProven(foreignPath: nil, why: "not the person's")
+            return refuse(why.pageText, why.description)
+        }
+        guard line.supportsConsent else { return refuse(on ? JoinConsentStrings.unsupported : failed, JoinConsentUnread.unsupported.description) }
         // The Labs switch may have turned off (and on again) while the line opened: a grant is sent only
         // at its own generation, with the switch on and no settings load since it started. The line checks
         // the ticket once more as it writes, since either can change after this check.
-        if on, !enabled || generation != mine || services.settingsEpoch() != epoch { return (failed, nil) }
-        let written = await line.set(surface, granted: on, ticket: on ? ticket : nil)
-        return (written == nil ? failed : nil, written)
+        if on, !enabled || generation != mine || services.settingsEpoch() != epoch {
+            return refuse(JoinConsentStrings.changedMeanwhile, "the Labs switch or the settings changed while it was asked")
+        }
+        guard let written = await line.set(surface, granted: on, ticket: on ? ticket : nil) else {
+            let said = line.readError
+            return refuse(said.map(JoinConsentStrings.acpmuxRefused) ?? failed, "machine_consent_set failed: \(said ?? "no answer, or the settings changed as it was sent")")
+        }
+        return (nil, written)
     }
 
     private func setWriting(_ on: Bool) {
@@ -646,6 +670,31 @@ public final class JoinConsentModel {
         // The grant closed it already (``set(_:on:)``).
         if ask != nil { dismissAsk() }
         return nil
+    }
+
+    /// The sheet's Allow refused an input that is not the person's own click (``JoinConsentAskPanel``):
+    /// the gate stays shut, and the sheet says so instead of doing nothing. `why` goes to the log.
+    public func allowRefused(why: String) {
+        guard ask != nil else { return }
+        Self.logger.error("join consent: the sheet's Allow refused \(why, privacy: .public)")
+        askError = JoinConsentStrings.personOnly
+        present(true)
+    }
+
+    /// SECURITY: the Settings page turns a switch on only from the person's own click or key in that page,
+    /// spent once, and only one the HID system made (`backs`): a posted click (the cmux-cua helper's, or a
+    /// remote driver's) never grants more. Off needs none, since it narrows. A refusal is logged with its
+    /// reason and answers "Only a click by the person at this Mac can allow this."
+    public static func requirePersonGesture(_ context: PageCallContext, page: String, backs: (@MainActor (TimeInterval) -> Bool)?,
+                                            claim: @MainActor (TimeInterval) -> Bool) throws {
+        let refuse = { (why: String) -> PageError in
+            logger.error("join consent: the Settings page's on refused: \(why, privacy: .public)")
+            return PageError(code: PageNativeOp.userOnlyCode, message: JoinConsentStrings.personOnly)
+        }
+        guard context.page == page else { throw refuse("asked from another page (\(context.page))") }
+        guard context.userGesture, let event = context.gestureEvent else { throw refuse("no click or key of the person's came with it") }
+        guard backs?(event) == true else { throw refuse("the click is not the HID system's own input (posted by a process or a remote driver)") }
+        guard claim(event) else { throw refuse("that click already turned a switch on") }
     }
 
     private func dismissAsk() {
@@ -763,6 +812,18 @@ public nonisolated struct JoinConsentStrings {
     }
     static var notProven: String {
         s("devices.join.notProven", "cmux could not prove it's you to this Mac's acpmux, so these can't change. Quit and reopen cmux to try again.")
+    }
+    /// The Settings switch's or the sheet's Allow refused an input that is not the person's own click.
+    public static var personOnly: String { s("devices.join.personOnly", "Only a click by the person at this Mac can allow this.") }
+    static var notJoined: String { s("devices.join.notJoined", "Still off: this Mac is not joined to a team, or its join was revoked.") }
+    static var changedMeanwhile: String {
+        s("devices.join.changedMeanwhile", "Still off: the Labs switch or the settings changed while it was being turned on. Try again.")
+    }
+    static var confirmCancelled: String {
+        s("devices.join.confirmCancelled", "Still off: Touch ID or your login password was cancelled, so this Mac could not confirm it was you.")
+    }
+    static func acpmuxRefused(_ said: String) -> String {
+        String(format: s("devices.join.acpmuxRefused", "This Mac's acpmux did not take it: %@"), said)
     }
     static var busy: String { s("devices.join.busy", "Still saving the last change. Try again in a moment.") }
     static var revokeAll: String { s("devices.join.revokeAllSurfaces", "Turn All Off") }

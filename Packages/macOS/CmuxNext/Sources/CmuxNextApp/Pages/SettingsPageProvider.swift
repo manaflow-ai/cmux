@@ -196,10 +196,8 @@ final class SettingsPageProvider: PageProvider {
             // agent with Control consent driving this page (the cmux-cua helper posts real-looking
             // clicks) never grants itself more, and the app's line to acpmux is the person's anyway.
             // Off only narrows, so it needs no gesture and takes any input.
-            if on {
-                guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw Self.personOnly }
-            }
+            if on { try JoinConsentModel.requirePersonGesture(context, page: PageDescriptor.settings.id, backs: personBacksGesture,
+                                                              claim: wideningGate.claimGesture) }
             let write = try Self.host(setJoinConsent, "devices")
             return try await wideningGate.setWithoutConfirmation(
                 "joinConsent \(surface)", on: on,
