@@ -2774,10 +2774,12 @@ SWITCH_COMPARED = re.compile(r"vars\.CI_BLACKSMITH_MACOS\s*(?:==|!=)\s*'on'")
 
 
 def route_at(expression: str, event: str, attempt: int, switch: str, placed: int = 1,
-             actor: str = RERUN_BOT) -> object:
-    """rerun_route_at() for any event and triggering actor."""
+             actor: str = RERUN_BOT, origin: str = "") -> object:
+    """rerun_route_at() for any event and triggering actor; `origin` is a same-tree dispatch's same_tree_origin."""
     context = github_context(event, CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
                              CI_BLACKSMITH_MACOS=switch, MACOS_RUNNER_26=SMALL)
+    if origin:
+        context["inputs"].update(same_tree_sha="a" * 40, same_tree_state="ready", same_tree_origin=origin)
     pull = {"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}},
                              "author_association": "MEMBER", "labels": []}}
     context["github"].update(run_attempt=str(attempt), triggering_actor=actor, repository="manaflow-ai/cmux",
@@ -2877,6 +2879,25 @@ class BlacksmithPrRescue(unittest.TestCase):
         self.assertEqual(route_at(expression, "pull_request", 2, RESCUE), SMALL)
         self.assertEqual(route_at(expression, "pull_request", 2, ""), SIDE)
         self.assertEqual(route_at(expression, "push", 2, RESCUE), route_at(expression, "push", 2, ""))
+
+    def test_a_same_tree_pull_request_dispatch_reruns_like_its_pull_request(self):
+        """Run 43854064455 (PR #44408's same-tree daemon tests and scheme compile, a workflow_dispatch) queued its
+        cmux app scheme compile (Debug) on glaeda-side-std-xcode-26.6 from 11:01Z to 12:41Z on 2026-11-16: under
+        pr-rescue its re-run took the side lane again, so the stall move skipped it. A same-tree run whose origin is
+        a pull request gates that pull request, so its bot re-run leaves the minis as the pull request's does."""
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        for name in ("cmux-scheme-compile", "daemon-test"):
+            expression = runs_on_of(jobs[name])
+            with self.subTest(job=name):
+                self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, origin="pull_request"), SMALL)
+                self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, origin="pull_request"),
+                                 route_at(expression, "pull_request", 2, RESCUE))
+                # Attempt 1, the switch off, and a push or dispatch origin keep the side lane.
+                self.assertEqual(route_at(expression, "workflow_dispatch", 1, RESCUE, origin="pull_request"),
+                                 route_at(expression, "workflow_dispatch", 1, ""))
+                self.assertEqual(route_at(expression, "workflow_dispatch", 2, "", origin="pull_request"), SIDE)
+                for origin in ("push", "dispatch"):
+                    self.assertEqual(route_at(expression, "workflow_dispatch", 2, RESCUE, origin=origin), SIDE)
 
 
 if __name__ == "__main__":
