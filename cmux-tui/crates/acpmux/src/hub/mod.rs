@@ -1395,6 +1395,45 @@ impl Hub {
             let _phase = gauges.phase("hub carrier");
             crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref())
         };
+        // Keep the constructors inside the assembly measurable. These values are independent of
+        // the session store, but a god-sized home must still prove that none of them accidentally
+        // grows with the store before the listener is ready.
+        let harness_homes = {
+            let _phase = gauges.phase("hub construct harness homes");
+            crate::adopt::HarnessHomes::from_env()
+        };
+        let scope = {
+            let _phase = gauges.phase("hub construct scope");
+            cmux_scope::Scope::new("acpmux hub")
+        };
+        let clock = {
+            let _phase = gauges.phase("hub construct clock");
+            crate::clock::TokioClock::new()
+        };
+        let workflow_runs = {
+            let _phase = gauges.phase("hub construct workflow runs");
+            crate::workflow_runs::Service::default()
+        };
+        let pool = {
+            let _phase = gauges.phase("hub construct pool");
+            Arc::new(pool::PoolState::new())
+        };
+        let session_recap = {
+            let _phase = gauges.phase("hub construct session recap");
+            away_recap::saved_setting()
+        };
+        let auto_background_after = {
+            let _phase = gauges.phase("hub construct auto background");
+            auto_background::auto_background_from_env()
+        };
+        let catalog = {
+            let _phase = gauges.phase("hub construct catalog");
+            Arc::new(crate::catalog::CatalogService::new())
+        };
+        let health = {
+            let _phase = gauges.phase("hub construct health");
+            Arc::new(crate::harness_health::HealthService::new())
+        };
         let _phase = gauges.phase("hub assembly");
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
@@ -1428,7 +1467,7 @@ impl Hub {
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
-            harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
+            harness_homes: StdMutex::new(harness_homes),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             link_v2: Arc::default(),
@@ -1441,7 +1480,7 @@ impl Hub {
             review_index: Default::default(),
             audit,
             shutdown: Notify::new(),
-            scope: cmux_scope::Scope::new("acpmux hub"),
+            scope,
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
             fatal,
@@ -1516,9 +1555,9 @@ impl Hub {
             ends_moved: Notify::new(),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
-            clock: StdMutex::new(crate::clock::TokioClock::new()),
+            clock: StdMutex::new(clock),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
-            workflow_runs: crate::workflow_runs::Service::default(),
+            workflow_runs,
             bg_runner: StdMutex::new(None),
             bg_starts: tokio::sync::Mutex::new(()),
             probe_only: StdMutex::new(None),
@@ -1529,7 +1568,7 @@ impl Hub {
             person_prompts: tokio::sync::watch::channel(0).0,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
-            pool: Arc::new(pool::PoolState::new()),
+            pool,
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
@@ -1538,7 +1577,7 @@ impl Hub {
             vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
-            session_recap: AtomicBool::new(away_recap::saved_setting()),
+            session_recap: AtomicBool::new(session_recap),
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
@@ -1584,8 +1623,8 @@ impl Hub {
             settings_watch: Default::default(),
             settings_changes: tokio::sync::watch::channel(0).0,
             git_watch: Default::default(),
-            catalog: Arc::new(crate::catalog::CatalogService::new()),
-            health: Arc::new(crate::harness_health::HealthService::new()),
+            catalog,
+            health,
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             presence: Default::default(),
@@ -1594,7 +1633,7 @@ impl Hub {
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
-            auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
+            auto_background_after: StdMutex::new(auto_background_after),
             auto_background_armed: Default::default(),
             message_background_after: StdMutex::new(Some(
                 auto_background::MESSAGE_BACKGROUND_AFTER,

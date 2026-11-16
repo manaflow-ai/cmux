@@ -832,6 +832,10 @@ mod tests {
     /// Rows a source with `god_p95_all` in it names and that compare no rounds: one measure a
     /// side, or no `god_p95_all` of their own (the source's line format holds it for others).
     const NO_ROUNDS: &[(&str, &str)] = &[
+        ("v2.pr04.byte_credit_drop_resume", "one resident rise a side"),
+        ("v2.pr04.not_fed_bytes", "one byte count a side"),
+        ("v2.pr04.credit_without_read_drop", "one count of notices a side"),
+        ("v2.pr04.list_resume_end", "one count of frames a side"),
         ("v2.pr05e.random_replay", "a fixed count of checks, no god_p95_all"),
         ("v2.pr05e.cold_continuation", "one byte count a side, no god_p95_all"),
         ("v2.pr05f.equal_entry", "a count of operations, 0 at both sizes"),

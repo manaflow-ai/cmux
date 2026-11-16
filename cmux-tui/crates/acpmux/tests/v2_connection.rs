@@ -121,8 +121,29 @@ async fn daemon_status_inner(socket: &std::path::Path) -> serde_json::Value {
     reply["result"].clone()
 }
 
+#[derive(Default)]
+struct PhaseSamples {
+    at_ms: Vec<u64>,
+    at_us: Vec<u64>,
+    ms: Vec<u64>,
+    us: Vec<u64>,
+    cpu_us: Vec<u64>,
+    major_faults: Vec<u64>,
+    minor_faults: Vec<u64>,
+    voluntary_switches: Vec<u64>,
+    involuntary_switches: Vec<u64>,
+}
+
+fn distribution(values: &mut [u64]) -> serde_json::Value {
+    values.sort_unstable();
+    let p95 = values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)];
+    let median = values[values.len() / 2];
+    let max = *values.last().unwrap_or(&0);
+    json!({"p95": p95, "median": median, "max": max})
+}
+
 fn startup_phase_summary(samples: &[serde_json::Value]) -> serde_json::Value {
-    let mut by_name: BTreeMap<String, (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>)> = BTreeMap::new();
+    let mut by_name: BTreeMap<String, PhaseSamples> = BTreeMap::new();
     for startup in samples {
         for phase in startup.as_array().into_iter().flatten() {
             let (Some(name), Some(at_ms), Some(at_us), Some(ms), Some(us)) = (
@@ -134,36 +155,66 @@ fn startup_phase_summary(samples: &[serde_json::Value]) -> serde_json::Value {
             ) else {
                 continue;
             };
-            let (at_values, at_us_values, ms_values, us_values) =
-                by_name.entry(name.to_owned()).or_default();
-            at_values.push(at_ms);
-            at_us_values.push(at_us);
-            ms_values.push(ms);
-            us_values.push(us);
+            let phase_samples = by_name.entry(name.to_owned()).or_default();
+            phase_samples.at_ms.push(at_ms);
+            phase_samples.at_us.push(at_us);
+            phase_samples.ms.push(ms);
+            phase_samples.us.push(us);
+            phase_samples.cpu_us.push(phase["cpuUs"].as_u64().unwrap_or(0));
+            phase_samples.major_faults.push(phase["majorFaults"].as_u64().unwrap_or(0));
+            phase_samples.minor_faults.push(phase["minorFaults"].as_u64().unwrap_or(0));
+            phase_samples.voluntary_switches.push(phase["voluntarySwitches"].as_u64().unwrap_or(0));
+            phase_samples
+                .involuntary_switches
+                .push(phase["involuntarySwitches"].as_u64().unwrap_or(0));
         }
     }
-    let p95 = |values: &mut Vec<u64>| {
-        values.sort_unstable();
-        values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
-    };
     serde_json::Value::Object(
         by_name
             .into_iter()
-            .map(|(name, (mut at_values, mut at_us_values, mut ms_values, mut us_values))| {
-                let samples = at_values.len();
+            .map(|(name, mut phase)| {
+                let samples = phase.at_ms.len();
                 (
                     name,
                     json!({
                         "samples": samples,
-                        "atMsP95": p95(&mut at_values),
-                        "atUsP95": p95(&mut at_us_values),
-                        "msP95": p95(&mut ms_values),
-                        "usP95": p95(&mut us_values),
+                        "atMs": distribution(&mut phase.at_ms),
+                        "atUs": distribution(&mut phase.at_us),
+                        "ms": distribution(&mut phase.ms),
+                        "us": distribution(&mut phase.us),
+                        "cpuUs": distribution(&mut phase.cpu_us),
+                        "majorFaults": distribution(&mut phase.major_faults),
+                        "minorFaults": distribution(&mut phase.minor_faults),
+                        "voluntarySwitches": distribution(&mut phase.voluntary_switches),
+                        "involuntarySwitches": distribution(&mut phase.involuntary_switches),
                     }),
                 )
             })
             .collect(),
     )
+}
+
+fn outside_session_file_sizes(root: &std::path::Path) -> BTreeMap<String, u64> {
+    fn visit(root: &std::path::Path, path: &std::path::Path, sizes: &mut BTreeMap<String, u64>) {
+        let Ok(relative) = path.strip_prefix(root) else { return };
+        if relative.components().next().is_some_and(|component| component.as_os_str() == "sessions")
+        {
+            return;
+        }
+        let Ok(metadata) = std::fs::symlink_metadata(path) else { return };
+        if metadata.is_dir() {
+            let Ok(entries) = std::fs::read_dir(path) else { return };
+            for entry in entries.flatten() {
+                visit(root, &entry.path(), sizes);
+            }
+        } else {
+            sizes.insert(relative.to_string_lossy().into_owned(), metadata.len());
+        }
+    }
+
+    let mut sizes = BTreeMap::new();
+    visit(root, root, &mut sizes);
+    sizes
 }
 
 async fn daemon_hello_inner(socket: &std::path::Path) {
@@ -217,6 +268,8 @@ fn v2_pr09_listen_start() {
     let mut god = Vec::with_capacity(ROUNDS);
     let mut startup_phases =
         [Vec::with_capacity(ROUNDS * SAMPLES), Vec::with_capacity(ROUNDS * SAMPLES)];
+    let mut outside_files: Vec<Option<(BTreeMap<String, u64>, BTreeMap<String, u64>)>> =
+        vec![None, None];
     let mut forced_kills = 0;
     for round in 0..ROUNDS {
         let mut small_round = Vec::with_capacity(SAMPLES);
@@ -237,6 +290,11 @@ fn v2_pr09_listen_start() {
                     runtime.block_on(daemon_status(&daemon.socket))["gauges"]["startup"].clone(),
                 );
                 forced_kills += usize::from(daemon.stop());
+                let sizes = outside_session_file_sizes(scratch.path());
+                match &mut outside_files[side] {
+                    Some((_, last)) => *last = sizes,
+                    slot @ None => *slot = Some((sizes.clone(), sizes)),
+                }
             }
         }
         small.push(small_round);
@@ -252,9 +310,11 @@ fn v2_pr09_listen_start() {
     let god_p95 = best_p95(&god);
     let god_p95_all = all_p95(&god);
     eprintln!(
-        "v2.pr09.listen_start startup phases small={} god={}",
+        "v2.pr09.listen_start startup phases small={} god={} outside files small={} god={}",
         startup_phase_summary(&startup_phases[0]),
-        startup_phase_summary(&startup_phases[1])
+        startup_phase_summary(&startup_phases[1]),
+        json!(outside_files[0]),
+        json!(outside_files[1])
     );
     assert_eq!(forced_kills, 0, "daemon required force-kill during orderly gate stop");
     assert_eq!(chat_count(&god_fixture.path().join("sessions")), 527, "god fixture chats");

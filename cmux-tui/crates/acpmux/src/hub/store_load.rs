@@ -33,6 +33,15 @@ impl StoreLoad {
 }
 
 impl Hub {
+    /// Run only the staged-transfer recovery pass and publish its completion mark.
+    ///
+    /// The daemon's loading task calls this before loading the session index. Tests that build a
+    /// loading hub without starting that task can use the same seam before an exact-id read.
+    pub(crate) fn recover_staged_replacements_for_load(&self) {
+        self.recover_staged_replacements();
+        self.store_load.recovery.send_replace(true);
+    }
+
     pub async fn load_store_async(self: &Arc<Self>) {
         let hub = self.clone();
         let recovered = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -49,9 +58,8 @@ impl Hub {
             {
                 std::panic::resume_unwind(Box::new("forced staged recovery panic"));
             }
-            hub.recover_staged_replacements();
+            hub.recover_staged_replacements_for_load();
             drop(_recovery_phase);
-            hub.store_load.recovery.send_replace(true);
             recovered_in_task.store(true, std::sync::atomic::Ordering::SeqCst);
             hub.load_from_store(true);
             // Before spawns are released, after the index is complete. This sweep must never

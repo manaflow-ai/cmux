@@ -904,6 +904,7 @@ mod message_recovery_tests {
             crate::store::open(&config.store, &dir).unwrap(),
             crate::mailbox::Mailbox::open(dir.join("mailbox")).unwrap(),
         );
+        restarted.recover_staged_replacements_for_load();
         assert!(resolve_exact(&restarted, &sender_id).is_none());
         let message = MessageContext {
             sender: json!({"name": "sender", "sessionId": sender_id, "host": "local"}),
