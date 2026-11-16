@@ -70,6 +70,9 @@ A change to the Mac or iOS app is not done until the person can open it. Every a
 such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
 Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
 A documentation-only change needs no build; give the file path instead.
+The report also names the command that puts the change into the person's running cmux now, from
+[the loop](#the-loop-use-it-first-then-test) (`cmux app try <PR>`, `cmux customize use pr:N`), so they
+use it before the build is done.
 
 - **Mac:** build the pushed exact head on the fleet and publish it to HQ, never on the person's Mac:
 
