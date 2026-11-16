@@ -368,7 +368,10 @@ final class TabKeysKeyProbe: NSView {
         let events = model.pendingEvents, replies = model.pendingReplies
         guard owed else { return nil }
         let what: String
-        if treeOwed {
+        if treeOwed, let first = model.createReplyBeforeTree {
+            // The daemon wrote this reply before the tree that holds its tab: the app gets it, and a turn, first.
+            what = "the reply of " + model.deliverReply(first) + " (before the tree that holds its tab)"
+        } else if treeOwed {
             // The driver holds its inbox until the tree arrives: only the tree or a reply comes now.
             what = replies == 0 || random.next(in: 0...1) == 0 ? serveTree() : "the reply of " + model.deliverReply(random.next(in: 0...(replies - 1)))
         } else if replies == 0 || (events > 0 && random.next(in: 0...1) == 0) {
@@ -399,7 +402,10 @@ final class TabKeysKeyProbe: NSView {
 
     /// The tree arrives: the steps of `DaemonStore.resync()` after its snapshot request. The tree and its barrier are
     /// the daemon's of this moment; the store may acknowledge only the events it got; then the events that reached the
-    /// held inbox (the seed picks how many of the waiting ones) apply in the same turn.
+    /// held inbox (the seed picks how many of the waiting ones) apply in the same turn. The reply of each create whose
+    /// tab the tree holds came before it (``deliver()`` hands those over first): the daemon answers the requests of
+    /// one connection in the order of their arrival, and the tree's request is the last of them. The model still hands
+    /// the replies of the closes and the moves over in any order, also after the tree: more orders than the daemon gives.
     private func serveTree() -> String {
         treeOwed = false
         guard let snapshot = model.snapshot(of: base) else {

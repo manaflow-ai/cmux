@@ -91,7 +91,8 @@ nonisolated struct TabKeysRandom: Sendable {
 /// by the daemon's index rule and makes one `tree-changed` and then one `tab-changed` with the tab's new index;
 /// `close-surface` makes one `tab-closed` and then one `tree-changed`. A `tree-changed` carries no transaction: the
 /// app answers it with a read of the whole tree (``snapshot(of:)``). The model keeps each event and each reply until
-/// the test hands it over: events in their sequence order, replies in ANY order.
+/// the test hands it over: events in their sequence order, replies in ANY order, with one limit: the reply of a create
+/// goes before a tree that holds its tab (``createReplyBeforeTree``).
 ///
 /// Not modelled: selection events, the daemon's own selected tab (a tree gives the fixture's value), and each request
 /// other than these (it is refused as not connected and its command is kept in ``refused``).
@@ -136,7 +137,7 @@ nonisolated struct TabKeysRandom: Sendable {
     private var names: [SurfaceID: String] = [:]
     private var entities: [SurfaceID: TabSnapshot] = [:]
     private var events: [DaemonEventEnvelope] = []
-    private var parked: [(label: String, deliver: @MainActor () -> Void)] = []
+    private var parked: [(label: String, created: SurfaceID?, deliver: @MainActor () -> Void)] = []
     private var nextSurface: UInt64 = 100_000
 
     /// `tabs`: the pane's tabs at the start, named `s0`, `s1`, ... A created tab is named `t1`, `t2`, ... in the order
@@ -152,6 +153,16 @@ nonisolated struct TabKeysRandom: Sendable {
     func name(_ surface: SurfaceID) -> String { names[surface] ?? "surface \(surface.rawValue)" }
     var pendingEvents: Int { events.count }
     var pendingReplies: Int { parked.count }
+
+    /// The first waiting reply of a create whose tab the daemon holds now; nil when none waits. The daemon runs the
+    /// requests of one connection in the order of their arrival, and it writes the reply of a page's create before it
+    /// runs the next request. So the app has that reply before a tree that holds the tab: the test hands it over first.
+    var createReplyBeforeTree: Int? {
+        parked.firstIndex { reply in
+            guard let created = reply.created else { return false }
+            return tabs.contains(created)
+        }
+    }
 
     // MARK: Requests
 
@@ -171,7 +182,7 @@ nonisolated struct TabKeysRandom: Sendable {
         emit(.tabAdded(delta(surface, entity, index: tabs.count - 1, transaction: transaction)))
         let emitted = emitted
         let reply: (created: AgentTabCreated, sequence: UInt64?) = try await withCheckedThrowingContinuation { continuation in
-            parked.append((label: "create \(name)", deliver: {
+            parked.append((label: "create \(name)", created: surface, deliver: {
                 // The write barrier of the reply: each event made before it leaves the daemon.
                 continuation.resume(returning: (created: AgentTabCreated(key: key, surface: surface), sequence: emitted.withLock { $0 }))
             }))
@@ -196,7 +207,7 @@ nonisolated struct TabKeysRandom: Sendable {
     }
 
     private func answer(_ label: String, _ reply: CheckedContinuation<Data, any Error>, _ json: String?) {
-        parked.append((label: label, deliver: {
+        parked.append((label: label, created: nil, deliver: {
             if let json { reply.resume(returning: Data(json.utf8)) } else { reply.resume(throwing: Refusal(reason: label)) }
         }))
     }
