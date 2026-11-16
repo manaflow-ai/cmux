@@ -354,5 +354,6 @@ test("the gallery's widget scenes match what the widgets draw", async () => {
   const file = join(root, "webviews/src/apps/scene/fixtures/widget-scenes.json")
   const json = `${JSON.stringify(scenes, null, 1)}\n`
   if (process.env.WIDGET_SCENES === "write") writeFileSync(file, json)
-  expect(readFileSync(file, "utf8")).toBe(json)
+  // Compared as data: the webviews formatter owns the file's whitespace.
+  expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(JSON.parse(json))
 })
