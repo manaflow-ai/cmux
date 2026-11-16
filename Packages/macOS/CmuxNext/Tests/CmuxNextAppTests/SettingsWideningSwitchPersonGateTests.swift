@@ -515,7 +515,8 @@ extension SettingsWideningSwitchPersonGateTests {
             setAccount: { recorder.sets.append("account \($0)"); return nil },
             refreshTrust: { recorder.sets.append("refresh"); return nil },
             trustGrantor: { _, trusted in recorder.sets.append("trust \(trusted)"); return nil })
-        let confirm: (@MainActor (String) async -> Bool)? = h.page.ownerConfirm.map { owner in { await owner.authenticate(reason: $0) } }
+        var confirm: (@MainActor (String) async -> Bool)?
+        if let owner = h.page.ownerConfirm { confirm = { await owner.authenticate(reason: $0) } }
         h.page.parts = RemoteControlConsentPage(actions: actions, gate: h.page.wideningGate, backs: h.page.personBacksGesture,
                                                 confirm: confirm, refusal: SettingsPageProvider.personOnly).parts
     }

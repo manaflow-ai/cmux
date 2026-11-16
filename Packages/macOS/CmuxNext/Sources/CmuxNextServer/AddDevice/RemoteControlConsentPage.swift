@@ -96,7 +96,8 @@ public import Foundation
 
     private func widen(_ key: String, _ on: Bool, _ context: PageCallContext, _ reason: String,
                        _ write: @escaping @MainActor (Bool) async -> String?) async throws -> String? {
-        let ask: (@MainActor () async -> Bool)? = confirm.map { confirm in { await confirm(reason) } }
+        var ask: (@MainActor () async -> Bool)?
+        if let confirm { ask = { await confirm(reason) } }
         return try await gate.widen(key, on: on, context, backs: backs, confirm: ask, refusal: refusal, write: write)
     }
 }

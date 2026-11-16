@@ -127,9 +127,9 @@ final class SettingsPageProvider: PageProvider {
     /// this page, spent once, then Touch ID or the password (``PageWideningGate``); an off takes any input.
     func widen(_ key: String, _ id: String, reason: String, on: Bool, _ context: PageCallContext,
                _ write: @escaping @MainActor (String, Bool) async -> String?) async throws -> String? {
-        let confirm: (@MainActor () async -> Bool)? = ownerConfirm.map { owner in { await owner.authenticate(reason: reason) } }
-        return try await wideningGate.widen("\(key) \(id)", on: on, context, backs: personBacksGesture, confirm: confirm,
-                                            refusal: Self.personOnly) { await write(id, $0) }
+        var confirm: (@MainActor () async -> Bool)?
+        if let owner = ownerConfirm { confirm = { await owner.authenticate(reason: reason) } }
+        return try await wideningGate.widen("\(key) \(id)", on: on, context, backs: personBacksGesture, confirm: confirm, refusal: Self.personOnly) { await write(id, $0) }
     }
 
     /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.

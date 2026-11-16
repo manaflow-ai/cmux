@@ -19,6 +19,7 @@ import Testing
         /// What `_acpmux/consent_account_set` and `_acpmux/consent_trust_refresh` answer.
         var accountAnswer: [String: Any] = ["ok": true, "applied": [] as [Any]]
         var hasKey = true
+        var recordReads = 0
         let now = Date(timeIntervalSince1970: 1_794_781_800)
 
         static func answer(machineId: String = "m_1", nodeKey: String = "Tk9ERQ==", account: String = "user_abc", control: Bool,
@@ -225,8 +226,7 @@ import Testing
         var services = fake.services()
         var enabled = false
         services.enabled = { enabled }
-        var reads = 0
-        services.refreshRecord = { reads += 1 }
+        services.refreshRecord = { [fake] in fake.recordReads += 1 }
         let store = RemoteControlConsent(services: services)
         await store.signedIn()
         #expect(fake.calls.isEmpty && fake.signs.isEmpty, "Labs off: nothing")
@@ -236,7 +236,7 @@ import Testing
         #expect(fake.methods == ["_acpmux/machine_consent_get", "_acpmux/consent_account_set"])
         let grant = fake.calls.last?.params["grant"] as? [String: any Sendable]
         #expect(grant?["machineId"] as? String == "*" && grant?["nodeKey"] as? String == "*" && grant?["control"] as? String == "on")
-        #expect(reads == 1)
+        #expect(fake.recordReads == 1)
         fake.record["accountPolicy"] = ["grantor": "mac-0011223344556677", "issuedAt": 1000, "control": "off", "screen": "off"]
         await store.signedIn()
         fake.record["accountPolicy"] = nil
