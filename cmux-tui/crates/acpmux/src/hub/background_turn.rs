@@ -48,37 +48,7 @@ const WORK: [&str; 4] = ["agent_message_chunk", "agent_thought_chunk", "tool_cal
 /// (`Hub::on_update` runs after the tap and may still be applying older ones).
 const MESSAGES_KEPT: usize = 256;
 
-/// One running background turn.
-#[derive(Debug, Clone)]
-pub(super) struct Running {
-    id: String,
-    trigger: &'static str,
-    text: String,
-    /// Its reply outgrew [`TEXT_KEPT`]: not quiet, whatever the kept part says.
-    long: bool,
-    /// A permission or structured question needs the person's attention.
-    attention: bool,
-}
-
-/// A session's background-turn state, read and written by its tap.
-#[derive(Debug, Default)]
-pub(super) struct BackgroundTurns {
-    /// What the next `system/init` with no acpmux turn was started by, if a line said so.
-    hint: Option<&'static str>,
-    /// A `system/init` with no acpmux turn came, and what started it: the turn starts at its
-    /// first word or tool call (a harness that only says `system/init`, as at its start, ran
-    /// none).
-    pending: Option<(&'static str, u64)>,
-    running: Option<Running>,
-    /// Reply message ids of background turns, newest last.
-    messages: VecDeque<String>,
-    /// The tasks started and the notifications heard: a turn's `cause`.
-    causes: super::background_cause::Causes,
-    /// An adopted host's replay is being read while the chat's log has an acpmux turn open
-    /// ([`Hub::hold_adopted_turn`]): its model work is that turn's, which adoption rebuilds
-    /// only once the replay is in the log, never a turn the person did not start.
-    adopted_turn: bool,
-}
+pub(super) use acpmux_core::chat::background_turn::{BackgroundTurns, Running};
 
 /// Whether a reply is quiet: at most one short line, with no question and no link.
 pub fn is_quiet(text: &str) -> bool {
