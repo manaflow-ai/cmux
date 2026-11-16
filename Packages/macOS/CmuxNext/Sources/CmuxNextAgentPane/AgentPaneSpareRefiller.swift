@@ -49,8 +49,17 @@ public final class AgentPaneSpareRefiller {
     /// The make tasks' counts since launch.
     public private(set) var counts = Counts()
 
+    /// The clock of the refiller's waits. A test sets its own and moves it by hand. A wait that runs at that moment
+    /// ends with no make (the pool's quiet-input warm makes that page), so no wait is left on the old clock.
+    public var clock: any Clock<Duration> {
+        didSet {
+            settled()
+            timer = DemandTimer(owner: timer.owner, clock: clock)
+        }
+    }
+
     private let queue: FrameBatchQueue
-    private let timer: DemandTimer
+    private var timer: DemandTimer
     private let make: @MainActor () -> Void
     private let inInput: @MainActor () -> Bool
     /// The latest open's number: an earlier open's wait that a later open overtook does nothing.
@@ -67,6 +76,7 @@ public final class AgentPaneSpareRefiller {
     public init(on work: MainWorkScheduler, clock: any Clock<Duration> = ContinuousClock(), inInput: @escaping @MainActor () -> Bool = { false },
                 make: @escaping @MainActor () -> Void) {
         queue = FrameBatchQueue(owner: "NewTabSparePool.warm", budgeted: .background, on: work)
+        self.clock = clock
         timer = DemandTimer(owner: "NewTabSparePool.refill", clock: clock)
         self.inInput = inInput
         self.make = make

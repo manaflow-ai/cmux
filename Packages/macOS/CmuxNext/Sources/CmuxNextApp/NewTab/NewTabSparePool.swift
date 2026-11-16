@@ -30,7 +30,7 @@ final class NewTabSparePool {
     private unowned let services: AppServices
     /// One spare: each is a renderer and an acpmux client at idle (Home idle memory, Leo 2026-11-14); `debug.new_tab capacity` raises it.
     private var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: 1)
-    private lazy var refills = AgentPaneSpareRefiller(on: services.mainWork, inInput: { [weak self] in self?.services.inputDispatch.event != nil }) { [weak self] in
+    private(set) lazy var refills = AgentPaneSpareRefiller(on: services.mainWork, inInput: { [weak self] in self?.services.inputDispatch.event != nil }) { [weak self] in
         self?.prepareParked()
         self?.warmNow()
     }
