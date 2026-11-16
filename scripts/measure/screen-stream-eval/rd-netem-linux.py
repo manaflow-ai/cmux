@@ -33,7 +33,8 @@ see it; jitter is netem's default distribution, which reorders packets):
   wifi-away        Leo's radio away from the access point: delay 4ms, 2 % loss, short 50-100 ms holds
                    every 0.53 s and long 300-580 ms holds at irregular gaps, from the seeded
                    wifi-away-holds.json (`rd-netem-linux.py holds [SEED [SECONDS]]` prints it).
-                   Ablations: wifi-away-short, wifi-away-long, wifi-away-loss. Same `lo` topology;
+                   Ablations: wifi-away-short, wifi-away-long, wifi-away-loss; wifi-gate (the gate profile,
+                   p50 <= 60 ms and p95 <= 100 ms) is the short holds plus the 2 % loss. Same `lo` topology;
                    passive then key session; reports the target's largest fall and its recovery,
                    gate wait, and the share of key samples over 50 ms. Opt-in (--profile).
 
@@ -91,11 +92,13 @@ PROFILES = {
     "wifi-away-short": "delay 4ms",
     "wifi-away-long": "delay 4ms",
     "wifi-away-loss": "delay 4ms loss random 2%",
+    # The screen-share gate profile (p50 <= 60 ms, p95 <= 100 ms): wifi-away-short plus wifi-away-loss.
+    "wifi-gate": "delay 4ms loss random 2%",
 }
 STALL_PERIOD_S, STALL_HOLD_S = 5.0, 0.6
 # Profiles that run host and viewer in the host namespace over its own `lo` (one qdisc, each
 # direction crosses it once), with HoldDriver applying their holds.
-LO_PROFILES = ("stall", "wifi-away", "wifi-away-short", "wifi-away-long", "wifi-away-loss")
+LO_PROFILES = ("stall", "wifi-away", "wifi-away-short", "wifi-away-long", "wifi-away-loss", "wifi-gate")
 WIFI_AWAY_SEED, WIFI_AWAY_SECONDS = 7, 120.0
 HOLDS_FILE = Path(__file__).with_name("wifi-away-holds.json")
 # Extra `cmux-rd host` flags for every host this run starts (--host-arg, e.g. an encode profile).
@@ -119,6 +122,7 @@ PROFILE_LABELS = {
     "wifi-away-short": "Wi-Fi away: short holds only",
     "wifi-away-long": "Wi-Fi away: long holds only",
     "wifi-away-loss": "Wi-Fi away: 2% loss only",
+    "wifi-gate": "Wi-Fi gate: short holds + 2% loss",
 }
 
 
@@ -200,6 +204,13 @@ def pct_over(sample_times, ms: float):
     return round(sum(v > ms for v in g2g) * 100 / len(g2g), 1) if g2g else None
 
 
+def pct_of(sample_times, p: float):
+    """The p-th percentile (nearest rank) of key-to-decoded ms over the bench's `sample_times`, or None."""
+    g2g = sorted((t["decoded_ns"] - t["sent_ns"]) / 1e6 for t in sample_times or []
+                 if _num(t.get("decoded_ns")) is not None and _num(t.get("sent_ns")) is not None)
+    return round(g2g[min(len(g2g) - 1, int(round(p / 100.0 * (len(g2g) - 1))))], 2) if g2g else None
+
+
 def summarize_key(report: dict | None) -> dict:
     """Key press to decoded marker from a `--input key` bench line."""
     if not report:
@@ -211,6 +222,7 @@ def summarize_key(report: dict | None) -> dict:
         "n": g2g.get("n"),
         "p50_ms": _num(g2g.get("p50")),
         "p95_ms": _num(g2g.get("p95")),
+        "p99_ms": pct_of(report.get("sample_times"), 99),
         "lost": report.get("lost"),
         "stalls_ms": report.get("stalls_ms"),
         "mbit_per_s": _num(report.get("mbit_per_s")),
@@ -278,8 +290,8 @@ def profile_holds(profile: str, schedule: dict | None = None) -> tuple[list[tupl
         return [(k * STALL_PERIOD_S, k * STALL_PERIOD_S + STALL_HOLD_S) for k in range(1, 2)], STALL_PERIOD_S, 0.0
     schedule = schedule or json.loads(HOLDS_FILE.read_text())
     pick = {"wifi-away": ("short", "long"), "wifi-away-short": ("short",), "wifi-away-long": ("long",),
-            "wifi-away-loss": ()}[profile]
-    loss = schedule["loss_pct"] if profile in ("wifi-away", "wifi-away-loss") else 0.0
+            "wifi-away-loss": (), "wifi-gate": ("short",)}[profile]
+    loss = schedule["loss_pct"] if profile in ("wifi-away", "wifi-away-loss", "wifi-gate") else 0.0
     return merge_holds([h for kind in pick for h in schedule[kind]]), schedule["seconds"], loss
 
 
@@ -320,10 +332,10 @@ def gate_wait(timing_text: str) -> dict | None:
 
 def lo_table(rows: list[dict]) -> str:
     out = ["| cmux-rd | profile | target: peak → trough kbps (drop %), fall s, back to peak s, seconds falling "
-           "| decoded fps median | gate wait p50 / p95 ms | key p50 / p95 ms | keys > 50 ms | holds |",
+           "| decoded fps median | gate wait p50 / p95 ms | key to decoded p50 / p95 / p99 ms | keys > 50 ms | holds |",
            "|" + "---|" * 8]
     for r in rows:
-        if not str(r.get("profile", "")).startswith("wifi-away") or r.get("error"):
+        if not str(r.get("profile", "")).startswith("wifi-") or r.get("error"):
             continue
         d, key, passive = r.get("drawdown") or {}, r.get("key") or {}, r.get("passive") or {}
         fps = [v for v in passive.get("decoded_fps_per_s") or [] if v is not None]
@@ -333,7 +345,8 @@ def lo_table(rows: list[dict]) -> str:
                    f"{_fmt(d.get('fall_s'))}, {_fmt(d.get('recover_s'))}, {_fmt(d.get('seconds_falling'))} "
                    f"| {f'{statistics.median(fps):.1f}' if fps else '–'} "
                    f"| {_fmt(gate.get('p50_ms'))} / {_fmt(gate.get('p95_ms'))} "
-                   f"| {_fmt(key.get('p50_ms'))} / {_fmt(key.get('p95_ms'))} | {_fmt(key.get('pct_over_50ms'))}% "
+                   f"| {_fmt(key.get('p50_ms'))} / {_fmt(key.get('p95_ms'))} / {_fmt(key.get('p99_ms'))} "
+                   f"| {_fmt(key.get('pct_over_50ms'))}% "
                    f"| {_fmt(r.get('holds_applied'))} |")
     return "\n".join(out) + "\n" if len(out) > 2 else ""
 
