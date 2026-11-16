@@ -212,6 +212,17 @@ class FailoverTests(unittest.TestCase):
         moved, _ = switch.failover_values("/Applications/Xcode_27.0.app", "")
         self.assertEqual(moved["MACOS_RUNNER_PR"], "glaeda-std-xcode-27.0")
 
+    def test_the_sdk_15_lane_has_no_owned_failover(self) -> None:
+        # swift-package-tests builds the Release helper against an SDK 15 Xcode on a
+        # full suite; the minis have none, so the std pool fails it at once
+        # ("No Xcode.app found under /Applications with macOS SDK major 15").
+        values, _ = switch.failover_values(PIN, "")
+        self.assertNotIn("MACOS_RUNNER_DUAL_XCODE", values)
+        changed = switch.plan_off({"MACOS_RUNNER_DUAL_XCODE": "blacksmith-6vcpu-macos-15"}, values)
+        self.assertNotIn("MACOS_RUNNER_DUAL_XCODE", changed)
+        # A record written before this still restores it.
+        self.assertIn("MACOS_RUNNER_DUAL_XCODE", switch.SWITCHED_VARIABLES)
+
     def test_failover_never_touches_a_lane_switch(self) -> None:
         values, _ = switch.failover_values(PIN, "")
         for name in LANE_SWITCHES:
@@ -364,7 +375,8 @@ class PlanTests(unittest.TestCase):
         }, failover)
         self.assertEqual(changed["LINUX_RUNNER"], {"before": "blacksmith-4vcpu-ubuntu-2404",
                                                    "after": "blacksmith-16vcpu-ubuntu-2404"})
-        self.assertEqual(changed["MACOS_RUNNER_DUAL_XCODE"], {"before": None, "after": "glaeda-std-xcode-26.6"})
+        # No owned pool carries the SDK 15 Xcode swift-package-tests' Release helper needs: left unset.
+        self.assertNotIn("MACOS_RUNNER_DUAL_XCODE", changed)
         self.assertEqual(changed["CI_PAID_MACOS_OVERFLOW"], {"before": None, "after": "1"})
         self.assertNotIn("MACOS_RUNNER_26", changed)
         self.assertNotIn("MACOS_RUNNER_IOS", changed)
