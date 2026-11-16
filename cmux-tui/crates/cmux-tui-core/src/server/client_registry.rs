@@ -761,6 +761,8 @@ impl ClientRegistry {
                     || capability == super::ATTACH_OUTPUT_COALESCE_CAPABILITY
                     // Agent CLI terminals as cell deltas (server/agent_cli_hybrid.rs).
                     || capability == super::AGENT_CLI_HYBRID_CAPABILITY
+                    || capability == super::AGENT_CLI_HYBRID_LEAN_CAPABILITY
+                    || capability == super::TERMINAL_SHELL_LINES_CAPABILITY
                     || capability == super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == super::TERMINAL_PUBLIC_IDS_CAPABILITY

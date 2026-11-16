@@ -587,6 +587,7 @@ MODEL_BY_PATH = {
     'events/activity-changed/payload': models.ActivityChangedEvent,
     'events/agent-changed/payload': models.AgentChangedEvent,
     'events/agent-cli-frame/payload': models.AgentCliFrameEvent,
+    'events/agent-cli-lean/payload': models.AgentCliLeanEvent,
     'events/agent-inventory-changed/payload': models.AgentInventoryChangedEvent,
     'events/agent-inventory-watch-ended/payload': models.AgentInventoryWatchEndedEvent,
     'events/agent-presence-changed/payload': models.AgentPresenceChangedEvent,
