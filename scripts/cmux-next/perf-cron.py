@@ -169,8 +169,13 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
-    {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
+    # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
+    # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
+    # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
+    # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
     # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
@@ -1380,6 +1385,25 @@ def http_json(url, timeout=30):
         return json.load(r)
 
 
+# What a measurement step asks the host to have free (the controller's min_free_bytes of a bench or measure job).
+MEASURE_MIN_FREE_BYTES = 11811160064
+
+
+def disk_starved(w):
+    """Why the worker cannot be leased a measurement step for want of disk, or "" (pure): its free disk is under
+    MEASURE_MIN_FREE_BYTES and its heartbeat counts too little evictable for the controller or worker to free it."""
+    free = w.get("free_bytes")
+    if not isinstance(free, (int, float)) or isinstance(free, bool) or free >= MEASURE_MIN_FREE_BYTES:
+        return ""
+    evictable = (w.get("disk") or {}).get("evictable_bytes")
+    if not isinstance(evictable, (int, float)) or isinstance(evictable, bool):
+        evictable = 0
+    if free + evictable >= MEASURE_MIN_FREE_BYTES:
+        return ""
+    return (f"disk {free / 1e9:.1f} GB free of the {MEASURE_MIN_FREE_BYTES / 1e9:.1f} GB a measurement step needs, "
+            f"{evictable / 1e9:.1f} GB evictable")
+
+
 def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
     """None when the fleet lets the perf cron run a part on `worker` now, else the reason it yields.
     status: /v1/status; workers: `cmux-ci workers` ({name: heartbeat}); jobs: /v1/jobs (all recent)."""
@@ -1388,6 +1412,12 @@ def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
         return f"{worker} is not a controller worker now"
     if not w.get("healthy"):
         return f"{worker} is not healthy"
+    starved = disk_starved(w)
+    if starved:
+        # Healthy and idle, yet the controller leases it nothing: a measurement step asks MEASURE_MIN_FREE_BYTES and the
+        # worker has nothing to evict. 2026-11-16: the bench host sat at 10.9 GB free, every request to it queued until
+        # the cron gave it up, and no Mac row was stored for 34 h (tabs-keep-speed red).
+        return f"{worker} is not healthy: {starved}"
     seen = parse_iso((w.get("last_seen") or "")[:19] + "Z") if w.get("last_seen") else None
     if not seen or hours_between(seen, now_utc()) * 3600 > 180:
         return f"{worker} has not been seen for over 3 minutes"
