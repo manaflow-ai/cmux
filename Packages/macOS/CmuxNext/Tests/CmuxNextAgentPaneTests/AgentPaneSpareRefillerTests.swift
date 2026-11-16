@@ -35,6 +35,8 @@ import Testing
         var loading: [AgentPaneShownChatsWait.WhenPainted] = []
         /// What a page of `loading` runs once it drew.
         var drew: (() -> Void)?
+        /// The same for each of several pages of `loading`, in the order the refiller asked them.
+        var paints: [() -> Void] = []
     }
 
     /// A refiller on a scheduler whose frames the test fires, with its settle on a manual clock.
@@ -338,6 +340,39 @@ import Testing
         #expect(rig.seen.made == 1, "\(rig.seen.made) pages were asked for after the chat's paint and the settle")
         #expect(rig.refills.counts.makes == 1, "one handout ran \(rig.refills.counts.makes) makes")
         #expect(rig.clock.sleeperCount == 0, "a timer runs after the make")
+    }
+
+    /// Two chats load. The first one draws, and the second one draws 240 ms later. The settle starts again at the
+    /// second paint: the first paint's settle would end 10 ms after it, and its make would land in the frames that
+    /// follow the second chat's paint.
+    @Test func eachPaintOfTheChatsThatLoadStartsTheSettleAgain() async throws {
+        let rig = Rig()
+        let seen = rig.seen
+        rig.refills.afterPaint { $0() }
+        seen.loading = [{ seen.paints.append($0) }, { seen.paints.append($0) }]
+        try await rig.advance(by: AgentPaneSpareRefiller.settle)
+        try await rig.runQueued()
+        #expect(seen.made == 0 && rig.refills.counts.heldForOpen == 1, "\(rig.refills.counts), made \(seen.made)")
+        try #require(seen.paints.count == 2, "the held make asked \(seen.paints.count) of the 2 pages for their paint")
+
+        // The first chat drew: the settle.
+        seen.paints[0]()
+        try await rig.advance(by: AgentPaneSpareRefiller.settle - .milliseconds(10))
+        // The second chat drew, 240 ms later. A timer that sleeps now is the settle (the first paint's, or a new one).
+        seen.loading = []
+        seen.paints[1]()
+        try await rig.clock.waitForSleeper()
+        let now = rig.clock.now, ends = rig.clock.sleeperDeadlines
+        #expect(ends == [now.advanced(by: AgentPaneSpareRefiller.settle)],
+                "the settle did not start again at the second chat's paint: it ends \(ends.map { now.duration(to: $0) }) after it")
+
+        rig.clock.advance(by: AgentPaneSpareRefiller.settle - .milliseconds(1))
+        await rig.frames(20)
+        #expect(seen.made == 0, "a page was made less than the settle after the second chat's paint")
+        rig.clock.advance(by: .milliseconds(1))
+        try await rig.runQueued()
+        #expect(seen.made == 1 && rig.refills.counts.makes == 1, "\(rig.refills.counts), made \(seen.made)")
+        #expect(!rig.refills.isOpening)
     }
 
     /// A second chat took a page while the first chat's refill waited: one page follows, after the second chat's
