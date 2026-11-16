@@ -109,6 +109,10 @@
       "kind": "publish",
       "why": "publishes the headless debug daemon from the base"
     },
+    "cmux-tui-team-signed.yml": {
+      "kind": "publish",
+      "why": "its push run only registers the workflow (every job skips); its dispatches sign and publish a landed tree"
+    },
     "cmux-tui-tree-request.yml": {
       "kind": "publish",
       "why": "requests a cmux-tui tree publish for a landing"

@@ -202,7 +202,9 @@ fn link_usage(message: String) -> anyhow::Error {
 }
 
 fn help_text() -> String {
-    format!("{}\n{}", catalog().remote_client.link_help, enrollment::help())
+    let text = format!("{}\n{}", catalog().remote_client.link_help, enrollment::help());
+    // The cmux app's `link …` verbs too (cli/app_action_help.rs).
+    crate::cli::app_action_help::append("link", &text).unwrap_or(text)
 }
 
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {

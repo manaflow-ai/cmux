@@ -117,9 +117,9 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
-import { PageDots } from "./newtab/PageDots";
+import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
-import { screenTemplate, shownTemplate } from "./newtab/templates";
+import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
@@ -206,7 +206,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { startRefusalRoute } from "./startRefusal";
+import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -822,7 +822,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
-import { hatSeenKey, unseenHatQuestions } from "./question/hatSeen";
+import { hatQuestionsShown, hatSeenKey, stackCardKeys } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -841,6 +841,7 @@ import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
 import { dismissFocusRing } from "../../ui/focusModality";
 import { useDraftWaitOver } from "./draftSettleHold";
+import { focusRoute } from "../../ui/focusRoute";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
 
@@ -3423,7 +3424,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     workflowSideTabFocusOnClose.current = false;
     const opener = workflowSideTabOpener.current;
     workflowSideTabOpener.current = undefined;
-    if (opener && document.contains(opener)) opener.focus();
+    if (opener && document.contains(opener)) focusRoute(opener, "system", "focus the opener back after a dialog");
   }, [workflowSideTabId]);
   useEffect(() => {
     clearWorkflowSideTab();
@@ -3612,7 +3613,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [inspectorOpen, markJumpLatest]);
   useLayoutEffect(() => {
     if (inspectorOpen || !inspectorOpener.current) return;
-    inspectorOpener.current.focus();
+    focusRoute(inspectorOpener.current, "system", "the inspector closed: its opener");
     inspectorOpener.current = undefined;
   }, [inspectorOpen]);
   const toggleInspector = useCallback(
@@ -3985,9 +3986,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // The ones the person put away (the hat's × or Escape, question/hatSeen.ts) leave it; they share
   // the pinned asks' dismissals, so a tagged ask put away in one place leaves both.
+  // Nor the ones a card in the asks stack above it already shows (a pinned tagged ask, a
+  // sub-session's ask): one ask renders once (question/hatSeen.ts `hatQuestionsShown`).
+  const onStackCards = useMemo(() => stackCardKeys(pinnedAsks, childAsk), [pinnedAsks, childAsk]);
   const hatQuestionsUnseen = useMemo(
-    () => unseenHatQuestions(hatQuestionsRead, askDismissals.keys),
-    [hatQuestionsRead, askDismissals],
+    () => hatQuestionsShown(hatQuestionsRead, askDismissals.keys, onStackCards),
+    [hatQuestionsRead, askDismissals, onStackCards],
   );
   const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsUnseen)
     ? hatQuestionsKept.current
@@ -4007,7 +4011,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const hatQuestionActions = useMemo(
     () =>
       hatActions(
-        () => composerHandle.current?.focus(),
+        () => focusRoute(composerHandle.current, "system", "the composer, after a panel"),
         (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         () => askerRef.current,
         (question) => dismissPinnedAskRef.current(hatSeenKey(question)),
@@ -4117,8 +4121,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
       currentClient: () => directClient.current ?? undefined,
     };
-    return { cloudSignIn: cloudAgentLogin(login), apiKeySignIn: localApiKeyLogin(login) };
-  }, [connected, cloudMachineID, chatElsewhere, snapshot.sessionId, snapshot.summary?.harness]);
+    // A start refused because its agent is not signed in on the machine (hq#11225): that agent's own
+    // sign-in there, which the failed start's card leads with (SwitchNotice.tsx).
+    const refused =
+      snapshot.switching?.phase === "failed" && snapshot.switching.code === SIGN_IN_REQUIRED
+        ? snapshot.switching.harness
+        : undefined;
+    return {
+      cloudSignIn: cloudAgentLogin(login),
+      apiKeySignIn: localApiKeyLogin(login),
+      // A new chat has no session yet: its machine signs the agent in there with none, where its
+      // daemon can (`agent_login_machine`); elsewhere the card says to sign in on that machine.
+      refusedSignIn: refused
+        ? cloudAgentLogin({
+            ...login,
+            harness: refused,
+            machineLogin: directClient.current?.supportsMachineLogin === true,
+          })
+        : undefined,
+    };
+  }, [
+    connected,
+    cloudMachineID,
+    chatElsewhere,
+    snapshot.sessionId,
+    snapshot.summary?.harness,
+    snapshot.switching?.phase,
+    snapshot.switching?.code,
+    snapshot.switching?.harness,
+  ]);
   const turnActions = useMemo<TurnActions>(
     () => ({
       showCall,
@@ -7766,7 +7797,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (name === "showHarnesses") openHarnessesPage();
         // A chat that just opened from a fork (the app's Fork Conversation): the composer takes the
         // keyboard, so the next words go to the fork.
-        if (name === "focusComposer") composerHandle.current?.focus();
+        if (name === "focusComposer") focusRoute(composerHandle.current, "system", "the host's focusComposer");
         // Files another app sent to this chat (Send to cmux Chat, an image opened with cmux): the
         // composer takes them as a drop's, an unsent draft, with the keyboard (composer/externalAttach.ts).
         if (name === "attachExternal")
@@ -11683,10 +11714,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       workflowTranscript.rows
                                                                         ? workflowTranscript.loadOlder
                                                                         : !childRows
-                                                                          ? (fill: boolean) =>
+                                                                          ? (fill: boolean, rising: boolean) =>
                                                                               directClient.current?.loadOlder(
                                                                                 undefined,
                                                                                 fill,
+                                                                                rising,
                                                                               ) ?? Promise.resolve()
                                                                           : undefined
                                                                     }
@@ -12015,6 +12047,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // its host marked as that machine's, says where it runs.
   const startsElsewhere =
     remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
+  // The login command of an agent whose start was refused for its sign-in (SwitchNotice's Sign in).
+  const switchLoginCommand =
+    snapshot.switching?.phase === "failed" && snapshot.switching.code === SIGN_IN_REQUIRED
+      ? chatLoginCommand(catalog, snapshot.switching.harness, harnessHealth)
+      : undefined;
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -12161,6 +12198,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               switching={snapshot.switching}
               // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
               installs={!startsElsewhere}
+              // An agent not signed in: on another machine its sign-in runs there, in the card; on
+              // this Mac its login runs in a terminal tab, then Retry starts it (hq#11225).
+              {...(startsElsewhere && chatSignIns.refusedSignIn && { agentSignIn: chatSignIns.refusedSignIn })}
+              runsLogin={!startsElsewhere && switchLoginCommand !== undefined}
               onRetry={() => void callNative("chat.harness.retry")}
               // The refused prompt is back in the composer; a chat on another machine starts only
               // with a send, so the share's retry sends it again (as Trust's answer does).
@@ -12176,6 +12217,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
                       run: true,
                     }).catch(() => undefined);
+                  return;
+                }
+                // The refused agent's login, where its sign-in page or code shows; Retry then starts it.
+                if (action === "signIn") {
+                  if (switchLoginCommand && !startsElsewhere) {
+                    healthStale.current = true;
+                    void callNative("tab.open", {
+                      kind: "terminal",
+                      text: switchLoginCommand,
+                      ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+                      run: true,
+                      keep: true,
+                    }).catch(() => undefined);
+                  }
                   return;
                 }
                 const route = startRefusalRoute(action, startsElsewhere);
@@ -13275,17 +13330,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen && showNewTab && !newTab.history && !newTabApp && (
-            // The page's dots, under it: Claude Minimal and Codex Minimal (newtab/tabDots.ts, the
-            // composer's look), then on every layout but Minimal the page's other styles
-            // (newtab/PageDots.tsx); a pick shows in place at once.
-            <PageDots
-              template={shownTemplate(newTab)}
-              callNative={callNative}
-              show={(next) => setNewTab((current) => current && { ...current, template: next })}
-              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-            />
-          )}
+          {!harnessesOpen &&
+            showNewTab &&
+            !newTab.history &&
+            !newTabApp &&
+            pageStyle(shownTemplate(newTab)) !== "minimal" && (
+              <StyleSwitch
+                current={pageStyle(shownTemplate(newTab))}
+                onPick={(next) =>
+                  pickNewTabStyle(next, {
+                    callNative,
+                    show: (template) => setNewTab((current) => current && { ...current, template }),
+                  })
+                }
+                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+              />
+            )}
           {showNewTab && folderAskView}
           {newTabApp && !harnessesOpen ? (
             <NewTabAppPage

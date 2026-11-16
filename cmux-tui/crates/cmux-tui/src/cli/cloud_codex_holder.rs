@@ -4,6 +4,14 @@
 //! machines' exec and file routes, the same direct-or-proxy path as `cmux cloud machine-io`
 //! (`cmux_cloud_api::machine_io`),
 //! with the app's Cloud credential asked per call.
+//!
+//! The holder's scope names the app's active team as the app keeps it: a Stack team id. The cmux
+//! API Worker's `x-cmux-team` takes only its own `team_` ids (`team-select.ts`), so a route call
+//! names the team as [`route_team`] maps it, by the rule every other Cloud call uses
+//! (`cmux_cloud_config::identity::team_header`). The Stack id made every Codex delivery on a team
+//! account fail with "x-cmux-team must name a team id": Codex on a production Cloud machine
+//! started with no login, while Claude, whose transfer pins the install's team, had one (Leo's
+//! NIGHTLY, 2026-11-15).
 
 use std::io::Read as _;
 use std::path::PathBuf;
@@ -46,16 +54,37 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 /// A Cloud machine's routes through machine-io's own `perform`.
 struct MachineIo {
     api: String,
+    /// The Stack project the app signs in to (the config's `stack_project`), which maps a Stack
+    /// team id to the Worker's ([`route_team`]).
+    stack_project: Option<String>,
     cache_dir: Option<PathBuf>,
     app_version: Option<String>,
     app: Arc<App>,
     client: Option<reqwest::Client>,
 }
 
+/// The config line's `stack_project`, when it names one.
+fn stack_project(config: &Config) -> Option<String> {
+    let project = config.line.get("stack_project").and_then(Value::as_str)?.trim();
+    (!project.is_empty()).then(|| project.to_owned())
+}
+
+/// The `x-cmux-team` a route call sends for the scope's `team` (module docs): a Worker `team_` id
+/// as is, a Stack team id mapped with `stack_project`. With no project (an app from before it sent
+/// one) the team goes as given.
+fn route_team(stack_project: Option<&str>, team: Option<&str>) -> Option<String> {
+    let team = team.map(str::trim).filter(|team| !team.is_empty())?;
+    Some(match stack_project {
+        Some(project) => cmux_cloud_config::identity::team_header(project, team),
+        None => team.to_owned(),
+    })
+}
+
 impl MachineIo {
     fn new(config: &Config, app: Arc<App>) -> Self {
         let text = |key: &str| config.line.get(key).and_then(Value::as_str).map(str::to_owned);
         Self {
+            stack_project: stack_project(config),
             api: text("api").and_then(|api| secure_origin(api.trim()).ok()).unwrap_or_default(),
             cache_dir: text("cache_dir").map(PathBuf::from),
             app_version: text("app_version"),
@@ -90,7 +119,7 @@ impl MachineIo {
         let mut request = Request {
             api: self.api.clone(),
             credential: credential.trim().to_owned(),
-            team: team.map(str::to_owned),
+            team: route_team(self.stack_project.as_deref(), team),
             machine: machine.to_owned(),
             op,
             path: None,
@@ -260,6 +289,33 @@ mod tests {
         };
         let text = scrub(refused, "secret-token-1").body.to_string();
         assert!(!text.contains("secret-token-1"), "{text}");
+    }
+
+    /// Leo's NIGHTLY, 2026-11-15: the scope's Stack team went out as `x-cmux-team`, the Worker
+    /// refused it ("x-cmux-team must name a team id"), and Codex reached the machine with no login.
+    #[test]
+    fn a_route_names_the_workers_team_id() {
+        let project = "project-1";
+        let stack_team = "6f1c2a8e-9b1d-4c3e-8f00-0123456789ab";
+        let config = Config {
+            root: "/tmp/root".into(),
+            user_home: "/tmp/home".into(),
+            line: json!({"op": "config", "stack_project": project}),
+        };
+        let project = stack_project(&config);
+        assert_eq!(project.as_deref(), Some("project-1"));
+        let routed = route_team(project.as_deref(), Some(stack_team)).unwrap();
+        assert!(cmux_cloud_config::identity::is_team(&routed), "{routed}");
+        assert_eq!(routed, cmux_cloud_config::identity::backend_team_id("project-1", stack_team));
+        // The personal team's Worker id goes as is; no team is the install's own.
+        let personal = "team_0123456789abcdef0123";
+        assert_eq!(route_team(project.as_deref(), Some(personal)).as_deref(), Some(personal));
+        assert_eq!(route_team(project.as_deref(), None), None);
+        assert_eq!(route_team(project.as_deref(), Some(" ")), None);
+        // A config with no project (an older app) sends the team as it came.
+        let older = Config { line: json!({"op": "config"}), ..config };
+        assert_eq!(stack_project(&older), None);
+        assert_eq!(route_team(None, Some(stack_team)).as_deref(), Some(stack_team));
     }
 
     #[test]

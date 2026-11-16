@@ -42,6 +42,9 @@ struct Inner {
     /// The usage ledger beside the trace (`../usage`, usage.rs), fed the
     /// same events; None when its directory cannot be made.
     ledger: Option<crate::usage::Ledger>,
+    /// Product analytics (analytics/mod.rs), set by the host only: tests
+    /// and tools that open a trace send nothing.
+    analytics: std::sync::OnceLock<crate::analytics::Analytics>,
 }
 
 impl std::fmt::Debug for Trace {
@@ -80,12 +83,21 @@ impl Trace {
                 full: std::sync::atomic::AtomicBool::new(full),
                 write: Mutex::new(()),
                 ledger,
+                analytics: std::sync::OnceLock::new(),
             })),
         })
     }
 
     pub fn is_on(&self) -> bool {
         self.inner.is_some()
+    }
+
+    /// Feeds every later event of this trace (and of its clones) to
+    /// `analytics`. A second call keeps the first.
+    pub fn set_analytics(&self, analytics: crate::analytics::Analytics) {
+        if let Some(inner) = &self.inner {
+            let _ = inner.analytics.set(analytics);
+        }
     }
 
     /// Whether whole texts are traced (`OPTCHAT_TRACE_FULL=1`, `trace.full`).
@@ -155,8 +167,15 @@ impl Trace {
                 let _ = f.write_all(&bytes);
             }
         }
-        if let Some(ledger) = &inner.ledger {
-            ledger.observe(&event);
+        let unit = inner
+            .ledger
+            .as_ref()
+            .and_then(|ledger| ledger.observe(&event));
+        if let Some(analytics) = inner.analytics.get() {
+            analytics.observe(&event);
+            if let Some(line) = &unit {
+                analytics.observe_unit(line);
+            }
         }
     }
 }

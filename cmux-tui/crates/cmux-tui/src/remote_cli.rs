@@ -111,7 +111,15 @@ fn run_inner(
 ) -> anyhow::Result<()> {
     let rest = args.get(1..).unwrap_or_default();
     if remote_help_requested(rest) {
-        print!("{}", remote_help(args.first().map(String::as_str)));
+        let help = remote_help(args.first().map(String::as_str));
+        // `cmux remote --help` also lists the cmux app's `remote …` verbs (cli/app_action_help.rs).
+        match args.first().map(String::as_str) {
+            Some("remote") => match crate::cli::app_action_help::append("remote", help) {
+                Some(text) => print!("{text}"),
+                None => print!("{help}"),
+            },
+            _ => print!("{help}"),
+        }
         return Ok(());
     }
     match args.first().map(String::as_str) {
@@ -720,7 +728,34 @@ struct ConnectedRuntime {
     route: String,
 }
 
-fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+/// Starts the connection `connect`, `exec`, `cp` and the rest share. A far machine's refusal no
+/// redial cures (`--via-machine`'s `consent_required`, ...) ends it at once with what to do;
+/// with `--json` it is also one stdout line, `{"event":"refused","reason","error","machine"}`.
+fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+    let json = flags.json;
+    let machine = flags.via_machine.clone();
+    start_connected_inner(flags).map_err(|error| {
+        let Some(refusal) = crate::remote_runtime::startup_refusal(&error) else {
+            return error;
+        };
+        let said = catalog().remote_client.machine_refused(&refusal.reason, &refusal.message);
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "event": "refused",
+                    "reason": refusal.reason,
+                    "error": said,
+                    "machine": machine,
+                })
+            );
+            let _ = io::stdout().flush();
+        }
+        anyhow!(said)
+    })
+}
+
+fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let invitation = flags

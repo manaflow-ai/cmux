@@ -74,6 +74,17 @@ pub fn check_create_capabilities(selection: &Selection, params: &Value) -> Resul
     Ok(())
 }
 
+/// Whether a create's parameters name a field whose meaning needs a backend capability
+/// (check_create_capabilities). `null` is an omitted field.
+pub(crate) fn create_needs_capabilities(params: &Value) -> Result<bool, String> {
+    let object = params
+        .as_object()
+        .ok_or_else(|| "machine create parameters must be a JSON object".to_owned())?;
+    Ok(ADVANCED_CREATE_FIELDS
+        .iter()
+        .any(|field| object.get(*field).is_some_and(|value| !value.is_null())))
+}
+
 pub(crate) fn cached(
     resolver: &Resolver,
     mut selection: Selection,
@@ -425,6 +436,45 @@ mod tests {
         );
         selection.capabilities["machine_create"]["size_name"] = serde_json::json!(true);
         check_create_capabilities(&selection, &serde_json::json!({"size_name": "large"})).unwrap();
+    }
+
+    #[tokio::test]
+    async fn check_create_reads_the_backend_only_for_a_field_that_needs_a_capability() {
+        // The app runs check-create before every Cloud create, on the create's path. A create that names no
+        // advanced field needs no capability: it must answer without a client-config round trip. Against a
+        // backend that takes the connection and never answers, any fetch waits out its 5 s timeout.
+        let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+        silent.set_nonblocking(true).unwrap();
+        let origin = format!("http://{}", silent.local_addr().unwrap());
+        let home = Home::new();
+        let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
+        let selected = resolver.resolve(Some(&origin)).unwrap();
+        let plain = serde_json::json!({
+            "name": "chat",
+            "size": {"cpu": 2, "memory_mb": 4096, "disk_mb": 16384},
+            "size_name": null,
+        });
+        let started = std::time::Instant::now();
+        let checked = resolver.check_create(selected.clone(), &plain).await;
+        let elapsed = started.elapsed();
+        assert!(checked.is_ok(), "{checked:?}");
+        assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
+        assert!(
+            matches!(silent.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "check-create of a plain create connected to the backend"
+        );
+        drop(silent);
+
+        // A field that needs a capability still reads the backend's advertised capabilities, and fails closed.
+        let (origin, server) =
+            serve(|origin| http_json(&serde_json::to_string(&config(origin)).unwrap()));
+        let selected = resolver.resolve(Some(&origin)).unwrap();
+        let refused = resolver
+            .check_create(selected, &serde_json::json!({"size_name": "large"}))
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(refused.contains("machine_create.size_name"), "{refused}");
     }
 
     #[test]

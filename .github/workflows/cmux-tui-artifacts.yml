@@ -16,7 +16,7 @@ name: cmux-tui artifacts
 #                                                  install as cmux-cloud beside it
 #   cmux-tui/<commit-sha>/cmux-tui-browser-host-<rust-target>  browser host (macOS);
 #                                                  install as cmux-browser-host beside cmux-tui
-#   cmux-tui/<commit-sha>/cmux-tui-host-<rust-target>  slim terminal host (macOS);
+#   cmux-tui/<commit-sha>/cmux-tui-host-<rust-target>  slim terminal host (macOS, Linux);
 #                                                  install as cmux-tui-host beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-holder-<rust-target>  terminal holder (macOS);
 #                                                  install as cmux-holder beside cmux-tui
@@ -1944,6 +1944,11 @@ jobs:
           # 42189372955). Its .dSYM folders are never published (sentry-dsyms reads its
           # own copy), and `sha256sum cmux-tui-*` fails on a folder.
           find assets/cmux-tui -maxdepth 1 -type d -name '*.dSYM' -prune -exec rm -rf {} +
+          # It also matches the tree markers (cmux-tui-tree-owner-<key>, -feat-builder-<key>,
+          # -deferred-<key>). The checksums below never named their files, so "Upload to R2"
+          # sent all of cmux-tui/<sha>/ one file at a time (33 files in 72 s at 9fd2f115)
+          # and wrote tree-owner.json after manifest.json. Only cmux-tui-* is build output.
+          find assets/cmux-tui -maxdepth 1 -type f ! -name 'cmux-tui-*' -print -delete
           build_manifest() {
             local directory="$1"
             local binary_prefix="$2"
@@ -2183,6 +2188,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2407,14 +2414,26 @@ jobs:
             # transfer that crawls there is cut and retried. R2 reads a 31 MB
             # binary in seconds, so two 90 s attempts per file keep the
             # fallback well inside the job's 15 minutes.
-            fetch_published() {
+            # With "optional", a name R2 answers 404 for is left out: a
+            # commit prefix adopt-commit-manifest wrote from its published
+            # tree has only the binaries and manifest.json, no checksums
+            # file (run 43877937618 failed reading cmux-tui-checksums.txt
+            # from one). Any other failed read still goes to the CDN and,
+            # failing there too, fails the step.
+            fetch_published() { # <name> [optional]
+              local status=0
               CMUX_R2_UPLOAD_ATTEMPTS=2 CMUX_R2_UPLOAD_RETRY_DELAY=5 CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=90 \
               python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-                --key "$prefix/$1" --download-to "$directory/$1" ||
-                { curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
-                    --speed-limit 102400 --speed-time 30 \
-                    -o "$directory/$1.partial" "https://files.cmux.com/$prefix/$1?adopt=$GITHUB_RUN_ID" &&
-                  mv "$directory/$1.partial" "$directory/$1"; }
+                --key "$prefix/$1" --download-to "$directory/$1" || status=$?
+              [[ "$status" == 0 ]] && return 0
+              if [[ "$status" == 22 && "${2:-}" == optional ]]; then
+                echo "https://files.cmux.com/$prefix/ has no $1; keeping the publication without it."
+                return 0
+              fi
+              curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
+                  --speed-limit 102400 --speed-time 30 \
+                  -o "$directory/$1.partial" "https://files.cmux.com/$prefix/$1?adopt=$GITHUB_RUN_ID" &&
+                mv "$directory/$1.partial" "$directory/$1"
             }
             for name in "$directory"/*-checksums.txt; do
               [[ -f "$name" ]] && checksums="$checksums $(basename "$name")"
@@ -2435,11 +2454,18 @@ jobs:
             # checksums file, and two reads of one name would race on the
             # same file and its .partial. A string, not an associative array: macOS
             # runners have Bash 3.2, which has no associative arrays.
+            # The manifest's names are required; this run's checksums file
+            # names are not, since the publication may never have had one.
             local seen=" "
-            for name in $checksums $names; do
+            for name in $names; do
               [[ "$name" == manifest.json || "$seen" == *" $name "* ]] && continue
               seen="$seen$name "
               pool_run fetch_published "$name"
+            done
+            for name in $checksums; do
+              [[ "$seen" == *" $name "* ]] && continue
+              seen="$seen$name "
+              pool_run fetch_published "$name" optional
             done
             pool_wait
           }
@@ -2528,10 +2554,14 @@ jobs:
                 return
               fi
               [[ "$status" == 0 ]] || exit "$status"
-              for file in "$directory"/*; do
+              # Largest first (ls -S), so the 130-160 MB daemons do not start
+              # last and run alone at the end: by name the x86_64 ones sorted
+              # last of 33 files (run 43751227908's prefix took 72 s at 8 at once).
+              # The order inside this pool does not matter to the race handling.
+              while IFS= read -r file; do
                 [[ "$file" == "$claim" || "$(basename "$file")" == manifest.json ]] && continue
                 pool_run upload_object "$file" "$prefix" "$cache" true
-              done
+              done < <(ls -1S -- "$directory"/*)
               status=0
               pool_wait || status=$?
               if [[ "$status" == 75 ]]; then
@@ -2670,6 +2700,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2795,6 +2827,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2873,6 +2907,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2933,6 +2969,8 @@ jobs:
               ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
               --require-artifact cmux-tui-host-aarch64-apple-darwin \
               ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+              --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+              --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
               --require-artifact cmux-tui-holder-aarch64-apple-darwin \
               ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
               --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -3127,6 +3165,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -4174,6 +4214,68 @@ jobs:
           LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
         run: scripts/ci/cmux-tui-mark-daemon-tested.sh "$KEY_V2" "$LEGACY_KEY"
 
+  # A Team-signed copy of this push's darwin tree build, for hot-apply into a Team-signed app (a
+  # NIGHTLY, cmuxterm-hq#11364): cmux-tui-team-signed.yml signs it with the NEXT nightly's identity,
+  # which only ref nightly-next can hold, so this asks for a run there. It holds nothing: no job
+  # needs it, it never fails the run, and a missing workflow on nightly-next (before a promotion
+  # carries it) is a warning.
+  request-team-signed-tree:
+    name: request the Team-signed tree
+    needs: [tree-preflight, publish-tree-tested]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    continue-on-error: true
+    # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      # As request-image-roll: a rate-limited github.token moves the dispatch to the cmux-bot App's
+      # token at once (gh_budget_wait.sh, GH_TOKEN_SPARE).
+      - name: Mint the dispatch's spare token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+      # Every push whose tree is published and tested asks, as point-feat-channel moves: also one whose
+      # tree another run published and tested (publish-tree-tested is then skipped). Most pushes keep
+      # the tree key of the one before, whose set is signed already: those dispatch nothing. The key names the run's concurrency group, so a burst of pushes of one new key signs once.
+      - name: Dispatch cmux-tui-team-signed.yml on nightly-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          # Inside the job's 5 minutes: a wait only when the spare is refused too.
+          GH_BUDGET_WAIT_MAX_SECONDS: 180
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if curl --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
+              "https://files.cmux.com/cmux-tui/tree/$KEY/team-signed/completion.json?request=$RUN_ID"; then
+            echo "Tree $KEY already has its Team-signed set; nothing to request." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if bash scripts/ci/gh_budget_wait.sh workflow run cmux-tui-team-signed.yml --repo "$REPO" --ref nightly-next -f commit="$SHA" -f key="$KEY"; then
+            echo "Asked nightly-next's cmux-tui-team-signed.yml to sign $SHA's tree." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Team-signed tree not requested::gh workflow run cmux-tui-team-signed.yml --ref nightly-next failed (the file may not be on nightly-next yet); dispatch it by hand with -f commit=$SHA"
+          fi
+
   # Linux hosts keep their daemon on the newest feat-cmux-next build by
   # themselves (`acpmux host self-update`, run by their acpmux-update.timer):
   # they read cmux-tui/channels/feat-cmux-next.json, the tree key, commit and
@@ -4211,6 +4313,39 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
         run: scripts/ci/cmux-tui-point-channel.sh feat-cmux-next "$KEY"
+
+  # The Windows join line (cmux-tui/scripts/machine-join.ps1) installs acpmux
+  # from cmux-tui/channels/windows-feat-cmux-next.json: the tree key, commit and
+  # Windows acpmux sha256 of the newest feat-cmux-next dispatch with
+  # include_windows whose Windows build reached the tree (pushes never build
+  # Windows). The same forward-only compare-and-swap as point-feat-channel.
+  point-windows-channel:
+    environment:
+      name: artifacts
+      deployment: false
+    name: point the windows-feat-cmux-next channel at this tree
+    # After publish-tree-tested, whatever its result: the script points only at a tree with its
+    # daemon-tests marker, and a dispatch is the only run that builds Windows to point at.
+    needs: [tree-preflight, publish-tree-windows, publish-tree-tested]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.publish-tree-windows.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Point the Windows channel at this tree
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: scripts/ci/cmux-tui-point-channel.sh windows-feat-cmux-next "$KEY"
 
   # The tree-commit markers (scripts/cmux-next/tree-commit-marker.sh has the
   # contract): cmux-tui/tree-commits/<sha>.json for each first-parent commit in
@@ -4256,6 +4391,25 @@ jobs:
         # --tip-branch: the script fetches the tip (the public repository needs
         # no credentials) after listing this commit's window.
         run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
+
+      # This commit's hot keys (scripts/cmux-next/hot-apply.py keys): hot-apply plans an app's commit against
+      # a newer one by comparing these, with no checkout, diff or key computation of its own. A publication,
+      # not a check: a failure here only makes hot-apply fall back to diffing, so it never reds the job.
+      - name: Publish this commit's hot keys
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/hot-keys.json"
+          python3 scripts/cmux-next/hot-apply.py keys "$GITHUB_SHA" --repo . > "$out"
+          cat "$out"
+          python3 scripts/ci/upload-r2-object.py --write-once --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+            --cache-control "public, max-age=31536000, immutable" --file "$out" \
+            --key "cmux-next/hot-keys/$GITHUB_SHA.json" --content-type application/json
 
   # The post-publish 404 detector (review of #42580, F1). A run that deferred
   # to its key's owner and was still in progress when the owner published was
@@ -4405,6 +4559,10 @@ jobs:
   # such a commit exists (only point-machine-channel-early uploads one, from this run's build-linux).
   # 93d73d7b (run 43479235288) adopted its manifest at 18:07:54Z and, before this, the channel waited
   # for the next built commit at 18:22Z. The channel still never moves back (web-ota-pointer.py newer).
+  # It never moves for identical code either (cmux-machine-channel-point.sh --same-tree): a channel on
+  # a commit with this commit's tree key stays, so an adopted tree does not swap a machine's thin
+  # build for the fat build of the same source, and the fat build of the commit the early job pointed
+  # at is kept out by its same commit.
   point-machine-channel:
     # R2 credentials. Only a base branch's publish (which moves the channels) records a
     # deployment; a lane branch's commit-addressed upload logs none on its PR.
@@ -4415,7 +4573,7 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 35  # 15 for the Cloud machine channel, at most 15 more for the Linux release file
+    timeout-minutes: 50  # 15 for the Cloud machine channel, at most 15 more each for the Linux release and Mac live update files
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -4423,6 +4581,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The Mac live update file walks first parents back up to 400 commits (hot-apply.py live-from).
+          fetch-depth: 402
 
       - name: Sign and upload the channel
         env:
@@ -4441,7 +4601,9 @@ jobs:
           python3 scripts/ci/cmux-machine-channel.py payload --manifest "$dir/manifest.json" --commit "$GITHUB_SHA" \
             --committed-at "$(git show -s --format=%ct HEAD)" --download-dir "$dir/binaries" --out "$dir/payload.json"
           rm -rf "$dir/binaries"
-          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+          # --same-tree: a channel on a commit of this commit's tree key (the adopted tree, or this
+          # commit's own thin build from point-machine-channel-early) is the same code and stays.
+          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir" --same-tree
           # Then the signed Linux release files (cmuxterm-hq docs/design/linux-signed-packages.md):
           # cmux-tui/<sha>/release.json (written once) and cmux-tui/channels/linux-feat-cmux-next.json
           # (forward only), the same envelope and key with purpose cmux-linux-release, so neither file
@@ -4470,6 +4632,34 @@ jobs:
             echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
           fi
 
+      # cmuxterm-hq docs/design/nightly-live-updates.md step 1: cmux-tui/<sha>/mac-live.json (written once; `cmux app
+      # try SHA` takes it live) and cmux-tui/channels/mac-live.json (forward only), the same envelope and key with
+      # purpose cmux-mac-live-update. It names the commit's darwin daemon binaries from the manifest (the Cloud
+      # machine channel's trust: the darwin build is not this job's) and live_from, the app commits that can take
+      # them live. Delivery, not a gate: a failure is a warning and holds nothing above.
+      - name: Sign the Mac live update file
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          ml="$RUNNER_TEMP/mac-live"
+          mkdir -p "$ml" && chmod 700 "$ml"
+          export ml GITHUB_SHA GITHUB_RUN_ID
+          if ! timeout 900 bash -euo pipefail -c '
+                 curl -fsS --retry 3 --max-time 60 -o "$ml/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?mac-live=$GITHUB_RUN_ID"
+                 python3 scripts/cmux-next/hot-apply.py live-from "$GITHUB_SHA" > "$ml/live-from.json"
+                 python3 scripts/ci/cmux-machine-channel.py payload --purpose mac-live --manifest "$ml/manifest.json" \
+                   --live-from "$ml/live-from.json" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
+                   --download-dir "$ml/binaries" --out "$ml/payload.json"
+                 rm -rf "$ml/binaries"
+                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml"'; then
+            echo "::warning::the signed Mac live update file of $GITHUB_SHA was not published; the next push signs its own"
+          fi
+
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
   # build changes what the image carries; its concurrency keeps one roll running and replaces a waiting one.
@@ -4479,6 +4669,10 @@ jobs:
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
+    # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       actions: write
       contents: read
@@ -4488,10 +4682,27 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      # publish's own dispatch and this one both failed on "HTTP 403: API rate limit exceeded for
+      # installation" in run 43797999732 (2026-11-16): every workflow's github.token shares one hourly
+      # budget, so no roll was asked for. A refusal now moves the dispatch to the cmux-bot App's token
+      # (its own limit) at once (scripts/ci/gh_budget_wait.sh, GH_TOKEN_SPARE), as the tree hand-off does.
+      - name: Mint the dispatch's spare token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
       - name: Dispatch the image roll
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          # Inside the job's 5 minutes: a wait only when the spare is refused too.
+          GH_BUDGET_WAIT_MAX_SECONDS: 180
+        run: bash scripts/ci/gh_budget_wait.sh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
 
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip
@@ -4515,6 +4726,10 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # One fetch of the branch's recent history plus a jobs lookup per candidate.
     timeout-minutes: 15
+    # Secrets only: no deployment. The request's spare token (below) is the cmux-bot App's.
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       # actions: read finds the Release compile; actions: write dispatches
       # main's promote-nightly-next.
@@ -4529,9 +4744,28 @@ jobs:
           ref: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: ${{ github.ref == 'refs/heads/feat-cmux-next' && 1 || 40 }}
 
+      # As request-image-roll: a rate-limited github.token moves each gh call to the cmux-bot App's
+      # token at once (gh_budget_wait.sh, GH_TOKEN_SPARE), so a spent shared budget asks anyway.
+      - name: Mint the request's spare token
+        id: cmux-bot-token
+        if: github.repository == 'manaflow-ai/cmux' && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
+      - name: Send gh calls through the budget wrapper
+        run: bash scripts/ci/gh_budget_wait.sh --install
+
       - name: Request nightly-next promotion on main
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          # Inside the job's 15 minutes: a wait only when the spare is refused too.
+          GH_BUDGET_WAIT_MAX_SECONDS: 420
           KEY: ${{ needs.tree-preflight.outputs.key }}
         run: |
           set -euo pipefail
@@ -4645,7 +4879,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, mark-tree-commits, sweep-commit-manifests, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.

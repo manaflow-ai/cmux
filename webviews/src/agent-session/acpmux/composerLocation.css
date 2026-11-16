@@ -202,23 +202,6 @@
 .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
   padding-inline-start: max(0px, calc(var(--acpmux-location-icon-center) - var(--acpmux-project-badge-size, 20px) / 2));
 }
-/* The gallery's other arms (newtab/iconColumn.experiment.ts), New Tab only. current: the ghost
-   button's full inset, as before. shift: the full inset, the chip moved out by the badge's extra
-   half width. shrink: the badge drawn at the ghost icon's size. */
-.nt-composer:is([data-icon-column="current"], [data-icon-column="shift"])
-  .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
-  padding-inline-start: var(--ui-ghost-inset);
-}
-.nt-composer[data-icon-column="shift"] .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
-  translate: calc(var(--acpmux-location-icon-center) - var(--ui-ghost-inset) - var(--acpmux-project-badge-size, 20px) / 2) 0;
-}
-.nt-composer[data-icon-column="shrink"] .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
-  --acpmux-project-badge-size: var(--ui-ghost-icon-size);
-}
-.nt-composer[data-icon-column="shrink"] .acpmux-location-button > .acpmux-project-badge:first-child > :is(img, svg) {
-  width: 100%;
-  height: 100%;
-}
 .acpmux-location-button > .ui-ghost-icon:last-child {
   /* The chevron path is optically high inside its 14px viewBox. */
   transform: translateY(0.75px);
@@ -1515,9 +1498,9 @@
      and its ink centers on the box's middle, where the controls are. */
   --acpmux-text-drop: calc(var(--text-content, 14px) / 14);
 }
-/* The type steps the composer reads, at its density: only the composer's own subtree and New Tab's suggestions
-   under it (a portal), not the dock's toasts, asks and lists, which keep the transcript's sizes. */
-:is(.acpmux-composer, .nt-composer, .nt-popover) {
+/* The composer's type steps also cover New Tab's suggestions and create row.
+   Dock toasts, asks and lists keep the transcript's sizes. */
+:is(.acpmux-composer, .nt-composer, .nt-popover, .nt-create) {
   --text-caption: calc(11px * var(--acpmux-density-text));
   --text-caption--line-height: calc(14px * var(--acpmux-density-text));
   --text-detail: calc(12px * var(--acpmux-density-text));
@@ -1534,9 +1517,24 @@
   --text-content: calc(var(--cv-font-size, 14px) * max(1, var(--acpmux-density-text)));
   --text-content--line-height: calc(var(--cv-line-height, 22.75px) * max(1, var(--acpmux-density-text)));
 }
+/* New Tab uses Default's page values inside its shared density zoom. The
+   person's text and interface overrides remain relative to that reference. */
+.nt-composer,
+.nt-composer .acpmux-composer,
+.nt-popover,
+.nt-create {
+  --nt-base-size-scale: calc(var(--cmux-density-scale, var(--cmux-composer-zoom, 1)) / var(--cmux-composer-zoom, 1));
+  --nt-base-text-scale: calc(var(--cmux-density-text-scale, var(--cmux-composer-zoom, 1)) / var(--cmux-composer-zoom, 1));
+  --acpmux-density: var(--nt-base-size-scale);
+  --acpmux-density-text: var(--nt-base-text-scale);
+  --nt-density: var(--nt-base-size-scale);
+  /* The person's text scale applies once: the zoom carries the density, so a fixed Text Size draws one size at every density. */
+  --text-content: calc(var(--cv-base-font-size, 14px) * var(--nt-base-text-scale));
+  --text-content--line-height: calc(var(--cv-base-line-height, 22.75px) * var(--nt-base-text-scale));
+}
 .acpmux-composer-box[data-composer-grid] {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
   align-items: end;
   --acpmux-prompt-inset: max(
     0px,
@@ -1544,8 +1542,8 @@
   );
   /* The drop never outgrows the padding it moves (a large chrome size has none under the line). */
   --acpmux-prompt-drop: clamp(calc(-1 * var(--acpmux-prompt-inset)), var(--acpmux-text-drop), var(--acpmux-prompt-inset));
-  /* The controls stay centered on the last content line as its size changes. */
-  --acpmux-prompt-control-bottom: max(
+  /* Reserve the controls' columns and keep them on the first content line. */
+  --acpmux-prompt-control-top: max(
     0px,
     calc(var(--acpmux-prompt-inset) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2)
   );
@@ -1577,26 +1575,41 @@
 /* The grid's inset is the control inset on both sides: + sits 8 px from the box's left, the mic or
    Send 8 px from its right, so each glyph's center is 22 px from its edge (a 28 px button, a 16 px
    glyph), and the block inset (10 px) over the bottom on a one-line prompt, as far as under the top.
-   + is one 28 px flex box standing on the row's end: no line box of its own (a baseline gap under
+   + is one 28 px flex box on the first line: no line box of its own (a baseline gap under
    the button raised + over the box's middle in the app's font, Leo 2026-11-01). */
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  margin: 0 0 var(--acpmux-prompt-control-bottom) var(--acpmux-composer-inset);
+  align-self: start;
+  margin: var(--acpmux-prompt-control-top) 0 0 var(--acpmux-composer-inset);
 }
 .acpmux-composer-inner > .acpmux-composer-plus {
   display: flex;
   align-items: center;
-  align-self: end;
   height: var(--acpmux-composer-control);
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
-  margin: 0 var(--acpmux-composer-inset) var(--acpmux-prompt-control-bottom) 0;
+  align-self: start;
+  margin: var(--acpmux-prompt-control-top) var(--acpmux-composer-inset) 0 0;
+}
+/* A capped draft keeps the controls below its scrollbar. The edge marks exclude temporary
+   overflow while a short draft grows, so wrapping a line never moves the controls. */
+.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
+  .acpmux-composer-inner > :not(.acpmux-composer-actions) {
+  align-self: end;
+  margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
+}
+.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
+  .acpmux-composer-inner > .acpmux-composer-actions {
+  align-self: end;
+  margin: 0 var(--acpmux-composer-inset) var(--acpmux-prompt-control-top) 0;
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box[data-composer-grid] .acpmux-md-field {
+  /* A growing row keeps the first line at its fixed padding inset. */
+  align-self: start;
   padding: calc(var(--acpmux-prompt-inset) + var(--acpmux-prompt-drop))
     max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
     calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop)) var(--acpmux-composer-lead-gap);

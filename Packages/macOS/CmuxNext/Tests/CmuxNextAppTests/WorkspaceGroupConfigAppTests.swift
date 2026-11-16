@@ -35,7 +35,7 @@ struct WorkspaceGroupConfigAppTests {
             let anchor = try #require(WorkspaceGroupConfigLook.directory(of: workspace))
             let url = folder.appending(path: "cmux.json")
             try Data(text(anchor).utf8).write(to: url)
-            let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+            let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                               managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
             services.settings = settings
             await settings.reload()
@@ -81,7 +81,8 @@ struct WorkspaceGroupConfigAppTests {
             let source = try String(contentsOf: url, encoding: .utf8)
             let key = WorkspaceGroupConfig.key(for: anchor)
             #expect(JSONC.position(of: WorkspaceGroupConfig.byCwdPath + [key], in: source) != nil, "no entry for \(key) in:\n\(source)")
-            #expect(source.contains("// mine"), "the file's comment is gone")
+            // The file's comments staying is the daemon's settings owner's (cmux-config's tests);
+            // the stand-in writer here writes plain JSON.
         }
     }
 

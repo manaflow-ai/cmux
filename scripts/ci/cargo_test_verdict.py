@@ -51,6 +51,11 @@ ALWAYS = (
     "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
     "tests/test_cargo_test_verdict.py",
 )
+# Files a crate's tests read at test time, not with include_str! (a path ending in / is a
+# directory): acpmux's v2 gate registry tests read the nightly's gate script and its lines.
+READ_AT_TEST_TIME = {
+    "cmux-tui/crates/acpmux": ("scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/"),
+}
 INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*"([^"]+)"')
 DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 PASSED = re.compile(r"^test (\S+) \.\.\. ok$")
@@ -171,8 +176,9 @@ def crate_inputs(repo: Path, crate_dir: str, tree=None) -> tuple[list[str], list
 def touches(repo: Path, crate_dir: str, changed: list[str]) -> list[str]:
     """The changed paths that are inputs of CRATE_DIR's tests."""
     dirs, files = crate_inputs(repo, crate_dir)
-    prefixes = tuple(f"{d}/" for d in dirs) + tuple(p for p in ALWAYS if p.endswith("/"))
-    exact = set(files) | {p for p in ALWAYS if not p.endswith("/")}
+    always = ALWAYS + READ_AT_TEST_TIME.get(crate_dir, ())
+    prefixes = tuple(f"{d}/" for d in dirs) + tuple(p for p in always if p.endswith("/"))
+    exact = set(files) | {p for p in always if not p.endswith("/")}
     return [path for path in changed if path in exact or path.startswith(prefixes)]
 
 

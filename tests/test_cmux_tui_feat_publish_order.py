@@ -212,6 +212,23 @@ def machine_channel_follows_an_adopted_manifest(all_jobs):
            "the Linux release file is signed only by a run that built and published")
     _check(env.get("VERIFY_PUBLISH") == "${{ needs.verify-publish.result }}",
            "the step reads verify-publish's result")
+    # 2026-11-15: an adopted tree moved the channel from the thin build of its tree to the fat build of
+    # the same source, and every Cloud machine updated to identical code. The Cloud machine call keeps
+    # a channel whose commit has this commit's tree key (cmux-machine-channel-point.sh --same-tree,
+    # tests/test_cmux_machine_channel.py CloudMachinePoint); the Linux release file's call does not.
+    calls = [line.strip() for line in script.splitlines()
+             if line.strip().startswith("scripts/ci/cmux-machine-channel-point.sh")]
+    _check(calls[:1] == ['scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir" --same-tree'],
+           f"point-machine-channel keeps a channel of the same tree key ({calls[:1]})")
+    _check(len(calls) == 2 and "--same-tree" not in calls[1], f"only the Cloud machine call takes --same-tree ({calls})")
+    early = all_jobs["point-machine-channel-early"]["steps"]
+    _check(not any("--same-tree" in str(step.get("run", "")) for step in early),
+           "point-machine-channel-early moves by its new build, as before")
+    # The same-tree rule computes the tree key of the commit the channel names, so the job's checkout
+    # holds history (the full checkout's fetch-depth), not a sparse or single-commit one.
+    checkout = next(step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
+    _check("sparse-checkout" not in checkout.get("with", {}) and int(checkout["with"].get("fetch-depth", 1)) > 1,
+           "point-machine-channel checks out the tree key inputs with history")
 
     # The fat URL the manifest payload names is the first of the two the updater accepts.
     rust = Path(ROOT, "cmux-tui/crates/cmux-host/src/updater/channel.rs").read_text(encoding="utf-8")

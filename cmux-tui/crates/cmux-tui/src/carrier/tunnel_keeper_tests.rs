@@ -354,7 +354,7 @@ async fn nothing_starts_until_the_device_is_joined_and_someone_is_signed_in() {
     world.signed_in.store(true, Ordering::SeqCst);
     world.until(|e| *e == KeeperEvent::Ready).await;
     assert_eq!(world.ssh(), Ok(()));
-    assert!(world.seen.iter().all(|e| !matches!(e, KeeperEvent::Ended(_))), "{:?}", world.seen);
+    assert!(world.seen.iter().all(|e| !matches!(e, KeeperEvent::Ended(..))), "{:?}", world.seen);
 }
 
 #[tokio::test]
@@ -390,7 +390,7 @@ async fn a_supervisor_that_gives_up_starts_again_after_a_doubling_wait() {
     // Floor 10 ms doubling to the 40 ms ceiling.
     assert_eq!(ms, [10, 20, 40, 40]);
     let failed =
-        world.seen.iter().filter(|e| matches!(e, KeeperEvent::Ended(TunnelStatus::Failed(_))));
+        world.seen.iter().filter(|e| matches!(e, KeeperEvent::Ended(TunnelStatus::Failed(_), _)));
     assert!(failed.count() >= 4, "{:?}", world.seen);
 
     // Once the platform answers again, the next start serves the socket.
@@ -404,9 +404,10 @@ async fn a_team_without_a_provider_mesh_waits_long_and_joining_another_team_ends
     let mut world = world_attaching(true, true, Some((200, json!({"mesh_id": null})))).await;
     let event = world.until(|e| matches!(e, KeeperEvent::Waiting(_))).await;
     assert_eq!(event, KeeperEvent::Waiting(Duration::from_secs(3600)));
-    assert!(
-        world.seen.contains(&KeeperEvent::Ended(TunnelStatus::Unavailable(tunnel::NO_MESH.into())))
-    );
+    assert!(world.seen.contains(&KeeperEvent::Ended(
+        TunnelStatus::Unavailable(tunnel::NO_MESH.into()),
+        "team_1".into()
+    )));
     assert_eq!(world.ssh(), Err(Absent::Tunnel));
 
     // Joining another team ends the old team's long wait at once.

@@ -257,6 +257,7 @@ struct CloudStartSession {
         steps.done("approvals")
         let copy = try await copied, cwd = copy?.chat ?? request.cwd // before the session starts in it; the account is checked again past the anchor
         if let refusal = session.harnessLogin?.refusal { throw ActionFailure(message: CloudStartSessionStrings.loginRefused(Self.loginRefusal(refusal), request.asked(machine: name))) }
+        if let why = session.harnessLogin?.undeliveredReason { throw ActionFailure(message: CloudStartSessionStrings.codexNotDelivered(why, macSignedIn: await services.cloud.codexBroker.hasMacCodexAccess(), request.asked(machine: name))) } // the Codex login it chose never arrived: stop, not a chat whose first turn fails on a missing OPENAI_API_KEY (2026-11-15)
         guard let host = AgentTabStore.registryHost(of: session.daemon) else { throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent)) }
         let (found, foundEpoch) = try await anchored // the copy (an older daemon's update) or the login may have relinked since: its pane is the old link's, so find it again
         let anchor = if session.daemon.store.connectionEpoch == foundEpoch { found } else { try await self.anchor(session, request, context, account: account, byPerson: byPerson).0 }
@@ -353,8 +354,8 @@ struct CloudStartSession {
     static func startFailure(_ error: any Error, name: String, id: String, agent: String) -> String {
         if let refusal = error as? AgentRemoteStartRefusal {
             switch refusal.code {
-            case AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home":
-                return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
+            case AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home": return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
+            case let code where CloudStartSessionStrings.namedRefusals.contains(code): return CloudStartSessionStrings.namedRefusal(code, name, id: id, agent: agent, agentName: refusal.agentName ?? agent.chiefHarnessName, expired: refusal.signInExpired, harness: refusal.harness ?? agent) // never "its agent didn't (agent_session.refused)" (hq#11225)
             default:
                 return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(refusal.userMessage))
             }
@@ -446,8 +447,7 @@ struct CloudStartSession {
         guard up else { throw failure() }
     }
 
-    /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
-    /// The login may wait on a confirm: `still` checks the asking account after it, as after every wait.
+    /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login); it may wait on a confirm: `still` checks the asking account after it, as after every wait.
     func passHarnessLogin(_ session: CloudMachineSession, agent: String, login: CloudHarnessLoginAsk = .init(), still: () throws -> Void) async throws {
         _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false, ask: login) // a scripted run never waits on a device code
         try still()

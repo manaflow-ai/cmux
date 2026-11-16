@@ -26,8 +26,9 @@ a Linux runner of their own, and this script turns `toJSON(needs)` into the one 
   failed run, otherwise                  -> failure `same-tree cmux-tui unavailable: <reason>` (a pull
                                             request's failed tree too: its same-tree-cmux-tui is skipped)
 
-The results are judged by scripts/ci/needs_verdict.py's rule (judge). A status GitHub refuses three times is
-this job's red (exit 1), never a warning. Every other exit is 0: the status carries the verdict.
+The results are judged by scripts/ci/needs_verdict.py's rule (judge). A post refused on a rate limit waits for it
+to lift, up to RATE_LIMIT_BUDGET_S; a 403 that is no rate limit, a rate limit past that, or any other refusal
+three times is this job's red (exit 1), never a warning. Every other exit is 0: the status carries the verdict.
 
 usage: cmux_next_same_tree_status.py --tier daemon|scheme --repo OWNER/NAME --status-sha SHA
        --state ready|failed --needs JSON [--reason TEXT] [--dev-daily] [--run-id ID] [--attempt N]
@@ -53,6 +54,13 @@ import needs_verdict as nv  # noqa: E402
 SHA = re.compile(r"^[0-9a-f]{40}$")
 DESCRIPTION_MAX = 140
 POST_WAITS = (0, 20, 60)
+# A post refused on a rate limit waits for it to lift (Retry-After, x-ratelimit-reset), this long in all; the
+# reporter jobs' timeout-minutes leaves room for it. A spent installation resets up to an hour later, and 600 s
+# gave up at once on any reset past it (hq#11485: cmux#43659's passed check stayed pending 2.5 h), so the wait
+# runs to just under the hour the cmux-bot spare token, minted at the job's start, stays valid.
+RATE_LIMIT_BUDGET_S = 3540
+# Waits after a rate-limit refusal that names no time to wait (a secondary limit), in order; the last repeats.
+SECONDARY_BACKOFF_S = (30, 60, 120, 180)
 LOST_RUNNER = re.compile(r"lost communication|runner .*(?:shut ?down|was deprovisioned|stopped)|"
                          r"operation was canceled", re.I)
 # The tested jobs of each tier, by job id, and the check names GitHub lists them under.
@@ -161,26 +169,90 @@ def verdict(args: argparse.Namespace, needs: dict, jobs: Jobs | None,
                           + (f" (red upstream: {upstream})" if upstream else "") + "; re-run the run")
 
 
+def utc(at: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at))
+
+
+def rate_limit_wait(status: int, payload: bytes, headers: dict[str, str], backoffs: int,
+                    now: float) -> tuple[float, str] | None:
+    """How long until a post refused on a rate limit may pass, and why; None when the refusal is not a rate
+    limit (a real permission 403 has no rate-limit header and does not say "rate limit")."""
+    if status not in (403, 429):
+        return None
+    lowered = {str(name).lower(): str(value) for name, value in (headers or {}).items()}
+    retry_after = lowered.get("retry-after", "").strip()
+    if retry_after.isdigit():
+        return max(1.0, float(retry_after)), f"Retry-After {retry_after} s"
+    reset = lowered.get("x-ratelimit-reset", "").strip()
+    if lowered.get("x-ratelimit-remaining") == "0" and reset.isdigit():
+        return max(1.0, int(reset) - now + 1), f"the token's rate limit is spent until {utc(int(reset))}"
+    if status == 429 or b"rate limit" in (payload or b"").lower():
+        wait = SECONDARY_BACKOFF_S[min(backoffs, len(SECONDARY_BACKOFF_S) - 1)]
+        return float(wait), f"a secondary rate limit; backing off {wait} s"
+    return None
+
+
+def refusal_text(payload: bytes) -> str:
+    """GitHub's `message` of a refusal, else the start of its body."""
+    try:
+        message = json.loads(payload or b"{}").get("message")
+    except (ValueError, AttributeError):
+        message = None
+    return short(message or (payload or b"").decode("utf-8", "replace"), 200)
+
+
 def post(api: notify.Api, args: argparse.Namespace, state: str, description: str, target_url: str,
-         sleep: Callable[[float], None] = time.sleep, log: Callable[[str], None] = print) -> bool:
+         sleep: Callable[[float], None] = time.sleep, log: Callable[[str], None] = print,
+         now: Callable[[], float] = time.time) -> bool:
+    """Post the status. RATE_LIMIT_WAIT (job 132784475164: github.token and the cmux-bot spare were both
+    refused with HTTP 403 on a rate limit, three tries in 80 s, and the red blocked merges until a re-run): a
+    403 or 429 on a rate limit is retried after its Retry-After, its x-ratelimit-reset or a backoff, for
+    RATE_LIMIT_BUDGET_S in all. A 403 that is no rate limit (the token may not post) is red at once. Any other
+    refusal (a 5xx, a dropped connection) is tried len(POST_WAITS) times."""
     [context] = failed.contexts([args.tier], args.dev_daily)
     body = {"state": state, "context": context, "description": description}
     if target_url:
         body["target_url"] = target_url
-    for wait in POST_WAITS:
-        sleep(wait)
+    started, backoffs, others = now(), 0, 0
+    sleep(POST_WAITS[0])
+    while True:
         try:
             code = api.post(f"repos/{args.repo}/statuses/{args.status_sha}", body)
         except (RuntimeError, OSError, ValueError) as error:
-            code, error_text = 0, str(error)
+            code, error_text, payload, headers = 0, str(error), b"", {}
         else:
-            error_text = f"HTTP {code}"
+            last = getattr(api, "last", None)
+            payload, headers = (last[1], last[2]) if last and last[0] == code else (b"", {})
+            error_text = f"HTTP {code}" + (f": {refusal_text(payload)}" if payload else "")
         if code == 201:
             log(f"{context}: {state} on {args.status_sha[:12]}: {description}")
             return True
+        limited = rate_limit_wait(code, payload, headers, backoffs, now())
+        if limited is not None:
+            wait, why = limited
+            left = RATE_LIMIT_BUDGET_S - (now() - started)
+            if wait > left:
+                log(f"::error title=same-tree status not posted::{context}={state} on {args.status_sha} was "
+                    f"refused on a rate limit ({error_text}; {why}) past this job's {RATE_LIMIT_BUDGET_S} s: NO_VERDICT, "
+                    "the status stays as last posted; re-run this job to post it")
+                return False
+            log(f"::warning::the {context} status post was refused on a rate limit ({error_text}); {why}; "
+                f"trying again in {int(wait)} s")
+            sleep(wait)
+            backoffs += 1
+            continue
+        if code == 403:
+            log(f"::error title=same-tree status not posted::{context}={state} on {args.status_sha} was refused "
+                f"with no rate limit ({error_text}): the token may not post statuses; fix the token, then re-run "
+                "this job")
+            return False
+        others += 1
+        if others >= len(POST_WAITS):
+            break
         log(f"::warning::the {context} status post was refused ({error_text}); trying again")
-    log(f"::error title=same-tree status not posted::could not post {context}={state} on {args.status_sha}; "
-        "re-run this job to post it")
+        sleep(POST_WAITS[others])
+    log(f"::error title=same-tree status not posted::could not post {context}={state} on {args.status_sha}: "
+        "NO_VERDICT, the status stays as last posted; re-run this job to post it")
     return False
 
 

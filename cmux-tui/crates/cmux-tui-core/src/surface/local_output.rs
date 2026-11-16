@@ -105,13 +105,19 @@ impl LocalOutput {
             let color_reapply_revision = term.color_reapply_revision();
             let cursor_activity =
                 term.cursor_activity().expect("valid local terminals expose cursor activity");
-            let normalized =
-                crate::prompt_mode_reset::write_output(&mut term, output, &mut self.shell_marks);
+            // One walk of the chunk reads its metadata and rewrites its titles.
+            let (rewritten, notifications) =
+                pty.observe_terminal_output_rewriting_titles(self.shell_marks.titles_mut(), output);
+            terminal_notifications = notifications;
+            let normalized = crate::prompt_mode_reset::write_rewritten_output(
+                &mut term,
+                rewritten,
+                &mut self.shell_marks,
+            );
             #[cfg(unix)]
             if let Some(sink) = self.parsed_sink.as_ref() {
                 sink.confirm_parsed();
             }
-            terminal_notifications = pty.observe_terminal_output(output);
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade()
                     .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())
@@ -355,6 +361,28 @@ fn queued_bytes(fd: std::os::fd::RawFd) -> io::Result<usize> {
         let error = io::Error::last_os_error();
         if error.kind() != io::ErrorKind::Interrupted {
             return Err(error);
+        }
+    }
+}
+
+#[cfg(unix)]
+/// Reads the bytes the PTY `fd` already holds into `buf` after its first
+/// `count`, until `buf` is full or a read would wait. An end of stream or a
+/// read error stops it; the next read of the reader loop sees it again.
+// perf-hot: 1us local-pty-output (every PTY read)
+pub(super) fn fill_waiting(
+    fd: std::os::fd::RawFd,
+    buf: &mut [u8],
+    count: &mut usize,
+    mut read: impl FnMut(&mut [u8]) -> io::Result<usize>,
+) {
+    while *count < buf.len() && readable(fd, 0).unwrap_or(false) {
+        let Some(rest) = buf.get_mut(*count..) else { return };
+        match read(rest) {
+            Ok(0) => return,
+            Ok(more) => *count += more,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => return,
         }
     }
 }

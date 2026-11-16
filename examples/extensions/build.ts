@@ -30,8 +30,11 @@ for (const name of readdirSync(here).filter((n) => statSync(join(here, n)).isDir
   if (!manifestFile) continue
   const manifestPath = join(dir, manifestFile)
   const built = manifestFile === "cmux-app.json"
-  const pack = Bun.spawnSync(["bun", join(host, "tools/pack.ts"), dir, ...(check && !built ? ["--check"] : [])], { stdout: "inherit", stderr: "inherit" })
-  if (pack.exitCode !== 0) failed = true
+  // A web-only extension (its pane is its own page) has no src/main.ts and no dist/main.js to pack.
+  if (!built || existsSync(join(dir, "src/main.ts"))) {
+    const pack = Bun.spawnSync(["bun", join(host, "tools/pack.ts"), dir, ...(check && !built ? ["--check"] : [])], { stdout: "inherit", stderr: "inherit" })
+    if (pack.exitCode !== 0) failed = true
+  }
   const manifest = read(manifestPath)
   for (const e of manifestSchema.validate(manifest)) fail(name, `${manifestFile} ${e.path || "/"} ${e.message}`)
   const main = existsSync(join(dir, "dist/main.js")) ? readFileSync(join(dir, "dist/main.js"), "utf8") : ""

@@ -32,7 +32,7 @@ for url in "${dmgs[@]}"; do
   dir="$out/$name"
   mkdir -p "$dir"
   echo "NWS ==> $name"
-  if ! curl -fsSL --proto '=https' --retry 3 -A cmux-nightly-ws-switch/1 -o "$dir/in.dmg" "$url"; then
+  if ! curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-nightly-ws-switch/1 -o "$dir/in.dmg" "$url"; then
     echo "NWS $name download failed"; status=3; continue
   fi
   python3 scripts/cmux-next/nightly-ws-switch.py --dmg "$dir/in.dmg" --out "$dir" ${extra[@]+"${extra[@]}"} 2>&1 | tee "$dir/run.log"

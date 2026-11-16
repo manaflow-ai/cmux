@@ -21,6 +21,7 @@ members = [
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
+    "crates/cmux-agent-cli-render",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
@@ -59,6 +60,7 @@ members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-tab-discard",
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
@@ -120,6 +122,7 @@ members = [
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
+    "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
@@ -134,6 +137,7 @@ members = [
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
+    "crates/cmux-device-kind",
     "crates/cmux-usage-patterns",
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
@@ -178,6 +182,7 @@ default-members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-tab-discard",
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
@@ -231,6 +236,7 @@ default-members = [
     "crates/cmux-local-auth",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
+    "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
@@ -245,6 +251,7 @@ default-members = [
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
+    "crates/cmux-device-kind",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
 ]
@@ -298,6 +305,7 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
+cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
@@ -329,6 +337,7 @@ cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
+cmux-device-kind = { path = "crates/cmux-device-kind" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
 cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }

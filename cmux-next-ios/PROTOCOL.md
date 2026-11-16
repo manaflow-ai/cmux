@@ -1550,7 +1550,7 @@ priority order but makes the policy per Mac instead of per terminal.
 
 | Setting value | Shown as | Engine policy the daemon applies |
 | --- | --- | --- |
-| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid |
+| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid, except that while a phone or tablet shows the terminal the grid is never narrower than it (a narrower Mac pane clips at the right; rows stay the minimum). An agent's split does not shrink it until the person uses that Mac pane (docs/shared-terminal-sizing.md, "Agent layout changes") |
 | `mac` | Prefer this Mac | `priority` with this Mac's own views first; when no view of this Mac counts (its pane hidden), the most recently active other viewer |
 | `latest` | Prefer the active device | `latest`: the viewer that typed, pasted or focused last |
 | `priority` | Priority order | `priority` over `order`, highest first; a viewer not in the list counts only when no listed viewer does (then the most recently active) |

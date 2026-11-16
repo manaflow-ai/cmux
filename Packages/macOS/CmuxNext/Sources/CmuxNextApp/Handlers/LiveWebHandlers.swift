@@ -63,6 +63,10 @@ enum LiveWebHandlers {
             })
         })
         bindSwift(into: registry, context: context, bundled: bundled)
+        WebDevOverrideWatcher.shared.onFallBack = { reason in // a page did not start from the code layer
+            show(LiveWebStrings.fellBack(reason), in: context.activeWindow?.window, duration: .seconds(12))
+            Task { if let why = await BundledCLIRun.turnCodeLayerOff(bundled, reason: reason) { show(LiveWebStrings.failed(why), in: nil, duration: .seconds(12)) } } // task-owner: one bounded CLI run
+        }
     }
 
     /// Start / Stop Swift Live Mode (docs/cmux-next/live-code.md): `cmux live start|stop --swift`,
@@ -106,9 +110,9 @@ enum LiveWebHandlers {
     /// Runs `cmux <arguments>` and replaces the working toast with `done` or the command's error.
     private static func run(_ cli: URL, _ arguments: [String], timeout: Duration, done: String,
                             in window: NSWindow?) async -> Result<[String: ActionResultValue], ActionWorkFailure> {
-        let result = await runProcess(cli, arguments, timeout: timeout)
+        let result = await BundledCLIRun.run(cli, arguments, timeout: timeout)
         guard let result, result.status == 0 else {
-            let why = result.map { lastLine($0.stderr) ?? lastLine($0.stdout) ?? "exit \($0.status)" } ?? LiveWebStrings.didNotFinish
+            let why = result.map { BundledCLIRun.lastLine($0.stderr) ?? BundledCLIRun.lastLine($0.stdout) ?? "exit \($0.status)" } ?? LiveWebStrings.didNotFinish
             let message = LiveWebStrings.failed(why)
             show(message, in: window, duration: .seconds(12))
             var failure = ActionWorkFailure(message)
@@ -117,15 +121,6 @@ enum LiveWebHandlers {
         }
         show(done, in: window, duration: .seconds(8))
         return .success(["output": .string(String(decoding: result.stdout, as: UTF8.self))])
-    }
-
-    @concurrent nonisolated private static func runProcess(_ cli: URL, _ arguments: [String], timeout: Duration) async -> ProcessResult? {
-        try? await ProcessRunner.run(executable: cli, arguments: arguments, environment: nil, timeout: timeout,
-                                     outputTailBytes: 64 * 1024, clock: ContinuousClock())
-    }
-
-    private nonisolated static func lastLine(_ data: Data) -> String? {
-        String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).last.map(String.init)
     }
 
     private static func show(_ message: String, in window: NSWindow?, duration: Duration) {
@@ -170,6 +165,8 @@ enum LiveWebStrings {
     }
 
     static func failed(_ why: String) -> String { format("liveWeb.failed", "cmux Live: %@", why) }
+
+    static func fellBack(_ reason: String) -> String { format("liveWeb.fellBack", "Back to the built-in UI: %@.", reason) }
 
     static var swiftNotTagged: String {
         text("liveSwift.notTagged", "Swift live mode switches a tagged DEV build. A NIGHTLY has no live code build of its commit to restart into yet.")

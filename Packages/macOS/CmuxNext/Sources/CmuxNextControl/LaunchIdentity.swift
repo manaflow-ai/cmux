@@ -132,9 +132,26 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// scripts/measure/live-code-app.py). Only a debug, bench or live code build reads it.
     public static let liveCodeDirKey = "CMUX_LIVE_CODE_DIR"
 
+    /// A launch that ignores every customization layer for this run, editing no file: the way back
+    /// when the UI itself is broken (`open -a "cmux NIGHTLY" --args --no-customizations`, or
+    /// `CMUX_NO_CUSTOMIZATIONS=1`). Leo, 2026-11-14: "I want people to not accidentally soft lock
+    /// themselves and like have good recovery options or whatever".
+    public static let noCustomizationsKey = "CMUX_NO_CUSTOMIZATIONS"
+    public static let noCustomizationsArgument = "--no-customizations"
+
+    /// Whether this launch ignores every layer: the argument, the variable set to anything but
+    /// empty, `0`, `false` or `no`, or Option and Shift held as the app starts (`keysHeld`).
+    public static func ignoresCustomizations(arguments: [String] = ProcessInfo.processInfo.arguments,
+                                             environment: [String: String] = ProcessInfo.processInfo.environment,
+                                             keysHeld: Bool = false) -> Bool {
+        if keysHeld || arguments.dropFirst().contains(noCustomizationsArgument) { return true }
+        guard let raw = environment[noCustomizationsKey]?.trimmingCharacters(in: .whitespaces).lowercased() else { return false }
+        return !["", "0", "false", "no"].contains(raw)
+    }
+
     /// Keys of cmux variables this process inherited rather than received
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
-    /// ``liveCodeDirKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
+    /// ``liveCodeDirKey``, ``noCustomizationsKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs``, every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its
@@ -149,7 +166,7 @@ public struct LaunchIdentity: Sendable, Equatable {
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
-            if key == liveCodeDirKey, !fromOtherCmux { return false }
+            if key == liveCodeDirKey || key == noCustomizationsKey, !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }

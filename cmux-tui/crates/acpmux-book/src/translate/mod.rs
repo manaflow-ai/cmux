@@ -6,6 +6,9 @@ mod asks_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod bench;
 mod blocks;
+mod cards;
+#[cfg(test)]
+mod cards_tests;
 mod checkpoint;
 pub use checkpoint::Saved;
 mod claude;
@@ -25,13 +28,20 @@ use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 9 writes what a user row says of its prompt and its sender, the ask rows and their
-/// decisions, and a turn end a prompt sent now went on under (decisions 231, 235, 236); an older
-/// book rebuilds from raw.
-pub const VERSION: u32 = 9;
+/// Version 10 writes the card rows, patched by their later records (decisions 253, 254); version
+/// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
+/// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
+/// version rebuilds from raw.
+pub const VERSION: u32 = 10;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
-pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
+/// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
+/// 8 KB, held claims 4 KB, the continued notice and the cards (6 KB) came to about 34 KB, past the
+/// 32 KB this was before cards (`every_held_state_full_at_once_fits_the_translators_segment`).
+/// 40 KB leaves about 6 KB for the live turn and still fits the book checkpoint's 64 KB state with
+/// every other part at its bound (`production_caps_fit_separate_checkpoint_budgets_and_roundtrip`).
+/// The book's checkpoint reads this bound too, so the two cannot drift.
+pub const MAX_TRANSLATOR_BYTES: usize = 40 * 1024;
 const MAX_QUEUE_ENTRIES: usize = crate::checkpoint::MAX_PROMPTS;
 const MAX_KEY_BYTES: usize = 256;
 
@@ -39,6 +49,24 @@ const MAX_KEY_BYTES: usize = 256;
 pub enum Harness {
     V1,
     Claude,
+}
+
+/// The stable identity a followed native transcript gives a prompt. The actor uses the text for
+/// bounded act/echo matching and keeps the native id for diagnostics and correlation. This is a
+/// parser result only: it does not reserve a row or mutate translator state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PromptIdentity {
+    pub id: String,
+    pub text: String,
+}
+
+/// Extract a followed transcript's prompt identity without translating it. A host stream has no
+/// native transcript identity, so callers must use its own protocol's prompt fields.
+pub fn prompt_identity(harness: Harness, bytes: &[u8]) -> Result<Option<PromptIdentity>, Error> {
+    match harness {
+        Harness::V1 => Ok(None),
+        Harness::Claude => claude::prompt_identity(bytes),
+    }
 }
 
 /// Relative to exactly the bytes supplied to `translate`, never a raw-file offset.
@@ -82,6 +110,10 @@ pub enum BodyField {
     Request,
     /// An ask's decision's outcome, raw.
     Outcome,
+    /// A card's records: each listed line's `msg`, in order (decision 254).
+    Records,
+    /// A card's field read again from one logged line: its body key, from the kind table.
+    Card(&'static str),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BodySource {
@@ -93,6 +125,26 @@ pub enum BodySource {
         place: u64,
         span: u64,
     },
+    /// A card's records, read again from the raw log at each write: a JSON array of each
+    /// line's `msg`, in order. A line that no longer reads is left out, and the row says how
+    /// many it lacks (`lacks`). The actor resolves this source.
+    Records(Vec<RawLine>),
+    /// One value of one logged line, `msg.<key>`, read again at each write; a string is cut at
+    /// `cap` bytes on a character with [`cut`], as the translator cut it when it first read the
+    /// line (and counted the cut then). `key` and `cap` come from the kind table, never from a
+    /// record. Left out, and counted in `lacks`, when the line no longer reads.
+    RawField {
+        place: u64,
+        span: u64,
+        key: &'static str,
+        cap: usize,
+    },
+}
+/// A logged line by its place and span, as the actor reads it again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RawLine {
+    pub place: u64,
+    pub span: u64,
 }
 
 /// A durable queue mutation. Add is an idempotent upsert: a repeated queued line does
@@ -206,8 +258,9 @@ fn fields_bytes(row: &OwnedRow) -> usize {
 fn json_string(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
 }
-/// At most `cap` bytes of `value`, cut on a character.
-fn cut(value: &str, cap: usize) -> &str {
+/// At most `cap` bytes of `value`, cut on a character. The actor cuts a card's raw fields with
+/// it too, so a field reads the same at every write.
+pub fn cut(value: &str, cap: usize) -> &str {
     let mut end = value.len().min(cap);
     while !value.is_char_boundary(end) {
         end = end.saturating_sub(1);
@@ -258,6 +311,8 @@ struct Claimable {
 }
 /// The most claims held for prompts not yet echoed (a queued prompt's claim comes when it is kept).
 const MAX_HELD_CLAIMS: usize = 16;
+/// The most bytes the held claims keep; past it the oldest goes, counted.
+const MAX_HELD_CLAIM_BYTES: usize = 4 * 1024;
 /// The most bytes of fields the waiting steers hold; past it the oldest settles, as past 32 rows.
 const MAX_HELD_STEER_BYTES: usize = 12 * 1024;
 /// A body field a claim's patch reads again, by its index in the record's line.
@@ -334,6 +389,17 @@ pub struct State {
     /// Decisions that named no open ask: one the bound settled, or one this book never saw asked.
     #[serde(skip)]
     unplaced_decisions: u64,
+    /// The cards open now, oldest first (`cards.rs`, decision 254).
+    cards: Vec<cards::Card>,
+    /// Card records whose card is not among the keys: each wrote a notice row of its own.
+    #[serde(skip)]
+    orphan_records: u64,
+    /// Card records their one-record parser refuses: no row.
+    #[serde(skip)]
+    refused_records: u64,
+    /// Cards a cap or the byte budget let go, and offers past a card's list.
+    #[serde(skip)]
+    evicted_cards: u64,
 }
 /// A turn-end notice that says `continued`, held whole: a patch replaces a settled row's body, so
 /// taking the mark back sends the notice again without it. Its fields are capped (the error at
@@ -471,6 +537,12 @@ pub struct Counters {
     pub forced_asks: u64,
     /// Decisions that named no open ask.
     pub unplaced_decisions: u64,
+    /// Card records whose card had left the keys or never opened; each is a notice row.
+    pub orphan_records: u64,
+    /// Card records their one-record parser refuses.
+    pub refused_records: u64,
+    /// Cards let go past a cap or the byte budget.
+    pub evicted_cards: u64,
 }
 impl State {
     /// Whether raw is currently inside a turn, independent of its open body rows.
@@ -485,6 +557,9 @@ impl State {
             unplaced_claims: self.unplaced_claims,
             forced_asks: self.forced_asks,
             unplaced_decisions: self.unplaced_decisions,
+            orphan_records: self.orphan_records,
+            refused_records: self.refused_records,
+            evicted_cards: self.evicted_cards,
             forced_rows: self.forced_rows,
             forced_steers: self.forced_steers,
             dropped_fold_steers: self.dropped_fold_steers.saturating_add(self.fold.dropped_steers),
@@ -1300,7 +1375,12 @@ impl State {
             return;
         }
         self.claims.retain(|(held, _)| *held != hash);
-        if self.claims.len() >= MAX_HELD_CLAIMS {
+        let held = |claims: &[(u64, String)]| {
+            claims.iter().map(|(_, from)| from.len()).fold(from.len(), usize::saturating_add)
+        };
+        while !self.claims.is_empty()
+            && (self.claims.len() >= MAX_HELD_CLAIMS || held(&self.claims) > MAX_HELD_CLAIM_BYTES)
+        {
             self.claims.remove(0);
             self.unplaced_claims = self.unplaced_claims.saturating_add(1);
         }

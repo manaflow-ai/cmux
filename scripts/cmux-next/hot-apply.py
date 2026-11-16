@@ -2,11 +2,14 @@
 """Apply a merged feat-cmux-next commit's web and Rust parts to a running cmux NEXT app, no new build.
 
     hot-apply.py plan SHA [--app APP] [--repo DIR]
-    hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
-                       [--restart-acpmux] [--restart-sessions] [--dry-run] [--base COMMIT]
+    hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust,ffi] [--socket P] [--acpmux-home H]...
+                       [--restart-acpmux] [--restart-sessions] [--sign-identity ID | --reseal] [--dry-run]
+                       [--base COMMIT]
     hot-apply.py prefetch SHA [--app APP | --base COMMIT] [--repo DIR]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
+    hot-apply.py live-from SHA [--repo DIR] [--max N]
+    hot-apply.py drop-refused-overlay [--app APP]
 
 Leo, 2026-11-06: "how much of this needs a nightly versus, like, us being able to do the hot swap
 thing?" This puts the parts of a merged commit that need no app build into the app that runs now,
@@ -40,12 +43,46 @@ with live_apply.py's rules:
          Chief home, Computer Use socket and policy stay). A daemon a restart would cost its chats
          (a memory store without agent hosts) or whose environment is unreadable is left, and the
          receipt lists every acpmux daemon left on the old build, with why.
-  left   what needs a new app: Swift, resources and manifests, Rust the app links, a web ABI
+  ffi    Rust the app links (its FFI crates) changed, and the app carries that Rust as one library,
+         Contents/Frameworks/libcmux_app_ffi.dylib: the library of SHA's published cmux-app-ffi
+         release replaces it across `cmux app quit --keep-sessions` and a relaunch (a warm swap:
+         the daemon and its terminals stay up), once the release is paired with the app (SHA's FFI
+         only adds to the release the app's commit pins, and the library exports every symbol the
+         app imports). An ad hoc app, or one whose signature disables library validation (a
+         NIGHTLY), takes the ad hoc library as is; another Developer ID app loads only libraries of
+         its team: --sign-identity signs with that team's identity, --reseal signs the app ad hoc
+         too (hot_apply_ffi.py has the rules). The rust part rides with it; without it, both are left.
+         A commit that only moves the pin (app-ffi-repin) takes this part too: the app links the
+         release its commit pins, which lags its FFI sources, so SHA's pinned release replaces it.
+  left   what needs a new app: Swift, resources and manifests, Rust the app links (statically), a web ABI
          change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
-         keep the app's build while the daemon part still applies)
+         keep the app's build while the daemon part still applies), and a Rust build not signed as
+         the app is: a Team-signed app (a NIGHTLY) holds no install key, so its daemon proves the app
+         only by the same team's signature (prover A, cmux-link caller_macos.rs). CI's tree builds
+         are ad-hoc signed, so in such an app no connection would be verified, the app would
+         register no Cloud credential provider, and the Cloud machine list and every user-origin
+         call would fail until rollback (2026-11-15). `plan` reads the published binary's
+         signature with two range requests; `apply` checks the file it swaps in. --unsigned-daemon
+         takes it anyway and says so. CI also signs each feat-cmux-next tree's darwin build with the
+         NEXT nightly's identity (cmux-tui-team-signed.yml, at files.cmux.com/cmux-tui/tree/KEY/
+         team-signed/, its completion.json naming the team and each file's sha256): an app signed
+         by that team takes that set (plan's `build`, the receipt's steps.build), so the rust part
+         reaches a NIGHTLY once it is published, a few minutes after the tree
 
 SHA must be at or after the app's commit on its history: the swapped parts carry every change
 between the two, not only SHA's own. A SHA the app already contains is a no-op.
+
+Published keys first. CI publishes each feat-cmux-next commit's hot keys (`keys SHA`, written by
+cmux-tui-artifacts.yml to files.cmux.com/cmux-next/hot-keys/SHA.json): its tree key, web source key
+and web ABI, and one digest each over the paths and blobs of the files that need a new app (`shell`:
+Swift, resources and manifests), the pinned FFI release plus Rust the Swift build reads (`ffi`), the bundled helpers' inputs
+(`helpers`) and the web the app serves (`web`; the web key also covers web tests, so it only names
+what to fetch), sorted by the same rules as the diff below. When both the app's commit and SHA have
+them, `plan` compares the keys and nothing else (`via: published keys`): no fetch of SHA, no diff,
+no tree or web key computed here, and no checkout needed past resolving a short CMUXCommit. Equal
+`shell` and `ffi` digests mean the two commits differ only in what a hot apply swaps, in either
+direction, so an older SHA with the app's shell takes too. Otherwise (a commit from before the
+keys, a branch) `plan` diffs the two commits as it always has.
 
 --branch takes a branch head instead (try-pr.sh passes a pull request's): one branched before the
 app's commit is sorted from the fork, and its Rust part applies only when the app's cmux-tui tree
@@ -62,6 +99,12 @@ line on stdout is the receipt, as JSON; it is also kept in the state folder (las
 history.jsonl), which `rollback` reads to put back the build and overlay that ran before the last
 apply, checked the same way, and the acpmux daemons --acpmux-home restarted. A part that does not
 go back stays in the receipt's `undo`, and `rollback` tries it again. `status` prints the last receipt.
+
+The web undo is what the app served, not the files as they were: when web-dev.json pointed at an
+overlay the app refused (its manifest names another web ABI, so the app served its bundled pages),
+`rollback` puts back no pointer, the bundled pages, and its receipt says so
+(`dropped_refused_pointer`). `plan` names such a pointer in `notes`, and `drop-refused-overlay` drops
+it from an install by itself (web-dev.json's server and gallery entries stay).
 
 The daemon is found from the app: the process running from APP's bin folder whose socket answers
 `server status` with its own pid (--socket names it instead). For a side instance, run
@@ -84,6 +127,8 @@ another pauses it), so they add up to the run:
   swap      the files renamed into place; the web overlay installed
   reload    the daemon handoff until a new owner answers; the acpmux daemons restarted. The app's
             own reload of its pages (on the overlay's manifest.json) is not seen from here.
+  quit      ffi: `cmux app quit --keep-sessions` until the app's pid is gone
+  launch    ffi: `open APP` until a new pid answers on the app's control socket, then the stay-up check
   rollback  putting back what was there after a failed check
 
 `apply --dry-run` plans, fetches and verifies every part and stops before `backup`: nothing in the
@@ -130,6 +175,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import live_apply  # noqa: E402
+import hot_apply_ffi as ffi_part  # noqa: E402
 
 TUI_BASE = os.environ.get("CMUX_HOT_APPLY_TUI_BASE") or "https://files.cmux.com/cmux-tui/tree"
 # The commit-addressed builds a tree's source.json names, which publish its companions.
@@ -141,6 +187,13 @@ COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("b
               ("host", "cmux-tui-host"), ("holder", "cmux-holder"),
               ("agent-screen-detection", "cmux-agent-screen-detection"))
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
+# Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
+HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
+HOT_KEYS_SCHEMA = 1
+# Beside each tree, its darwin build signed by the NEXT nightly's team (cmux-tui-team-signed.yml,
+# scripts/ci/cmux_tui_team_sign.py): what a Team-signed app takes.
+TEAM_SIGNED = "team-signed"
+MISSING_KEYS_SECONDS = 3600
 DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
 BIN = "Contents/Resources/bin"
 APP_ABI = "Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"
@@ -148,10 +201,6 @@ SHA = re.compile(r"[0-9a-f]{40}")
 # What a temporary checkout of SHA needs to compute its web source key (web-bundle-key.py reads
 # the files): everything but the large folders no web bundle imports.
 WEB_KEY_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghostty/"]
-# Native sources under cmux-tui/ (a companion's shim, the Zig binding): live_apply.py files them as "resource or
-# manifest", but the cmux-tui tree build compiles them, so they go with the Rust part, and linked_rust keeps an app
-# FFI crate's out of it (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
-NATIVE_IN_TUI = re.compile(r"^cmux-tui/.+\.(c|h|m|mm|zig)$")
 
 
 class Phases:
@@ -290,11 +339,115 @@ def lists_binary(name: str):
     return check
 
 
-def fetch(url: str) -> bytes:
+def fetch(url: str, timeout: float = 300) -> bytes:
     # files.cmux.com answers Python's default user agent (Python-urllib/...) with 403.
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
-    with PHASES("fetch"), urllib.request.urlopen(request, timeout=300) as answer:
+    with PHASES("fetch"), urllib.request.urlopen(request, timeout=timeout) as answer:
         return answer.read()
+
+
+# ---------------------------------------------------------------- code signatures
+
+MACHO_LIMIT = 1 << 30  # a published binary is ~150 MB; a stream that runs past this is not one
+
+
+def code_team(read_at) -> str | None:
+    """The Team ID in a Mach-O's code signature (its CodeDirectory's teamID), None for an ad-hoc or
+    unsigned one. READ_AT(offset, size) returns those bytes. A fat file is read by its first slice
+    (every slice of one build carries the same signature identity). Unreadable means no team."""
+    try:
+        head = read_at(0, 8)
+        base = 0
+        if head[:4] in (b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"):
+            base = int.from_bytes(read_at(8 + 8, 4), "big")  # fat_arch[0].offset
+            head = read_at(base, 8)
+        if head[:4] != b"\xcf\xfa\xed\xfe":  # MH_MAGIC_64, little-endian
+            return None
+        header = read_at(base, 32)
+        ncmds, sizeofcmds = int.from_bytes(header[16:20], "little"), int.from_bytes(header[20:24], "little")
+        cmds = read_at(base + 32, min(sizeofcmds, 1 << 20))
+        at = 0
+        for _ in range(ncmds):
+            cmd, size = int.from_bytes(cmds[at:at + 4], "little"), int.from_bytes(cmds[at + 4:at + 8], "little")
+            if cmd == 0x1D:  # LC_CODE_SIGNATURE
+                offset, length = int.from_bytes(cmds[at + 8:at + 12], "little"), int.from_bytes(cmds[at + 12:at + 16], "little")
+                return superblob_team(read_at(base + offset, min(length, 1 << 22)))
+            if size <= 0:
+                return None
+            at += size
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def superblob_team(blob: bytes) -> str | None:
+    count = int.from_bytes(blob[8:12], "big")
+    for i in range(count):
+        offset = int.from_bytes(blob[12 + 8 * i + 4:12 + 8 * i + 8], "big")
+        if blob[offset:offset + 4] != b"\xfa\xde\x0c\x02":  # CSMAGIC_CODEDIRECTORY
+            continue
+        version = int.from_bytes(blob[offset + 8:offset + 12], "big")
+        flags = int.from_bytes(blob[offset + 12:offset + 16], "big")
+        team_at = int.from_bytes(blob[offset + 48:offset + 52], "big") if version >= 0x20200 else 0
+        if flags & 0x2 or not team_at:  # CS_ADHOC, or no team
+            return None
+        return blob[offset + team_at:].split(b"\0", 1)[0].decode("ascii", "replace") or None
+    return None
+
+
+def file_team(path: Path) -> str | None:
+    try:
+        with open(path, "rb") as handle:
+            def read_at(offset: int, size: int) -> bytes:
+                handle.seek(offset)
+                return handle.read(size)
+            return code_team(read_at)
+    except OSError:
+        return None
+
+
+def url_team(url: str) -> str | None:
+    """code_team of a published binary, read with range requests (a few KB, not the binary)."""
+    def read_at(offset: int, size: int) -> bytes:
+        request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1",
+                                                       "Range": f"bytes={offset}-{offset + size - 1}"})
+        with PHASES("fetch"), urllib.request.urlopen(request, timeout=60) as answer:
+            if getattr(answer, "status", 200) == 206:
+                return answer.read(size)
+            # No range support (file:// in tests): skip to OFFSET in the stream, bounded.
+            if offset + size > MACHO_LIMIT:
+                raise ValueError("past the size limit")
+            skipped = 0
+            while skipped < offset:
+                chunk = answer.read(min(1 << 20, offset - skipped))
+                if not chunk:
+                    return b""
+                skipped += len(chunk)
+            return answer.read(size)
+    return code_team(read_at)
+
+
+def app_team(app: Path) -> str | None:
+    """The Team ID that signs APP (its main executable): a Team-signed app holds no install key, so its
+    daemon proves the app only by that team's signature (cmux-link caller_macos.rs, prover A)."""
+    try:
+        with open(app / "Contents/Info.plist", "rb") as handle:
+            executable = plistlib.load(handle).get("CFBundleExecutable")
+    except (OSError, ValueError):
+        return None
+    return file_team(app / "Contents/MacOS" / executable) if isinstance(executable, str) and executable else None
+
+
+def unverifiable(team: str | None, have: str | None, what: str) -> str | None:
+    """Why swapping in WHAT (signed by TEAM) leaves a Team-signed app (HAVE) unverified, else None."""
+    if have is None or team == have:
+        return None
+    signed = f"signed by team {team}" if team else "ad-hoc signed (no Team ID)"
+    return (f"{what} is {signed}; this app is signed by team {have}. A Team-signed app has no install key, so "
+            "its daemon proves the app only by the same team's signature: on this build no app connection is "
+            "verified, the app registers no Cloud credential provider, and the Cloud machine list, Cloud starts "
+            "and every user-origin call fail (2026-11-15: \"Couldn't read your Cloud machines\" until rollback). "
+            "--unsigned-daemon takes it anyway")
 
 
 def app_commit(app: Path, repo: Path = ROOT) -> str:
@@ -351,6 +504,18 @@ def linked_rust(repo: Path, paths: list[str]) -> list[str]:
             and not any(p.startswith(d + "/") for d in excluded)]
 
 
+def ffi_input(repo: Path, path: str) -> bool:
+    """PATH is a source of the app FFI library (cmux_next_route.app_ffi_inputs, less what Cargo never builds)."""
+    inputs, excluded = ffi_part.ffi_paths(repo)
+    return (any(path == i or path.startswith(i.rstrip("/") + "/") for i in inputs)
+            and not any(path.startswith(d + "/") for d in excluded))
+
+
+def swift_read_rust(repo: Path, paths: list[str]) -> list[str]:
+    """The Rust inputs the Swift build reads directly, excluding sources in the pinned FFI library."""
+    return [p for p in linked_rust(repo, paths) if not ffi_input(repo, p)]
+
+
 def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     """The changed Rust paths the app's other bundled helpers build from (the mobile host, the diff
     sidecar): those helpers keep the app's build."""
@@ -359,9 +524,210 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
-def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None = None) -> dict:
+def set_digest(blobs: dict[str, str], paths: list[str]) -> str:
+    """One sha256 over PATHS and their blobs: equal for two commits exactly when none of them changed."""
+    return hashlib.sha256("".join(f"{p}\0{blobs[p]}\n" for p in sorted(set(paths))).encode()).hexdigest()
+
+
+def pinned_ffi_source(repo: Path, sha: str) -> str | None:
+    """None only before the pin exists; an unreadable or malformed pin is not compatibility evidence."""
+    if not git(repo, "ls-tree", "--name-only", sha, "--", ffi_part.PIN_FILE):
+        return None
+    return ffi_part.app_pin_source(repo, sha)
+
+
+def ffi_digest(repo: Path, sha: str, blobs: dict[str, str], daemon: list[str]) -> str:
+    """Digest what the app's linked FFI library and Swift build read at SHA.
+
+    FFI sources are built into the separately pinned binary release, so a source edit does not change the
+    library an app links until the pin moves. Rust inputs the Swift build reads directly still require an app.
+    """
+    pin_source = pinned_ffi_source(repo, sha)
+    if pin_source is None:
+        return set_digest(blobs, linked_rust(repo, daemon))
+    entries = [(p, blobs[p]) for p in swift_read_rust(repo, daemon)]
+    entries.append((ffi_part.PIN_FILE, pin_source))
+    return hashlib.sha256("".join(f"{p}\0{blob}\n" for p, blob in sorted(set(entries))).encode()).hexdigest()
+
+
+def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
+    """SHA's hot keys: what `plan` compares instead of diffing two commits. Each key covers one bucket's files
+    (live_apply.py's rules applied to every path of SHA's tree, as _plan applies them to a diff), so two commits
+    whose `shell` and `ffi` keys are equal differ only in parts a hot apply swaps. The FFI and helper inputs are
+    read from REPO's working tree (cmux_next_route.py), so CI runs this on SHA's own checkout."""
+    listing = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", "--full-tree", sha],
+                             capture_output=True, check=True).stdout.decode("utf-8", "replace")
+    blobs = {}
+    for entry in filter(None, listing.split("\0")):
+        meta, path = entry.split("\t", 1)
+        blobs[path] = meta.split()[2]
+    files = live_apply.classify([("M", p) for p in blobs], {})["files"]
+    # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
+    shell = files.get("rebuild", []) + files.get("swift-live", [])
+    daemon = files.get("daemon", [])
+    abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
+    return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
+            # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
+            "web": set_digest(blobs, files.get("web-live", [])),
+            "web_key": web or _web_key(repo, sha), "web_abi": abi, "shell": set_digest(blobs, shell),
+            # The app links the FFI release named by its pin, not the current FFI sources. Keep source-only
+            # FFI edits out of this key; a repin changes the pin source and therefore the linked library.
+            "ffi": ffi_digest(repo, sha, blobs, daemon), "helpers": set_digest(blobs, helper_rust(repo, daemon))}
+
+
+def valid_keys(keys, sha: str) -> bool:
+    """KEYS is a whole hot-keys record of SHA: every field `keys_plan` reads, well formed."""
+    return (isinstance(keys, dict) and keys.get("schema") == HOT_KEYS_SCHEMA and keys.get("commit") == sha
+            and type(keys.get("web_abi")) is int
+            and all(HEX.fullmatch(str(keys.get(k))) for k in ("tree_key", "web", "web_key", "shell", "ffi", "helpers")))
+
+
+def published_keys(sha: str) -> dict | None:
+    """SHA's hot keys as CI published them (cmux-tui-artifacts.yml, mark-tree-commits), kept under
+    state/keys/hot; None when CI has not (a commit before the step, a run that failed) or the record is not
+    whole: `plan` then diffs the two commits."""
+    path = state_dir() / "keys" / "hot" / f"{sha}.json"
+    with contextlib.suppress(OSError, ValueError):
+        kept = json.loads(path.read_text())
+        if valid_keys(kept, sha):
+            return kept
+    # A miss is kept for an hour, so the apply after a prefetch (or a commit from before the keys) asks no
+    # second time; CI may still publish a new commit's keys after that.
+    missing = path.with_suffix(".missing")
+    with contextlib.suppress(OSError):
+        if time.time() - missing.stat().st_mtime < MISSING_KEYS_SECONDS:
+            return None
+    keys = None
+    with PHASES("key"), contextlib.suppress(urllib.error.URLError, OSError, ValueError):
+        keys = json.loads(fetch(f"{HOT_KEYS_BASE}/{sha}.json", timeout=10))  # the diff is the fallback: wait little
+    if not valid_keys(keys, sha):
+        write_atomic(missing, b"")
+        return None
+    write_atomic(path, json.dumps(keys).encode())
+    return keys
+
+
+def note_refused(out: dict, app: Path, given_base: bool) -> None:
+    """Names a web-dev.json pointer at an overlay the app refuses (it serves its bundled pages instead)."""
+    if not given_base and (refused := refused_pointer(app)):
+        out["refused_overlay"] = refused
+        out["notes"].append(f"web-dev.json points at {refused['overlay']}: {refused['why']}. "
+                            "`hot-apply.py drop-refused-overlay` drops that pointer; an apply's web part replaces it")
+
+
+def daemon_part(out: dict, app: Path, given_base: bool, unsigned: bool) -> None:
+    """The Rust part, unless its published build is not signed as the app is: a Team-signed app's daemon
+    proves a connection is the app only by that team's signature (prover A), so an ad-hoc daemon verifies
+    none and Cloud (its credential provider) fails until rollback."""
+    team = None if given_base else app_team(app)
+    why = None
+    if team and out.get("published"):
+        if team_signed(out["tree_key"], team):
+            out["build"] = f"team-signed ({team})"
+        else:
+            name = f"cmux-tui-{triple()}"
+            why = unverifiable(url_team(f"{TUI_BASE}/{out['tree_key']}/{name}"), team, f"the published {name}")
+    if why and not unsigned:
+        out["left"]["Rust (the published build is not signed as this app is)"] = [why]
+    else:
+        out["parts"].append("rust")
+        if why:
+            out["notes"].append(f"--unsigned-daemon: {why}")
+    out["app_team"] = team
+
+
+def keys_plan(app: Path, sha: str, base: str, given_base: bool, unsigned: bool = False) -> dict | None:
+    """The plan from both commits' published keys, with no checkout of either: None when one is missing."""
+    have, want = published_keys(base), published_keys(sha)
+    if not have or not want:
+        return None
+    out = {"sha": sha, "base": base, "app": str(app), "parts": [], "left": {}, "notes": [], "via": "published keys"}
+    note_refused(out, app, given_base)
+    if want["shell"] != have["shell"]:
+        out["left"]["Swift, resources and manifests"] = [f"shell key {have['shell'][:12]} -> {want['shell'][:12]}"]
+    if want["web"] != have["web"]:
+        abi = have["web_abi"] if given_base else app_abi(app)
+        if abi == want["web_abi"]:
+            out["parts"].append("web")
+            # Kept where web_unchanged() looks a commit's key up.
+            out["web_key"] = remembered("web", sha, lambda: want["web_key"])
+        else:
+            out["left"]["web ABI"] = [f"SHA's web needs ABI {want['web_abi']}, the app has {abi}"]
+    if want["tree_key"] != have["tree_key"]:
+        out["tree_key"], out["base_tree_key"] = want["tree_key"], have["tree_key"]
+        if want["ffi"] != have["ffi"]:
+            # The app FFI may swap warm (cmux#43548): which files changed decides it (the Swift build's own Rust
+            # inputs still need an app), and only the diff knows them, so the diff plans this pair.
+            return None
+        else:
+            out["published"] = published(want["tree_key"])
+            daemon_part(out, app, given_base, unsigned)
+            if want["helpers"] != have["helpers"]:
+                out["left"]["bundled helpers (cmux-mobile-host, ...)"] = [
+                    f"helpers key {have['helpers'][:12]} -> {want['helpers'][:12]}"]
+    if not out["parts"] and not out["left"]:
+        out["notes"].append("the app already runs SHA's parts")
+    return out
+
+
+def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None = None, unsigned: bool = False) -> dict:
     with PHASES("plan"):
-        return _plan(repo, app, sha, branch, base)
+        if not branch:
+            app_base = base or app_commit(app, repo)
+            planned = keys_plan(app, sha, app_base, bool(base), unsigned)
+            # The keys compare the pinned release, but a repin also changes package files that keys classify as
+            # shell; the diff plan reads both pins to select the ffi part and remove only its packaging changes.
+            if planned:
+                # Published keys also work without a checkout. When both commits are here, a bad pin must
+                # fail rather than masquerade as an unchanged release on that fast path.
+                if not (have_commit(repo, app_base) and have_commit(repo, sha)):
+                    return planned
+                if pinned_ffi_source(repo, app_base) == pinned_ffi_source(repo, sha):
+                    return planned
+        return _plan(repo, app, sha, branch, base, unsigned)
+
+
+LIVE_FROM_MAX = 400  # a NIGHTLY is at most a day of merges behind feat-cmux-next
+
+
+def pins_daemon(repo: Path, commit: str) -> list[str]:
+    """The paths of COMMIT's own change that alter what the app links.
+
+    The app links the release named by app-ffi-pin.json, so FFI source edits alone do not pin the daemon to
+    a new app. A repin does, as does Rust the Swift build reads outside the FFI release. A root commit pins it.
+    """
+    parent = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^", check=False)
+    if not SHA.fullmatch(parent or ""):
+        return [f"{commit} has no parent here"]
+    files = live_apply.classify_range(str(repo), parent, commit)["files"]
+    daemon = sorted(set(files.get("daemon", [])))
+    before, after = pinned_ffi_source(repo, parent), pinned_ffi_source(repo, commit)
+    if before is None and after is None:
+        return linked_rust(repo, daemon)
+    paths = swift_read_rust(repo, daemon)
+    if before != after:
+        paths.append(ffi_part.PIN_FILE)
+    return paths
+
+
+def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
+    """Every commit whose app can take SHA's daemon build live, newest first: SHA, then its first parents
+    back to the newest commit whose own change pins the daemon to the app (pins_daemon; included: an app
+    built there links that change).
+    At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
+    signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
+        out["live_from"].append(commit)
+        if paths := pins_daemon(repo, commit):
+            out["floor"], out["floor_paths"] = commit, paths[:20]
+            break
+    return out
+
+
+def command_live_from(args) -> int:
+    print(json.dumps(live_from(Path(args.repo), args.sha, args.max)))
+    return 0
 
 
 def abi_at(repo: Path, commit: str) -> int | None:
@@ -372,12 +738,13 @@ def abi_at(repo: Path, commit: str) -> int | None:
         return None
 
 
-def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None) -> dict:
+def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None, unsigned: bool = False) -> dict:
     base = given_base or app_commit(app, repo)
     for commit in (base, sha):
         if not have_commit(repo, commit):
             raise RuntimeError(f"{commit} is not in {repo} (fetch feat-cmux-next)")
     out = {"sha": sha, "base": base, "app": str(app), "parts": [], "left": {}, "notes": []}
+    note_refused(out, app, bool(given_base))
     if is_ancestor(repo, sha, base):
         out["notes"].append("the app already contains SHA")
         return out
@@ -397,10 +764,6 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None)
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
-    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    if native:
-        files["rebuild"] = [p for p in files["rebuild"] if p not in native]
-        files["daemon"] = sorted(set(files.get("daemon", [])) | set(native))
     for kind in ("swift-live", "rebuild"):
         if files.get(kind):
             out["left"][kind] = files[kind]
@@ -420,14 +783,61 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None)
         linked = linked_rust(repo, rust)
         out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, since)
         if linked:
+            # The app links the release its pin names, not the current FFI sources. A source-only FFI edit stays
+            # in the daemon build; only a re-pin swaps the separately published library. Rust the Swift build
+            # reads directly still needs an app.
+            swift_read = swift_read_rust(repo, linked)
+            try:
+                if swift_read:
+                    raise ffi_part.Left("the Swift build reads " + ", ".join(swift_read[:3]))
+                if pinned_ffi_source(repo, base) is None or pinned_ffi_source(repo, sha) is None:
+                    raise ffi_part.Left("no app FFI pin to establish the linked release: it needs a new app")
+                if pinned_ffi_source(repo, base) != pinned_ffi_source(repo, sha):
+                    if branch:
+                        raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
+                    moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
+                    if moved:
+                        out["ffi"] = {**moved, "files": linked}
+                        out["parts"].append("ffi")
+                linked = []
+            except ffi_part.Left as why:
+                out["notes"].append(f"ffi: {why}")
+        if linked:
             out["left"]["Rust the app links (FFI)"] = linked
         elif out["tree_key"] != out["base_tree_key"]:
-            out["parts"].append("rust")
             out["published"] = published(out["tree_key"])
+            daemon_part(out, app, bool(given_base), unsigned)
             helpers = helper_rust(repo, rust)
             if helpers:
                 # The daemon part still applies; the helpers built from these files keep the app's build.
                 out["left"]["bundled helpers (cmux-mobile-host, ...)"] = helpers
+    if not branch and "ffi" not in out["parts"] and "Rust the app links (FFI)" not in out["left"]:
+        # No FFI source changed after the app's commit, but SHA may pin a newer release than the app runs (the
+        # pin lags the sources until app-ffi-repin lands): that release is what SHA's app would carry.
+        try:
+            moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
+            if moved:
+                out["ffi"] = {**moved, "files": [ffi_part.PIN_FILE]}
+                out["parts"].append("ffi")
+        except ffi_part.Left as why:
+            out["notes"].append(f"ffi: {why}")
+    if pinned_ffi_source(repo, base) != pinned_ffi_source(repo, sha) and "ffi" not in out["parts"]:
+        # A repin ties even an unrelated daemon edit to the new library. A refused library swap must
+        # hold that daemon back, just as the signed live_from floor does.
+        if "rust" in out["parts"]:
+            out["parts"].remove("rust")
+        if rust:
+            out["left"].setdefault("Rust the app links (FFI)", [ffi_part.PIN_FILE])
+    if "ffi" in out["parts"]:
+        # Moving the pin is the ffi part's own change, not a Swift one.
+        packaging = ffi_part.pin_packaging(repo, since, sha)
+        for kind in ("swift-live", "rebuild"):
+            if kind in out["left"]:
+                rest = [p for p in out["left"][kind] if p not in packaging]
+                if rest:
+                    out["left"][kind] = rest
+                else:
+                    del out["left"][kind]
     return out
 
 
@@ -464,18 +874,22 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     published = fetch_kept(f"{TUI_BASE}/{key}/{name}.sha256").decode().split()[0]
     if not want or want != published:
         raise RuntimeError(f"{name}: completion.json says {want}, {name}.sha256 says {published}")
-    copy = state / "builds" / want / "cmux"
+    return fetch_build_file(f"{TUI_BASE}/{key}/{name}", want, state / "builds" / want / "cmux"), want
+
+
+def fetch_build_file(url: str, want: str, copy: Path) -> Path:
+    """URL into COPY (state/builds/SHA256/FILE), checked against WANT; a COPY that still hashes to it is kept."""
     if not cached(copy, want):
-        body = fetch(f"{TUI_BASE}/{key}/{name}")
+        body = fetch(url)
         with PHASES("verify"):
             if hashlib.sha256(body).hexdigest() != want:
-                raise RuntimeError(f"{TUI_BASE}/{key}/{name} does not hash to {want}")
+                raise RuntimeError(f"{url} does not hash to {want}")
         copy.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
             part.write(body)
         os.chmod(part.name, 0o755)
         os.replace(part.name, copy)
-    return copy, want
+    return copy
 
 
 def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
@@ -492,19 +906,43 @@ def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None
         if not want:
             out[file] = None
             continue
-        copy = state / "builds" / want / file
-        if not cached(copy, want):
-            body = fetch(f"{COMMIT_BASE}/{owner}/{asset}")
-            with PHASES("verify"):
-                if hashlib.sha256(body).hexdigest() != want:
-                    raise RuntimeError(f"{COMMIT_BASE}/{owner}/{asset} does not hash to {want}")
-            copy.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
-                part.write(body)
-            os.chmod(part.name, 0o755)
-            os.replace(part.name, copy)
-        out[file] = (copy, want)
+        out[file] = (fetch_build_file(f"{COMMIT_BASE}/{owner}/{asset}", want, state / "builds" / want / file), want)
     return out
+
+
+def team_signed(key: str, team: str | None) -> dict | None:
+    """Tree KEY's Team-signed set (cmux-tui-team-signed.yml: the same build, signed by the identity the
+    NEXT nightly signs with, at TUI_BASE/KEY/team-signed/) when TEAM signed it for this host, else None."""
+    if not team:
+        return None
+    try:
+        signed = json.loads(fetch_kept(f"{TUI_BASE}/{key}/{TEAM_SIGNED}/completion.json"))
+    except (OSError, ValueError):  # a 404: not signed (yet)
+        return None
+    files = signed.get("files") if isinstance(signed, dict) else None
+    if (not isinstance(files, dict) or signed.get("key") != key or signed.get("team") != team
+            or signed.get("target") != triple() or set(files) != {"cmux", *(file for _, file in COMPANIONS)}):
+        return None
+    for entry in files.values():
+        if entry is not None and not (isinstance(entry, dict) and re.fullmatch(r"[0-9a-f]{64}", str(entry.get("sha256")))):
+            return None
+    return signed if files["cmux"] else None
+
+
+def fetch_build(key: str, state: Path, team: str | None) -> tuple[Path, str, dict[str, tuple[Path, str] | None], str]:
+    """Tree KEY's cmux and companions for this host: (cmux, its sha256, companions, which build). An app
+    signed by TEAM takes the Team-signed set when there is one, else (and an ad-hoc app always) the tree."""
+    signed = team_signed(key, team)
+    if not signed:
+        new, want = fetch_cmux(key, state)
+        return new, want, fetch_companions(key, state), "ad-hoc"
+    out: dict[str, tuple[Path, str] | None] = {}
+    for file, entry in signed["files"].items():
+        want = entry["sha256"] if entry else None
+        out[file] = want and (fetch_build_file(f"{TUI_BASE}/{key}/{TEAM_SIGNED}/{want}/{file}", want,
+                                               state / "builds" / want / file), want)
+    new, want = out.pop("cmux")
+    return new, want, out, f"team-signed ({team})"
 
 
 def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | None]:
@@ -639,11 +1077,28 @@ def find_sockets(app: Path, cli: Path) -> list[str]:
     answers `server status` with that process's pid, the app's own session (`cmux-app...`) first;
     the app also runs other sessions' daemons from the same file (its chief's). A socket that never
     answered means a daemon may run there, and raises rather than pass for none."""
+    # One lsof for every process and every process's asks at once: a process at a time cost 0.03 s of lsof
+    # each, and Leo's NIGHTLY runs 52 from its bin (find took 4.6 to 8.8 s there at cmux 3ca1a16e3).
     hung, found = [], []
-    for pid in app_pids(app, DAEMON_NAMES):
-        lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
-        names = sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")})
-        name, unanswered = first_status(cli, names, pid)
+    pids = app_pids(app, DAEMON_NAMES)
+    by_pid: dict[str, set[str]] = {pid: set() for pid in pids}
+    if pids:
+        lsof = subprocess.run(["lsof", "-a", "-p", ",".join(pids), "-U", "-Fpn"], capture_output=True,
+                              text=True).stdout
+        current = None
+        for entry in lsof.splitlines():
+            if entry.startswith("p"):
+                current = entry[1:]
+            elif entry.startswith("n/") and current in by_pid:
+                by_pid[current].add(entry[1:])
+    import concurrent.futures
+    asked = {pid: sorted(names) for pid, names in by_pid.items() if names}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(16, len(asked)))) as pool:
+        answers = {pid: pool.submit(first_status, cli, names, pid) for pid, names in asked.items()}
+    for pid in pids:
+        if pid not in answers:
+            continue
+        name, unanswered = answers[pid].result()
         if name:
             found.append(name)
         else:
@@ -698,12 +1153,29 @@ def find_socket(app: Path, cli: Path) -> str | None:
     return found[0] if found else None
 
 
+def owner_state_dir(pid) -> str | None:
+    """The CMUX_TUI_STATE_DIR daemon PID was started with (`ps eww`, this user's processes), or None."""
+    try:
+        out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True,
+                             timeout=10).stdout
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    # The environment follows the argv, space-separated: the value runs to the next ` KEY=`.
+    found = re.search(r"(?:^|\s)CMUX_TUI_STATE_DIR=(.*?)(?=\s[A-Za-z_][A-Za-z0-9_]*=|$)", out.strip())
+    return found.group(1) if found and found.group(1) else None
+
+
 def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict]:
     """Each other session's daemon running from the app's bin (a Chief's) restarted onto `target`, the build
     now in place: `server restart` by its socket stops the owner the way an update hands it off (its
     terminal hosts live on) and starts one from `target` with the stopped owner's session, launch flags and
-    environment, which adopts them. Checked: a new owner answers on the socket, running `target`. The first
-    that fails raises, and the caller puts every part back."""
+    environment, which adopts them. Checked: a new owner answers on the socket, running `target`.
+
+    A daemon that refuses the restart and still serves, the same owner answering as before, is left on the
+    build it mapped, and its step names the refusal (`left`): it lost nothing, and the others still move.
+    A Chief whose owner serves another state directory refuses this way (`server.different_state`, cmux
+    bf0d3da on a fleet Mac). A daemon gone with no new owner, or a new owner on another file, raises, and
+    the caller puts every part back."""
     swapper_cls = load("rust_live", "rust-live.py").Swapper
     done = []
     for name in sockets:
@@ -715,12 +1187,23 @@ def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict
             # The cmux-tui surface keeps `server` for the daemon's lifecycle in every build (the nightly's too, for
             # the rollback); on `cmux`, `server` is the machine server and refuses --socket (cmux 7a6e6fb, a Chief's).
             surface = target.with_name("cmux-tui") if target.with_name("cmux-tui").exists() else target
+            # The restart's own ensure checks the owner against the CLI's state root; a Chief's daemon keeps
+            # its session in its own (CMUX_TUI_STATE_DIR, which the restart does not carry), so without it
+            # the check read the default root and refused (server.different_state, Leo's NIGHTLY 8568ebc).
+            env = dict(os.environ)
+            state_dir = owner_state_dir(before[0]) if before else None
+            if state_dir:
+                env["CMUX_TUI_STATE_DIR"] = state_dir
             ran = subprocess.run([str(surface), "--socket", name, "--json", "server", "restart"],
-                                 capture_output=True, text=True, timeout=180)
+                                 capture_output=True, text=True, timeout=180, env=env)
             now = swapper.owner(target, timeout=30)
         step = {"socket": name, "old_pid": before[0] if before else None, "new_pid": now[0] if now else None,
                 "seconds": round(time.monotonic() - t0, 3)}
         done.append(step)
+        if ran.returncode != 0 and before and now and now[0] == before[0]:
+            step["left"] = f"refused (exit {ran.returncode}), still served by its owner: " \
+                           f"{(ran.stderr or ran.stdout).strip()[-300:]}"
+            continue
         if ran.returncode != 0 or not now or (before and now[0] == before[0]):
             raise RuntimeError(f"`server restart` on {name} left no new owner (exit {ran.returncode}): "
                                f"{(ran.stderr or ran.stdout).strip()[-300:]}")
@@ -742,8 +1225,26 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, 
         if not socket:
             raise
         running = [socket]  # --socket names the daemon; the others are not known
+    retired: list[dict] = []
+    if not socket and running:
+        # A daemon an earlier copy of the app started can outlive an update: its argv still names this
+        # bin folder, but it runs the copy the updater moved aside (Leo's NIGHTLY, 2026-11-15: cmux-app.sock
+        # ran .../nightly-update/backup/retired/cmux NIGHTLY.app.../bin/cmux and the apply refused). The
+        # swap never reaches it, so it is left, named, and the app's own daemon is the first that runs TARGET.
+        live = []
+        for name in running:
+            probe = swapper_cls(None, name)  # no state: a probe never reads or writes a hand-off marker
+            with PHASES("find"):
+                owner = probe.owner(target, timeout=10)
+            if owner is not None and probe.app_file(owner[1]) != target:
+                retired.append({"socket": name, "pid": owner[0], "runs": str(owner[1])})
+            else:
+                live.append(name)
+        running = live
     socket = socket or (running[0] if running else None)
     step: dict = {"file": str(target), "to": want, "socket": socket}
+    if retired:
+        step["left_on_retired_copy"] = retired
     # The app's own daemon is handed off here. Another session's (the chief's) keeps the build it mapped
     # unless `sessions` restarts it below; the receipt names each one left, and why.
     others = [name for name in running if name != socket]
@@ -785,6 +1286,10 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, 
         raise RuntimeError(f"{target} hashes to {have}, not {want}")
     if others and sessions and not ssh:
         step["sessions"] = restart_sessions(target, others, state)
+        refused = [one["socket"] for one in step["sessions"] if "left" in one]
+        if refused:
+            step["left_on_old_build"] = refused
+            step["left_on_old_build_why"] = "refused the restart and still served by its owner (each session's `left`)"
     return step
 
 
@@ -978,6 +1483,110 @@ def overlay_restore(live, saved: dict) -> None:
                   "web_dev": base64.b64decode(saved["web_dev"]) if saved["web_dev"] is not None else None})
 
 
+def overlay_pointer(web_dev: bytes | None) -> str | None:
+    """The overlay folder web-dev.json points the app at, read as the app reads it (WebDevOverride.parse):
+    None for no file, invalid JSON, `"enabled": false`, or no usable `overlay`."""
+    try:
+        data = json.loads(web_dev) if web_dev is not None else None
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or data.get("enabled", True) is False or not isinstance(data.get("overlay"), str):
+        return None
+    path = data["overlay"].strip()
+    if path == "~" or path.startswith("~/"):
+        return str(Path.home() / path[2:])
+    return path if path.startswith("/") else None
+
+
+def overlay_refusal(web_dev: bytes | None, manifest: str | None, have: int | None, folder: Path | None = None) -> dict | None:
+    """Why the app refuses the overlay WEB_DEV points at, as WebDevOverride.abiRefusal does: its manifest
+    (MANIFEST, the one in FOLDER, or the pointed folder's own when the pointer names another) names a web
+    ABI that is not the app's (HAVE). None when the app serves it, or when it points at no overlay."""
+    pointer = overlay_pointer(web_dev)
+    if pointer is None or have is None:
+        return None
+    if folder is None or Path(pointer).resolve() != folder.resolve():
+        try:
+            manifest = (Path(pointer) / "manifest.json").read_text()
+        except OSError:
+            return None
+    try:
+        read = json.loads(manifest) if manifest is not None else {}
+    except ValueError:
+        return None
+    abi = read.get("abi") if isinstance(read, dict) else None
+    if not isinstance(abi, int) or isinstance(abi, bool) or abi == have:
+        return None
+    commit = read.get("commit") or "unknown commit"
+    return {"overlay": pointer, "commit": commit, "abi": abi, "app_abi": have,
+            "why": f"the overlay ({commit}) needs web ABI {abi}; this app has {have}, so it serves its bundled pages"}
+
+
+def without_pointer(web_dev: bytes | None) -> bytes | None:
+    """WEB_DEV with its `overlay` pointer dropped (the server and gallery entries stay); None, so the
+    file goes, when nothing else is left in it."""
+    data = json.loads(web_dev)
+    data.pop("overlay", None)
+    if not {k: v for k, v in data.items() if k != "enabled"}:
+        return None
+    return (json.dumps(data, indent=2) + "\n").encode()
+
+
+def in_effect(saved: dict, have: int | None, folder: Path) -> dict:
+    """SAVED (an overlay snapshot) as what the app served then, not as the files were: a pointer at an
+    overlay the app refuses (HAVE, its web ABI) was the app's bundled pages, so it comes back as no
+    pointer. The result names what it dropped under `refused`."""
+    refused = overlay_refusal(base64.b64decode(saved["web_dev"]) if saved.get("web_dev") else None,
+                              saved.get("manifest"), have, folder)
+    if refused is None:
+        return saved
+    dropped = without_pointer(base64.b64decode(saved["web_dev"]))
+    return {**saved, "web_dev": base64.b64encode(dropped).decode() if dropped is not None else None, "refused": refused}
+
+
+def refused_pointer(app: Path) -> dict | None:
+    """web-dev.json's overlay pointer when APP refuses that overlay and serves its bundled pages instead;
+    None when it points at none or the app serves it."""
+    _, web_dev = load("live_apply_loop", "live-apply.py").overlay_paths()
+    try:
+        data = web_dev.read_bytes()
+    except OSError:
+        return None
+    return overlay_refusal(data, None, app_abi(app))
+
+
+def command_drop_refused_overlay(args) -> int:
+    """Drops web-dev.json's pointer at an overlay the app refuses (an older install's, a rollback's from
+    before rollback checked): the app already serves its bundled pages, and now the file says so too.
+    The server and gallery entries stay. A pointer the app serves is left alone."""
+    import fcntl
+    app, state = Path(args.app), state_dir()
+    _, web_dev = load("live_apply_loop", "live-apply.py").overlay_paths()
+    receipt = {"action": "drop-refused-overlay", "app": str(app), "web_dev": str(web_dev), "dropped": None,
+               "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if web_dev.parent.is_dir():
+        with open(web_dev.parent / ".web-dev.lock", "a") as lock:  # web-overlay.sh's lock
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                data = web_dev.read_bytes()
+            except OSError:
+                data = None
+            refused = overlay_refusal(data, None, app_abi(app))
+            if refused:
+                kept = without_pointer(data)
+                if kept is None:
+                    web_dev.unlink()
+                else:
+                    write_atomic(web_dev, kept)
+                receipt["dropped"] = refused
+                receipt["web_dev_now"] = "removed" if kept is None else "kept without its overlay pointer"
+    receipt["note"] = (f"dropped the pointer at {receipt['dropped']['overlay']}: {receipt['dropped']['why']}"
+                       if receipt["dropped"] else "web-dev.json points at no overlay this app refuses: nothing to drop")
+    log(receipt["note"])
+    record(state, receipt, last=False)  # `rollback` still puts back the last apply
+    return 0
+
+
 def overlay_commit(live) -> str | None:
     overlay, _ = live.overlay_paths()
     try:
@@ -1056,8 +1665,7 @@ def web_unchanged(live, key: str) -> bool:
         return False
 
 
-def apply_web(repo: Path, sha: str, live) -> dict:
-    key = web_key(repo, sha)
+def apply_web(key: str, sha: str, live) -> dict:
     bundles = web_bundles(key, state_dir())
     with PHASES("swap"):
         installed = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "install", str(bundles),
@@ -1095,7 +1703,7 @@ def timings(receipt: dict) -> str:
 
 
 def command_plan(args) -> int:
-    out = plan(Path(args.repo), Path(args.app), args.sha, args.branch, args.base)
+    out = plan(Path(args.repo), Path(args.app), args.sha, args.branch, args.base, args.unsigned_daemon)
     print(json.dumps(out, indent=2))
     return 0 if out["parts"] or not out["left"] else 3
 
@@ -1106,7 +1714,7 @@ def command_apply(args) -> int:
         print("hot-apply: --base stands in for an app only in plan and apply --dry-run", file=sys.stderr)
         return 2
     t0 = time.monotonic()
-    planned = plan(repo, app, args.sha, args.branch, args.base)
+    planned = plan(repo, app, args.sha, args.branch, args.base, args.unsigned_daemon)
     parts = [p for p in planned["parts"] if p in args.parts.split(",")]
     receipt = {"action": args.command if args.dry_run and args.command == "prefetch" else
                "dry-run" if args.dry_run else "apply", **planned, "applied": [], "rolled_back": False,
@@ -1121,6 +1729,26 @@ def command_apply(args) -> int:
     target = (app / BIN / "cmux").resolve()
     undo: dict = {}
     receipt["unchanged"] = []
+    ffi_how = ffi_new = ffi_checksum = None
+    if "ffi" in parts and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]:
+        # Before any part changes: the daemon part rides with the library, so one the app cannot take keeps both.
+        try:
+            ffi_how = ffi_part.how_to_sign(app, args.sign_identity, args.reseal)
+            ffi_new, ffi_checksum = ffi_part.fetch_library(planned["ffi"]["source"], state, fetch, fetch_kept)
+            with PHASES("verify"):
+                missing = sorted(ffi_part.imports(app) - ffi_part.exports(ffi_new))
+            if missing:
+                raise ffi_part.Left(f"the library lacks {len(missing)} symbol(s) the app imports: "
+                                    + ", ".join(missing[:5]))
+        except ffi_part.Left as why:
+            ffi_new = None
+            receipt["left"]["ffi"] = [str(why)]
+            receipt["left"]["Rust the app links (FFI)"] = planned["ffi"]["files"]
+            parts = [p for p in parts if p not in ("ffi", "rust")]
+            if not parts:
+                receipt["seconds"] = round(time.monotonic() - t0, 3)
+                record(state, receipt, last=False)
+                return 3
     try:
         if "rust" in parts:
             # --binary: a cmux binary built for SHA elsewhere (try-pr.sh: the PR's fleet dev build).
@@ -1128,8 +1756,14 @@ def command_apply(args) -> int:
                 new, want = keep(state, Path(args.binary))
                 companions = local_companions(Path(args.binary), state)
             else:
-                new, want = fetch_cmux(planned["tree_key"], state)
-                companions = fetch_companions(planned["tree_key"], state)
+                new, want, companions, build = fetch_build(planned["tree_key"], state, app_team(app))
+                receipt["steps"]["build"] = build
+            # The file itself, whatever plan read: a --binary, or a build plan could not read.
+            why = unverifiable(file_team(new), app_team(app), "SHA's cmux" if not args.binary else args.binary)
+            if why and not args.unsigned_daemon:
+                raise RuntimeError(why)
+            if why:
+                receipt["steps"]["unsigned_daemon"] = why
             if not (args.restart_acpmux or args.acpmux_home or args.restart_sessions) and rust_unchanged(app, want, companions):
                 # A hot apply of SHA (or a later commit with the same build) already put it in: nothing to hand off.
                 receipt["unchanged"].append("rust")
@@ -1168,14 +1802,34 @@ def command_apply(args) -> int:
             if left:  # they keep the build they mapped
                 receipt["steps"]["rust"]["acpmux_left_on_old_build"] = left
         if "web" in parts:
-            key = web_key(repo, args.sha)
+            key = planned.get("web_key") or web_key(repo, args.sha)
             if web_unchanged(live, key):
                 receipt["unchanged"].append("web")
                 receipt["steps"]["web"] = {"key": key, "commit": overlay_commit(live), "unchanged": True}
             else:
-                undo["web"] = overlay_snapshot(live)
-                receipt["steps"]["web"] = apply_web(repo, args.sha, live)
+                # What the app served before, not the files as they were: a pointer at an overlay the app
+                # refuses was its bundled pages, so that is what `rollback` puts back.
+                undo["web"] = in_effect(overlay_snapshot(live), app_abi(app), live.overlay_paths()[0])
+                receipt["steps"]["web"] = apply_web(key, args.sha, live)
+                if undo["web"].get("refused"):
+                    receipt["steps"]["web"]["replaced_refused_overlay"] = undo["web"]["refused"]
                 receipt["applied"].append("web")
+        if "ffi" in parts:
+            # Last: the app quits (sessions kept) and opens again on the new library, and its pages with it.
+            source = planned["ffi"]["source"]
+            if ffi_new is None:  # the app was built with SHA's FFI sources
+                receipt["unchanged"].append("ffi")
+                receipt["steps"]["ffi"] = {"source": source, "unchanged": True}
+            else:
+                try:
+                    step, undo["ffi"] = ffi_part.swap(app, ffi_new, state, ffi_how, args.sign_identity, PHASES)
+                except Exception as error:
+                    if getattr(error, "undo", None):
+                        undo["ffi"] = error.undo  # quit and swapped: put the old library back
+                    raise
+                receipt["steps"]["ffi"] = {"source": source, "release": planned["ffi"]["release"],
+                                           "archive_sha256": ffi_checksum, **step}
+                receipt["applied"].append("ffi")
     except Exception as error:  # noqa: BLE001 - any failed step puts back what ran before
         receipt["error"] = str(error)
         receipt["rolled_back"] = True
@@ -1196,13 +1850,23 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
     """What `apply` would fetch and verify, fetched and verified; nothing in the app changes."""
     try:
         if "rust" in parts and not args.binary:
-            new, want = fetch_cmux(planned["tree_key"], state)
-            companions = fetch_companions(planned["tree_key"], state)
-            receipt["steps"]["rust"] = {"to": want, "copy": str(new)}
+            new, want, companions, build = fetch_build(planned["tree_key"], state, planned.get("app_team"))
+            receipt["steps"]["rust"] = {"to": want, "copy": str(new), "build": build}
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
         if "web" in parts:
-            key = web_key(repo, args.sha)
+            key = planned.get("web_key") or web_key(repo, args.sha)
             receipt["steps"]["web"] = {"key": key, "commit": args.sha, "bundles": str(web_bundles(key, state))}
+        if "ffi" in parts and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]:
+            try:
+                new, checksum = ffi_part.fetch_library(planned["ffi"]["source"], state, fetch, fetch_kept)
+                receipt["steps"]["ffi"] = {"source": planned["ffi"]["source"], "archive_sha256": checksum,
+                                           "copy": str(new)}
+                if not args.base:  # an app to pair with: its imports, and how it would be signed
+                    missing = sorted(ffi_part.imports(app) - ffi_part.exports(new))
+                    receipt["steps"]["ffi"]["missing_symbols"] = missing
+                    receipt["steps"]["ffi"]["signed"] = ffi_part.how_to_sign(app, args.sign_identity, args.reseal)
+            except ffi_part.Left as why:
+                receipt["left"]["ffi"] = [str(why)]
     except Exception as error:  # noqa: BLE001 - the receipt says what failed; nothing to put back
         receipt["error"] = str(error)
         receipt["seconds"] = round(time.monotonic() - t0, 3)
@@ -1216,10 +1880,23 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
 def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> dict:
     """Restores each part in `undo` and checks it; returns what happened to each."""
     out: dict = {}
+    if "ffi" in undo:  # first: the app quits and opens again on the library it had
+        try:
+            out["ffi"] = ffi_part.put_back(app, undo["ffi"])
+        except Exception as error:  # noqa: BLE001
+            out["ffi"] = {"ok": False, "error": str(error)}
     if "web" in undo:
         try:
-            overlay_restore(live, undo["web"])
-            out["web"] = {"ok": True, "commit": overlay_commit(live)}
+            # An undo written before apply checked this (or an app updated since) is checked here too.
+            saved = in_effect(undo["web"], app_abi(app), live.overlay_paths()[0])
+            overlay_restore(live, saved)
+            if saved.get("refused"):
+                out["web"] = {"ok": True, "commit": None, "in_effect": "the app's bundled pages",
+                              "dropped_refused_pointer": saved["refused"]}
+            else:
+                pointer = overlay_pointer(base64.b64decode(saved["web_dev"]) if saved.get("web_dev") else None)
+                out["web"] = {"ok": True, "commit": overlay_commit(live) if pointer else None,
+                              "in_effect": f"the overlay at {pointer}" if pointer else "the app's bundled pages"}
         except Exception as error:  # noqa: BLE001
             out["web"] = {"ok": False, "error": str(error)}
     if "rust" in undo:
@@ -1276,9 +1953,15 @@ def command_rollback(args) -> int:
 
 def command_prefetch(args) -> int:
     """`apply --dry-run` under its own name: fetch and check what SHA's apply needs, and keep it."""
-    args.dry_run, args.parts, args.binary = True, "web,rust", None
+    args.dry_run, args.parts, args.binary = True, "web,rust,ffi", None
+    args.sign_identity, args.reseal = None, False
     args.socket, args.acpmux_home, args.restart_acpmux, args.restart_sessions = None, [], False, False
     return command_apply(args)
+
+
+def command_keys(args) -> int:
+    print(json.dumps(hot_keys(Path(args.repo), args.sha, args.web_key), indent=1, sort_keys=True))
+    return 0
 
 
 def command_status(_args) -> int:
@@ -1300,8 +1983,16 @@ def main(argv=None) -> int:
         p.add_argument("--branch", action="store_true",
                        help="SHA is a branch head (a pull request) that may predate the app's commit")
         p.add_argument("--base", help="stand in for the app's commit (plan, apply --dry-run): no app needed")
+        p.add_argument("--unsigned-daemon", action="store_true",
+                       help="take a Rust build not signed as the app is (a Team-signed app then verifies no "
+                            "connection: Cloud and user-origin calls fail until rollback)")
         if name == "apply":
-            p.add_argument("--parts", default="web,rust")
+            p.add_argument("--parts", default="web,rust,ffi")
+            p.add_argument("--sign-identity",
+                           help="ffi: sign the app FFI library with this keychain identity (a Developer ID app's team)")
+            p.add_argument("--reseal", action="store_true",
+                           help="ffi: a Developer ID app takes an ad hoc library by being signed ad hoc too "
+                                "(it starts signed out of its Keychain items; rollback puts the signature back)")
             p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
@@ -1312,10 +2003,21 @@ def main(argv=None) -> int:
                                 "to the new build with `server restart` (terminals kept)")
             p.add_argument("--dry-run", action="store_true",
                            help="plan, fetch and verify every part; change nothing in the app (receipt: history.jsonl)")
+    p = sub.add_parser("keys")
+    p.add_argument("sha")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--web-key", help="SHA's web source key, when the caller has it (else computed here)")
+    p = sub.add_parser("live-from", help="the app commits that can take SHA's daemon build live (JSON)")
+    p.add_argument("sha")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--max", type=int, default=LIVE_FROM_MAX)
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")
     sub.add_parser("status")
+    p = sub.add_parser("drop-refused-overlay",
+                       help="drop web-dev.json's pointer at an overlay the app refuses (it serves its bundled pages)")
+    p.add_argument("--app", default=DEFAULT_APP)
     args = parser.parse_args(argv)
     if getattr(args, "sha", None) is not None:
         args.sha = git(Path(args.repo), "rev-parse", "--verify", f"{args.sha}^{{commit}}", check=False) or args.sha
@@ -1323,8 +2025,9 @@ def main(argv=None) -> int:
             print(f"hot-apply: {args.sha!r} is not a commit here", file=sys.stderr)
             return 2
     try:
-        return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "rollback": command_rollback,
-                "status": command_status}[args.command](args)
+        return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "keys": command_keys,
+                "rollback": command_rollback, "status": command_status, "live-from": command_live_from,
+                "drop-refused-overlay": command_drop_refused_overlay}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)
         return 3

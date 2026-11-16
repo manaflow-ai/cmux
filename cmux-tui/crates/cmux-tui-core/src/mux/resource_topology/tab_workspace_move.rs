@@ -271,6 +271,7 @@ impl Mux {
                     zoomed_pane: None,
                     auto_layout: Some(vec![target_pane_id.clone()]),
                     viewport: RegistryViewport { base_width: None, columns: Vec::new() },
+                    floating: Vec::new(),
                 };
                 after.panes.push(pane_record.clone());
                 after.screens.push(screen_record.clone());
@@ -498,20 +499,12 @@ impl Mux {
                         new_pane: target_pane,
                     }
                 };
-                target_ws.screens.push(Screen {
-                    id: target_screen,
-                    public_id: target_screen_id,
-                    name: None,
-                    root: Node::Leaf(target_pane),
-                    active_pane: target_pane,
-                    zoomed_pane: None,
-                    creation_order_auto_layout: Some(vec![target_pane]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    layout_undo: Default::default(),
-                });
+                target_ws.screens.push(Screen::with_one_pane(
+                    target_screen,
+                    target_screen_id,
+                    None,
+                    target_pane,
+                ));
                 let pane = Pane {
                     id: target_pane,
                     public_id: target_pane_id,
@@ -595,6 +588,7 @@ impl Mux {
                 let _ = surface_handle.persist_host_workspace(&key);
             }
         }
+        self.refresh_terminal_size_policy(surface);
         self.emit_resource_topology_legacy_events(ResourceOperation::TabMove, &commit);
         Ok(())
     }

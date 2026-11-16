@@ -51,6 +51,32 @@ RULES: list[tuple[str, re.Pattern[str]]] = [
      re.compile(r"\.enumerator\((at|atPath):|\.contentsOfDirectory\((at|atPath):|\.subpathsOfDirectory\(|\.subpaths\(atPath:")),
     ("process launch",
      re.compile(r"\bProcess\(\)|\bposix_spawn\(")),
+    # Calls that wait on another process, the kernel or the disk: their time is not this code's to bound.
+    # check-concurrency.sh refuses the waits, sleeps, locks, sync hops and file reads outright; these have no
+    # checked seam yet, so they are ratcheted here (plans/cmux-next/main-thread-guarantee-DESIGN.md, layer 1).
+    ("keychain call (securityd IPC; can wait on a prompt)",
+     re.compile(r"\bSecItem(CopyMatching|Add|Update|Delete)\(|\bSecKeychain\w*\(")),
+    ("trust evaluation (can fetch revocation over the network)",
+     re.compile(r"\bSecTrustEvaluate(WithError)?\(")),
+    ("Accessibility IPC (waits up to 6 s on an app that does not answer)",
+     re.compile(r"\bAXUIElement(CopyAttributeValues?|CopyMultipleAttributeValues|CopyAttributeNames|SetAttributeValue"
+                r"|PerformAction|CopyElementAtPosition|CopyParameterizedAttributeValue|CopyActionNames|IsAttributeSettable)\(")),
+    ("window-server list query (CGWindowList*)",
+     re.compile(r"\bCGWindowList(CopyWindowInfo|CreateImage|CreateImageFromArray|CreateDescriptionFromArray)\(")),
+    ("DNS lookup",
+     re.compile(r"\bgetaddrinfo\(|\bgethostbyname2?\(|\bgetnameinfo\(|\bCFHostStartInfoResolution\(")),
+    ("child wait (waitpid blocks until the child exits)",
+     re.compile(r"(?:^|[^.\w]|Darwin\.)(waitpid|wait4|waitid)\(")),
+    ("fsync (waits for the disk)",
+     re.compile(r"(?:^|[^.\w]|Darwin\.)fsync\(|\bF_FULLFSYNC\b|\bF_BARRIERFSYNC\b")),
+    ("SQLite statement",
+     re.compile(r"\bsqlite3_(exec|step|prepare(_v[23])?|open(_v2)?|close(_v2)?|wal_checkpoint(_v2)?)\(")),
+    ("synchronous file write or file-system change",
+     # A FileManager receiver only (`FileManager.default`, `.checked`, or a local named manager/fileManager/fm):
+     # `menu.removeItem(at:)` is an NSMenu, not a file.
+     re.compile(r"\.write\(to(File)?:|\.blockingWrite\(to:|(\bFileManager(\.(default|checked))?|\b(manager|fileManager|fm))"
+                r"\.(createDirectory|removeItem|moveItem|copyItem|linkItem|replaceItemAt|trashItem|createFile"
+                r"|createSymbolicLink|setAttributes)\(")),
 ]
 # A string scan inside a loop is quadratic when the loop advances by a small
 # step: flag scan calls within LOOP_WINDOW lines after a `while`/`repeat`.
@@ -70,9 +96,13 @@ PER_LINE_RULE = "a main-actor Task per line or event (batch with MainActorLineBa
 
 ALLOW = re.compile(r"//\s*main-actor-ok:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
+# `BackgroundWork.run/post(_:mayBlock:)` runs its closure on a lane thread (CmuxNextWakeups/BackgroundWork.swift).
 OFF_MAIN = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))|@concurrent\b|(^|\s)(distributed\s+)?actor\s+\w+|\bTask\.detached\b"
-                      r"|\bDispatchQueue\.global\(|\bDispatchQueue\(label:")
+                      r"|\bDispatchQueue\.global\(|\bDispatchQueue\(label:|\bmayBlock:")
+OFF_MAIN_CALL = re.compile(r"\bTask\.detached\b|\bDispatchQueue\.global\(|\bDispatchQueue\(label:"
+                           r"|\bmayBlock:")
 MAIN = re.compile(r"@MainActor\b")
+MAIN_CLOSURE = re.compile(r"\{\s*(\[[^\]]*\]\s*)?@MainActor\b")
 STRING_LITERAL = re.compile(r'"(?:\\.|[^"\\])*"')
 
 
@@ -266,27 +296,46 @@ def main_actor_lines(lines: list[str], default_main: bool) -> list[bool]:
     stack: list[tuple[int, bool]] = []
     depth = 0
     pending: bool | None = None  # isolation of a declaration whose `{` has not opened yet
+    # Parenthesis depth, and its value where `pending` was set: a `{` inside the declaration's own parentheses (a
+    # default closure argument, `stillWanted: () -> Bool = { true }`) is not the body and leaves `pending` alone.
+    parens = 0
+    pending_parens = 0
     for raw in lines:
         if COMMENT_ONLY.match(raw):
             result.append(stack[-1][1] if stack else default_main)
             continue
         code = strip(raw)
         if OFF_MAIN.search(code):
-            pending = False
+            # A closure-taking call (`Task.detached(operation: { ... })`) is off-main at its first `{`, in parentheses
+            # or not; only a declaration's `{` must sit outside its own parentheses.
+            pending, pending_parens = False, (sys.maxsize if OFF_MAIN_CALL.search(code) else parens)
         elif MAIN.search(code):
-            pending = True
+            # `{ @MainActor in` is a closure, main at its own `{` even inside parentheses.
+            pending, pending_parens = True, (sys.maxsize if MAIN_CLOSURE.search(code) else parens)
         main = stack[-1][1] if stack else default_main
         result.append(main if pending is None else pending)
+        skipped = False  # a `{` inside the declaration's own parentheses was passed over on this line
         for char in code:
-            if char == "{":
+            if char == "(":
+                parens += 1
+            elif char == ")":
+                parens = max(parens - 1, 0)
+            elif char == "{":
                 depth += 1
-                if pending is not None:
+                if pending is not None and parens <= pending_parens:
                     stack.append((depth, pending))
                     pending = None
+                elif pending is not None:
+                    skipped = True
             elif char == "}":
                 while stack and stack[-1][0] >= depth:
                     stack.pop()
                 depth -= 1
+        # A declaration whose only `{` sat in its own parentheses and whose parentheses closed on this line
+        # (`nonisolated let m = Mutex<() -> Bool>({ true })`) has no body: its isolation ends with the line, so it
+        # never reaches the next declaration's body.
+        if skipped and pending is not None and parens <= pending_parens and not code.rstrip().endswith((",", "(", "->")):
+            pending = None
         # An attribute line, or a declaration header split over lines, carries
         # its isolation to the `{` that opens the body; anything else drops it.
         if pending is not None and "{" not in code and not ATTRIBUTE_ONLY.match(code):
@@ -301,7 +350,8 @@ DECL_KEYWORD = re.compile(r"\b(func|init|var|class|struct|enum|extension|actor)\
 
 def scan_file(path: str, default_main: bool) -> list[tuple[int, str, str]]:
     """(line number, rule, source line) for every main-actor hit."""
-    lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        lines = handle.read().split("\n")
     main_lines = main_actor_lines(lines, default_main)
     hits: list[tuple[int, str, str]] = []
     # Any isolation: the callback itself may run anywhere; the Task lands on main.
@@ -368,7 +418,10 @@ def main() -> int:
             for rule, items in sorted(rules.items()):
                 for line, text in items:
                     print(f"{f}:{line}: {rule}: {text}")
-    baseline = json.load(open(baseline_path, encoding="utf-8")) if os.path.exists(baseline_path) else {}
+    baseline: dict[str, dict[str, int]] = {}
+    if os.path.exists(baseline_path):
+        with open(baseline_path, encoding="utf-8") as handle:
+            baseline = json.load(handle)
     failures = 0
     lowered = 0
     for f, rules in counts.items():

@@ -414,8 +414,22 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
         phases.add("plan", t);
     }
     let planned = plan_json(&plan, &commit, &app, app_commit.as_deref());
+    let mut receipt = json!({
+        "schema": 1, "action": "try", "target": target, "commit": commit,
+        "path": plan.path(), "app": app.to_string_lossy(), "app_commit": app_commit,
+        "at": now(),
+    });
     if dry_run || matches!(plan, Plan::None { .. }) {
         let code = i32::from(matches!(plan, Plan::None { .. }));
+        if let (false, Plan::None { why }) = (dry_run, &plan) {
+            // A try that found no build is a failed try: history keeps why, last.json stays.
+            set(&mut receipt, "ok", json!(false));
+            set(&mut receipt, "why", json!(why));
+            set(&mut receipt, "phases", phases.json());
+            if let Ok(_lock) = store.lock() {
+                let _ = store.append_history(&receipt);
+            }
+        }
         if global.output == OutputMode::Human {
             println!("{}", plan_human(&plan, &commit, &app, app_commit.as_deref()));
             if dry_run {
@@ -437,35 +451,40 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
         Ok(lock) => lock,
         Err(error) => return failure("try.state", &error, global.output),
     };
-    let mut receipt = json!({
-        "schema": 1, "action": "try", "target": target, "commit": commit,
-        "path": plan.path(), "app": app.to_string_lossy(), "app_commit": app_commit,
-        "at": now(),
-    });
     match plan {
         Plan::None { .. } => 1,
         Plan::Full { build, from } => {
             set(&mut receipt, "build", build.get("build").cloned().unwrap_or(Value::Null));
             set(&mut receipt, "from_build", json!(from));
-            set(&mut receipt, "ok", json!(true));
-            set(&mut receipt, "phases", phases.json());
-            if let Err(error) = store.record(&receipt) {
-                return failure("try.state", &error, global.output);
-            }
-            if global.output == OutputMode::Human {
-                println!(
-                    "{}",
-                    plan_human(&Plan::Full { build: build.clone(), from }, &commit, &app, None)
-                );
-            }
             let Some(mut stream) = stream else {
+                set(&mut receipt, "ok", json!(false));
+                set(&mut receipt, "error", json!("no app answers on its control socket"));
+                let _ = store.append_history(&receipt);
                 return failure(
                     "app.transport",
                     "no app answers on its control socket",
                     global.output,
                 );
             };
-            switch(global, &mut stream, &build)
+            if global.output == OutputMode::Human {
+                println!(
+                    "{}",
+                    plan_human(&Plan::Full { build: build.clone(), from }, &commit, &app, None)
+                );
+            }
+            let code = switch(global, &mut stream, &build);
+            set(&mut receipt, "ok", json!(code == 0));
+            set(&mut receipt, "phases", phases.json());
+            // Only a switch that went through becomes the receipt undo reads; a refused one
+            // leaves the last good try (and its undo) in place.
+            if code == 0 {
+                if let Err(error) = store.record(&receipt) {
+                    return failure("try.state", &error, global.output);
+                }
+            } else {
+                let _ = store.append_history(&receipt);
+            }
+            code
         }
         Plan::Live { files } => {
             let daemon = app_daemon(&app);
@@ -489,7 +508,7 @@ fn try_live(
     for wanted in files {
         let to = store.fetch(wanted)?;
         let sha = wanted.binary.as_ref().map(|binary| binary.sha256.clone());
-        changes.push(Change { file: wanted.file.clone(), to: to.zip(sha) });
+        changes.push(Change { file: wanted.file.clone(), to: to.zip(sha), expect: None });
     }
     phases.add("fetch", t);
     live::apply(app, &changes, store, daemon, phases)
@@ -643,8 +662,11 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
         if global.output == OutputMode::Human {
             println!("{text}");
         }
-        let _ = store.record(&json!({ "schema": 1, "action": "undo", "path": "full", "commit": commit, "build": build.get("build"), "app": app.to_string_lossy(), "at": now(), "ok": true }));
-        return switch(global, &mut stream, &build);
+        let code = switch(global, &mut stream, &build);
+        let receipt = json!({ "schema": 1, "action": "undo", "path": "full", "commit": commit, "build": build.get("build"), "app": app.to_string_lossy(), "at": now(), "ok": code == 0 });
+        // As for a try: only a switch that went through replaces the receipt.
+        let _ = if code == 0 { store.record(&receipt) } else { store.append_history(&receipt) };
+        return code;
     }
     let files = last
         .get("undo")
@@ -652,6 +674,12 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    // Locked before the files are checked, so no other try or undo moves them in between.
+    let _lock = match (dry_run, store.lock()) {
+        (true, _) => None,
+        (false, Ok(lock)) => Some(lock),
+        (false, Err(error)) => return failure("try.state", &error, global.output),
+    };
     let changes = match live::undo_changes(&app, &last) {
         Ok(changes) => changes,
         Err(error) => return failure("try.undo_refused", &error, global.output),
@@ -671,10 +699,6 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
         }
         return super::super::wire::print_local_success(&value, global.output);
     }
-    let _lock = match store.lock() {
-        Ok(lock) => lock,
-        Err(error) => return failure("try.state", &error, global.output),
-    };
     let mut phases = Phases::default();
     let daemon = app_daemon(&app);
     let result = live::apply(&app, &changes, store, &daemon, &mut phases);

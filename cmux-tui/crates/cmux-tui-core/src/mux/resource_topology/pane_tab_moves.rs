@@ -204,13 +204,14 @@ impl Mux {
         let index =
             usize::try_from(required_u64(fields, "index")?).context("tab index exceeds usize")?;
         let mux = Arc::clone(self);
-        self.commit_resource_mutation_plan(
+        let mut moved_surface = None;
+        let commit = self.commit_resource_mutation_plan(
             mutation,
             "tab.move",
             fingerprint,
             None,
             expected_revision,
-            move |state, registry| {
+            |state, registry| {
                 let source = mux
                     .resolve_resource_path_in_state(
                         state,
@@ -222,9 +223,9 @@ impl Mux {
                 let destination_selectors = ResourceSelectors {
                     machine: selectors.machine.clone(),
                     session: selectors.session.clone(),
-                    workspace: Some(destination_workspace),
-                    screen: Some(destination_screen),
-                    pane: Some(destination_pane),
+                    workspace: Some(destination_workspace.clone()),
+                    screen: Some(destination_screen.clone()),
+                    pane: Some(destination_pane.clone()),
                     ..Default::default()
                 };
                 let destination = mux
@@ -248,6 +249,7 @@ impl Mux {
                     .workspace_index(target_workspace_slot)
                     .context("destination workspace disappeared")?;
                 let surface = source.tab.context("tab selector has no live surface")?;
+                moved_surface = Some(surface);
                 let tab_id = source.path.tab.context("tab selector has no public id")?;
                 let source_pane = state.pane_of(surface).context("resolved tab has no pane")?;
                 let target_pane =
@@ -496,6 +498,10 @@ impl Mux {
                 )
                 .moving_tab(surface, target_pane, index))
             },
-        )
+        )?;
+        if let Some(surface) = moved_surface {
+            self.refresh_terminal_size_policy(surface);
+        }
+        Ok(commit)
     }
 }

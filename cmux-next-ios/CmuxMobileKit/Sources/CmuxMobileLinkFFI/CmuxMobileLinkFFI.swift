@@ -3219,8 +3219,8 @@ public struct TerminalChatFaces: Equatable, Hashable {
      */
     public var offered: Bool
     /**
-     * The face the tab opens on: chat for a Claude Code or Codex session (Leo's iOS
-     * default), else the tab's own kind.
+     * The face the tab opens on when the person chose none: the tab's own kind (a
+     * terminal on its terminal, a chat on its chat).
      */
     public var defaultFace: TabFace
     public var chatEnabled: Bool
@@ -3242,8 +3242,8 @@ public struct TerminalChatFaces: Equatable, Hashable {
          * The tab shows the Chat | Terminal control and its page menu's Toggle row.
          */offered: Bool, 
         /**
-         * The face the tab opens on: chat for a Claude Code or Codex session (Leo's iOS
-         * default), else the tab's own kind.
+         * The face the tab opens on when the person chose none: the tab's own kind (a
+         * terminal on its terminal, a chat on its chat).
          */defaultFace: TabFace, chatEnabled: Bool, terminalEnabled: Bool, 
         /**
          * Why a face is disabled, in the person's words; None when both are enabled.
@@ -3415,6 +3415,86 @@ public func FfiConverterTypeTerminalChatFacts_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeTerminalChatFacts_lower(_ value: TerminalChatFacts) -> RustBuffer {
     return FfiConverterTypeTerminalChatFacts.lower(value)
+}
+
+
+/**
+ * Which chat a terminal tab's chat face shows, and what the phone keeps of it on disk
+ * ([`terminal_chat_pairing`]).
+ */
+public struct TerminalChatPairing: Equatable, Hashable {
+    /**
+     * The acpmux chat the face shows; None: none yet (the phone asks the Mac for one).
+     */
+    public var chat: String?
+    /**
+     * The phone keeps `chat` as the tab's pairing (it is new, or another than the kept one).
+     */
+    public var keep: Bool
+    /**
+     * The kept pairing is stale (the Mac closed or dropped that chat): the phone forgets it.
+     */
+    public var forget: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The acpmux chat the face shows; None: none yet (the phone asks the Mac for one).
+         */chat: String?, 
+        /**
+         * The phone keeps `chat` as the tab's pairing (it is new, or another than the kept one).
+         */keep: Bool, 
+        /**
+         * The kept pairing is stale (the Mac closed or dropped that chat): the phone forgets it.
+         */forget: Bool) {
+        self.chat = chat
+        self.keep = keep
+        self.forget = forget
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalChatPairing: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatPairing: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatPairing {
+        return
+            try TerminalChatPairing(
+                chat: FfiConverterOptionString.read(from: &buf), 
+                keep: FfiConverterBool.read(from: &buf), 
+                forget: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalChatPairing, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.chat, into: &buf)
+        FfiConverterBool.write(value.keep, into: &buf)
+        FfiConverterBool.write(value.forget, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatPairing_lift(_ buf: RustBuffer) throws -> TerminalChatPairing {
+    return try FfiConverterTypeTerminalChatPairing.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatPairing_lower(_ value: TerminalChatPairing) -> RustBuffer {
+    return FfiConverterTypeTerminalChatPairing.lower(value)
 }
 
 
@@ -4951,6 +5031,29 @@ public func terminalChatHarness(agent: String) -> String?  {
 })
 }
 /**
+ * The chat terminal `harness` session `session` shows, and the pairing the phone keeps
+ * for a relaunch with the Mac out of reach (Leo, 2026-11-14: less reliant on the Mac and on
+ * the network; a relaunch offline draws the chat's kept turns at once).
+ *
+ * In order: the Mac's own chat of the session ([`terminal_chat_session`] over `chats`), then
+ * the chat this phone had the Mac open (`opened`), then the `kept` pairing. A kept chat the
+ * Mac's list shows closed, watching another session or of another harness is stale; so is
+ * one missing from a whole list (`listed_whole`: every chat of the Mac is in `chats`).
+ * Offline the list is empty and not whole, so the kept chat shows.
+ */
+public func terminalChatPairing(chats: [TerminalChatCandidate], listedWhole: Bool, harness: String, session: String, opened: String?, kept: String?) -> TerminalChatPairing  {
+    return try!  FfiConverterTypeTerminalChatPairing_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_pairing(
+        FfiConverterSequenceTypeTerminalChatCandidate.lower(chats),
+        FfiConverterBool.lower(listedWhole),
+        FfiConverterString.lower(harness),
+        FfiConverterString.lower(session),
+        FfiConverterOptionString.lower(opened),
+        FfiConverterOptionString.lower(kept),$0
+    )
+})
+}
+/**
  * The chat among `chats` that already shows `harness` session `session`, if any: a View
  * Only chat first (it follows the terminal), else one that resumed it and is not closed.
  * acpmux would answer an adopt of the session with the same chat
@@ -5042,6 +5145,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_harness() != 55721) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_pairing() != 6333) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_session() != 14930) {

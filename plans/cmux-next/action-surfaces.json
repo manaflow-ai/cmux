@@ -63,6 +63,37 @@
       "args" : [
 
       ],
+      "cli" : "guiOnly",
+      "cli_name" : "action customize-open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "customize.open",
+      "main_menu" : "app",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Customize…",
+      "title_key" : "action.customize.open",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
       "cli" : "offered",
       "cli_name" : "app new-window",
       "context_menu" : "noObject",
@@ -5707,7 +5738,14 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "n",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
       "id" : "space.new",
       "main_menu" : "window",
       "mcp" : "ownerVerb",
@@ -29660,6 +29698,44 @@
 
       ],
       "cli" : "guiOnly",
+      "cli_name" : "action palette-capture-screenshot-to-chat",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "s",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "palette.captureScreenshotToChat",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Capture Screenshot to Chat",
+      "title_key" : "action.palette.captureScreenshotToChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
       "cli_name" : "action palette-add-harness",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -30440,13 +30516,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "`",
-        "modifiers" : [
-          "opt",
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "palette.toggleTerminalChat",
       "main_menu" : null,
       "mcp" : "guiOnly",
@@ -48480,6 +48550,46 @@
       "palette_suggested" : null,
       "title" : "Run App Command…",
       "title_key" : "action.app.command.run",
+      "title_table" : "AppStoreActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "app",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "item",
+          "required" : true
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "app run-menu-item",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.menu.run",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Run App Menu Item",
+      "title_key" : "action.app.menu.run",
       "title_table" : "AppStoreActions"
     },
     {

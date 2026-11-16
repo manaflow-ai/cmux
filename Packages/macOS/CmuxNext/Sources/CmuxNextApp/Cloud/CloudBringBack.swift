@@ -28,9 +28,9 @@ import Foundation
 /// never loosened. Progress and failures are toasts, never a sheet.
 ///
 /// Move to Another Machine (``toMachine``) is the same run with another Cloud machine as the target
-/// in place of this Mac (Leo, 2026-11-10: "a proper \"move to other cloud\""): the named one, else another
+/// in place of this Mac (a move to another Cloud machine, in the code since 2026-11-10): the named one, else another
 /// connected one, else any, else a new one. Its folder goes machine to machine, never through this Mac's folder
-/// (Leo: "isn't this like yet another sync problem?"): one `cmux link agent move --sync relay` sends it as git
+/// (a path through this Mac would be one more sync to keep right): one `cmux link agent move --sync relay` sends it as git
 /// when a Move to Cloud seeded it from here, else copies it, then the chat lands with its last changes; its
 /// ledger entry then names the new machine.
 @MainActor
