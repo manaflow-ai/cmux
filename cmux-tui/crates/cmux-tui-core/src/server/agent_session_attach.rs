@@ -1984,6 +1984,7 @@ impl Mux {
 #[cfg(test)]
 mod unsent_tests {
     use super::*;
+    use crate::server::RenderService;
 
     /// A failed push whose stream never queued its own overflow notice still closes with a
     /// reason, so the client attaches again after the seq it holds; one that did is not told twice.
