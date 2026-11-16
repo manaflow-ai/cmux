@@ -251,7 +251,7 @@ async fn collect_while_open(hub: &Arc<Hub>) {
 }
 
 /// `_acpmux/consent_trust_refresh {}`: the person's Refresh trusted Macs. Opens the enrollment
-/// window and runs one collection pass now: `{"ok", "pinned": [id], "policy": bool,
+/// window and runs one collection pass now: `{"ok", "pinned": [id], "asked": [id], "policy": bool,
 /// "peers": [{daemonId, host, ok, reason?}]}`.
 pub async fn trust_refresh(hub: &Arc<Hub>) -> Value {
     let now = crate::store::now_ms();
@@ -264,9 +264,10 @@ pub async fn trust_refresh(hub: &Arc<Hub>) -> Value {
     collect(hub, &mut std::collections::BTreeSet::new()).await
 }
 
-/// One enrollment collection pass while the window is open: pins this machine's own app key, then
-/// asks each listed machine of the account not yet in `done` for the key its app reported
-/// (`op: "status"`, `ownGrantor`) and pins it, then for its account policy (`op: "policy"`),
+/// One enrollment collection pass while the window is open: pins this machine's OWN app key only,
+/// then asks each listed machine of the account not yet in `done` for the key its app reported
+/// (`op: "status"`, `ownGrantor`), which becomes a pending ask, never a pin, then for its account
+/// policy (`op: "policy"`),
 /// which is applied here when it is newer than the one kept (its signer must be pinned).
 async fn collect(hub: &Arc<Hub>, done: &mut std::collections::BTreeSet<String>) -> Value {
     let target = this_target(hub).await;
@@ -274,7 +275,7 @@ async fn collect(hub: &Arc<Hub>, done: &mut std::collections::BTreeSet<String>) 
         return json!({"ok": false, "reason": consent_grant::NOT_JOINED,
             "error": "this machine is not joined to an account", "pinned": []});
     };
-    let mut pinned = Vec::new();
+    let (mut pinned, mut asked) = (Vec::new(), Vec::new());
     let mut policy = false;
     if let Some(own) = target.own_grantor.clone() {
         let account = account.clone();
@@ -304,22 +305,17 @@ async fn collect(hub: &Arc<Hub>, done: &mut std::collections::BTreeSet<String>) 
         if status["account"].as_str() != Some(account.as_str()) {
             continue;
         }
-        let reported = status.get("ownGrantor").and_then(|own| {
-            let key = own.get("publicKey")?.as_str().and_then(consent_grant::unhex)?;
-            let name = own.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
-            (own.get("id")?.as_str()? == consent_grant::grantor_id(&key)).then_some((key, name))
-        });
-        if let Some((key, name)) = reported {
-            let account = account.clone();
-            let pin = with_authority(move |authority| {
-                let now = crate::store::now_ms();
-                consent_grant::pin_enrolled(authority, &key, &name, &account, now)
-                    .map(|new| new.then(|| consent_grant::grantor_id(&key)))
-            })
-            .await;
-            if let Some(Ok(Some(id))) = pin {
-                pinned.push(id);
-            }
+        // The key the peer's app reported is never pinned here: it becomes an ask the person
+        // confirms with its four words in the app on this machine.
+        let (reported, from) = (status.clone(), host.clone());
+        let account_now = account.clone();
+        let ask = with_authority(move |authority| {
+            let now = crate::store::now_ms();
+            consent_grant::note_reported(authority, &reported, &from, &account_now, now)
+        })
+        .await;
+        if let Some(Ok(Some(id))) = ask {
+            asked.push(id);
         }
         let handed = remote(hub, &daemon, &json!({"op": "policy"})).await;
         let Some(grant) = handed.get("grant").filter(|grant| grant.is_object()).cloned() else {
@@ -338,7 +334,7 @@ async fn collect(hub: &Arc<Hub>, done: &mut std::collections::BTreeSet<String>) 
         .await;
         policy |= applied == Some(true);
     }
-    json!({"ok": true, "pinned": pinned, "policy": policy, "peers": peers})
+    json!({"ok": true, "pinned": pinned, "asked": asked, "policy": policy, "peers": peers})
 }
 
 /// Serves one consent circuit whose hello was read: the gate admits `from` or the refusal is the

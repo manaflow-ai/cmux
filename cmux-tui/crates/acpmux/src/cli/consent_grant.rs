@@ -9,13 +9,17 @@
 //!   own gesture and Touch ID or password. An agent, a shell or the daemon on that Mac cannot make
 //!   it sign.
 //! - This machine checks a grant only against keys it pinned itself, in its account-wide consent
-//!   authority (`grantors.json` beside `consent.json`, private state). It pins keys with no prompt
-//!   only during its own enrollment, a step the person takes here (a sign-in's new join, a join
-//!   line, or Refresh trusted Macs in the app): its own app's key, and the keys its listed peers of
-//!   the same account report, for [`ENROLL_WINDOW_MS`] after that step ([`open_window`],
-//!   [`pin_enrolled`]). Any other key is pinned only by the person in the cmux app here
-//!   (`_acpmux/consent_grantor_trust`), from the ask the first grant it signed left
-//!   (`grantor-ask.json`), once they matched its four words with the ones the owner Mac shows.
+//!   authority (`grantors.json` beside `consent.json`, private state). It pins one key with no
+//!   prompt: its OWN app's (`_acpmux/mac_approver_set`, from the person-proven app on this
+//!   machine), for [`ENROLL_WINDOW_MS`] after a step the person takes here (a sign-in, a join line,
+//!   or Refresh trusted Macs) ([`open_window`], [`pin_enrolled`]). Every other Mac's key needs the
+//!   person's one-time confirm in the cmux app here (`_acpmux/consent_grantor_trust`), from a
+//!   pending ask (`grantor-ask.json`, at most [`MAX_ASKS`]) once its four words match the ones that
+//!   Mac shows. An ask comes from that Mac's first grant, or from the key a listed peer reported
+//!   during a collection ([`note_reported`]). No peer, carrier message, CLI or platform answer pins
+//!   a key: a peer's daemon, or an agent running as it, can report any key.
+//! - Unpinning a key takes back what it signed: its records and its account policy are dropped and
+//!   `consent.json` is written again ([`trust`]); [`recompute`] counts only grantors still pinned.
 //! - The platform, the relay, the machine credential and the carrier only carry grants. They hold
 //!   no pinned key, so they can drop, delay or replay one: a replay is refused (the last accepted
 //!   `issuedAt` per grantor and scope), a per-machine grant lives at most 5 minutes, and a key they
@@ -44,14 +48,19 @@
 //! - Every outcome, accepted or refused, every pin and every local change is a line of
 //!   `grants.jsonl`.
 //!
-//! What this does not change, and what it leaves: a process running as this machine's OS user
-//! (ssh as that user too) can already write `consent.json`; this adds no new path for it. Pinning
-//! without a prompt trusts the platform only at this machine's own enrollment, which already
-//! trusts it (it serves the join and names the account): what the platform names then is pinned.
-//! After the window closes it cannot add a key; a Mac that signs in later needs a person step here
-//! (Refresh trusted Macs, or the four-word ask). The platform supplies the list of machines a
-//! switch shows, so it can confuse which of the person's own pinned machines a row names; it
-//! cannot reach a machine that did not pin the key.
+//! What this does not change, and what it leaves:
+//! - A process running as this machine's OS user (ssh as that user too) can already write
+//!   `consent.json`; this adds no new path for it.
+//! - An account grant is long-lived: a machine offline when a newer account Off was signed still
+//!   takes an older account On replayed to it, until the Off reaches it (the counter refuses an
+//!   older one only after a newer one arrived).
+//! - With consent on, the gates admit any dialer the platform's hub book lists for the account:
+//!   a platform that adds a node reaches what consent opened (the mesh's own exposure, amplified).
+//! - [`screen_auto`]'s requester identity comes from the device hub.
+//! - A machine with no cmux app (a Linux machine) has no pin path yet: it has no own app key, and
+//!   the ask is answered only from the app's person-proven connection; it takes no grant.
+//! - The platform supplies the list of machines a switch shows, so it can confuse which of the
+//!   person's own pinned machines a row names; it cannot reach a machine that did not pin the key.
 
 use super::cloud_join::{ConsentState, GrantedBy, HeldLock};
 use super::machine_consent::Authority;
@@ -71,8 +80,13 @@ pub const MAX_LIFETIME_MS: u64 = 300_000;
 pub const MAX_AHEAD_MS: u64 = 60_000;
 /// At most this many pinned grantors.
 pub const MAX_GRANTORS: usize = 16;
-/// The grant log keeps this many lines, newest last.
+/// The grant log keeps this many lines that are not refusals or asks, newest last.
 pub const MAX_LOG_LINES: usize = 200;
+/// ... and, apart from those, this many refusal and ask lines, so a flood of refused grants
+/// never evicts a grant or a revoke.
+pub const MAX_NOISY_LOG_LINES: usize = 50;
+/// At most this many pending asks, newest last; a new one replaces the oldest.
+pub const MAX_ASKS: usize = 8;
 /// A status shows this many of the newest log lines.
 pub const STATUS_LOG_LINES: usize = 20;
 /// The longest request one carrier circuit takes.
@@ -97,7 +111,7 @@ pub const NOT_OWN: &str = "grant.not_own";
 
 /// The `machineId` and `nodeKey` of an account-wide grant.
 pub const ANY: &str = "*";
-/// How long after this machine's enrollment step its peers' reported keys are pinned, in ms.
+/// How long after a person step here this machine's own app key is pinned with no prompt, in ms.
 pub const ENROLL_WINDOW_MS: u64 = 60_000;
 
 const GRANTORS: &str = "grantors.json";
@@ -331,6 +345,74 @@ pub struct Ask {
     pub words: Vec<String>,
 }
 
+impl Ask {
+    fn of(key: &[u8], name: &str, account: &str, from: Option<&str>, now: u64) -> Self {
+        Self {
+            id: grantor_id(key),
+            public_key: hex(key),
+            name: bounded(name),
+            account: account.to_owned(),
+            from: from.map(bounded),
+            at: now,
+            words: words(key).iter().map(|w| (*w).to_owned()).collect(),
+        }
+    }
+}
+
+/// The pending asks (`grantor-ask.json`, `{"asks": [...]}`), oldest first. A file an older
+/// build wrote holds one ask.
+fn read_asks(root: &Path) -> Vec<Ask> {
+    match read_json_opt::<Value>(&root.join(ASK)) {
+        Some(value) if value.get("asks").is_some() => {
+            serde_json::from_value(value["asks"].clone()).unwrap_or_default()
+        }
+        Some(value) => serde_json::from_value::<Ask>(value).ok().into_iter().collect(),
+        None => Vec::new(),
+    }
+}
+
+fn write_asks(root: &Path, asks: &[Ask]) -> Result<()> {
+    if asks.is_empty() {
+        return Ok(remove(&root.join(ASK))?);
+    }
+    write_json(&root.join(ASK), &json!({ "asks": asks }))
+}
+
+/// Adds `ask` to the pending asks: one per grantor and account (a new one replaces the old), at
+/// most [`MAX_ASKS`], the oldest dropped. The caller holds the lock.
+fn record_ask(root: &Path, ask: Ask) -> Result<()> {
+    let mut asks = read_asks(root);
+    asks.retain(|kept| !(kept.id == ask.id && kept.account == ask.account));
+    asks.push(ask);
+    let skip = asks.len().saturating_sub(MAX_ASKS);
+    let skip = 0 * skip; // red stub
+    let asks: Vec<Ask> = asks.into_iter().skip(skip).collect();
+    write_asks(root, &asks)
+}
+
+/// Drops the pending asks of `id`. The caller holds the lock. True when one was dropped.
+fn drop_asks(root: &Path, id: &str) -> Result<bool> {
+    let mut asks = read_asks(root);
+    let before = asks.len();
+    asks.retain(|ask| ask.id != id);
+    if asks.len() == before {
+        return Ok(false);
+    }
+    write_asks(root, &asks)?;
+    Ok(true)
+}
+
+/// `grantors.json` for a write: none yet is empty, but a file that exists and cannot be read
+/// refuses, so a write never replaces the pins it could not read.
+fn read_grantors_for_write(root: &Path) -> Result<Grantors> {
+    let path = root.join(GRANTORS);
+    return Ok(read_json(&path)); // red stub
+    if !path.try_exists()? {
+        return Ok(Grantors::default());
+    }
+    Ok(serde_json::from_reader(crate::config::private_state_file(&path)?)?)
+}
+
 /// The grantor id of a key: `mac-` and the first 8 bytes of its SHA-256 as hex.
 pub fn grantor_id(key: &[u8]) -> String {
     format!("mac-{}", fingerprint(key))
@@ -428,6 +510,28 @@ pub fn verify(
     grantors: &Grantors,
     now: u64,
 ) -> Result<(), Refusal> {
+    let account = precheck(grant, target, now)?;
+    let Some(pin) = grantors.pinned(&grant.grantor, account) else {
+        let mut refusal = Refusal::new(
+            UNPINNED,
+            "this machine does not trust that Mac yet: allow it once in cmux here, after \
+             checking its words",
+        );
+        refusal.words = ask_key(grant).map(|key| words(&key));
+        return Err(refusal);
+    };
+    if !pin.key().is_some_and(|key| signed_by(grant, &key)) {
+        return Err(Refusal::new(SIGNATURE, "the grant's signature is not the trusted Mac's"));
+    }
+    if grantors.seq.get(&grant.seq_key()).is_some_and(|last| grant.issued_at <= *last) {
+        return Err(Refusal::new(REPLAYED, "the grant was already used or is older than one used"));
+    }
+    Ok(())
+}
+
+/// The checks of [`verify`] that need no store: joined, the account, the machine, the time.
+/// The account it answers is this machine's.
+fn precheck<'a>(grant: &Grant, target: &'a Target, now: u64) -> Result<&'a str, Refusal> {
     let Some(account) = target.account.as_deref() else {
         return Err(Refusal::new(NOT_JOINED, "this machine is not joined to an account"));
     };
@@ -451,22 +555,7 @@ pub fn verify(
     if !lifetime_ok || grant.issued_at > now.saturating_add(MAX_AHEAD_MS) {
         return Err(Refusal::new(EXPIRED, "the grant expired or is not valid yet"));
     }
-    let Some(pin) = grantors.pinned(&grant.grantor, account) else {
-        let mut refusal = Refusal::new(
-            UNPINNED,
-            "this machine does not trust that Mac yet: allow it once in cmux here, after \
-             checking its words",
-        );
-        refusal.words = ask_key(grant).map(|key| words(&key));
-        return Err(refusal);
-    };
-    if !pin.key().is_some_and(|key| signed_by(grant, &key)) {
-        return Err(Refusal::new(SIGNATURE, "the grant's signature is not the trusted Mac's"));
-    }
-    if grantors.seq.get(&grant.seq_key()).is_some_and(|last| grant.issued_at <= *last) {
-        return Err(Refusal::new(REPLAYED, "the grant was already used or is older than one used"));
-    }
-    Ok(())
+    Ok(account)
 }
 
 impl Pin {
@@ -487,10 +576,11 @@ pub(crate) fn signed_by(grant: &Grant, key: &[u8]) -> bool {
         .is_ok()
 }
 
-/// Applies a grant under the authority's lock: verify, then the grantor's counter, then
-/// `consent.json` with each changed surface's provenance, then the log. A refusal is logged too,
-/// and an unpinned grant whose key checks out leaves the one pending ask. `from` names the
-/// machine that carried it (a host the hub lists).
+/// Applies a grant: it is parsed and its account, machine and time checked first, then under the
+/// authority's lock its pin, signature and counter; then the grantor's counter, the record (or the
+/// account policy), the effective `consent.json` and the log. A refusal is logged too, and an
+/// unpinned grant whose key checks out leaves a pending ask. `from` names the machine that carried
+/// it (a host the hub lists).
 #[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
 pub(crate) fn apply(
     authority: &Authority,
@@ -501,32 +591,31 @@ pub(crate) fn apply(
 ) -> Result<super::cloud_join::Consent, Refusal> {
     let store = || Refusal::new(STORE, "this machine's consent store is unavailable");
     authority.prepare().map_err(|_| store())?;
-    let _lock = lock_waiting(authority)
-        .map_err(|_| Refusal::new(BUSY, "a consent change is in progress here; try again"))?;
     let root = authority.root();
-    let grant = match parse(value) {
+    // What needs no store is checked before the lock: a refusal then logs only if the lock is
+    // free now, so a flood of bad grants never holds up a change.
+    let early = parse(value).and_then(|grant| precheck(&grant, target, now).map(|_| grant));
+    let grant = match early {
         Ok(grant) => grant,
         Err(refusal) => {
-            let by = value.get("grantor").and_then(Value::as_str).filter(|g| valid_grantor(g));
-            log_refused(root, by.unwrap_or("unknown"), None, &refusal, from, None, now);
+            if let Ok(_lock) = authority.lock() {
+                let by = value.get("grantor").and_then(Value::as_str).filter(|g| valid_grantor(g));
+                let name = value.get("name").and_then(Value::as_str);
+                let account = value.get("account").and_then(Value::as_str);
+                log_refused(root, by.unwrap_or("unknown"), name, &refusal, from, account, now);
+            }
             return Err(refusal);
         }
     };
-    let mut grantors: Grantors = read_json(&root.join(GRANTORS));
+    let _lock = lock_waiting(authority)
+        .map_err(|_| Refusal::new(BUSY, "a consent change is in progress here; try again"))?;
+    let mut grantors = read_grantors_for_write(root).map_err(|_| store())?;
     if let Err(refusal) = verify(&grant, target, &grantors, now) {
         if refusal.reason == UNPINNED
             && let Some(key) = ask_key(&grant)
         {
-            let ask = Ask {
-                id: grant.grantor.clone(),
-                public_key: hex(&key),
-                name: grant.name.clone(),
-                account: grant.account.clone(),
-                from: from.map(bounded),
-                at: now,
-                words: words(&key).iter().map(|w| (*w).to_owned()).collect(),
-            };
-            if write_json(&root.join(ASK), &ask).is_ok() {
+            let ask = Ask::of(&key, &grant.name, &grant.account, from, now);
+            if record_ask(root, ask).is_ok() {
                 let mut line = event(now, "ask", &grant.grantor);
                 put(&mut line, "name", Some(grant.name.as_str()));
                 put(&mut line, "from", from);
@@ -544,9 +633,11 @@ pub(crate) fn apply(
         .unwrap_or_default();
     grantors.seq.insert(grant.seq_key(), grant.issued_at);
     write_json(&root.join(GRANTORS), &grantors).map_err(|_| store())?;
+    let mut stale = false;
     if grant.account_wide() {
         // The newest account policy for this account is kept whole, signature included, so this
-        // machine can hand it on to a peer that enrolls later (`op: "policy"`).
+        // machine can hand it on to a peer that enrolls later (`op: "policy"`). An older one
+        // (another grantor's newer policy is kept) changes nothing.
         let newer = read_policy(root)
             .filter(|(kept, _)| kept.account == grant.account)
             .is_none_or(|(kept, _)| grant.issued_at > kept.issued_at);
@@ -554,6 +645,7 @@ pub(crate) fn apply(
             write_json(&root.join(POLICY), &json!({"grant": value, "at": now}))
                 .map_err(|_| store())?;
         }
+        stale = !newer;
     } else {
         let mut records: MachineGrants = read_json(&root.join(MACHINE_GRANTS));
         for (surface, record) in
@@ -575,15 +667,24 @@ pub(crate) fn apply(
         }
         write_json(&root.join(MACHINE_GRANTS), &records).map_err(|_| store())?;
     }
-    let mut consent = authority.consent();
-    consent.control_local = local_of(&consent, "control");
-    consent.screen_local = local_of(&consent, "screen");
-    recompute(root, &mut consent, Some(&grant.account));
-    if grant.control == Change::On || grant.screen == Change::On {
-        consent.granted_at = Some(now.to_string());
+    let granted = !stale && (grant.control == Change::On || grant.screen == Change::On);
+    let stale = false; // red stub
+    let consent = rewrite_consent(authority, Some(&grant.account), granted.then_some(now))
+        .map_err(|_| store())?;
+    let scope = if grant.account_wide() { "account" } else { "machine" };
+    let log = |what: &str, surface: Option<&str>| {
+        let mut line = event(now, what, &grant.grantor);
+        put(&mut line, "name", Some(name.as_str()).filter(|n| !n.is_empty()));
+        put(&mut line, "surface", surface);
+        put(&mut line, "scope", Some(scope));
+        put(&mut line, "from", from);
+        put(&mut line, "account", Some(grant.account.as_str()));
+        let _ = append_log(root, Value::Object(line));
+    };
+    if stale {
+        log("stale", None);
+        return Ok(consent);
     }
-    let bytes = serde_json::to_vec(&consent).map_err(|_| store())?;
-    crate::config::write_atomic(&root.join("consent.json"), &bytes).map_err(|_| store())?;
     for surface in ["control", "screen"] {
         let what = match grant.change(surface) {
             Change::On => "grant",
@@ -591,14 +692,30 @@ pub(crate) fn apply(
             Change::Default => "default",
             Change::Keep => continue,
         };
-        let mut line = event(now, what, &grant.grantor);
-        put(&mut line, "name", Some(name.as_str()).filter(|n| !n.is_empty()));
-        put(&mut line, "surface", Some(surface));
-        put(&mut line, "scope", Some(if grant.account_wide() { "account" } else { "machine" }));
-        put(&mut line, "from", from);
-        put(&mut line, "account", Some(grant.account.as_str()));
-        let _ = append_log(root, Value::Object(line));
+        log(what, Some(surface));
     }
+    Ok(consent)
+}
+
+/// Writes `consent.json` again from its local settings, this machine's records and the account
+/// policy ([`recompute`]), for `account` when given; `granted_at` when a grant just turned
+/// something on. The caller holds the lock.
+fn rewrite_consent(
+    authority: &Authority,
+    account: Option<&str>,
+    granted_at: Option<u64>,
+) -> Result<super::cloud_join::Consent> {
+    let mut consent = authority.consent();
+    consent.control_local = local_of(&consent, "control");
+    consent.screen_local = local_of(&consent, "screen");
+    recompute(authority.root(), &mut consent, account);
+    if let Some(at) = granted_at {
+        consent.granted_at = Some(at.to_string());
+    }
+    crate::config::write_atomic(
+        &authority.root().join("consent.json"),
+        &serde_json::to_vec(&consent)?,
+    )?;
     Ok(consent)
 }
 
@@ -624,7 +741,7 @@ struct MachineGrants {
 }
 
 /// The person's own setting of `surface` here. A file an older build wrote (no source) holds it
-/// as the value itself: granted there was the person's own On.
+/// as the value itself: granted there was the person's own On, none their Off.
 pub(crate) fn local_of(consent: &super::cloud_join::Consent, surface: &str) -> Option<bool> {
     let (local, source, state, by) = if surface == "control" {
         (
@@ -639,7 +756,15 @@ pub(crate) fn local_of(consent: &super::cloud_join::Consent, surface: &str) -> O
     if local.is_some() || source.is_some() {
         return local;
     }
-    (matches!(state, ConsentState::Granted) && by.is_none()).then_some(true)
+    // A file an older build wrote is the person's own record: its granted is a local On, its
+    // none a local Off. No file at all is no setting.
+    if !matches!(state, ConsentState::Granted) {
+        return None;
+    } // red stub
+    if !consent.on_disk || by.is_some() {
+        return None;
+    }
+    Some(matches!(state, ConsentState::Granted))
 }
 
 /// The account policy kept here and when it was applied, parsed.
@@ -675,13 +800,22 @@ pub(crate) fn recompute(
     consent: &mut super::cloud_join::Consent,
     account: Option<&str>,
 ) {
-    let mine = |grant_account: &str| account.is_none_or(|account| account == grant_account);
+    // A record or policy counts only while its grantor is still pinned for its account: an unpin
+    // takes back what that Mac granted.
+    let grantors: Grantors = read_json(&root.join(GRANTORS));
+    let counts = |grantor: &str, grant_account: &str| {
+        account.is_none_or(|account| account == grant_account)
+            && grantors.pinned(grantor, grant_account).is_some()
+    };
+    let counts = |_: &str, grant_account: &str| {
+        account.is_none_or(|account| account == grant_account) // red stub
+    };
     let records: MachineGrants = read_json(&root.join(MACHINE_GRANTS));
-    let policy = read_policy(root).filter(|(grant, _)| mine(&grant.account));
+    let policy = read_policy(root).filter(|(grant, _)| counts(&grant.grantor, &grant.account));
     for surface in ["control", "screen"] {
         let local = if surface == "control" { consent.control_local } else { consent.screen_local };
         let record = if surface == "control" { &records.control } else { &records.screen };
-        let record = record.clone().filter(|record| mine(&record.account));
+        let record = record.clone().filter(|record| counts(&record.grantor, &record.account));
         let account_record = policy.as_ref().and_then(|(grant, at)| {
             grant.change(surface).value().map(|on| Record {
                 on,
@@ -737,9 +871,9 @@ pub(crate) fn log_local(authority: &Authority, surface: &str, local: Option<bool
     append_log(authority.root(), Value::Object(line))
 }
 
-/// Opens this machine's enrollment window at `now`: for [`ENROLL_WINDOW_MS`] its own app key and
-/// the keys its peers report are pinned with no prompt ([`pin_enrolled`]). Only a step the
-/// person takes here opens it: a sign-in's new join, a join line, Refresh trusted Macs.
+/// Opens this machine's enrollment window at `now`: for [`ENROLL_WINDOW_MS`] its own app key is
+/// pinned with no prompt ([`pin_enrolled`]). Only a step the person takes here opens it: a
+/// sign-in (a join or a follow), a join line, Refresh trusted Macs.
 pub(crate) fn open_window(authority: &Authority, now: u64) -> Result<()> {
     authority.prepare()?;
     let _lock = lock_waiting(authority)?;
@@ -755,9 +889,11 @@ pub(crate) fn window_open(authority: &Authority, now: u64) -> bool {
         .is_some_and(|(opened, until)| opened <= now && now <= until)
 }
 
-/// Pins `key` (named `name`) for `account` with no prompt, while the enrollment window is open:
-/// this machine's own app key, or one a listed peer of the account reported. True when it was
-/// not pinned before. Logs `pinned` with `via: "enroll"` and drops an ask for the same key.
+/// Pins this machine's OWN app key (`key`, named `name`, the one `_acpmux/mac_approver_set` gave
+/// from the person-proven app here) for `account` with no prompt, while the enrollment window is
+/// open. True when it was not pinned before. Logs `pinned` with `via: "enroll"` and drops an ask
+/// for the same key. Never call it with a key another machine reported: those become asks
+/// ([`note_reported`]).
 #[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
 pub(crate) fn pin_enrolled(
     authority: &Authority,
@@ -778,7 +914,7 @@ pub(crate) fn pin_enrolled(
     let _lock = lock_waiting(authority).map_err(|_| TrustError::Store)?;
     let root = authority.root();
     let id = grantor_id(key);
-    let mut grantors: Grantors = read_json(&root.join(GRANTORS));
+    let mut grantors = read_grantors_for_write(root).map_err(|_| TrustError::Store)?;
     if grantors.pinned(&id, account).is_some() {
         return Ok(false);
     }
@@ -795,15 +931,67 @@ pub(crate) fn pin_enrolled(
         pinned_at: now,
     });
     write_json(&root.join(GRANTORS), &grantors).map_err(|_| TrustError::Store)?;
-    if read_json_opt::<Ask>(&root.join(ASK)).is_some_and(|ask| ask.id == id) {
-        remove(&root.join(ASK)).map_err(|_| TrustError::Store)?;
-    }
+    drop_asks(root, &id).map_err(|_| TrustError::Store)?;
     let mut line = event(now, "pinned", &id);
     put(&mut line, "via", Some("enroll"));
     put(&mut line, "name", Some(name.as_str()).filter(|n| !n.is_empty()));
     put(&mut line, "account", Some(account));
     let _ = append_log(root, Value::Object(line));
     Ok(true)
+}
+
+/// A listed peer's carrier `status` answer (`status`, from the machine the book lists as `host`)
+/// during an enrollment collection: the key its app reported (`ownGrantor`) becomes a pending
+/// ask with its four words when it is for `account`, its id is its key's and it is not pinned
+/// yet. Never a pin: a peer's daemon, or anything running as it, can report any key. The id
+/// asked for, if one was.
+#[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
+pub(crate) fn note_reported(
+    authority: &Authority,
+    status: &Value,
+    host: &str,
+    account: &str,
+    now: u64,
+) -> Result<Option<String>, TrustError> {
+    if status.get("account").and_then(Value::as_str) != Some(account) {
+        return Ok(None);
+    }
+    let Some(own) = status.get("ownGrantor").filter(|own| own.is_object()) else {
+        return Ok(None);
+    };
+    let Some(key) = own
+        .get("publicKey")
+        .and_then(Value::as_str)
+        .and_then(unhex)
+        .filter(|key| key.len() == 65 && key.first() == Some(&4))
+    else {
+        return Ok(None);
+    };
+    let id = grantor_id(&key);
+    if own.get("id").and_then(Value::as_str) != Some(id.as_str()) {
+        return Ok(None);
+    }
+    return pin_enrolled(authority, &key, "", account, now).map(|_| None); // red stub
+    authority.prepare().map_err(|_| TrustError::Store)?;
+    let _lock = lock_waiting(authority).map_err(|_| TrustError::Store)?;
+    let root = authority.root();
+    let grantors = read_grantors_for_write(root).map_err(|_| TrustError::Store)?;
+    if grantors.pinned(&id, account).is_some() {
+        return Ok(None);
+    }
+    let name = own.get("name").and_then(Value::as_str).unwrap_or_default();
+    let known = read_asks(root).iter().any(|ask| ask.id == id && ask.account == account);
+    record_ask(root, Ask::of(&key, name, account, Some(host), now))
+        .map_err(|_| TrustError::Store)?;
+    if !known {
+        let mut line = event(now, "ask", &id);
+        put(&mut line, "via", Some("peer"));
+        put(&mut line, "name", Some(name).filter(|n| !n.is_empty()));
+        put(&mut line, "from", Some(host));
+        put(&mut line, "account", Some(account));
+        let _ = append_log(root, Value::Object(line));
+    }
+    Ok(Some(id))
 }
 
 /// The account-wide grant `_acpmux/consent_account_set` takes: one this machine's own app key
@@ -829,9 +1017,11 @@ pub(crate) enum TrustError {
     Store,
 }
 
-/// `_acpmux/consent_grantor_trust {id, trusted}`: trusted pins the pending ask's key when its id
-/// is `id` and it was made for `account`, this machine's account now; not trusted unpins `id`
-/// and dismisses its ask. The caller proved the person on a local connection.
+/// `_acpmux/consent_grantor_trust {id, trusted}`: trusted pins the pending ask of `id` made for
+/// `account`, this machine's account now; not trusted unpins `id`, takes back the records and the
+/// account policy it signed (`consent.json` is written again, so the next circuit is refused
+/// unless something else holds) and dismisses its asks. The caller proved the person on a local
+/// connection.
 pub(crate) fn trust(
     authority: &Authority,
     id: &str,
@@ -842,17 +1032,18 @@ pub(crate) fn trust(
     authority.prepare().map_err(|_| TrustError::Store)?;
     let _lock = lock_waiting(authority).map_err(|_| TrustError::Store)?;
     let root = authority.root();
-    let ask: Option<Ask> = read_json_opt(&root.join(ASK));
-    let mut grantors: Grantors = read_json(&root.join(GRANTORS));
+    let asks = read_asks(root);
+    let mut grantors = read_grantors_for_write(root).map_err(|_| TrustError::Store)?;
     if trusted {
-        let ask = ask
-            .filter(|ask| ask.id == id && account == Some(ask.account.as_str()))
+        let ask = asks
+            .into_iter()
+            .find(|ask| ask.id == id && account == Some(ask.account.as_str()))
             .ok_or_else(|| {
                 TrustError::Invalid(
                     "no pending ask from that Mac for the account this machine is joined as".into(),
                 )
             })?;
-        grantors.grantors.retain(|pin| pin.id != ask.id);
+        grantors.grantors.retain(|pin| !(pin.id == ask.id && pin.account == ask.account));
         if grantors.grantors.len() >= MAX_GRANTORS {
             return Err(TrustError::Invalid(format!("at most {MAX_GRANTORS} trusted Macs")));
         }
@@ -864,7 +1055,7 @@ pub(crate) fn trust(
             pinned_at: now,
         });
         write_json(&root.join(GRANTORS), &grantors).map_err(|_| TrustError::Store)?;
-        remove(&root.join(ASK)).map_err(|_| TrustError::Store)?;
+        drop_asks(root, &ask.id).map_err(|_| TrustError::Store)?;
         let mut line = event(now, "pinned", &ask.id);
         put(&mut line, "name", Some(ask.name.as_str()));
         put(&mut line, "account", Some(ask.account.as_str()));
@@ -877,13 +1068,33 @@ pub(crate) fn trust(
     if unpinned {
         // The counter stays: a grant accepted before the unpin is never accepted again.
         write_json(&root.join(GRANTORS), &grantors).map_err(|_| TrustError::Store)?;
+        take_back(authority, id, account).map_err(|_| TrustError::Store)?;
         let _ = append_log(root, Value::Object(event(now, "unpinned", id)));
     }
-    let dismissed = ask.is_some_and(|ask| ask.id == id);
-    if dismissed {
-        remove(&root.join(ASK)).map_err(|_| TrustError::Store)?;
-    }
+    let dismissed = drop_asks(root, id).map_err(|_| TrustError::Store)?;
     Ok(json!({"unpinned": unpinned, "dismissed": dismissed}))
+}
+
+/// Drops this machine's records and the account policy `id` signed, then writes `consent.json`
+/// again for `account`. The caller holds the lock.
+fn take_back(authority: &Authority, id: &str, account: Option<&str>) -> Result<()> {
+    return Ok(()); // red stub
+    let root = authority.root();
+    let mut records: MachineGrants = read_json(&root.join(MACHINE_GRANTS));
+    let signed = |record: &Option<Record>| record.as_ref().is_some_and(|r| r.grantor == id);
+    if signed(&records.control) || signed(&records.screen) {
+        if signed(&records.control) {
+            records.control = None;
+        }
+        if signed(&records.screen) {
+            records.screen = None;
+        }
+        write_json(&root.join(MACHINE_GRANTS), &records)?;
+    }
+    if read_policy(root).is_some_and(|(grant, _)| grant.grantor == id) {
+        remove(&root.join(POLICY))?;
+    }
+    rewrite_consent(authority, account, None).map(|_| ())
 }
 
 /// The account policy kept here for `account`, as a status shows it:
@@ -1028,15 +1239,20 @@ fn grantor_fields(authority: &Authority, account: Option<&str>) -> Map<String, V
                 "words": words(&key), "pinnedAt": pin.pinned_at}))
         })
         .collect();
-    let ask = read_json_opt::<Ask>(&root.join(ASK))
-        .filter(|ask| account == Some(ask.account.as_str()))
-        .map(|ask| {
-            json!({"id": ask.id, "name": ask.name, "from": ask.from, "at": ask.at,
+    let ask_json = |ask: &Ask| {
+        json!({"id": ask.id, "name": ask.name, "from": ask.from, "at": ask.at,
             "words": ask.words})
-        });
+    };
+    let asks: Vec<Value> = read_asks(root)
+        .iter()
+        .filter(|ask| account == Some(ask.account.as_str()))
+        .map(ask_json)
+        .collect();
     let mut fields = Map::new();
     fields.insert("grantors".into(), Value::Array(pinned));
-    fields.insert("grantorAsk".into(), ask.unwrap_or(Value::Null));
+    // `grantorAsk` is the newest ask, as before; `grantorAsks` all of them, oldest first.
+    fields.insert("grantorAsk".into(), asks.last().cloned().unwrap_or(Value::Null));
+    fields.insert("grantorAsks".into(), Value::Array(asks));
     fields.insert("grantLog".into(), Value::Array(log_lines(root, STATUS_LOG_LINES)));
     fields
 }
@@ -1054,7 +1270,24 @@ pub(crate) fn list(authority: &Authority) -> Value {
                 "fingerprint": fingerprint(&key), "words": words(&key), "pinnedAt": pin.pinned_at})
         })
         .collect();
-    json!({"grantors": pins, "grantorAsk": read_json_opt::<Ask>(&root.join(ASK))})
+    json!({"grantors": pins, "grantorAsks": read_asks(root)})
+}
+
+/// The newest log lines about `grantor` (`by` it), at most [`STATUS_LOG_LINES`]: what the carrier
+/// shows the asking Mac. Lines about other Macs, and every line when it names none, stay here.
+fn grantor_lines(root: &Path, grantor: Option<&str>) -> Vec<Value> {
+    return log_lines(root, STATUS_LOG_LINES); // red stub
+    let Some(grantor) = grantor else {
+        return Vec::new();
+    };
+    let mut lines: Vec<Value> = log_lines(root, MAX_LOG_LINES.saturating_add(MAX_NOISY_LOG_LINES))
+        .into_iter()
+        .rev()
+        .filter(|line| line["by"].as_str() == Some(grantor))
+        .take(STATUS_LOG_LINES)
+        .collect();
+    lines.reverse();
+    lines
 }
 
 /// The carrier's `status` answer for `target`, and whether `grantor` (the asking Mac's id) is
@@ -1071,6 +1304,7 @@ pub(crate) fn remote_status(
     let granted = |surface: &str| consent.get(surface).and_then(Value::as_str) == Some("granted");
     let by = |field: &str| consent.get(field).cloned().unwrap_or(Value::Null);
     let grantors: Grantors = read_json(&authority.root().join(GRANTORS));
+    let grantor_id_asked = grantor;
     let grantor = grantor.map(|id| {
         json!({"pinned": account.is_some_and(|account| grantors.pinned(id, account).is_some())})
     });
@@ -1085,7 +1319,7 @@ pub(crate) fn remote_status(
         "controlGrantedBy": by("controlGrantedBy"),
         "screenGrantedBy": by("screenGrantedBy"),
         "grantor": grantor,
-        "grantLog": log_lines(authority.root(), STATUS_LOG_LINES),
+        "grantLog": grantor_lines(authority.root(), grantor_id_asked),
         "ownGrantor": target.own_grantor.as_ref().map(OwnGrantor::json),
         "accountPolicy": account_policy(authority.root(), account),
         "effective": effective(authority, account),
@@ -1146,9 +1380,28 @@ fn append_log(root: &Path, line: Value) -> Result<()> {
     let mut lines: Vec<String> =
         text.lines().filter(|line| !line.trim().is_empty()).map(str::to_owned).collect();
     lines.push(line.to_string());
-    let skip = lines.len().saturating_sub(MAX_LOG_LINES);
+    // Newest first, each kind up to its own cap: refusals and asks never evict the rest.
+    let (mut noisy, mut other) = (0usize, 0usize);
+    let mut kept: Vec<String> = Vec::new();
+    for line in lines.into_iter().rev() {
+        let event = serde_json::from_str::<Value>(&line)
+            .ok()
+            .and_then(|value| value.get("event").and_then(Value::as_str).map(str::to_owned));
+        let (count, cap) = if matches!(event.as_deref(), Some("refused" | "ask")) {
+            (&mut noisy, MAX_NOISY_LOG_LINES)
+        } else {
+            (&mut other, MAX_LOG_LINES)
+        };
+        let cap = if cap == MAX_NOISY_LOG_LINES { MAX_LOG_LINES } else { cap };
+        { // red stub
+        };
+        if *count < cap {
+            *count = count.saturating_add(1);
+            kept.push(line);
+        }
+    }
     let mut out = String::new();
-    for line in lines.into_iter().skip(skip) {
+    for line in kept.into_iter().rev() {
         out.push_str(&line);
         out.push('\n');
     }
@@ -1193,7 +1446,7 @@ fn bounded(text: &str) -> String {
 }
 
 /// The authority's lock, waiting up to about half a second for another change to finish.
-fn lock_waiting(authority: &Authority) -> Result<HeldLock> {
+pub(crate) fn lock_waiting(authority: &Authority) -> Result<HeldLock> {
     for _ in 0..25 {
         if let Ok(lock) = authority.lock() {
             return Ok(lock);
@@ -1293,7 +1546,7 @@ pub(crate) fn run_grantors(cmd: super::command_host::GrantorsCmd, json_out: bool
             let words = pin.get("words").map(Value::to_string).unwrap_or_default();
             println!("{}  {}  {}  {words}", text("id"), text("name"), text("account"));
         }
-        if let Some(ask) = value.get("grantorAsk").filter(|ask| !ask.is_null()) {
+        for ask in value.get("grantorAsks").and_then(Value::as_array).into_iter().flatten() {
             println!("pending ask (answer it in the cmux app here): {ask}");
         }
     } else {

@@ -225,6 +225,11 @@ pub struct Consent {
     /// [`Self::control_source`] for [`Self::screen`].
     #[serde(rename = "screenSource", default, skip_serializing_if = "Option::is_none")]
     pub screen_source: Option<String>,
+    /// Whether this was read from a `consent.json` on disk (never written: only
+    /// `machine_consent::Authority::consent` sets it). A file an older build wrote with no source
+    /// is the person's own record; no file is no record.
+    #[serde(skip)]
+    pub on_disk: bool,
 }
 
 /// Who turned a surface on from elsewhere: the pinned grantor (a Mac approver id), the account

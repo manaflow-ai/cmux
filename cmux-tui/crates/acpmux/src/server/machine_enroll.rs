@@ -64,9 +64,11 @@ pub(super) async fn enroll(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
 }
 
 /// A sign-in's enroll (`enroll`) with the join transition held, then the relay as config.json
-/// says once it is done (`on_disk`), and the hub carrier on that join. A new join (not one kept)
-/// opens the consent enrollment window, which pins this Mac's own app key and its peers' with no
-/// ask (`consent_grant_service::enrolled`).
+/// says once it is done (`on_disk`), and the hub carrier on that join. A sign-in that joins or
+/// keeps the join (`machine_enroll`, `machine_signed_in`: person steps from the app here) opens
+/// the consent enrollment window, which pins this Mac's own app key with no ask and turns its
+/// peers' reported keys into asks (`consent_grant_service::enrolled`). A machine joined before
+/// this shipped pins its own key at the app's next sign-in.
 pub(super) async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>>>(
     hub: &Arc<Hub>,
     enroll: impl Future<Output = EnrollOutcome>,
@@ -79,7 +81,7 @@ pub(super) async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>
         .await;
     // Unit tests' hubs share the OS account's consent store; they never open its window.
     #[cfg(all(feature = "hub-carrier", not(test)))]
-    if done.0 == EnrollOutcome::Joined {
+    if matches!(done.0, EnrollOutcome::Joined | EnrollOutcome::AlreadyJoined) {
         crate::consent_grant_service::enrolled(hub);
     }
     done

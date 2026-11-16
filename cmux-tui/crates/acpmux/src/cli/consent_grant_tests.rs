@@ -346,11 +346,11 @@ fn local_consent_still_works_clears_the_remote_grant_and_is_logged() {
     pin(&authority, &k, ACCOUNT_ID);
     apply(&authority, &grant(&k, |_| {}), &target(), None, NOW).unwrap();
     // A local On makes the surface the person's own here.
-    let consent = authority.set("screen", true).unwrap();
+    let consent = authority.set_local("screen", Some(true), Some(ACCOUNT_ID)).unwrap();
     assert!(consent.screen_granted_by.is_none());
     assert!(consent.control_granted_by.is_some(), "the other surface keeps its grant");
     // A local Off revokes a remote On.
-    let consent = authority.set("control", false).unwrap();
+    let consent = authority.set_local("control", Some(false), Some(ACCOUNT_ID)).unwrap();
     assert!(consent.control_granted_by.is_none());
     let now = status(&authority, Some(ACCOUNT_ID));
     assert_eq!(consent_of(&now, "control"), "none");
@@ -425,7 +425,7 @@ fn trust_pins_only_the_pending_ask_for_the_current_account() {
 fn the_log_keeps_its_last_lines() {
     let (_dir, authority) = fixture();
     for _ in 0..(MAX_LOG_LINES + 5) {
-        authority.set("screen", true).unwrap();
+        authority.set_local("screen", Some(true), Some(ACCOUNT_ID)).unwrap();
     }
     assert_eq!(log(&authority).len(), MAX_LOG_LINES);
     assert_eq!(
@@ -533,7 +533,7 @@ fn a_local_off_beats_a_newer_account_on_and_clearing_it_restores_the_account() {
     let (_dir, authority) = fixture();
     let k = key();
     pin(&authority, &k, ACCOUNT_ID);
-    authority.set("control", false).unwrap();
+    authority.set_local("control", Some(false), Some(ACCOUNT_ID)).unwrap();
     apply(&authority, &account_grant(&k, NOW, |_| {}), &target(), None, NOW).unwrap();
     let now = status(&authority, Some(ACCOUNT_ID));
     assert_eq!(consent_of(&now, "control"), "none");
@@ -632,26 +632,48 @@ fn a_replayed_or_forged_account_grant_is_refused() {
 }
 
 #[test]
-fn enrollment_pins_the_own_key_and_the_peers_keys_with_no_ask() {
+fn enrollment_pins_only_the_own_key_and_a_peers_reported_key_becomes_an_ask() {
     let (_dir, authority) = fixture();
     let (mine, peer) = (key(), key());
     open_window(&authority, NOW).unwrap();
     assert!(pin_enrolled(&authority, &public(&mine), "this Mac", ACCOUNT_ID, NOW).unwrap());
-    assert!(pin_enrolled(&authority, &public(&peer), "the iMac", ACCOUNT_ID, NOW + 5_000).unwrap());
-    assert!(!pin_enrolled(&authority, &public(&peer), "the iMac", ACCOUNT_ID, NOW).unwrap());
+    assert!(!pin_enrolled(&authority, &public(&mine), "this Mac", ACCOUNT_ID, NOW).unwrap());
+    // A listed peer of the account reports its app's key during the same window: an ask, not a
+    // pin, whatever the peer's daemon (or an agent running as it) put there.
+    let peer_status = json!({"ok": true, "account": ACCOUNT_ID,
+        "ownGrantor": {"id": grantor_id(&public(&peer)), "publicKey": hex(&public(&peer)),
+            "name": "lane VM"}});
+    let asked = note_reported(&authority, &peer_status, "vm-3", ACCOUNT_ID, NOW + 5_000).unwrap();
+    assert_eq!(asked, Some(grantor_id(&public(&peer))));
     let fields = status_fields(&authority, Some(ACCOUNT_ID), None);
-    assert_eq!(fields["grantors"].as_array().unwrap().len(), 2);
-    assert!(fields["grantorAsk"].is_null());
+    assert_eq!(fields["grantors"].as_array().unwrap().len(), 1);
+    assert_eq!(fields["grantors"][0]["id"], json!(grantor_id(&public(&mine))));
+    assert_eq!(fields["grantorAsk"]["id"], json!(grantor_id(&public(&peer))));
+    assert_eq!(fields["grantorAsk"]["from"], "vm-3");
+    assert_eq!(fields["grantorAsk"]["words"], json!(words(&public(&peer))));
+    // Its account grant is refused as unpinned; the own key's counts with no ask.
+    let forged = account_grant(&peer, NOW, |_| {});
+    assert_eq!(apply(&authority, &forged, &target(), None, NOW).unwrap_err().reason, UNPINNED);
+    assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "control"), "none");
+    apply(&authority, &account_grant(&mine, NOW, |_| {}), &target(), None, NOW).unwrap();
+    assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "control"), "granted");
     let pinned: Vec<Value> =
         log(&authority).into_iter().filter(|l| l["event"] == "pinned").collect();
-    assert_eq!(pinned.len(), 2);
-    assert!(pinned.iter().all(|l| l["via"] == "enroll"));
-    assert_eq!(pinned[0]["by"], json!(grantor_id(&public(&mine))));
-    // Both keys' grants count with no ask.
-    apply(&authority, &grant(&mine, |g| g["screen"] = json!("keep")), &target(), None, NOW)
-        .unwrap();
-    apply(&authority, &account_grant(&peer, NOW, |_| {}), &target(), None, NOW).unwrap();
-    assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "screen"), "granted");
+    assert_eq!(pinned.len(), 1);
+    assert_eq!(
+        (pinned[0]["via"].as_str(), pinned[0]["by"].as_str()),
+        (Some("enroll"), Some(grantor_id(&public(&mine)).as_str()))
+    );
+    // A key of another account, or one whose id is not its key's, asks nothing.
+    let mut other = peer_status.clone();
+    other["account"] = json!(OTHER_ACCOUNT);
+    assert_eq!(note_reported(&authority, &other, "vm-3", ACCOUNT_ID, NOW).unwrap(), None);
+    let mut lying = peer_status.clone();
+    lying["ownGrantor"]["id"] = json!(grantor_id(&public(&mine)));
+    assert_eq!(note_reported(&authority, &lying, "vm-3", ACCOUNT_ID, NOW).unwrap(), None);
+    // The person confirms it here: then it counts.
+    trust(&authority, &grantor_id(&public(&peer)), true, Some(ACCOUNT_ID), NOW).unwrap();
+    apply(&authority, &account_grant(&peer, NOW + 1, |_| {}), &target(), None, NOW + 1).unwrap();
 }
 
 #[test]
@@ -840,7 +862,7 @@ fn screen_auto_allows_a_viewer_of_the_account_only_while_consent_is_on() {
         (Some(false), Some("account"))
     );
     // A local Off here, then an account Off.
-    authority.set("screen", false).unwrap();
+    authority.set_local("screen", Some(false), Some(ACCOUNT_ID)).unwrap();
     let local = screen_auto(&authority, Some(ACCOUNT_ID), "screen", &ipad, NOW);
     assert_eq!(local, json!({"allowed": false, "source": "local", "reason": "consent_off"}));
     let revoke = account_grant(&k, NOW, |g| {
@@ -850,4 +872,208 @@ fn screen_auto_allows_a_viewer_of_the_account_only_while_consent_is_on() {
     apply(&authority, &revoke, &target(), None, NOW).unwrap();
     let off = screen_auto(&authority, Some(ACCOUNT_ID), "control", &ipad, NOW);
     assert_eq!(off, json!({"allowed": false, "source": "account", "reason": "consent_off"}));
+}
+
+// Review fixes (S1, S2, C1, C2, C4, C8, S6).
+
+fn peer_status(k: &EcdsaKeyPair, name: &str) -> Value {
+    json!({"ok": true, "account": ACCOUNT_ID,
+        "ownGrantor": {"id": grantor_id(&public(k)), "publicKey": hex(&public(k)), "name": name}})
+}
+
+#[test]
+fn asks_are_a_bounded_list_one_per_key_and_trust_pins_one_by_id() {
+    let (_dir, authority) = fixture();
+    let keys: Vec<EcdsaKeyPair> = (0..(MAX_ASKS + 2)).map(|_| key()).collect();
+    for (i, k) in keys.iter().enumerate() {
+        note_reported(&authority, &peer_status(k, "peer"), "host", ACCOUNT_ID, NOW + i as u64)
+            .unwrap();
+    }
+    // The same key again replaces its own ask, not another's.
+    let last = keys.last().unwrap();
+    note_reported(&authority, &peer_status(last, "peer"), "host", ACCOUNT_ID, NOW + 99).unwrap();
+    let asks = status_fields(&authority, Some(ACCOUNT_ID), None)["grantorAsks"].clone();
+    let ids: Vec<&str> =
+        asks.as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap()).collect();
+    assert_eq!(ids.len(), MAX_ASKS, "the oldest were dropped");
+    let expected: Vec<String> = keys.iter().skip(2).map(|k| grantor_id(&public(k))).collect();
+    assert_eq!(ids, expected);
+    // The person allows one in the middle: only it is pinned, the others stay asks.
+    let chosen = grantor_id(&public(&keys[4]));
+    trust(&authority, &chosen, true, Some(ACCOUNT_ID), NOW).unwrap();
+    let fields = status_fields(&authority, Some(ACCOUNT_ID), None);
+    assert_eq!(fields["grantors"].as_array().unwrap().len(), 1);
+    assert_eq!(fields["grantors"][0]["id"], json!(chosen));
+    assert_eq!(fields["grantorAsks"].as_array().unwrap().len(), MAX_ASKS - 1);
+    // A dropped ask can no longer be allowed.
+    let dropped = grantor_id(&public(&keys[0]));
+    assert!(matches!(
+        trust(&authority, &dropped, true, Some(ACCOUNT_ID), NOW),
+        Err(TrustError::Invalid(_))
+    ));
+}
+
+/// An unpin takes back what the key signed: the next circuit is refused.
+#[cfg(feature = "hub-carrier")]
+#[test]
+fn unpinning_takes_back_the_keys_grants_and_the_gates_refuse() {
+    let (_dir, authority) = fixture();
+    let (k, other) = (key(), key());
+    pin(&authority, &k, ACCOUNT_ID);
+    pin(&authority, &other, ACCOUNT_ID);
+    apply(&authority, &account_grant(&k, NOW - 2_000, |_| {}), &target(), None, NOW).unwrap();
+    apply(&authority, &grant(&k, |g| g["issuedAt"] = json!(NOW - 1_000)), &target(), None, NOW)
+        .unwrap();
+    let on = status(&authority, Some(ACCOUNT_ID));
+    assert!(crate::cmux_tui_service::admit(Some("127.0.0.1:7781"), &on, 7781).is_ok());
+    let id = grantor_id(&public(&k));
+    assert_eq!(trust(&authority, &id, false, Some(ACCOUNT_ID), NOW).unwrap()["unpinned"], true);
+    let off = status(&authority, Some(ACCOUNT_ID));
+    assert_eq!((consent_of(&off, "control"), source(&off, "control")), ("none", "none"));
+    assert_eq!(consent_of(&off, "screen"), "none");
+    let refused = crate::cmux_tui_service::admit(Some("127.0.0.1:7781"), &off, 7781).unwrap_err();
+    assert_eq!(refused.reason, crate::cli::cloud_join::CONSENT_REQUIRED);
+    assert!(status_fields(&authority, Some(ACCOUNT_ID), None)["accountPolicy"].is_null());
+    // The other key is untouched and still counts.
+    apply(&authority, &account_grant(&other, NOW, |_| {}), &target(), None, NOW).unwrap();
+    assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "control"), "granted");
+}
+
+#[test]
+fn recompute_counts_only_grantors_still_pinned() {
+    let (_dir, authority) = fixture();
+    let k = key();
+    pin(&authority, &k, ACCOUNT_ID);
+    apply(&authority, &account_grant(&k, NOW, |_| {}), &target(), None, NOW).unwrap();
+    // grantors.json loses the pin by some other path (an older build's rm): the policy no
+    // longer counts at the next write.
+    crate::config::write_atomic(&authority.root().join("grantors.json"), br#"{"grantors":[]}"#)
+        .unwrap();
+    authority.set_local("screen", None, Some(ACCOUNT_ID)).unwrap();
+    let now = status(&authority, Some(ACCOUNT_ID));
+    assert_eq!((consent_of(&now, "control"), source(&now, "control")), ("none", "none"));
+}
+
+/// A grant from elsewhere is not the person's setting here: a requirement only sign-in made keeps
+/// this Mac's own Computer Use.
+#[test]
+fn a_remote_grant_keeps_this_macs_own_computer_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("os-account/.acpmux/machine-consent");
+    let authority = Authority::at(root, dir.path().join("tag"));
+    authority.enroll_as(true).unwrap();
+    assert_eq!(authority.status_for(true)["consentRequired"], false);
+    let k = key();
+    pin(&authority, &k, ACCOUNT_ID);
+    apply(&authority, &account_grant(&k, NOW - 1_000, |_| {}), &target(), None, NOW).unwrap();
+    assert_eq!(authority.status_for(true)["consentRequired"], false);
+    let revoke = account_grant(&k, NOW, |g| {
+        g["control"] = json!("off");
+        g["screen"] = json!("off");
+    });
+    apply(&authority, &revoke, &target(), None, NOW).unwrap();
+    assert_eq!(authority.status_for(true)["consentRequired"], false);
+    assert_eq!(authority.status_for(false)["consentRequired"], true, "elsewhere stays gated");
+    // The person's own setting here is a setting: the requirement holds again.
+    authority.set_local("screen", Some(false), Some(ACCOUNT_ID)).unwrap();
+    assert_eq!(authority.status_for(true)["consentRequired"], true);
+}
+
+#[test]
+fn an_older_builds_consent_file_is_the_persons_own_record() {
+    let (_dir, authority) = fixture();
+    crate::config::write_atomic(
+        &authority.root().join("consent.json"),
+        br#"{"screen":"granted","control":"none"}"#,
+    )
+    .unwrap();
+    let k = key();
+    pin(&authority, &k, ACCOUNT_ID);
+    apply(&authority, &account_grant(&k, NOW, |_| {}), &target(), None, NOW).unwrap();
+    let now = status(&authority, Some(ACCOUNT_ID));
+    assert_eq!((consent_of(&now, "control"), source(&now, "control")), ("none", "local"));
+    assert_eq!((consent_of(&now, "screen"), source(&now, "screen")), ("granted", "local"));
+    // No file at all is no record: the account decides.
+    let (_dir2, fresh) = fixture();
+    pin(&fresh, &k, ACCOUNT_ID);
+    apply(&fresh, &account_grant(&k, NOW, |_| {}), &target(), None, NOW).unwrap();
+    assert_eq!(source(&status(&fresh, Some(ACCOUNT_ID)), "control"), "account");
+}
+
+#[test]
+fn an_unreadable_grantors_file_refuses_and_is_never_rewritten() {
+    let (_dir, authority) = fixture();
+    let k = key();
+    pin(&authority, &k, ACCOUNT_ID);
+    let path = authority.root().join("grantors.json");
+    crate::config::write_atomic(&path, b"{not json").unwrap();
+    let refused = apply(&authority, &grant(&k, |_| {}), &target(), None, NOW).unwrap_err();
+    assert_eq!(refused.reason, STORE);
+    let id = grantor_id(&public(&k));
+    assert_eq!(trust(&authority, &id, false, Some(ACCOUNT_ID), NOW), Err(TrustError::Store));
+    open_window(&authority, NOW).unwrap();
+    assert_eq!(
+        pin_enrolled(&authority, &public(&key()), "x", ACCOUNT_ID, NOW),
+        Err(TrustError::Store)
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"{not json");
+}
+
+#[test]
+fn an_older_account_grant_is_logged_stale_and_changes_nothing() {
+    let (_dir, authority) = fixture();
+    let (a, b) = (key(), key());
+    pin(&authority, &a, ACCOUNT_ID);
+    pin(&authority, &b, ACCOUNT_ID);
+    apply(
+        &authority,
+        &account_grant(&a, NOW, |g| g["control"] = json!("off")),
+        &target(),
+        None,
+        NOW,
+    )
+    .unwrap();
+    // Another grantor's older On: accepted (its counter), but the newer policy holds.
+    apply(&authority, &account_grant(&b, NOW - 5_000, |_| {}), &target(), None, NOW).unwrap();
+    let now = status(&authority, Some(ACCOUNT_ID));
+    assert_eq!(consent_of(&now, "control"), "none");
+    let lines: Vec<Value> =
+        log(&authority).into_iter().filter(|l| l["by"] == json!(grantor_id(&public(&b)))).collect();
+    let events: Vec<&str> = lines.iter().filter_map(|l| l["event"].as_str()).collect();
+    assert!(events.contains(&"stale"), "{events:?}");
+    assert!(!events.contains(&"grant"), "{events:?}");
+}
+
+#[test]
+fn the_carrier_shows_the_asking_mac_only_its_own_lines() {
+    let (_dir, authority) = fixture();
+    let (a, b) = (key(), key());
+    pin(&authority, &a, ACCOUNT_ID);
+    pin(&authority, &b, ACCOUNT_ID);
+    apply(&authority, &grant(&a, |_| {}), &target(), None, NOW).unwrap();
+    apply(&authority, &grant(&b, |g| g["issuedAt"] = json!(NOW)), &target(), None, NOW).unwrap();
+    let a_id = grantor_id(&public(&a));
+    let status = remote_status(&authority, &target(), Some(&a_id));
+    let lines = status["grantLog"].as_array().unwrap();
+    assert!(!lines.is_empty());
+    assert!(lines.iter().all(|l| l["by"] == json!(a_id)), "{lines:?}");
+    assert_eq!(remote_status(&authority, &target(), None)["grantLog"], json!([]));
+}
+
+#[test]
+fn refusals_never_evict_grants_from_the_log() {
+    let (_dir, authority) = fixture();
+    let root = authority.root();
+    for i in 0..10u64 {
+        append_log(root, json!({"at": i, "event": "grant", "by": "mac-1"})).unwrap();
+    }
+    for i in 0..(MAX_LOG_LINES as u64 * 2) {
+        append_log(root, json!({"at": 100 + i, "event": "refused", "by": "unknown"})).unwrap();
+        append_log(root, json!({"at": 100 + i, "event": "ask", "by": "mac-x"})).unwrap();
+    }
+    let lines = log_lines(root, usize::MAX);
+    let grants = lines.iter().filter(|l| l["event"] == "grant").count();
+    let noisy = lines.iter().filter(|l| l["event"] != "grant").count();
+    assert_eq!(grants, 10);
+    assert_eq!(noisy, MAX_NOISY_LOG_LINES);
 }

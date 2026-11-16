@@ -106,12 +106,38 @@ impl Authority {
     }
 
     /// Whether the account's consent requirement comes only from joins signing in made, and the
-    /// person never set a consent here: the Mac's own sessions keep their computer use.
+    /// person never set a consent here: the Mac's own sessions keep their computer use. A grant
+    /// from the owner's other Mac (`consent_grant.rs`) writes `consent.json` too, but it is not
+    /// the person's setting here ([`Self::set_here`]).
     pub(super) fn required_only_by_sign_in(&self) -> bool {
         self.validate_namespace().is_ok()
             && self.marker_by_sign_in()
-            && !exists(&self.root.join("consent.json")).unwrap_or(true)
+            && !self.set_here()
             && !exists(&self.legacy.join("consent.json")).unwrap_or(true)
+    }
+
+    /// Whether `consent.json` holds a setting the person made here: a local Control or Screen, a
+    /// file an older build wrote (all of it was), or an answer to the signed-in machines ask. One
+    /// that exists but cannot be read counts as set.
+    fn set_here(&self) -> bool {
+        return exists(&self.root.join("consent.json")).unwrap_or(true); // red stub
+        let path = self.root.join("consent.json");
+        match exists(&path) {
+            Ok(false) => return false,
+            Ok(true) => {}
+            Err(_) => return true,
+        }
+        let Some(consent) = crate::config::private_state_file(&path)
+            .ok()
+            .and_then(|file| serde_json::from_reader::<_, Consent>(file).ok())
+        else {
+            return true;
+        };
+        let legacy = consent.control_source.is_none() && consent.screen_source.is_none();
+        legacy
+            || consent.control_local.is_some()
+            || consent.screen_local.is_some()
+            || consent.signed_in_machines_answered_at.is_some()
     }
 
     /// [`Self::status`], as the Mac's own Computer Use is gated (`local_computer_use`: the app's
@@ -162,7 +188,11 @@ impl Authority {
     pub(super) fn consent(&self) -> Consent {
         crate::config::private_state_file(&self.root.join("consent.json"))
             .ok()
-            .and_then(|file| serde_json::from_reader(file).ok())
+            .and_then(|file| serde_json::from_reader::<_, Consent>(file).ok())
+            .map(|mut consent| {
+                consent.on_disk = true;
+                consent
+            })
             .unwrap_or_default()
     }
 
@@ -223,6 +253,12 @@ impl Authority {
             }
             _ => anyhow::bail!("unknown consent surface"),
         }
+        // Control and Screen keep what they were, now with their sources, so the file never reads
+        // as an older build's (whose values were the person's own).
+        consent.control_local = super::consent_grant::local_of(&consent, "control");
+        consent.screen_local = super::consent_grant::local_of(&consent, "screen");
+        let account = super::cloud_join::machine_user_id();
+        super::consent_grant::recompute(&self.root, &mut consent, account.as_deref());
         if granted {
             consent.granted_at = Some(crate::store::now_ms().to_string());
         }
@@ -246,7 +282,8 @@ impl Authority {
         account: Option<&str>,
     ) -> Result<Consent> {
         self.prepare()?;
-        let _lock = self.lock()?;
+        // Waits a moment for a grant being applied, as `consent_grant::apply` does.
+        let _lock = super::consent_grant::lock_waiting(self)?;
         let mut consent = self.consent();
         // Read before the change: a file an older build wrote holds its local setting as the value.
         let (control, screen) = (

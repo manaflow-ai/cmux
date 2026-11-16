@@ -279,7 +279,13 @@ pub(super) async fn dispatch(
         }
         method::MUX_MACHINE_CONSENT_GET => {
             let own = crate::cli::consent_grant::OwnGrantor::of(&hub.person.macs.view(&json!({})));
-            Ok(crate::cli::cloud_join::consent_status_with_grants(params, own.as_ref()))
+            let params = params.clone();
+            // The store's reads (and its lock) stay off the async thread.
+            tokio::task::spawn_blocking(move || {
+                crate::cli::cloud_join::consent_status_with_grants(&params, own.as_ref())
+            })
+            .await
+            .map_err(|_| RpcError::internal("consent store unavailable"))
         }
         method::MUX_MACHINE_ENROLL => super::machine_enroll::enroll(hub, conn, params).await,
         method::MUX_MACHINE_LEAVE_IF_AUTO => {
