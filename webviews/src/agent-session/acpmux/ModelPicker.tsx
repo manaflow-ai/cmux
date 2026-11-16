@@ -36,7 +36,7 @@ import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } fro
 import { listsFeedModels } from "./feedHarnesses";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
-import { registerPicker } from "./pickerOpeners";
+import { ChatViewParked, registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
 import { type QuickFamily, type QuickModel } from "./quickModelMenuModel";
@@ -776,14 +776,19 @@ export function ModelPicker(props: ModelPickerProps) {
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
+  // Parked under a New Tab page (unseen, inert): the page's own picker has the palette and the key.
+  const parked = useContext(ChatViewParked);
   useEffect(
     () =>
-      registerPicker(modelText, () =>
-        quick !== undefined ? (open ? close() : setQuickOpen(true)) : showRef.current(),
-      ),
-    [modelText, quick, open, close],
+      parked
+        ? undefined
+        : registerPicker(modelText, () =>
+            quick !== undefined ? (open ? close() : setQuickOpen(true)) : showRef.current(),
+          ),
+    [modelText, quick, open, close, parked],
   );
   useEffect(() => {
+    if (parked) return;
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
@@ -798,7 +803,7 @@ export function ModelPicker(props: ModelPickerProps) {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [quick, open, quickOpen]);
+  }, [quick, open, quickOpen, parked]);
   useEffect(() => {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);
