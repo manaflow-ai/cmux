@@ -210,6 +210,15 @@ pub(crate) async fn forward(
         && let Ok(reply) = reply.as_mut()
         && let Some(session) = reply.get_mut("session").filter(|s| s.is_object())
     {
+        // The follower and its records go by the raw id the attach answered, as a start's do:
+        // `deliver` qualifies it once (`HOST/ID`), and the client's detach and prompts name it by
+        // it (review F7 of #38377). A reply with no usable id keeps what was asked for there.
+        let raw = session
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty() && !id.contains('/'))
+            .unwrap_or(rest)
+            .to_owned();
         *session = Hub::remote_summary(host, session.take());
         session["via"] = json!("hub");
         // Its next records reach this client as they come, from after the page it opened on.
@@ -219,8 +228,9 @@ pub(crate) async fn forward(
             .unwrap_or_default();
         let chat = super::follow::Chat {
             host: host.to_owned(),
-            remote: rest.to_owned(),
-            key: key.to_owned(),
+            remote: raw.clone(),
+            key: raw,
+            asked: key.to_owned(),
         };
         super::follow::follow(hub, conn, chat, after);
     }

@@ -66,8 +66,16 @@ impl Feed for ReadFeed {
     }
 }
 
-/// The followers running: connection id and the chat's key to the nudge that wakes one.
-static RUNNING: LazyLock<StdMutex<HashMap<(String, String), Arc<Notify>>>> =
+/// One follower running: the nudge that wakes it, and what its client asked for the chat by.
+struct Running {
+    nudge: Arc<Notify>,
+    /// The key the client opened the chat by (`HOST/ID`, `HOST/NAME` or the raw id), which its
+    /// detach may name it by too.
+    asked: String,
+}
+
+/// The followers running: connection id and the chat's raw id to the follower.
+static RUNNING: LazyLock<StdMutex<HashMap<(String, String), Running>>> =
     LazyLock::new(Default::default);
 
 /// One hub-only chat as a connection follows it.
@@ -77,8 +85,12 @@ pub(crate) struct Chat {
     pub host: String,
     /// What the hub names it by there: its id (or whole name).
     pub remote: String,
-    /// What the client names it by (its bare id, or `HOST/ID`): the `sessionId` of what it hears.
+    /// Its raw id there, as the start or attach answered it: the `sessionId` of what the client
+    /// hears, which `deliver` qualifies as `HOST/ID` (`qualifiedSessionId`). Never `HOST/ID`
+    /// itself, which it would qualify again (review F7 of #38377).
     pub key: String,
+    /// What the client asked for it by, when not `key` (`HOST/ID`, `HOST/NAME`).
+    pub asked: String,
 }
 
 /// Follow `chat` for `conn`, from after seq `after`: subscribes the connection to it as a remote
@@ -100,8 +112,10 @@ pub(crate) fn follow_with(
     let id = (conn.id.clone(), chat.key.clone());
     let nudge = {
         let mut running = RUNNING.lock_or_recover();
-        if let Some(nudge) = running.get(&id) {
-            nudge.notify_one();
+        if let Some(follower) = running.get_mut(&id) {
+            // The newest open's name for it is the one its detach names.
+            follower.asked.clone_from(&chat.asked);
+            follower.nudge.notify_one();
             return;
         }
         if running.keys().filter(|(conn_id, _)| *conn_id == conn.id).count() >= MAX_PER_CONN {
@@ -109,7 +123,7 @@ pub(crate) fn follow_with(
             return;
         }
         let nudge = Arc::new(Notify::new());
-        running.insert(id.clone(), nudge.clone());
+        running.insert(id.clone(), Running { nudge: nudge.clone(), asked: chat.asked.clone() });
         nudge
     };
     let (owner, conn) = (hub.clone(), conn.clone());
@@ -127,21 +141,47 @@ pub(crate) fn followers_of(id: &str) -> usize {
     RUNNING.lock_or_recover().keys().filter(|(_, k)| k == id || k.ends_with(&qualified)).count()
 }
 
-/// Wake the follower of chat `key` for `conn` now: a prompt just went there.
+/// The raw id of the chat `conn` follows that `key` names: the raw id itself, what the client
+/// opened it by, or `HOST/ID`.
+fn followed(
+    running: &HashMap<(String, String), Running>,
+    conn: &Conn,
+    key: &str,
+) -> Option<String> {
+    if running.contains_key(&(conn.id.clone(), key.to_owned())) {
+        return Some(key.to_owned());
+    }
+    let asked = running
+        .iter()
+        .find(|((conn_id, _), follower)| *conn_id == conn.id && follower.asked == key)
+        .map(|((_, raw), _)| raw.clone());
+    asked.or_else(|| {
+        let (_, raw) = key.split_once('/')?;
+        running.contains_key(&(conn.id.clone(), raw.to_owned())).then(|| raw.to_owned())
+    })
+}
+
+/// Wake the follower of chat `key` (its raw id, or `HOST/ID`) for `conn` now: a prompt just went
+/// there.
 pub(crate) fn nudge(conn: &Conn, key: &str) {
-    if let Some(nudge) = RUNNING.lock_or_recover().get(&(conn.id.clone(), key.to_owned())) {
-        nudge.notify_one();
+    let running = RUNNING.lock_or_recover();
+    if let Some(raw) = followed(&running, conn, key)
+        && let Some(follower) = running.get(&(conn.id.clone(), raw))
+    {
+        follower.nudge.notify_one();
     }
 }
 
-/// Stop following chat `key` for `conn` (`_acpmux/detach`).
+/// Stop following chat `key` for `conn` (`_acpmux/detach`), by its raw id or by what the client
+/// opened it by.
 pub(crate) fn unfollow(conn: &Conn, key: &str) {
+    let raw = followed(&RUNNING.lock_or_recover(), conn, key).unwrap_or_else(|| key.to_owned());
     let mut subs = conn.subs.lock_or_recover();
-    if subs.get(key).is_some_and(|opts| opts.remote) {
-        subs.remove(key);
+    if subs.get(&raw).is_some_and(|opts| opts.remote) {
+        subs.remove(&raw);
     }
     drop(subs);
-    nudge(conn, key);
+    nudge(conn, &raw);
 }
 
 async fn run(
@@ -152,7 +192,7 @@ async fn run(
     feed: &dyn Feed,
     nudge: &Notify,
 ) {
-    let Chat { host, remote, key } = chat;
+    let Chat { host, remote, key, .. } = chat;
     let mut wait = FAST;
     let mut failures = 0;
     loop {
