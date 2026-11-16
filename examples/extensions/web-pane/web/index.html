@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Web pane</title>
+  <link rel="stylesheet" href="page.css">
+</head>
+<body>
+  <main>
+    <h1 id="title">Web pane</h1>
+    <p class="note">An HTML page an extension ships. It talks to cmux only through its granted scopes.</p>
+    <section>
+      <h2>Your workspaces <span class="scope">workspace:read</span></h2>
+      <ul id="workspaces"><li class="muted">Loading…</li></ul>
+    </section>
+    <section>
+      <h2>A note <span class="scope">storage:local</span></h2>
+      <textarea id="note" rows="3" placeholder="Saved for this extension"></textarea>
+    </section>
+    <section>
+      <h2>Outside its scopes <span class="scope">workspace:write, not asked for</span></h2>
+      <button id="rename" type="button">Try to rename a workspace</button>
+      <p id="refusal" class="muted"></p>
+    </section>
+  </main>
+  <script type="module" src="page.js"></script>
+</body>
+</html>
