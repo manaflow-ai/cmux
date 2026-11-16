@@ -1,0 +1,62 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/weather",
+  "name": { "en": "Weather" },
+  "version": "1.0.0",
+  "description": {
+    "en": "The weather where you are, the way your iPhone and Mac show it: the temperature, the sky and today's high and low at a glance. The medium size adds the next six hours and the large size the week ahead. It finds your town on its own, or shows the place you type, in the units your Mac uses."
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "categories": ["productivity", "fun"],
+  "keywords": ["weather", "forecast", "widget", "temperature"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.widget/1": {
+      "export": "renderWeather",
+      "title": { "en": "Weather" },
+      "symbol": "cloud.sun.fill",
+      "options": {
+        "sizes": ["small", "medium", "large"],
+        "defaultSize": "small",
+        "places": ["newtab", "sidebar"],
+        "refresh": { "everySeconds": 900 }
+      }
+    }
+  },
+  "scopes": {
+    "net:api.open-meteo.com": "Read the forecast for your place from Open-Meteo (no account).",
+    "net:geocoding-api.open-meteo.com": "Find a place you type on the map (Open-Meteo, no account).",
+    "net:get.geojs.io": "Guess your town from your internet address, so the weather shows with no setup (GeoJS, no account). Type a place in Settings to stop this."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "place": {
+        "type": "string",
+        "title": "Place",
+        "description": "A city or town, for example Lisbon or Austin, Texas. Leave it empty to use where you are.",
+        "default": ""
+      },
+      "units": {
+        "type": "string",
+        "title": "Units",
+        "enum": ["auto", "celsius", "fahrenheit"],
+        "default": "auto"
+      },
+      "look": {
+        "type": "string",
+        "title": "Background",
+        "description": "sky: the sky's color, as in Apple's Weather. plain: your theme's background.",
+        "enum": ["sky", "plain"],
+        "default": "sky"
+      }
+    }
+  },
+  "activation": ["onInterface:cmux.widget/1"],
+  "files": ["dist/", "assets/"]
+}
