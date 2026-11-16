@@ -10,8 +10,6 @@ import {
   cloudStartPushed,
   cloudStartSignedIn,
   cloudStartWayOn,
-  cloudFolderTooBig,
-  folderSizeText,
 } from "./cloudStartProgress";
 
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
@@ -341,63 +339,6 @@ test("a start the team's spending cap or the member's budget refused is worded b
   ).toMatchObject({ code: "cloud_start_failed", message: "the machine stopped answering" });
 });
 
-test("a folder too big to copy says why with its size, offers no Retry and marks no step failed (Leo, 2026-11-10)", () => {
-  const gib = 1024 ** 3;
-  const details = {
-    folder: "~/Projects",
-    bytes: 20.1 * gib,
-    files: 323_831,
-    repos: [
-      { name: "cmux", path: "/Users/me/Projects/cmux" },
-      { name: "work/api", path: "/Users/me/Projects/work/api" },
-      { name: "relative", path: "not/absolute" },
-      { name: "", path: "/Users/me/Projects/empty" },
-    ],
-    more: false,
-  };
-  const ended = cloudStartEnded(begun(), "k-1", {
-    ok: false,
-    code: "cloud_folder_too_big",
-    message: "~/Projects is too big to copy to a Cloud machine",
-    retryable: true,
-    details,
-  });
-  expect(ended?.state).toBe("failed");
-  expect(ended?.code).toBe("cloud_folder_too_big");
-  expect(ended?.retryable).toBeUndefined();
-  expect(ended?.refusedHere).toBe(true);
-  // Only well-formed repositories with absolute paths are offered.
-  expect(ended?.tooBig).toEqual({
-    folder: "~/Projects",
-    repos: [
-      { name: "cmux", path: "/Users/me/Projects/cmux" },
-      { name: "work/api", path: "/Users/me/Projects/work/api" },
-    ],
-    more: false,
-  });
-  expect(ended?.message).toBe(
-    "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
-  );
-  // No repository inside: the limit is named, and another folder is the way on.
-  const plain = cloudStartEnded(begun(), "k-1", {
-    ok: false,
-    code: "cloud_folder_too_big",
-    details: { ...details, folder: "~/Downloads", repos: [] },
-  });
-  expect(plain?.message).toBe(
-    "~/Downloads is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
-  );
-});
-
-test("a too-big folder's size reads as the copy's limit words it", () => {
-  expect(folderSizeText(20.1 * 1024 ** 3)).toBe("20.1 GB");
-  expect(folderSizeText(20 * 1024 ** 3)).toBe("20 GB");
-  expect(folderSizeText(632 * 1024 ** 3)).toBe("632 GB");
-  expect(folderSizeText(300 * 1024 ** 2)).toBe("300 MB");
-  // Malformed details still say why, with no repository to offer.
-  expect(cloudFolderTooBig(undefined).tooBig).toEqual({ folder: "~", repos: [], more: false });
-});
-
 test("a host failure whose words are only its code reads as a sentence, never the code", () => {
   const begun = cloudStartBegun("k", "fix the build", "/Users/me/paint");
   const off = cloudStartEnded(begun, "k", { ok: false, code: "cloud_disabled", message: "cloud_disabled" });
@@ -431,13 +372,7 @@ test("a failed start's way on: the folder, a new Cloud chat, Retry, or This Mac;
   expect(cloudStartWayOn(failed("cloud_start_failed"))).toEqual(["retry", "run-here"]);
   expect(cloudStartWayOn(failed("cloud_disabled"))).toEqual(["run-here", "dismiss"]);
   expect(cloudStartWayOn({ key: "k", task: "t", state: "failed" })).toEqual(["run-here", "dismiss"]);
-  for (const code of [
-    "not_signed_in",
-    "cloud_plan_required",
-    "cloud_spend_cap",
-    "cloud_member_budget",
-    "cloud_folder_too_big",
-  ])
+  for (const code of ["not_signed_in", "cloud_plan_required", "cloud_spend_cap", "cloud_member_budget"])
     expect(cloudStartWayOn(failed(code)), code).toEqual([]);
   expect(cloudStartWayOn(failed("cloud_start_failed", { retryable: true }))).toEqual([]);
   expect(cloudStartWayOn({ key: "k", task: "t", state: "starting" })).toEqual([]);
