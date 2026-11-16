@@ -304,6 +304,9 @@ fn apply_personal_change(
             .map_err(|error| typed(error, "room", room.as_deref().unwrap_or_default()))?;
             if top {
                 personal::set_group_top(tx, &group.id, Some(below_home(tx)?))?;
+                // sidebar-doc-v1: the document names the top (`below_home`
+                // is the old order's, the middle of the list with rows above Home).
+                super::sidebar_doc_create::place_group_at_top(tx, &group.id)?;
             }
             let value = personal::workspace_group_snapshot(tx, &group.id)?
                 .context("created group vanished")?;

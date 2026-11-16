@@ -542,13 +542,43 @@ async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "
     const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error("warm-spare timed out")); }, 120_000);
     child.on("error", reject);
     child.on("close", (code: number | null) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr }); });
+    // A cmux that exits before reading stdin (a usage refusal) closes the pipe: its exit code and answer say why, not EPIPE.
+    child.stdin!.on("error", () => undefined);
     child.stdin!.end(`${api.bearer}\n${installToken}\n`);
   });
-  if (result.code !== 0) throw new Error(`warm-spare refused (exit ${result.code})`);
-  for (const line of [result.stdout, ...result.stdout.split("\n").reverse()]) {
-    try { const value = JSON.parse(line); if (value && typeof value === "object") return value.value ?? value; } catch {}
-  }
+  if (result.code !== 0) throw new Error(warmSpareRefusal(result));
+  const answer = cliAnswer(result.stdout);
+  if (answer) return answer.value ?? answer;
   throw new Error("warm-spare returned no JSON answer");
+}
+
+/** The last JSON object a cmux CLI printed on stdout (the whole output first, then line by line from the end). */
+function cliAnswer(stdout: string): Record<string, any> | null {
+  for (const line of [stdout, ...stdout.split("\n").reverse()]) {
+    try { const value = JSON.parse(line); if (value && typeof value === "object") return value; } catch {}
+  }
+  return null;
+}
+
+/**
+ * Why warm-spare refused: the verb prints its refusal as `{"ok":false,"error_code","error"}` on stdout before it
+ * exits 1, so the error names that code and message, else stderr's last line (run 43804741509 recorded only "exit 1").
+ */
+export function warmSpareRefusal(result: { code: number; stdout: string; stderr: string }): string {
+  const answer = cliAnswer(result.stdout);
+  const said = answer && (answer.error_code || answer.error)
+    ? [answer.error_code, answer.error].filter((part) => typeof part === "string" && part).join(": ")
+    : result.stderr.trim().split("\n").pop() ?? "";
+  return `warm-spare refused (exit ${result.code})${said ? `: ${said.slice(0, 300)}` : ""}`;
+}
+
+/** The platform origin a backend's client-config names (`platform_origin`, an https origin), as the app reads it. */
+export function clientPlatformOrigin(body: unknown): string {
+  const raw = (body as { platform_origin?: unknown } | null)?.platform_origin;
+  let url: URL | null = null;
+  try { url = typeof raw === "string" ? new URL(raw) : null; } catch {}
+  if (!url || url.protocol !== "https:" || url.origin !== String(raw).replace(/\/+$/, "")) throw new Error("client-config names no https platform_origin");
+  return url.origin;
 }
 
 export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number }> {
@@ -638,7 +668,7 @@ export async function spareLoginReceipt(cmux: string, api: Pick<Api, "origin" | 
   return receipt.installed === true;
 }
 
-async function runPreclaimBurst(args: {
+export async function runPreclaimBurst(args: {
   backend: Backend;
   api: Api;
   cmux: string;
@@ -662,7 +692,10 @@ async function runPreclaimBurst(args: {
   let verificationFailed = false;
   const scopeTeam = args.team ?? args.install.team ?? String(args.user?.personal_team ?? args.user?.team ?? "");
   const wireTeam = scopeTeam || args.api.team;
-  const scope = { platform: args.backend.api, team: scopeTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
+  // The platform the app sends a warm to: client-config's platform_origin (CloudConfiguration.artifactsAPIBaseURL), never the
+  // API host: cloud-api forwards a fixed list of platform paths, and /v1/cloud/spare/warm is not one (an empty 404).
+  let platform: string | null = null;
+  const scopeOf = (origin: string) => ({ platform: origin, team: scopeTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") });
   const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(args.team));
   const account = args.account;
   const writeOutput = () => {
@@ -680,7 +713,9 @@ async function runPreclaimBurst(args: {
       let claimedMachine: string | null = null;
       try {
       const healthBefore = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
-      const request = { platform: args.backend.api, account, scope, currentScope: scope };
+      platform ??= clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+      const scope = scopeOf(platform);
+      const request = { platform, account, scope, currentScope: scope };
       const prepared = await prepareSpareLogin({ api: args.api, cmux: args.cmux, stateDir, installToken: args.install.token, request, wireTeam, programs, login: args.login, ownerScope: args.team ? "owner or team" : "owner", index, journey: args.journey });
       const { spare, leaseId } = prepared;
       const answer = await args.api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
