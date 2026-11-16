@@ -143,7 +143,7 @@ struct DaemonRestoreProgressTests {
             return (names.session, names.stateDirectory)
         }
         work.post(.userBlocking, mayBlock: .files) { order.withLock { $0.append("frames") } }  // as `main`'s next launch read
-        let snapshot = await read.value
+        let snapshot = await read.value.snapshot
         #expect(order.withLock { $0 }.first == "snapshot", "the launch snapshot read waited behind a read posted after it")
         #expect(snapshot?.tree.workspaces.map(\.name) == ["alpha", "beta"], "the read gave another snapshot")
     }
