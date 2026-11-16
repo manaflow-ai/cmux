@@ -29,3 +29,13 @@ public final class SettingsMachineLoad: PageProvider {
         return rows
     }
 }
+
+public extension PageRoute {
+    /// Settings' relays to this app's acpmux (`environment`): Server > This Mac on Your Tailnet, signed in
+    /// and out on the app's person connection (``SettingsTailnet``), and Machines' load rows
+    /// (``SettingsMachineLoad``).
+    static func settingsAcpmux(_ environment: @escaping @MainActor () -> AcpmuxEnvironment?) -> [PageRoute] {
+        [PageRoute(prefix: SettingsTailnet.prefix, provider: SettingsTailnet(environment: environment)),
+         PageRoute(prefix: SettingsMachineLoad.prefix, provider: SettingsMachineLoad(environment: environment))]
+    }
+}
