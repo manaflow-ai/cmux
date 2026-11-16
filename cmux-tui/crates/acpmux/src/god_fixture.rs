@@ -404,11 +404,12 @@ pub fn write_scale_home(
         crate::store::open(&cfg.store, home).map_err(|e| io::Error::other(e.to_string()))?;
     let catalog: Vec<(Value, Value)> = (0..catalogs.max(1)).map(agent_catalog).collect();
     let mut ids = Vec::with_capacity(chats);
-    for index in 0..chats {
+    for (index, (variant, (commands, tools))) in
+        catalog.iter().enumerate().cycle().take(chats).enumerate()
+    {
         let id = chat_id(index);
         let (_, last_seq) =
             append_log(store.as_ref(), &id, turns.max(1) * 4, turns.max(1) as u64 * 4096)?;
-        let variant = index % catalog.len();
         let cwd = format!("/home/agent/work/p{variant}");
         let mut meta = session_meta(
             &id,
@@ -418,8 +419,10 @@ pub fn write_scale_home(
             last_seq,
             AT + index as u64,
         );
-        meta["availableCommands"] = catalog[variant].0.clone();
-        meta["tools"] = catalog[variant].1.clone();
+        if let Some(fields) = meta.as_object_mut() {
+            fields.insert("availableCommands".into(), commands.clone());
+            fields.insert("tools".into(), tools.clone());
+        }
         let meta = serde_json::from_value(meta).map_err(io::Error::other)?;
         store.save(&meta).map_err(|e| io::Error::other(e.to_string()))?;
         ids.push(id);

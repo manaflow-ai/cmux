@@ -197,8 +197,11 @@ impl Hub {
                 m.tools.off.push(id.to_owned());
             }
             // Rows shared with other chats are copied only when one actually changes.
-            if let Some(i) = m.tools.rows.iter().position(|r| r.id == id && r.enabled != enabled) {
-                m.tools.rows[i].enabled = enabled;
+            let differs = |r: &ToolRow| r.id == id && r.enabled != enabled;
+            if m.tools.rows.iter().any(differs)
+                && let Some(row) = m.tools.rows.iter_mut().find(|r| differs(r))
+            {
+                row.enabled = enabled;
             }
         }
         // Watchers hear it as `_acpmux/session_changed` kind `tools`.
@@ -290,12 +293,14 @@ impl Hub {
         let changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             // Rows shared with other chats are copied only when one actually changes.
-            match m.tools.rows.iter().position(|r| r.id == id) {
-                Some(i) if m.tools.rows[i].status.as_deref() != Some("connected") => {
-                    m.tools.rows[i].status = Some("connected".to_owned());
-                    true
-                }
-                _ => false,
+            let stale = |r: &ToolRow| r.id == id && r.status.as_deref() != Some("connected");
+            if m.tools.rows.iter().any(stale)
+                && let Some(row) = m.tools.rows.iter_mut().find(|r| stale(r))
+            {
+                row.status = Some("connected".to_owned());
+                true
+            } else {
+                false
             }
         };
         drop(current);
