@@ -6022,13 +6022,54 @@ STALL_DESTINATION = "blacksmith-6vcpu-macos-26"
 # 43738810586 attempt 3 (cmux-bot's, refusals only) queued its generated files on the saturated
 # glaeda-side-std-xcode-26.6 from 18:14Z with the stall move off (STALL_SWITCH_OFF), though its attempt 4 would
 # have taken Blacksmith; nothing else moves a bot's last owned attempt at an open head (cmuxterm-hq#11566).
+# A dispatch that gates a pull request (same_tree_pull_dispatch()) moves under `pr-rescue` too once its head's
+# cmux-next.yml sends a bot's re-run of it off the minis (PULL_DISPATCH_RESCUE_CLAUSE).
 STALL_SWITCH_VALUES = frozenset({"on", "pr-rescue"})
+
+# The text of cmux-next.yml's owned fallback under `pr-rescue` (feat-cmux-next, cmuxterm-hq#12109) that sends a bot's
+# re-run (attempt 2 and later) of a dispatch gating a pull request (default run name `cmux-next · <sha>`, a pull
+# request's same-tree run or a dispatch on its branch) off the side lane, as a pull_request run's re-run. A re-run
+# reads the workflow at the run's head, so a dispatch whose head lacks it would rejoin the side lane at the back of
+# its queue: the stall move leaves those (stall_scan()). cmux#44529's scheme compile (run 43879624016, job
+# 133341854319) queued on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16 while the scan skipped every
+# dispatch under `pr-rescue`.
+PULL_DISPATCH_RESCUE_CLAUSE = (
+    "(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 || github.event_name != 'pull_request' && "
+    "(github.event_name != 'workflow_dispatch' || "
+    "!contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || "
+    "inputs.same_tree_origin != '' && inputs.same_tree_origin != 'pull_request' || inputs.dev_daily == true || "
+    "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
+    "inputs.no_reuse == true))"
+)
 
 
 def stall_pull_only(switch: str | None) -> bool:
-    """Whether the stall move may move pull_request runs only: vars.CI_BLACKSMITH_MACOS is `pr-rescue`, under which a
-    same-tree dispatch's re-run still takes CI_SIDE_LANE_RUNNER (its event is not pull_request)."""
+    """Whether the stall move may move pull request runs only: vars.CI_BLACKSMITH_MACOS is `pr-rescue`, under which
+    cmux-next.yml sends only a pull_request run's re-run off the side lane, and, where the run's head carries
+    PULL_DISPATCH_RESCUE_CLAUSE, a bot's re-run of a dispatch gating a pull request (stall_moves_dispatch()). Every
+    other dispatch's re-run still takes CI_SIDE_LANE_RUNNER."""
     return (switch or "").strip() == "pr-rescue"
+
+
+def stall_moves_dispatch(client: GitHub, run: Mapping[str, Any], log: Callable[[str], None]) -> bool:
+    """Whether the stall move under `pr-rescue` (stall_pull_only()) may move a cmux-next.yml run that is not a
+    pull_request run: a dispatch gating one pull request (same_tree_pull_dispatch()) whose head's cmux-next.yml
+    carries PULL_DISPATCH_RESCUE_CLAUSE, so the bot's re-run leaves the side lane. One read of the workflow at the
+    run's head; a failed read leaves the run to the next scan."""
+    if not same_tree_pull_dispatch(run):
+        return False
+    head = str(run.get("head_sha") or "")
+    try:
+        text = client.workflow_file(CMUX_NEXT_WORKFLOW_PATH, head)
+    except READ_ERRORS as error:
+        log(f"[run {run.get('id')}] {STALL_MOVE}: could not read {CMUX_NEXT_WORKFLOW_PATH} at {head[:12]} ({error}); "
+            "next scan")
+        return False
+    if PULL_DISPATCH_RESCUE_CLAUSE not in (text or ""):
+        log(f"[run {run.get('id')}] {STALL_MOVE} leaves it: its head {head[:12]}'s {CMUX_NEXT_WORKFLOW_PATH} sends a "
+            "bot's re-run of this dispatch to the side lane under pr-rescue")
+        return False
+    return True
 
 
 def stall_destinations(runner: str | None, pools: str | None, switch: str | None = "on") -> tuple[str, ...] | None:
@@ -6612,8 +6653,9 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
     off) and with an `owned` route, it is the owned stall move instead (see OWNED_STALL_MOVE): `start` gets the owned
     label as its fourth argument, at most OWNED_MOVES_PER_SWEEP moves start, and a run moves at most once. Returns how
     many it started. Raises READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run.
-    `pull_only` (stall_pull_only()) leaves every run but a pull_request one: its re-run would rejoin the owned side
-    label."""
+    `pull_only` (stall_pull_only()) leaves every run but a pull_request one and a dispatch gating one whose head
+    sends the bot's re-run off the side label (stall_moves_dispatch(), read once a run has stalled): any other's
+    re-run would rejoin the owned side label."""
     in_owned = destination is None and owned is not None
     cap = OWNED_MOVES_PER_SWEEP if in_owned else STALL_MOVES_PER_SWEEP
     if len(moves) >= cap or destination is None and not in_owned:
@@ -6633,8 +6675,10 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         if began is None or (at - began).total_seconds() < STALL_MIN_AGE_SECONDS:
             continue
         target = stall_target(run, repository)
-        if (isinstance(target, str) or in_owned and is_delivery_target(target)
-                or pull_only and run.get("event") != "pull_request"):
+        if isinstance(target, str) or in_owned and is_delivery_target(target):
+            continue
+        dispatch = run.get("event") != "pull_request"
+        if pull_only and dispatch and not same_tree_pull_dispatch(run):
             continue
         try:
             jobs = client.jobs(run_id, target.attempt)
@@ -6649,6 +6693,8 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         what = "; ".join(str(stall) for stall in stalls)
         if blocked:
             log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {blocked}")
+            continue
+        if pull_only and dispatch and not stall_moves_dispatch(client, run, log):
             continue
         try:
             newer = client.newer_head_runs(target.path, run_id, target.head_sha)
