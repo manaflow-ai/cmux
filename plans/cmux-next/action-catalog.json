@@ -121048,6 +121048,13 @@
         "remote desktop",
         "vnc"
       ],
+      "macScreen.stopSharing" : [
+        "cmux remote: end screen sharing session",
+        "end screen sharing session",
+        "end screen sharing",
+        "stop screen sharing",
+        "stop screen share"
+      ],
       "moveSurfaceToPaneDown" : [
         "move to split below",
         "move to bottom split",
