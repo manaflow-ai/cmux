@@ -1,4 +1,9 @@
 //! The pure part of v1's tap table, not the stateful pre-append normalization stage.
+use super::super::background_turn::BackgroundTurns;
+use super::super::process::ProcessTable;
+use super::super::stream_state::StreamState;
+use super::super::subagent::SubagentTree;
+use super::super::todo::Watch;
 use super::logged_init::{InitSections, LoggedInit};
 use super::update_repeats::{Repeats, UpdateRepeats};
 use super::{EventRecord, drop_display_lines, logged_bodies, model_copy};
@@ -35,6 +40,14 @@ pub struct Context {
     pub logged_init: LoggedInit,
     pub update_repeats: UpdateRepeats,
     pub awaiting_first_delta: AtomicBool,
+    /// Stateful tap pieces retained by the chat registry across actor/harness retirement.
+    pub stream: StreamState,
+    pub todo: Option<Watch>,
+    pub subagents: SubagentTree,
+    pub background: BackgroundTurns,
+    pub processes: ProcessTable,
+    pub compacting: bool,
+    pub compaction_metadata_fenced: bool,
 }
 
 impl Context {
@@ -172,4 +185,48 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
     let repeats = (direction == Direction::In && kind == "response" && !session_update)
         .then(|| context.update_repeats.leave_out_repeats(&kind, &mut value));
     Some(Record { dir, kind, msg: value, init: None, repeats })
+}
+
+/// Scoped access to the stateful pieces held by one chat registry entry.
+/// Closures must not append records or call hub functions; the caller owns those effects.
+pub trait ContextState {
+    fn stream<R>(&mut self, f: impl FnOnce(&mut StreamState) -> R) -> R;
+    fn todo<R>(&mut self, f: impl FnOnce(&mut Option<Watch>) -> R) -> R;
+    fn subagents<R>(&mut self, f: impl FnOnce(&mut SubagentTree) -> R) -> R;
+    fn background<R>(&mut self, f: impl FnOnce(&mut BackgroundTurns) -> R) -> R;
+    fn processes<R>(&mut self, f: impl FnOnce(&mut ProcessTable) -> R) -> R;
+    fn set_compacting(&mut self, value: bool);
+    fn compacting(&self) -> bool;
+    fn set_compaction_metadata_fenced(&mut self, value: bool);
+    fn compaction_metadata_fenced(&self) -> bool;
+}
+
+impl ContextState for Context {
+    fn stream<R>(&mut self, f: impl FnOnce(&mut StreamState) -> R) -> R {
+        f(&mut self.stream)
+    }
+    fn todo<R>(&mut self, f: impl FnOnce(&mut Option<Watch>) -> R) -> R {
+        f(&mut self.todo)
+    }
+    fn subagents<R>(&mut self, f: impl FnOnce(&mut SubagentTree) -> R) -> R {
+        f(&mut self.subagents)
+    }
+    fn background<R>(&mut self, f: impl FnOnce(&mut BackgroundTurns) -> R) -> R {
+        f(&mut self.background)
+    }
+    fn processes<R>(&mut self, f: impl FnOnce(&mut ProcessTable) -> R) -> R {
+        f(&mut self.processes)
+    }
+    fn set_compacting(&mut self, value: bool) {
+        self.compacting = value;
+    }
+    fn compacting(&self) -> bool {
+        self.compacting
+    }
+    fn set_compaction_metadata_fenced(&mut self, value: bool) {
+        self.compaction_metadata_fenced = value;
+    }
+    fn compaction_metadata_fenced(&self) -> bool {
+        self.compaction_metadata_fenced
+    }
 }
