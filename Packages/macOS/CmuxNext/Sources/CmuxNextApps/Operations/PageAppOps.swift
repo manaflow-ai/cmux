@@ -12,7 +12,7 @@ import Foundation
 /// - `page.hints {tab?, action: show|clear}` (scope `page:write`, a gesture): `show` labels the
 ///   clickable elements in view with the built-in link hints' own collect script, labels and drawing
 ///   (`LinkHintSession`, the `f` key), and answers `{tab, hints: [{label, text, href}]}`; it refuses
-///   while the built-in `f` session's labels are up. `clear` removes the calling app's labels (never
+///   while the built-in `f` session's labels or another app's are up. `clear` removes the calling app's labels (never
 ///   the built-in `f` session's or another app's).
 /// - `page.follow {tab?, label, new_split?}` (scope `page:write`, a gesture): clears the labels, then
 ///   clicks the hint's element with the built-in click script, or opens its link in a new browser
@@ -83,14 +83,15 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
         let labels = LinkHintSession.labels(count: targets.count)
         let hints = zip(labels, targets).map { (label: $0.0, target: $0.1.target, text: $0.1.text) }
         guard !hints.isEmpty else {
-            _ = try await eval(Self.takeScript(await board.tokens(app: app)), tab: id)
+            _ = try await eval(Self.takeScript(await board.tokens(app: app), owner: await board.owner(app: app)), tab: id)
             await board.forget(tab: id, app: app)
             return ["tab": .string(id), "hints": []]
         }
         let token = UUID().uuidString
         let draw = LinkHintSession.drawScript(hints.map { (label: $0.label, target: $0.target) })
-        let drawn = try await eval(Self.tagged(draw, token: token), tab: id).value
+        let drawn = try await eval(Self.tagged(draw, token: token, owner: await board.owner(app: app)), tab: id).value
         if drawn.stringValue == "busy" { throw Self.failed("the built-in link hints are showing in this tab") }
+        if drawn.stringValue == "taken" { throw Self.failed("another extension's link hints are showing in this tab") }
         guard drawn.boolValue == true else { throw Self.failed("the page did not draw the hints") }
         let shown = PageHintBoard.Shown(app: app, token: token, targets: Dictionary(hints.map { ($0.label, $0.target) }, uniquingKeysWith: { first, _ in first }))
         await board.set(shown, tab: id)
@@ -100,7 +101,7 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
     }
 
     private func clearHints(tab: String?, app: String) async throws(AppHostCapabilityError) -> AppJSON {
-        let (id, _) = try await eval(Self.takeScript(await board.tokens(app: app)), tab: tab)
+        let (id, _) = try await eval(Self.takeScript(await board.tokens(app: app), owner: await board.owner(app: app)), tab: tab)
         await board.forget(tab: id, app: app)
         return ["tab": .string(id), "hints": []]
     }
@@ -152,35 +153,39 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
     /// The overlay `drawScript` makes (`LinkHintSession.overlayTag`).
     static let overlayTag = "cmux-link-hints"
 
-    /// `draw`, then the overlay marked with `token`: an app's labels, told apart from the built-in `f`
-    /// session's and from another draw's. Answers `"busy"` and draws nothing while the built-in `f`
-    /// session's labels (an overlay with no token) are up: an app never takes them down.
-    static func tagged(_ draw: String, token: String) -> String {
+    /// `draw`, then the overlay marked with `token` and the app's `owner` key: an app's labels, told
+    /// apart from the built-in `f` session's and from another draw's. Draws nothing and answers `"busy"`
+    /// while the built-in `f` session's labels (an overlay with no token) are up, or `"taken"` while
+    /// another app's are: an app only ever replaces its own labels.
+    static func tagged(_ draw: String, token: String, owner: String) -> String {
         """
         (() => {
           const shown = document.querySelector('\(overlayTag)');
           if (shown && !shown.dataset.cmuxApp) return 'busy';
+          if (shown && shown.dataset.cmuxOwner !== \(literal(owner))) return 'taken';
           const drawn = \(draw);
           const host = document.querySelector('\(overlayTag)');
           if (!host) return false;
+          host.dataset.cmuxOwner = \(literal(owner));
           host.dataset.cmuxApp = \(literal(token));
           return drawn === true;
         })()
         """
     }
 
-    /// Removes the labels on the page only when their token is one of `tokens` (the calling app's), and
-    /// answers that token, else null: the built-in `f` session's labels and another app's stay.
-    static func takeScript(_ tokens: [String]) -> String {
+    /// Removes the labels on the page only when their token is one of `tokens` or, given `owner`, they
+    /// carry that owner key (labels of the calling app's that two overlapping draws left off the board),
+    /// and answers the token, else null: the built-in `f` session's labels and another app's stay.
+    static func takeScript(_ tokens: [String], owner: String? = nil) -> String {
         let list = (try? JSONSerialization.data(withJSONObject: tokens)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         return """
-        ((tokens) => {
+        ((tokens, owner) => {
           const host = document.querySelector('\(overlayTag)');
           const token = host?.dataset.cmuxApp;
-          if (!token || !tokens.includes(token)) return null;
+          if (!token || !(tokens.includes(token) || (owner && host.dataset.cmuxOwner === owner))) return null;
           host.remove();
           return token;
-        })(\(list))
+        })(\(list), \(owner.map(literal) ?? "null"))
         """
     }
 
@@ -221,9 +226,19 @@ actor PageHintBoard {
 
     nonisolated static let maxTabs = 32
     private var shown: [String: Shown] = [:]
+    /// A random key per app, put on its overlays: the page sees the key, never the app's id.
+    private var owners: [String: String] = [:]
     private var order: [String] = []
 
     func shown(tab: String) -> Shown? { shown[tab] }
+
+    /// `app`'s owner key, made on first use.
+    func owner(app: String) -> String {
+        if let key = owners[app] { return key }
+        let key = UUID().uuidString
+        owners[app] = key
+        return key
+    }
 
     /// The tokens of `app`'s labels, only those with `label` (and a link to open, when `link`) if given.
     func tokens(app: String, label: String? = nil, link: Bool = false) -> [String] {

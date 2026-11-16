@@ -12,8 +12,15 @@ struct PageAppOpsTests {
         var calls: [(method: String, params: [String: JSONValue])] = []
         /// The labels' token on the page now (`dataset.cmuxApp`).
         var token: JSONValue = .null
+        /// The owner key on the labels (`dataset.cmuxOwner`).
+        var owner: String?
         /// The built-in `f` session's labels (an overlay with no token) are up.
         var builtIn = false
+
+        /// The string literal that follows `marker` in `script`.
+        static func quoted(_ script: String, after marker: String) -> String {
+            script.components(separatedBy: marker + "\"").dropFirst().first?.components(separatedBy: "\"").first ?? ""
+        }
         var targets = #"[{"x":10,"y":20,"left":5,"top":15,"href":"https://example.com/a","text":"First link"},{"x":40,"y":20,"left":35,"top":15,"href":null,"text":"Menu"}]"#
         var page = #"{"url":"https://example.com/","title":"Example","article":{"title":"Example","byline":null,"site":"Ex","blocks":[{"kind":"paragraph","text":"Hello"}]},"links":[{"text":"First link","href":"https://example.com/a"}]}"#
 
@@ -32,13 +39,20 @@ struct PageAppOpsTests {
                 value = .string(targets)
             } else if script.contains("host.dataset.cmuxApp = ") {
                 if builtIn { return ["tab": tab, "value": "busy"] }
-                token = .string(script.components(separatedBy: "host.dataset.cmuxApp = \"")[1].components(separatedBy: "\"")[0])
+                let drawer = Self.quoted(script, after: "host.dataset.cmuxOwner = ")
+                if token != .null, drawer != owner { return ["tab": tab, "value": "taken"] }
+                owner = drawer
+                token = .string(Self.quoted(script, after: "host.dataset.cmuxApp = "))
                 value = true
             } else if script.contains("tokens.includes(token)") {
-                // The take script: removes the labels only when their token is listed.
-                let list = script.components(separatedBy: "})(").last?.dropLast() ?? ""
-                let tokens = (try? JSONDecoder().decode([String].self, from: Data(list.utf8))) ?? []
-                guard let shown = token.stringValue, tokens.contains(shown) else { return ["tab": tab, "value": .null] }
+                // The take script: removes the labels only when their token is listed or they carry the owner key.
+                let args = "[" + (script.components(separatedBy: "})(").last?.dropLast() ?? "") + "]"
+                let decoded = (try? JSONSerialization.jsonObject(with: Data(args.utf8))) as? [Any]
+                let tokens = decoded?.first as? [String] ?? []
+                let key = decoded?.last as? String
+                guard let shown = token.stringValue, tokens.contains(shown) || (key != nil && key == owner) else {
+                    return ["tab": tab, "value": .null]
+                }
                 token = .null
                 value = .string(shown)
             } else if script.contains("elementFromPoint(") {
@@ -138,7 +152,7 @@ struct PageAppOpsTests {
         browser.token = .null // scrolled away, or the built-in f replaced them
         let value = try await ops.handle(request("page.follow", ["label": "a"]))
         #expect(value["followed"] == false)
-        #expect(!browser.evals.contains { $0.contains("elementFromPoint(") })
+        #expect(!browser.evals.contains { $0.contains("hit.closest(") })
         let unknown = try await ops.handle(request("page.follow", ["label": "zz"]))
         #expect(unknown["followed"] == false)
     }
@@ -153,7 +167,7 @@ struct PageAppOpsTests {
         #expect(browser.evals.last?.contains("if (!token || !tokens.includes(token)) return null") == true, "the built-in f session's labels stay")
     }
 
-    @Test func anotherAppCanNeitherFollowNorClearTheLabels() async throws {
+    @Test func anotherAppCanNeitherFollowNorClearNorReplaceTheLabels() async throws {
         let browser = Browser()
         let ops = makeOps(browser)
         _ = try await ops.handle(request("page.hints", ["action": "show"]))
@@ -161,8 +175,14 @@ struct PageAppOpsTests {
         let followed = try await ops.handle(request("page.follow", ["label": "a"], app: "local/other"))
         #expect(followed["followed"] == false)
         _ = try await ops.handle(request("page.hints", ["action": "clear"], app: "local/other"))
+        do {
+            _ = try await ops.handle(request("page.hints", ["action": "show"], app: "local/other"))
+            Issue.record("expected a refusal")
+        } catch {
+            #expect(error.message.contains("another extension"))
+        }
         #expect(browser.token == drawn, "the drawing app's labels are still up")
-        #expect(!browser.evals.contains { $0.contains("elementFromPoint(") })
+        #expect(!browser.evals.contains { $0.contains("hit.closest(") })
         let mine = try await ops.handle(request("page.follow", ["label": "a"]))
         #expect(mine["followed"] == true, "the drawing app still follows its own label")
     }
@@ -177,6 +197,19 @@ struct PageAppOpsTests {
             #expect(error.code == "operation.failed")
             #expect(error.message.contains("built-in link hints"))
         }
+        #expect(browser.token == .null)
+    }
+
+    @Test func anAppReplacesAndClearsItsOwnLabels() async throws {
+        let browser = Browser()
+        let ops = makeOps(browser)
+        _ = try await ops.handle(request("page.hints", ["action": "show"]))
+        let first = browser.token
+        _ = try await ops.handle(request("page.hints", ["action": "show"]))
+        #expect(browser.token != first, "a second show redraws")
+        // Labels the board lost track of (two overlapping shows) still clear by the app's owner key.
+        browser.token = "lost"
+        _ = try await ops.handle(request("page.hints", ["action": "clear"]))
         #expect(browser.token == .null)
     }
 
