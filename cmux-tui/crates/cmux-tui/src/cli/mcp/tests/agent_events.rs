@@ -687,3 +687,23 @@ fn agents_events_repeat_no_chat_event_after_a_missed_chat_read() {
     let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
     assert_eq!(chat_events(&answer), Vec::<Value>::new(), "still idle, no new event: {answer}");
 }
+
+/// A first chat.list read that fails leaves no baseline: the first state a
+/// chat then shows is its baseline, not a turn that ended, so `agent-idle`
+/// does not fire for every idle chat when a follow starts.
+#[test]
+fn agents_events_take_a_chat_state_first_known_late_as_its_baseline() {
+    let fake = chat_fake("idle");
+    fake.live.borrow_mut().chats_down = true;
+    let mut server = Server::new(fake, None);
+    let after = start(&mut server);
+    now(&server, Change::ChatsDown(false));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    assert_eq!(chat_events(&answer), Vec::<Value>::new(), "a baseline, no event: {answer}");
+    let after = answer["next_after"].as_str().unwrap().to_owned();
+    now(&server, Change::Chats(chats("working", "idle")));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    let got = chat_events(&answer);
+    assert_eq!(got.len(), 1, "{answer}");
+    assert_eq!(got[0]["state"], "working");
+}

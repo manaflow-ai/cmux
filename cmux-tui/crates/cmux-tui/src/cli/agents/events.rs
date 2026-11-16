@@ -57,6 +57,9 @@ const CATCH_UP: Duration = Duration::from_millis(500);
 /// Less time than this left for an app read: skip it.
 const MIN_APP_READ: Duration = Duration::from_millis(50);
 const TITLE_CHARS: usize = 80;
+/// A chat tab the cursor saw before any read said its state (no state is
+/// ever empty).
+const UNKNOWN_CHAT_STATE: &str = "";
 const BODY_CHARS: usize = 160;
 const CURSOR_PREFIX: &str = "evc1_";
 const MAX_CURSOR_BYTES: usize = 64 << 10;
@@ -762,18 +765,30 @@ impl<'a> Poll<'a> {
     /// Diffs the chat tabs' states with the cursor's. A tab shown with no
     /// state this time (its chat not in the chat index yet, or the read
     /// failed) keeps the state it had, so a missed read never repeats an
-    /// event; a tab no longer shown is forgotten.
+    /// event; a tab no longer shown is forgotten. A tab first seen with no
+    /// state is kept as [`UNKNOWN_CHAT_STATE`], and the first state it then
+    /// gets is its baseline, not an event: a missed first read never reads
+    /// as every chat's turn ending.
     fn diff_chats(&mut self, now: Vec<(String, Option<String>, Value)>) {
         let Some(mut known) = self.cursor.chats.take() else {
-            self.cursor.chats =
-                Some(now.into_iter().filter_map(|(tab, state, _)| Some((tab, state?))).collect());
+            self.cursor.chats = Some(
+                now.into_iter().map(|(tab, state, _)| (tab, state.unwrap_or_default())).collect(),
+            );
             return;
         };
         known.retain(|tab, _| now.iter().any(|(shown, _, _)| shown == tab));
         for (tab, state, agent_session) in now {
-            let Some(state) = state else { continue };
-            if known.get(&tab) == Some(&state) {
+            let Some(state) = state else {
+                known.entry(tab).or_insert_with(|| UNKNOWN_CHAT_STATE.to_owned());
                 continue;
+            };
+            match known.get(&tab).map(String::as_str) {
+                Some(seen) if seen == state => continue,
+                Some(UNKNOWN_CHAT_STATE) => {
+                    known.insert(tab, state);
+                    continue;
+                }
+                _ => {}
             }
             let fields = json!({
                 "change": "state",
