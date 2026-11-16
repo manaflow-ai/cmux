@@ -15,7 +15,8 @@ now_ms() {
 # sample (`time,PROCESS.PID,BYTES_IN,`), the way gui-viewer.sh counts a third-party viewer. Empty
 # when nettop cannot read it.
 received_bytes() {
-  nettop -P -L 1 -n -x -J bytes_in -p "$1" 2>/dev/null \
+  # macOS has no timeout(1): perl alarm bounds a stalled nettop at 5 s, as gui-viewer.sh does.
+  perl -e 'alarm 5; exec @ARGV' nettop -P -L 1 -n -x -J bytes_in -p "$1" 2>/dev/null \
     | awk -F, '$3 ~ /^[0-9]+$/ { last = $3 } END { if (last != "") print last }' || true
 }
 

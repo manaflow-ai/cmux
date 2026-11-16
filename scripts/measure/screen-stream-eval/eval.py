@@ -237,7 +237,7 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             rate = " / ".join(fmt(fps.get(phase), mark) for phase in WINDOW_PHASES)
             lines.append(f"| {name} | {latency} | {kbps} | {rate} |")
         if sampled_only:
-            lines += ["", "\\* sampled screenshot changes a second (10 captures a second), not decoded FPS."]
+            lines += ["", "\\* sampled screenshot changes a second (at most 10 captures a second), not decoded FPS."]
     for name, t in results.get("targets", {}).items():
         p = ((previous or {}).get("targets") or {}).get(name) or {}
 

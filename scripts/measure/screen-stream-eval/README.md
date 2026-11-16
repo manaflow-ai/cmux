@@ -251,7 +251,7 @@ appear under `targets.petal` in the same schema.
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
-`eval.py`) and `summary.md`. With more than one target, `summary.md` opens with a "Side by side"
+`eval.py`) and `summary.md`. With more than one target, `summary.md` starts, after the run line, with a "Side by side"
 table, one row per target: key and click glass-to-glass p50, kbps and fps in each window phase (a
 viewer without frame counts shows its sampled screenshot changes, marked `*`). For `rd`, each window's additive `extra.netem_metrics` records
 per-encode attempts, emitted frames, skips, IDRs, P frames, received video/FEC bytes and bitrate.
