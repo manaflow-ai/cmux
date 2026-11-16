@@ -129,25 +129,21 @@ extension AgentTabStore {
             guard let services else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
             return await services.imessage.respond(action, view: view)
         }
-        // Move to…: every Cloud machine of the account but the one the chat runs on, this Mac for a
-        // chat that can come back, and every SSH machine that is up (``CloudMoveTargets``). Each row
-        // runs the action Rust names for it: Move to Cloud, Move to Another Machine and Bring Back
-        // Local for Cloud, Move to SSH Machine (`agent.moveToMachine`) to, between and back from SSH machines.
+        // Move to…: every Cloud machine of the account but the one the chat runs on, and this Mac for a
+        // chat a move took from here (``CloudMoveTargets``). Each goes through the Cloud move actions:
+        // this Mac's chat Move to Cloud on the machine named, a machine's chat Move to Another Machine
+        // (``CloudBringBack``, machine to machine), and back here Bring Back Local.
         tabs.machineTargets = { [weak services, weak tabs] tab in
             guard let services, let tabs else { return [] }
             return CloudMoveTargets.targets(record: tabs.record(for: tab)?.record, machine: tab.machine, services: services)
         }
-        tabs.moveAgentToMachine = { [weak services, weak tabs] tab, machine in
-            guard let services, let tabs, let registry = tabs.actionRegistry else { return false }
-            let target = CloudMoveTargets.rules(record: tabs.record(for: tab)?.record, machine: tab.machine, services: services).first(where: { $0.id == machine })
-            // Cloud targets keep their existing action wiring. Targets returned by acpmux's
-            // `_acpmux/move_targets` (Auto and connected SSH peers) deliberately bypass the
-            // Cloud FFI list: the daemon owns that list and validates the id again when moving.
-            let action = target.map { ActionID(rawValue: $0.action) }
-                ?? ((machine == "auto" || !machine.isEmpty) ? ActionID("agent.moveToMachine") : nil)
-            guard let action else { return false }
+        tabs.moveAgentToMachine = { [weak tabs] tab, machine in
+            guard let tabs, let registry = tabs.actionRegistry else { return false }
+            let local = machine == AgentPaneMoveTarget.localID
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key),
-                                               arguments: action == CloudBringBack.action ? [:] : ["machine": .string(machine)], origin: .user).onMachine(tab.machine)
+                                               arguments: local ? [:] : ["machine": .string(machine)], origin: .user).onMachine(tab.machine)
+            let onCloud = tabs.record(for: tab)?.record.host.hasPrefix(MachineRegistry.registryHostPrefix) == true
+            let action = local ? CloudBringBack.action : onCloud ? CloudBringBack.toMachine : CloudMove.action
             return registry.perform(action, invocation: invocation)
         }
         tabs.launchImages = services.launchImages; services.launchImages.localMachine = { [weak services] in services?.daemon.machineID }

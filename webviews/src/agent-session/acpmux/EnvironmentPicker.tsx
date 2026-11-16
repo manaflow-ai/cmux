@@ -346,7 +346,7 @@ export function EnvironmentPicker({
   type Action = {
     value: string;
     text: string;
-    kind: EnvironmentKind;
+    kind: "local" | "cloud";
     run(): void;
     signsIn?: true;
     /// Why the row runs nothing now: greyed, with this under its name.
@@ -363,13 +363,8 @@ export function EnvironmentPicker({
   const targetActions: Action[] = opensMoves
     ? targets.map((target) => ({
         value: MOVE_TO + target.id,
-        text:
-          target.kind === "local"
-            ? t("composer.thisMac")
-            : target.kind === "cloud"
-              ? target.label
-              : [target.label, target.status].filter(Boolean).join(" · "),
-        kind: target.kind === "auto" || target.kind === "remote" ? "ssh" : target.kind,
+        text: target.kind === "local" ? t("composer.thisMac") : target.label,
+        kind: target.kind,
         run: () => onMoveTo?.(target.id),
         ...(target.reason ? { reason: target.reason } : {}),
       }))
@@ -947,13 +942,11 @@ const MOVE_MENU = ACTION + "moveTo";
 /// One Move to… target's row: its id after this.
 const MOVE_TO = ACTION + "moveTo:";
 
-/// One place a started chat can move (Move to…): `local` is this Mac, whose row says This Mac;
-/// `cloud` a Cloud machine and `ssh` a machine added over SSH, each named by its label.
+/// One place a started chat can move (Move to…): `local` is this Mac, whose row says This Mac.
 export interface MoveTarget {
   readonly id: string;
   readonly label: string;
-  readonly kind: EnvironmentKind | "auto" | "remote";
-  readonly status?: string;
+  readonly kind: "local" | "cloud";
   /// Why a move there would refuse now: the row is greyed with it.
   readonly reason?: string;
 }

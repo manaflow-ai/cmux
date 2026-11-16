@@ -529,7 +529,6 @@ import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
-import { readMoveTargets, mergeMoveTargets, moveTargetParams } from "./header/moveTargets";
 import { moveToTerminal, terminalMoveRow } from "./header/terminalMoveRow";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
@@ -10257,34 +10256,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     pullRequest: headerPullRequest,
     moves,
     moveReasons,
-    moveTargets: nativeMoveTargets,
+    moveTargets,
     lit: litSplits,
   } = useHeaderState();
-  const [peerMoveTargets, setPeerMoveTargets] = useState<{
-    session: string;
-    rows: ReturnType<typeof readMoveTargets>;
-  }>();
-  const readPeerMoveTargets = async () => {
-    const client = directClient.current;
-    const session = snapshot.sessionId;
-    if (!client || !session) return;
-    try {
-      const reply = await client.retry("_acpmux/move_targets", moveTargetParams(summary));
-      if (directClient.current === client && client.selectedSession === session)
-        setPeerMoveTargets({ session, rows: readMoveTargets(reply) });
-    } catch {
-      // An older daemon keeps the host's existing move actions available.
-      if (directClient.current === client && client.selectedSession === session) setPeerMoveTargets(undefined);
-    }
-  };
-  const moveTargets = useMemo(
-    () =>
-      mergeMoveTargets(
-        nativeMoveTargets,
-        peerMoveTargets && peerMoveTargets.session === snapshot.sessionId ? peerMoveTargets.rows : undefined,
-      ),
-    [nativeMoveTargets, peerMoveTargets, snapshot.sessionId],
-  );
   // The moves the chat's own right-click menu offers now: the composer's picker offers the same.
   const offloads = useMemo(
     () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
@@ -10540,10 +10514,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {
-    if (!quick) {
-      void readTabState().catch(() => undefined);
-      void readPeerMoveTargets();
-    }
+    if (!quick) void readTabState().catch(() => undefined);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
   }, [quick, snapshot.sessionId]);
   // A turn's end asks the App for the chat's pull request again (cx-ncc.77.1): the agent may have
@@ -13869,7 +13840,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       }
                       summary={sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
                       menu={chatMenu}
-                      onMenuOpen={() => Promise.all([readTabState(), readChatMini(), readPeerMoveTargets()])}
+                      onMenuOpen={() => Promise.all([readTabState(), readChatMini()])}
                       expand={continuing && canContinue ? "continue" : undefined}
                       onExpanded={stopContinuing}
                     />
