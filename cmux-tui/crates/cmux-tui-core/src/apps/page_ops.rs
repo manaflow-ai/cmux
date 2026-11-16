@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 const FILE: &str = "apps-site-styles.json";
 /// The scope `browser.site.style.*` needs; rules apply only while it is granted.
-const SCOPE: &str = "browser:write";
+const SCOPE: &str = "site_styles:write";
 /// Selectors per list (`hide`, `unstick`).
 const MAX_SELECTORS: usize = 200;
 const MAX_SELECTOR_BYTES: usize = 256;
@@ -331,7 +331,7 @@ pub fn daemon_owned(op: &str) -> bool {
 impl super::supervisor::Supervisor {
     /// The `apps-site-styles` event the `page` provider is owed, if any;
     /// recomputed at each emit (`Supervisor::emit`). Only apps that are
-    /// installed, turned on, still granted `browser:write` and not held by
+    /// installed, turned on, still granted `site_styles:write` and not held by
     /// safe mode style pages.
     pub(super) fn page_styles_locked(
         inner: &mut super::supervisor::Inner,

@@ -292,9 +292,10 @@ export function generate(): Record<string, string> {
     "memory.search": { scope: "memory:read", class: "read" },
     // Per-site element rules (hide, unstick) the daemon keeps per extension (apps/page_ops.rs) and
     // the Mac app applies at each document start for that origin, so a cleaned site stays clean
-    // with no extension call. They change what pages show: browser:write, as browser.page.navigate.
-    "browser.site.style.get": { scope: "browser:write", class: "read" },
-    "browser.site.style.set": { scope: "browser:write", class: "mutation" },
+    // with no extension call. They keep changing what a site shows after the extension stops, so
+    // they have their own scope rather than riding on browser:write (navigation).
+    "browser.site.style.get": { scope: "site_styles:write", class: "read" },
+    "browser.site.style.set": { scope: "site_styles:write", class: "mutation" },
     // The per-site JavaScript content setting (Page Info's JavaScript row; SiteAppOps in CmuxNextApps,
     // provider family `browser.site`). `set` needs a gesture.
     "browser.site.javascript.get": { scope: "site_settings:read", class: "read" },

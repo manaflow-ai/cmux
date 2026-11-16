@@ -334,6 +334,17 @@ fn only_the_cmux_app_and_never_an_agent_may_provide() {
 fn the_page_provider_hears_installed_apps_site_rules_and_their_removal() {
     let f = fixture();
     f.install("cmux/demo");
+    // As if granted at install (cmux/demo does not ask for it); rules apply only while it is.
+    f.supervisor
+        .inner
+        .lock()
+        .unwrap()
+        .mirror
+        .apps
+        .get_mut("cmux/demo")
+        .unwrap()
+        .grants
+        .insert("site_styles:write".into());
     let rules = super::super::page_ops::Rules {
         hide: vec![".ad".into()],
         ..super::super::page_ops::Rules::default()

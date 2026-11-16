@@ -233,7 +233,7 @@ export interface AgentAnswer {
 
 export const site = {
   style: {
-    /** This extension's rules for a site (`https://host[:port]`), or null when it keeps none. Scope `browser:write`. */
+    /** This extension's rules for a site (`https://host[:port]`), or null when it keeps none. Scope `site_styles:write`. */
     get(origin: string, options?: CmuxCallOptions): Promise<SiteStyle | null> {
       return cmux.call<SiteStyle | null>("browser.site.style.get", { origin }, options)
     },
@@ -241,7 +241,7 @@ export const site = {
      * Replaces this extension's rules for a site. cmux applies them to its open tabs now and to
      * every later visit before the page draws, with no extension running. `scroll` lets a page
      * locked by a hidden dialog scroll again. Both lists empty clears
-     * the site. Scope `browser:write`.
+     * the site. Scope `site_styles:write`.
      */
     set(style: { origin: string; hide?: string[]; unstick?: string[]; scroll?: boolean }, options?: CmuxCallOptions): Promise<{ origin: string; rules: number }> {
       return cmux.call<{ origin: string; rules: number }>("browser.site.style.set", style, options)
