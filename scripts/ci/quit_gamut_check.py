@@ -221,6 +221,19 @@ def new_chat(app: App, workspace: str, name: str, work: str) -> tuple[str, int |
     return chat, pid
 
 
+def tool_status(app: App, chat: str) -> str | None:
+    """The newest tool item's status (a read's tool items carry kind and status, never the title)."""
+    tools = [i for i in chat_items(app, chat) if i.get("role") == "tool"]
+    return ((tools[-1].get("tool") or {}).get("status") or tools[-1].get("status")) if tools else None
+
+
+def count(value) -> int:
+    """A queued field as a number: acpmux info gives a count or a list."""
+    if isinstance(value, list):
+        return len(value)
+    return value if isinstance(value, int) else 0
+
+
 def send(app: App, chat: str, text: str) -> str | None:
     sent = app.inst.cmux("agents", "chat", "send", chat, "--", text, timeout=30)
     return sent.get("error") if isinstance(sent, dict) and sent.get("error") else None
@@ -289,9 +302,13 @@ class Gamut:
         case.update(chat=chat, agent_pid=pid)
         if state == "long":
             filler = "x" * 1000
+            def quiet():
+                st = chat_state(app, chat)
+                return not st.get("running") and not count(st.get("queued"))
             for t in range(self.args.long_turns):
                 send(app, chat, f"long turn {t} {filler}")
-                wait_for(lambda: not chat_state(app, chat).get("running") and not chat_state(app, chat).get("queued"), 30, 0.05)
+                wait_for(quiet, 30, 0.05)
+            wait_for(lambda: assistant_text(app, chat).count("long turn") >= self.args.long_turns, 60, 0.5)
             case["long_messages"] = len(chat_items(app, chat))
         if state in ("midturn", "queued", "tool", "many"):
             fifo = str(self.work / f"g{n}.fifo")
@@ -303,16 +320,19 @@ class Gamut:
             why = send(app, chat, prompt)
             if why:
                 raise RuntimeError(f"send: {why}")
-            marker = "Run cargo test" if state == "tool" else "before-gate"
+            # A read hides a running turn's unfinished words (visible_text) and never shows a tool's title, so the
+            # turn has started when the chat says it runs (and, for `tool`, has a tool item in progress).
             def started():
-                items = chat_items(app, chat)
-                return any(marker in json.dumps(i) for i in items)
+                if not chat_state(app, chat).get("running"):
+                    return False
+                return state != "tool" or tool_status(app, chat) in ("pending", "in_progress")
             if not wait_for(started, 30):
-                raise RuntimeError(f"the {state} turn never started: {assistant_text(app, chat)[-300:]}")
+                raise RuntimeError(f"the {state} turn never started: {json.dumps(chat_state(app, chat))[:300]}")
             if state == "queued":
-                send(app, chat, "queued-echo-7")
-                if not wait_for(lambda: (chat_state(app, chat).get("queued") or 0) >= 1, 10):
-                    case["queued_note"] = f"the second message was not seen queued: {json.dumps(chat_state(app, chat))[:200]}"
+                why = send(app, chat, "queued-echo-7")
+                if why or not wait_for(lambda: count(chat_state(app, chat).get("queued")) >= 1, 10):
+                    case["queued_note"] = (f"the second message was not seen queued: {why or ''} "
+                                           f"{json.dumps(chat_state(app, chat))[:200]}")
         case["state_before"] = chat_state(app, chat)
         topo = app.inst.topology()
         case["chat_tab"] = l5.chat_tab_id(topo, chat)
@@ -351,14 +371,15 @@ class Gamut:
             def finished():
                 text = assistant_text(app, chat)
                 st = chat_state(app, chat)
-                return all(w in text for w in want) and not st.get("running") and not st.get("queued")
+                return all(w in text for w in want) and not st.get("running") and not count(st.get("queued"))
             if not wait_for(finished, 30, 0.25):
                 text = assistant_text(app, chat)
                 failures.append(f"output lost: missing {[w for w in want if w not in text]} "
                                 f"(state {json.dumps(chat_state(app, chat))[:200]})")
             if state == "tool":
-                tool = [i for i in chat_items(app, chat) if "Run cargo test" in json.dumps(i)]
-                row["tool_status"] = ((tool[-1].get("tool") or {}).get("status") if tool else None)
+                row["tool_status"] = tool_status(app, chat)
+                if row["tool_status"] != "completed":
+                    failures.append(f"the running tool ended {row['tool_status']}, not completed")
         else:
             started = time.monotonic()
             send(app, chat, "after-reopen-echo")
