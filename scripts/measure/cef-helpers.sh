@@ -36,7 +36,7 @@ if [ "${1:-}" = "--cef-manifest-from" ]; then
     if git cat-file -e "${manifest_ref}^{commit}" 2>/dev/null; then
       git show "${manifest_ref}:scripts/cmux-next/$pinned" > "$out/$pinned"
     else
-      curl -fsSL --retry 3 --max-time 60 -o "$out/$pinned" \
+      curl -fsSL --retry 3 --retry-all-errors --max-time 60 -o "$out/$pinned" \
         "https://raw.githubusercontent.com/manaflow-ai/cmux/$manifest_ref/scripts/cmux-next/$pinned"
     fi
   done
