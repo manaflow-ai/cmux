@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43891924160",
+  "recorded_at": "2026-11-16T15:14:07Z",
+  "reason": "cmux-tui 6ec8746f779a changes the image's cmux-tui (pinned cabff45de4ca)",
+  "dry_run": false,
+  "cmux_tui": "6ec8746f779a1ce76987ed53ff52dd9ed92df539",
+  "fixes": [
+    {
+      "sha": "6ec8746f779a1ce76987ed53ff52dd9ed92df539",
+      "mergedAt": "2026-11-16T14:42:01Z",
+      "subject": "nightly-next: the embedded cmux Remote's binaries get notice entries and lose the Xcode rpath (#44566)"
+    },
+    {
+      "sha": "ec6eb757352b4e5bb64952c157b862d295e1a0d2",
+      "mergedAt": "2026-11-16T14:34:24Z",
+      "subject": "cmux-tui: per-program adapters for a byte viewer: a shell as lean lines, PTY bytes only for full-screen programs (#44464)"
+    },
+    {
+      "sha": "99927d67183f34bd5fcf0b404b16c010086ac08a",
+      "mergedAt": "2026-11-16T05:56:53-08:00",
+      "subject": "acpmux v2: inventory row 7f app callers and usage gates (#44407)"
+    },
+    {
+      "sha": "e1cb4c63ca3f9ae2820b8cd5735fbcb1c048687b",
+      "mergedAt": "2026-11-16T05:52:05-08:00",
+      "subject": "Cloud's Open opens its page, and every store listing must open something (#44332)"
+    },
+    {
+      "sha": "9823fe9e51a862eebe561eeca787f9f6a87be1b0",
+      "mergedAt": "2026-11-16T13:46:19Z",
+      "subject": "acpmux: move the hub items LOWER modules use out of hub (layering for the lib split) (#44097)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T15:14:07Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
