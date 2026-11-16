@@ -207,7 +207,7 @@ fn run_request(
 
 /// (app, op, params, idempotency key, origin)
 type RoutedCall = (String, String, Value, Option<String>, Origin);
-type Publish = Box<dyn Fn(&str) + Send + Sync>;
+type Publish = super::supervisor::StreamPublish;
 
 #[derive(Default)]
 struct FakeRouter {
@@ -228,8 +228,13 @@ impl OpRouter for Arc<FakeRouter> {
         Ok(json!({ "value": { "routed": op } }))
     }
 
-    fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>) {
+    fn start_events(&self, publish: Publish) {
         *self.publish.lock().unwrap() = Some(publish);
+    }
+
+    /// `github.changed` is pushed from the Cloud; the fake says its channel is live.
+    fn stream_live(&self, stream: &str) -> Option<bool> {
+        (stream == "github.changed").then_some(true)
     }
 
     fn owns(&self, op: &str) -> bool {
@@ -637,11 +642,40 @@ fn daemon_events_reach_subscribed_apps() {
     // The scripted host subscribes before its first scene, and the reader
     // thread handles lines in order, so the bridge is up by now.
     let publish = f.router.publish.lock().unwrap().take().expect("event bridge started");
-    publish("workspace.changed");
+    publish("workspace.changed", json!({}));
     let log = f.wait_event("apps-log");
     assert_eq!(log["message"], "event 1");
     let lines = f.supervisor.logs(CLIENT, "cmux/demo", false);
     assert!(lines["lines"].as_array().unwrap().iter().any(|l| l["message"] == "event 1"));
+}
+
+/// `github.changed` (the Cloud's GitHub webhooks, events.json `readsParams`) reaches only an app
+/// granted `integration:github:read`: a new subscriber first hears whether the push channel is
+/// live (`{"live": true}` from `OpRouter::stream_live`), then each change.
+#[test]
+fn github_changed_tells_a_new_subscriber_the_push_is_live_and_reaches_only_github_readers() {
+    let stream = "github.changed";
+    let f = fixture();
+    f.install("cmux/demo");
+    f.install("local/spy");
+    f.supervisor.logs(CLIENT, "cmux/demo", true);
+    f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
+    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+    f.wait("liveness", |e| {
+        e["event"] == "apps-log" && e["message"] == r#"event-body 1 {"live":true}"#
+    });
+    f.supervisor.publish(stream, json!({}));
+    f.wait("change", |e| e["event"] == "apps-log" && e["message"] == "event-body 1 {}");
+    let heard = |app: &str| {
+        f.supervisor.logs(CLIENT, app, false)["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|line| line["message"].as_str().is_some_and(|m| m.starts_with("event-body")))
+            .count()
+    };
+    assert_eq!(heard("cmux/demo"), 2, "liveness, then the change");
+    assert_eq!(heard("local/spy"), 0, "an app without integration:github:read hears nothing");
 }
 
 /// `settings.changed` and `theme.changed` reach an app granted `settings:read` (their declared
