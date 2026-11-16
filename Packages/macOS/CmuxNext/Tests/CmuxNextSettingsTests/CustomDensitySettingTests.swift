@@ -1,5 +1,6 @@
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import Foundation
 import Testing
 
 /// Custom densities in cmux.json (`appearance.customDensities`, `appearance.customDensity`) and
@@ -82,5 +83,40 @@ struct CustomDensitySettingTests {
         #expect(second.id == "my-tight-2" && second.basedOn == "cozy")
         #expect(CustomDensitiesSetting.uniqueID(for: "Compact", existing: []) == "compact-2", "never a built-in's id")
         #expect(CustomDensitiesSetting.uniqueID(for: "日本", existing: []) == "custom")
+    }
+
+    @Test func webPresetCopiesKeepTheNativeTokens() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/density-web-exports.json")
+        let exports = try JSONDecoder().decode([JSONValue].self, from: Data(contentsOf: fixture))
+        #expect(exports.count == DensityPreset.allCases.count)
+        for (json, preset) in zip(exports, DensityPreset.allCases) {
+            let copy = try #require(CustomDensitiesSetting.density(from: json))
+            let snapshot = Self.parse(["customDensities": .array([json]), "customDensity": .string(copy.id)])
+            #expect(snapshot.diagnostics.isEmpty)
+            #expect(snapshot.selectedDensity.tokens == preset.tokens.tokens)
+            #expect(abs(snapshot.selectedDensity.bodySize - preset.tokens.bodySize) < 0.000_001)
+            let copiedTitle = try #require(snapshot.selectedDensity.fontToken("tabTitleSize"))
+            let presetTitle = try #require(preset.tokens.fontToken("tabTitleSize"))
+            #expect(abs(copiedTitle - presetTitle) < 0.000_001)
+        }
+    }
+
+    @MainActor @Test func webExactSizeEditsReachTheNativeRowsAndTabs() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/density-web-edited.json")
+        let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: fixture))
+        let copy = try #require(CustomDensitiesSetting.density(from: json))
+        let snapshot = Self.parse(["customDensities": .array([json]), "customDensity": .string(copy.id)])
+        DensityTokens.$scoped.withValue(snapshot.selectedDensity) {
+            let sidebar = SidebarRowTokens(density: .compact, textSize: .standard, base: SidebarRowTokens.current.base)
+            #expect(sidebar.listRowHeight == 40)
+            #expect(sidebar.listRowCornerRadius == 3)
+            #expect(Metrics.tabHeight == 38)
+            #expect(Metrics.chromeTabCornerRadius == 3)
+            #expect(Metrics.tabIconSize == 20)
+        }
     }
 }

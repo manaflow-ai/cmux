@@ -393,7 +393,7 @@ export default agentPaneEntry({
   variants: withAllChats({
     ...Object.fromEntries(
       [0.8, 0.9, 1, 1.1, 1.2].map((scale) => [
-        `density-${scale}`,
+        `density-${Math.round(scale * 100)}`,
         {
           note: `Composer and suggestions at ${scale} times Default.`,
           ready: newTab({ template: "minimal", omnibar: FF_OMNIBAR }),

@@ -23,8 +23,10 @@ import {
   TEXT_SIZE_KEY,
   customDensities,
   duplicate,
+  densityRowFill,
   parseExport,
   resolve,
+  setExactMetric,
   toJSON,
   type Density,
 } from "../density";
@@ -313,9 +315,12 @@ export function DensityCard({ focus = null }: { focus?: string | null }) {
                   name={name}
                   label={t(`settingsWindow.density.token.${name}`)}
                   value={resolve(editing)[name]}
-                  range={{ min: 0, max: Math.max(48, PAIRS[name][1] * 2) }}
+                  range={{
+                    min: name === "sidebarRowHeight" ? densityRowFill(editing) : 0,
+                    max: Math.max(48, PAIRS[name][1] * 2),
+                  }}
                   step={1}
-                  onChange={(value) => edit({ tokens: { ...editing.tokens, [name]: value } })}
+                  onChange={(value) => setDraft(setExactMetric(editing, name, value))}
                 />
               ))}
             </details>

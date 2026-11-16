@@ -124,8 +124,8 @@ test("density previews scale their example rows with the settings page", async (
   const preview = renderToStaticMarkup(createElement(DensityPreview, { density: PRESETS[0]! }));
   const { win, style } = fixture(`<div class="settings">${preview}</div>`, 0.8);
   try {
-    expect(pixels(style(".density-item").height)).toBeCloseTo(20 * 0.8);
-    expect(pixels(style(".density-item").fontSize)).toBeCloseTo(11 * 0.8);
+    expect(pixels(style(".density-item").height)).toBeCloseTo(24 * 0.8);
+    expect(pixels(style(".density-item").fontSize)).toBeCloseTo(11.2 * 0.8);
   } finally {
     await win.happyDOM.abort();
   }

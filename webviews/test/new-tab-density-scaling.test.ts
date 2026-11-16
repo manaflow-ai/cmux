@@ -46,7 +46,7 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
       for (const scale of [0.8, 1, 1.2]) {
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", {
-            variant: `density-${scale}`,
+            variant: `density-${Math.round(scale * 100)}`,
             width: 1400,
             frame: "component",
           })}`,
