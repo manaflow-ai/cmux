@@ -293,6 +293,7 @@ pub struct CongestionController {
     config: CcConfig,
     profile: EncodeProfile,
     ultra: UltraState,
+    path_generation: u64,
     target_bps: u64,
     path: PathKind,
     sent: HashMap<u16, Sent>,
@@ -324,6 +325,7 @@ impl CongestionController {
             config,
             profile: EncodeProfile::Standard,
             ultra: UltraState::default(),
+            path_generation: 0,
             target_bps: config.start_bps,
             path,
             sent: HashMap::new(),
@@ -373,11 +375,19 @@ impl CongestionController {
         self.clamp();
     }
 
-    /// A completed probe on the current path, validated by its planner. The
-    /// caller resets the planner on path changes; stale trains must not apply.
-    pub fn on_probe_capacity(&mut self, capacity_bps: u64) {
-        if self.profile != EncodeProfile::Ultra || capacity_bps < 2 {
-            return;
+    /// Capture this token when a probe train starts, not when feedback arrives.
+    pub fn probe_generation(&self) -> u64 {
+        self.path_generation
+    }
+
+    /// A completed, planner-validated probe. An old route's measurement cannot
+    /// apply after a route/profile change, even if its feedback arrives late.
+    pub fn on_probe_capacity(&mut self, generation: u64, capacity_bps: u64) -> bool {
+        if self.profile != EncodeProfile::Ultra
+            || generation != self.path_generation
+            || capacity_bps < 2
+        {
+            return false;
         }
         self.ultra.capacity_bps = Some(capacity_bps);
         if let Some(held) = self.ultra.held_wire_bps(self.ultra_path_ceiling()) {
@@ -386,6 +396,7 @@ impl CongestionController {
                 if self.ultra.standing_queue { self.ultra.wire_bps.min(held) } else { held };
         }
         self.clamp();
+        true
     }
 
     /// Total departure budget, including FEC, repairs and probes. Standard
@@ -466,6 +477,7 @@ impl CongestionController {
     /// A path change resets the delay baseline and the measured capacity (RTT and
     /// capacity change at once) and applies the relay cap immediately.
     pub fn on_path_changed(&mut self, path: PathKind) {
+        self.path_generation = self.path_generation.wrapping_add(1);
         self.path = path;
         if self.profile == EncodeProfile::Ultra {
             self.ultra.reset_path();

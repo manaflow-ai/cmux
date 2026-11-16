@@ -1,6 +1,8 @@
 //! Measured, held wire-rate policy. Random loss buys parity within the budget;
 //! only a standing queue reduces the wire rate.
 
+use crate::profile::ULTRA_MAX_KBPS;
+
 /// Limits for the explicitly selected ultra profile, in wire bits per second.
 #[derive(Debug, Clone, Copy)]
 pub struct UltraConfig {
@@ -14,7 +16,11 @@ pub struct UltraConfig {
 
 impl Default for UltraConfig {
     fn default() -> Self {
-        Self { max_wire_bps: 150_000_000, queue_floor_us: 10_000, standing_queue_us: 200_000 }
+        Self {
+            max_wire_bps: u64::from(ULTRA_MAX_KBPS) * 1_000,
+            queue_floor_us: 10_000,
+            standing_queue_us: 200_000,
+        }
     }
 }
 
