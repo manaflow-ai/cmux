@@ -576,9 +576,7 @@
       "packages": [
         "CmuxHomeRender"
       ],
-      "reads": [
-        "web/"
-      ]
+      "reads": []
     },
     "CmuxNextBookmarks": {
       "kind": "regular",
