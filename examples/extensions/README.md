@@ -17,6 +17,7 @@ and the sample stays installed. `cmux ext remove ID` uninstalls it.
 | [Link hints](link-hints) | Browse the built-in browser with the keyboard: follow links by their labels, go back, bookmark, find | `cmux ext dev examples/extensions/link-hints` |
 | [Clean this page](clean-page) | Your agent picks the ads, banners and sticky bars on a web page, and cmux hides them on that site | `cmux ext dev examples/extensions/clean-page` |
 | [JavaScript for this site](site-js) | One palette command turns JavaScript off for the site in the front tab, or back on | `cmux ext dev examples/extensions/site-js` |
+| [The Leo collection](leo-collection) | Clock, weather, gacha and usage, riced up, with a look that ties them together | `examples/extensions/leo-collection/install.sh` |
 
 `cmux ext dev` packs `src/main.ts` with `bun`, so `bun` must be on your PATH. `bun
 examples/extensions/build.ts --check` packs every sample and validates its manifest.
