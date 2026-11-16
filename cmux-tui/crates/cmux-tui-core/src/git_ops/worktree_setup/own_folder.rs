@@ -175,16 +175,39 @@ impl OwnFolder {
     }
 
     /// Writes `bytes` as the whole of the JSON file `name`: to the file
-    /// `name.partial`, which then takes its name. The `.partial` file is
-    /// made new ([`Self::make_new`]): what is at its name goes first, and a
-    /// link that comes there after that stops the write.
+    /// `name.partial`, which is flushed and then takes its name. The
+    /// `.partial` file is made new ([`Self::make_new`]): what is at its
+    /// name goes first, and a link that comes there after that stops the
+    /// write.
+    ///
+    /// The flush puts the bytes before the rename in the order of the
+    /// writes to the disk: after a stop of the machine, the name has the
+    /// whole of the file from before or the whole of the new one, not a
+    /// file that is cut short. A flush that fails stops the write: the
+    /// name keeps the file from before. The folder is not flushed after
+    /// the rename, so a stop of the machine directly after it can leave
+    /// the file from before at the name.
     pub(super) fn write(&self, name: &str, bytes: &[u8]) -> io::Result<()> {
         let partial = format!("{name}.partial");
         self.folder.remove(&partial);
         let mut file = self.make_new(&partial, Access::Write)?;
         file.write_all(bytes)?;
+        flush(&file)?;
         self.folder.rename(&partial, name)
     }
+}
+
+/// Flushes `file`, which [`OwnFolder::write`] wrote, before it takes its
+/// name. In a test build, a flush that the test put in the place for its
+/// thread runs and no call to the system is made.
+fn flush(file: &File) -> io::Result<()> {
+    #[cfg(test)]
+    {
+        if let Some(result) = flushes::in_place(file) {
+            return result;
+        }
+    }
+    system::flush(file)
 }
 
 /// The path `path` from the folder `folder`; `path` itself when it starts at
@@ -221,6 +244,16 @@ mod system {
     /// The mode of a file that an open makes, before the mask of the
     /// process: the mode that `std::fs` makes a file with.
     const NEW_FILE_MODE: libc::c_uint = 0o666;
+
+    /// Flushes `file` with the sync that the record files of the terminal
+    /// host have before their rename, `barrier_sync`
+    /// ([`sync_before_rename`](crate::terminal_host_runtime::sync_before_rename)):
+    /// it puts the bytes of the file before the writes that come after it.
+    /// On macOS that is `F_BARRIERFSYNC`, which does not empty the cache of
+    /// the drive.
+    pub(super) fn flush(file: &File) -> io::Result<()> {
+        crate::terminal_host_runtime::sync_before_rename(file)
+    }
 
     /// The open folder, or why there is none.
     pub(super) struct Folder(Result<OwnedFd, io::ErrorKind>);
@@ -331,6 +364,11 @@ mod system {
 
     use super::{Access, Open};
 
+    /// Flushes `file` with the full sync of the system.
+    pub(super) fn flush(file: &File) -> io::Result<()> {
+        file.sync_all()
+    }
+
     /// The folder, as its real path; as the path that it was opened by when
     /// that has no real path.
     pub(super) struct Folder(PathBuf);
@@ -387,5 +425,40 @@ mod system {
         pub(super) fn rename(&self, from: &str, to: &str) -> io::Result<()> {
             fs::rename(self.0.join(from), self.0.join(to))
         }
+    }
+}
+
+/// A flush that a test puts in the place of the flush of a file that
+/// [`OwnFolder::write`] writes, for the writes of the test's own thread.
+#[cfg(test)]
+pub(super) mod flushes {
+    use std::cell::RefCell;
+    use std::fs::File;
+    use std::io;
+
+    /// What runs in the place of a flush. It gets the open `.partial` file.
+    type Flush = Box<dyn FnMut(&File) -> io::Result<()>>;
+
+    thread_local! {
+        static IN_PLACE: RefCell<Option<Flush>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `run` with `flush` in the place of each flush of this thread.
+    /// The tests that use it are Unix only.
+    #[cfg(unix)]
+    pub(in super::super) fn in_place_of<T>(
+        flush: impl FnMut(&File) -> io::Result<()> + 'static,
+        run: impl FnOnce() -> T,
+    ) -> T {
+        IN_PLACE.set(Some(Box::new(flush)));
+        let result = run();
+        IN_PLACE.set(None);
+        result
+    }
+
+    /// The result of the flush that is in the place for this thread, for
+    /// `file`. `None` when no flush is in the place.
+    pub(super) fn in_place(file: &File) -> Option<io::Result<()>> {
+        IN_PLACE.with_borrow_mut(|flush| flush.as_mut().map(|flush| flush(file)))
     }
 }

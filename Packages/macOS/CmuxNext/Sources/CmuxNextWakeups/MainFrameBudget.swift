@@ -364,7 +364,13 @@ public final class MainFrameBudget {
         stats.maxInputCheckNanos = max(stats.maxInputCheckNanos, took)
         // A check inside a task is already in that task's time.
         if open.isEmpty { checkSpent &+= took }
-        inputAnswer = (now, pending)
+        // Stamped when the check *finished*, never when it began: the 250 us window is there to
+        // stop a costly check from running again inside one frame, so timing it from the start
+        // means a check that costs more than the window leaves its own answer already expired, and
+        // every later call in that frame pays for another one. The cost of the thing a gate
+        // suppresses is never the quantity the gate compares (hq docs/handbook
+        // latency-gate-its-own-slowness-switches-off.md).
+        inputAnswer = (now &+ took, pending)
         return pending
     }
 
