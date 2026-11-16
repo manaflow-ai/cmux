@@ -99,9 +99,9 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         await local.peerSnapshot(sessionId: sessionId)
     }
 
-    public func prewarm() async throws {
-        try await local.prewarm()
-    }
+    public func prewarm() async throws { try await local.prewarm() }
+
+    public func prewarmForRestoredChats() async throws { try await local.prewarmForRestoredChats() }
 
     /// The folder of `sessionId` from the host that owns it (the chief's or
     /// this Mac's acpmux), so a commit or push runs in that session's folder.
