@@ -43,7 +43,7 @@ final class CmuxToastPlaygroundSheet: NSView {
         stack.alignment = style.look.placement == .bottomTrailing ? .trailing : .centerX
         stack.spacing = CmuxToastOverlayHost.stackGap + 2
         stack.translatesAutoresizingMaskIntoConstraints = false
-        for toast in CmuxToastPlaygroundSamples.kinds + CmuxToastPlaygroundSamples.sidebarRefusals {
+        for toast in CmuxToastPlaygroundSamples.sheet {
             let view = CmuxToastView(toast: toast, tuning: tuning, style: style)
             // In a window of its own, not the overlay panel: the glass samples the page under it.
             view.surface?.samplesBehindWindow = false
