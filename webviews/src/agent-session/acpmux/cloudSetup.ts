@@ -82,3 +82,19 @@ export function waitForCloudSetUp(
   };
   return { ended, withdraw };
 }
+
+/// Set up Cloud's button: `pick` is in `slot` only while `retry` runs. The resend it starts reads the
+/// pick then and there (App.tsx `beginCloudSend`); a retry that sent nothing (one already out or
+/// resumed, an edited prompt, no start to resend) leaves no pick for a later plain Sign in to take.
+export function retryWithSetUpPick<Pick>(
+  slot: { current: Pick | undefined },
+  pick: Pick,
+  retry: () => Promise<boolean>,
+): Promise<boolean> {
+  slot.current = pick;
+  try {
+    return retry();
+  } finally {
+    slot.current = undefined;
+  }
+}

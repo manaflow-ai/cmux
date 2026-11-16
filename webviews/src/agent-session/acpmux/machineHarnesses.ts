@@ -109,7 +109,9 @@ export function useMachineHarnessCheck({
   const [asked, setAsked] = useState<string | undefined>(undefined);
   const askedRef = useRef<string | undefined>(undefined);
   const latest = useRef(switchTo);
-  latest.current = switchTo;
+  useEffect(() => {
+    latest.current = switchTo;
+  }, [switchTo]);
   const to = verdict.kind === "switch" ? verdict.to : undefined;
   const key = to !== undefined && peer ? `${peer}\u0000${selected ?? ""}\u0000${to}` : undefined;
   useEffect(() => {

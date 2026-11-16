@@ -592,7 +592,7 @@ import {
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "./cloudSignIn";
-import { waitForCloudSetUp, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
+import { retryWithSetUpPick, waitForCloudSetUp, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
 import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
@@ -5049,14 +5049,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const setUpCloud = (action: CloudSetupAction) => {
     const need = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
     if (!need) return;
-    cloudSetUpPick.current = { action, need };
-    void cloudSignInRetry();
+    // The resend takes the pick at once (`beginCloudSend`); a retry that sent nothing (one already out
+    // or resumed, an edited prompt, a reset) leaves none, so a later Sign in signs in.
+    void retryWithSetUpPick(cloudSetUpPick, { action, need }, cloudSignInRetry);
   };
   /// The model picker's Connect row (claudeConnect.ts `setupConnect`) while this chat's Cloud start
   /// waits for a connection: shown only for the family the host's Set up Cloud need names, so a local
   /// chat, or a Cloud one a connection serves, never shows it. Connect runs the card's first button.
   const setUpCloudNow = useRef(setUpCloud);
-  setUpCloudNow.current = setUpCloud;
+  useEffect(() => {
+    setUpCloudNow.current = setUpCloud;
+  });
   const cloudSetupNeed = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
   const cloudSetupWaiting = cloudStart?.signingIn === true;
   const modelConnect = useMemo(
@@ -12572,7 +12575,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 const once = cloudFolderOnce.current;
                 cloudFolderOnce.current = undefined;
                 const folder =
-                  once ?? (projectDraft ? cloudStartFolder(projectDraft) : composerCloudStartFolder(composerSnapshot.summary));
+                  once ??
+                  (projectDraft ? cloudStartFolder(projectDraft) : composerCloudStartFolder(composerSnapshot.summary));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
                 const started = sendToCloud(

@@ -796,8 +796,9 @@ export function AddConnectionSheet({
   const count = models.personal.connections.length;
   const before = useRef<number | null>(null);
   useEffect(() => {
-    if (attempt) before.current ??= count;
-    else if (before.current !== null) {
+    if (attempt) {
+      if (before.current === null) before.current = count;
+    } else if (before.current !== null) {
       const added = !error && count > before.current;
       before.current = null;
       if (added) onClose();

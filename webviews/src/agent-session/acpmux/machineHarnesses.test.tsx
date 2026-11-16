@@ -2,7 +2,7 @@
 // set up there (Austin, 2026-11-12): the machine's default is picked for it when the machine names
 // one, Send is held with a notice otherwise, and a machine that does not answer holds nothing.
 import { afterEach, expect, test } from "bun:test";
-import { act, useState } from "react";
+import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -121,13 +121,14 @@ const settle = () =>
 function Pane({
   reply,
   start,
-  switches,
-  out,
+  onSwitch,
+  onCheck,
 }: {
   reply: () => Promise<unknown>;
   start: string;
-  switches: string[];
-  out: { check?: MachineHarnessCheck };
+  onSwitch: (harness: string) => void;
+  /// The check as last committed, for the test to read.
+  onCheck: (check: MachineHarnessCheck) => void;
 }) {
   const [selected, setSelected] = useState(start);
   const machine = useMachineHarnesses(
@@ -135,16 +136,17 @@ function Pane({
     "studio",
     true,
   );
-  out.check = useMachineHarnessCheck({
+  const check = useMachineHarnessCheck({
     peer: "studio",
     selected,
     verdict: machineHarnessVerdict(selected, machine),
     switching: false,
     switchTo: (harness) => {
-      switches.push(harness);
+      onSwitch(harness);
       setSelected(harness);
     },
   });
+  useEffect(() => onCheck(check));
   return <span data-selected={selected} />;
 }
 
@@ -157,7 +159,14 @@ async function renderPane(reply: () => Promise<unknown>, start: string) {
     root = createRoot(container);
     root.render(
       <QueryClientProvider client={client}>
-        <Pane reply={reply} start={start} switches={switches} out={out} />
+        <Pane
+          reply={reply}
+          start={start}
+          onSwitch={(harness) => switches.push(harness)}
+          onCheck={(check) => {
+            out.check = check;
+          }}
+        />
       </QueryClientProvider>,
     );
   });

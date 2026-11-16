@@ -9,8 +9,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { CloudStartView } from "./CloudStartView";
 import { cloudStartEnded, cloudStartSignedIn, type CloudStartProgress } from "./cloudStartProgress";
-import { cloudPickExtras, startCloudChat } from "./cloudRun";
-import { cloudSetupActions, readCloudSetupNeed, waitForCloudSetUp, type CloudSetupAction } from "./cloudSetup";
+import { cloudPickExtras, makeCloudSignInRetry, startCloudChat, type CloudStartAnswer } from "./cloudRun";
+import {
+  cloudSetupActions,
+  readCloudSetupNeed,
+  retryWithSetUpPick,
+  waitForCloudSetUp,
+  type CloudSetupAction,
+} from "./cloudSetup";
 import { startAfterSignIn } from "./cloudSignIn";
 import { translate } from "./i18n";
 import setupGallery from "./CloudSetup.gallery";
@@ -141,6 +147,39 @@ test("a click on the card asks for that way in; while it waits the buttons rest"
   );
   expect(mount.textContent).toContain(translate("cloudSetup.waiting"));
   expect(button("connectChatGPT").disabled).toBe(true);
+});
+
+test("a Set up Cloud press the resend did not take leaves no pick for a later Sign in", async () => {
+  const slot: { current: CloudSetupAction | undefined } = { current: undefined };
+  // What each resend found in the slot, as `beginCloudSend` reads it.
+  const taken: (CloudSetupAction | undefined)[] = [];
+  let answer!: (value: CloudStartAnswer) => void;
+  let resend: () => Promise<CloudStartAnswer> | undefined = () => {
+    taken.push(slot.current);
+    return new Promise<CloudStartAnswer>((resolve) => (answer = resolve));
+  };
+  const retry = makeCloudSignInRetry(() => resend());
+  // The first press resends with its way in.
+  const first = retryWithSetUpPick(slot, "setUpClaude", retry);
+  expect(taken).toEqual(["setUpClaude"]);
+  expect(slot.current).toBeUndefined();
+  // A second press while that resend is out sends nothing, and keeps nothing.
+  void retryWithSetUpPick(slot, "addKey", retry);
+  expect(taken).toEqual(["setUpClaude"]);
+  expect(slot.current).toBeUndefined();
+  answer({ ok: false, code: "cloud_setup_required" });
+  expect(await first).toBe(false);
+  // No start to resend (the chat or mode changed): the press keeps nothing either.
+  resend = () => undefined;
+  expect(await retryWithSetUpPick(slot, "openSettings", retry)).toBe(false);
+  expect(slot.current).toBeUndefined();
+  // The next plain Sign in finds no pick, so it signs in rather than setting up.
+  resend = () => {
+    taken.push(slot.current);
+    return Promise.resolve({ ok: true });
+  };
+  expect(await retry()).toBe(true);
+  expect(taken).toEqual(["setUpClaude", undefined]);
 });
 
 test("the start carries the picker's effort and account", async () => {
