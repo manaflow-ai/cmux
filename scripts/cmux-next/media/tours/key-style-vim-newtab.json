@@ -1,9 +1,9 @@
 {
   "title": "Key Style Vim: j, k, G, gg and / move through the New Tab list; Esc leaves the field",
-  "settings": {"app": {"keyStyle": "vim"}},
+  "settings": {"app": {"keyStyle": "vim"}, "tabs": {"newTabTemplate": "minimal", "nativeNewTabPage": false}},
   "steps": [
     {"title": "Launch", "wait": 2, "shot": false},
-    {"title": "A New Tab", "cmux": ["action", "run", "newTab"], "wait": 4},
+    {"title": "A New Tab", "cmux": ["action", "run", "newTab.page"], "wait": 4},
     {"title": "Esc: the field gives the list the keyboard", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 1},
     {"title": "j: next row", "rpc": {"method": "debug.key", "params": {"key": "j"}}, "wait": 0.8},
     {"title": "j: next row", "rpc": {"method": "debug.key", "params": {"key": "j"}}, "wait": 0.8},
