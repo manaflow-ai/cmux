@@ -2166,7 +2166,7 @@
         staleAfterSeconds: 60
       },
       "github.pulls": {
-        docs: "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. Nothing pushes GitHub changes to cmux yet, so the runtime polls behind it.",
+        docs: "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls.",
         scopes: [
           "integration:github:read",
           "net:api.github.com"
@@ -2292,9 +2292,12 @@
             }
           ]
         },
-        push: [],
+        push: [
+          "github.changed"
+        ],
         pollFloorSeconds: 60,
-        staleAfterSeconds: 300
+        staleAfterSeconds: 300,
+        safetyPollSeconds: 900
       },
       "workspace.list": {
         docs: "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
@@ -2418,7 +2421,9 @@
       again: false,
       queued: false,
       failures: 0,
-      lastUse: Date.now()
+      lastUse: Date.now(),
+      pushLive: false,
+      liveHeard: false
     };
     entries.set(key, e);
     return e;
@@ -2438,6 +2443,16 @@
         s = Math.min(s, every);
     return Math.max(e.def.pollFloorSeconds, s) * 1000;
   }
+  function idleMs(e) {
+    if (!e.def.push.length)
+      return pollMs(e);
+    if (e.def.safetyPollSeconds === undefined)
+      return null;
+    if (!e.pushLive)
+      return pollMs(e);
+    return Math.max(e.def.pollFloorSeconds, e.def.safetyPollSeconds) * 1000;
+  }
+  var readerPaced = (e) => !e.def.push.length || e.def.safetyPollSeconds !== undefined && !e.pushLive;
   function schedule(e, ms) {
     if (e.timer !== null)
       clearTimer(e.timer);
@@ -2458,9 +2473,8 @@
       const floor = e.def.pollFloorSeconds * 1000;
       return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)));
     }
-    if (e.def.push.length)
-      return schedule(e, -1);
-    schedule(e, pollMs(e));
+    const ms = idleMs(e);
+    schedule(e, ms === null ? -1 : ms);
   }
   function upstream(e) {
     const call = (op, params) => callWith(op, params, {}, undefined).then((r) => r.value);
@@ -2515,6 +2529,25 @@
     if (e.failures === 1)
       log("warn", `watch ${e.name}: ${error.code}: ${error.message}`);
   }
+  function onPush(e, payload) {
+    const live = payload && typeof payload === "object" ? payload.live : undefined;
+    if (typeof live !== "boolean") {
+      e.pushLive = true;
+      e.liveHeard = true;
+      return pushed(e);
+    }
+    const first = !e.liveHeard;
+    e.liveHeard = true;
+    if (live === e.pushLive)
+      return;
+    e.pushLive = live;
+    if (live && !first)
+      return pushed(e);
+    if (active(e) && !e.inFlight && e.failures === 0) {
+      const ms = idleMs(e);
+      schedule(e, ms === null ? -1 : ms);
+    }
+  }
   function pushed(e) {
     if (e.queued)
       return;
@@ -2530,7 +2563,7 @@
       for (const stream of e.def.push) {
         try {
           const subId = state.native.subscribe(stream, "{}");
-          state.subscriptions.set(subId, () => pushed(e));
+          state.subscriptions.set(subId, (payload) => onPush(e, payload));
           e.subs.push(() => {
             if (state.subscriptions.delete(subId))
               state.native?.unsubscribe(subId);
@@ -2550,6 +2583,8 @@
   function deactivate(e) {
     for (const off of e.subs.splice(0))
       off();
+    e.pushLive = false;
+    e.liveHeard = false;
     if (e.timer !== null)
       clearTimer(e.timer);
     e.timer = null;
@@ -2567,7 +2602,7 @@
     e.readers.set(id, everySeconds);
     if (first)
       activate(e);
-    else if (everySeconds && !e.def.push.length && !e.inFlight && e.timer !== null && e.failures === 0)
+    else if (everySeconds && readerPaced(e) && !e.inFlight && e.timer !== null && e.failures === 0)
       schedule(e, pollMs(e));
     let released = false;
     return () => {
@@ -2577,7 +2612,7 @@
       e.readers.delete(id);
       if (!active(e))
         deactivate(e);
-      else if (!e.def.push.length && e.timer !== null && !e.inFlight && e.failures === 0)
+      else if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0)
         schedule(e, pollMs(e));
     };
   }

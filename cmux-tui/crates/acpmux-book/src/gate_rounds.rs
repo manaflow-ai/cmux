@@ -6,7 +6,8 @@
 //! 3,100 ns) against 9,700 to 14,500 ns in round one, and the best round read 0.995x.
 //!
 //! [`report`] prints every round's p95 for each side, always, and one notice line for each
-//! round whose p95 is more than [`SPREAD_FACTOR`] from the median round's on its side. It is a
+//! round whose p95 is more than [`SPREAD_FACTOR`] from the median round's on its side, plus one
+//! line when any two rounds on a side are more than that factor from each other. It is a
 //! notice, not a failure, until a few runs on the shared CI machines show where a cold first
 //! round is real.
 
@@ -83,6 +84,33 @@ pub fn spread_notices(row: &str, side: &str, round_p95s: &[u128], factor: f64) -
         .collect()
 }
 
+/// One line when two rounds on one side are more than `factor` from each other, naming the
+/// row, the side, the fastest and the slowest round and their two numbers.
+///
+/// This compares each round with every other one: some pair is more than `factor` apart
+/// exactly when the slowest and the fastest round are. The median check alone lets two rounds
+/// be up to `factor` squared apart (5,100 and 19,000 ns around a 10,000 ns median) and says
+/// nothing.
+pub fn pair_spread_notice(
+    row: &str,
+    side: &str,
+    round_p95s: &[u128],
+    factor: f64,
+) -> Option<String> {
+    if round_p95s.len() < 2 {
+        return None;
+    }
+    let (fast_round, &fast) = round_p95s.iter().enumerate().min_by_key(|&(_, p95)| *p95)?;
+    let (slow_round, &slow) = round_p95s.iter().enumerate().max_by_key(|&(_, p95)| *p95)?;
+    (slow.max(1) as f64 > fast.max(1) as f64 * factor).then(|| {
+        format!(
+            "GATE_ROUND_PAIR_SPREAD row={row} side={side} fast_round={} fast_p95={fast} slow_round={} slow_p95={slow} factor={factor}",
+            fast_round + 1,
+            slow_round + 1
+        )
+    })
+}
+
 /// Every round's p95 line for every side, then the spread notices. Returned as well as
 /// printed so a gate's test can read them. Panics on an empty side or round
 /// ([`refuse_empty`]).
@@ -96,6 +124,7 @@ pub fn report_lines(row: &str, sides: &[(&str, &[Vec<u128>])]) -> Vec<String> {
             lines.push(format!("GATE_ROUND row={row} side={side} round={} p95={p95}", round + 1));
         }
         notices.extend(spread_notices(row, side, &round_p95s, SPREAD_FACTOR));
+        notices.extend(pair_spread_notice(row, side, &round_p95s, SPREAD_FACTOR));
     }
     lines.extend(notices);
     lines
@@ -160,6 +189,49 @@ mod tests {
         assert_eq!(lines.len(), 6);
         assert_eq!(lines[0], "GATE_ROUND row=row side=small round=1 p95=100");
         assert_eq!(lines[5], "GATE_ROUND row=row side=god round=3 p95=150");
+    }
+
+    fn pair_notices(lines: &[String]) -> Vec<&String> {
+        lines.iter().filter(|line| line.starts_with("GATE_ROUND_PAIR_SPREAD")).collect()
+    }
+
+    #[test]
+    fn two_rounds_far_apart_are_compared_with_each_other() {
+        // Each round is within 2x of the median round (10,000 ns), so the median check says
+        // nothing, yet rounds one and three are 3.7x apart: one of them did different work.
+        let small = [5_100, 10_000, 19_000].map(round).to_vec();
+        let god = [10_000, 10_100, 10_200].map(round).to_vec();
+        let lines = report_lines("row", &[("small", &small), ("god", &god)]);
+        assert!(notices(&lines).is_empty(), "{lines:#?}");
+        assert_eq!(
+            pair_notices(&lines),
+            [
+                "GATE_ROUND_PAIR_SPREAD row=row side=small fast_round=1 fast_p95=5100 slow_round=3 slow_p95=19000 factor=2"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_replay_append_gate_at_a59587e5_names_its_farthest_rounds() {
+        let foreign = [9_700, 2_004, 2_400, 2_800, 3_100].map(round).to_vec();
+        let own = [14_500, 1_993, 2_300, 2_700, 3_000].map(round).to_vec();
+        let lines =
+            report_lines("replay-append-at-a59587e5", &[("small", &foreign), ("god", &own)]);
+        assert_eq!(
+            pair_notices(&lines),
+            [
+                "GATE_ROUND_PAIR_SPREAD row=replay-append-at-a59587e5 side=small fast_round=2 fast_p95=2004 slow_round=1 slow_p95=9700 factor=2",
+                "GATE_ROUND_PAIR_SPREAD row=replay-append-at-a59587e5 side=god fast_round=2 fast_p95=1993 slow_round=1 slow_p95=14500 factor=2",
+            ]
+        );
+    }
+
+    #[test]
+    fn rounds_within_the_factor_of_each_other_make_no_pair_notice() {
+        let small = [10_151, 10_400, 9_900, 11_200, 10_610].map(round).to_vec();
+        let god = [10_000, 19_999, 12_000].map(round).to_vec();
+        let lines = report_lines("row", &[("small", &small), ("god", &god)]);
+        assert!(pair_notices(&lines).is_empty(), "{lines:#?}");
     }
 
     #[test]

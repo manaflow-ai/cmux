@@ -69,6 +69,12 @@ fn parses_new_dev_list_remove_and_help() {
     };
     assert_eq!(options.build_timeout, std::time::Duration::from_secs(5));
     assert_eq!(parse(&words("list")), Ok(Request::List));
+    assert_eq!(parse(&words("reload")), Ok(Request::Reload { app: None }));
+    assert_eq!(
+        parse(&words("reload hello")),
+        Ok(Request::Reload { app: Some("local/hello".into()) })
+    );
+    assert_eq!(parse(&words("reload acme/x")), Ok(Request::Reload { app: Some("acme/x".into()) }));
     assert_eq!(parse(&words("remove local/x")), Ok(Request::Remove { app: "local/x".into() }));
     for bad in [
         "new",
@@ -92,6 +98,10 @@ fn parses_new_dev_list_remove_and_help() {
         "remove local/",
         "remove local/customize",
         "list extra",
+        "reload a b",
+        "reload --all",
+        "reload local/../x",
+        "reload a/b/c",
         "frobnicate",
     ] {
         assert!(parse(&words(bad)).is_err(), "{bad}");
@@ -544,6 +554,26 @@ fn serve(
                         out.push(reply(data));
                     }
                     None => out.push(reply(json!({}))),
+                }
+            }
+            // As the supervisor's `reload_local_now`: an unknown name is refused,
+            // a script that does not load is named with its init error.
+            "apps-reload" => {
+                let asked = request["app"].as_str();
+                let script = std::fs::read_to_string(local.join(name).join("dist/main.js"))
+                    .unwrap_or_default();
+                if asked == Some("local/older-daemon") {
+                    // What a daemon from before `apps-reload` answers.
+                    out.push(json!({"id": id, "ok": false, "error_code": "bad-request",
+                        "error": "unknown variant `apps-reload`, expected one of `apps-list`, `apps-set`"}));
+                } else if asked.is_some_and(|asked| asked != app) {
+                    out.push(json!({"id": id, "ok": false, "error_code": "apps.local.unknown",
+                        "error": format!("{} is not an extension in a local folder (local: {app})", asked.unwrap_or(""))}));
+                } else if script.contains("THROW_AT_INIT") {
+                    out.push(reply(json!({"reloaded": [], "removed": [], "refused": [{"app": app,
+                        "reason": "init: dist/main.js:2:12 SyntaxError: unexpected token"}]})));
+                } else {
+                    out.push(reply(json!({"reloaded": [app], "refused": [], "removed": []})));
                 }
             }
             // The daemon's pass: its events, then the reply (`Supervisor::reload_local_apps_now`).
@@ -1053,6 +1083,51 @@ fn a_new_tab_page_is_placed_where_the_person_picks_it() {
         placed[0]["where"].as_str().is_some_and(|w| w.contains("tabs.newTabApp")),
         "{placed:?}"
     );
+}
+
+/// `ext reload NAME`: one `apps-reload` naming the app; a script that does
+/// not load exits 1 and names file and line, an unknown name is refused.
+#[test]
+fn reload_asks_the_daemon_and_names_a_script_that_does_not_load() {
+    let root = tempfile::tempdir().unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/hello", true);
+    std::fs::create_dir_all(local.join("hello/dist")).unwrap();
+    std::fs::write(local.join("hello/dist/main.js"), "var __cmuxAppExports = {};").unwrap();
+
+    let data = super::reload_call(&global(&fake.socket), Some("local/hello")).unwrap();
+    assert_eq!(super::reload_exit(&data), exit::OK);
+    assert_eq!(super::reload_text(&data), "reloaded local/hello\n");
+    let asked = fake.requests.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(asked, json!({"id": asked["id"], "cmd": "apps-reload", "app": "local/hello"}));
+
+    std::fs::write(local.join("hello/dist/main.js"), "const a b // THROW_AT_INIT").unwrap();
+    let data = super::reload_call(&global(&fake.socket), None).unwrap();
+    assert_eq!(super::reload_exit(&data), exit::LOAD_FAILED);
+    let text = super::reload_text(&data);
+    assert!(text.contains("local/hello did not load (the last good version stays)"), "{text}");
+    assert!(text.contains("dist/main.js:2:12"), "{text}");
+    assert!(fake.requests.lock().unwrap().last().unwrap().get("app").is_none(), "every app");
+
+    let (code, message) =
+        super::reload_call(&global(&fake.socket), Some("local/nope")).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(message.contains("local/nope is not an extension"), "{message}");
+    let (code, message) =
+        super::reload_call(&global(&fake.socket), Some("local/older-daemon")).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(message.contains("older than cmux ext reload"), "{message}");
+    let gone = super::reload_call(&global(&root.path().join("missing.sock")), None).unwrap_err();
+    assert_eq!(gone.0, exit::NO_DAEMON);
+}
+
+#[test]
+fn reload_says_when_there_is_nothing_to_reload() {
+    let none = json!({"reloaded": [], "refused": [], "removed": []});
+    assert!(super::reload_text(&none).starts_with("no extensions in a local folder"));
+    assert_eq!(super::reload_exit(&none), exit::OK);
+    let removed = json!({"reloaded": [], "refused": [], "removed": ["local/old"]});
+    assert_eq!(super::reload_text(&removed), "removed local/old (its folder is gone)\n");
 }
 
 /// An installed New Tab page the person has not picked is not reported as

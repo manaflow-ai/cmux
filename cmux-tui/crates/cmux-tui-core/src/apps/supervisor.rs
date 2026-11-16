@@ -61,6 +61,9 @@ impl ApiError {
 }
 
 /// Routes an app's catalog op to the daemon's own dispatcher.
+/// How `OpRouter::start_events` hands a change to the supervisor: a stream name and its body.
+pub type StreamPublish = Box<dyn Fn(&str, Value) + Send + Sync>;
+
 pub trait OpRouter: Send + Sync {
     /// Runs `op` for `app`. Ok is the ABI ok body (`{value, ...}`), Err the
     /// ABI error body (`{code, message, details?, retryable}`).
@@ -91,9 +94,17 @@ pub trait OpRouter: Send + Sync {
         Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
     }
     /// Starts delivering daemon change events as stream names
-    /// (`workspace.changed`, `agent.changed`, …). Called once, on the first
-    /// app subscription.
-    fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>);
+    /// (`workspace.changed`, `agent.changed`, …) and their bodies (`{}`, or
+    /// `{"live": bool}` for a stream with a push channel). Called once, on the
+    /// first app subscription.
+    fn start_events(&self, publish: StreamPublish);
+    /// For a stream fed by a push channel outside this machine (`github.changed`, the Cloud's
+    /// webhooks): whether that channel is live now. A new subscriber hears `{"live": bool}` first,
+    /// so a watch knows whether to keep its slow re-read. `None` for every other stream.
+    fn stream_live(&self, stream: &str) -> Option<bool> {
+        let _ = stream;
+        None
+    }
     /// True when the daemon's own dispatcher owns `op`; other ops go to a
     /// provider.
     fn owns(&self, op: &str) -> bool;
@@ -288,6 +299,13 @@ pub(super) enum Out {
     Broadcast(Value),
     Respond(Responder, Result<Value, ApiError>),
     StartEvents,
+    /// Tell a new subscriber of a pushed stream whether its push channel is live
+    /// (`OpRouter::stream_live`); the router is asked outside the lock.
+    StreamLiveness {
+        key: HostKey,
+        sub: u64,
+        stream: String,
+    },
     /// Keep a local app's loaded files as its last good version
     /// (`rollback.rs`): a file copy, so it runs outside the lock.
     KeepGood {
@@ -303,6 +321,9 @@ pub struct Supervisor {
     pub(super) inner: Mutex<Inner>,
     pub(super) router: Box<dyn OpRouter>,
     pub(super) fetcher: Box<dyn Fetcher>,
+    /// `integration.request` for provider `github`, answered here
+    /// (`github_gateway.rs`). Unset, the call goes to the provider.
+    pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
@@ -448,6 +469,7 @@ impl Supervisor {
             config,
             router,
             fetcher,
+            github: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),
@@ -796,11 +818,16 @@ impl Supervisor {
                 }
                 Out::StartEvents => {
                     let me = self.me.clone();
-                    self.router.start_events(Box::new(move |stream| {
+                    self.router.start_events(Box::new(move |stream, body| {
                         if let Some(me) = me.upgrade() {
-                            me.publish(stream, json!({}));
+                            me.publish(stream, body);
                         }
                     }));
+                }
+                Out::StreamLiveness { key, sub, stream } => {
+                    if let Some(live) = self.router.stream_live(&stream) {
+                        self.send_liveness(&key, sub, &stream, live);
+                    }
                 }
             }
         }
