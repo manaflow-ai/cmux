@@ -32,7 +32,9 @@ const RTT: Duration = Duration::from_millis(80);
 const SAMPLES: usize = 10;
 /// How long the phone stays in the background with its sockets cut: longer than one signaling
 /// keepalive (15 s), so the socket missed a pong, as after any background of more than a moment.
-const SUSPENDED: Duration = Duration::from_secs(18);
+const SUSPENDED: Duration = Duration::from_secs(20);
+/// How long a dial waits on a reused socket that does not answer (`STALE_PROBE` in the crate).
+const STALE_PROBE_MS: f64 = 2500.0;
 
 fn spawn_echo_mac(mac: SignalingClient) {
     tokio::spawn(async move {
@@ -266,6 +268,20 @@ async fn resume_after_a_suspension() {
         samples.push(steps);
     }
     summarize("resume_after_suspension", &samples);
+}
+
+/// Regression (ask-48f698fc26): after a suspension the warm signaling socket is half open, and a
+/// resume opens a new one at once instead of first waiting `STALE_PROBE` (2.5 s) for it to answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "timed rig: run alone with --ignored"]
+async fn a_resume_after_a_suspension_does_not_wait_on_the_dead_socket() {
+    let rig = Rig::start().await;
+    rig.settle().await;
+    rig.path.cut();
+    tokio::time::sleep(SUSPENDED).await;
+    let steps = rig.resume().await;
+    assert!(!steps.contains_key("signaling_stale"), "the dial waited on the dead socket: {steps:?}");
+    assert!(steps["dialed"] < STALE_PROBE_MS, "dialed after {} ms: {steps:?}", steps["dialed"]);
 }
 
 /// A network change in the foreground (Wi-Fi to cellular): the old path's socket is silent, the
