@@ -44,6 +44,27 @@ struct ScreenStreamCursorTests {
         #expect(cache.current == nil && !select("ibeam"), "a new stream starts over")
     }
 
+    @Test func theSameShapeOnAnotherDisplayUpdatesItsPlacementOnce() throws {
+        var cache = ScreenStreamCursorCache()
+        func select(_ id: String) -> Bool { cache.select(id) }
+        func add(_ cursor: ScreenStreamCursor) -> Bool { cache.add(cursor) }
+        let original = try Self.cursor("arrow", w: 28.0 / 1512, h: 40.0 / 982)
+        let resized = try Self.cursor("arrow", w: 28.0 / 756, h: 40.0 / 491)
+        _ = add(original)
+        #expect(select("arrow"))
+        // The image and hotspot have the same id, but the streamed display is smaller.
+        #expect(add(resized), "the session must notify the view of the new geometry")
+        let current = try #require(cache.current)
+        let placement = current.placement(at: CGPoint(x: 100, y: 100), frame: CGSize(width: 756, height: 491))
+        #expect(abs(placement.rect.width - 28) < 1e-6 && abs(placement.rect.height - 40) < 1e-6)
+        #expect(abs(placement.rect.minX - 95) < 1e-6 && abs(placement.rect.minY - 95) < 1e-6)
+        #expect(abs(placement.pixelsPerPoint - 1) < 1e-6)
+        // Decode another instance, so duplicate suppression cannot depend on CGImage identity.
+        let duplicate = try Self.cursor("arrow", w: 28.0 / 756, h: 40.0 / 491)
+        #expect(!add(duplicate), "identical drawing metadata does not notify again")
+        #expect(!select("arrow"), "a repeated telepointer does not notify again")
+    }
+
     /// The viewer keeps every shape the host remembers sending (64), and
     /// more: naming a shape keeps it, as the host's own memory does.
     @Test func theCacheKeepsWhatTheHostRemembers() throws {

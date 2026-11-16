@@ -88,6 +88,86 @@ struct CursorShapeTests {
         #expect(send("arrow"), "another display: sent again")
     }
 
+    @Test func aFailedShapeSendRetriesWithoutAnotherCursorRead() throws {
+        var delivery = ScreenStreamHost.CursorShapeDelivery()
+        let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let arrow = Self.shape(png: try Self.png())
+        var writable = false
+        var attempts: [String] = []
+        func sample(_ read: ScreenCursorShape?) -> String? {
+            delivery.current(read: read, display: display) { text in
+                attempts.append(text)
+                return writable
+            }
+        }
+        #expect(sample(arrow) == nil, "a refused send must not advertise an undelivered shape")
+        #expect(sample(nil) == nil, "an unchanged cursor still retries while the channel refuses it")
+        writable = true
+        #expect(sample(nil) == arrow.id, "the reader need not produce the unchanged shape again")
+        #expect(sample(nil) == arrow.id)
+        #expect(attempts.count == 3, "one attempt per sample until success, none after success")
+        for text in attempts {
+            let message = try JSONDecoder().decode(ScreenHostMessage.self, from: Data(text.utf8))
+            #expect(message.t == ScreenHostMessage.cursorShapeType)
+            #expect(message.cursor == arrow)
+        }
+    }
+
+    @Test func aNewCursorSupersedesTheShapeWaitingToSend() throws {
+        var delivery = ScreenStreamHost.CursorShapeDelivery()
+        let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let arrow = Self.shape(png: try Self.png())
+        let hand = Self.shape(png: try Self.png(width: 3))
+        let latest = Self.shape(png: try Self.png(width: 4))
+        var writable = true
+        var attempts: [String] = []
+        func sample(_ read: ScreenCursorShape?) -> String? {
+            delivery.current(read: read, display: display) { text in
+                attempts.append(text)
+                return writable
+            }
+        }
+        #expect(sample(arrow) == arrow.id)
+        writable = false
+        #expect(sample(hand) == arrow.id, "keep the last delivered cursor while the replacement waits")
+        writable = true
+        #expect(sample(latest) == latest.id)
+        #expect(sample(nil) == latest.id)
+        let messages = try attempts.map { try JSONDecoder().decode(ScreenHostMessage.self, from: Data($0.utf8)) }
+        #expect(messages.map(\.t) == Array(repeating: ScreenHostMessage.cursorShapeType, count: 3))
+        #expect(messages.compactMap(\.cursor) == [arrow, hand, latest], "the obsolete pending hand is not retried")
+    }
+
+    @Test func anotherDisplayDiscardsPendingShapesAndResendsItsGeometry() throws {
+        var delivery = ScreenStreamHost.CursorShapeDelivery()
+        let originalDisplay = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let otherDisplay = CGRect(x: 1512, y: 0, width: 756, height: 491)
+        let arrow = Self.shape(png: try Self.png())
+        let pending = Self.shape(png: try Self.png(width: 3))
+        var resized = arrow
+        resized.w *= 2
+        resized.h *= 2
+        var writable = true
+        var attempts: [String] = []
+        func sample(_ read: ScreenCursorShape?, on display: CGRect) -> String? {
+            delivery.current(read: read, display: display) { text in
+                attempts.append(text)
+                return writable
+            }
+        }
+        #expect(sample(arrow, on: originalDisplay) == arrow.id)
+        writable = false
+        #expect(sample(pending, on: originalDisplay) == arrow.id)
+        writable = true
+        #expect(sample(nil, on: otherDisplay) == nil, "the new display must not advertise old geometry")
+        #expect(attempts.count == 2, "the previous display's pending shape must not be retried")
+        #expect(sample(resized, on: otherDisplay) == resized.id)
+        #expect(sample(nil, on: otherDisplay) == resized.id)
+        let messages = try attempts.map { try JSONDecoder().decode(ScreenHostMessage.self, from: Data($0.utf8)) }
+        #expect(messages.map(\.t) == Array(repeating: ScreenHostMessage.cursorShapeType, count: 3))
+        #expect(messages.compactMap(\.cursor) == [arrow, pending, resized], "a known image id is resent with this display's dimensions")
+    }
+
     /// macOS's cursor shadow, from the window server's cursor plists.
     @Test func theShadowIsMacOSs() {
         #expect(ScreenCursorShape.shadow.opacity == 0.45)

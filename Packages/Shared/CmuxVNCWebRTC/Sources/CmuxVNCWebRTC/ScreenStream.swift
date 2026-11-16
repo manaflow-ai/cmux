@@ -718,25 +718,39 @@ public final class ScreenStreamHost: @unchecked Sendable {
         #if os(macOS)
         private let reader = ScreenCursorReader()
         #endif
-        private var sent = SentCursorShapes()
-        private var shape: String?
-        private var display: CGRect?
+        private var delivery = CursorShapeDelivery()
 
         /// The id of the cursor's shape now (nil: the viewer draws no shapes, or none is known yet).
         mutating func current(session: Session, display: CGRect?) async -> String? {
             guard session.lock.withLock({ session.cursorShapes }), let display else { return nil }
+            #if os(macOS)
+            let read = await reader.read(display: display)
+            #else
+            let read: ScreenCursorShape? = nil
+            #endif
+            return delivery.current(read: read, display: display) { session.link.sendText($0) }
+        }
+    }
+
+    /// The ordered cursor messages and the last shape accepted by the link.
+    /// Sampling and delivery are separate: an unchanged seed produces no new image.
+    struct CursorShapeDelivery {
+        private var sent = SentCursorShapes()
+        private var shape: String?
+        private var display: CGRect?
+
+        mutating func current(read: ScreenCursorShape?, display: CGRect, sendText: (String) -> Bool) -> String? {
             if display != self.display {
                 // Sizes are fractions of the display: another display's shapes are new ones.
                 self.display = display
                 sent.reset()
             }
-            #if os(macOS)
-            if let read = await reader.read(display: display) {
+            if let read {
                 if sent.needsSend(read.id) {
                     var message = ScreenHostMessage(t: ScreenHostMessage.cursorShapeType)
                     message.cursor = read
                     guard let data = try? JSONEncoder().encode(message),
-                          session.link.sendText(String(decoding: data, as: UTF8.self))
+                          sendText(String(decoding: data, as: UTF8.self))
                     else {
                         sent.reset()
                         return shape
@@ -744,7 +758,6 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 }
                 shape = read.id
             }
-            #endif
             return shape
         }
     }
