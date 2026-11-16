@@ -284,6 +284,23 @@ async fn a_resume_after_a_suspension_does_not_wait_on_the_dead_socket() {
     assert!(steps["dialed"] < STALE_PROBE_MS, "dialed after {} ms: {steps:?}", steps["dialed"]);
 }
 
+/// Regression (ask-48f698fc26): after a network change the old path's socket is silent, and the
+/// roam gives it a few of its round trips, not a flat second, before opening a new one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "timed rig: run alone with --ignored"]
+async fn a_network_change_waits_on_the_old_socket_only_a_few_round_trips() {
+    let rig = Rig::start().await;
+    rig.settle().await;
+    rig.path.cut();
+    let start = Instant::now();
+    let roamed = rig
+        .pool
+        .network_changed(rig.path.url.clone(), "user:alice".into(), "team".into(), rig.device.clone())
+        .await;
+    let roamed_ms = ms(start.elapsed());
+    assert!(roamed_ms < 800.0, "the roam took {roamed_ms} ms: {roamed:?}");
+}
+
 /// A network change in the foreground (Wi-Fi to cellular): the old path's socket is silent, the
 /// app roams (`network_changed`) and then dials, as `.networkChanged` does for a link that failed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
