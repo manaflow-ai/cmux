@@ -166,7 +166,7 @@ public nonisolated struct SSHChatMoveRun: Sendable {
             }
             return .moved(session: "\(host)/\(id)")
         }
-        let imported = outcome.targetSessionId.flatMap { id in
+        let imported = outcome.targetSessionId.flatMap { id -> String? in
             guard !id.isEmpty else { return nil }
             guard call.destination != "local", let host = outcome.host, !host.isEmpty else { return id }
             return "\(host)/\(id)"
