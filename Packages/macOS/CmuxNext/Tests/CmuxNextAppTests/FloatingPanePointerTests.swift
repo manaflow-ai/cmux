@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextLayout
 import Testing
 
@@ -99,22 +100,93 @@ import Testing
         #expect(view.zone(at: CGPoint(x: 198, y: 140)) == .bottomRight)
     }
 
-    /// The cursor's rectangles: one for each part of the bar and the rim, no two on the same point, and each one
-    /// in the zone that a press there gets. Together they are the card less the pane.
+    /// The cursor's rectangles: no two on the same point, and each one in the zone that a press there gets.
+    /// Together they are the card with its band, less the pane.
+    func expectCursorRects(of view: FloatingPaneCardView, _ what: String, sourceLocation: SourceLocation = #_sourceLocation) {
+        let entries = view.cursorRects
+        #expect(Set(entries.map(\.zone)) == Set(FloatingPaneCardView.Zone.allCases), "\(what)", sourceLocation: sourceLocation)
+        for (index, entry) in entries.enumerated() {
+            #expect(view.part(at: CGPoint(x: entry.rect.midX, y: entry.rect.midY)) == entry.zone, "\(what): \(entry.zone) \(entry.rect)",
+                    sourceLocation: sourceLocation)
+            for other in entries[(index + 1)...] {
+                #expect(!entry.rect.intersects(other.rect), "\(what): \(entry.zone) \(entry.rect) and \(other.zone) \(other.rect)",
+                        sourceLocation: sourceLocation)
+            }
+        }
+        let inner = LayoutFloatingPane.paneRect(inCard: view.cardBounds)
+        let area = entries.reduce(0) { $0 + $1.rect.width * $1.rect.height }
+        #expect(area == view.bounds.width * view.bounds.height - inner.width * inner.height, "\(what)", sourceLocation: sourceLocation)
+    }
+
     @Test func eachPartOfTheBarAndTheRimHasOneCursorRectangle() {
         let view = FloatingPaneCardView(pane: pane)
         view.frame = CGRect(x: 0, y: 0, width: 200, height: 150)
-        let entries = FloatingPaneCardView.zoneRects(in: view.bounds)
-        #expect(Set(entries.map(\.zone)) == Set(FloatingPaneCardView.Zone.allCases))
-        for (index, entry) in entries.enumerated() {
-            #expect(view.zone(at: CGPoint(x: entry.rect.midX, y: entry.rect.midY)) == entry.zone, "\(entry.zone) \(entry.rect)")
-            for other in entries[(index + 1)...] {
-                #expect(!entry.rect.intersects(other.rect), "\(entry.zone) \(entry.rect) and \(other.zone) \(other.rect)")
-            }
+        expectCursorRects(of: view, "a card with no band outside")
+    }
+
+    /// With the band outside the card the rectangles reach as far as a press does, and they follow the 2 knobs'
+    /// values at the next placement.
+    @Test func theCursorRectanglesFollowTheBandAndTheCornerZone() {
+        let view = FloatingPaneCardView(pane: pane)
+        let area = CGRect(origin: .zero, size: self.area)
+        view.place(card, reach: FloatingPaneReach(), in: area)
+        #expect(view.frame == card.insetBy(dx: -8, dy: -8), "the defaults: 8 points outside each edge")
+        #expect(view.cardFrame == card && view.cardBounds == CGRect(x: 8, y: 8, width: 400, height: 300))
+        expectCursorRects(of: view, "the defaults")
+        /// All the rectangles of `zone` as one, in the pane area's coordinates.
+        func zones(_ zone: FloatingPaneCardView.Zone) -> CGRect {
+            view.cursorRects.filter { $0.zone == zone }.reduce(CGRect.null) { $0.union($1.rect.offsetBy(dx: view.frame.minX, dy: view.frame.minY)) }
         }
-        let inner = LayoutFloatingPane.paneRect(inCard: view.bounds)
-        let area = entries.reduce(0) { $0 + $1.rect.width * $1.rect.height }
-        #expect(area == view.bounds.width * view.bounds.height - inner.width * inner.height)
+        #expect(zones(.left) == CGRect(x: 92, y: 112, width: 13, height: 276), "13 points on the left: \(zones(.left))")
+        #expect(zones(.top) == CGRect(x: 112, y: 92, width: 376, height: 12), "12 points at the top: \(zones(.top))")
+        #expect(zones(.topLeft) == CGRect(x: 92, y: 92, width: 20, height: 20), "20 points by 20 points: \(zones(.topLeft))")
+        #expect(zones(.bottomRight) == CGRect(x: 488, y: 388, width: 20, height: 20), "\(zones(.bottomRight))")
+
+        #expect(view.place(card, reach: FloatingPaneReach(band: 24, corner: 40), in: area), "a new band moves the view")
+        #expect(view.frame == card.insetBy(dx: -20, dy: -20) && view.cardFrame == card)
+        expectCursorRects(of: view, "a band of 24 and a corner zone of 40")
+        #expect(zones(.left) == CGRect(x: 80, y: 120, width: 25, height: 260), "\(zones(.left))")
+        #expect(zones(.top) == CGRect(x: 120, y: 80, width: 360, height: 24), "\(zones(.top))")
+        #expect(zones(.topLeft) == CGRect(x: 80, y: 80, width: 40, height: 40), "\(zones(.topLeft))")
+
+        // At the area's edge the band outside is the room that is there.
+        let corner = CGRect(x: 0, y: 3, width: 400, height: 300)
+        view.place(corner, reach: FloatingPaneReach(), in: area)
+        #expect(view.frame == CGRect(x: 0, y: 0, width: 408, height: 311) && view.cardFrame == corner)
+        expectCursorRects(of: view, "at the area's edge")
+        #expect(zones(.left) == CGRect(x: 0, y: 15, width: 5, height: 276), "the rim only: \(zones(.left))")
+        #expect(zones(.top) == CGRect(x: 12, y: 0, width: 376, height: 7), "3 points of room and the top 4 of the bar: \(zones(.top))")
+        #expect(!view.place(corner, reach: FloatingPaneReach(), in: area), "the same placement does no work")
+    }
+
+    /// A card in front hides the cursor rectangles under it: AppKit does not.
+    @Test func noCursorRectangleShowsUnderACardInFront() {
+        let view = FloatingPaneCardView(pane: pane)
+        let area = CGRect(origin: .zero, size: self.area)
+        let front = CGRect(x: 450, y: 250, width: 300, height: 300)
+        view.place(card, reach: FloatingPaneReach(), in: area, under: [front])
+        let rects = view.cursorRects.map { $0.rect.offsetBy(dx: view.frame.minX, dy: view.frame.minY) }
+        #expect(!rects.isEmpty)
+        for rect in rects {
+            #expect(!rect.intersects(front), "\(rect) lies under the card in front")
+        }
+        let shown = rects.reduce(0) { $0 + $1.width * $1.height }
+        let inner = LayoutFloatingPane.paneRect(inCard: card)
+        let hidden = view.frame.intersection(front), hiddenInner = inner.intersection(front)
+        let all = view.frame.width * view.frame.height - inner.width * inner.height
+        #expect(shown == all - (hidden.width * hidden.height - hiddenInner.width * hiddenInner.height), "the rest shows: \(shown)")
+    }
+
+    /// The 2 knobs of a pointer's reach: their defaults, their ranges and their place in the look.
+    @Test func theResizeBandAndTheCornerZoneAreKnobs() {
+        #expect(FloatingPaneTunables.defaultResizeBand == 12 && FloatingPaneTunables.defaultCornerZone == 20)
+        let keys = FloatingPaneTunables.all.map(\.key)
+        #expect(keys.contains("floatingPane.resizeBand") && keys.contains("floatingPane.cornerZone"), "\(keys)")
+        #expect(FloatingPaneLook().resizeBand == 12 && FloatingPaneLook().cornerZone == 20)
+        let reach = FloatingPaneReach()
+        #expect(reach.band == 12 && reach.corner == 20 && reach.outside == 8 && reach.cornerInside == 12)
+        #expect(FloatingPaneReach(band: 4, corner: 10).outside == 0, "the smallest band is inside the card only")
+        #expect(FloatingPaneReach(band: 24, corner: 10).cornerInside == 5, "a corner zone does not end before the rim's inner edge")
     }
 
     /// The bar shows a hand, and each resize zone shows a cursor of its own that is not the hand.

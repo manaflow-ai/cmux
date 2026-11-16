@@ -59,11 +59,24 @@ public nonisolated struct FloatingPaneTunables {
         "floatingPane.cornerFloor", section, "Corner floor",
         help: "The smallest corner radius when the corner mode is concentric with the window. A corner is the window's radius less its distance from the window's edges, and never below this.",
         default: defaultCornerFloor, range: 0...40, step: 0.5, unit: .points, code: "FloatingPaneTunables.cornerFloor")
+    /// The resize band's and the corner zone's defaults: the 2 constants of a pointer's reach.
+    public static let defaultResizeBand: Double = 12, defaultCornerZone: Double = 20
+    /// The width of the band on each edge that a pointer resizes the pane by: this value less 4 pt is outside the
+    /// card's edge; inside the edge the band is the top 4 pt of the bar, and the rim on the 3 other sides.
+    public static let resizeBand = Tunable<Double>.number(
+        "floatingPane.resizeBand", section, "Resize band",
+        help: "The width of the band on each edge that resizes the pane. This value less 4 pt is outside the card's edge, over the panes below. Inside the edge the band is the top 4 pt of the bar, and the rim on the 3 other sides. At an edge of the pane area the band outside is only the room that is there.",
+        default: defaultResizeBand, range: 4...24, step: 1, unit: .points, code: "FloatingPaneTunables.resizeBand")
+    /// The side of the square at each corner that resizes 2 edges, from the band's outer corner.
+    public static let cornerZone = Tunable<Double>.number(
+        "floatingPane.cornerZone", section, "Corner zone",
+        help: "The side of the square at each corner that resizes 2 edges. The square starts at the outer corner of the resize band.",
+        default: defaultCornerZone, range: 10...40, step: 1, unit: .points, code: "FloatingPaneTunables.cornerZone")
 
     public static var all: [TunableDescriptor] {
         [backgroundOpacity.descriptor, material.descriptor, tint.descriptor, tintStrength.descriptor, borderWidth.descriptor,
          borderOpacity.descriptor, shadowOpacity.descriptor, shadowBlur.descriptor, shadowOffset.descriptor, cornerMode.descriptor,
-         cornerFloor.descriptor]
+         cornerFloor.descriptor, resizeBand.descriptor, cornerZone.descriptor]
     }
 }
 
@@ -81,6 +94,9 @@ public nonisolated struct FloatingPaneLook: Equatable, Sendable {
     /// What the corners follow, and the smallest corner radius of the concentric mode.
     public var cornerMode: FloatingPaneCornerMode = .concentric
     public var cornerFloor = CGFloat(FloatingPaneTunables.defaultCornerFloor)
+    /// The width of the resize band on each edge and the side of the corner zone (`FloatingPaneReach`).
+    public var resizeBand = CGFloat(FloatingPaneTunables.defaultResizeBand)
+    public var cornerZone = CGFloat(FloatingPaneTunables.defaultCornerZone)
 
     public init() {}
 
@@ -98,6 +114,8 @@ public nonisolated struct FloatingPaneLook: Equatable, Sendable {
         look.shadowOffset = CGFloat(FloatingPaneTunables.shadowOffset.value)
         look.cornerMode = FloatingPaneTunables.cornerMode.value
         look.cornerFloor = max(0, CGFloat(FloatingPaneTunables.cornerFloor.value))
+        look.resizeBand = CGFloat(min(max(FloatingPaneTunables.resizeBand.value, 4), 24))
+        look.cornerZone = CGFloat(min(max(FloatingPaneTunables.cornerZone.value, 10), 40))
         return look
     }
 

@@ -63,6 +63,16 @@ extension LayoutRootView {
             for (id, screen) in root.screenViews where !screen.isHidden {
                 let hovered = screen.dividerViews.values.filter(\.isHovered).map(\.kind.mouseAreaID).sorted()
                 report["screen.\(id.rawValue)"] = "hovered=\(hovered.joined(separator: "+")) shown=\(screen.dividerPointer.shownCursor?.debugName ?? "none")"
+                // Each floating pane: its card, the card with its resize band, and the zone under the pointer
+                // (`content`: the pane's own rectangle; `none`: the pointer is not on this pane or its band).
+                let pointer = root.context.hoverPointer(window).map { screen.convert($0, from: nil) }
+                for (pane, card) in screen.floatState.cards where !card.isHidden {
+                    let zone = pointer.flatMap { point -> String? in
+                        guard card.frame.contains(point) else { return nil }
+                        return card.part(at: card.convert(point, from: screen)).map { "\($0)" } ?? "content"
+                    }
+                    report["float.\(pane.rawValue)"] = "card=\(card.cardFrame) reach=\(card.frame) zone=\(zone ?? "none")"
+                }
             }
         }
         return report

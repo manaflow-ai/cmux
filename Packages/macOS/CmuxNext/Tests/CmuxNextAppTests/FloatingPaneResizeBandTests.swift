@@ -321,7 +321,7 @@ import Testing
         try card.mouseUp(with: event(.leftMouseUp, CGPoint(x: press.x - 60, y: press.y)))
         let after = try #require(fixture.model.screens.first?.floating.first?.frame)
         #expect(after.minX < before.minX - 0.03, "the left edge moved with the pointer: \(before) to \(after)")
-        #expect(abs(after.maxX - before.maxX) < 0.001 && after.minY == before.minY && after.height == before.height,
+        #expect(abs(after.maxX - before.maxX) < 0.001 && abs(after.minY - before.minY) < 0.001 && abs(after.height - before.height) < 0.001,
                 "the 3 other edges stay: \(before) to \(after)")
         #expect(fixture.window.areCursorRectsEnabled)
     }

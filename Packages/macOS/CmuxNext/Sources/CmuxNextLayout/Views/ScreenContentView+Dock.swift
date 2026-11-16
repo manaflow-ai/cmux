@@ -36,8 +36,8 @@ extension ScreenContentView {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
-            // A floating pane covers what is under its whole card.
-            front.append(floatState.cards[host.pane]?.frame ?? host.frame)
+            // A floating pane covers what is under its whole card (the card, not the resize band around it).
+            front.append(floatState.cards[host.pane]?.cardFrame ?? host.frame)
         }
         return covers
     }

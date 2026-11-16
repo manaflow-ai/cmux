@@ -6,6 +6,10 @@ import QuartzCore
 /// pane by, and a band on each of its 4 edges and 4 corners that a pointer resizes it by. The pane's host is a
 /// sibling above the card, so the card takes only the presses on its bar and its rim, never one on the content.
 ///
+/// The band reaches outside the card's edge (``FloatingPaneReach``), so the view is the card and that part of the
+/// band: ``cardBounds`` is the card in it. A press in the band outside the card is the card's, also over a tiled
+/// pane; the card draws nothing there.
+///
 /// Its corners follow the window's corners (``FloatingPaneCorners``) and its look comes from the Floating Pane
 /// knobs (`FloatingPaneLook`). With a see-through background the card paints the one ground of the pane, at the
 /// look's opacity, and the content above it paints none (`PaneGroundOwning`).
@@ -42,18 +46,21 @@ final class FloatingPaneCardView: NSView {
     private let ground = CAShapeLayer(), tint = CAShapeLayer(), rim = CAShapeLayer(), grip = CALayer()
     /// The zone of the drag in progress: its cursor stays until the release.
     private var dragZone: Zone?
-    /// The length along the rim, from each corner, that resizes both ways.
-    static let cornerLength: CGFloat = 14
+    /// How far the resize reaches, and the band outside the card on each side of this view.
+    private(set) var reach = FloatingPaneReach()
+    private(set) var outsets = FloatingPaneReach.Outsets()
+    /// The views in front that hide a part of this view (the superview's coordinates): no cursor shows under them.
+    private var covers: [CGRect] = []
+    /// The card in this view and in its superview: the view less the band outside the card.
+    var cardBounds: CGRect { outsets.card(in: bounds) }
+    var cardFrame: CGRect { outsets.card(in: frame) }
 
     init(pane: PaneID) {
         self.pane = pane
         super.init(frame: .zero)
         wantsLayer = true
-        for view in [shadeView, surfaceView] {
-            view.frame = bounds
-            view.autoresizingMask = [.width, .height]
-            addSubview(view)
-        }
+        // `render()` puts the two on the card: they do not follow the view's size.
+        for view in [shadeView, surfaceView] { addSubview(view) }
         shadeMask.fillRule = .evenOdd
         // Alpha-only coverage of the mask: this colour is never displayed.
         shadeMask.fillColor = NSColor.black.cgColor
@@ -103,6 +110,23 @@ final class FloatingPaneCardView: NSView {
         super.viewWillMove(toWindow: newWindow)
     }
 
+    /// Puts the card at `card` (the superview's coordinates) with the band of `reach` around it, held inside `area`.
+    /// `covers` are the views in front of it. Returns true when the view moved.
+    @discardableResult
+    func place(_ card: CGRect, reach: FloatingPaneReach, in area: CGRect, under covers: [CGRect] = []) -> Bool {
+        let outsets = reach.outsets(of: card, in: area), target = outsets.grown(card)
+        let moved = target != frame, sized = target.size != frame.size
+        let zonesChanged = reach != self.reach || outsets != self.outsets || covers != self.covers
+        guard moved || zonesChanged else { return false }
+        let bandChanged = outsets != self.outsets
+        (self.reach, self.outsets, self.covers) = (reach, outsets, covers)
+        if moved { frame = target }
+        // A new size paints the card in `setFrameSize`; a new band with the same size moves the card in the view.
+        if bandChanged, !sized { render() }
+        window?.invalidateCursorRects(for: self)
+        return moved
+    }
+
     /// Shows the card with `look` and `corners`. A card that has both already does no work.
     func show(look: FloatingPaneLook, corners: FloatingPaneCorners) {
         guard look != self.look || corners != self.corners else { return }
@@ -128,6 +152,9 @@ final class FloatingPaneCardView: NSView {
     /// Paints the shadow, the material, the ground, the tint, the rim and the grip for the card's size, corners and
     /// look, with no implicit animation: a resize follows the pointer in the same frame.
     private func render() {
+        // The layers' views are on the card; `bounds` below is the card in their coordinates.
+        let card = cardBounds, bounds = CGRect(origin: .zero, size: card.size)
+        for view in [shadeView, surfaceView] where view.frame != card { view.frame = card }
         let outline = corners.path(in: bounds)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -167,55 +194,30 @@ final class FloatingPaneCardView: NSView {
             return
         }
         let view = material ?? {
-            let view = FloatingPaneMaterialView(frame: bounds)
-            view.autoresizingMask = [.width, .height]
+            let view = FloatingPaneMaterialView(frame: card)
             addSubview(view, positioned: .below, relativeTo: surfaceView)
             material = view
             return view
         }()
-        if view.frame != bounds { view.frame = bounds }
+        if view.frame != card { view.frame = card }
         view.show(system, corners: corners)
     }
 
-    /// The zone at `point` (the card's coordinates): a corner within ``cornerLength`` of it along the rim, an edge
-    /// on the rest of the rim, the bar below the top rim, else the move zone.
-    func zone(at point: CGPoint) -> Zone {
-        let rim = LayoutFloatingPane.rimWidth, corner = Self.cornerLength
-        let left = point.x < bounds.minX + rim, right = point.x >= bounds.maxX - rim
-        let top = point.y < bounds.minY + rim, bottom = point.y >= bounds.maxY - rim
-        let nearLeft = point.x < bounds.minX + corner, nearRight = point.x >= bounds.maxX - corner
-        let nearTop = point.y < bounds.minY + corner, nearBottom = point.y >= bounds.maxY - corner
-        if top && nearLeft || left && nearTop { return .topLeft }
-        if top && nearRight || right && nearTop { return .topRight }
-        if bottom && nearLeft || left && nearBottom { return .bottomLeft }
-        if bottom && nearRight || right && nearBottom { return .bottomRight }
-        if top { return .top }
-        if bottom { return .bottom }
-        if left { return .left }
-        return right ? .right : .move
-    }
+    /// The zone at `point` (the view's coordinates), by ``FloatingPaneReach``: nil in the pane's own rectangle, where
+    /// the pane's host takes the press.
+    func part(at point: CGPoint) -> Zone? { reach.zone(at: point, card: cardBounds, outsets: outsets) }
 
-    /// The rectangles of each zone that the card shows (the bar and the rim; the pane's host covers the rest). No
-    /// two overlap, so each point has one cursor.
-    static func zoneRects(in bounds: CGRect) -> [(zone: Zone, rect: CGRect)] {
-        let rim = LayoutFloatingPane.rimWidth, bar = LayoutFloatingPane.barHeight, corner = cornerLength
-        let (minX, minY, maxX, maxY) = (bounds.minX, bounds.minY, bounds.maxX, bounds.maxY)
-        let across = max(0, bounds.width - corner * 2), down = max(0, bounds.height - corner * 2), stem = corner - rim
-        return [
-            (.topLeft, CGRect(x: minX, y: minY, width: corner, height: rim)),
-            (.topLeft, CGRect(x: minX, y: minY + rim, width: rim, height: stem)),
-            (.topRight, CGRect(x: maxX - corner, y: minY, width: corner, height: rim)),
-            (.topRight, CGRect(x: maxX - rim, y: minY + rim, width: rim, height: stem)),
-            (.bottomLeft, CGRect(x: minX, y: maxY - rim, width: corner, height: rim)),
-            (.bottomLeft, CGRect(x: minX, y: maxY - corner, width: rim, height: stem)),
-            (.bottomRight, CGRect(x: maxX - corner, y: maxY - rim, width: corner, height: rim)),
-            (.bottomRight, CGRect(x: maxX - rim, y: maxY - corner, width: rim, height: stem)),
-            (.top, CGRect(x: minX + corner, y: minY, width: across, height: rim)),
-            (.bottom, CGRect(x: minX + corner, y: maxY - rim, width: across, height: rim)),
-            (.left, CGRect(x: minX, y: minY + corner, width: rim, height: down)),
-            (.right, CGRect(x: maxX - rim, y: minY + corner, width: rim, height: down)),
-            (.move, CGRect(x: minX + rim, y: minY + rim, width: max(0, bounds.width - rim * 2), height: max(0, bar - rim))),
-        ]
+    /// The zone of a press at `point` (the view's coordinates).
+    func zone(at point: CGPoint) -> Zone { part(at: point) ?? .move }
+
+    /// The rectangles that show a zone's cursor (the view's coordinates): each zone's, less the parts under a view
+    /// in front. AppKit does not hide a cursor rectangle under a sibling view above it.
+    var cursorRects: [(zone: Zone, rect: CGRect)] {
+        // The superview has its origin at the top left, as this view has.
+        let hidden = covers.map { $0.offsetBy(dx: -frame.minX, dy: -frame.minY) }
+        return reach.zoneRects(card: cardBounds, outsets: outsets).flatMap { entry in
+            FloatingPaneReach.parts(of: entry.rect, outside: hidden).map { (zone: entry.zone, rect: $0) }
+        }
     }
 
     /// The cursor of `zone`: the system's frame resize cursor of that edge or corner (macOS 15 and later; before
@@ -244,7 +246,7 @@ final class FloatingPaneCardView: NSView {
 
     /// The cursor shows on a hover of the band, before a press.
     override func resetCursorRects() {
-        for entry in Self.zoneRects(in: bounds) where !entry.rect.isEmpty {
+        for entry in cursorRects where !entry.rect.isEmpty {
             addCursorRect(entry.rect, cursor: Self.cursor(for: entry.zone))
         }
     }
