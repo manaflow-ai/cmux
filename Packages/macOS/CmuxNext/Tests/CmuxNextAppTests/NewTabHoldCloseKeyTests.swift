@@ -6,6 +6,7 @@ import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextFocusUI
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -27,7 +28,7 @@ import Testing
 /// a replaced hold wait for the newer page.
 ///
 /// The view that has the keyboard here is a probe that stands for that terminal. It must get no key.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct NewTabHoldCloseKeyTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }

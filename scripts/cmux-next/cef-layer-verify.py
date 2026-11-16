@@ -84,6 +84,9 @@ parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="
 parser.add_argument("--tunables", default="scratch", choices=["scratch", "build"],
                     help="build: set the tunable in the build's own debug-tunables.json (what the benches read)")
 opts = parser.parse_args()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("cef-layer-verify")  # it posts real input (CGEventPost): never on a person's Mac
 
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
