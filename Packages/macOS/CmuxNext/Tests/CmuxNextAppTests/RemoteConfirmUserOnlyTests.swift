@@ -11,5 +11,8 @@ struct RemoteConfirmUserOnlyTests {
     @Test func theDebugSocketCannotAnswerTheRemoteConfirmDialog() {
         #expect(CmuxRemoteActionEnvironment.confirmIdentifier == "cmux.dialog.remote.confirm")
         #expect(DebugDialog.userOnly.contains(CmuxRemoteActionEnvironment.confirmIdentifier))
+        #expect(CmuxRemoteActionEnvironment.setupIdentifiers.count == 5)
+        #expect(CmuxRemoteActionEnvironment.setupIdentifiers.contains("cmux.dialog.screenSharing.setup.overview"))
+        #expect(CmuxRemoteActionEnvironment.setupIdentifiers.isSubset(of: DebugDialog.userOnly))
     }
 }
