@@ -111,6 +111,8 @@ final class ScreenContentView: NSView {
     var dropGeometryComputes = 0
     /// The room checks and edge previews of this layout, viewport and style: a pointer move inside one zone computes none.
     var dropAnswers = DropAnswerMemo()
+    /// The screen's floating panes, their cards and a pointer's move or resize of one (ScreenContentView+Floating).
+    var floatState = FloatingPanesState()
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
@@ -217,8 +219,9 @@ final class ScreenContentView: NSView {
     @discardableResult
     func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool, snapWaitsForFrame: Bool = false) -> Bool {
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
-        let animated = updateCanvas(canvas, animated: animated) && animated
-        let structural = !self.layout.hasSameStructure(as: layout)
+        // A floating pane that comes, goes, moves or changes its place in the order shows at once.
+        let floatChange = floatState.takeChange(), animated = updateCanvas(canvas, animated: animated) && animated && floatChange == .none
+        let structural = !self.layout.hasSameStructure(as: layout) || floatChange == .panes
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
         #if DEBUG
@@ -271,7 +274,7 @@ final class ScreenContentView: NSView {
         reconcilePasses += 1
         applyCamera()
         reconciledScale = scale
-        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
+        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale).placingFloating(floatState.shown, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.

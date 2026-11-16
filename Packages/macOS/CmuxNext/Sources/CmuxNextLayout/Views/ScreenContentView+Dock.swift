@@ -36,7 +36,8 @@ extension ScreenContentView {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
-            front.append(host.frame)
+            // A floating pane covers what is under its whole card.
+            front.append(floatState.cards[host.pane]?.frame ?? host.frame)
         }
         return covers
     }
@@ -131,6 +132,7 @@ extension ScreenContentView {
             }()
             view.place(cover: entry.glass, column: entry.frame, paneCornerRadius: context.style.paneCornerRadius)
         }
+        reconcileFloatingCards()
         ensureStacking()
     }
 
@@ -155,13 +157,16 @@ extension ScreenContentView {
         case let backdrop as DockBackdropView:
             return 2 + cornerRank(backdrops.first { $0.value === backdrop }.flatMap { entry in geometry.dock.first { $0.column == entry.key } })
         case is StripScrollbarView: return 9
+        case let card as FloatingPaneCardView: return liveRank(of: card.pane, in: geometry)
         default: return 0
         }
     }
 
-    /// A live pane host's rank in `layout`: a strip pane's, or a docked one's.
+    /// A live pane host's rank in `layout`: a strip pane's, or a docked one's; a floating pane's is above every
+    /// other view, in the order of the list.
     func liveRank(of pane: PaneID, in layout: ScreenGeometry) -> Int {
-        layout.scrolls(pane: pane) ? 0 : 3 + cornerRank(layout.dockFrame(containing: pane), in: layout)
+        if let index = layout.floating.firstIndex(of: pane) { return 11 + index }
+        return layout.scrolls(pane: pane) ? 0 : 3 + cornerRank(layout.dockFrame(containing: pane), in: layout)
     }
 
     /// 3 for a dock that owns the frame's corners, else 0.
@@ -181,7 +186,8 @@ extension ScreenContentView {
     /// place draws above its ground.
     func ensureStacking() {
         let ranks = subviews.enumerated().map { index, view in
-            let closing = (view as? PaneHostView).map { closingPanes.entries[$0.pane] != nil } ?? false
+            // A floating pane's card is under its pane and above the floating panes behind it.
+            let closing = (view as? PaneHostView).map { closingPanes.entries[$0.pane] != nil } ?? (view is FloatingPaneCardView)
             return (rank(view) * 2 + (closing ? 0 : 1)) * 100_000 + index
         }
         guard ranks != ranks.sorted() else { return }

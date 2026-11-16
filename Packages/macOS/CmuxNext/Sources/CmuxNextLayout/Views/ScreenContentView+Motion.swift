@@ -285,7 +285,7 @@ extension ScreenContentView {
                 host.alphaValue = frame.alpha.value
                 changed = true
             }
-            if host.isDocked == scrolls { host.isDocked = !scrolls }
+            if host.isDocked == (scrolls || geometry.floatingCards[pane] != nil) { host.isDocked.toggle() }
             // The zooming pane is above the docks (`rank`) until it lands: the strip's dock clip does not cut it.
             zoomMotion.track(pane, frame)
             clips.append((host, scrolls && pane != zoomMotion.pane))
@@ -304,6 +304,7 @@ extension ScreenContentView {
         // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
         // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`). A host whose
         // clip inputs did not change keeps its clip without recomputing it.
+        if presentFloatingCards() { changed = true }
         let above = panesAbove()
         for (host, scrolls) in clips {
             if clipToStrip(host, scrolls: scrolls, clip: clip, above: above, force: force) { changed = true }

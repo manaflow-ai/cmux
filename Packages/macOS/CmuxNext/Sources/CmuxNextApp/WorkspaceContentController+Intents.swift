@@ -69,6 +69,13 @@ extension WorkspaceContentController {
         case .cancelGesture:
             // No `.ended` will come for this gesture (its target went away); nothing of it was sent.
             return
+        case .setFloatingFrame(let pane, let frame):
+            // The layout shows the frame already; the daemon's next layout confirms it or puts its own back.
+            guard daemon.supports(DaemonCapability.floatingPanes.rawValue), let handle = handles.panes[pane] else { return }
+            let wire = FloatingPaneSnapshot.Frame(x: frame.minX, y: frame.minY, w: frame.width, h: frame.height)
+            Task { [daemon] in
+                _ = await daemon.run("float-pane") { connection in _ = try await connection.floatPane(handle, mode: .on, frame: wire) }
+            }
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, _):

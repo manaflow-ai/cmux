@@ -194,14 +194,30 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
     public var zoomed: Bool
     /// Splits whose divider draws no line (Hide Divider); they still drag and still have their menu.
     public var hiddenDividers: Set<SplitID>
+    /// The screen's floating panes, back to front. `layout` is the tiled layout: it has none of them.
+    public var floating: [LayoutFloatingPane]
 
-    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false, hiddenDividers: Set<SplitID> = []) {
+    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false, hiddenDividers: Set<SplitID> = [],
+                floating: [LayoutFloatingPane] = []) {
         self.id = id
         self.name = name
         self.layout = layout
         self.zoomed = zoomed
         self.hiddenDividers = hiddenDividers
+        self.floating = floating
     }
+
+    /// Every pane of the screen: the tiled panes, then the floating panes back to front.
+    public var panes: [PaneID] { floating.isEmpty ? layout.panes : layout.panes + floating.map(\.pane) }
+
+    /// Panes in the order the user sees them (``ScreenLayout/visualPanes``), then the floating panes back to front.
+    public var visualPanes: [PaneID] { floating.isEmpty ? layout.visualPanes : layout.visualPanes + floating.map(\.pane) }
+
+    /// Whether `pane` is a pane of the screen, tiled or floating.
+    public func contains(_ pane: PaneID) -> Bool { layout.contains(pane) || floating.contains { $0.pane == pane } }
+
+    /// Whether `pane` floats on the screen.
+    public func floats(_ pane: PaneID) -> Bool { floating.contains { $0.pane == pane } }
 
     /// Every screen is a column strip: a screen stored as one split tree is
     /// one implicit column holding that tree, with this id.

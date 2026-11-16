@@ -229,7 +229,7 @@ enum PaneHandlers {
                   let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             // Focus Next Pane's order; 9 is always the last pane, as Cmd-9 is the last workspace (Rust's `tabs::pane_by_number`).
-            let order = screen.layout.visualPanes
+            let order = screen.visualPanes
             guard let index = WindowRules().paneByNumber(number, count: order.count), order.indices.contains(index) else {
                 return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber)
             }
@@ -240,7 +240,7 @@ enum PaneHandlers {
     private static func cycleFocus(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {
         guard let pane = ctx.paneController(invocation), let content = pane.workspace,
               let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-        let order = screen.layout.visualPanes
+        let order = screen.visualPanes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }
