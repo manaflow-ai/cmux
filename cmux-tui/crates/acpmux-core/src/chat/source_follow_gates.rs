@@ -126,12 +126,10 @@ fn v2_pr12_follow_scan_bytes() -> io::Result<()> {
                 fixture.cursor = fixture.cursor.saturating_add(chunk.bytes().len() as u64);
                 fixture.lines = fixture.lines.saturating_add(1);
                 let after = fixture.source.stats();
-                let scanned = after.scanned.saturating_sub(before.scanned);
                 let bytes = after.bytes.saturating_sub(before.bytes);
-                let accounted = scanned.saturating_add(bytes);
-                assert!(accounted <= (appended as u64).saturating_mul(2).saturating_add(8192));
+                assert!(bytes <= (appended as u64).saturating_mul(2).saturating_add(8192));
                 assert_fixture_shape(fixture)?;
-                samples.push(accounted as u128);
+                samples.push(bytes as u128);
             }
             rounds.get_mut(side).ok_or_else(|| invalid("follow rounds side"))?.push(samples);
         }

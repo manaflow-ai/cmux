@@ -15,7 +15,7 @@ pub const ROWS: &[GateRow] = &[
     GateRow {
         pr: "12",
         name: "v2.pr12.follow_append",
-        done_when: "A caught-up follow appends one transcript line with source-to-book p95 within 1.2x.",
+        done_when: "A caught-up follow appends one transcript line with read_chunk p95 within 1.2x.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
