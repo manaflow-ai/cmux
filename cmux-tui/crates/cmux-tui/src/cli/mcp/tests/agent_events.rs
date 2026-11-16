@@ -558,3 +558,152 @@ fn agents_events_reports_what_it_missed_while_the_daemon_was_unreachable() {
         (Some("reset"), Some("daemon_unavailable"))
     );
 }
+
+const CHAT_TAB: &str = "tab_3a1100000000000000000000000000aa";
+const CHAT: &str = "01a1e27c-5b2f-4c1e-9a7d-2f6c0e8b9d10";
+const OTHER_CHAT: &str = "7f3e9b21-0c4d-4e8a-b6f1-93a2d5c7e014";
+
+/// The session of [`fake`] with an agent chat's tab, as the daemon's snapshot
+/// shows a GUI chat: its `agent_session` and conversation, no `agent_state`;
+/// the chat index (`chat.list`) has it, and another session's chat, in `state`.
+fn chat_fake(state: &str) -> Fake {
+    let fake = fake();
+    {
+        let mut live = fake.live.borrow_mut();
+        let daemon = live.daemon.as_mut().unwrap();
+        daemon["tabs"].as_array_mut().unwrap().push(json!({
+            "id": CHAT_TAB, "pane_id": "pane_0123456789abcdef0123456789abcdef",
+            "content_kind": "conversation", "agent_session": CHAT,
+            "extra": {"conversation": {"agent_session": {"session": CHAT, "host_name": "mini"}}},
+        }));
+        live.chats = Some(chats(state, state));
+    }
+    fake
+}
+
+/// `chat.list` rows: this session's chat in `mine`, another's in `other`.
+fn chats(mine: &str, other: &str) -> Value {
+    json!([
+        {"id": CHAT, "title": "Fix login", "state": mine, "machine": null, "workspace": WORKSPACE},
+        {"id": OTHER_CHAT, "title": "Elsewhere", "state": other, "machine": null, "workspace": null},
+    ])
+}
+
+fn chat_events(answer: &Value) -> Vec<Value> {
+    list(answer).into_iter().filter(|event| event["source"] == "chat").collect()
+}
+
+/// The bug: a GUI chat's tab has no `agent_state`, so `agent-idle` never fired
+/// for agent chats. Its turn state comes from the daemon's chat index.
+#[test]
+fn agents_events_say_when_an_agent_chat_starts_and_ends_its_turn() {
+    let mut server = Server::new(chat_fake("idle"), None);
+    let after = start(&mut server);
+    now(&server, Change::Chats(chats("working", "idle")));
+    let answer =
+        events(&mut server, json!({"after": after, "kinds": ["agent"], "timeout_seconds": 0}));
+    let got = chat_events(&answer);
+    assert_eq!(got.len(), 1, "{answer}");
+    assert_eq!(
+        (got[0]["kind"].as_str(), got[0]["change"].as_str(), got[0]["id"].as_str()),
+        (Some("agent"), Some("state"), Some(CHAT_TAB))
+    );
+    assert_eq!(got[0]["state"], "working");
+    assert_eq!(got[0]["agent_session"], CHAT);
+    // The turn ends: one idle event, and nothing for the other session's chat.
+    let after = answer["next_after"].as_str().unwrap().to_owned();
+    now(&server, Change::Chats(chats("idle", "working")));
+    let answer =
+        events(&mut server, json!({"after": after, "kinds": ["agent"], "timeout_seconds": 0}));
+    let got = chat_events(&answer);
+    assert_eq!(got.len(), 1, "{answer}");
+    assert_eq!((got[0]["state"].as_str(), got[0]["id"].as_str()), (Some("idle"), Some(CHAT_TAB)));
+    assert!(!answer.to_string().contains(OTHER_CHAT), "{answer}");
+    // It asks for input: the state `agent-needs-input` takes.
+    let after = answer["next_after"].as_str().unwrap().to_owned();
+    now(&server, Change::Chats(chats("input", "working")));
+    let answer =
+        events(&mut server, json!({"after": after, "kinds": ["agent"], "timeout_seconds": 0}));
+    assert_eq!(chat_events(&answer)[0]["state"], "input", "{answer}");
+}
+
+/// The chat's state costs one daemon read per check for every chat, never an
+/// acpmux call per chat, and no read at all with no chat tab.
+#[test]
+fn agents_events_read_every_chat_state_in_one_chat_list() {
+    let two_chats = chat_fake("idle");
+    {
+        let mut live = two_chats.live.borrow_mut();
+        let daemon = live.daemon.as_mut().unwrap();
+        let mut second = daemon["tabs"][1].clone();
+        second["id"] = json!("tab_3a1100000000000000000000000000bb");
+        second["agent_session"] = json!(format!("acp:{OTHER_CHAT}"));
+        daemon["tabs"].as_array_mut().unwrap().push(second);
+    }
+    let mut server = Server::new(two_chats, None);
+    let after = start(&mut server);
+    now(&server, Change::Chats(chats("working", "working")));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    assert_eq!(chat_events(&answer).len(), 2, "both chats, the acp: one too: {answer}");
+    let reads = |operation: &str| {
+        sent_of(&server, "resource")
+            .into_iter()
+            .filter(|sent| sent["request"]["operation"] == operation)
+            .count()
+    };
+    let checks =
+        sent_of(&server, "app").into_iter().filter(|sent| sent["method"] == "snapshot.get").count();
+    assert_eq!(reads("chat.list"), checks, "one chat.list per check, for both chats");
+    assert!(sent_of(&server, "chat").is_empty(), "no per-chat acpmux read");
+
+    let mut server = Server::new(fake(), None);
+    events(&mut server, json!({"timeout_seconds": 0}));
+    assert_eq!(
+        sent_of(&server, "resource")
+            .iter()
+            .filter(|sent| sent["request"]["operation"] == "chat.list")
+            .count(),
+        0,
+        "no chat tab, no chat read"
+    );
+}
+
+/// A chat.list read that fails, or a chat the index does not list yet, keeps
+/// the state the cursor had: no event repeats when the read answers again.
+#[test]
+fn agents_events_repeat_no_chat_event_after_a_missed_chat_read() {
+    let mut server = Server::new(chat_fake("idle"), None);
+    let after = start(&mut server);
+    now(&server, Change::ChatsDown(true));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    assert_eq!(chat_events(&answer), Vec::<Value>::new(), "{answer}");
+    let after = answer["next_after"].as_str().unwrap().to_owned();
+    now(&server, Change::ChatsDown(false));
+    now(&server, Change::Chats(json!([])));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    assert_eq!(chat_events(&answer), Vec::<Value>::new(), "not listed yet: {answer}");
+    let after = answer["next_after"].as_str().unwrap().to_owned();
+    now(&server, Change::Chats(chats("idle", "idle")));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    assert_eq!(chat_events(&answer), Vec::<Value>::new(), "still idle, no new event: {answer}");
+}
+
+/// A first chat.list read that fails leaves no baseline: the first state a
+/// chat then shows is its baseline, not a turn that ended, so `agent-idle`
+/// does not fire for every idle chat when a follow starts.
+#[test]
+fn agents_events_take_a_chat_state_first_known_late_as_its_baseline() {
+    let fake = chat_fake("idle");
+    fake.live.borrow_mut().chats_down = true;
+    let mut server = Server::new(fake, None);
+    let after = start(&mut server);
+    now(&server, Change::ChatsDown(false));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    assert_eq!(chat_events(&answer), Vec::<Value>::new(), "a baseline, no event: {answer}");
+    let after = answer["next_after"].as_str().unwrap().to_owned();
+    now(&server, Change::Chats(chats("working", "idle")));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    let got = chat_events(&answer);
+    assert_eq!(got.len(), 1, "{answer}");
+    assert_eq!(got[0]["state"], "working");
+}

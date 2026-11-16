@@ -235,6 +235,51 @@ pub fn not_kept(files: &BTreeMap<String, Vec<u8>>, live: &Tree) -> Vec<Skipped> 
     out
 }
 
+/// Every folder a part writes into (the config folder, the customize
+/// folder, each part's own folder) and the folders above them, that is not
+/// on disk now: what a write would make. Nearest the root last.
+pub fn absent_dirs(roots: &Roots) -> Vec<PathBuf> {
+    let mut leaves = vec![
+        roots.config_dir.clone(),
+        roots.customize_dir.clone(),
+        roots.config_dir.join("themes"),
+        roots.config_dir.join("automations"),
+    ];
+    leaves.extend(STYLE_SURFACES.iter().map(|surface| roots.config_dir.join(surface)));
+    let mut out: Vec<PathBuf> = Vec::new();
+    for leaf in leaves {
+        let mut dir = Some(leaf.as_path());
+        while let Some(folder) = dir {
+            if folder.as_os_str().is_empty() || fs::symlink_metadata(folder).is_ok() {
+                break;
+            }
+            if !out.iter().any(|have| have == folder) {
+                out.push(folder.to_path_buf());
+            }
+            dir = folder.parent();
+        }
+    }
+    // Deepest first, so taking them away empties a parent before it is tried.
+    out.sort_by_key(|dir| std::cmp::Reverse(dir.components().count()));
+    out
+}
+
+/// Takes away each of `dirs` (deepest first) that is an empty real folder
+/// now; returns the ones still there.
+pub fn remove_empty_dirs(dirs: &[PathBuf]) -> Vec<PathBuf> {
+    let mut sorted = dirs.to_vec();
+    sorted.sort_by_key(|dir| std::cmp::Reverse(dir.components().count()));
+    sorted.dedup();
+    sorted
+        .into_iter()
+        .filter(|dir| {
+            let real = fs::symlink_metadata(dir).is_ok_and(|metadata| metadata.is_dir());
+            // `remove_dir` takes only an empty folder.
+            real && fs::remove_dir(dir).is_err()
+        })
+        .collect()
+}
+
 /// A name the scan steps over.
 fn hidden_name(name: &str) -> bool {
     name.starts_with('.') || name.ends_with('~') || name == "node_modules"

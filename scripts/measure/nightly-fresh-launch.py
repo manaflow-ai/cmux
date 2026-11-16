@@ -60,9 +60,9 @@ EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-ho
 PREWARM_ARMS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-home", "gktool-moved")
 # --arms=adhoc: whether an ad-hoc signed new copy (a tagged build's, dmg=build) pays the first-exec cost a Developer ID
 # signed one does, so a dmg=build A/B's fresh-copy result transfers to the published DMG:
-#   adhoc-copy      a new copy of the same DMG's app re-signed ad hoc from the inside out (adhoc_sign: hardened-runtime
-#                   flags kept, no entitlements), then the fresh-home launch: the same code on the same Mac, only the
-#                   signature differs
+#   adhoc-copy      a new copy of the same DMG's app re-signed ad hoc from the inside out, as reload.sh signs a tagged
+#                   build (adhoc_sign: no flags, no entitlements), then the fresh-home launch: the same code on the same
+#                   Mac, only the signature differs
 ADHOC_ARMS = ("adhoc-copy",)
 PREWARM_BINS = ("cmux", "cmux-tui")
 # The unified log around a fresh copy's launch: who works on a new executable before main.
@@ -248,9 +248,10 @@ def prewarm_until_main(smoke, root: Path, app: Path, executable: str, home_root:
 
 def adhoc_sign(app: Path) -> str:
     """Re-signs APP ad hoc from the inside out, as a tagged build is signed: each nested bundle, framework, dylib and
-    executable, deepest first, then APP. Hardened-runtime flags are kept; entitlements are not, because the Developer ID
-    build's team-restricted entitlements under an ad-hoc signature get the process killed at exec (SIGKILL, every
-    launch of a `--deep --preserve-metadata=entitlements` copy). Returns the last lines of codesign's output."""
+    executable, deepest first, then APP, with no flags and no entitlements, as scripts/reload.sh signs a tagged build
+    (`codesign --force --sign - --timestamp=none`). The Developer ID build's team-restricted entitlements under an ad-hoc
+    signature got the process killed at exec (SIGKILL), and its hardened runtime kept made library validation refuse the
+    ad-hoc frameworks before `main` (SIGABRT). Returns the last lines of codesign's output."""
     contents = app / "Contents"
     items = [p for p in contents.rglob("*") if p.suffix in (".app", ".framework", ".dylib", ".xpc", ".appex")]
     items += [p for d in ("MacOS", "Resources/bin") for p in (contents / d).glob("*")
@@ -259,8 +260,7 @@ def adhoc_sign(app: Path) -> str:
               and os.access(p, os.X_OK) and p.parent.name in ("MacOS", "Helpers")]
     out = []
     for item in sorted(set(items), key=lambda p: len(p.parts), reverse=True) + [app]:
-        line = run_text(["/usr/bin/codesign", "--force", "--sign", "-", "--timestamp=none", "--preserve-metadata=flags",
-                         str(item)], timeout=300)
+        line = run_text(["/usr/bin/codesign", "--force", "--sign", "-", "--timestamp=none", str(item)], timeout=300)
         if "error" in line.lower() or item == app:
             out.append(f"{item.relative_to(app.parent)}: {line.strip()[-200:]}")
     return "\n".join(out)[-800:]
@@ -416,7 +416,8 @@ def main(argv: list[str] | None = None) -> int:
             rows = round_once(smoke, apps[0], bundle_id, executable, args.seconds, index, report, more=more,
                               log_first_exec=args.arms == "extra")
             report["launches"].extend(rows)
-            if any(row["rendered_at"] is None for row in rows):
+            # A diagnostic arm that cannot launch (ADHOC_ARMS) is reported in its own NFL-LAUNCH line, not as the step's failure.
+            if any(row["rendered_at"] is None for row in rows if row["arm"] not in ADHOC_ARMS):
                 status = 1
     except (smoke.CannotRun, OSError, subprocess.SubprocessError) as error:
         print(f"NFL cannot run: {error}", flush=True)

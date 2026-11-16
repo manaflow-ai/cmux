@@ -201,6 +201,19 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             answer["replacement"] = json!(slots::replacement(&request.deletes));
             answer
         }
+        // The hub's records as physical devices (`device_list`): `{thisDevice, others}` from this
+        // device and every record, so a Mac's other builds and stale records list once, or not at all.
+        b"cloud_identity_device_list" => {
+            use cmux_cloud_config::device_list;
+            #[derive(Deserialize)]
+            struct Request {
+                this: device_list::This,
+                #[serde(default)]
+                devices: Vec<device_list::Device>,
+            }
+            let request: Request = read(request)?;
+            json!(device_list::listing(&request.this, &request.devices))
+        }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
             struct Request {

@@ -178,6 +178,13 @@ fn place_created_rows(
             .optional()?
             .is_some())
     };
+    // sidebar-doc-v1: the document decides a new workspace's place and its
+    // personal row follows (`sidebar_doc_create`). Old writes still pending
+    // are followed first, so only the new rows are dirty afterwards.
+    let in_document = super::sidebar_doc_store::is_migrated(transaction)?;
+    if in_document {
+        super::sidebar_doc_sync::sync_from_legacy(transaction)?;
+    }
     let mut placed = Vec::new();
     for key in &created.keys {
         if has_row(key)? {
@@ -209,6 +216,22 @@ fn place_created_rows(
     // the creator's earlier children, never next to the person's selection;
     // with no live creator, first, never the sidebar's end (ask-48544d7525).
     let by_creator = created.created_by.as_ref().is_some_and(CreatedBy::places_by_creator);
+    if in_document {
+        let groups_before = read_groups(transaction)?;
+        let anchors = super::sidebar_doc_create::Anchors {
+            current: created.current.as_deref(),
+            creator: created.creator.as_deref(),
+            by_creator,
+        };
+        if super::sidebar_doc_create::place(transaction, &local, &placed, placement, &anchors)? {
+            for key in &placed {
+                queue_placement(transaction, &local, key)?;
+            }
+            return queue_moved_group_slots(transaction, &groups_before);
+        }
+        // The document refused the adopt (logged): the old-order placement
+        // below stands, and the sync that follows it places the rows.
+    }
     let slot = match placement {
         NewWorkspacePlacement::Bottom => None,
         NewWorkspacePlacement::Top => Some(top_slot(transaction, &local, &placed)?),
@@ -261,13 +284,22 @@ fn place_created_rows(
         queue_placement(transaction, &local, key)?;
     }
     super::placement_shift::queue(transaction, index + placed.len(), None)?;
+    queue_moved_group_slots(transaction, &groups_before)
+}
+
+/// Group slots after new rows moved too: clients that rebuild from events
+/// get each group whose `top_index` differs from `before`.
+fn queue_moved_group_slots(
+    transaction: &Transaction<'_>,
+    before: &[PersonalGroup],
+) -> anyhow::Result<()> {
     let slots = read_groups(transaction)?;
     for change in super::personal::all_groups(transaction)?.into_iter().filter(|change| {
         let id = change["id"].as_str();
         let slot = |groups: &[PersonalGroup]| {
             groups.iter().find(|group| Some(group.id.as_str()) == id).map(|group| group.top_index)
         };
-        slot(&groups_before) != slot(&slots)
+        slot(before) != slot(&slots)
     }) {
         super::closed_history_store::queue_change(transaction, &change)?;
     }
