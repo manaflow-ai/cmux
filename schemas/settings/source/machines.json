@@ -596,6 +596,39 @@
           ]
         },
         {
+          "key": "remote.agentShareIdleMinutes",
+          "note": "Read by the daemon each time an owner's agent turns sharing on under the account's \"My agents can turn screen sharing and control on my machines\" (cmux-tui-util user_settings::agent_share_idle_minutes; cmux-tui-core remote_host/agent_share.rs AutoOff). The person's own sharing never turns itself off.",
+          "title": {
+            "key": "settings.remote.agentShareIdleMinutes",
+            "text": "Agent Sharing Turns Off After"
+          },
+          "help": {
+            "key": "settings.remote.agentShareIdleMinutes.help",
+            "text": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+          },
+          "summary": {
+            "key": "settings.remote.agentShareIdleMinutes.summary",
+            "text": "Minutes with no viewer before an agent's sharing turns off"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "minutes"
+          },
+          "default": 15,
+          "keywords": [
+            "cmux remote",
+            "screen sharing",
+            "mac screen",
+            "agents",
+            "idle",
+            "timeout",
+            "turn off"
+          ]
+        },
+        {
           "key": "remote.ultra",
           "name": "ultra",
           "note": "Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.",

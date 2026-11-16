@@ -368,6 +368,8 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
+    /// Agent tickets and the agent share's auto-off (remote_host/agent_share.rs).
+    pub(crate) remote_agents: Arc<crate::remote_host::agent_share::AgentShare>,
     pub(super) app_trust: app_trust::AppTrust,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
@@ -447,6 +449,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             remote_host: Default::default(),
+            remote_agents: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(

@@ -4479,6 +4479,14 @@
       "title" : "Pinned Folders",
       "type" : "array"
     },
+    "remote.agentShareIdleMinutes" : {
+      "default" : 15,
+      "description" : "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it.",
+      "maximum" : 240,
+      "minimum" : 1,
+      "title" : "Agent Sharing Turns Off After",
+      "type" : "number"
+    },
     "remote.endSharingOnQuit" : {
       "default" : false,
       "description" : "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
@@ -5648,7 +5656,7 @@
       "default" : [
 
       ],
-      "description" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu.",
+      "description" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.",
       "items" : {
         "enum" : [
           "splitRight",

@@ -145,6 +145,40 @@ channel is open. This compatibility bridge is deliberate: switching
 `remoteHosted` to the worker's older `ScreenStreamHost` path would make a
 Release viewer connect to a host speaking a different protocol.
 
+## Agents
+
+"My agents can turn screen sharing and control on my machines" is one setting per account, kept
+by the device hub (`GET`/`PUT /v1/settings`, `agentsMayShare`) and off by default. Only a person
+turns it on: the switch in Settings > Devices, or `remote.confirm {action: "allow_agents", on: true}`
+(what `cmux device setup --allow-agents` sends), which always shows the app's dialog. Turning it off
+needs no dialog. The app writes it with its full hub session; the hub audits each change and pushes
+`settings.changed`.
+
+With it on, the owner's agent (a local connection to this Mac's daemon, of this OS user, that is not
+the app and not a page) turns sharing on or off with no dialog:
+
+1. `cmux remote-host share on|off [--device D]` and MCP `remote_share` ask the daemon for a
+   single-use ticket (`remote-host-call agent.ticket {action: share|unshare, device?, agent}`,
+   60 s). The ticket names the agent session (its `ACPMUX_SESSION_ID` or `CMUX_AGENT_SESSION`, its
+   `ACPMUX_SESSION_NAME`, and the connection's process id).
+2. They send `remote.confirm {..., agent_ticket}` to the app. The app redeems it over its verified
+   daemon connection (`agent.redeem`), passing the hub's current value, the account and this
+   device. The daemon decides: on, signed in, a target of the same account, a live ticket: no
+   dialog. Otherwise the app shows the dialog exactly as before (`unshare` answers
+   `{ok: false, asks_person: true}`, and the caller turns sharing off through the daemon).
+3. Every decision is a line in `~/.cmux/host/audit.jsonl` (`remote_host.agent_share_on`, `_off`,
+   `_asks_person`, `_refused`, `_auto_off`) naming the agent session and the device, and the hub's
+   `shared`/`unshared` row names the agent too. The app posts a notice ("Studio is now shared",
+   with Turn Off) and the menu bar item says an agent shared this Mac until sharing goes off.
+4. Sharing an agent turned on turns itself off after `remote.agentShareIdleMinutes` (default 15)
+   minutes with no viewer: a daemon timer armed on the share, held while a viewer is connected (the
+   host's `busy`), re-armed when the last viewer leaves, and cancelled when the person turns sharing
+   on or off (`agent.person`). It turns sharing off through cmux Remote's host session.
+
+Still asked: other people's devices and agents (they never reach this daemon's local socket), a new
+Mac joining, macOS grants, and every request while the setting is off. An agent ticket never turns
+the setting itself on (`agent.ticket {action: allow_agents}` is refused `agents.person_only`).
+
 ## Settings and controls
 
 Every control exists in the command palette, the CLI and MCP:
@@ -162,6 +196,8 @@ Every control exists in the command palette, the CLI and MCP:
 | Stop the current session | Mac Screen: Stop Current Session | `cmux remote-host stop` (app canonical action first; worker fallback only when app transport is absent) | `remote_stop_session` |
 | Stop the current session directly in the attached app | Mac Screen: Stop Sharing | `cmux action run macScreen.stopSharing` | app action (no worker round-trip) |
 | End sharing when cmux quits (`remote.endSharingOnQuit`, default off) | Settings | `cmux settings set remote.endSharingOnQuit` | `settings_set` (refused: user-only) |
+| Minutes with no viewer before an agent's sharing turns off (`remote.agentShareIdleMinutes`, 1-240, default 15) | Settings | `cmux settings set remote.agentShareIdleMinutes 30` | `settings_set` (refused: user-only) |
+| My agents can turn screen sharing and control on my machines (account, device hub) | Settings > Devices | `remote.confirm {action: allow_agents, on}` (the person confirms on) | |
 | Ultra Connection Mode (`remote.ultra`: `off`, `auto` (the default) or `always`. Auto sends no repair data on a clean link and Reed-Solomon repair data from the first lost packet, within about one round trip, until the link is clean again; on a metered network the repair bytes stay within the data bytes. Always sends it on every datagram, about 2-3x the bytes. The peer agrees inside the tunnel to send it too, so both directions are protected; `CMUX_WG_ULTRA` overrides it) | Settings | `cmux settings set remote.ultra always` | `settings_set` (refused: user-only) |
 | Computer Use driver (`computerUse.driver`, default `upstream`: Computer Use runs in cmux Remote; `legacy` keeps the cmux-cua 0.8.12 helper) | Settings | `cmux settings set computerUse.driver` | `settings_set` (refused: user-only) |
 

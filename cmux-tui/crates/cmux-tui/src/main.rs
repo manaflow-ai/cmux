@@ -2712,6 +2712,10 @@ fn run_server(
     // source/working-tree checks keep local development installs untouched.
     let _plugin_auto_update = plugin_manager::start_auto_update();
     mux.configure_browser_host(&socket_path);
+    // The agent-share audit rows go to the host's own audit log (remote_host/config.rs).
+    if let Ok(dir) = remote_host::config::dir() {
+        cmux_tui_core::remote_host::set_agent_share_audit_dir(dir);
+    }
     mux.configure_remote_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener

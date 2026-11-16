@@ -185,6 +185,8 @@ mod raw;
 #[cfg(unix)]
 mod remote_host;
 #[cfg(unix)]
+mod remote_host_agent;
+#[cfg(unix)]
 mod remote_host_grants;
 mod resolve;
 mod root_help;

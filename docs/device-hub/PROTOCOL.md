@@ -129,7 +129,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
-| `PUT /v1/devices/:id/mac-screen` | `{shared}` | `{device}` | Only device `:id` itself may change its own sharing. |
+| `PUT /v1/devices/:id/mac-screen` | `{shared, agent?: {session, device?}}` | `{device}` | Only device `:id` itself may change its own sharing. `agent` names the owner's agent session that asked, under the account's `agentsMayShare`; the `shared`/`unshared` audit row's `detail` then reads `agent <session> on <device>`. |
 | `POST /v1/devices/:id/sign-out` | | `{}` | Only device `:id` itself (403 `not_host` otherwise). Ends its sessions at once with reason `signed_out`, closes its User DO socket (code 4003), lists it offline at once and pushes `devices.changed` to the other devices. The device stays registered. Call it before dropping the account session. |
 | `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `ask`. |
 | `PUT /v1/permissions/:hostId/:viewerId` | `{scope}` | `{permission:{hostId, viewerId, scope, previous, updatedAt}}` | Only device `:hostId` itself (403 `not_host` otherwise). A viewer raises its access only by requesting a session; the host's `always` decision stores the permission. Lowering a scope revokes sessions that exceed it: `none` ends every open session of the pair, `view` ends `full` ones; `ask` and `full` end none. |
@@ -141,7 +141,9 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
 | `DELETE /v1/relays/:id` | | `{}` | |
-| `GET /v1/audit?limit=&before=&device=` | | `{entries:[…]}` | The whole account's log, newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive; `device` keeps entries whose `viewerId` or `hostId` is that device (sessions, permissions, sharing) plus every `device_added`/`device_removed` entry, so each device's History shows the account's devices coming and going (`deviceId` says which). |
+| `GET /v1/settings` | | `{settings:{agentsMayShare, updatedAt, updatedBy}}` | The account's settings, one value each per user (User DO `meta`). `agentsMayShare` ("My agents can turn screen sharing and control on my machines") is false until a person turns it on. A host session may read it. |
+| `PUT /v1/settings` | `{agentsMayShare}` | `{settings}` | A full session only (a host session gets 403 `host_scope`): the app writes it after the person's click in Settings or on its dialog. A change audits `agents_allowed` or `agents_disallowed` with `deviceId` and pushes `settings.changed` to every device. |
+| `GET /v1/audit?limit=&before=&device=` | | `{entries:[…]}` | The whole account's log, newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive; `device` keeps entries whose `viewerId` or `hostId` is that device (sessions, permissions, sharing) plus every `device_added`/`device_removed`/`agents_allowed`/`agents_disallowed` entry, so each device's History shows the account's devices coming and going (`deviceId` says which). |
 
 Errors: `{error:{code, message}}` with HTTP 400/401/403/404/409/429.
 Codes: `bad_request`, `unauthorized` (missing/expired hub session),
@@ -173,6 +175,7 @@ others. Server → device messages:
 {type:'devices.changed'}                       // refetch GET /v1/devices
 {type:'permissions.changed', hostId}
 {type:'relays.changed'}
+{type:'settings.changed'}                      // refetch GET /v1/settings
 {type:'session.request', session:{id, viewerId, viewerName, viewerKeyFingerprint, scope}}   // to the host
 {type:'session.ticket', sessionId, ticket, signalURL, ice:[…], peer:{id, name, signingKey}, role, scope}
 {type:'session.denied', sessionId}             // to the viewer

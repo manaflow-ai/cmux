@@ -29,6 +29,11 @@
 /// Advertised by `identify` once `remote-host-status` and `remote-host-call` exist.
 pub(crate) const REMOTE_HOST_CAPABILITY: &str = "remote-host-v1";
 
+/// Agents may turn sharing on or off under the account's standing permission (`agent.*`).
+pub(crate) mod agent_share;
+/// The daemon names the host folder for the agent-share audit rows once at start.
+pub use agent_share::set_host_dir as set_agent_share_audit_dir;
+
 #[cfg(unix)]
 #[path = "remote_host/unix.rs"]
 mod imp;
@@ -65,6 +70,7 @@ mod imp {
         pub(crate) fn set_config(&self, _update: &Value) -> Result<Value, String> {
             Err("cmux Remote runs on macOS only".into())
         }
+        pub(crate) fn observe_viewer(&self, _observer: Box<dyn Fn(bool) + Send + Sync>) {}
     }
 
     impl crate::mux::Mux {

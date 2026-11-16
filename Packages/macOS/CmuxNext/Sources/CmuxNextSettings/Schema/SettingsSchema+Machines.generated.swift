@@ -83,6 +83,10 @@ extension RemoteSettings {
     /// `remote.endSharingOnQuit`.
     public nonisolated static let endSharingOnQuitPath = ["remote", "endSharingOnQuit"]
     public nonisolated static let endSharingOnQuitDefault = false
+    /// `remote.agentShareIdleMinutes`: Read by the daemon each time an owner's agent turns sharing on under the account's "My agents can turn screen sharing and control on my machines" (cmux-tui-util user_settings::agent_share_idle_minutes; cmux-tui-core remote_host/agent_share.rs AutoOff). The person's own sharing never turns itself off.
+    public nonisolated static let agentShareIdleMinutesPath = ["remote", "agentShareIdleMinutes"]
+    public nonisolated static let agentShareIdleMinutesDefault: Double = 15
+    public nonisolated static let agentShareIdleMinutesRange: ClosedRange<Double> = 1...240
     /// `remote.ultra`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.
     public nonisolated static let ultraPath = ["remote", "ultra"]
     public nonisolated static let ultraDefault: UltraConnectionMode = .auto
@@ -353,6 +357,17 @@ extension MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(RemoteSettings.endSharingOnQuitDefault),
                 keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
+            ),
+            SettingDescriptor(
+                RemoteSettings.agentShareIdleMinutesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.agentShareIdleMinutes", "Agent Sharing Turns Off After"),
+                help: SettingsText.keyed("settings.remote.agentShareIdleMinutes.help", "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."),
+                summary: SettingsText.keyed("settings.remote.agentShareIdleMinutes.summary", "Minutes with no viewer before an agent's sharing turns off"),
+                kind: .number(SettingNumber(RemoteSettings.agentShareIdleMinutesRange, step: 1, unit: .minutes)),
+                default: .number(RemoteSettings.agentShareIdleMinutesDefault),
+                keywords: ["cmux remote", "screen sharing", "mac screen", "agents", "idle", "timeout", "turn off"]
             ),
             SettingDescriptor(
                 RemoteSettings.ultraPath,

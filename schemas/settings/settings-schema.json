@@ -1373,6 +1373,7 @@
             "key" : "settings.group.cmuxRemote",
             "rows" : [
               "remote.endSharingOnQuit",
+              "remote.agentShareIdleMinutes",
               "remote.ultra"
             ],
             "title" : {
@@ -5505,7 +5506,7 @@
       },
       "help" : {
         "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
+        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.toolbarButtons",
@@ -5593,7 +5594,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
           "row" : null
         },
         "socket" : {
@@ -105648,6 +105649,151 @@
       "title" : {
         "key" : "settings.remote.endSharingOnQuit",
         "text" : "End Sharing When cmux Quits"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        240,
+        120.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 15,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cmuxRemote",
+        "text" : "cmux Remote"
+      },
+      "help" : {
+        "key" : "settings.remote.agentShareIdleMinutes.help",
+        "text" : "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "remote.agentShareIdleMinutes",
+      "keywords" : [
+        "cmux remote",
+        "screen sharing",
+        "mac screen",
+        "agents",
+        "idle",
+        "timeout",
+        "turn off"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "remote",
+        "agentShareIdleMinutes"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 240,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -238,
+        479,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.remote.agentShareIdleMinutes.summary",
+        "text" : "Minutes with no viewer before an agent's sharing turns off"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:remote.agentShareIdleMinutes"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.remote.agentShareIdleMinutes",
+        "text" : "Agent Sharing Turns Off After"
       },
       "validation" : "portable"
     },

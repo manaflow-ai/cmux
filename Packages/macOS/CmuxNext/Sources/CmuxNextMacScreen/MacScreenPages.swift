@@ -169,7 +169,7 @@ public final class MacScreenPages {
         case let .sessionEnded(id, reason):
             hubHost.sessionOver(id)
             for viewer in hubViewers where viewer.phase.sessionID == id { viewer.ended(reason: reason) }
-        case .devicesChanged, .permissionsChanged, .relaysChanged, .pong, .unknown:
+        case .devicesChanged, .permissionsChanged, .relaysChanged, .settingsChanged, .pong, .unknown:
             break
         }
     }

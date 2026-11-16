@@ -206135,6 +206135,399 @@
         }
       }
     },
+    "settings.remote.agentShareIdleMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف مشاركة الوكيل بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje agenta se isključuje nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentdeling slås fra efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenfreigabe endet nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Sharing Turns Off After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El uso compartido de agentes se desactiva tras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le partage par un agent s’arrête après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La condivisione degli agenti si disattiva dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの共有をオフにするまで"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែករបស់ភ្នាក់ងារបិទបន្ទាប់ពី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 공유 자동 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentdeling slås av etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie przez agenta wyłącza się po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O compartilhamento do agente desativa após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ от агента выключается через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแชร์ของเอเจนต์ปิดหลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan paylaşımı şu süre sonra kapanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ від агента вимикається через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ của tác tử tắt sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体共享关闭时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理共享關閉時間"
+          }
+        }
+      }
+    },
+    "settings.remote.agentShareIdleMinutes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يشغّل أحد وكلائك المشاركة لجهاز Mac هذا، تتوقف مجددًا بعد هذا العدد من الدقائق دون أن يشاهده أو يتحكم فيه أي جهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada jedan od vaših agenata uključi dijeljenje za ovaj Mac, ono se ponovo isključuje nakon ovoliko minuta bez uređaja koji ga gleda ili kontroliše."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en af dine agenter slår deling til for denne Mac, slås den fra igen efter så mange minutter, uden at en enhed ser eller styrer den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn einer deiner Agenten die Freigabe für diesen Mac einschaltet, endet sie wieder nach so vielen Minuten, in denen kein Gerät zusieht oder steuert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando uno de tus agentes activa el uso compartido de este Mac, se desactiva de nuevo tras estos minutos sin que ningún dispositivo lo vea ni lo controle."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand l’un de vos agents active le partage de ce Mac, il s’arrête après ce nombre de minutes sans appareil qui le regarde ou le contrôle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando uno dei tuoi agenti attiva la condivisione di questo Mac, si disattiva dopo questi minuti senza dispositivi che lo guardano o lo controllano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがこのMacの共有をオンにしたとき、この分数のあいだどのデバイスも閲覧・操作しなければ、再びオフになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលភ្នាក់ងាររបស់អ្នកបើកការចែករំលែកសម្រាប់ Mac នេះ វានឹងបិទវិញបន្ទាប់ពីចំនួននាទីនេះដែលគ្មានឧបករណ៍មើល ឬគ្រប់គ្រងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 이 Mac의 공유를 켜면, 이 시간(분) 동안 보거나 제어하는 기기가 없을 때 다시 꺼집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en av agentene dine slår på deling for denne Macen, slås den av igjen etter så mange minutter uten at en enhet ser på eller styrer den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy jeden z Twoich agentów włączy udostępnianie tego Maca, wyłączy się ono po tylu minutach, w których żadne urządzenie go nie ogląda ani nim nie steruje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando um dos seus agentes ativa o compartilhamento deste Mac, ele é desativado de novo após estes minutos sem nenhum dispositivo vendo ou controlando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда один из ваших агентов открывает доступ к этому Mac, доступ выключается через столько минут, если ни одно устройство его не смотрит и не управляет им."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเอเจนต์ของคุณเปิดการแชร์ Mac เครื่องนี้ การแชร์จะปิดอีกครั้งหลังจากไม่มีอุปกรณ์ใดดูหรือควบคุมตามจำนวนนาทีนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlarınızdan biri bu Mac için paylaşımı açtığında, hiçbir aygıt izlemez veya denetlemezse bu kadar dakika sonra yeniden kapanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли один із ваших агентів відкриває доступ до цього Mac, доступ вимикається через стільки хвилин, якщо жоден пристрій його не переглядає й не керує ним."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi một tác tử của bạn bật chia sẻ cho máy Mac này, chia sẻ sẽ tắt lại sau số phút này nếu không có thiết bị nào xem hoặc điều khiển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当你的智能体为这台 Mac 开启共享后，如果这么多分钟内没有设备观看或控制，共享会再次关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當你的代理為這台 Mac 開啟共享後，若這麼多分鐘內沒有裝置觀看或控制，共享會再次關閉。"
+          }
+        }
+      }
+    },
+    "settings.remote.agentShareIdleMinutes.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد الدقائق دون مشاهد قبل إيقاف مشاركة الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minute bez gledalaca prije isključivanja dijeljenja agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutter uden seere, før en agents deling slås fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuten ohne Zuschauer, bis die Freigabe eines Agenten endet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes with no viewer before an agent's sharing turns off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutos sin público hasta apagar lo que compartió un agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes sans spectateur avant l’arrêt du partage d’un agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuti senza pubblico, poi si spegne la condivisione agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの共有がオフになるまでの視聴者なしの分数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាទីគ្មានអ្នកមើល មុនពេលការចែករំលែករបស់ភ្នាក់ងារបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 공유가 꺼지기까지 보는 사람이 없는 시간(분)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutter uten seere før en agents deling slås av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuty bez widzów do wyłączenia udostępniania agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutos sem público até desligar o que o agente compartilhou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Минуты без зрителей до выключения доступа от агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนนาทีที่ไม่มีผู้ดูก่อนการแชร์ของเอเจนต์จะปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajanın paylaşımı kapanmadan önce izleyensiz dakika"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хвилини без глядачів до вимкнення доступу від агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phút không có người xem trước khi chia sẻ của tác tử tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无人观看多少分钟后关闭智能体共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無人觀看多少分鐘後關閉代理共享"
+          }
+        }
+      }
+    },
     "settings.remote.endSharingOnQuit": {
       "extractionState": "manual",
       "localizations": {
