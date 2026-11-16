@@ -20,4 +20,20 @@ public extension Metrics {
     static func buttonContainer(padding: CGFloat) -> ConcentricContainer {
         ConcentricContainer(childRadius: buttonCornerRadius, padding: padding)
     }
+
+    /// A close x (or another control) in the corner of a card or a toast rounded by `outerRadius`, concentric
+    /// with it (Lawrence 2026-11-15: the Updated card's x was not concentric with the card's corner): the same
+    /// padding from the top and the side, the x's hover shape the corner less it, at least ``space1`` in.
+    ///
+    /// ```swift
+    /// let x = Metrics.cornerControl(outerRadius: surface.cornerRadius, side: 16)
+    /// closeButton.frame = x.topTrailingFrame(side: 16, in: bounds, flipped: isFlipped)
+    /// closeButton.concentricRadius = x.childRadius
+    /// ```
+    /// - Parameter outerRadius: The card's corner.
+    /// - Parameter side: The control's side.
+    /// - Returns: The control's concentric geometry in the corner.
+    static func cornerControl(outerRadius: CGFloat, side: CGFloat) -> ConcentricContainer {
+        .cornerControl(outerRadius: outerRadius, side: side, minimumPadding: space1)
+    }
 }

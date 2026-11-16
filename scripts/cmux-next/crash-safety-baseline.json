@@ -155,6 +155,7 @@
     "CMUXMobileCore": 1,
     "CmuxAppAttest": 1,
     "CmuxNextAgentActivity": 1,
+    "CmuxNextAgentList": 2,
     "CmuxNextAgentPane": 5,
     "CmuxNextApp": 4,
     "CmuxNextChromiumRuntime": 1,
