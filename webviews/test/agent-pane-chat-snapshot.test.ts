@@ -458,6 +458,32 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  // A send's flying pill (sendMorph.ts, sendTuck.ts) and a changes tree's leaving rows
+  // (treeMotionDom.ts) are the same kind of element: on screen only while their Web Animation plays.
+  test("a write while a send flies leaves its layer out (cmux#43975)", async () => {
+    const context = await newContext(800, 600);
+    const page = await context.newPage();
+    await page.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+    );
+    await page.goto("http://chat.test/a.html");
+    await page.addScriptTag({ content: capture });
+    const html = (await page.evaluate(() => {
+      const layer = document.createElement("div");
+      layer.setAttribute("data-send-morph-layer", "");
+      layer.setAttribute("data-cmux-snapshot-skip", "");
+      layer.style.cssText = "position:fixed;inset:0";
+      layer.innerHTML = '<div class="pill">flying prompt</div>';
+      document.getElementById("root")!.append(layer);
+      layer.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 60_000, fill: "both" });
+      return (globalThis as any).captureSnapshot(document, "theme-1").html;
+    })) as string;
+    expect(html).toContain("Chat title");
+    expect(html).not.toContain("flying prompt");
+    expect(html).not.toContain("data-cmux-snapshot-skip");
+    await context.close();
+  });
+
   test("a copy written mid-fold before the fix draws none of the fold's copies (cmux#43975)", async () => {
     const context = await newContext(800, 600);
     const before = await written(await context.newPage());
