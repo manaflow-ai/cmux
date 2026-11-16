@@ -310,3 +310,42 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
     let worst = sizes.iter().copied().max().unwrap_or(0);
     assert!(worst <= budget * 3 / 2, "a changed frame of {worst} B is over the {budget} B budget");
 }
+
+/// A frame that changes everywhere (a scroll, a drag) at a low target keeps its detail: the
+/// session caps the frame QP (videotoolbox.rs MAX_FRAME_QP) and overshoots its share of the
+/// target, instead of smearing the picture at QP 40-51 to fit it. Runs on a fleet Mac.
+#[cfg(target_os = "macos")]
+#[test]
+fn videotoolbox_motion_frames_keep_their_detail_at_a_low_target() {
+    use cmux_encode::H264Encoder;
+    use cmux_encode::videotoolbox::VideoToolbox;
+    const W: usize = 512;
+    const H: usize = 256;
+    const KBPS: u32 = 100;
+    let mut enc = VideoToolbox::new(W as u32, H as u32, 30, KBPS, false).expect("hardware encoder");
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut noise = |pic: &mut I420| {
+        for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            *px = 16 + (seed % 220) as u8;
+        }
+    };
+    let mut pic = I420::new(W, H);
+    let mut au = Vec::new();
+    let mut p_bytes = Vec::new();
+    for i in 0..12i64 {
+        noise(&mut pic);
+        let idr = enc.encode(&pic, i == 0, i * 33_333, &mut au).expect("encode");
+        if !idr && !au.is_empty() && i >= 2 {
+            p_bytes.push(au.len());
+        }
+    }
+    assert!(!p_bytes.is_empty(), "no P-frames came out");
+    let mean = p_bytes.iter().sum::<usize>() / p_bytes.len();
+    let budget = (KBPS as usize * 1000 / 8) / 30;
+    eprintln!("motion P-frames {p_bytes:?}, mean {mean} B, per-frame budget {budget} B");
+    // QP 34 on full-frame noise needs tens of KB; capped at the budget it would be QP 51 mush.
+    assert!(mean > budget * 20, "mean P-frame {mean} B is near the {budget} B budget: QP ran away");
+}
