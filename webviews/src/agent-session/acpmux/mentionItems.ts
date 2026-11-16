@@ -366,11 +366,14 @@ export function mentionItems({
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
 /// files land around it), else the first. While the files for the word are still on their way, a
-/// chat is not picked unasked: a quick `@app⏎` means the file, which lists a moment later. -1: none.
+/// chat is not picked unasked: a quick `@app⏎` means the file, which lists a moment later. Nor is an
+/// extension's item, unless the word named its provider (`@pr`), which puts those rows first. -1: none.
 export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined, pending: boolean) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
-  return pending ? items.findIndex((item) => item.kind !== "session") : items.length > 0 ? 0 : -1;
+  if (!pending) return items.length > 0 ? 0 : -1;
+  const extensionLeads = items[0]?.kind === "extension";
+  return items.findIndex((item) => item.kind !== "session" && (item.kind !== "extension" || extensionLeads));
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its
@@ -382,7 +385,13 @@ export function mentionInsert(item: MentionItem): { markdown: string; shown: str
   // An extension's item writes its own text (a PR's link and title, a ticket), not an `@` path.
   if (item.kind === "extension") {
     const shown = `${item.mention.insert.replace(/\s+/g, " ").trim()} `;
-    return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };
+    // Inline marks are escaped as a chat's are; a start that reads as a block (`> `, `- `, `1. `,
+    // `# `, `+ `) is escaped too, since the pick can sit at the start of a line.
+    const markdown = shown
+      .replace(/[\\`*_[\]~<&]/g, "\\$&")
+      .replace(/^(#{1,6}|[>+-])(?= )/, "\\$1")
+      .replace(/^(\d+)([.)])(?= )/, "$1\\$2");
+    return { markdown, shown };
   }
   if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
   const shown = `cmux session ${JSON.stringify(item.title)} (${item.sessionId}) `;

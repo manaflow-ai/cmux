@@ -1,7 +1,7 @@
 // l10n-allow-file: synthetic extension mention labels.
 import { describe, expect, test } from "bun:test";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
-import { mentionInsert, mentionItems } from "../mentionItems";
+import { mentionInsert, mentionItems, mentionSelection } from "../mentionItems";
 import {
   ExtensionMentionProviders,
   extensionMentionsFrom,
@@ -61,6 +61,44 @@ describe("extension @ mentions (cmux.composer.mention/1)", () => {
     const base = { query: "pr", files: [], sessions: [], extension: [PR] };
     expect(mentionItems(base).map((item) => item.kind)).toEqual(["extension"]);
     expect(mentionItems({ ...base, extensionFirst: true })[0]?.kind).toBe("extension");
+  });
+
+  test("while files are on their way, Return picks no extension row unless the word named its provider", () => {
+    const after = mentionItems({ query: "app", files: [], sessions: [], extension: [PR] });
+    expect(mentionSelection(after, undefined, true)).toBe(-1);
+    const first = mentionItems({ query: "pr", files: [], sessions: [], extension: [PR], extensionFirst: true });
+    expect(mentionSelection(first, undefined, true)).toBe(0);
+  });
+
+  test("an insert that starts like a Markdown block is escaped at the start of a line", () => {
+    const quote = { ...PR, insert: "> quoted" };
+    const numbered = { ...PR, insert: "1. first" };
+    const [q] = mentionItems({ query: "pr", files: [], sessions: [], extension: [quote] });
+    const [n] = mentionItems({ query: "pr", files: [], sessions: [], extension: [numbered] });
+    expect(mentionInsert(q!).markdown).toBe("\\> quoted ");
+    expect(mentionInsert(n!).markdown).toBe("1\\. first ");
+  });
+
+  test("a stopped then restarted owner keeps one watch of the installed apps", async () => {
+    const client = new MockAppPanelsClient();
+    let watches = 0;
+    const subscribe = client.subscribe.bind(client);
+    client.subscribe = (async (...args: Parameters<typeof subscribe>) => {
+      const stop = await subscribe(...args);
+      watches++;
+      return () => {
+        watches--;
+        stop();
+      };
+    }) as typeof client.subscribe;
+    const owner = new ExtensionMentionProviders(client);
+    owner.start();
+    owner.stop();
+    owner.start();
+    await owner.refresh();
+    await Promise.resolve();
+    expect(watches).toBe(1);
+    owner.stop();
   });
 
   test("picking an extension row writes its insert text, not an @ path", () => {
