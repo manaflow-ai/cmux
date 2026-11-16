@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea.
+// cmux-tui mux protocol 12, IR 395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2545,6 +2545,9 @@ pub struct NewConversationTabRequest {
     pub page: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
+    /// Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub place: Optional<T::TabPlace>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub route: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2590,6 +2593,9 @@ pub struct NewFrontendBrowserTabRequest {
     pub owner: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
+    /// Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub place: Optional<T::TabPlace>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub profile_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2599,6 +2605,9 @@ pub struct NewFrontendBrowserTabRequest {
     pub split: Optional<T::ConversationTabSplit>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
+    /// Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
     pub url: String,
     /// Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2763,12 +2772,18 @@ pub struct NewTabRequest {
     pub keep: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
+    /// Where the tab goes in the strip of pane. Needs pane.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub place: Optional<T::TabPlace>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
+    /// Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -5258,6 +5273,9 @@ impl CmuxClient {
         if !request.page.is_missing() {
             self.require_capability_field("new-conversation-tab", "page-tabs-v1")?;
         }
+        if !request.place.is_missing() {
+            self.require_capability_field("new-conversation-tab", "tab-create-place-v1")?;
+        }
         if !request.route.is_missing() {
             self.require_capability_field("new-conversation-tab", "page-tab-route-v1")?;
         }
@@ -5271,8 +5289,14 @@ impl CmuxClient {
     }
 
     pub fn new_frontend_browser_tab(&mut self, request: NewFrontendBrowserTabRequest) -> Result<NewFrontendBrowserTabResult> {
+        if !request.place.is_missing() {
+            self.require_capability_field("new-frontend-browser-tab", "tab-create-place-v1")?;
+        }
         if !request.split.is_missing() {
             self.require_capability_field("new-frontend-browser-tab", "frontend-browser-tab-split-v1")?;
+        }
+        if !request.transaction.is_missing() {
+            self.require_capability_field("new-frontend-browser-tab", "tab-create-place-v1")?;
         }
         if !request.workspace.is_missing() {
             self.require_capability_field("new-frontend-browser-tab", "frontend-browser-tab-workspace-v1")?;
@@ -5395,6 +5419,10 @@ impl CmuxClient {
             self.require_protocol_field("new-tab", 12)?;
             self.require_capability_field("new-tab", "terminal-reap-v1")?;
         }
+        if !request.place.is_missing() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "tab-create-place-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("new-tab", 12)?;
             self.require_capability_field("new-tab", "terminal-shell-args-v1")?;
@@ -5402,6 +5430,10 @@ impl CmuxClient {
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-tab", 12)?;
             self.require_capability_field("new-tab", "terminal-placement-env-v1")?;
+        }
+        if !request.transaction.is_missing() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "tab-create-place-v1")?;
         }
         self.execute(&NEW_TAB_METADATA, &request)
     }

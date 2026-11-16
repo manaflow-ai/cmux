@@ -90,8 +90,8 @@ final class CEFPageRendererGC {
 
     static func isCmuxPage(_ url: URL?) -> Bool { url?.scheme == "cmux-page" }
 
-    /// `usedSize` of a `Runtime.getHeapUsage` result.
-    static func usedSize(_ json: String) -> Int? {
+    /// `usedSize` of a `Runtime.getHeapUsage` result, decoded off the main actor.
+    @concurrent nonisolated static func usedSize(_ json: String) async -> Int? {
         guard let data = json.data(using: .utf8),
               // main-actor-ok: one DevTools Runtime.getHeapUsage reply, two numbers ({usedSize, totalSize}).
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
