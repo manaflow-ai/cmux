@@ -1499,22 +1499,14 @@ fi
 
 # cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
 # builds it on a build host (CI, fleet, nx-remote: build-acpmux.sh
-# --check-build-allowed decides); a developer machine reuses the
-# commit-addressed cache but never runs Cargo.
+# --check-build-allowed decides); anywhere else it fetches the acpmux published
+# for this checkout's cmux-tui tree, and never runs Cargo (resolve-acpmux.sh).
 if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
   echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
-elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
-  if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
-    export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
-    echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
-  elif "$PWD/scripts/cmux-next/build-acpmux.sh" --check-build-allowed; then
-    "$PWD/scripts/cmux-next/build-acpmux.sh" || exit 1
-    export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
-    echo "==> cmux-next: bundling acpmux built on this host from $CMUX_NEXT_ACPMUX_BIN"
-  else
-    echo "error: no cached acpmux for this checkout, and this machine never runs Cargo; build through nx-remote or the fleet, or set CMUX_NEXT_ACPMUX_BIN" >&2
-    exit 1
-  fi
+elif [[ -x "$PWD/scripts/cmux-next/resolve-acpmux.sh" ]]; then
+  CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/resolve-acpmux.sh" --repo "$PWD")" || exit 1
+  export CMUX_NEXT_ACPMUX_BIN
+  echo "==> cmux-next: bundling acpmux from $CMUX_NEXT_ACPMUX_BIN"
 fi
 
 # The Home Chief's brain host (Native/OptChat/optchat-chief, see

@@ -23,12 +23,23 @@ cmux.app (the person's app; serves attached cmux.rd/1 + WebRTC sessions,
 ```
 
 - **Identity.** One signed bundle, `cmux Remote.app` (`com.cmuxterm.remote`;
-  DEV and NIGHTLY builds currently use the pinned `cmux Remote (dev).app`,
-  `com.cmuxterm.remote.dev`), with the cmux icon on a remote-screen badge. Its
-  designated requirement (bundle id + team) stays the same across builds, so a
-  grant survives every update. The Release phase embeds the pinned asset from
-  `scripts/cmux-next/cmux-remote-dev.pin.json`; a missing or mismatched asset
-  is visible in the build log and fails when `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1`.
+  DEV builds, and a NIGHTLY build that is asked to embed it, currently use the
+  pinned `cmux Remote (dev).app`, `com.cmuxterm.remote.dev`), with the cmux
+  icon on a remote-screen badge. Its designated requirement (bundle id + team)
+  stays the same across builds, so a grant survives every update. A Release
+  build embeds the pinned asset from
+  `scripts/cmux-next/cmux-remote-dev.pin.json` only with
+  `CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1` (decision of 2026-11-16). No build
+  sets the variable, so a NIGHTLY build has no cmux Remote: the third-party
+  notices and the load-command check of a published build do not cover the
+  embedded bundle yet. Without the variable a Release build prints one note
+  line and embeds nothing; with `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1` and not the
+  variable it fails. With the variable a Release build fails without the
+  asset, and a mismatched asset fails each build that embeds. Only with
+  `CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1` added, a Release build on a Mac with no
+  source for the asset prints one `NOT EMBEDDED` warning line and has no cmux
+  Remote. A DEV build warns in the build log and fails only when
+  `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1`.
 - **Responsibility.** The daemon starts the Remote host with
   `responsibility_spawnattrs_setdisclaim`, so the host is its own responsible
   process. Workers are the host's ordinary children: macOS attributes their
@@ -145,6 +156,8 @@ Every control exists in the command palette, the CLI and MCP:
 | Refresh permissions | cmux Remote: Refresh Permissions | `cmux remote-host refresh` | `remote_refresh` |
 | Restart a worker | cmux Remote: Restart Computer Use / Restart Screen Sharing | `cmux remote-host restart computer-use\|screen-sharing` | `remote_restart` |
 | Share This Mac | Mac Screen: Share This Mac / Stop Sharing This Mac | `cmux remote-host share on\|off` (on uses the app's `remote.confirm` sheet; off uses the app path first, with worker fallback when unattached) | `remote_share` |
+| Share another Mac of yours, confirmed on the device you are at (the target admits it only from a same-account machine its owner granted; until the approval can be delivered there, the answer is `share.needs_same_account_control`) | | `cmux remote-host share on --device DEVICE` | `remote_share` with `device` |
+| Which grant a Mac lacks, its pane opened there, and whether Screen Sharing or Remote Management lets an agent click it | | `cmux remote-host grants [--device DEVICE] [--open]` | |
 | A viewer's access | Mac Screen: Set Device Access… | `cmux remote-host access <device> none\|ask\|view\|full` | `remote_set_access` |
 | Stop the current session | Mac Screen: Stop Current Session | `cmux remote-host stop` (app canonical action first; worker fallback only when app transport is absent) | `remote_stop_session` |
 | Stop the current session directly in the attached app | Mac Screen: Stop Sharing | `cmux action run macScreen.stopSharing` | app action (no worker round-trip) |

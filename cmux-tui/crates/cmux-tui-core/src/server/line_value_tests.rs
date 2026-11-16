@@ -76,6 +76,8 @@ fn the_shared_parse_answers_as_each_hook_parsed_on_its_own() {
                 .map_err(Clone::clone)),
             "resource probe of {text}"
         );
+        // cloud_repos is unix-only (lib.rs #[cfg(unix)]); without this gate the Windows test build does not compile.
+        #[cfg(unix)]
         assert_eq!(
             line.value().and_then(crate::cloud_repos::frame_command_of),
             crate::cloud_repos::frame_command(text),

@@ -10,7 +10,8 @@
 #   On a Mac that must not build: bash scripts/measure/screen-stream-eval.sh prebuilt=DIR [targets=rd] ...
 #     (DIR holds the built tools; README.md, "Prebuilt tools"). They come from a fleet step with
 #     --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz (no console needed).
-# Output: SCREEN-STREAM-EVAL lines, the summary table, and artifacts/screen-stream-eval/results.json
+# Output: SCREEN-STREAM-EVAL lines, the summary table, artifacts/screen-stream-eval/results.json,
+# and probe.json (schema cmux.screen-share-fast/1) for the screen-share-fast goal board.
 # (also each target's raw files and the host and viewer frames under that folder). No gate: it
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
@@ -113,8 +114,10 @@ done
 [[ "$scene_marker" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: scene-marker= is 0 or 1" >&2; exit 2; }
 [[ "$presented_observer" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: presented-observer= is 0 or 1" >&2; exit 2; }
 if [[ "$presented_observer" == 1 ]]; then
-  [[ "$presented_pid" =~ ^[1-9][0-9]*$ && "$presented_window" =~ ^[1-9][0-9]*$ ]] || {
-    echo "screen-stream-eval.sh: presented observer needs numeric presented-pid= and presented-window=" >&2
+  # The Apple targets launch their own viewer and bind its pid and window, so both are optional;
+  # given, they must match what the target launched.
+  [[ "$presented_pid" =~ ^([1-9][0-9]*)?$ && "$presented_window" =~ ^([1-9][0-9]*)?$ ]] || {
+    echo "screen-stream-eval.sh: presented-pid= and presented-window= are numeric when given" >&2
     exit 2
   }
   [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^([2-9]|[1-9][0-9]+)$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {
@@ -157,6 +160,11 @@ work="$root/.build/screen-stream-eval"
 case "$prebuilt/" in
   "$out"/* | "$work"/*) echo "screen-stream-eval.sh: prebuilt= may not be inside $out or $work (the run removes both)" >&2; exit 2 ;;
 esac
+# A viewer that opens windows or posts input fights the person at a Mac they use (person_guard.py):
+# refuse before anything is removed or started. A tools-only build opens nothing.
+if [[ "$tools_only" != 1 ]]; then
+  python3 -I "$here/person_guard.py" check "$targets" || exit 2
+fi
 rm -rf "$out" "$work"
 mkdir -p "$out" "$work/bin"
 chmod 700 "$work"
@@ -230,10 +238,16 @@ trap cleanup EXIT
 # results.json from whatever the targets wrote; blocked=REASON marks a run that measured nothing.
 finish() {
   local blocked="${1:-}"
-  python3 -I - "$out" "$run" "$blocked" "$targets" "$here" "$video_path" <<'EOF'
+  python3 -I - "$out" "$run" "$blocked" "$targets" "$here" "$video_path" "$work/peer/agent.json" <<'EOF'
 import json, sys
 from pathlib import Path
 out, run, blocked, names = Path(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3], sys.argv[4].split(",")
+peer = Path(sys.argv[7])
+if peer.exists():
+    try:
+        run["viewer"] = json.loads(peer.read_text()).get("host")
+    except (OSError, ValueError):
+        pass
 sys.path.insert(0, sys.argv[5])
 from eval import SCHEMA, empty_target
 if blocked:
@@ -247,6 +261,7 @@ results = {"schema": SCHEMA, "run": run, "scenarios": scenarios, "targets": targ
 (out / "results.json").write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
 EOF
   python3 -I "$here/eval.py" summary "$out/results.json" "$out/summary.md"
+  python3 -I "$here/probe.py" "$out/results.json" "$out/probe.json"
   cat "$out/summary.md"
   # Includes only explicit eval outputs, never the host's authentication token.
   tar -czf "$work/evidence.tar.gz" -C "$out" .
@@ -512,7 +527,7 @@ PY
     go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
     rm -f "$go" "$stop" "$dir/host-$rep.png"
     unset EVAL_SCENE_NONCE EVAL_SCENE_GEOMETRY EVAL_SCENE_READY_FILE EVAL_VIDEO_METADATA
-    if [[ "$scene_marker" == 1 || "$name" == apple-high || "$name" == apple-standard || -n "$video_path" ]]; then
+    if [[ "$scene_marker" == 1 || "$name" == apple-* || -n "$video_path" ]]; then
       nonce=$(python3 -I -c 'import secrets; print(secrets.token_hex(16))') || {
         err "window $rep: could not create fresh source nonce"
         continue
@@ -570,6 +585,35 @@ PY
       [[ -s "$dir/source-scene-$rep.json" ]] && crop_args+=(--source-geometry "$dir/source-scene-$rep.json")
       [[ -s "$raw.readiness.json" ]] && crop_args+=(--readiness "$raw.readiness.json")
       "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" "${crop_args[@]}" >"$dir/ocr-$rep.json" || err "ocr $rep: invalid calibrated crop"
+    elif [[ "$name" == apple-rfb && -s "$dir/source-scene-$rep.json" && -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]] &&
+      crop=$(python3 -I - "$dir/source-scene-$rep.json" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" <<'PY'
+import json, struct, sys
+# rfb-viewer's frame is the host's framebuffer: the same display in the same pixels as the host's
+# screenshot, so one crop, the text below the marker strip, fits both. Refuse when sizes differ.
+def size(path):
+    head = open(path, "rb").read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(1)
+    return struct.unpack("!II", head[16:24])
+scene = json.load(open(sys.argv[1]))
+host, viewer = size(sys.argv[2]), size(sys.argv[3])
+if host != viewer:
+    raise SystemExit(1)
+scale = host[0] / scene["display_size_points"][0]
+x, y, w, h = (round(v * scale) for v in scene["content_rect_points"])
+print(f"{y} {x} {min(h, host[1] - y)} {min(w, host[0] - x)}")
+PY
+      ); then
+      # Same pixels on both sides, so no calibration: crop both to the text and compare them whole.
+      read -r cy cx ch cw <<<"$crop"
+      for side in host viewer; do
+        src="$dir/host-$rep.png"
+        [[ "$side" == viewer ]] && src="$dir/viewer-frame-$rep"
+        sips --cropOffset "$cy" "$cx" --cropToHeightWidth "$ch" "$cw" "$src" --out "$EVAL_STATE/ocr-$side-$rep.png" >/dev/null 2>&1 ||
+          err "ocr $rep: could not crop the $side image"
+      done
+      "$EVAL_BIN/screen-eval-ocr" "$EVAL_STATE/ocr-host-$rep.png" "$EVAL_STATE/ocr-viewer-$rep.png" "$dir/truth.txt" \
+        >"$dir/ocr-$rep.json" || err "ocr $rep failed"
     elif [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
       # The common marker reserves a region above the text. Full-window OCR
       # would include it and Apple chrome; calibrated pixel crops are required.

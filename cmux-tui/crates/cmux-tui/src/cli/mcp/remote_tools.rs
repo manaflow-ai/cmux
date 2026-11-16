@@ -4,12 +4,11 @@
 //! (they work with the app quit); turning sharing on and raising a device's
 //! access go to the cmux app, which asks the person first.
 
-use std::time::Duration;
-
 use serde_json::{Map, Value, json};
 
 use super::super::app::{ActionName, action_run_params, waiting_run_timeout};
-use super::super::remote_host::LowerChange;
+// One person-confirmation budget with `cmux remote-host`.
+use super::super::remote_host::{CONFIRM_TIMEOUT, LowerChange};
 use super::transport::{CallFailure, FailureKind};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
@@ -36,7 +35,10 @@ fn worker() -> Value {
 }
 
 fn share() -> Value {
-    json!({"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"], "additionalProperties": false})
+    json!({"type": "object", "properties": {
+        "on": {"type": "boolean"},
+        "device": {"type": "string", "description": "Another Mac of yours to share (its device id or name), with on: true. The person confirms on this device's cmux; that Mac admits it only from a machine its owner granted."}},
+        "required": ["on"], "additionalProperties": false})
 }
 
 fn access() -> Value {
@@ -74,7 +76,7 @@ pub(super) const TOOLS: &[RemoteTool] = &[
     },
     RemoteTool {
         name: "remote_share",
-        description: "Share This Mac on the device hub. Off works at once; on asks the person in cmux first, unless this Mac already shares or they chose Always Allow (remote.shareWithoutAsking).",
+        description: "Share This Mac on the device hub. Off works at once; on asks the person in cmux first, unless this Mac already shares or they chose Always Allow (remote.shareWithoutAsking). With device, share another Mac of yours: the person confirms on this device, and nothing is shared without that click.",
         schema: share,
     },
     RemoteTool {
@@ -88,9 +90,6 @@ pub(super) const TOOLS: &[RemoteTool] = &[
         schema: no_arguments,
     },
 ];
-
-/// How long the person may take to answer cmux's confirmation.
-const CONFIRM_TIMEOUT: Duration = Duration::from_secs(130);
 
 pub(super) fn find(name: &str) -> Option<&'static RemoteTool> {
     TOOLS.iter().find(|tool| tool.name == name)
@@ -126,11 +125,19 @@ impl RemoteTool {
                 let force = arguments.get("force").and_then(Value::as_bool).unwrap_or(false);
                 call("restart", json!({"worker": worker, "force": force}))
             }
-            "remote_share" => match arguments.get("on").and_then(Value::as_bool) {
-                Some(true) => return confirm(backend, json!({"action": "share", "on": true})),
-                Some(false) => return lower(backend, LowerChange::ShareOff),
-                None => return invalid("on is required"),
-            },
+            "remote_share" => {
+                match (arguments.get("on").and_then(Value::as_bool), text("device")) {
+                    (Some(true), Some(device)) => return share_device(backend, &device),
+                    (Some(false), Some(_)) => {
+                        return invalid("device works with on: true; turn sharing off on that Mac");
+                    }
+                    (Some(true), None) => {
+                        return confirm(backend, json!({"action": "share", "on": true}));
+                    }
+                    (Some(false), None) => return lower(backend, LowerChange::ShareOff),
+                    (None, _) => return invalid("on is required"),
+                }
+            }
             "remote_set_access" => {
                 let (Some(device), Some(scope)) = (text("device"), text("scope")) else {
                     return invalid("device and scope are required");
@@ -196,6 +203,36 @@ fn confirm(backend: &impl Backend, params: Value) -> Value {
     match backend.app("remote.confirm", params, CONFIRM_TIMEOUT, None, true) {
         Ok(value) => success(value, true),
         Err(failure) => failure_result(failure),
+    }
+}
+
+/// `remote_share {on: true, device}`: the person confirms on this device's cmux, which signs
+/// the approval only after the click (`remote_host::share_approval`).
+fn share_device(backend: &impl Backend, device: &str) -> Value {
+    use crate::remote_host::share_approval;
+    let ask = |params| {
+        backend
+            .app("remote.confirm", params, CONFIRM_TIMEOUT, None, true)
+            .map_err(|failure| failure.error)
+    };
+    let record = |event: &str, mut fields: Value| {
+        if let Some(map) = fields.as_object_mut() {
+            map.insert("via".into(), json!("mcp"));
+        }
+        crate::devices::record(event, fields);
+    };
+    match share_approval::share_from_here(
+        device,
+        ask,
+        &share_approval::AwaitingSameAccountControl,
+        record,
+    ) {
+        Ok(value) => success(value, true),
+        Err(error) => failure_result(CallFailure {
+            kind: FailureKind::Rejected,
+            error,
+            idempotency_key: None,
+        }),
     }
 }
 

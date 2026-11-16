@@ -71,7 +71,9 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     public var mainMs: Double?
     /// Process start to the first window frame committed (`first_window_frame_committed`).
     public var firstWindowFrameMs: Double?
-    /// Process start to Home's first page (`home.first_page`); nil when Home showed by its deadline first.
+    /// Process start to Home's first page on screen: its page in its dock, drawn from its saved state
+    /// (`home.saved_page_shown`), else the Chief's first page (`home.first_page`, classic Home); nil when
+    /// Home showed by its deadline first.
     public var homeFirstPageMs: Double?
     /// What showed Home: `mark` (its first page came) or `deadline` (``LaunchReveal``'s deadline passed first).
     public var homeRevealedBy: String?
@@ -100,7 +102,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         preMainMs = round(marks["main_start"])
         firstWindowFrameMs = round(marks["first_window_frame_committed"])
         if let main = marks["main_start"], let frame = marks["first_window_frame_committed"] { mainMs = round(frame - main) }
-        homeFirstPageMs = round(marks["home.first_page"])
+        homeFirstPageMs = round(marks["home.saved_page_shown"] ?? marks["home.first_page"])
         if marks["reveal.home"] != nil { homeRevealedBy = marks["reveal.home.by_deadline"] != nil ? "deadline" : "mark" }
         self.prewarmed = prewarmed
         firstLaunchOfBuild = true

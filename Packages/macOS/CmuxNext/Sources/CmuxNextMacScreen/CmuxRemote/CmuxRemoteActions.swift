@@ -35,6 +35,20 @@ public struct CmuxRemoteActionEnvironment {
 /// confirms it on a cmux dialog, then this app's hub session (the full one) makes it.
 @MainActor
 extension CmuxRemoteActionEnvironment {
+    /// How long `remote.confirm` keeps its dialog open for the person. It is the same budget
+    /// as `cmux remote-host`'s `CONFIRM_TIMEOUT`, so a late Allow still reaches the waiting
+    /// CLI or MCP call and is not cancelled at the old 130 s.
+    nonisolated static let confirmationTimeout: Duration = .seconds(600)
+
+    /// The dialog for every `remote.confirm` change (Share This Mac, a device's access, sharing
+    /// another Mac, whose Allow signs an approval with this device's key). Only the person answers
+    /// it: the app's debug socket (`debug.dialog` press, key or dismiss) refuses it, or an agent
+    /// could ask and then approve its own request (`DebugDialog.userOnly`).
+    public nonisolated static let confirmIdentifier = "cmux.dialog.remote.confirm"
+
+    /// Share This Mac's setup sheet, whose last step turns sharing on: user-only for the same reason.
+    public nonisolated static let setupIdentifiers = Set(CmuxRemoteSharingSetup.Step.allCases.map(CmuxRemoteSharingSetup.identifier))
+
     public func bind(into registry: ActionRegistry) {
         let environment = self
         let remote = environment.remote
@@ -108,6 +122,9 @@ extension CmuxRemoteActionEnvironment {
                     throw ControlError.invalidParams("action must be share, or access with device and scope (none, ask, view, full)")
                 }
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
+                if action == "share", !device.isEmpty {
+                    return try Self.confirmShareOther(device, hub: hub, window: environment.window())
+                }
                 let name = hub.devices.first { $0.id == device }?.name ?? device
                 let window = environment.window()
                 guard action == "share" else {
@@ -141,14 +158,9 @@ extension CmuxRemoteActionEnvironment {
                         }
                     },
                     apply: {}))
-            }.withDeadline(.fixed(.seconds(130))),
+            }.withDeadline(.fixed(Self.confirmationTimeout)),
         ]
     }
-
-    /// The `remote.confirm` access dialog's id. `DebugDialog.userOnly` lists it and the share
-    /// request's overview (`cmux.dialog.screenSharing.setup.overview`, whose Always Allow turns on
-    /// the user-only `remote.shareWithoutAsking`): no debug press answers either.
-    public static let confirmIdentifier = "cmux.dialog.remote.confirm"
 
     /// What `remote.confirm {action: share}` does.
     nonisolated enum ShareStep: Equatable, Sendable {
@@ -178,9 +190,9 @@ extension CmuxRemoteActionEnvironment {
     /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.
     ///
     /// The dialog outlives the request: the caller gives up after its deadline (the CLI waits
-    /// 130 s), and the request's deadline cancels its follow-up. An Allow after that is still the
-    /// person's answer, so the dialog and the change run in their own task, which the request's
-    /// cancellation does not reach; the request only waits on it.
+    /// `confirmationTimeout`, 600 s), and the request's deadline cancels its follow-up. An Allow
+    /// after that is still the person's answer, so the dialog and the change run in their own
+    /// task, which the request's cancellation does not reach; the request only waits on it.
     nonisolated static func confirmedChange(confirm: @escaping @MainActor @Sendable () async throws -> Bool,
                                             apply: @escaping @Sendable () async throws -> Void) -> @Sendable () async throws -> CmuxNextSettings.JSONValue {
         {
@@ -190,6 +202,27 @@ extension CmuxRemoteActionEnvironment {
                 return ["ok": true]
             }
             return try await answer.value
+        }
+    }
+
+    /// `remote.confirm {action: share, device}`: share another Mac of this account. The person
+    /// confirms here; only then does this device sign the approval the target Mac admits
+    /// (`acpmux::share_approval`). Nothing turns on here: the target makes its own hub call.
+    static func confirmShareOther(_ device: String, hub: DeviceHub, window: NSWindow?) throws -> ControlReply {
+        guard let target = hub.otherDevices.first(where: { $0.id == device || $0.name.caseInsensitiveCompare(device) == .orderedSame }) else {
+            throw ControlError.invalidParams(CmuxRemoteStrings.notYourDevice(device))
+        }
+        let (title, body) = CmuxRemoteStrings.confirmShareOther(device: target.name)
+        let unsigned = CmuxRemoteShareApproval(target: target.id, targetName: target.name, asker: hub.identity.id,
+                                               askerName: hub.thisDevice?.name ?? hub.deviceName, confirmedBy: hub.me?.userId ?? "",
+                                               confirmedAt: 0, nonce: UUID().uuidString.lowercased())
+        let identity = hub.identity
+        return .followUp {
+            guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
+            var approval = unsigned
+            approval.confirmedAt = Int(Date().timeIntervalSince1970)
+            let signed = try approval.signed(by: identity)
+            return .object(["ok": true, "approval": signed.json])
         }
     }
 
