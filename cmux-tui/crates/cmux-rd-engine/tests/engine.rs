@@ -544,3 +544,51 @@ fn leaving_ultra_drops_a_due_refinement() {
     assert_eq!(e.next_deadline_us(), None);
     assert!(e.poll(1_000_000).is_none());
 }
+
+#[test]
+fn a_pinned_target_holds_through_heavy_loss() {
+    use cmux_rd_proto::Arrival;
+    // Half of every frame lost: the controller cuts an unpinned target, and holds a pinned
+    // one (min_bps equal to max_bps, as `cmux-rd host --pin-kbps` sets it).
+    let target = |min_bps: u64| {
+        let mut e = MediaEngine::new(
+            EngineConfig {
+                width: 640,
+                height: 480,
+                max_fps: 60,
+                start_bps: 50_000_000,
+                max_bps: 50_000_000,
+                min_bps,
+                ..EngineConfig::default()
+            },
+            0,
+        );
+        let mut req = e.start(0).expect("first");
+        let mut now = 0u64;
+        for _ in 0..90 {
+            let sent = send(&mut e, &req, req.force_idr, 20_000, now);
+            let arrivals = sent
+                .iter()
+                .step_by(2)
+                .map(|d| Arrival {
+                    transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+                    arrival_us: (now + 2_000) as u32,
+                })
+                .collect();
+            now += 16_667;
+            e.on_datagram(
+                &feedback(&Feedback { acked_frame: req.frame, arrivals, ..Feedback::default() }),
+                false,
+                now,
+            );
+            let full = Rect { x: 0, y: 0, width: 640, height: 480 };
+            req = match e.damage(0, full, now) {
+                Some(r) => r,
+                None => e.poll(now + 16_667).expect("the next frame"),
+            };
+        }
+        e.stats().target_bps
+    };
+    assert!(target(EngineConfig::default().min_bps) < 50_000_000, "unpinned: loss cuts it");
+    assert_eq!(target(50_000_000), 50_000_000, "pinned: the target holds");
+}

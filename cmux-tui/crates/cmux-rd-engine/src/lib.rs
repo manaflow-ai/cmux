@@ -61,6 +61,9 @@ pub struct EngineConfig {
     pub max_fps: u32,
     pub start_bps: u64,
     pub max_bps: u64,
+    /// The controller never targets below this. Equal to `max_bps`, it pins the target: a
+    /// measurement holds one rate however the path's delay and loss move.
+    pub min_bps: u64,
     /// The link's datagram size for this session (1152 or 1332).
     pub max_datagram: usize,
     /// The path class until the link reports path events.
@@ -88,6 +91,7 @@ impl Default for EngineConfig {
             max_fps: 60,
             start_bps: cc.start_bps,
             max_bps: cc.max_bps,
+            min_bps: cc.min_bps,
             max_datagram: MAX_DATAGRAM_VPC,
             path: PathKind::ViaCloudRegion,
             input_gap_timeout_us: 200_000,
@@ -356,8 +360,12 @@ pub struct MediaEngine {
 
 impl MediaEngine {
     pub fn new(cfg: EngineConfig, now_us: u64) -> Self {
-        let cc_cfg =
-            CcConfig { start_bps: cfg.start_bps, max_bps: cfg.max_bps, ..CcConfig::default() };
+        let cc_cfg = CcConfig {
+            start_bps: cfg.start_bps,
+            max_bps: cfg.max_bps,
+            min_bps: cfg.min_bps,
+            ..CcConfig::default()
+        };
         let mut streams = BTreeMap::new();
         streams.insert(
             cfg.stream,

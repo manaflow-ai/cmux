@@ -476,10 +476,19 @@ fn serve_session(
     let encode_profile = opts.encode_profile()?;
     let max_fps = encode_profile.stream_fps(max_fps);
     let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
-    let max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
-    let start_kbps = opts.num_or(
-        "start-kbps",
-        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+    // `--pin-kbps N` (bench builds) holds the controller at N: start, floor and ceiling.
+    let pin_kbps = crate::host::pin_kbps(opts)?;
+    let max_kbps = pin_kbps.unwrap_or_else(|| {
+        cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000)
+    });
+    let start_kbps = pin_kbps.map_or_else(
+        || {
+            opts.num_or(
+                "start-kbps",
+                default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+            )
+        },
+        Ok,
     )?;
     let cfg = SessionCfg {
         display,
@@ -487,6 +496,7 @@ fn serve_session(
         encode_profile,
         start_kbps,
         max_kbps,
+        pin_kbps,
         preset: String::new(),
         profile: opts.str_or("profile", "high"),
         codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
