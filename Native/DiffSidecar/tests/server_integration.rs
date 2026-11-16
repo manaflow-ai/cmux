@@ -1139,23 +1139,35 @@ fn rpc_sessions_hide_white_space_when_asked() {
         "{text}"
     );
 
-    // A branch change keeps the choice for its new session.
-    let mut change = branch_change_request(group, &repo, "main", token);
+    assert_branch_change_hides_white_space(&root, cmux, &repo, group, token);
+    assert_patch_source_shows_white_space(&root, cmux, token);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A branch change keeps the choice for its new session.
+fn assert_branch_change_hides_white_space(
+    root: &Path,
+    cmux: &Path,
+    repo: &Path,
+    group: &str,
+    token: &str,
+) {
+    let mut change = branch_change_request(group, repo, "main", token);
     change["params"]["ignoreWhitespace"] = serde_json::json!(true);
-    let changed = stdio_rpc_json(&root, cmux, &[], &change);
+    let changed = stdio_rpc_json(root, cmux, &[], &change);
     assert_eq!(changed["result"]["type"], "sessionOpened", "{changed}");
     assert_eq!(
         changed["result"]["value"]["ignoreWhitespace"], true,
         "{changed}"
     );
-    let merge_base = String::from_utf8(git_stdout(&repo, &["merge-base", "HEAD", "main"]))
+    let merge_base = String::from_utf8(git_stdout(repo, &["merge-base", "HEAD", "main"]))
         .expect("merge base")
         .trim()
         .to_owned();
     assert_eq!(
-        session_patch(&root, token, &changed, "cmux-diff-viewer://"),
+        session_patch(root, token, &changed, "cmux-diff-viewer://"),
         git_stdout(
-            &repo,
+            repo,
             &[
                 "diff",
                 "--no-ext-diff",
@@ -1167,10 +1179,12 @@ fn rpc_sessions_hide_white_space_when_asked() {
             ]
         )
     );
+}
 
-    // A patch source is fixed text: it opens as it is and says white space is shown.
+/// A patch source is fixed text: it opens as it is and says white space is shown.
+fn assert_patch_source_shows_white_space(root: &Path, cmux: &Path, token: &str) {
     let patch_source = stdio_rpc_json(
-        &root,
+        root,
         cmux,
         &[],
         &serde_json::json!({
@@ -1192,7 +1206,6 @@ fn rpc_sessions_hide_white_space_when_asked() {
         patch_source["result"]["value"]["ignoreWhitespace"], false,
         "{patch_source}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 /// The branch base follows the session host's `Repository::base_branch`
