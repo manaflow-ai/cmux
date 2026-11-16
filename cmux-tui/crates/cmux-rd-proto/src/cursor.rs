@@ -141,7 +141,7 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 /// Decodes standard base64 with padding; `None` for anything else.
 pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
     let bytes = text.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
     let value = |c: u8| BASE64.iter().position(|&b| b == c).map(|v| v as u32);
