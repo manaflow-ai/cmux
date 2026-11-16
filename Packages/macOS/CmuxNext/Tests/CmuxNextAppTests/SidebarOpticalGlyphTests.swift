@@ -24,6 +24,19 @@ import Testing
         #expect(abs(frame.minY + 8 * k - 12) <= 0.25, "the ink centers on the row")
     }
 
+    @Test(arguments: [12.0, 15, 16.5, 18, 20])
+    func rasterBoxesKeepGlyphInkInOneSlot(box: CGFloat) throws {
+        let optics = SidebarOpticalGlyph(target: box * 0.75, box: box)
+        let inks = [CGRect(x: 2, y: 2, width: 12, height: 12), CGRect(x: 5, y: 1, width: 6, height: 14)]
+        for ink in inks {
+            let frame = try #require(optics.frame(imageSize: CGSize(width: 16, height: 16), ink: ink,
+                                                  leading: 10, centerY: 16, flipped: true, scale: 2))
+            let k = frame.width / 16
+            #expect(abs(SidebarOpticalGlyph.fittedExtent(ink.size) * k - optics.target) <= 0.5)
+            #expect(abs(frame.minX + ink.midX * k - (10 + optics.target / 2)) <= 0.5)
+        }
+    }
+
     @Test func emptyInkDrawsNothing() {
         #expect(optics.frame(imageSize: CGSize(width: 16, height: 16), ink: .zero, leading: 0, centerY: 0, flipped: true, scale: 2) == nil)
     }

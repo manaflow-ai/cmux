@@ -53,6 +53,7 @@ import Testing
         }
 
         func close() {
+            window.overlayLayer.teardown() // as WindowController.teardown does when the window closes: its catcher panels close
             window.removeChildWindow(page)
             page.close()
             window.close()
