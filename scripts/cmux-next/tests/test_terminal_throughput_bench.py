@@ -49,22 +49,39 @@ class Breakdown(unittest.TestCase):
         self.assertAlmostEqual(procs[34][0], 3723.25)
         self.assertAlmostEqual(procs[56][0], 26 * 3600)
 
-    def test_sample_threads_and_top_of_stack(self):
+    def test_sample_top_of_stack_leaves_the_idle_waits_out(self):
         text = ("Call graph:\n"
-                "    812 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n"
-                "    + 812 start  (in dyld) + 1\n"
-                "    950 Thread_2: terminal-host-parser\n"
+                "    800 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n"
+                "    + 800 start  (in dyld) + 1\n"
+                "    800 Thread_2: terminal-host-parser\n"
                 "\n"
                 "Total number in stack (recursive counted multiple times):\n"
                 "Sort by top of stack, same collapsed (when >= 5):\n"
-                "        stream.Stream.nextSlice  (in cmux-tui)        640\n"
-                "        mach_msg2_trap  (in libsystem_kernel.dylib)        300\n"
+                "        mach_msg2_trap  (in libsystem_kernel.dylib)        900\n"
+                "        stream.Stream.nextSlice  (in cmux-tui)        600\n"
+                "        __psynch_cvwait  (in libsystem_kernel.dylib)        300\n"
+                "        writev  (in libsystem_kernel.dylib)        200\n"
                 "\n"
                 "Binary Images:\n")
         got = tput.sample_summary(text)
-        self.assertEqual(got["threads"][0], [950, "Thread_2: terminal-host-parser"])
-        self.assertEqual(got["top_of_stack"][0], ["stream.Stream.nextSlice (in cmux-tui)", 640])
-        self.assertEqual(len(got["top_of_stack"]), 2)
+        self.assertEqual(got["top_of_stack"], [["stream.Stream.nextSlice (in cmux-tui)", 600],
+                                               ["writev (in libsystem_kernel.dylib)", 200]])
+        self.assertEqual(got["samples_per_thread"], 800)
+        self.assertEqual(got["busy_cores"], 1.0)
+
+    def test_thread_times_from_ps_m(self):
+        text = ("USER   PID   TT  %CPU STAT PRI     STIME     UTIME COMMAND\n"
+                "ci   69881   ??  98.0 R    47T   0:01.20   0:10.30 /A b.app/Contents/MacOS/cmux -x\n"
+                "            69881         0.0 S    31T   0:00.01   0:00.02\n"
+                "            69881        12.0 S    46T   1:00.50   0:00.50\n")
+        self.assertEqual([round(t, 2) for t in tput.ps_thread_seconds(text)], [11.5, 0.03, 61.0])
+
+    def test_labels_cut_at_the_bundle_not_the_first_space(self):
+        app = "/Library/Application Support/w/Release/cmux DEV perf.app/Contents/"
+        self.assertEqual(tput.process_label(7, app + "MacOS/cmux"), "MacOS/cmux [7]")
+        self.assertEqual(tput.process_label(8, app + "Resources/bin/cmux-tui __terminal-host --fd 3"),
+                         "Resources/bin/cmux-tui __terminal-host [8]")
+        self.assertEqual(tput.process_label(9, "/usr/bin/python3 -I /tmp/w.py"), "python3 /tmp/w.py [9]")
 
 
 if __name__ == "__main__":
