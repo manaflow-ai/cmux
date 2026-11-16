@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
+use cmux_agent_cli_render::lean::LeanDecoder;
 use cmux_agent_cli_render::stream::Frame;
 use cmux_agent_cli_render::vt;
 use serde_json::{Value, json};
@@ -42,15 +43,18 @@ struct Viewer {
 }
 
 fn viewer(mux: &Arc<Mux>, capability: bool) -> Viewer {
+    declaring(mux, if capability { &["agent-cli-hybrid-v1"] } else { &[] })
+}
+
+fn declaring(mux: &Arc<Mux>, capabilities: &[&str]) -> Viewer {
     let (writer, outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    if capability {
+    if !capabilities.is_empty() {
         handle_command(
             mux,
             client,
             command(json!({
-                "cmd": "set-client-info", "name": "hybrid test",
-                "capabilities": ["agent-cli-hybrid-v1"],
+                "cmd": "set-client-info", "name": "hybrid test", "capabilities": capabilities,
             })),
             &writer,
         )
@@ -139,6 +143,48 @@ fn the_capability_is_advertised() {
             .unwrap();
     let capabilities = identity["capabilities"].as_array().expect("capabilities");
     assert!(capabilities.iter().any(|value| value == "agent-cli-hybrid-v1"), "{identity}");
+    assert!(capabilities.iter().any(|value| value == "agent-cli-hybrid-v2"), "{identity}");
+}
+
+/// The lean form (`agent-cli-hybrid-v2`): the same frames as `agent-cli-lean` events, read back
+/// by the viewer's decoder, in fewer bytes than v1's `agent-cli-frame` events.
+#[test]
+fn a_lean_viewer_gets_compact_frames_that_rebuild_the_screen() {
+    let (mux, surface) = terminal("hybrid-lean", Some("claude"));
+    surface.inject_output_for_test(b"\x1b[38;5;174m\xe2\x9c\xbb\x1b[0m Claude Code\r\n> ");
+    let lean = declaring(&mux, &["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"]);
+    let v1 = viewer(&mux, true);
+    lean.attach(&mux, &surface, json!({}));
+    v1.attach(&mux, &surface, json!({}));
+    let mut skipped = Vec::new();
+    let mut decoder = LeanDecoder::new();
+    let mut phone: Option<Phone> = None;
+    let (mut lean_bytes, mut v1_bytes) = (0, 0);
+    for step in 0..2 {
+        if step == 1 {
+            surface.inject_output_for_test(b"\x1b[1mhello\x1b[0m world ----------");
+        }
+        let event = lean.next("agent-cli-lean", &mut skipped);
+        assert_eq!(
+            event.as_object().map(|fields| fields.len()),
+            Some(3),
+            "only event, surface and f: {event}"
+        );
+        let bytes =
+            base64::engine::general_purpose::STANDARD.decode(event["f"].as_str().unwrap()).unwrap();
+        let decoded = decoder.decode(&bytes).expect("a lean frame");
+        let phone = phone.get_or_insert_with(|| {
+            Phone::new(&json!({"cols": decoded.cols, "rows": decoded.rows}))
+        });
+        phone.term.vt_write(&vt::frame_bytes(&decoded.frame, phone.rows, decoded.cursor).unwrap());
+        assert_eq!(phone.text(), screen_text(&surface), "frame {step}");
+        lean_bytes += event.to_string().len();
+        v1_bytes += v1.next("agent-cli-frame", &mut skipped).to_string().len();
+    }
+    assert!(!skipped.iter().any(|event| event == "output"), "no PTY bytes: {skipped:?}");
+    assert!(lean_bytes < v1_bytes, "lean {lean_bytes} B against v1's {v1_bytes} B");
+    disconnect_client(&mux, lean.client, false);
+    disconnect_client(&mux, v1.client, false);
 }
 
 #[test]

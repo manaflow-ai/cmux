@@ -10,6 +10,9 @@
 # The embedded worker is signed separately and is also used by NIGHTLY Release builds.
 # Release requires the asset, so a published build cannot silently lose Screen Sharing.
 # DEV warns and embeds nothing unless CMUX_NEXT_REQUIRE_CMUX_REMOTE=1; a sha256 mismatch fails.
+# A bench build (reload.sh --config bench, check-release-compile.sh --bench-hooks: a Release
+# configuration with -DCMUX_BENCH_HOOKS in OTHER_SWIFT_FLAGS) is never published
+# (check-no-bench-hooks.sh), so the asset is optional there as in DEV.
 # CMUX_NEXT_SKIP_CMUX_REMOTE=1 embeds nothing.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,7 +30,9 @@ skip() {
 [[ " ${ARCHS:-arm64} " == *" arm64 "* ]] || skip "ARCHS=${ARCHS:-} has no arm64"
 pin="${CMUX_NEXT_CMUX_REMOTE_PIN:-$SCRIPT_DIR/cmux-remote-dev.pin.json}"
 required="${CMUX_NEXT_REQUIRE_CMUX_REMOTE:-0}"
-[[ "${CONFIGURATION:-}" == "Release" ]] && required=1
+bench=0
+[[ " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]] && bench=1
+[[ "${CONFIGURATION:-}" == "Release" && "$bench" == "0" ]] && required=1
 if [[ ! -f "$pin" ]]; then
   [[ "$required" == "1" ]] && { echo "error: cmux Remote requires pin file $pin" >&2; exit 1; }
   skip "no pin file $pin"
