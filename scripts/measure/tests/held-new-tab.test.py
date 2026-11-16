@@ -50,6 +50,7 @@ class World:
         self.marks, self.keys, self.calls, self.takes, self.openings, self.records = [], 0, [], [], [], 0
         self.closes, self.given, self.slow, self.base, self.now = 0, 0, {}, 100.0, 100.0
         self.fewest, self.kills, self.children = float("inf"), [], []  # the smallest tab count after a close; the group kills; each child
+        self.sent = []  # the `one-key` form: (the letter, the event's time, the app's clock at the call's start) of each call
 
     def tab(self, kind, selected=False):
         self.count += 1
@@ -124,6 +125,13 @@ class World:
                 return {"recording": True, "sequence_playing": False, "pending_intents": 0, "resize_idle": True,
                         "terminals_awaiting_echo": 0}
             return {"events": list(self.marks), "dropped": 0}
+        if method == "debug.key" and "key" in params:
+            # The `one-key` form: one key-down a call, with the event's time. The fault of the case: each call takes
+            # `call_s` of the app's clock (the app's main thread is busy), which can be longer than the gap of 2 keys.
+            self.sent.append((params["key"], params["timestamp"], self.now))
+            self.key(params["key"], params["timestamp"])
+            self.now += self.faults.get("call_s", 0.0)
+            return {}
         if method == "debug.key":
             at = self.base
             for step in params.get("sequence") or []:
@@ -145,10 +153,24 @@ class World:
         times = [self.base + 0.1 * index for index in range(len(letters))]
         before, self.marks, intervals = self.order(), [], []
         count = {"tabs": len(self.tabs), "panes": 1}
-        for index, (letter, at) in enumerate(zip(letters, times)):
+        # The fault of the case: in that take (a count from 1) the app gets 2 keys in the other order (the keys' own
+        # times stay: each action and each mark names its key by the key's time).
+        acts, late = list(range(len(letters))), 0.0
+        swap = (self.faults.get("keys_change_places") or {}).get(len(self.takes))
+        if swap:
+            acts[swap[0]], acts[swap[1]] = acts[swap[1]], acts[swap[0]]
+        for index in acts:
+            letter, at = letters[index], times[index]
             self.key(letter, at)
             age, commit = self.slow.get((len(self.takes), index), (4.0, 3.0))
             user = {"id": ACTION[letter], "origin": "user"}
+            if swap:
+                # An action runs after the action before it, and not before its own key's time.
+                late = max(at, late) + 0.002
+                intervals.append(self.interval("action.perform", "action", late, 1.0, {**user, "input_age_ms": str((late - at) * 1000)}))
+                intervals.append(self.interval("action.commit", "action", late + 0.002, commit,
+                                               {**user, "input_age_ms": str((late + 0.002 - at) * 1000)}))
+                continue
             intervals.append(self.interval("action.perform", "action", at + 0.002, 1.0, {**user, "input_age_ms": "2.0"}))
             intervals.append(self.interval("action.commit", "action", at + age / 1000, commit, {**user, "input_age_ms": str(age)}))
             if age > 200:
@@ -315,6 +337,35 @@ class Clock:
         return cls.world.now
 
 
+class Inline:
+    """`threading.Thread` for a test: `start()` runs the target to its end in the caller's thread, so the test has no
+    second thread. `made` has each thread that the script asked for."""
+    made = []
+
+    def __init__(self, target=None, args=(), daemon=None):
+        self.target, self.args = target, args
+        Inline.made.append(self)
+
+    def start(self):
+        self.target(*self.args)
+
+    def join(self, timeout=None):
+        pass
+
+
+@contextlib.contextmanager
+def one_thread_and_a_clock_that_moves(world):
+    """The `one-key` form with no second thread and no real clock: a thread runs in its caller (`Inline`), and a sleep
+    moves the fake app's clock by its own length (a call moves it by the fault `call_s`)."""
+    Inline.made = []
+
+    def sleep(seconds):
+        world.now += seconds
+
+    with mock.patch.object(Clock, "sleep", staticmethod(sleep)), mock.patch.object(M, "threading", argparse.Namespace(Thread=Inline)):
+        yield
+
+
 class Case(unittest.TestCase):
     def setUp(self):
         self.out = tempfile.mkdtemp(prefix="held-new-tab-test-")
@@ -464,6 +515,22 @@ class OrderRow(unittest.TestCase):
         row, _ = M.order_row(record, fates, dict(self.OPENERS))
         self.assertEqual((row.get("closes_checked_by_id"), row.get("order_by")), (3, "identity"))
 
+    def test_the_row_says_how_the_tabs_were_checked_and_its_word_for_equal_by_place_says_so(self):
+        """`equal` alone says too much for a row that checked no close by a tab's id: the row has one field for how the
+        tabs were checked and one word for a reader to print."""
+        record, fates = keys("ttw", order(["a"], ["terminal"], "a"), order(["a", "x2"], ["terminal", "newtab"], "x2"), closed=["x1"])
+        row, _ = M.order_row(record, fates, {})
+        self.assertEqual((row["equal"], row.get("closes_checked_by_id"), row.get("tabs_checked"), row.get("verdict")),
+                         (True, 0, "by place only", "equal, by place only"))
+        record, fates = keys("www", self.HELD, order(["o1", "o2", "o3"], ["terminal"] * 3, "o2"), closed=["n3", "n2", "n1"])
+        row, _ = M.order_row(record, fates, dict(self.OPENERS))
+        self.assertEqual((row["equal"], row.get("tabs_checked"), row.get("verdict")), (True, "by id", "equal"))
+        record, fates = keys("www", self.HELD, order(["o1", "n1", "o3"], ["terminal", "newtab", "terminal"], "n1"), closed=["n3", "n2", "o2"])
+        row, _ = M.order_row(record, fates, dict(self.OPENERS))
+        self.assertEqual((row["equal"], row.get("verdict")), (False, "not equal"))
+        row, _ = M.order_row(record, fates, None)
+        self.assertEqual((row["equal"], row.get("verdict")), (None, "no verdict"))
+
     def test_a_key_with_no_record_of_what_it_did_gives_no_verdict(self):
         """The recording lost a record of one key (a `closed` mark: `no_outcome`; the action's run: `missing`). The
         app did the right thing in both cases, so `not equal` would blame it for the recording's loss."""
@@ -555,6 +622,41 @@ class Rows(Case):
         close = report["rows"][2]["order"]
         self.assertEqual((close.get("closes_checked_by_id"), close.get("order_by"), close.get("openers_at_start")), (4, "identity", 4))
 
+    def test_each_row_has_the_proof_that_the_app_got_the_keys_in_the_order_of_the_tool(self):
+        report = self.rows(World())
+        for row in report["rows"]:
+            proof = row.get("input_order") or {}
+            self.assertEqual((proof.get("in_key_order"), proof.get("acts"), proof.get("acts_after_a_later_key"), row.get("invalid")),
+                             (True, row["keys_posted"], 0, []), row["scenario"])
+
+    def test_two_keys_that_the_app_got_in_the_other_order_make_the_row_invalid_and_not_equal(self):
+        """`mixed` is T T W T T W. The app gets key 3 (a T) before key 2 (the W): the W closes the tab of key 3, and the
+        end list has the same count and the same kinds as a run in key order. A model that walks the keys by their
+        number says `equal` for it."""
+        report = self.rows(World(keys_change_places={1: (2, 3)}))
+        mixed = report["rows"][0]
+        proof, order = mixed.get("input_order") or {}, mixed["order"]
+        self.assertEqual((proof.get("in_key_order"), proof.get("acts"), proof.get("acts_after_a_later_key"), proof.get("first")),
+                         (False, 6, 1, {"key": 2, "ran_after_key": 3}))
+        self.assertTrue([why for why in mixed.get("invalid") or [] if "another order" in why], mixed.get("invalid"))
+        self.assertEqual((order["equal"], order.get("verdict")), (None, "INVALID"))
+        self.assertIn("another order", order.get("why", ""))
+        self.assertTrue([why for why in report["failures"] if why.startswith("0 mixed: ") and "another order" in why], report["failures"])
+        # The model follows the acts, so it can still say if the app kept the rule for the order that it got.
+        self.assertEqual(order.get("by_the_acts"), {"equal": True, "first_difference": None})
+        self.assertEqual([row.get("invalid") for row in report["rows"][1:]], [[], [], []])
+
+    def test_two_closes_that_the_app_got_in_the_other_order_do_not_blame_the_app(self):
+        """`close` is W W W W on the 4 tabs of `hold`. The app gets key 1 before key 0 and closes the right tab at each:
+        a model that walks the keys by their number says that key 0 closed another tab than the selected one."""
+        report = self.rows(World(keys_change_places={3: (0, 1)}))
+        close = report["rows"][2]
+        order = close["order"]
+        self.assertEqual(((close.get("input_order") or {}).get("first"), order["equal"], order.get("verdict")),
+                         ({"key": 0, "ran_after_key": 1}, None, "INVALID"))
+        self.assertEqual(order.get("by_the_acts"), {"equal": True, "first_difference": None})
+        self.assertEqual(order.get("closes_checked_by_id"), 4)
+
     def test_a_fault_of_the_order_is_no_verdict_with_its_words_and_the_first_frame_stays(self):
         with mock.patch.object(M, "order_row", side_effect=ValueError("a fake fault")):
             report = self.rows(World())
@@ -627,6 +729,65 @@ class Rows(Case):
                            "between": [{"what": "stall.main_task class=background owner=NewTabSparePool.warm", "ms": 180.0, "count": 1},
                                        {"what": "tab-switch.switch", "ms": 20.0, "count": 1}],
                            "own_call_tasks_left_out": {"count": 1, "ms": 270.0}}])
+
+
+class FirstFrame(Case):
+    """`first_frame`: which key a `show` record of the pane belongs to."""
+
+    def test_a_show_belongs_to_the_key_whose_action_ran_last_before_it_and_not_to_the_key_with_the_highest_number(self):
+        """Key 0 is at 100.0 s and key 1 at 100.1 s; the app ran key 1 first: its commit is 100.20 s to 100.21 s, and
+        the commit of key 0 is 100.30 s to 100.31 s. Each tab was shown inside its own commit."""
+        commit = lambda at, age: World.interval("action.commit", "action", at, 10.0,
+                                                {"id": "newTab.default", "origin": "user", "input_age_ms": str(age)})
+        ndjson = os.path.join(self.out, "run.ndjson")
+        with open(ndjson, "w") as f:
+            f.write("".join(json.dumps(interval) + "\n" for interval in (commit(100.2, 100.0), commit(100.3, 300.0))))
+        record = {"press_letters": ["t", "t"], "press_times_s": [100.0, 100.1], "shows": [[100.205, "x1"], [100.305, "x0"]]}
+        found = M.first_frame(Signposts, ndjson, record, ["created", "created"])
+        self.assertEqual(found["by_key"]["t"], {"keys": 2, "shown": 2, "superseded": 0, "not_shown": 0})
+        self.assertIn("by the act", found.get("paired", ""))
+
+
+class KeyCalls(Case):
+    """The `one-key` form: who sends the calls, in which order, and what the record says of a call that takes long."""
+
+    def test_one_thread_sends_the_keys_in_key_order_and_a_call_ends_before_the_next_one_starts(self):
+        """4 keys, 20 ms apart (at 10, 30, 50 and 70 ms); each call takes 50 ms of the app's clock."""
+        world = World(call_s=0.05)
+        Builder(world).new_workspace()
+        steps, offsets = M.BENCH.sequence(["t"] * 4, 0, (20.0, 20.0))
+        with self.fakes(world), one_thread_and_a_clock_that_moves(world):
+            sent = M.post_keys("app-queue", world.rpc, steps, "pane1", "one-key")
+        self.assertEqual(len(Inline.made), 1, "each key has a thread of its own: 2 calls can reach the app in the other order")
+        base = sent["base_s"]
+        ms = lambda at: round((at - base) * 1000, 2)
+        # No key is dropped, each event has its planned time, and a call starts when the call before it ended.
+        self.assertEqual(([letter for letter, _, _ in world.sent], [ms(at) for _, at, _ in world.sent], [ms(start) for _, _, start in world.sent]),
+                         (["t"] * 4, offsets, [10.0, 60.0, 110.0, 160.0]))
+        self.assertEqual(sent.get("sends"), [[10.0, 10.0, 60.0], [30.0, 60.0, 110.0], [50.0, 110.0, 160.0], [70.0, 160.0, 210.0]])
+
+    def test_the_record_of_a_take_has_the_real_time_of_each_call_against_its_planned_time(self):
+        """`hold` of 6 keys 20 ms apart; each call takes 50 ms. No key is dropped, and the record says how late the
+        calls started and which clock a number from a key's time starts at."""
+        world = World(call_s=0.05)
+        with one_thread_and_a_clock_that_moves(world):
+            record = self.record(world, row="hold", form="one-key")
+        calls = record.get("key_calls") or {}
+        self.assertEqual((world.keys, len(Inline.made), len(record["press_times_s"])), (6, 1, 6))
+        self.assertEqual(calls.get("calls"), [[10.0, 10.0, 60.0], [30.0, 60.0, 110.0], [50.0, 110.0, 160.0], [70.0, 160.0, 210.0],
+                                              [90.0, 210.0, 260.0], [110.0, 260.0, 310.0]])
+        said = (record.get("take") or {}).get("key_calls") or {}
+        self.assertEqual((said.get("late"), said.get("max_late_ms"), said.get("longer_than_the_gap"), said.get("max_call_ms")),
+                         (5, 150.0, 5, 50.0))
+        self.assertIn("one thread", said.get("sent_by", ""))
+        self.assertIn("planned time", said.get("key_time", ""))
+        self.assertNotIn("calls", said)  # the list is in the record, not in the printed row
+
+    def test_the_sequence_of_the_activate_form_says_that_the_app_plays_it(self):
+        record = self.record(World(), row="hold", form="activate")
+        said = (record.get("take") or {}).get("key_calls") or {}
+        self.assertIn("the app plays", said.get("sent_by", ""))
+        self.assertIn("the app's own clock", said.get("key_time", ""))
 
 
 class Between(unittest.TestCase):
