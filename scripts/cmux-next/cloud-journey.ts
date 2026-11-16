@@ -313,6 +313,19 @@ const OP_ATTEMPTS = 3;
 const DELETE_BUDGET_MS = 180_000;
 /** The ops API says a provider call was cut off and the same idempotency key may be sent again. */
 export const opRetryable = (body: any): boolean => body?.ok !== true && body?.error?.code === "mutation.indeterminate" && body?.error?.retryable === true;
+/**
+ * The platform says the request's owner was reset or cut off mid-call (owner.unreachable, retryable), for example
+ * HTTP 503 `{"code":"owner.unreachable","message":"Error: Network connection lost.","retryable":true}` or a
+ * CallTimedOut. A real client sends the same request once more. The error sits under `error` or at the top.
+ */
+export const ownerUnreachable = (body: any): boolean => {
+  if (body?.ok === true) return false;
+  const e = body?.error && typeof body.error === "object" ? body.error : body;
+  return e?.code === "owner.unreachable" && e?.retryable === true;
+};
+/** The pause before that one retry. */
+const OWNER_RETRY_MS = 1000;
+const OWNER_RETRY_NOTE = "retried once after owner.unreachable";
 /** The running Journey step's notes; the API client adds a note here when it retries. */
 const stepNotes = new AsyncLocalStorage<string[]>();
 
@@ -323,10 +336,18 @@ export class Api {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
   async op(op: string, params: unknown, key?: string): Promise<any> {
+    let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
       const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000);
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
+      // An owner reset: once more, under the same key so the op cannot apply twice.
+      if (key && !ownerRetried && ownerUnreachable(r.body)) {
+        ownerRetried = true;
+        stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
+        await sleep(OWNER_RETRY_MS);
+        continue;
+      }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
@@ -346,7 +367,13 @@ export class Api {
     }
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
-    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs);
+    let r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs);
+    // A read changes nothing, so an owner reset is read once more.
+    if (ownerUnreachable(r.body)) {
+      stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
+      await sleep(OWNER_RETRY_MS);
+      r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs);
+    }
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }

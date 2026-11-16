@@ -730,7 +730,8 @@ describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
       { status: 409, body: { ok: false, error: { code: "cloud.machine.busy", retryable: false } } },
     ];
     for (const a of answers) {
-      await withAnswers([a, ok], async (sent) => {
+      // Every request gets the error: op and read each send exactly one.
+      await withAnswers([a], async (sent) => {
         await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "k")).rejects.toThrow();
         await expect(api().read("cloud.machine.get", { machine: "vm_1" })).rejects.toThrow();
         expect(sent.length).toBe(2);
