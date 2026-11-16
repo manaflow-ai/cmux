@@ -250,7 +250,7 @@ pub fn run(
     let mut host_stats = None;
     let ended: String = 'run: loop {
         let timeout_ns = reassembler
-            .next_nack_us(5_000, 50_000)
+            .next_nack_us()
             .map_or(FEEDBACK_EVERY_NS, |d| d.saturating_mul(1000).saturating_sub(now_ns()))
             .min(if sender.is_empty() { FEEDBACK_EVERY_NS } else { INPUT_REPEAT_NS });
         wait_readable(&[net.event_fd(), hub_waker.fd(), input_waker.fd()], Some(timeout_ns))?;
@@ -293,6 +293,7 @@ pub fn run(
                             us as f64 / 1000.0
                         ))
                     );
+                    reassembler.set_path_rtt_us(rtt_us);
                     path_kind = Some(name);
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
@@ -537,8 +538,7 @@ fn maybe_feedback(
 ) {
     let now = now_ns();
     let since = now.saturating_sub(*last_feedback_ns);
-    let nack_due =
-        reassembler.next_nack_us(5_000, 50_000).is_some_and(|deadline| now / 1000 >= deadline);
+    let nack_due = reassembler.next_nack_us().is_some_and(|deadline| now / 1000 >= deadline);
     if !(*released_since_feedback
         || since >= KEEPALIVE_NS
         || nack_due
@@ -546,7 +546,7 @@ fn maybe_feedback(
     {
         return;
     }
-    let nacks = reassembler.take_nacks(now / 1000, 5_000, 50_000);
+    let nacks = reassembler.take_nacks(now / 1000);
     let mut recent: Vec<f64> = stats.decode_ms.iter().rev().take(30).copied().collect();
     recent.sort_by(f64::total_cmp);
     let send = |fb: &Feedback| {
