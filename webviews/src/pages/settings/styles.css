@@ -2687,6 +2687,13 @@ button.menu-disclosure {
   flex: none;
 }
 
+/* Under its title, from the card's leading edge: the refined look's end-aligned control
+   (refined.css, margin-left: auto) would push the whole editor to the right half of the card. */
+:root .settings .row[data-kind="json"] > .row-main .row-control {
+  margin-left: 0;
+  justify-content: flex-start;
+}
+
 .row[data-kind="json"] .row-control {
   justify-content: flex-start;
   max-width: 100%;
