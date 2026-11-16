@@ -13,7 +13,6 @@
 //! `cmux share prepare`.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -28,10 +27,6 @@ const STATUS_RECORD: &str = "status.json";
 pub const EXECUTABLE: &str = "cmux-screen-sharing";
 /// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
 pub const BUNDLE_SUFFIX: &str = " Screen Sharing.app";
-/// cmux's signing team: an installed helper must carry it, so its grants hold across updates.
-const TEAM: &str = "7WLXT3NR37";
-/// How long a `permissions` probe may take before it is ended and reads as no answer.
-const PROBE_LIMIT: Duration = Duration::from_secs(10);
 
 /// The apps whose helper is installed, in order, after the app holding this binary and
 /// `CMUX_SCREEN_HELPER_APP` (a helper bundle itself).
@@ -417,6 +412,12 @@ mod platform {
     use super::*;
     use cmux_process::{Command, Stdio};
     use std::io::Read;
+    use std::time::Duration;
+
+    /// cmux's signing team: an installed helper must carry it, so its grants hold across updates.
+    const TEAM: &str = "7WLXT3NR37";
+    /// How long a `permissions` probe may take before it is ended and reads as no answer.
+    const PROBE_LIMIT: Duration = Duration::from_secs(10);
 
     pub(super) fn os_version() -> Option<String> {
         let read = |flag: &str| {
