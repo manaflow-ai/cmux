@@ -161,8 +161,12 @@ impl SortedSnapshot {
             };
             let bytes = codec::encode(&record)?;
             let len = bytes.len() + TRAILER_BYTES;
-            if let Some(table) = table.as_mut() {
-                table.push(&row, offset, len)?;
+            if let Some(builder) = table.as_mut()
+                && builder.push(&row, offset, len).is_err()
+            {
+                // The sidecar is optional. Keep writing the authoritative
+                // snapshot when its auxiliary metadata cannot be represented.
+                table = None;
             }
             last_len = len;
             if last_checkpoint.is_none_or(|(start, ordinal)| {
@@ -238,7 +242,12 @@ impl SortedSnapshot {
         if let (Some(table), Some(table_path)) = (table, table_path) {
             // The snapshot remains authoritative if the optional accelerator
             // cannot be written.  The next compaction will retry it.
-            if table.write(table_path, crc32fast::hash(&header), seq, origins_offset).is_err() {
+            let head_crc = u32::from_le_bytes(
+                header[HEADER_BYTES - 4..]
+                    .try_into()
+                    .map_err(|_| codec::invalid("snapshot head crc"))?,
+            );
+            if table.write(table_path, head_crc, seq, count, origins_offset).is_err() {
                 let _ = fs::remove_file(table_path);
             }
         }

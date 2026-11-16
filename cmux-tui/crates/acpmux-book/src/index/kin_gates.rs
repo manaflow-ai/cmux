@@ -264,7 +264,7 @@ fn kin_table_write_gate() {
         root.state = "closed".to_owned();
         let root_key = root.key();
         let mut index = SummaryIndex::new().apply(1, root);
-        for n in 0..11_000 {
+        for n in 0..10_999 {
             let mut child = row(format!("kin-child-{n:05}"), 2 + n as u64);
             child.state = "closed".to_owned();
             child.parent = Some(root_key.clone());
@@ -303,7 +303,7 @@ fn kin_table_write_gate() {
             .unwrap();
         }
         let elapsed = start.elapsed().as_nanos();
-        let entries = 10_999u64;
+        let entries = index.len().saturating_sub(1) as u64;
         let bytes = if with_table {
             let bytes = std::fs::metadata(&table).unwrap().len();
             assert!(bytes <= entries * 64 + 3 * 4096);
@@ -328,7 +328,7 @@ fn kin_table_write_gate() {
             small.push(vec![first_ns]);
             god.push(vec![second_ns]);
         }
-        assert_eq!(entries, 10_999);
+        assert_eq!(entries, index.len().saturating_sub(1) as u64);
         assert!(bytes <= entries * 64 + 3 * 4096);
     }
     let small_p95 = best_p95(&small);

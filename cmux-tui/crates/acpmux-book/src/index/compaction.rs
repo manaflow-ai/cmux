@@ -153,7 +153,11 @@ impl Compaction {
         };
         let _ = fs::remove_file(&table_path);
         if table_stage.exists() {
-            fs::rename(&table_stage, &table_path)?;
+            // The sidecar is an accelerator. A storage error here must not
+            // discard an otherwise valid snapshot; the next compaction retries.
+            if fs::rename(&table_stage, &table_path).is_err() {
+                let _ = fs::remove_file(&table_stage);
+            }
         }
         fs::rename(stage, &self.snapshot_path)?;
         let snapshot = DiskSnapshot::open(&self.snapshot_path)?

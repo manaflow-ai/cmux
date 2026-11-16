@@ -416,19 +416,20 @@ impl DiskSnapshot {
         }
         let table_path = sidecar_path(path);
         let table_present = table_path.exists();
-        let kin_table = match kin_table::validate_header(&table_path, crc, head.seq, head.data_end)
-        {
-            Ok(Some(header)) => Some(header),
-            Ok(None) if table_present => {
-                let _ = kin_table::set_aside(&table_path);
-                None
-            }
-            Ok(None) => None,
-            Err(_) => {
-                let _ = kin_table::set_aside(&table_path);
-                None
-            }
-        };
+        let kin_table =
+            match kin_table::validate_header(&table_path, crc, head.seq, head.count, head.data_end)
+            {
+                Ok(Some(header)) => Some(header),
+                Ok(None) if table_present => {
+                    let _ = kin_table::set_aside(&table_path);
+                    None
+                }
+                Ok(None) => None,
+                Err(_) => {
+                    let _ = kin_table::set_aside(&table_path);
+                    None
+                }
+            };
         Ok(Some(Arc::new(Self { file, head, origins, marks, kin_table })))
     }
 

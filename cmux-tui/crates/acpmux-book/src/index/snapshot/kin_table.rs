@@ -1,27 +1,29 @@
 //! Optional cold kin sidecar for a sorted snapshot.
 //!
-//! The sidecar is deliberately independent from `index.snap`: older binaries
-//! can continue to open the snapshot, while newer binaries can set a damaged
-//! or mismatched table aside and use the ordinary pager.  PR 1 writes and
-//! validates the file; the family reader is added separately.
+//! The sidecar is separate from `index.snap`, so an older binary ignores it.
+//! PR1 owns the fixed format and writer. The reader is deliberately added by
+//! PR2; until then a valid header is only an accelerator-presence bit.
 
 use crate::index::{ForkOf, RowKey, Summary};
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 pub(crate) const ENTRY_BYTES: usize = 32;
 const TABLE_HEADER_BYTES: usize = 4096;
+const PAGE_BYTES: usize = 4096;
 const PAGE_CRC_BYTES: usize = 4;
-const ENTRY_PAGE_BYTES: usize = 4096;
-const ENTRIES_PER_PAGE: usize = 127;
-const SLOTS_PER_PAGE: usize = 511;
+const ENTRY_PAGE_BYTES: usize = PAGE_BYTES;
+const ENTRIES_PER_PAGE: usize = (ENTRY_PAGE_BYTES - PAGE_CRC_BYTES) / ENTRY_BYTES;
+const SLOTS_PER_PAGE: usize = (ENTRY_PAGE_BYTES - PAGE_CRC_BYTES) / 8;
 const TABLE_MAGIC: &[u8; 8] = b"ACKIN001";
 const TABLE_VERSION: u32 = 1;
 const FAMILY_KIND: u8 = 1;
 const FORK_KIND: u8 = 2;
 const PAD_KIND: u8 = 0;
 const MAX_DEPTH: u8 = 64;
+const RUN_BUDGET_BYTES: usize = 4 * 1024 * 1024;
 
 const _: [(); 1] = [(); (crate::index::MAX_INDEX_RECORD_BYTES < u16::MAX as usize) as usize];
 
@@ -83,10 +85,8 @@ struct OwnedRow {
     len: u16,
 }
 
-/// Bounded-at-the-output closure builder.  The rows are kept as fixed-size
-/// records until the sidecar is written; no snapshot bytes or summaries are
-/// retained.  The spill budget is explicit so the next PR can replace the
-/// in-memory closure pass with the same run format without changing the file.
+/// The row metadata is bounded to one compact record per snapshot row. The
+/// generated entries use fixed-size spill runs before the final merge.
 pub(crate) struct Builder {
     rows: Vec<OwnedRow>,
 }
@@ -117,40 +117,102 @@ impl Builder {
         path: &Path,
         snapshot_head_crc: u32,
         seq: u64,
+        snapshot_count: u64,
         data_end: u64,
     ) -> io::Result<u64> {
-        let mut by_key = std::collections::HashMap::with_capacity(self.rows.len());
+        let mut by_key = HashMap::with_capacity(self.rows.len());
         for row in &self.rows {
-            by_key.insert(row.key.clone(), row);
+            by_key.insert(row.key.clone(), row.clone());
         }
-        let mut entries = Vec::new();
+
+        let mut sorter = EntrySorter::new();
         for row in &self.rows {
             if !row.pinned && !row.live {
                 let mut ancestor = row.parent.clone();
-                let mut seen = std::collections::HashSet::new();
+                let mut seen = HashSet::new();
                 for depth in 1..=MAX_DEPTH {
                     let Some(key) = ancestor.take() else { break };
-                    if !seen.insert(key.clone()) {
+                    if key == row.key || !seen.insert(key.clone()) {
                         break;
                     }
-                    entries.push(make_entry(&key, row, depth, FAMILY_KIND));
+                    sorter.push(make_entry(&key, row, depth, FAMILY_KIND))?;
                     ancestor = by_key.get(&key).and_then(|parent| parent.parent.clone());
                 }
-                if let Some(fork) = &row.fork_of {
-                    entries.push(make_entry(&fork.key, row, 1, FORK_KIND));
-                }
+            }
+            // Fork records are emitted for every row, including hot rows. The
+            // format is shared by PR3's cold fork reader.
+            if let Some(fork) = &row.fork_of {
+                sorter.push(make_entry(&fork.key, row, 1, FORK_KIND))?;
             }
         }
-        entries.sort_unstable_by(|left, right| {
-            left.hash.cmp(&right.hash).then_with(|| left.offset.cmp(&right.offset))
-        });
-        write_table(path, snapshot_head_crc, seq, data_end, entries)
+        write_table(path, snapshot_head_crc, seq, snapshot_count, data_end, sorter.finish()?)
     }
 }
 
 fn make_entry(key: &RowKey, row: &OwnedRow, depth: u8, kind: u8) -> Entry {
     let (hash, check) = key_fingerprint(key, kind);
     Entry { hash, activity: row.activity, offset: row.offset, check, len: row.len, depth, kind }
+}
+
+struct EntrySorter {
+    memory: Vec<Entry>,
+    runs: Vec<tempfile::NamedTempFile>,
+    bytes: usize,
+}
+
+impl EntrySorter {
+    fn new() -> Self {
+        Self { memory: Vec::new(), runs: Vec::new(), bytes: 0 }
+    }
+
+    fn push(&mut self, entry: Entry) -> io::Result<()> {
+        self.memory.push(entry);
+        self.bytes += ENTRY_BYTES;
+        if self.bytes >= RUN_BUDGET_BYTES {
+            self.flush_run()?;
+        }
+        Ok(())
+    }
+
+    fn flush_run(&mut self) -> io::Result<()> {
+        if self.memory.is_empty() {
+            return Ok(());
+        }
+        self.memory.sort_unstable_by(entry_order);
+        let mut run = tempfile::NamedTempFile::new()?;
+        for entry in self.memory.drain(..) {
+            let mut encoded = [0; ENTRY_BYTES];
+            entry.encode(&mut encoded);
+            run.write_all(&encoded)?;
+        }
+        run.as_file_mut().sync_all()?;
+        self.bytes = 0;
+        self.runs.push(run);
+        Ok(())
+    }
+
+    fn finish(mut self) -> io::Result<Vec<Entry>> {
+        self.flush_run()?;
+        let mut entries = Vec::new();
+        for mut run in self.runs {
+            run.as_file_mut().seek(SeekFrom::Start(0))?;
+            let mut bytes = [0; ENTRY_BYTES];
+            loop {
+                match run.as_file_mut().read_exact(&mut bytes) {
+                    Ok(()) => entries.push(Entry::decode(&bytes)?),
+                    Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => break,
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        entries.append(&mut self.memory);
+        entries.sort_unstable_by(entry_order);
+        Ok(entries)
+    }
+}
+
+fn entry_order(left: &Entry, right: &Entry) -> std::cmp::Ordering {
+    left.hash.cmp(&right.hash).then_with(|| left.offset.cmp(&right.offset))
 }
 
 pub(crate) fn key_fingerprint(key: &RowKey, kind: u8) -> (u64, u32) {
@@ -173,58 +235,60 @@ pub(crate) fn key_fingerprint(key: &RowKey, kind: u8) -> (u64, u32) {
     (hash, check)
 }
 
+fn slot_for(hash: u64, slots: usize) -> usize {
+    if slots == 1 { 0 } else { (hash >> (64 - slots.trailing_zeros())) as usize }
+}
+
 fn write_table(
     path: &Path,
     snapshot_head_crc: u32,
     seq: u64,
+    snapshot_count: u64,
     data_end: u64,
     entries: Vec<Entry>,
 ) -> io::Result<u64> {
     let slots = entries.len().div_ceil(64).next_power_of_two().max(1);
+    let directory_pages = if entries.is_empty() { 0 } else { slots.div_ceil(SLOTS_PER_PAGE) };
     let mut slot_ranges = vec![(0u32, 0u32); slots];
     let mut packed = Vec::with_capacity(entries.len() + entries.len() / ENTRIES_PER_PAGE + 1);
     let mut cursor = 0;
-    while cursor < entries.len() {
-        let hash = entries[cursor].hash;
-        let shift = if slots == 1 { 0 } else { 64 - slots.trailing_zeros() };
-        let slot = ((hash >> shift) as usize).min(slots - 1);
+    for slot in 0..slots {
         let start = cursor;
-        let mut end = cursor + 1;
-        while end < entries.len() && entries[end].hash == hash {
-            end += 1;
+        while cursor < entries.len() && slot_for(entries[cursor].hash, slots) == slot {
+            cursor += 1;
         }
-        // Preserve complete buckets on page boundaries.  A long bucket is
-        // still searched page by page by the reader in PR 2.
-        while packed.len() % ENTRIES_PER_PAGE != 0 {
-            packed.push(Entry::padding());
+        let bucket_len = cursor - start;
+        if bucket_len == 0 {
+            continue;
+        }
+        if bucket_len <= ENTRIES_PER_PAGE {
+            let used = packed.len() % ENTRIES_PER_PAGE;
+            if used != 0 && used + bucket_len > ENTRIES_PER_PAGE {
+                packed.resize(packed.len() + ENTRIES_PER_PAGE - used, Entry::padding());
+            }
+        } else if !packed.len().is_multiple_of(ENTRIES_PER_PAGE) {
+            let used = packed.len() % ENTRIES_PER_PAGE;
+            packed.resize(packed.len() + ENTRIES_PER_PAGE - used, Entry::padding());
         }
         let packed_start = packed.len();
-        packed.extend_from_slice(&entries[start..end]);
-        let len = end - start;
-        let (old_start, old_len) = slot_ranges[slot];
-        if old_len == 0 {
-            slot_ranges[slot] = (packed_start as u32, len as u32);
-        } else {
-            slot_ranges[slot].1 = packed.len() as u32 - old_start;
-        }
-        cursor = end;
+        packed.extend_from_slice(&entries[start..cursor]);
+        slot_ranges[slot] = (packed_start as u32, bucket_len as u32);
     }
-    let directory_pages = slots.div_ceil(SLOTS_PER_PAGE);
+
     let mut file = OpenOptions::new().create(true).truncate(true).write(true).open(path)?;
     file.write_all(&[0; TABLE_HEADER_BYTES])?;
-    let mut directory = vec![0u8; directory_pages * ENTRY_PAGE_BYTES];
-    for (index, (start, len)) in slot_ranges.iter().enumerate() {
-        let page = index / SLOTS_PER_PAGE;
-        let within = index % SLOTS_PER_PAGE;
-        let at = page * ENTRY_PAGE_BYTES + within * 8;
-        directory[at..at + 4].copy_from_slice(&start.to_le_bytes());
-        directory[at + 4..at + 8].copy_from_slice(&len.to_le_bytes());
+    if directory_pages != 0 {
+        let mut directory = vec![0u8; directory_pages * ENTRY_PAGE_BYTES];
+        for (index, (start, len)) in slot_ranges.iter().enumerate() {
+            let page = index / SLOTS_PER_PAGE;
+            let within = index % SLOTS_PER_PAGE;
+            let at = page * ENTRY_PAGE_BYTES + within * 8;
+            directory[at..at + 4].copy_from_slice(&start.to_le_bytes());
+            directory[at + 4..at + 8].copy_from_slice(&len.to_le_bytes());
+        }
+        add_page_crcs(&mut directory);
+        file.write_all(&directory)?;
     }
-    for page in directory.chunks_exact_mut(ENTRY_PAGE_BYTES) {
-        let crc_at = ENTRY_PAGE_BYTES - PAGE_CRC_BYTES;
-        page[crc_at..].copy_from_slice(&crc32fast::hash(&page[..crc_at]).to_le_bytes());
-    }
-    file.write_all(&directory)?;
     for chunk in packed.chunks(ENTRIES_PER_PAGE) {
         let mut page = vec![0u8; ENTRY_PAGE_BYTES];
         for (index, entry) in chunk.iter().enumerate() {
@@ -234,29 +298,39 @@ fn write_table(
         page[crc_at..].copy_from_slice(&crc32fast::hash(&page[..crc_at]).to_le_bytes());
         file.write_all(&page)?;
     }
+
     let mut header = vec![0u8; TABLE_HEADER_BYTES];
     header[..8].copy_from_slice(TABLE_MAGIC);
     header[8..12].copy_from_slice(&TABLE_VERSION.to_le_bytes());
     header[12..16].copy_from_slice(&snapshot_head_crc.to_le_bytes());
     header[16..24].copy_from_slice(&seq.to_le_bytes());
     header[24..32].copy_from_slice(&data_end.to_le_bytes());
-    header[32..40].copy_from_slice(&(entries.len() as u64).to_le_bytes());
-    header[40..44].copy_from_slice(&(slots as u32).to_le_bytes());
-    header[44..48].copy_from_slice(&(directory_pages as u32).to_le_bytes());
-    header[48..56].copy_from_slice(&(packed.len() as u64).to_le_bytes());
+    header[32..40].copy_from_slice(&snapshot_count.to_le_bytes());
+    header[40..48].copy_from_slice(&(entries.len() as u64).to_le_bytes());
+    header[48..52].copy_from_slice(&(slots as u32).to_le_bytes());
+    header[52..56].copy_from_slice(&(directory_pages as u32).to_le_bytes());
+    header[56..64].copy_from_slice(&(packed.len() as u64).to_le_bytes());
     let header_crc = crc32fast::hash(&header[..TABLE_HEADER_BYTES - 4]);
     header[TABLE_HEADER_BYTES - 4..].copy_from_slice(&header_crc.to_le_bytes());
     file.seek(SeekFrom::Start(0))?;
     file.write_all(&header)?;
     file.sync_all()?;
     Ok((TABLE_HEADER_BYTES
-        + directory.len()
+        + directory_pages * ENTRY_PAGE_BYTES
         + packed.len().div_ceil(ENTRIES_PER_PAGE) * ENTRY_PAGE_BYTES) as u64)
+}
+
+fn add_page_crcs(bytes: &mut [u8]) {
+    for page in bytes.chunks_exact_mut(ENTRY_PAGE_BYTES) {
+        let at = ENTRY_PAGE_BYTES - PAGE_CRC_BYTES;
+        page[at..].copy_from_slice(&crc32fast::hash(&page[..at]).to_le_bytes());
+    }
 }
 
 #[derive(Debug)]
 pub(crate) struct TableHeader {
     pub seq: u64,
+    pub snapshot_count: u64,
     pub data_end: u64,
     pub entries: u64,
     pub slots: u32,
@@ -268,6 +342,7 @@ pub(crate) fn validate_header(
     path: &Path,
     snapshot_head_crc: u32,
     seq: u64,
+    snapshot_count: u64,
     data_end: u64,
 ) -> io::Result<Option<TableHeader>> {
     let mut file = match File::open(path) {
@@ -282,6 +357,7 @@ pub(crate) fn validate_header(
         || read_u32(&bytes[12..16])? != snapshot_head_crc
         || read_u64(&bytes[16..24])? != seq
         || read_u64(&bytes[24..32])? != data_end
+        || read_u64(&bytes[32..40])? != snapshot_count
         || read_u32(&bytes[TABLE_HEADER_BYTES - 4..])?
             != crc32fast::hash(&bytes[..TABLE_HEADER_BYTES - 4])
     {
@@ -289,17 +365,29 @@ pub(crate) fn validate_header(
     }
     let header = TableHeader {
         seq: read_u64(&bytes[16..24])?,
+        snapshot_count: read_u64(&bytes[32..40])?,
         data_end: read_u64(&bytes[24..32])?,
-        entries: read_u64(&bytes[32..40])?,
-        slots: read_u32(&bytes[40..44])?,
-        directory_pages: read_u32(&bytes[44..48])?,
-        packed_entries: read_u64(&bytes[48..56])?,
+        entries: read_u64(&bytes[40..48])?,
+        slots: read_u32(&bytes[48..52])?,
+        directory_pages: read_u32(&bytes[52..56])?,
+        packed_entries: read_u64(&bytes[56..64])?,
     };
     if header.slots == 0
         || !header.slots.is_power_of_two()
-        || header.directory_pages as usize != (header.slots as usize).div_ceil(SLOTS_PER_PAGE)
+        || header.directory_pages as usize
+            != if header.entries == 0 {
+                0
+            } else {
+                (header.slots as usize).div_ceil(SLOTS_PER_PAGE)
+            }
         || header.packed_entries < header.entries
     {
+        return Ok(None);
+    }
+    let expected = TABLE_HEADER_BYTES as u64
+        + u64::from(header.directory_pages) * ENTRY_PAGE_BYTES as u64
+        + header.packed_entries.div_ceil(ENTRIES_PER_PAGE as u64) * ENTRY_PAGE_BYTES as u64;
+    if file.metadata()?.len() != expected {
         return Ok(None);
     }
     Ok(Some(header))
@@ -336,7 +424,7 @@ mod tests {
     #[test]
     fn key_hash_vector_is_stable() {
         let key = RowKey::new("local", "chat-1");
-        assert_eq!(key_fingerprint(&key, FAMILY_KIND), (0x0d22_b478_04e9_d17c, 0xb87b_4fdf));
+        assert_eq!(key_fingerprint(&key, FAMILY_KIND), (0xd22b_4780_4e9d_17c0, 0xb87b_4fdf));
     }
 
     #[test]
@@ -345,5 +433,25 @@ mod tests {
         let mut bytes = [0; ENTRY_BYTES];
         entry.encode(&mut bytes);
         assert_eq!(Entry::decode(&bytes).unwrap(), entry);
+    }
+
+    #[test]
+    fn sorter_spills_and_preserves_order() {
+        let mut sorter = EntrySorter::new();
+        for index in (0..(RUN_BUDGET_BYTES / ENTRY_BYTES + 3)).rev() {
+            sorter
+                .push(Entry {
+                    hash: index as u64,
+                    activity: 0,
+                    offset: 0,
+                    check: 0,
+                    len: 1,
+                    depth: 1,
+                    kind: FAMILY_KIND,
+                })
+                .unwrap();
+        }
+        let entries = sorter.finish().unwrap();
+        assert!(entries.windows(2).all(|pair| entry_order(&pair[0], &pair[1]).is_le()));
     }
 }
