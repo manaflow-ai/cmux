@@ -61,7 +61,8 @@ host-signed allow lists are later work.
 ```
 devices(id TEXT PK, name, platform 'macos'|'ios', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
-        name_pinned INT 0/1, owner_kind, owner_id)
+        name_pinned INT 0/1, owner_kind, owner_id,
+        machine_key NULL, superseded_at NULL, superseded_by NULL)
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
         owner_kind, owner_id,
         PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
@@ -91,21 +92,57 @@ digest, expires_at)` table (digest = ts and low-S signature) for the 120 s
 replay cache.
 
 JSON shapes: a device is `{id, name, platform, signingKey, agreementKey,
-createdAt, lastSeenAt, macScreenShared, online}`; an ICE server is
+createdAt, lastSeenAt, macScreenShared, online, machine}` (`machine`: this
+account's key for the device's machine, null when its client sent no machine
+id); an ICE server is
 `{urls:[…], username?, credential?}`; an audit entry is `{id, ts, event,
 viewerId, hostId, deviceId, viewerName, hostName, deviceName, scope, sessionId,
 detail, durationS}` (`detail` carries the
 end reason, the decision, or `old->new` for a permission change).
 
+## One record per machine
+
+Every cmux build with its own bundle id (NIGHTLY, DEV, each tagged DEV build)
+keeps its own device identity, and a renewed identity is a new id, so one
+machine registers many records with one name. The hub keeps one per machine:
+
+- A client sends `machineId` at registration: a hash of the machine's own
+  identity (macOS IOPlatformUUID, Linux `/etc/machine-id`), never the raw id.
+  The hub stores `machine_key`, the first 32 hex of
+  `sha256("cmux device hub machine v1\0" + user id + "\0" + machineId)`, so one
+  machine has unrelated keys on two accounts. A later registration without
+  `machineId` keeps the stored key.
+- A record that is not its machine's record is **superseded**
+  (`superseded_at`, `superseded_by`): it leaves `GET /v1/devices` and the
+  permission lists and nothing else changes. The moment that record's own
+  device makes any signed request, it is its machine's record again.
+- On register, socket open and `GET /v1/devices`, the hub supersedes every
+  offline record that shares a `machine_key` with another. The machine's record
+  is the caller when it is one of them, else the preferred one (online and
+  sharing, online, sharing, last seen, newest). The machine's record gets every
+  permission the superseded one had and it has not set.
+- A record with no `machine_key` (a client from before machine ids) is
+  superseded by a record of the same platform and folded name (letters and
+  digits, lowercased) only once it has been offline and unseen for 10 minutes
+  (`LEGACY_DUPLICATE_MS`), and it carries no permissions, since two machines
+  can share a name. This cleans up the records left from before the rule on
+  each account's first call after the deploy.
+- An online record is never superseded. Two builds of one machine online at
+  once both stay; `GET /v1/devices` lists the machine once: to one of its own
+  builds as that build, to every other device as its preferred record.
+
+Detector: `workers/device-hub/test/machine-dedupe.test.ts`, "Detector: one
+account never lists one machine twice, whatever its builds do".
+
 ## HTTP API (all JSON)
 
 | Method, path | Body | Result | Notes |
 |---|---|---|---|
-| `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
+| `GET /v1/health` | | `{ok, service, protocol, features, time}` | No auth. `features` names behaviors a deploy check can look for: `machine` (one record per machine). |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
-| `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, machineId?}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `machineId` (16-128 of `A-Za-z0-9:_-`, 400 otherwise): see One record per machine. |
+| `GET /v1/devices` | | `{devices:[…]}` | Not removed, not superseded devices, with `online` from open sockets, each machine once (One record per machine). |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
 | `PUT /v1/devices/:id/mac-screen` | `{shared}` | `{device}` | Only device `:id` itself may change its own sharing. |

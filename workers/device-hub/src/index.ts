@@ -117,7 +117,8 @@ async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
   if (path === "/v1/health" && request.method === "GET") {
-    return json({ ok: true, service: "device-hub", protocol: 1, time: Date.now() });
+    // `features` lets a deploy check see which server behaviors are live (`machine`: one record per machine).
+    return json({ ok: true, service: "device-hub", protocol: 1, features: ["machine"], time: Date.now() });
   }
   if (path === "/v1/auth/stack") {
     if (request.method !== "POST") throw new ApiError(405, "bad_request", "method not allowed");

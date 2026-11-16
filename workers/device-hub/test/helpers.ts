@@ -201,6 +201,8 @@ export class Device {
   signing!: CryptoKeyPair;
   signingKey!: string;
   agreementKey!: string;
+  /** Sent as `machineId` at registration when set (a client that knows its machine). */
+  machineId: string | null = null;
   user: Peer | null = null;
 
   private constructor(
@@ -247,6 +249,7 @@ export class Device {
       platform: this.platform,
       signingKey: this.signingKey,
       agreementKey: this.agreementKey,
+      ...(this.machineId === null ? {} : { machineId: this.machineId }),
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     return res;

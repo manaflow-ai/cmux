@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
+import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex, sha256Hex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
 import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
@@ -37,6 +37,11 @@ interface DeviceRow {
   last_seen_at: number;
   removed_at: number | null;
   mac_screen_shared: number;
+  /** This account's key for the machine the record runs on (machineKey); null for a client that sends no machine id. */
+  machine_key: string | null;
+  /** When another record of the same machine took this one's place (sweepDuplicates); null while it is listed. */
+  superseded_at: number | null;
+  superseded_by: string | null;
 }
 
 interface SessionRow {
@@ -83,6 +88,14 @@ export const CLOSE_GRACE_MS = 3_000;
 export const SILENT_MS = 75_000;
 /** Close code for a socket closed for silence. Not terminal: the app reconnects. */
 export const SILENT_CLOSE = 4004;
+/**
+ * A record whose client sent no machine id is folded into a same-named record
+ * of its platform only after it has been offline and unseen this long: without
+ * a machine id the name is the only hint, and two Macs can share a name.
+ */
+export const LEGACY_DUPLICATE_MS = 10 * 60 * 1000;
+/** `machineId` as a client sends it: a hash of its machine identity, never the raw hardware id. */
+const MACHINE_ID = /^[A-Za-z0-9:_-]{16,128}$/;
 const PERMISSION_SCOPES: PermissionScope[] = ["none", "ask", "view", "full"];
 const RELAY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -144,6 +157,9 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["devices", "name_pinned", "INTEGER NOT NULL DEFAULT 0"],
   ["devices", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["devices", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  ["devices", "machine_key", "TEXT"],
+  ["devices", "superseded_at", "INTEGER"],
+  ["devices", "superseded_by", "TEXT"],
   ["permissions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["permissions", "owner_id", "TEXT NOT NULL DEFAULT ''"],
   ["sessions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
@@ -179,7 +195,38 @@ function publicDevice(d: DeviceRow, online: boolean) {
     lastSeenAt: d.last_seen_at,
     macScreenShared: d.mac_screen_shared === 1,
     online,
+    // This account's key for the record's machine: two records with one key are one machine.
+    machine: d.machine_key ?? null,
   };
+}
+
+/** A name's letters and digits, lowercased ("Leo’s Mac" is "Leo's Mac"): the legacy rule, keyed as device_list.rs keys it. */
+export function foldName(name: string): string {
+  return (name.match(/[\p{L}\p{N}]/gu) ?? []).join("").toLowerCase();
+}
+
+interface Listed {
+  d: DeviceRow;
+  online: boolean;
+}
+
+/** The record a machine is listed as: online and sharing, online, sharing, then the most recently seen, then the newest. */
+function preferred(a: Listed, b: Listed): number {
+  const score = (x: Listed) => (x.online ? 2 : 0) + (x.d.mac_screen_shared === 1 ? 1 : 0);
+  return score(b) - score(a) || b.d.last_seen_at - a.d.last_seen_at || b.d.created_at - a.d.created_at;
+}
+
+/** The items grouped by a key (null keys stay out), in first-seen order; only groups of two or more unless `singles`. */
+function groupBy<T>(items: T[], key: (x: T) => string | null, singles = false): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const x of items) {
+    const k = key(x);
+    if (k === null) continue;
+    const g = groups.get(k);
+    if (g) g.push(x);
+    else groups.set(k, [x]);
+  }
+  return [...groups.values()].filter((g) => singles || g.length > 1);
 }
 
 function publicSession(s: SessionRow) {
@@ -366,7 +413,9 @@ export class UserDO extends DurableObject<Env> {
       await checkDeviceSignature(existing.signing_key, request.method, url, body, h);
       this.burnSignature(h.id, h.ts, h.sig, now);
       this.sql.exec("UPDATE devices SET last_seen_at = ? WHERE id = ?", now, h.id);
-      const me = { ...existing, last_seen_at: now };
+      // A record another build of its machine took the place of is back: it is the machine's record again.
+      if (existing.superseded_at !== null) this.restore(h.id, now);
+      const me = { ...existing, last_seen_at: now, superseded_at: null, superseded_by: null };
       return await this.dispatch(request, url, body, me, { userId, origin, stackToken, scope, hostRelay });
     } catch (err) {
       return errorResponse(err);
@@ -401,6 +450,10 @@ export class UserDO extends DurableObject<Env> {
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
     const signingKey = body.signingKey as string;
     const agreementKey = body.agreementKey as string;
+    if (body.machineId !== undefined && body.machineId !== null && (typeof body.machineId !== "string" || !MACHINE_ID.test(body.machineId))) {
+      throw badRequest("machineId must be 16-128 characters of letters, digits, ':', '_' or '-'");
+    }
+    const machine = typeof body.machineId === "string" ? await this.machineKey(body.machineId) : null;
     await checkDeviceSignature(signingKey, request.method, url, raw, h);
     const existing = this.device(h.id);
     if (existing?.removed_at != null) throw new ApiError(403, "device_removed", "this device was removed; register a new device id");
@@ -408,16 +461,17 @@ export class UserDO extends DurableObject<Env> {
     this.burnSignature(h.id, h.ts, h.sig, now);
     if (existing) {
       this.sql.exec(
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ? WHERE id = ?",
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine_key = COALESCE(?, machine_key), superseded_at = NULL, superseded_by = NULL WHERE id = ?",
         name,
         body.platform,
         agreementKey,
         now,
+        machine,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?)",
+        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine_key) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?)",
         h.id,
         name,
         body.platform,
@@ -426,9 +480,12 @@ export class UserDO extends DurableObject<Env> {
         now,
         now,
         this.ownerId,
+        machine,
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }
+    // This registration is its machine's record now; the machine's other, offline records step aside.
+    this.sweepDuplicates(now, h.id);
     this.broadcast({ type: "devices.changed" });
     return json({ device: publicDevice(this.device(h.id)!, this.online(h.id)) });
   }
@@ -450,8 +507,8 @@ export class UserDO extends DurableObject<Env> {
     if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me);
     if (a === "devices") {
       if (n === 1 && m === "GET") {
-        const rows = this.sql.exec("SELECT * FROM devices WHERE removed_at IS NULL ORDER BY created_at").toArray() as unknown as DeviceRow[];
-        return json({ devices: rows.map((r) => publicDevice(r, this.online(r.id))) });
+        if (this.sweepDuplicates(Date.now(), me.id)) this.broadcast({ type: "devices.changed" }, me.id);
+        return json({ devices: this.listed(me).map((x) => publicDevice(x.d, x.online)) });
       }
       if (n === 2 && m === "PATCH") return this.renameDevice(b!, this.parse(raw));
       if (n === 2 && m === "DELETE") return this.removeDevice(b!);
@@ -490,6 +547,8 @@ export class UserDO extends DurableObject<Env> {
     this.ctx.acceptWebSocket(pair[1], [me.id]);
     pair[1].serializeAttachment({ openedAt: Date.now() } satisfies SocketState);
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", me.id);
+    // The newest live connection is its machine's record: the machine's offline records step aside.
+    this.sweepDuplicates(Date.now(), me.id);
     // Everyone refetches, including this device: its cached list may say it is offline.
     this.broadcast({ type: "devices.changed" });
     // The silence check: a device that never pings after connecting goes offline at the bound.
@@ -639,6 +698,113 @@ export class UserDO extends DurableObject<Env> {
     await this.scheduleAlarm();
   }
 
+  // ---- one record per machine ----
+  //
+  // Every cmux build with its own bundle id (NIGHTLY, DEV, each tagged DEV)
+  // has its own device identity, and a renewed identity is a new one too, so
+  // one Mac piles up records with one name: Leo's Settings > Screen Sharing
+  // listed the Mac he sat on twice, both Offline (2026-11-15). A record that is
+  // not its machine's record is superseded: it leaves every list, and it comes
+  // back the moment its own build talks to the hub again. Nothing is deleted,
+  // so no build is signed out and no audit row loses its name.
+
+  /** This account's key for a client's machine id: unrelated across accounts, and never the id itself. */
+  private async machineKey(machineId: string): Promise<string> {
+    return (await sha256Hex(`cmux device hub machine v1\0${this.ownerId}\0${machineId}`)).slice(0, 32);
+  }
+
+  /**
+   * Supersedes every record that is not its machine's record, and says whether
+   * any changed. One machine is one machine key, or for a record whose client
+   * sent no machine id, its platform and folded name once it has been offline
+   * and unseen for LEGACY_DUPLICATE_MS. The machine's record is `keep` (the
+   * caller) when it is in the group, else the preferred one. An online record
+   * is never superseded: two builds running at once both stay (the list shows
+   * the machine once, see listed). Runs on register, socket open and list, so
+   * the records left over from before this rule go on the account's first
+   * call after the deploy.
+   */
+  private sweepDuplicates(now: number, keep: string): boolean {
+    const rows = this.sql.exec("SELECT * FROM devices WHERE removed_at IS NULL AND superseded_at IS NULL ORDER BY created_at").toArray() as unknown as DeviceRow[];
+    const all: Listed[] = rows.map((d) => ({ d, online: this.online(d.id) }));
+    const winner = (group: Listed[]) => group.find((x) => x.d.id === keep) ?? [...group].sort(preferred)[0]!;
+    const gone = new Set<string>();
+    let changed = false;
+    for (const group of groupBy(all, (x) => x.d.machine_key)) {
+      const w = winner(group);
+      for (const x of group) {
+        if (x === w || x.online || x.d.id === keep) continue;
+        this.supersede(x.d, w.d, now, true);
+        gone.add(x.d.id);
+        changed = true;
+      }
+    }
+    const left = all.filter((x) => !gone.has(x.d.id));
+    for (const group of groupBy(left, (x) => (foldName(x.d.name) ? `${x.d.platform}\0${foldName(x.d.name)}` : null))) {
+      const w = winner(group);
+      for (const x of group) {
+        if (x === w || x.online || x.d.id === keep || x.d.machine_key !== null) continue;
+        if (x.d.last_seen_at + LEGACY_DUPLICATE_MS > now) continue;
+        this.supersede(x.d, w.d, now, false);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Hides `old` behind `winner`. With `carry` (same machine key: certainly the
+   * same Mac) the winner also gets every permission the old record had and it
+   * has not set, so a build switch keeps who may view the Mac and what the Mac
+   * may view. A name match carries nothing: two Macs can share a name.
+   */
+  private supersede(old: DeviceRow, winner: DeviceRow, now: number, carry: boolean) {
+    this.sql.exec("UPDATE devices SET superseded_at = ?, superseded_by = ? WHERE id = ?", now, winner.id, old.id);
+    console.log(`device-hub: record ${old.id} (${old.platform}) superseded by ${winner.id}: ${carry ? "same machine" : "same name, offline"}`);
+    if (!carry) return;
+    const hosts = new Set<string>();
+    for (const p of this.sql.exec("SELECT * FROM permissions WHERE host_id = ? OR viewer_id = ?", old.id, old.id).toArray()) {
+      const host = p.host_id === old.id ? winner.id : (p.host_id as string);
+      const viewer = p.viewer_id === old.id ? winner.id : (p.viewer_id as string);
+      if (host === viewer) continue;
+      const added = this.sql
+        .exec(
+          "INSERT INTO permissions(host_id, viewer_id, scope, updated_at, owner_kind, owner_id) VALUES (?, ?, ?, ?, 'user', ?) ON CONFLICT(host_id, viewer_id) DO NOTHING",
+          host,
+          viewer,
+          p.scope,
+          now,
+          this.ownerId,
+        ).rowsWritten;
+      if (added > 0) hosts.add(host);
+    }
+    for (const hostId of hosts) this.broadcast({ type: "permissions.changed", hostId });
+  }
+
+  /** A superseded record's own build is back: it is listed again, and the machine's other offline records step aside. */
+  private restore(id: string, now: number) {
+    this.sql.exec("UPDATE devices SET superseded_at = NULL, superseded_by = NULL WHERE id = ?", id);
+    this.sweepDuplicates(now, id);
+    this.broadcast({ type: "devices.changed" });
+  }
+
+  /**
+   * What `GET /v1/devices` lists: the records not superseded, each machine
+   * once. The caller's machine is the caller's own record, so a build never
+   * sees its machine's other running build as another device; any other
+   * machine is its preferred record. Records without a machine key list as
+   * they are (the client folds those by name, cmux-cloud-config device_list).
+   */
+  private listed(me: DeviceRow): Listed[] {
+    const rows = this.sql.exec("SELECT * FROM devices WHERE removed_at IS NULL AND superseded_at IS NULL ORDER BY created_at").toArray() as unknown as DeviceRow[];
+    const all: Listed[] = rows.map((d) => ({ d, online: this.online(d.id) }));
+    const shown = new Set<string>();
+    for (const group of groupBy(all, (x) => x.d.machine_key, true)) {
+      shown.add((group.find((x) => x.d.id === me.id) ?? [...group].sort(preferred)[0]!).d.id);
+    }
+    return all.filter((x) => x.d.machine_key === null || shown.has(x.d.id));
+  }
+
   private renameDevice(id: string, body: Record<string, unknown>): Response {
     this.liveDevice(id);
     const name = str(body.name, "name", 100);
@@ -704,7 +870,7 @@ export class UserDO extends DurableObject<Env> {
   private listPermissions(hostId: string | null): Response {
     if (!hostId) throw badRequest("host is required");
     this.liveDevice(hostId);
-    const viewers = this.sql.exec("SELECT id FROM devices WHERE removed_at IS NULL AND id != ? ORDER BY created_at", hostId).toArray();
+    const viewers = this.sql.exec("SELECT id FROM devices WHERE removed_at IS NULL AND superseded_at IS NULL AND id != ? ORDER BY created_at", hostId).toArray();
     return json({ permissions: viewers.map((v) => ({ viewerId: v.id as string, scope: this.permission(hostId, v.id as string) })) });
   }
 
