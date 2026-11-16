@@ -125,6 +125,8 @@ mod live_code;
 #[cfg(unix)]
 mod repo_hold;
 #[cfg(unix)]
+mod repo_mcp_lazy;
+#[cfg(unix)]
 mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
