@@ -206,7 +206,7 @@ class Context:
     def fleet_step(self, script: str, args: list[str] | None = None, artifact: str | None = None, *,
                    step_class: str = "exclusive", labels: tuple[str, ...] = ("bench",), timeout: int | None = None,
                    target_worker: str | None = None, ref: str | None = None,
-                   env: dict[str, str] | None = None) -> FleetResult:
+                   env: dict[str, str] | None = None, display: bool = False) -> FleetResult:
         """Run one harness on a fleet Mac with `cmux-ci run` (as a measurement, alone on its worker) and
         fetch its log and artifact. Never runs anything on this machine."""
         if self.host_role != "fleet":
@@ -220,6 +220,8 @@ class Context:
             cmd.append(f"--arg={a}")
         for k, v in (env or {}).items():
             cmd += ["--env", f"{k}={v}"]
+        if display or self.args.get("display") == "1":
+            cmd.append("--display")  # a GUI harness: a display worker's console session
         if artifact:
             cmd += ["--artifact", artifact]
         if target_worker:

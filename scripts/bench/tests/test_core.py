@@ -178,7 +178,7 @@ class RegistryAndCliTests(unittest.TestCase):
             out = subprocess.run([sys.executable, cli, "list", "--json"], text=True, capture_output=True, env=env, check=True)
             self.assertIn("bundle", {b["name"] for b in json.loads(out.stdout)})
             listing = Path(tmp) / "listing.json"
-            for version, extra in (("1", 0), ("2", 5_000_000)):
+            for version, extra in (("1", 0), ("2", 20_000_000)):
                 listing.write_text(json.dumps({"app": "cmux", "download_bytes": 200_000_000, "files": [
                     ["cmux.app/Contents/MacOS/cmux", 40_000_000 + extra],
                     ["cmux.app/Contents/Frameworks/Engine.framework/Engine", 150_000_000]]}))

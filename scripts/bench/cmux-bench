@@ -96,7 +96,7 @@ def run_bench(name: str, build_spec: str | None, host: str | None, kv: dict[str,
     if import_path is None and host not in bench.hosts:
         raise BenchError(f"{name} runs on {', '.join(bench.hosts)}, not {host}")
     build = parse_build(build_spec)
-    if build.pop("pending", False):
+    if build.pop("pending", False) and not (import_path and build_spec is None):
         try:
             build.update(resolve_nightly())
         except OSError as err:
