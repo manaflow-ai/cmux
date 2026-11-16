@@ -16,9 +16,12 @@ The sources of the acts, and their limits (each row says which it used):
   action   `action.run`, for an act with no default key; its label says so.
 The panes: `redraw` = htop, else nvim, else /usr/bin/top (--program); `stream` = /sbin/ping on the loopback;
 `page` = a Chromium tab on a page of this script's local server (no network); `chat` = the agent chat page with a
-synthetic thread that streams by the page's own debug hook (`debug.agent_pane` stream): no agent runs, the launch
-guard stays, and under CMUX_NEXT_AGENT_PANE_MOCK=1 (--chat-mock=1, the launcher's base) the page talks to its
-in-page mock, not to a daemon. --chat-mock=0 takes the mock away (the New Tab page of a Cmd-T is then the real one).
+synthetic thread that streams by the page's own debug hook (`debug.agent_pane` stream): no agent runs and the launch
+guard stays. That hook runs only under CMUX_NEXT_AGENT_PANE_MOCK=1 (the page then talks to its in-page mock, not to
+a daemon), and the mock also changes the New Tab page. So --chat-mock=auto (the default) makes 2 launches of the same
+app: the mock off (the product's own pages) for each film but the `A-` and `M-` films, then the mock on for those;
+in a launch with the mock off, the `chat` pane of the other set-ups is the product's New Tab page. --chat-mock=1 or 0
+is one launch in that state (with 0, the `A-` and `M-` films are not_run). Each row says its launch's state.
 The virtual display of the entry script is 1x: a film has 1 pixel for each point.
 
   pane-motion-films.py --app <cmux DEV tag.app> --films kinds [--workspaces N --live-shells K] --out DIR
@@ -50,6 +53,7 @@ PING = "/sbin/ping -i 0.2 127.0.0.1"
 SETUPS = {"T": ("row", ("redraw", "stream")), "B": ("row", ("page", "page")), "A": ("row", ("chat", "chat")),
           "M": ("row", ("redraw", "page", "chat")), "P": ("grid", ("redraw", "stream", "page", "chat")),
           "R": ("row", ("redraw", "stream", "shell", "shell", "shell"))}
+MOCK_SETUPS = "AM"  # a film of these needs a chat thread that streams: only a launch with the page mock has one
 KINDS = {"T": "2 terminals with a program", "B": "2 loaded browser pages", "A": "2 chats with a thread that streams",
          "M": "a terminal, a page and a chat"}
 LIMITS = ["1x display: 1 pixel for each point", "the keys are posted to the app's own queue (debug.key), not the HID tap",
@@ -187,14 +191,14 @@ def seed(app, count, live, url, deadline, out):
 
 
 class Films:
-    def __init__(self, app, opts):
-        self.app, self.opts, self.began = app, opts, time.monotonic()
+    def __init__(self, app, opts, mock):
+        self.app, self.opts, self.mock = app, opts, mock
         self.st = STRESS.Stress(app.rpc)
         self.program = redraw_program(opts.program)
         self.main_window = next(iter(self.windows()), None)
 
     def left(self):
-        return self.opts.budget - (time.monotonic() - self.began) if self.opts.budget else 1e9
+        return self.opts.deadline - time.monotonic()
 
     def windows(self):
         return {w.get("id") or w.get("key") for w in self.st.topology().get("windows") or []} - {None}
@@ -219,6 +223,8 @@ class Films:
     def build(self, spec, row):
         """A new workspace, shown, with the panes of the film's set-up; returns (workspace, pane ids, stream boxes)."""
         st, (layout, kinds) = self.st, SETUPS[spec["setup"]]
+        # With the page mock off no chat thread can stream: that pane is the product's New Tab page.
+        kinds = row["panes"] = [kind if kind != "chat" or self.mock else "newtab" for kind in kinds]
         workspace = st.new_workspace()
         if not workspace:
             raise RuntimeError("no new workspace")
@@ -247,6 +253,13 @@ class Films:
                     st.action("closeTab", target=f"tab:{shell}", focus=False)
                 if kind == "chat":
                     chats.append(pane)
+            elif kind == "newtab":
+                before = {t.get("id") for t in st.settled_tabs(workspace, pane)}
+                reply = st.action("newTab.page", target=f"pane:{pane}")
+                if not STRESS.wait(lambda: [t for t in st.tabs(workspace, pane) if t.get("id") not in before] or None, 20, step=0.1):
+                    raise RuntimeError(f"no New Tab page in 20 s: {str(reply)[:160]}")
+                if shell:
+                    st.action("closeTab", target=f"tab:{shell}", focus=False)
         row["dock"] = "not asked"
         if self.opts.dock and spec.get("dock", True):
             # One more shell pane, docked as a column (the app's default edge and mode). A dock that the app refuses,
@@ -340,11 +353,13 @@ class Films:
         """One film: the row for films.json."""
         st, rpc, opts = self.st, self.app.rpc, self.opts
         row = {"id": spec["id"], "title": spec["title"], "setup": spec["setup"], "status": "not_run", "crop": spec.get("crop", "window"),
-               "keys": ", ".join(filter(None, (label(a) for a in spec["acts"]))), "panes": list(SETUPS[spec["setup"]][1])}
+               "keys": ", ".join(filter(None, (label(a) for a in spec["acts"]))), "agent_page_mock": self.mock}
         workspaces, windows = {w["id"] for w in st.workspaces()}, self.windows()
         try:
             if self.left() < 90:
                 raise RuntimeError("no time left in the step")
+            if spec["setup"] in MOCK_SETUPS and not self.mock:
+                raise RuntimeError("this launch has the page mock off: a chat thread streams only under the mock")
             workspace, panes, streams = self.build(spec, row)
             focus = panes[spec.get("focus", 0)]
             # A person's key on a page goes through the page's own window: the film's keys take that path when the
@@ -417,7 +432,8 @@ def main():
     parser.add_argument("--seed-deadline", type=float, default=900.0, help="seconds for the session's maker")
     parser.add_argument("--pinned", type=int, default=3, help="workspaces of the session that get a pin")
     parser.add_argument("--dock", type=int, default=1, help="1: each film's window has one more pane as a docked column")
-    parser.add_argument("--chat-mock", type=int, default=1, help="1: the agent pages run their in-page mock (the launcher's base); 0: they do not")
+    parser.add_argument("--chat-mock", default="auto", choices=("auto", "0", "1"),
+                        help="the agent pages' in-page mock: auto = off, then a second launch with it on for the A- and M- films; 0 or 1 = one launch")
     parser.add_argument("--program", default="auto", help="the program of a `redraw` pane: auto, htop, nvim, top")
     parser.add_argument("--mbps", type=float, default=60, help="the recorder's bit rate")
     parser.add_argument("--thread-rows", type=int, default=2000, help="rows of a chat pane's thread before it streams")
@@ -436,45 +452,67 @@ def main():
     # A film that opens a window goes last: a window that stays open is then in no other film.
     wanted = sorted(dict.fromkeys(wanted), key=lambda i: next(s for s in FILMS if s["id"] == i).get("crop") == "frame")
     opts.out = os.path.abspath(opts.out)  # the recorder writes the movie in the app's process
+    opts.deadline = time.monotonic() + (opts.budget or 1e9)
     os.makedirs(opts.out, exist_ok=True)
     # No osascript in a step: the launcher leaves the sound as it is and its read of the mute state is a no-op.
     os.environ.update({"BENCH_LAUNCH_AUDIO": "keep", "BENCH_LAUNCH_OSASCRIPT": "/usr/bin/true"})
-    env = {"CMUX_NEXT_INPUT_JOURNAL": "1", **({} if opts.chat_mock else {"CMUX_NEXT_AGENT_PANE_MOCK": None})}
-    app = bench_launch.BenchApp(os.path.abspath(opts.app), out=opts.out, env=env)
-    try:
-        app.launch()
-    except bench_launch.LaunchError as error:  # the launcher printed its BENCH-LAUNCH line
-        print(f"pane-motion-films: NOT RUN: the app did not launch: {error.reason}", flush=True)
-        return 3
-    report = {"films": [], "failures": [], "limits": LIMITS, "key_repeat_ms": [REPEAT_DELAY_MS, REPEAT_MS], "mbps": opts.mbps,
-              "launch": {"executable": os.path.basename(app.binary), "agent_page_mock": "CMUX_NEXT_AGENT_PANE_MOCK" in app.launched_env,
-                         "agent_launch": app.launched_env.get("ACPMUX_AGENT_LAUNCH")}}
-    try:
-        maker = Films(app, opts)
-        report["redraw_program"], report["stream_program"] = maker.program[0], "ping"
-        report["alt_screen"] = "not read: no debug call says if a terminal is on its alternate screen"
-        app.rpc("debug.frames", {"action": "start"})
-        time.sleep(1.0)  # 1 s of the app's display link: the rate that the display has for this app
-        link = app.rpc("debug.frames", {"action": "stop"}) or {}
-        report["display"] = {k: link.get(k) for k in ("p50_ms", "refresh_ms", "frames")}
-        if opts.workspaces:
-            report["session"] = seed(app, opts.workspaces, opts.live_shells, opts.page_url, opts.seed_deadline, opts.out)
-            pins = [maker.st.action("palette.toggleWorkspacePin", {"pinned": True}, target=f"workspace:{w['id']}", focus=False)
-                    for w in maker.st.workspaces()[:opts.pinned]]
-            report["session"].update(listed_by_the_app=len(maker.st.workspaces()),
-                                     pins_refused=sum(1 for r in pins if isinstance(r, dict) and r.get("error")), pins_asked=len(pins))
-            print("PANE-FILMS-SESSION " + json.dumps(report["session"]), flush=True)
-        for ident in wanted:
-            report["films"].append(maker.take(next(s for s in FILMS if s["id"] == ident)))
-    except Exception as error:  # noqa: BLE001  the rows so far still go into the report
-        traceback.print_exc()
-        report["failures"].append(f"the tool stopped: {error!r}")
-    finally:
-        app.stop()
+    needs_mock = [i for i in wanted if next(s for s in FILMS if s["id"] == i)["setup"] in MOCK_SETUPS]
+    plan = [(False, [i for i in wanted if i not in needs_mock]), (True, needs_mock)] if opts.chat_mock == "auto" else [(opts.chat_mock == "1", wanted)]
+    report = {"films": [], "failures": [], "launches": [], "limits": LIMITS, "key_repeat_ms": [REPEAT_DELAY_MS, REPEAT_MS], "mbps": opts.mbps,
+              "alt_screen": "not read: no debug call says if a terminal is on its alternate screen"}
+    for mock, idents in plan:
+        if not idents:
+            continue
+        # A second launch makes the session again: it starts only with more time left than the first one's start took.
+        spent = max((launch["start_s"] for launch in report["launches"]), default=0)
+        reason = f"no time left in the step for a second launch (the first one's start took {spent:.0f} s)" if spent and opts.deadline - time.monotonic() < spent + 240 else ""
+        began = time.monotonic()
+        try:
+            if not reason:
+                launch_films(opts, mock, idents, report, began)
+        except bench_launch.LaunchError as error:  # the launcher printed its BENCH-LAUNCH line
+            reason = f"the app did not launch: {error.reason}"
+        except Exception as error:  # noqa: BLE001  the rows so far still go into the report
+            traceback.print_exc()
+            reason = f"the tool stopped: {error!r}"
+        if reason:
+            report["failures"].append(f"page mock {'on' if mock else 'off'}: {reason}")
+        done = {row["id"] for row in report["films"]}
+        report["films"] += [{"id": i, "status": "not_run", "agent_page_mock": mock, "reason": reason[:400]} for i in idents if i not in done]
     with open(os.path.join(opts.out, "films.json"), "w") as f:
         json.dump(report, f, indent=1)
     print(f"PANE-FILMS made {sum(1 for r in report['films'] if r['status'] == 'made')} of {len(wanted)} asked; failures {report['failures']}", flush=True)
-    return 0
+    return 0 if report["launches"] else 3
+
+
+def launch_films(opts, mock, idents, report, began):
+    """One launch of the app with the agent pages' mock on or off: the session, then the films of `idents`."""
+    env = {"CMUX_NEXT_INPUT_JOURNAL": "1", **({} if mock else {"CMUX_NEXT_AGENT_PANE_MOCK": None})}
+    app = bench_launch.BenchApp(os.path.abspath(opts.app), out=opts.out, env=env, log_name=f"app-mock-{int(mock)}.log")
+    app.launch()
+    facts = {"executable": os.path.basename(app.binary), "agent_page_mock": "CMUX_NEXT_AGENT_PANE_MOCK" in app.launched_env,
+             "agent_launch": app.launched_env.get("ACPMUX_AGENT_LAUNCH"), "films": idents, "start_s": 0}
+    report["launches"].append(facts)
+    try:
+        maker = Films(app, opts, mock)
+        report["redraw_program"], report["stream_program"] = maker.program[0], "ping"
+        app.rpc("debug.frames", {"action": "start"})
+        time.sleep(1.0)  # 1 s of the app's display link: the rate that the display has for this app
+        link = app.rpc("debug.frames", {"action": "stop"}) or {}
+        facts["display"] = {k: link.get(k) for k in ("p50_ms", "refresh_ms", "frames")}
+        if opts.workspaces:
+            facts["session"] = seed(app, opts.workspaces, opts.live_shells, opts.page_url, opts.seed_deadline, opts.out)
+            pins = [maker.st.action("palette.toggleWorkspacePin", {"pinned": True}, target=f"workspace:{w['id']}", focus=False)
+                    for w in maker.st.workspaces()[:opts.pinned]]
+            facts["session"].update(listed_by_the_app=len(maker.st.workspaces()),
+                                    pins_refused=sum(1 for r in pins if isinstance(r, dict) and r.get("error")), pins_asked=len(pins))
+            print("PANE-FILMS-SESSION " + json.dumps(facts["session"]), flush=True)
+        facts["start_s"] = round(time.monotonic() - began, 1)
+        for ident in idents:
+            report["films"].append(maker.take(next(s for s in FILMS if s["id"] == ident)))
+    finally:
+        facts["start_s"] = facts["start_s"] or round(time.monotonic() - began, 1)
+        app.stop()
 
 
 if __name__ == "__main__":
