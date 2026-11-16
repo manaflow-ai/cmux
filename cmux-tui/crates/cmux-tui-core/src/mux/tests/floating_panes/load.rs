@@ -250,3 +250,41 @@ fn floating_pane_records_are_read_one_time_for_a_focus_change() {
         "one statement reads the floating panes of the two screens"
     );
 }
+
+/// The side tables of screens are read for the screens that a load holds. A load that holds no screen (the
+/// scoped load of an empty list of workspaces) reads none of them.
+#[test]
+fn floating_pane_load_of_no_screen_reads_no_side_table() {
+    let mux = test_mux();
+    mux.new_workspace(None, Some((80, 22))).unwrap();
+    let registry = mux.workspace_registry.lock().unwrap();
+
+    let read = Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::<String>::new()));
+    let (sink, caller) = (read.clone(), std::thread::current().id());
+    mux.registry_connection
+        .get()
+        .authorizer(Some(move |context: AuthContext<'_>| {
+            // SQLite asks when it compiles a statement, one time for each column that the statement names.
+            if let AuthAction::Read { table_name, .. } = context.action
+                && std::thread::current().id() == caller
+            {
+                sink.lock().unwrap().insert(table_name.to_owned());
+            }
+            Authorization::Allow
+        }))
+        .unwrap();
+    let topology = registry.resource_topology_scoped(&[]);
+    mux.registry_connection.get().authorizer(None::<fn(AuthContext<'_>) -> Authorization>).unwrap();
+
+    assert!(topology.unwrap().screens.is_empty(), "the load holds no screen");
+    let read = read.lock().unwrap().clone();
+    for table in [
+        "resource_column_docks",
+        "resource_screen_rows",
+        "resource_lone_docks",
+        "resource_parked_splits",
+        "resource_floating_panes",
+    ] {
+        assert!(!read.contains(table), "a load of no screen read the table {table}: {read:?}");
+    }
+}
