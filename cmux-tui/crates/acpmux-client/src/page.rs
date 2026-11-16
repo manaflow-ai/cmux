@@ -7,7 +7,7 @@
 
 use crate::wire::{Anchor, ListFilter, ListKey, ListView, Page, Position, Stream, Sub};
 use crate::{Change, Client, QueuedChange};
-use acpmux_list_types::{RowKey, folders::FolderKey};
+use acpmux_list_types::{FolderKey, RowKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -277,7 +277,7 @@ impl ListDriver {
             return Err(DriverError::Invalid("list.unsupported".into()));
         }
         let sid = request.sid;
-        let slot = match request.view {
+        let slot: String = match request.view {
             ListView::Live => "live",
             ListView::All => "all",
             ListView::Folders => return Err(DriverError::Invalid("list.unsupported".into())),
@@ -391,7 +391,6 @@ impl ListDriver {
         };
         let id = format!("q{}", self.next_question);
         self.next_question = self.next_question.saturating_add(1);
-        request.max_bytes = request.max_bytes.min(MAX_REPLY_BYTES as u32);
         self.client.page(wire.clone()).map_err(|error| DriverError::Invalid(error.to_string()))?;
         self.questions.insert(
             id.clone(),
@@ -405,6 +404,9 @@ impl ListDriver {
     pub fn next(&mut self, sid: &str, id: &str) -> Result<(), DriverError> {
         let request = {
             let question = self.questions.get(id).ok_or(DriverError::MissingQuestion)?;
+            if question.sid != sid {
+                return Err(DriverError::Invalid("list.sid".into()));
+            }
             if question.complete || question.in_flight {
                 return Err(DriverError::Busy);
             }
