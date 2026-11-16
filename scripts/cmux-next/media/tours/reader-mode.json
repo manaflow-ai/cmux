@@ -1,0 +1,60 @@
+{
+  "title": "Reader mode (examples/extensions/reader-mode): a news article becomes clean, readable text, and the same command turns it back",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": ["workspace", "new", "--name", "Reading"],
+      "shot": false
+    },
+    {
+      "title": "Show the Reading workspace",
+      "cmux": ["workspace", "name:Reading", "focus"],
+      "shot": false
+    },
+    {
+      "title": "cmux ext dev --once loads the Reader mode example into this cmux",
+      "daemon": true,
+      "cmux": [
+        "workspace", "name:Reading", "screen", "current", "pane", "current", "tab", "current",
+        "terminal", "current", "write", "--text",
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; cd {repo}/examples/extensions/reader-mode && cmux ext dev --once --no-install\r"
+      ],
+      "wait": 8
+    },
+    {
+      "title": "Install it: the install card asks for browser:execute",
+      "cmux": ["action", "run", "app.install", "--no-wait", "--app", "local/reader-mode"],
+      "wait": 3
+    },
+    {
+      "title": "Accept the consent card",
+      "rpc": { "method": "debug.dialog", "params": { "press": "confirm" } },
+      "wait": 3
+    },
+    {
+      "title": "A news article in a browser tab",
+      "cmux": ["tab", "create", "browser", "--url", "https://www.bbc.co.uk/news/articles/cmdx1vpprk9vo", "--name", "News", "--workspace", "name:Reading"],
+      "wait": 8
+    },
+    {
+      "title": "Reader Mode: Toggle (the command its key runs): the article as clean text",
+      "cmux": ["action", "run", "app.command.run", "--app", "local/reader-mode", "--command", "local.reader_mode.toggle"],
+      "wait": 3
+    },
+    {
+      "title": "Scrolled down: text and images inline, no ads, menus or popups",
+      "rpc": { "method": "browser.page.eval", "params": { "script": "document.getElementById('cmux-reader-mode').shadowRoot.querySelector('.page').scrollBy(0, 700); true" } },
+      "wait": 2
+    },
+    {
+      "title": "Reader Mode: Toggle again: the page is back as it was",
+      "cmux": ["action", "run", "app.command.run", "--app", "local/reader-mode", "--command", "local.reader_mode.toggle"],
+      "wait": 3
+    }
+  ]
+}

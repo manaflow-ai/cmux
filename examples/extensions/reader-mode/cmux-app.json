@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/reader-mode",
+  "name": { "en": "Reader mode" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: one key turns the browser tab's article into clean, readable text, and the same key turns it back." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "book" },
+  "categories": ["browser"],
+  "keywords": ["reader", "reading", "browser", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog.json",
+  "cli": { "name": "reader-mode" },
+  "scopes": {
+    "browser:execute": "Run the reader script in the page you are reading, only when you toggle reader mode."
+  },
+  "files": ["dist/", "catalog.json"]
+}
