@@ -60,7 +60,7 @@ struct AgentPaneTransportAckTests {
         // Unacked: frames that arrive wait, however long the page takes.
         server.push(AcpmuxStandInServer.benchFrame(1), to: 0)
         server.push(AcpmuxStandInServer.benchFrame(2), to: 0)
-        try await Task.sleep(for: .milliseconds(150))
+        try await Self.waitQueued(transport, 2)
         #expect(calls.count == 1, "a push went before the page acked the one before it")
         // The page applied it: the waiting frames go, merged into one push.
         let first = try #require(seqs.values.last)
@@ -124,7 +124,7 @@ struct AgentPaneTransportAckTests {
         let full = transport.limits.maximumFramesPerFlush
         for seq in 1...(full + 9) { server.push(AcpmuxStandInServer.benchFrame(seq), to: 0) }
         try await Self.waitQueued(transport, full + 9)
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(transport.socket?.pageWaits == false, "a hidden pane's stream counted as a backlog its page waits on")
         #expect(calls.count == before, "a hidden pane got its stream backlog")
     }
 }
