@@ -24,13 +24,18 @@ export const ANCHOR_TTL_MS = 30 * 24 * 3600 * 1000;
 /** How long the billing answer recorded at an anchor stands for a host session's cmux relay. */
 export const ANCHOR_RELAY_TTL_MS = 24 * 3600 * 1000;
 
+/** The platforms a device registers as. A Linux desktop hosts like a Mac (`cmux-rd linux-host`). */
+export type DevicePlatform = "macos" | "ios" | "linux";
+/** The platforms that host a screen: only these are anchored for device-key renewal. */
+export const HOST_PLATFORMS: readonly DevicePlatform[] = ["macos", "linux"];
+
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
 
 interface DeviceRow {
   id: string;
   name: string;
-  platform: "macos" | "ios";
+  platform: DevicePlatform;
   signing_key: string;
   agreement_key: string;
   created_at: number;
@@ -396,7 +401,9 @@ export class UserDO extends DurableObject<Env> {
     const body = this.parse(raw);
     if (body.id !== h.id) throw badRequest("id must equal X-Device-Id");
     const name = str(body.name, "name", 100);
-    if (body.platform !== "macos" && body.platform !== "ios") throw badRequest("platform must be macos or ios");
+    if (body.platform !== "macos" && body.platform !== "ios" && body.platform !== "linux") {
+      throw badRequest("platform must be macos, ios or linux");
+    }
     if (!(await isValidDeviceKey(body.signingKey))) throw badRequest("signingKey must be a base64 X9.63 P-256 key");
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
     const signingKey = body.signingKey as string;
@@ -1114,7 +1121,7 @@ export class UserDO extends DurableObject<Env> {
 
   /** The signed-in app lets its Mac renew its own host session for 30 days. */
   private async anchor(me: DeviceRow, c: CallContext): Promise<Response> {
-    if (me.platform !== "macos") throw new ApiError(403, "not_host", "only a Mac is anchored");
+    if (!HOST_PLATFORMS.includes(me.platform)) throw new ApiError(403, "not_host", "only a Mac or a Linux desktop is anchored");
     const paid = (await relayEntitlement(this.env, c.userId, c.stackToken).catch(() => "error")) === "paid";
     const now = Date.now();
     this.sql.exec(
