@@ -110,10 +110,7 @@ impl PersistentSessionStateResetter {
 }
 
 /// Blocks until no process holds the session's writer lease or session
-/// guard, or fails at `deadline`. Each lock is taken with a blocking call
-/// and released at once; the kernel wakes the call when the owner drops the
-/// lock or exits. On timeout the helper thread stays blocked until the
-/// owner releases, then drops the lock it got; it holds nothing else.
+/// guard, or fails at `deadline` ([`wait_for_session_locks`]).
 fn wait_for_session_release(
     root: &Path,
     session_name: &str,
@@ -129,6 +126,32 @@ fn wait_for_session_release(
     if fs::symlink_metadata(&guard_dir).is_ok_and(|metadata| metadata.file_type().is_dir()) {
         locks.push(session_guard_lock_path(&guard_dir, session_name));
     }
+    match wait_for_session_locks(locks, deadline)? {
+        LockWait::Free => Ok(()),
+        LockWait::StillHeld => anyhow::bail!(
+            "workspace session is already owned by another daemon: {}",
+            session_dir.display()
+        ),
+    }
+}
+
+/// How [`wait_for_session_locks`] ended.
+pub(super) enum LockWait {
+    /// No process held a lock of the list when its turn came.
+    Free,
+    /// A process still held one of them at the deadline.
+    StillHeld,
+}
+
+/// Blocks until no process holds one of the session lock files `locks`, or
+/// until `deadline`. Each lock is taken with a blocking call and released at
+/// once; the kernel wakes the call when the holder drops the lock or exits.
+/// On timeout the helper thread stays blocked until the holder releases,
+/// then drops the lock it got; it holds nothing else.
+pub(super) fn wait_for_session_locks(
+    locks: Vec<PathBuf>,
+    deadline: Instant,
+) -> anyhow::Result<LockWait> {
     let (released, waited) = std::sync::mpsc::channel();
     std::thread::Builder::new()
         .name("session-release-wait".into())
@@ -140,16 +163,13 @@ fn wait_for_session_release(
                 FileExt::unlock(&file)
                     .with_context(|| format!("release workspace session {}", path.display()))
             });
-            // The stop may have given up waiting; nobody reads then.
+            // The caller may have given up waiting; nobody reads then.
             let _ = released.send(result);
         })
         .context("start the session release wait")?;
     match waited.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-        Ok(result) => result,
-        Err(_) => anyhow::bail!(
-            "workspace session is already owned by another daemon: {}",
-            session_dir.display()
-        ),
+        Ok(result) => result.map(|()| LockWait::Free),
+        Err(_) => Ok(LockWait::StillHeld),
     }
 }
 
@@ -175,4 +195,22 @@ pub(crate) fn set_kept_owner_wait_for_test(
 ) {
     KEPT_OWNER_WAIT.with(|wait| wait.set(Some(bound)));
     KEPT_OWNER_WAIT_STARTED.with(|hook| *hook.borrow_mut() = started);
+}
+
+/// Test seam: the bound that [`set_kept_owner_wait_for_test`] set for the
+/// opens on this thread.
+#[cfg(test)]
+pub(super) fn kept_owner_wait_for_test() -> Option<std::time::Duration> {
+    KEPT_OWNER_WAIT.with(|wait| wait.get())
+}
+
+/// Test seam: an open on this thread starts its wait for an owner that
+/// keeps the session.
+#[cfg(test)]
+pub(super) fn kept_owner_wait_started_for_test() {
+    KEPT_OWNER_WAIT_STARTED.with(|hook| {
+        if let Some(started) = hook.borrow().as_ref() {
+            started();
+        }
+    });
 }

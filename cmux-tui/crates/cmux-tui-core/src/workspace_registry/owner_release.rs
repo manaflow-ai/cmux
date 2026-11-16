@@ -14,15 +14,22 @@
 //! start line and removes it. The stderr of a daemon is often lost; this
 //! file is not. The record is a plain file and not a row of the store: the
 //! thread that lives can be at a commit of the store.
+//!
+//! An open that an owner refuses reads the same file, without the locks: only
+//! when it says that the owner keeps the session until its exit, the open
+//! waits for that owner's end, with a bound ([`KeptOwnerWait`]). With no such
+//! record an open is refused at once, as before.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use cmux_file_lock::LockError;
 use serde_json::{Value, json};
 
 use super::SessionLease;
+use super::terminal_state_end::{LockWait, wait_for_session_locks};
 
 /// The file, in the session's folder, in which an owner says how its release
 /// went.
@@ -32,6 +39,11 @@ pub(crate) const RELEASE_RECORD_FILE: &str = "previous-owner-release.json";
 pub(crate) const KEPT_RELEASE: &str = "kept until the exit";
 /// The record's `release` of an owner that gave the session up.
 const FREE_RELEASE: &str = "released";
+/// How long an open waits for an owner that said that it keeps the session
+/// until its exit (decision of 2026-11-16). Such an owner ended its shutdown:
+/// its process ends next, so a start right after a stop gets the session and
+/// is not refused.
+const KEPT_OWNER_WAIT: Duration = Duration::from_secs(3);
 
 /// The session locks of each owner of this process that keeps its session,
 /// with the session's folder. No product code takes an entry out.
@@ -116,4 +128,96 @@ pub(crate) fn take_record(session_dir: &Path) -> Option<Value> {
         eprintln!("cmux-tui: could not remove the release record of the owner before: {error}");
     }
     Some(record)
+}
+
+/// The wait of one open for an owner that keeps the session until its exit.
+///
+/// An open takes the session guard and then the writer lease, each with one
+/// try. When a holder refuses a try and the record in the session's folder
+/// says that the owner keeps the session, the open waits for that lock: a
+/// blocking lock call on a helper thread, which the kernel wakes when the
+/// holder drops the lock or its process ends, and a deadline. No poll. One
+/// deadline for the open, from its first refused try: the two steps share
+/// it. Then the open tries one more time.
+pub(super) struct KeptOwnerWait<'a> {
+    session_dir: &'a Path,
+    /// When this open's wait began, and when it ends.
+    wait: Option<(Instant, Instant)>,
+}
+
+impl<'a> KeptOwnerWait<'a> {
+    pub(super) fn new(session_dir: &'a Path) -> Self {
+        Self { session_dir, wait: None }
+    }
+
+    /// Takes one of the session's locks with `acquire`; `lock` is the file
+    /// of that lock. A refusal with no record of a kept session is returned
+    /// at once, and so is each error that is not the refusal of a holder.
+    pub(super) fn take(
+        &mut self,
+        lock: &Path,
+        acquire: impl Fn() -> anyhow::Result<SessionLease>,
+    ) -> anyhow::Result<SessionLease> {
+        let refused = match acquire() {
+            Ok(lease) => return Ok(lease),
+            Err(refused) => refused,
+        };
+        if !refused_by_a_holder(&refused) {
+            return Err(refused);
+        }
+        let Some(record) = read_record(self.session_dir).filter(says_kept) else {
+            return Err(refused);
+        };
+        let (began, deadline) = *self.wait.get_or_insert_with(|| {
+            let began = Instant::now();
+            #[cfg(test)]
+            super::terminal_state_end::kept_owner_wait_started_for_test();
+            (began, began + kept_owner_wait())
+        });
+        match wait_for_session_locks(vec![lock.to_path_buf()], deadline) {
+            // The lock was free for a moment. A refusal now is the plain
+            // one, of whichever holder took it.
+            Ok(LockWait::Free) => acquire(),
+            Ok(LockWait::StillHeld) => {
+                let pid = record
+                    .get("pid")
+                    .and_then(Value::as_u64)
+                    .map(|pid| format!(" (pid {pid})"))
+                    .unwrap_or_default();
+                Err(refused.context(format!(
+                    "workspace session is already owned by another daemon, which keeps the \
+                     session until its exit{pid}; it did not end in {} ms",
+                    began.elapsed().as_millis()
+                )))
+            }
+            Err(error) => Err(refused.context(format!(
+                "workspace session is already owned by another daemon, which keeps the session \
+                 until its exit; the wait for its end failed: {error:#}"
+            ))),
+        }
+    }
+}
+
+/// The bound of an open's wait for an owner that keeps the session.
+#[cfg(not(test))]
+fn kept_owner_wait() -> Duration {
+    KEPT_OWNER_WAIT
+}
+
+/// The bound of an open's wait for an owner that keeps the session: the one
+/// that a test set for its thread, or the product's.
+#[cfg(test)]
+fn kept_owner_wait() -> Duration {
+    super::terminal_state_end::kept_owner_wait_for_test().unwrap_or(KEPT_OWNER_WAIT)
+}
+
+/// True when `error` is the refusal of a lock's holder, by its type, and not
+/// a file or a path fault.
+fn refused_by_a_holder(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| matches!(cause.downcast_ref::<LockError>(), Some(LockError::Busy(_))))
+}
+
+/// True when `record` says that its owner keeps the session until its exit.
+fn says_kept(record: &Value) -> bool {
+    record.get("release").and_then(Value::as_str) == Some(KEPT_RELEASE)
 }
