@@ -13,7 +13,12 @@ export const VmImageSelection = Schema.Struct({ id: VmImageId, revision: VmImage
 });
 export type VmImageSelection = typeof VmImageSelection.Type;
 
-export const VmImage = Schema.Struct({ ...VmImageSelection.fields, displayName: Schema.String }).annotations({
+export const VmImage = Schema.Struct({
+  ...VmImageSelection.fields, displayName: Schema.String,
+  inputs_sha256: Schema.optional(Schema.String.annotations({
+    description: "64 lowercase hex: a digest of every image input but cmux-tui. Two images with one value differ only in cmux-tui. Listed by GET /v1/vm-images when the operator recorded it; absent otherwise and from VM creation receipts.",
+  })),
+}).annotations({
   identifier: "VmImage",
   description: "Public image identity; provider snapshot references are never returned.",
 });

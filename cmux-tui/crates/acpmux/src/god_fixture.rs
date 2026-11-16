@@ -365,6 +365,72 @@ pub fn write_home(home: &Path, claude: &Path, work: &Path, shape: &Shape) -> io:
     Ok(made)
 }
 
+/// The slash commands and tool rows one agent reports in folder `variant` (of a few): the large,
+/// rarely-changing part of a chat's metadata (`session.parts.json`). On Leo's Mac on 2026-11-16 its
+/// median was 46 KB over 540 chats (largest 239 KB): his skills, plugins and MCP servers, the same
+/// in most chats, a few project skills apart.
+pub fn agent_catalog(variant: usize) -> (Value, Value) {
+    let commands: Vec<Value> = (0..220)
+        .map(|c| {
+            let scope = if c < 200 { "user".to_owned() } else { format!("project-{variant}") };
+            json!({"name": format!("{scope}-skill-{c}"),
+                   "description": format!("Skill {c} of the {scope} scope: {}", "d".repeat(120)),
+                   "input": {"hint": "what to do"}})
+        })
+        .collect();
+    let commands =
+        json!({"sessionUpdate": "available_commands_update", "availableCommands": commands});
+    let tools: Vec<Value> = (0..80)
+        .map(|t| {
+            json!({"id": format!("mcp:server-{t}"), "name": format!("server-{t}"), "kind": "mcp",
+                   "source": "claude", "enabled": true, "canToggle": true, "status": "connected"})
+        })
+        .collect();
+    (commands, json!({"rows": tools, "mutable": true}))
+}
+
+/// An acpmux home of `chats` chats of `turns` turns each (four records a turn, about 4 KB a turn),
+/// each chat's metadata shaped like a busy Claude chat's with [`agent_catalog`] of one of
+/// `catalogs` folders. Written through the store, as [`write_home`]. Returns the chat ids.
+pub fn write_scale_home(
+    home: &Path,
+    chats: usize,
+    turns: usize,
+    catalogs: usize,
+) -> io::Result<Vec<String>> {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store =
+        crate::store::open(&cfg.store, home).map_err(|e| io::Error::other(e.to_string()))?;
+    let catalog: Vec<(Value, Value)> = (0..catalogs.max(1)).map(agent_catalog).collect();
+    let mut ids = Vec::with_capacity(chats);
+    for (index, (variant, (commands, tools))) in
+        catalog.iter().enumerate().cycle().take(chats).enumerate()
+    {
+        let id = chat_id(index);
+        let (_, last_seq) =
+            append_log(store.as_ref(), &id, turns.max(1) * 4, turns.max(1) as u64 * 4096)?;
+        let cwd = format!("/home/agent/work/p{variant}");
+        let mut meta = session_meta(
+            &id,
+            &format!("chat-{index}"),
+            &cwd,
+            &agent_session_id(index),
+            last_seq,
+            AT + index as u64,
+        );
+        if let Some(fields) = meta.as_object_mut() {
+            fields.insert("availableCommands".into(), commands.clone());
+            fields.insert("tools".into(), tools.clone());
+        }
+        let meta = serde_json::from_value(meta).map_err(io::Error::other)?;
+        store.save(&meta).map_err(|e| io::Error::other(e.to_string()))?;
+        ids.push(id);
+    }
+    store.flush().map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
