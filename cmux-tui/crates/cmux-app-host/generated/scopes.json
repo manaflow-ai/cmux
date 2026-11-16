@@ -1641,6 +1641,14 @@
       "scope": "stash:write",
       "class": "mutation"
     },
+    "system_calendar.events": {
+      "scope": "system_calendar:read",
+      "class": "read"
+    },
+    "system_calendar.request_access": {
+      "scope": "system_calendar:read",
+      "class": "mutation"
+    },
     "tab_group.add_tabs": {
       "scope": "tab_group:write",
       "class": "mutation"

@@ -211,6 +211,12 @@ export interface Live<T> {
 
 export type Workspace = Cmux.WorkspaceSnapshot
 export type Agent = Cmux.AgentSnapshot
+/** Whether the extension may read the person's calendar (`cmux.system_calendar.events`, `cmux.system_calendar.request_access`). */
+export type CalendarAccess = CmuxCalendarAccess
+/** One event of the person's calendar; `start` and `end` are epoch ms. */
+export type CalendarEvent = CmuxCalendarEvent
+/** `cmux.system_calendar.events`' answer. */
+export type CalendarEvents = CmuxCalendarEvents
 /** An agent chat as the sidebar shows it. */
 export interface Chat {
   id: string

@@ -74,6 +74,11 @@ pub const FAMILIES: &[&str] = &[
     // `page.follow`): reader-mode extraction and link hints, run as page
     // scripts in the app's WebKit or CEF tab, which the daemon cannot reach.
     "page",
+    // The person's system calendar on the Mac (`system_calendar.events`,
+    // `system_calendar.request_access`), read through EventKit in the Mac app, which
+    // holds the calendar permission; the daemon has none. Not `calendar.*`,
+    // the Cloud's Google Calendar ops.
+    "system_calendar",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
@@ -549,6 +554,12 @@ mod tests {
         assert_eq!(family_of("fs.pick"), "fs");
         assert!(FAMILIES.contains(&family_of("agent_cli.list")));
         assert!(FAMILIES.contains(&family_of("agent_chat.list")));
+        assert_eq!(family_of("system_calendar.request_access"), "system_calendar");
+        assert!(FAMILIES.contains(&family_of("system_calendar.events")));
+        assert!(
+            !FAMILIES.contains(&family_of("calendar.events.list")),
+            "Google Calendar is not the Mac's"
+        );
         assert!(!FAMILIES.contains(&family_of("agent.list")), "the daemon owns agent.*");
         let mut params = json!({ "provider": "github" });
         normalize_method(&mut params);
