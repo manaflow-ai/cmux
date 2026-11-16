@@ -38,15 +38,19 @@ pub(super) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()>
 /// `(pane id, [x, y, w, h])` of every record, back to front.
 type Records = Vec<(String, [i64; 4])>;
 
+/// The records the screen's list asks for. A second entry of one pane is left out, as the rules of the list
+/// drop it: the table has one record for each pane.
 fn desired(screen: &RegistryScreen) -> Records {
-    screen
-        .floating
-        .iter()
-        .map(|entry| {
-            let frame = entry.frame;
-            (entry.pane.to_string(), [frame.x, frame.y, frame.w, frame.h].map(i64::from))
-        })
-        .collect()
+    let mut records: Records = Vec::with_capacity(screen.floating.len());
+    for entry in &screen.floating {
+        let pane = entry.pane.to_string();
+        if records.iter().any(|(seen, _)| *seen == pane) {
+            continue;
+        }
+        let frame = entry.frame;
+        records.push((pane, [frame.x, frame.y, frame.w, frame.h].map(i64::from)));
+    }
+    records
 }
 
 fn stored(connection: &Connection, screen_id: &str) -> anyhow::Result<Records> {
@@ -73,8 +77,17 @@ pub(super) fn matches(
 }
 
 pub(super) fn write(transaction: &Transaction<'_>, screen: &RegistryScreen) -> anyhow::Result<()> {
-    // Not written yet: the tests of the store fail.
-    let _ = (transaction, screen);
+    transaction.execute(
+        "DELETE FROM resource_floating_panes WHERE screen_id = ?1",
+        params![screen.public_id.as_str()],
+    )?;
+    for (position, (pane, [x, y, w, h])) in desired(screen).into_iter().enumerate() {
+        transaction.execute(
+            "INSERT INTO resource_floating_panes(screen_id, pane_id, position, x, y, w, h)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![screen.public_id.as_str(), pane, position as i64, x, y, w, h],
+        )?;
+    }
     Ok(())
 }
 

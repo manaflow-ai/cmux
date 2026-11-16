@@ -35,7 +35,8 @@ impl Screen {
 
     /// [`Self::set_floating_panes`] of the list the screen has.
     pub(crate) fn settle_floating_panes(&mut self) {
-        // Not written yet: the tests of this rule fail.
+        let floating = std::mem::take(&mut self.floating);
+        self.set_floating_panes(floating);
     }
 
     /// Whether `pane` never floats: a member of a stack, and a pane of a docked column or of a column with rows.
@@ -59,9 +60,22 @@ impl Screen {
         mode: FloatMode,
         frame: Option<FloatFrame>,
     ) -> Result<bool, FloatRefusal> {
-        // Not written yet: the tests of this operation fail.
-        let _ = (pane, mode, frame);
-        Ok(false)
+        let panes = self.root.pane_ids_vec();
+        let before = rules::normalized(&panes, &self.floating);
+        let next = rules::place(&panes, &before, &pane, mode, frame)?;
+        let floats = |list: &[Floating<PaneId>]| list.iter().any(|entry| entry.pane == pane);
+        if !floats(&before) && floats(&next) {
+            self.creation_order_auto_layout = None;
+            if let Some(column) = self.layout_column_for_pane_mut(pane) {
+                column.creation_order_auto_layout = None;
+            }
+            if self.zoomed_pane == Some(pane) {
+                self.zoomed_pane = None;
+            }
+        }
+        let changed = next != self.floating;
+        self.floating = next;
+        Ok(changed)
     }
 
     /// Whether `pane` floats behind another floating pane: a focus of it changes the list.
@@ -72,21 +86,28 @@ impl Screen {
 
     /// Brings a floating `pane` to the front. False when the list did not change.
     pub(crate) fn raise_floating_pane(&mut self, pane: PaneId) -> bool {
-        // Not written yet: the tests of this rule fail.
-        let _ = pane;
-        false
+        if !self.floating.iter().any(|entry| entry.pane == pane) {
+            return false;
+        }
+        let next = rules::raised(&self.root.pane_ids_vec(), &self.floating, &pane);
+        let changed = next != self.floating;
+        self.floating = next;
+        changed
     }
 }
 
 impl ScreenLayoutSnapshot {
     /// The snapshot's list as the rules read it against the snapshot's tree: after a pane left the tree.
     pub(crate) fn settle_floating_panes(&mut self) {
-        // Not written yet: the tests of this rule fail.
+        if !self.floating.is_empty() {
+            self.floating = rules::normalized(&self.root.pane_ids_vec(), &self.floating);
+        }
     }
 
     /// Brings a floating `pane` to the front of the snapshot's list.
     pub(crate) fn raise_floating_pane(&mut self, pane: PaneId) {
-        // Not written yet: the tests of this rule fail.
-        let _ = pane;
+        if self.floating.iter().any(|entry| entry.pane == pane) {
+            self.floating = rules::raised(&self.root.pane_ids_vec(), &self.floating, &pane);
+        }
     }
 }
