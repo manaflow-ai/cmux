@@ -32,9 +32,10 @@ pub use datagram::{
 };
 pub use error::DecodeError;
 pub use feedback::{
-    Arrival, Feedback, MAX_ARRIVALS, MAX_LTR_TOKENS, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack,
+    Arrival, Feedback, MAX_ARRIVALS, MAX_FEEDBACK_PAYLOAD, MAX_LTR_TOKENS, MAX_NACK_FRAMES,
+    MAX_NACK_INDEXES, Nack, arrivals_room_with_ltr_tokens, ltr_tail_len,
 };
-pub use frame::{FRAME_LTR_PREFIX_LEN, FRAME_PREFIX_LEN, FrameBody, REF_NONE};
+pub use frame::{FRAME_LTR_PREFIX_LEN, FRAME_LTR_TOKEN_BIT, FRAME_PREFIX_LEN, FrameBody, REF_NONE};
 pub use input::{
     INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, MAX_SERVICE_BYTES, MAX_TEXT_BYTES,
     service_flags,
