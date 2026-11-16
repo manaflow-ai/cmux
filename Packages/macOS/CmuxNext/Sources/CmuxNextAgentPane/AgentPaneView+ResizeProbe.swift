@@ -35,9 +35,7 @@ extension AgentPaneView {
                 "epoch_ms": .number(Date().timeIntervalSince1970 * 1_000),
                 "host_s": .number(CACurrentMediaTime()),
             ])
-            guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
-                  case .object(var members)? = JSONValue(foundation: object) else {
+            guard let text = result as? String, case .object(var members)? = await Self.parseResizeProbe(text) else {
                 return .object(["pane": .string(pane), "error": .string("the page returned no resize_probe JSON")])
             }
             members["pane"] = .string(pane)
@@ -46,6 +44,11 @@ extension AgentPaneView {
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }
+    }
+
+    /// A `read` reply holds up to 20,000 frames, so it is parsed off the main actor.
+    @concurrent private static func parseResizeProbe(_ text: String) async -> JSONValue? {
+        try? JSONValue.parse(Data(text.utf8))
     }
 }
 #endif
