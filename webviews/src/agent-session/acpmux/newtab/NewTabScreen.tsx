@@ -115,9 +115,6 @@ import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocusProvider } from "../promptFocus";
 import { tabsToComposer } from "../composerFocus";
-import { useEscapingPopup } from "../../../ui/popupHost";
-import { usePopupHost } from "../../../ui/UiProvider";
-import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChromeModel";
 import { useComposerSettings } from "../composerSettings";
 import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
@@ -1220,18 +1217,16 @@ export function NewTabScreen(props: Props) {
     });
   };
   const list = useRef<HTMLDivElement>(null);
-  // With no room under the box for every row, the rows go past the window's edge (cx-6k6cg); the
-  // field keeps the keyboard and the list its highlight.
-  const host = usePopupHost();
-  const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  // The rows stay in the page (they never go to the native popup host): it draws text rows only, so a list with no
+  // room under the composer lost its glyphs, its Return hint and the create strip (2026-11-16). Short of room, the
+  // list scrolls in the room it has (screen.css --available-height).
   const listEdges = useScrollEdges();
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
       listEdges(node);
-      if (host) setShown(node);
     },
-    [host, listEdges],
+    [listEdges],
   );
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
@@ -1244,15 +1239,6 @@ export function NewTabScreen(props: Props) {
   // cover it (toastAvoidance.ts). Elsewhere it sits at the top or the middle, clear of them.
   useEffect(() => (stage && composer ? reportToastAvoidance(composer, elementBox) : undefined), [stage, composer]);
   const anchor = split ? (composer ?? box) : box;
-  useEscapingPopup(host, shown, () => anchor, {
-    // At the foot of the page (the stage layout) the rows open over the composer.
-    side: stage ? "top" : "bottom",
-    align: "start",
-    gap: UI_ANCHOR_GAP,
-    kind: "list",
-    shell: "parent",
-    onDismiss: () => setDismissed(textRef.current),
-  });
   const suggesting = rows.length > 0;
   useEffect(() => {
     if (!suggesting || !box) return;
@@ -1280,8 +1266,10 @@ export function NewTabScreen(props: Props) {
     if (!box || !row) return;
     const inner = box.getBoundingClientRect();
     const at = row.getBoundingClientRect();
-    if (at.top < inner.top) box.scrollTop -= inner.top - at.top;
-    else if (at.bottom > inner.bottom) box.scrollTop += at.bottom - inner.bottom;
+    // The rects include the composer's density zoom; scrollTop is in the list's own CSS pixels.
+    const zoom = box.offsetHeight > 0 ? inner.height / box.offsetHeight : 1;
+    if (at.top < inner.top) box.scrollTop -= (inner.top - at.top) / zoom;
+    else if (at.bottom > inner.bottom) box.scrollTop += (at.bottom - inner.bottom) / zoom;
   }, []);
 
   // MarkdownField owns the contenteditable's sizing and scroll position. The wrapper follows the

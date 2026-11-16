@@ -13,6 +13,7 @@ import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyPr
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { http as journeyHttp, socketDropped } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -2403,10 +2404,16 @@ describe("claudeTranscriptModelsProgram", () => {
       const journey = new Journey(resolveBackend("staging"), null, {}, true);
       const code = runPreclaimBurst({
         backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: "user-1/team_0123456789abcdef0123",
-        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 2, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
         fetchJson: async () => ({ status: 200, body: { ok: true, commit: "0123456789abcdef" } }),
       });
-      await expect(code).rejects.toThrow("warm-spare refused (exit 1): stub: stub refused");
+      // A failed claim is recorded with its step and the burst goes on to the next (run 43918388959 stopped at claim 2
+      // of 20 on one reset); the burst still ends red.
+      expect(await code).toBe(1);
+      expect(journey.preclaimFailures.map((f) => [f.claim, f.error])).toEqual([
+        [0, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+        [1, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+      ]);
       const argv = readFileSync(join(dir, "argv"), "utf8").split("\n");
       const request = JSON.parse(argv[argv.indexOf("--request") + 1]);
       expect(request.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
@@ -2416,6 +2423,19 @@ describe("claudeTranscriptModelsProgram", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("a read that drops while the reply is awaited is not judged, and does not fail the claim", async () => {
+    // run 43918388959 claim 2: the session started and the prompt was taken, then a /exec read reset (ECONNRESET).
+    const replies: Array<string | Error> = ["@@exit 0", "@@exit 0", new Error("ECONNRESET: The socket connection was closed unexpectedly")];
+    const result = await runPreclaimChat(async () => {
+      const next = replies.shift();
+      if (next === undefined) throw new Error("unexpected extra command");
+      if (next instanceof Error) throw next;
+      return { code: 0, stdout: next, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(result.replyMs).toBeNull();
+    expect(result.replyNotJudged).toBe("reply wait read failed: ECONNRESET: The socket connection was closed unexpectedly");
   });
 
   test("a preclaim reply the model refuses is not judged, names the turn's error, and does not fail the claim", async () => {
@@ -2701,5 +2721,60 @@ describe("exec probe bench", () => {
     expect(md).toContain("| boot | short | 2 | 1 | 100 | 900 |");
     expect(md).toContain("| settled | wait | 1 | 0 | 20400 | 20400 |");
     expect(md).toContain("| boot | short | 0 | 900 | - | ECONNRESET | yes | answer lost after the guest ran it | socket \\| closed |");
+  });
+});
+
+describe("a request whose socket drops (run 43927514723: connect_info ECONNRESET 40 ms in)", () => {
+  /** A local HTTP server that resets the socket of the first `resets` requests and answers the rest with `{ok:true}`. */
+  async function resetting<T>(resets: number, run: (url: string, seen: () => number) => Promise<T>): Promise<T> {
+    const { createServer } = await import("node:net");
+    let seen = 0;
+    const server = createServer((c) => {
+      c.on("data", () => {
+        seen++;
+        if (seen <= resets) return c.resetAndDestroy();
+        const body = JSON.stringify({ ok: true, value: { host: "h" } });
+        c.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n${body}`);
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      return await run(`http://127.0.0.1:${(server.address() as { port: number }).port}`, () => seen);
+    } finally {
+      server.close();
+    }
+  }
+
+  test("a read is sent once more on a fresh connection and answers", async () => {
+    await resetting(1, async (url, seen) => {
+      const r = await journeyHttp("POST", `${url}/v1/read`, { op: "cloud.machine.connect_info", params: {} }, {}, 5_000, true);
+      expect(r.status).toBe(200);
+      expect(r.body.value).toEqual({ host: "h" });
+      expect(seen()).toBe(2);
+    });
+  });
+
+  test("a GET retries by default; a second drop fails naming both", async () => {
+    await resetting(1, async (url, seen) => {
+      expect((await journeyHttp("GET", `${url}/v1/health`, undefined, {})).status).toBe(200);
+      expect(seen()).toBe(2);
+    });
+    await resetting(2, async (url, seen) => {
+      await expect(journeyHttp("GET", `${url}/v1/health`, undefined, {})).rejects.toThrow("sent once more on a fresh connection");
+      expect(seen()).toBe(2);
+    });
+  });
+
+  test("a POST that is not repeatable (an op with no key, an exec) is sent once", async () => {
+    await resetting(1, async (url, seen) => {
+      await expect(journeyHttp("POST", `${url}/v1/cloud/machines/m/exec`, { command: "true" }, {})).rejects.toThrow();
+      expect(seen()).toBe(1);
+    });
+  });
+
+  test("socketDropped knows a dropped socket from a timeout", () => {
+    expect(socketDropped(Object.assign(new TypeError("ECONNRESET: The socket connection was closed unexpectedly."), { code: "ECONNRESET" }))).toBe(true);
+    expect(socketDropped(new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) }))).toBe(true);
+    expect(socketDropped(new DOMException("The operation timed out.", "TimeoutError"))).toBe(false);
   });
 });
