@@ -123,9 +123,10 @@ pub fn compose(base: Option<&str>, winners: &[(String, Value)]) -> Result<Option
     for (index, (id, value)) in items.iter().enumerate() {
         let Some(id) = id else { continue };
         let Some(at) = winners.iter().position(|(have, _)| have == id) else { continue };
-        placed[at] = true;
-        if winners[at].1 != *value {
-            text = jsonc::array_replace(&text, index, &winners[at].1).map_err(|_| unmergeable())?;
+        let (Some(slot), Some((_, want))) = (placed.get_mut(at), winners.get(at)) else { continue };
+        *slot = true;
+        if want != value {
+            text = jsonc::array_replace(&text, index, want).map_err(|_| unmergeable())?;
         }
     }
     for ((_, value), placed) in winners.iter().zip(placed) {

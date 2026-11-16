@@ -245,7 +245,7 @@ impl Customize {
                 )));
             }
         }
-        for path in profile.files.keys() {
+        for (path, text) in &profile.files {
             // Only a path the scan reads: anything else (a dot file like
             // `customize/.env`) would be overwritten with no generation
             // holding what was there.
@@ -254,7 +254,7 @@ impl Customize {
             if !owned {
                 return Err(Error::Profile(format!("{path}: a profile may not write there")));
             }
-            if path == KEYBINDINGS && !keys::readable(&profile.files[path]) {
+            if path == KEYBINDINGS && !keys::readable(text) {
                 return Err(Error::Profile(format!(
                     "{path} in the profile is not a list of bindings ([{{ \"key\": ..., \"command\": ... }}])"
                 )));

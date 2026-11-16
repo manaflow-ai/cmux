@@ -196,8 +196,7 @@ impl Base {
         if value.is_none()
             && let Some(row) = Schema::embedded().row(key)
         {
-            for depth in 1..row.path.len() {
-                let parent = &row.path[..depth];
+            for parent in (1..row.path.len()).filter_map(|depth| row.path.get(..depth)) {
                 let there =
                     file.and_then(|file| cmux_config::value::value_at(file, parent)).is_some();
                 if !there {
