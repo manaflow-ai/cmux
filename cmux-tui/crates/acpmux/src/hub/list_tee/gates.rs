@@ -425,16 +425,19 @@ fn keyed_page_samples(count: usize) -> Vec<Vec<u128>> {
             last_activity: 0,
             chat_id: crate::god_fixture::chat_id(n % 20),
             origin: "local".into(),
+            past: false,
         })
         .chain((0..2).map(|n| ListKey {
             last_activity: 0,
             chat_id: format!("missing-{n}"),
             origin: "local".into(),
+            past: false,
         }))
         .chain((0..unknown).map(|n| ListKey {
             last_activity: 0,
             chat_id: format!("unknown-{n}"),
             origin: "peer".into(),
+            past: false,
         }))
         .collect();
     // Use the protocol's default reply budget, as an ordinary client does.
