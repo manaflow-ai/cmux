@@ -22,24 +22,39 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
 
-fn start_fixture(chats: usize, store_bytes: u64) -> tempfile::TempDir {
+fn file_bytes(root: &std::path::Path) -> u64 {
+    std::fs::read_dir(root)
+        .expect("fixture directory")
+        .map(|entry| {
+            let path = entry.expect("fixture entry").path();
+            let metadata = std::fs::symlink_metadata(&path).expect("fixture metadata");
+            if metadata.is_dir() { file_bytes(&path) } else { metadata.len() }
+        })
+        .sum()
+}
+
+fn start_fixture(mut shape: acpmux::god_fixture::Shape) -> tempfile::TempDir {
     let scratch = tempfile::tempdir().expect("fixture scratch");
     std::fs::write(scratch.path().join("config.json"), json!({"acpmux.v2": ["start"]}).to_string())
         .expect("v2 config");
-    let sessions = scratch.path().join("sessions");
-    for n in 0..chats {
-        std::fs::create_dir_all(sessions.join(format!("chat-{n:04}"))).expect("chat fixture");
+    if shape.name == "god" {
+        shape.chats = 527;
+        shape.god_bytes = 4 * 1024 * 1024 * 1024;
     }
-    let pad = scratch.path().join("store.pad");
-    let file = std::fs::File::create(pad).expect("store pad");
-    file.set_len(store_bytes).expect("4 GB sparse store pad");
-    let chat_count = std::fs::read_dir(&sessions).expect("chat fixture directory").count();
-    assert_eq!(chat_count, chats, "fixture chat count");
-    assert_eq!(
-        std::fs::metadata(scratch.path().join("store.pad")).expect("store pad metadata").len(),
-        store_bytes,
-        "fixture store size"
-    );
+    let made = acpmux::god_fixture::write_home(
+        scratch.path(),
+        &scratch.path().join("claude"),
+        &scratch.path().join("work"),
+        &shape,
+    )
+    .expect("store-backed fixture");
+    assert_eq!(made.others.len() + 1, shape.chats, "fixture chat count");
+    if shape.name == "god" {
+        assert!(
+            file_bytes(&scratch.path().join("sessions")) >= shape.god_bytes,
+            "fixture store size"
+        );
+    }
     scratch
 }
 
@@ -75,7 +90,11 @@ async fn daemon_hello(socket: &std::path::Path) {
 fn v2_pr09_listen_start() {
     const ROUNDS: usize = 5;
     const SAMPLES: usize = 20;
-    const STORE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+    let small_fixture = start_fixture(acpmux::god_fixture::Shape {
+        chats: 1,
+        ..acpmux::god_fixture::Shape::small()
+    });
+    let god_fixture = start_fixture(acpmux::god_fixture::Shape::god());
     let mut small = Vec::with_capacity(ROUNDS);
     let mut god = Vec::with_capacity(ROUNDS);
     for round in 0..ROUNDS {
@@ -85,7 +104,7 @@ fn v2_pr09_listen_start() {
             let (chats, samples) =
                 if (round + side) % 2 == 0 { (1, &mut small_round) } else { (527, &mut god_round) };
             for _ in 0..SAMPLES {
-                let scratch = start_fixture(chats, if chats == 527 { STORE_BYTES } else { 0 });
+                let scratch = if chats == 527 { &god_fixture } else { &small_fixture };
                 let daemon = daemon_env::spawn_ready_daemon(scratch.path());
                 samples.push(daemon.startup.as_nanos());
                 // The readiness clock ends before this hello and child stop.
