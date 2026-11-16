@@ -85,6 +85,12 @@ struct TerminalChatToggleTests {
     @MainActor final class PromptTerminal: TerminalTabContent {
         var takes = true
         var typed: [String] = []
+        var interrupted: [String] = []
+        func interruptAgent(for tab: WorkspaceTab, in workspace: Workspace) -> Bool {
+            guard takes else { return false }
+            interrupted.append(tab.id)
+            return true
+        }
         func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView { AnyView(EmptyView()) }
         func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView { AnyView(EmptyView()) }
         func sendPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) -> Bool {
@@ -102,7 +108,7 @@ struct TerminalChatToggleTests {
         store.workspaces = [Workspace(id: "w", macID: "mac", title: "relay", directory: "~/p",
                                       tabs: [Self.terminal("s1", agent: "claude-code", session: "h-1")], lastActivityAt: Date())]
         let terminal = PromptTerminal()
-        let source = WorkspaceTabsSource(store: store, workspaceID: "w", terminal: terminal,
+        let source = WorkspaceTabsSource(store: store, workspaceID: "w", terminal: terminal, sessions: AgentSessionDirectory(),
                                          creator: WorkspaceCreator(store: store, backend: backend))
         let workspace = try #require(source.workspace)
         let tab = try #require(source.workspaceTab("s1"))
@@ -112,6 +118,9 @@ struct TerminalChatToggleTests {
         chat.send(prompt: "  fix the build  ")
         #expect(terminal.typed == ["s1: fix the build"])
         #expect(chat.clientError == nil)
+        // Stop interrupts the terminal's turn, not the View Only chat.
+        chat.cancel()
+        #expect(terminal.interrupted == ["s1"])
         // A terminal that cannot take it now: the draft comes back, with why.
         terminal.takes = false
         chat.send(prompt: "and the tests")

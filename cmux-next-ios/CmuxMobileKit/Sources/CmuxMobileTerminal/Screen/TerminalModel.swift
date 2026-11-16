@@ -501,10 +501,18 @@ public final class TerminalModel {
     }
 
     /// A prompt from the tab's Chat face: typed into the terminal with Return, as the composer's
-    /// Send types it. False when the terminal cannot take it now (not attached, no page yet).
+    /// Send types it. False when the terminal cannot take it now: only an attached terminal does,
+    /// since a held send during a reattach comes back only to this page's own composer.
     public func sendPrompt(_ text: String) -> Bool {
-        guard !text.isEmpty, connectionState.composerNotSentNotice == nil, let controller else { return false }
+        guard !text.isEmpty, connectionState == .attached, let controller else { return false }
         controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        return true
+    }
+
+    /// Stop on the tab's Chat face: Esc, which interrupts a Claude Code or Codex turn.
+    public func interruptAgent() -> Bool {
+        guard connectionState == .attached, let controller else { return false }
+        controller.surface.sendKey(usage: TerminalHIDUsage.escape)
         return true
     }
 

@@ -109,10 +109,13 @@ extension WorkspaceTabsSource {
         // gui"); the chat is View Only, so a prompt is typed into the terminal that runs the session.
         // Bound each time: the store (`sessions`) outlives this source when the workspace reopens.
         let tabID = tab.id
-        store.promptRoute = { [weak self] text in
+        store.terminalRoute = AgentChatStore.TerminalRoute(prompt: { [weak self] text in
             guard let self, let workspace = self.workspace, let tab = self.workspaceTab(tabID) else { return false }
             return self.terminal.sendPrompt(text, for: tab, in: workspace)
-        }
+        }, interrupt: { [weak self] in
+            guard let self, let workspace = self.workspace, let tab = self.workspaceTab(tabID) else { return false }
+            return self.terminal.interruptAgent(for: tab, in: workspace)
+        })
         return store
     }
 

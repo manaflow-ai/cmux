@@ -774,7 +774,10 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
+                                 // A terminal's Chat face forks nothing: its session runs in the terminal.
+                                 cmuxCommands: CmuxSlashCommand.allCases.filter {
+                                     $0 != .fork || (surface.tabActions != nil && store.terminalRoute == nil)
+                                 },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
                                  })

@@ -456,6 +456,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         host(for: tab, in: workspace).model.sendPrompt(text)
     }
 
+    func interruptAgent(for tab: WorkspaceTab, in workspace: Workspace) -> Bool {
+        host(for: tab, in: workspace).model.interruptAgent()
+    }
+
     /// Each tab's card view, made once per slot: a card body is a lookup.
     private var cardViews: [String: (slot: ObjectIdentifier, view: AnyView)] = [:]
 

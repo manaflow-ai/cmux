@@ -276,11 +276,22 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
-    /// Where this chat's prompts go instead of its acpmux session, when set: a terminal's Chat
-    /// face (Toggle Terminal and Chat) is a View Only chat (acpmux `watch.read_only`) of the
-    /// session its terminal runs, so a prompt is typed into that terminal. True when it took it.
-    @ObservationIgnored public var promptRoute: (@MainActor (String) -> Bool)?
-    /// A prompt `promptRoute` could not hand to its terminal (not attached now).
+    /// The terminal this chat's prompts and Stop go to instead of its acpmux session, when set: a
+    /// terminal's Chat face (Toggle Terminal and Chat) is a View Only chat (acpmux
+    /// `watch.read_only`) of the session that terminal runs.
+    @ObservationIgnored public var terminalRoute: TerminalRoute?
+    public struct TerminalRoute {
+        /// Types a prompt into the terminal with Return; true when it took it.
+        public var prompt: @MainActor (String) -> Bool
+        /// Interrupts the terminal's turn (Esc, as in Claude Code and Codex); true when it took it.
+        public var interrupt: @MainActor () -> Bool
+
+        public init(prompt: @escaping @MainActor (String) -> Bool, interrupt: @escaping @MainActor () -> Bool) {
+            self.prompt = prompt
+            self.interrupt = interrupt
+        }
+    }
+    /// A prompt or Stop `terminalRoute` could not hand to its terminal (not attached now).
     public static let terminalNotTakingPromptNotice = "Not sent: the terminal isn't connected. Try again in a moment."
     /// Attachments on a terminal's Chat face: the terminal's own composer uploads them.
     public static let terminalAttachmentsNotice = "Not sent: attach files from the Terminal face."
@@ -540,9 +551,9 @@ public final class AgentChatStore {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
         clientError = nil
-        if let promptRoute {
+        if let terminalRoute {
             // A terminal's Chat face: the terminal runs the session, so the prompt is typed there.
-            if !attachments.isEmpty || !promptRoute(text) {
+            if !attachments.isEmpty || !terminalRoute.prompt(text) {
                 returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: nil)
                 clientError = attachments.isEmpty ? Self.terminalNotTakingPromptNotice : Self.terminalAttachmentsNotice
             }
@@ -606,7 +617,13 @@ public final class AgentChatStore {
 
     private var retryRequested = false
 
-    public func cancel() { source.send(.cancel) }
+    public func cancel() {
+        if let terminalRoute {
+            if !terminalRoute.interrupt() { clientError = Self.terminalNotTakingPromptNotice }
+            return
+        }
+        source.send(.cancel)
+    }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
         // A refusal is about the previous answer ("Approve this on your Mac"):
