@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43788607134",
+  "recorded_at": "2026-11-16T02:13:31Z",
+  "reason": "cmux-tui c1a3cdb70118 changes the image's cmux-tui (pinned 270938c48595)",
+  "dry_run": false,
+  "cmux_tui": "c1a3cdb701185c9ff5fe56df10b147ca585ae18a",
+  "fixes": [
+    {
+      "sha": "c1a3cdb701185c9ff5fe56df10b147ca585ae18a",
+      "mergedAt": "2026-11-15T17:34:14-08:00",
+      "subject": "device hub: one entry per physical device, this Mac's other builds marked (Rust device_list) (#44037)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T02:13:31Z",
+    "snapshot_id": "sh-9536a92297d7428b94d4c12589e6cb86",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43788607134): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "649029098d87e9944dd452e6f58a1420f54ef6a3",
+    "image": "cloud-native-auto-c1a3cdb7-43788607134-1",
+    "revision": "ci-43788607134-1",
+    "at": "2026-11-16T02:13:31Z"
+  },
+  "rolled_back": false
+}
