@@ -37,8 +37,8 @@ final class AppsService {
     /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
     private var pendingRoute: String?
     private var machineCatalog: MachineCatalogPublisher?
-    /// The daemon's latest `apps-page-styles` snapshot (memory only; the daemon persists it).
-    var pageStyles = PageStyleSnapshot()
+    /// The daemon's latest `apps-site-styles` snapshot (memory only; the daemon persists it).
+    var siteStyles = SiteStyleSnapshot()
     init(services: AppServices) {
         self.services = services
         transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats()], inventoryRoutes: { [weak machines = services.machines] in
@@ -75,10 +75,10 @@ final class AppsService {
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
         // Extension site styles: run on open tabs when a snapshot arrives, and at each document commit.
-        transport.provider.onPageStyles = { [weak self] payload in self?.applyPageStyles(payload) }
-        services.browserStores.documentCommitScripts = { [weak self] origin in self?.pageStyles.sources(for: origin) ?? [] }
+        transport.provider.onSiteStyles = { [weak self] payload in self?.applySiteStyles(payload) }
+        services.browserStores.documentCommitScripts = { [weak self] origin in self?.siteStyles.sources(for: origin) ?? [] }
         transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(),
-                                                           BrowserPageAppOps(control: actionControl), pageOps()]))
+                                                           BrowserPageAppOps(control: actionControl), siteOps()]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
@@ -222,12 +222,14 @@ extension AppsService: InternalPageProvider {
     }
 }
 
-// MARK: The `page` family and extension site styles
+// MARK: The `browser.site` family and extension site styles
 
 extension AppsService {
-    /// `page.*` over this Mac's browser tabs (scripts and validation are the daemon's).
-    func pageOps() -> PageAppOps {
-        PageAppOps(host: PageAppHost(tab: { [weak self] id in self?.pageTab(id) }, origin: { raw in
+    /// `browser.site.javascript.*` over this Mac's browser tabs (validation and styles are the daemon's).
+    func siteOps() -> SiteAppOps {
+        SiteAppOps(host: SiteAppHost(tabOrigin: { [weak self] id in
+            self?.livePage(id).map { $0.page.state.url.flatMap(PageInfoSite.origin(of:)) }
+        }, origin: { raw in
             Self.webOrigin(raw)
         }, javaScriptAllowed: { [weak self] origin, tab in
             guard let self else { return true }
@@ -243,17 +245,6 @@ extension AppsService {
         guard let pane = services.windows.active?.focusedPane, let selected = pane.stripModel.selectedID,
               let tab = pane.tab(selected), tab.kind == .browser, let entry = services.cache.existingBrowser(tab.id) else { return nil }
         return (tab.id, entry.tab)
-    }
-
-    private func pageTab(_ id: String?) -> PageAppTab? {
-        guard let (id, page) = livePage(id) else { return nil }
-        let url = page.state.url
-        return PageAppTab(id: id, url: url?.absoluteString ?? "", origin: url.flatMap(PageInfoSite.origin(of:)), title: page.state.title ?? "") { [weak page] script in
-            guard let page else { throw BrowserTabError.closed }
-            try await AppBrowserPage.ensureBrowser(page)
-            let value = try await page.evaluate(script, world: .isolated, gesture: .cmux)
-            return Self.appJSON(value)
-        }
     }
 
     private func profile(of tab: String?) -> BrowserProfileID { livePage(tab)?.page.profileID ?? .default }
@@ -280,11 +271,11 @@ extension AppsService {
         }
     }
 
-    /// `apps-page-styles`: keeps the snapshot for document commits and runs each changed entry's
+    /// `apps-site-styles`: keeps the snapshot for document commits and runs each changed entry's
     /// installer on the open tabs of its origin now (a removal entry runs once and is dropped).
-    func applyPageStyles(_ payload: AppJSON) {
+    func applySiteStyles(_ payload: AppJSON) {
         var byOrigin: [String: [String]] = [:]
-        for entry in pageStyles.replace(with: payload) { byOrigin[entry.origin, default: []].append(entry.source) }
+        for entry in siteStyles.replace(with: payload) { byOrigin[entry.origin, default: []].append(entry.source) }
         guard !byOrigin.isEmpty else { return }
         for page in services.cache.browsers.values.map(\.tab) {
             guard let origin = page.state.url.flatMap(PageInfoSite.origin(of:)), let scripts = byOrigin[origin] else { continue }
@@ -300,17 +291,6 @@ extension AppsService {
         guard let url = URL(string: raw), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               url.path().isEmpty || url.path() == "/", url.query() == nil, url.fragment() == nil, url.user() == nil else { return nil }
         return PageInfoSite.origin(of: url)
-    }
-
-    nonisolated static func appJSON(_ value: BrowserJSValue) -> AppJSON {
-        switch value {
-        case .null: .null
-        case .bool(let value): .bool(value)
-        case .number(let value): .number(value)
-        case .string(let value): .string(value)
-        case .array(let values): .array(values.map(appJSON))
-        case .object(let fields): .object(fields.mapValues(appJSON))
-        }
     }
 }
 
