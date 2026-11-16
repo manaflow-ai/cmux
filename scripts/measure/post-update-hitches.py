@@ -76,6 +76,14 @@ import fresh_home_launch_smoke as smoke  # noqa: E402
 # staged-update pre-warm, so FROM there never pre-warms).
 FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
+# The live feed republishes each cmux NEXT build as cmux NIGHTLY (publish-nightly-identity-legacy), the copy people
+# run; only the cmux NEXT feed (nightly-next/next/) carries BUNDLE_ID.
+NIGHTLY_BUNDLE_ID = "com.cmuxterm.app.nightly"
+
+
+def feed_bundle_id(feed):
+    """The bundle id of the app FEED publishes."""
+    return BUNDLE_ID if "/nightly-next/next/" in feed else NIGHTLY_BUNDLE_ID
 RECORDER_SRC = REPO / "scripts/measure/tab-switch-frames/recorder.swift"
 TURNS_AGENT = ("puh-turns", REPO / "scripts/cmux-next/chat_open_agent.py")
 PROBE_METHOD = "notifications.status"
@@ -1256,7 +1264,9 @@ def run(opts, root: Path, report):
                   seconds=opts.seconds, host=os.uname().nodename, launch=opts.launch)
     say(f"FROM {from_item['build']} ({from_item['short']}) TO {to_item['build']} ({to_item['short']}); "
         f"delta from FROM in feed: {from_item['build'] in to_item['delta_from']}")
-    preflight(BUNDLE_ID, root)
+    bundle_id = feed_bundle_id(opts.feed)
+    report["bundle_id"] = bundle_id
+    preflight(bundle_id, root)
     if opts.preflight_only:
         say("preflight ok: no other copy of the bundle id, no remembered or session daemon socket")
         return 0
@@ -1277,11 +1287,11 @@ def run(opts, root: Path, report):
     if bundle_build(path) != from_item["build"]:
         raise StepFailed(f"installed {bundle_build(path)}, want {from_item['build']}")
     app = App(path, root, opts)
-    if app.bundle_id != BUNDLE_ID:
-        raise CannotRun(f"the feed's app is {app.bundle_id}, not {BUNDLE_ID}")
+    if app.bundle_id != bundle_id:
+        raise CannotRun(f"the feed's app is {app.bundle_id}, not {bundle_id}")
     resident = resident_daemon_sockets(root)
-    with smoke.DefaultsAside(BUNDLE_ID, root):
-        subprocess.run(["defaults", "write", BUNDLE_ID, "home.firstRun.historyImportShown", "-bool", "YES"],
+    with smoke.DefaultsAside(bundle_id, root):
+        subprocess.run(["defaults", "write", bundle_id, "home.firstRun.historyImportShown", "-bool", "YES"],
                        capture_output=True, timeout=30)
         home = root / "h"
         (home / ".config/cmux").mkdir(parents=True, exist_ok=True)
