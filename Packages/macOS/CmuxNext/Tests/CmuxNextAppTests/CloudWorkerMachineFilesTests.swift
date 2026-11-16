@@ -41,7 +41,10 @@ struct CloudWorkerMachineFilesTests {
             case let path where path.hasSuffix("/fs/read"): #"{"path":"/a","dataBase64":"aGk=","size":2}"#
             default: #"{"ok":true,"path":"/a"}"#
             }
-            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+            // A server without the ssh-endpoint route answers a bare 404 (prod cloud-api, #44823).
+            let routeMissing = url.path.hasSuffix("/ssh-endpoint")
+            let body = routeMissing ? "" : body
+            guard let response = HTTPURLResponse(url: url, statusCode: routeMissing ? 404 : 200, httpVersion: nil,
                                                  headerFields: ["Content-Type": "application/json"]) else { return }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: Data(body.utf8))
@@ -136,6 +139,19 @@ struct CloudWorkerMachineFilesTests {
             _ = try await api.revokePreviewShareLink("m1", port: 3000, linkID: "link_1")
         }
         #expect(WorkerAPI.seen.isEmpty)
+    }
+
+    @Test func aServerWithoutTheSSHRouteSaysSCPIsUnsupported() async {
+        WorkerAPI.seen = []
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.scp_unsupported", message: nil)) {
+            _ = try await worker().prepareSCP("vm_aaaaaaaaaaaaaaaaaaaa", publicKey: "ssh-ed25519 AAAA")
+        }
+        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/vm_aaaaaaaaaaaaaaaaaaaa/ssh-endpoint"])
+    }
+
+    @Test func aPlatformNotFoundRefusalStaysNotFound() {
+        let refusal = CloudAPIError.http(status: 404, code: "cloud.machine.not_found", message: "no such machine in this team")
+        #expect(CloudAPIClient.scpRouteError(refusal) == refusal)
     }
 
     @Test func aWorkerRefusalNamesItsNestedCodeAndMessage() {

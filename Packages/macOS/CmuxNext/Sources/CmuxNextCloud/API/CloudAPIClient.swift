@@ -105,8 +105,20 @@ public struct CloudAPIClient: Sendable {
         // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
         // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
         try requireWorker()
-        return try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
-                       timeout: .seconds(100), as: CloudSCPEndpoint.self)
+        do {
+            return try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
+                                  timeout: .seconds(100), as: CloudSCPEndpoint.self)
+        } catch let error as CloudAPIError {
+            throw Self.scpRouteError(error)
+        }
+    }
+
+    /// A bare 404 (no refusal code) is a server that has no `ssh-endpoint` route at all, not a
+    /// missing machine: the platform's own refusal always names `cloud.machine.not_found`. Say so,
+    /// as the unsupported capability it is, instead of a raw "HTTP 404" (#44823).
+    static func scpRouteError(_ error: CloudAPIError) -> CloudAPIError {
+        guard case .http(status: 404, code: nil, message: nil, action: _, traceId: let trace) = error else { return error }
+        return .http(status: 501, code: "machine.scp_unsupported", message: nil, action: nil, traceId: trace)
     }
 
     /// The team's Cloud network: cmux-platform's `GET /v1/host/network/target` on a Worker machines
