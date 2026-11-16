@@ -27,7 +27,7 @@ describe("watchFocusLoss", () => {
     prompt.focus();
     const records: Record<string, string | number | boolean>[] = [];
     const stop = watchFocusLoss(
-      window as unknown as Window & typeof globalThis,
+      window as unknown as Parameters<typeof watchFocusLoss>[0],
       (fields) => records.push(fields),
       () => 10_000,
     );

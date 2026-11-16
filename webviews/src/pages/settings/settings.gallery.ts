@@ -9,6 +9,7 @@ import type {
   HostLists,
   ProviderAccount,
 } from "./ops";
+import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
 import { minutesAgo } from "../../gallery/clock";
 import { categories } from "./categories";
 import { PERSONALIZATION_KEYS } from "./personalizationParts";
@@ -1823,6 +1824,24 @@ variants["devices-screen-sharing-offline"] = variant("devices", {
   note: "An offline Mac keeps its disabled View screen affordance while its name and captions remain readable.",
 });
 
+for (const { name, scale } of pageDensities) {
+  variants[`density-${name}`] = variant("appearance", {
+    note: `${name}: scaled content, controls and navigation, with centered disclosure content and concentric corners on hover.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+  variants[`density-${name}-disclosure-open`] = variant("appearance", {
+    note: `${name}: centered disclosure content with its rows open.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.click({ selector: ".content .more-options" });
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+}
+
 export default settingsPageEntry({
   id: "pages.settings",
   anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }],
@@ -1833,6 +1852,11 @@ export default settingsPageEntry({
   widths: { narrow: 480, normal: 1000, wide: 1440 },
   covers: [
     "page:cmux.settings",
+    "pages/shared/pageDensity.css",
+    "pages/settings/look.css",
+    "pages/settings/refined.css",
+    "pages/settings/layout.css",
+    "pages/settings/styles.css",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AccountsTeams.tsx",
