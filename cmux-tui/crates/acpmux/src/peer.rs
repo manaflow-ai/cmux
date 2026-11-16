@@ -349,6 +349,9 @@ pub struct Peer {
     /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
     /// serving this daemon as a peer: the only link a GitHub action is taken on.
     github_link: AtomicU64,
+    /// Whether this link's legacy `_acpmux/watch` has been applied. Controls remain state-only
+    /// while this is true; cut E will clear the watch and publish those controls.
+    watch_active: AtomicBool,
     controls: StdMutex<Option<controls::Open>>,
     /// Wakes this peer's running GitHub actions when lending ends (`githubBroker` off, the link
     /// ended, the peer stopped), so they stop then rather than run on.

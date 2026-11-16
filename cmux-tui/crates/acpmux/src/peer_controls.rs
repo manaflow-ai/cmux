@@ -5,6 +5,7 @@ use crate::server::controls::{FEATURE, METHOD, PAGE};
 use tokio::sync::watch;
 
 type Key = (String, String);
+const MAX_KNOWN: usize = 256;
 pub(super) struct Open {
     link: u64,
     stream: Option<String>,
@@ -26,24 +27,27 @@ impl Peer {
             Some(Open { link, stream: None, ready_request: None, changed, known: HashSet::new() });
         let me = self.clone();
         self.scope.spawn_named("peer-controls", async move {
+            let mut retry_delay = 100u64;
             loop {
                 let generation = *resync.borrow_and_update();
                 let result = tokio::time::timeout(me.timings.request, me.controls_snapshot(link)).await
                     .unwrap_or_else(|_| Err(RpcError::internal("controls snapshot deadline expired")));
                 if me.link_epoch() != link || !me.open.load(Ordering::SeqCst) { return; }
                 if let Err(error) = result {
-                    if error.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
-                        != Some("controls.resync") {
-                        tracing::warn!(peer = %me.name, error = %error.message, "controls ended; the legacy watch remains active");
-                        return;
-                    }
-                    // A peer repeatedly overflowing cannot make a busy reconnect loop.
+                    let needs_resync = error.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+                        == Some("controls.resync");
+                    tracing::warn!(peer = %me.name, error = %error.message, resync = needs_resync, "controls stream ended; the legacy watch remains active");
+                    // A peer repeatedly overflowing or sending a malformed line cannot make a
+                    // busy reconnect loop. The link itself stays usable.
+                    let delay = retry_delay;
+                    retry_delay = (retry_delay.saturating_mul(2)).min(5_000);
                     tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+                        _ = tokio::time::sleep(Duration::from_millis(delay)) => {},
                         changed = resync.changed() => if changed.is_err() { return; },
                     }
                     continue;
                 }
+                retry_delay = 100;
                 if *resync.borrow() != generation { continue; }
                 if resync.changed().await.is_err() { return; }
             }
@@ -145,7 +149,8 @@ impl Peer {
             return;
         }
         open.ready_request = None;
-        if let Ok(reply) = reply
+        if !self.watch_active()
+            && let Ok(reply) = reply
             && reply["phase"] == "live"
             && reply["ready"] == true
             && reply.get("stream").and_then(Value::as_str) == open.stream.as_deref()
@@ -173,6 +178,11 @@ impl Peer {
             }
         }
         if value["phase"] == "resync" {
+            // Until cut E the legacy watch is authoritative for client notices. Controls only
+            // advance their snapshot generation alongside it.
+            if self.watch_active() {
+                return Ok(());
+            }
             return self
                 .control_notification(
                     link,
@@ -191,7 +201,23 @@ impl Peer {
         let (session, permission) =
             ask_key(entry).ok_or_else(|| RpcError::invalid_params("invalid controls ask key"))?;
         let value = &entry["value"];
+        let terminal = entry.get("end").and_then(Value::as_str);
+        if terminal.is_some()
+            && terminal != Some("gone")
+            && (value["sessionId"] != session
+                || value["kind"] != "permission_decision"
+                    && value["kind"] != "permission_auto"
+                    && value["kind"] != "permission_withdrawn"
+                    && value["kind"] != "permission_resolved"
+                || value.pointer("/msg/permissionId").and_then(Value::as_str)
+                    != Some(permission.as_str()))
+        {
+            return Err(RpcError::invalid_params(
+                "control terminal does not belong to this owner run",
+            ));
+        }
         if !value.is_null()
+            && terminal.is_none()
             && (value["sessionId"] != session
                 || value["permissionId"] != permission
                 || value.get("personInstance").and_then(Value::as_str)
@@ -206,21 +232,38 @@ impl Peer {
                 .as_mut()
                 .filter(|o| o.link == link)
                 .ok_or_else(crate::server::controls::resync_error)?;
-            if value.is_null() {
+            if value.is_null() || terminal.is_some() {
                 open.known.remove(&(session.clone(), permission.clone()));
             } else {
+                if !open.known.contains(&(session.clone(), permission.clone()))
+                    && open.known.len() >= MAX_KNOWN
+                {
+                    return Err(crate::server::controls::resync_error());
+                }
                 open.known.insert((session.clone(), permission.clone()));
             }
         }
         if value.is_null() {
+            if self.watch_active() {
+                return Ok(());
+            }
             self.control_notification(
                 link,
                 method::MUX_EVENT,
-                json!({"sessionId": session,
-                "kind": "permission_withdrawn", "dir": "mux", "msg": {"permissionId": permission}}),
+                json!({"sessionId": session, "seq": 0, "at": crate::store::now_ms(),
+                "kind": "permission_withdrawn", "dir": "mux",
+                "msg": {"permissionId": permission, "reason": "owner_restarted"}}),
             )
             .await
+        } else if entry.get("end").is_some() {
+            if self.watch_active() {
+                return Ok(());
+            }
+            self.control_notification(link, method::MUX_EVENT, value.clone()).await
         } else {
+            if self.watch_active() {
+                return Ok(());
+            }
             self.control_notification(link, method::MUX_PERMISSION_PENDING, value.clone()).await
         }
     }
@@ -339,28 +382,8 @@ mod tests {
         let mut output = peer.out_rx.lock().await.take().unwrap();
         let serving_peer = peer.clone();
         let serving = tokio::spawn(async move { serving_peer.serve(client, &mut output).await });
-        tokio::time::timeout(Duration::from_secs(5), async {
-            let mut pending = false;
-            let mut lagged = false;
-            while let Some((_, _, notice)) = notices.recv().await {
-                if let PeerNotice::Notification { method: m, params, .. } = notice {
-                    if m == method::MUX_PERMISSION_PENDING {
-                        pending = true;
-                        assert_eq!(params["decisionNonce"], "nonce");
-                    }
-                    if m == "_acpmux/lagged" {
-                        lagged = true;
-                    }
-                    if m == method::MUX_EVENT && params["kind"] == "permission_withdrawn" {
-                        assert!(pending && lagged);
-                        assert_eq!(params["sessionId"], "s");
-                        break;
-                    }
-                }
-            }
-        })
-        .await
-        .expect("resync reopens and retires the old ask");
+        let no_notice = tokio::time::timeout(Duration::from_millis(300), notices.recv()).await;
+        assert!(no_notice.is_err(), "controls are state-only while the legacy watch runs");
         assert_eq!(watches.load(Ordering::SeqCst), 1, "the existing watch stays active");
         assert_eq!(opened.load(Ordering::SeqCst), 2);
         serving.abort();

@@ -1015,6 +1015,7 @@ impl Peer {
                             let mut stopped = false;
                             *self.list_cursor.lock_or_recover() = list_at.take();
                             listed = true;
+                            self.set_watch_active(watch);
                             let list = if follow {
                                 PeerNotice::SessionsPatch { rows, gone: gone_ids(list) }
                             } else {
@@ -1278,7 +1279,9 @@ impl Peer {
                             let p = params.unwrap_or(Value::Null);
                             if m == crate::server::controls::NOTICE {
                                 if let Err(error) = self.controls_notice(link, p).await {
-                                    break Err(error.message);
+                                    tracing::warn!(peer = %self.name, error = %error.message, "controls stream ended; keeping link up");
+                                    self.stop_controls(link);
+                                    self.start_controls(link);
                                 }
                                 continue;
                             }

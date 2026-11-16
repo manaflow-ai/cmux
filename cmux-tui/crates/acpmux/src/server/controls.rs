@@ -15,6 +15,7 @@ pub(crate) const BOUND: usize = 256 << 10;
 pub(crate) const PAGE: usize = 64 << 10;
 const RESERVE: usize = 1024;
 pub(crate) static RESYNCS: AtomicU64 = AtomicU64::new(0);
+pub(crate) static CUTS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Default)]
 pub(super) struct Budget(AtomicUsize);
@@ -264,9 +265,36 @@ impl Controls {
         };
         // Read the authority now: an event queued before its snapshot cannot resurrect a
         // decided ask after it. A removed ask is a keyed tombstone, never list absence.
-        let entry = hub.control_ask(&event.session_id, id).unwrap_or_else(
-            || json!({"kind": "asks", "key": [event.session_id, id], "value": null}),
-        );
+        let entry = if crate::hub::is_permission_ask(&rec.kind) {
+            hub.control_ask(&event.session_id, id).unwrap_or_else(|| {
+                json!({"kind": "asks", "key": [event.session_id, id], "value": null, "end": "gone"})
+            })
+        } else {
+            let end = match rec.kind.as_str() {
+                "permission_decision" => "decided",
+                "permission_auto" => "auto",
+                "permission_withdrawn" => "withdrawn",
+                "permission_resolved" => "resolved",
+                _ => return,
+            };
+            json!({"kind": "asks", "key": [event.session_id, id],
+                "value": crate::server::event_value(&event.session_id, rec), "end": end})
+        };
+        let entry = if entry.get("end").is_none() && entry.to_string().len() > PAGE / 2 {
+            CUTS.fetch_add(1, Ordering::Relaxed);
+            let value = &entry["value"];
+            json!({"kind": "asks", "key": entry["key"], "cut": true, "value": {
+                "sessionId": value["sessionId"],
+                "permissionId": value["permissionId"],
+                "personInstance": value["personInstance"],
+                "decisionNonce": value["decisionNonce"],
+                "parent": value["parent"],
+                "handle": value["handle"],
+                "label": value["label"],
+            }})
+        } else {
+            entry
+        };
         self.send(conn, entry);
     }
 }
