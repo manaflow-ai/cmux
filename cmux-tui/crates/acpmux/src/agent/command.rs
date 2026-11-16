@@ -537,6 +537,9 @@ fn host_env_allowed(key: &str) -> bool {
             // The QoS opt-out (`qos.rs`), so a daemon started with it starts
             // its hosts unclamped too.
             "ACPMUX_QOS",
+            // This daemon's cloud build space (cmux-build-space): the `cmux` a harness runs
+            // calls cmux Cloud in this build's space, never nightly's. A build tag, no secret.
+            "CMUX_BUILD_SPACE",
             // Windows process startup and temporary-directory basics.
             "SYSTEMROOT",
             "WINDIR",

@@ -382,8 +382,10 @@ fn workflow_subagent_mark(run: &RunRecord) -> Option<String> {
     Some(format!("{}:{}", word("type")?, word("id")?))
 }
 
-/// What a workflow runner keeps of the daemon's environment.
-const RUNNER_ENV: [&str; 6] = ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME"];
+/// What a workflow runner keeps of the daemon's environment; `CMUX_BUILD_SPACE` keeps its
+/// Cloud calls in the daemon's build space.
+const RUNNER_ENV: [&str; 7] =
+    ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME", "CMUX_BUILD_SPACE"];
 
 fn workflow_runner_command() -> Result<tokio::process::Command> {
     let own = crate::self_command::SelfCommand::current()?;

@@ -11,15 +11,18 @@ pub fn process() -> Resolved {
 }
 
 /// `request` with `space`'s header; an unusable space is an error, and nothing is sent.
-pub fn apply(request: ureq::Request, _space: &Resolved) -> Result<ureq::Request, String> {
-    Ok(request)
+pub fn apply(request: ureq::Request, space: &Resolved) -> Result<ureq::Request, String> {
+    match space {
+        Ok(Some(space)) => Ok(request.set(cmux_build_space::HEADER, space.as_str())),
+        Ok(None) => Ok(request),
+        Err(unusable) => Err(unusable.to_string()),
+    }
 }
 
 /// A WebSocket upgrade's headers with `space`'s header; an unusable space is an error.
-pub fn insert(
-    _headers: &mut tungstenite::http::HeaderMap,
-    _space: &Resolved,
-) -> Result<(), String> {
+pub fn insert(headers: &mut tungstenite::http::HeaderMap, space: &Resolved) -> Result<(), String> {
+    let space = space.as_ref().map_err(ToString::to_string)?;
+    cmux_build_space::insert_space(headers, space.as_ref());
     Ok(())
 }
 
