@@ -20,7 +20,11 @@ import Testing
 ///
 /// In both cases each tab is in its stand-in's place in the strip, and no other tab of the strip moves.
 ///
-/// One pane in a window with no daemon. The test has no wait: each step is one call, and the pane's own
+/// The last test has one New Tab key and an open that waits, and the creator of the stand-in heard its reply before
+/// the store names the tab. The strip gives an open that waits the pane's new tab by a guess. The tab of the
+/// selected stand-in is not that open's tab, by the store's record: it stays in its stand-in's place.
+///
+/// One pane in a window with no daemon. No test has a wait: each step is one call, and the pane's own
 /// observation of the store cannot run before the test's apply.
 @Suite(.closesItsWindows)
 @MainActor struct NewTabStandInsAnsweredTogetherTests {
@@ -48,27 +52,53 @@ import Testing
         return (provisional.id, transaction)
     }
 
+    /// One pane with the tabs of surfaces 1 and 2, shown in a window with no daemon.
+    @MainActor
+    private final class Shown {
+        let services: AppServices
+        let store: DaemonStore
+        let model: PaneModel
+        let state: WindowState
+        let pane: PaneController
+        let window: NSWindow
+
+        init() throws {
+            _ = NSApplication.shared
+            let services = AppServices(environment: AppEnvironment.current([:]))
+            let store = services.daemon.store
+            store.connectionState = .connected(try NewTabStandInsAnsweredTogetherTests.connected())
+            store.apply(snapshot: NewTabStandInsAnsweredTogetherTests.tree([1, 2]))
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+            let state = WindowState(record: record)
+            let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services, state: state)
+            let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 300), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            pane.view.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
+            window.contentView = pane.view
+            window.orderFrontRegardless()
+            pane.syncStripFromStore()
+            pane.view.layoutSubtreeIfNeeded()
+            self.services = services
+            self.store = store
+            self.model = model
+            self.state = state
+            self.pane = pane
+            self.window = window
+        }
+
+        func close() {
+            pane.teardown()
+            window.close()
+        }
+    }
+
     @Test(arguments: [false, true])
     func theTabOfTheSelectedStandInIsSelectedAndShownInTheApplyThatAnswersTwo(anotherOpenWaits: Bool) throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let store = services.daemon.store
-        store.connectionState = .connected(try Self.connected())
-        store.apply(snapshot: Self.tree([1, 2]))
-        let model = try #require(store.workspaces.first?.screens.first?.panes.first)
-        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
-        let state = WindowState(record: record)
-        let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services, state: state)
-        defer { pane.teardown() }
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 300), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        pane.view.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
-        window.contentView = pane.view
-        window.orderFrontRegardless()
-        pane.syncStripFromStore()
-        pane.view.layoutSubtreeIfNeeded()
+        let fixture = try Shown()
+        defer { fixture.close() }
+        let (services, store, model, pane) = (fixture.services, fixture.store, fixture.model, fixture.pane)
 
         // Two New Tab keys: the strip lists both stand-ins, and the pane selects and shows the newer one.
         let first = Self.newTab(in: pane, store: store), second = Self.newTab(in: pane, store: store)
@@ -106,5 +136,36 @@ import Testing
         }
         let strip = pane.orderedIDs.map(\.rawValue)
         #expect(strip == want, "the strip lists \(strip), want \(want)")
+    }
+
+    /// One New Tab key, then an open of the pane that has no stand-in and no answer; its tab goes first in the strip.
+    /// The creator of the stand-in hears its reply (the pane waits to select the surface of the stand-in's tab), and
+    /// then the store names the tab. In the app such an open can also start before the key; here it starts after it,
+    /// so that the test needs no second open for the stand-in.
+    @Test func theTabOfTheSelectedStandInKeepsItsPlaceWhileAnotherOpenWaits() throws {
+        let fixture = try Shown()
+        defer { fixture.close() }
+        let (services, store, model, pane) = (fixture.services, fixture.store, fixture.model, fixture.pane)
+
+        let key = Self.newTab(in: pane, store: store)
+        let listed = pane.orderedIDs.map(\.rawValue)
+        try #require(listed.contains(key.id), "setup: the strip does not list the stand-in: \(listed)")
+        try #require(pane.stripModel.selectedID?.rawValue == key.id, "setup: the stand-in is not selected")
+        try #require(NewTabSuccession.begin(after: nil, in: model, services: services) != nil, "setup: the other open did not start")
+
+        // The reply as the stand-in's creator hears it, then the store's record and the snapshot that lists the tab.
+        pane.selectWhenReported(surface: SurfaceID(rawValue: 3))
+        ProvisionalTab.created(key.transaction, surface: SurfaceID(rawValue: 3), in: store)
+        store.apply(snapshot: Self.tree([1, 2, 3]))
+        let made = try #require(store.tab(surface: SurfaceID(rawValue: 3)), "setup: the store has no tab for the creation")
+        try #require(pane.stripModel.selectedID?.rawValue == key.id, "setup: the pane applied the change before the test's apply")
+
+        // The pane's ONE apply of that change.
+        pane.syncStripFromStore()
+        try #require(NewTabSuccession.isOpen(in: model), "setup: the other open ended before the check")
+        let selected = pane.stripModel.selectedID?.rawValue ?? "none"
+        #expect(selected == made.id, "the pane selects \(selected), want the tab of the stand-in \(made.id)")
+        let want = listed.map { $0 == key.id ? made.id : $0 }, strip = pane.orderedIDs.map(\.rawValue)
+        #expect(strip == want, "the strip lists \(strip), want \(want): the tab of the stand-in is in the slot of the open that waits")
     }
 }
