@@ -228,13 +228,13 @@ public struct WindowRegistry: Equatable, Sendable {
         // A closing window is one view less: what another open window also lists stays there, now owned by the first
         // such window, and never joins the closed group; the closed window lists no guest. Left with nothing, it is gone.
         var changes = handOverShared(of: id)
-        guard let index = windows.firstIndex(where: { $0.id == id }) else { return changes }
-        guard !windows[index].workspaceIDs.isEmpty else {
+        guard let closing = windows.firstIndex(where: { $0.id == id }) else { return changes }
+        guard !windows[closing].workspaceIDs.isEmpty else {
             remove(id)
             changes.emptied.append(id)
             return changes
         }
-        windows[index].isOpen = false
+        windows[closing].isOpen = false
         activate(id) // a Dock click or a relaunch brings back the last window closed
         return changes
     }
