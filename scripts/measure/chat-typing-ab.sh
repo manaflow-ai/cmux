@@ -13,7 +13,8 @@
 # Each arm is its own git worktree at its commit, measured by that commit's split-spring.sh with --app-cache: the
 # first round builds the arm's app, later rounds reuse it. The app-cache entries this step made, the worktrees and
 # the benches' scratch folders in TMPDIR are removed at the end; free disk is printed at the start and the end.
-# The step prints, per round and arm, each engine's typing rows (ms from keydown to the next frame, and to its paint),
+# The step prints, per round and arm, each engine's typing rows (ms from keydown to the next frame, and to its paint;
+# from 46e6d692 on also to_listener, keydown to the page's first listener, and to_work, to the edit and its render done),
 # then the median of the rounds' p50 and p95 per arm and the head - base delta:
 #   CHAT-TYPING-AB round <arm> <round> rc <N> <row> p50 <ms> p95 <ms> ...
 #   CHAT-TYPING-AB median <arm> n <N> <row> p50 <ms> p95 <ms> ...
@@ -116,6 +117,23 @@ import json, os, re, statistics, sys
 out, rounds = sys.argv[1], int(sys.argv[2])
 ROW = re.compile(r"^acp\.[a-z0-9_-]+\.typing\.(to_frame|to_paint)$")
 summary, codes = {}, []
+
+
+def stat(obj):
+    """p50 and p95 of a bench stat: a dict with p50/p95 (or _ms), or a list of samples (as perf-budgets.py p50_p95)."""
+    if isinstance(obj, list):
+        xs = sorted(x for x in obj if isinstance(x, (int, float)))
+        if not xs:
+            return None, None
+        at = lambda q: xs[min(len(xs) - 1, int(round(q * (len(xs) - 1))))]  # noqa: E731
+        return round(at(0.5), 2), round(at(0.95), 2)
+    if isinstance(obj, dict):
+        p50 = next((obj[k] for k in ("p50", "p50_ms", "median") if isinstance(obj.get(k), (int, float))), None)
+        p95 = next((obj[k] for k in ("p95", "p95_ms") if isinstance(obj.get(k), (int, float))), None)
+        return p50, p95
+    return None, None
+
+
 for arm in ("base", "head"):
     per_round = []
     for i in range(1, rounds + 1):
@@ -131,8 +149,22 @@ for arm in ("base", "head"):
                     rows[r["name"]] = {"p50": r.get("p50"), "p95": r.get("p95")}
         except (OSError, ValueError, AttributeError):
             pass
+        # Where a key's time goes before its frame, from the arm's acp.json (agent-engine-bench.py's summary, from
+        # 46e6d692 on): to_listener (keydown to the page's first listener: the app, the web view and the page's main
+        # thread) and to_work (to a task after the key's input event: the edit and its render). Not perf-budgets rows,
+        # so an arm reads them whatever its perf-budgets.py; extra rows, never needed for a round to count.
+        try:
+            modes = json.load(open(os.path.join(d, "acp.json"))).get("modes") or {}
+            for mode, r in modes.items():
+                summ = (r.get("summary", r) if isinstance(r, dict) else {}) or {}
+                for part in ("to_listener", "to_work"):
+                    p50, p95 = stat(summ.get(f"typing_{part}"))
+                    if p95 is not None:
+                        rows[f"acp.{mode}.typing.{part}"] = {"p50": p50, "p95": p95}
+        except (OSError, ValueError, AttributeError):
+            pass
         # A round counts when it ran and measured every typing row; a gate verdict on another row is not its failure.
-        ok = bool(rows) and rc in (0, 1)
+        ok = any(ROW.match(name) for name in rows) and rc in (0, 1)
         codes.append(0 if ok else (rc or 1))
         per_round.append({"round": i, "rc": rc, "rows": rows})
         print("CHAT-TYPING-AB round", arm, i, "rc", rc,

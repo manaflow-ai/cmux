@@ -67,6 +67,11 @@
 # mode bundles none): the daemon starts every holder from a content-addressed
 # copy of it when it answers --version with a wire range the daemon speaks, else
 # runs the holder built into bin/cmux-tui-host.
+# The app host and the browser host: when the bundled cmux runs them by argv[0]
+# (link-folded-hosts.sh --probe), bin/cmux-app-host and bin/cmux-browser-host are
+# relative links to cmux like cmux-tui and acpmux, nothing is fetched or placed
+# for them and their *_sha256 fields stay empty; an explicit CMUX_NEXT_*_BIN still
+# places a copy, and a cmux from before the fold gets its own binaries as above.
 # Release signing (sign-cmux-bundle-helpers.sh)
 # signs every Mach-O in bin/ the same way as bin/cmux, and
 # check-bundled-browser-host.sh checks the placed copy.
@@ -242,12 +247,23 @@ companion_source() {
     fi
   fi
 }
-companion_source cmux-app-host "${CMUX_NEXT_APP_HOST_BIN:-}" app_host_sha256
-app_host_src="$companion_src"
+# The browser host and the app host run from bin/cmux by argv[0] when this
+# build carries them (link-folded-hosts.sh, CMUX-570): bin/cmux-browser-host
+# and bin/cmux-app-host are then links to cmux, like cmux-tui and acpmux, and
+# no copy is fetched or placed. An explicit CMUX_NEXT_*_BIN still places its
+# copy. A build from before the fold bundles its own binaries as before.
+folded_hosts=()
+if "$repo_root/scripts/cmux-next/link-folded-hosts.sh" --probe "$src"; then
+  [[ -n "${CMUX_NEXT_APP_HOST_BIN:-}" ]] || folded_hosts+=(cmux-app-host)
+  [[ -n "${CMUX_NEXT_BROWSER_HOST_BIN:-}" ]] || folded_hosts+=(cmux-browser-host)
+fi
+is_folded() { [[ " ${folded_hosts[*]:-} " == *" $1 "* ]]; }
+app_host_src=""
+is_folded cmux-app-host || { companion_source cmux-app-host "${CMUX_NEXT_APP_HOST_BIN:-}" app_host_sha256; app_host_src="$companion_src"; }
 companion_source cmux-cloud "${CMUX_NEXT_CLOUD_SERVER_BIN:-}" cloud_server_sha256
 cloud_server_src="$companion_src"
-companion_source cmux-browser-host "${CMUX_NEXT_BROWSER_HOST_BIN:-}" browser_host_sha256
-browser_host_src="$companion_src"
+browser_host_src=""
+is_folded cmux-browser-host || { companion_source cmux-browser-host "${CMUX_NEXT_BROWSER_HOST_BIN:-}" browser_host_sha256; browser_host_src="$companion_src"; }
 companion_source cmux-tui-host "${CMUX_NEXT_TERMINAL_HOST_BIN:-}" terminal_host_sha256
 terminal_host_src="$companion_src"
 companion_source cmux-holder "${CMUX_NEXT_HOLDER_BIN:-}" holder_sha256
@@ -299,12 +315,15 @@ place_companion() {
     echo "bundled $file from $from"
   fi
 }
-place_companion "$app_host_src" cmux-app-host
+is_folded cmux-app-host || place_companion "$app_host_src" cmux-app-host
 place_companion "$cloud_server_src" cmux-cloud
-place_companion "$browser_host_src" cmux-browser-host
+is_folded cmux-browser-host || place_companion "$browser_host_src" cmux-browser-host
 place_companion "$terminal_host_src" cmux-tui-host
 place_companion "$holder_src" cmux-holder
 place_companion "$agent_screen_detection_src" cmux-agent-screen-detection
+if (( ${#folded_hosts[@]} )); then
+  "$repo_root/scripts/cmux-next/link-folded-hosts.sh" "$dest_dir" "${folded_hosts[@]}"
+fi
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi

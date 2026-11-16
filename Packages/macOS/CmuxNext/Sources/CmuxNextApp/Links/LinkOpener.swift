@@ -85,8 +85,8 @@ final class LinkOpener {
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
     /// `kind`: what opens, a terminal or a browser, which goes to a right-column pane already holding
-    /// that kind (``RightColumnPlacement``); nil for anything else.
-    func target(from source: PaneController, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil) -> LinkOpenPlacement<LayoutPaneID>.Target {
+    /// that kind (``RightColumnPlacement``); nil for anything else. `opening`: a link or a new tool (``LinkOpenPlacement/Opening``).
+    func target(from source: PaneController, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil, opening: LinkOpenPlacement<LayoutPaneID>.Opening = .link) -> LinkOpenPlacement<LayoutPaneID>.Target {
         let content = source.workspace
         let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0].flatMap(Self.width(of:)) }
         let holds: (LayoutPaneID, RightColumnPlacement.Kind) -> Bool = { id, kind in content?.panes[id].map { Self.holds($0, kind) } ?? false }
@@ -100,7 +100,7 @@ final class LinkOpener {
                 // The strip column right of the docked chat is its right side: the same lower split (ux-owner 2026-10-30).
                 let column = content.map { Self.rightPanes(beside: source.layoutPaneID, in: $0) } ?? []
                 return LinkOpenPlacement<LayoutPaneID>.inColumn(right: pane, column: column, sourceWidth: Self.width(of: source), width: width,
-                                                                kind: kind, holds: holds)
+                                                                kind: kind, holds: holds, opening: opening)
             case .dockChat: return .dockChat(source.layoutPaneID)
             case .here, .besideDock: break
             }
@@ -123,11 +123,11 @@ final class LinkOpener {
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil } ?? column.first
         }
         return LinkOpenPlacement(setting: besideChat ? .splitRight : placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
-            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) }, holder: holder)
+            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) }, holder: holder, opening: opening)
     }
 
     /// Whether the chat header's Terminal from `source` is one Split Right (one `split`, its stand-in pane at the press; ``AgentChatTabActions/run(_:cwd:on:)``), not a tab made in the chat's pane and moved: nothing is on its right, no open beside it is on its way, its pane has room, and its daemon shows a split at the press (`split-client-keys`).
-    func terminalSplitsAtOnce(from source: PaneController) -> Bool { if case .splitRight = target(from: source, besideChat: true, kind: .terminal), !turns.isBusy(beside: source.layoutPaneID), source.daemon.supports(DaemonCapability.splitClientKeys.rawValue), case .split = source.services.toolSplit(from: source.pane, edge: .right, byPerson: true) { true } else { false } }
+    func terminalSplitsAtOnce(from source: PaneController) -> Bool { if case .splitRight = target(from: source, besideChat: true, kind: .terminal, opening: .tool), !turns.isBusy(beside: source.layoutPaneID), source.daemon.supports(DaemonCapability.splitClientKeys.rawValue), case .split = source.services.toolSplit(from: source.pane, edge: .right, byPerson: true) { true } else { false } }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
@@ -137,12 +137,12 @@ final class LinkOpener {
     /// one has landed, from the column it made.
     @discardableResult
     func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil,
-              focusing focus: FocusState.Target = .content, split: SplitMake? = nil, _ make: @escaping Make) -> Bool {
+              opening: LinkOpenPlacement<LayoutPaneID>.Opening = .link, focusing focus: FocusState.Target = .content, split: SplitMake? = nil, _ make: @escaping Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         var opened = true
         let now = turns.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
             guard let self, let source else { return done() }
-            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, focusing: focus,
+            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, opening: opening, focusing: focus,
                                 split: split, make, done: done)
         }
         return now ? opened : true
@@ -150,9 +150,9 @@ final class LinkOpener {
 
     /// ``open(from:background:mainPane:_:)`` in its turn: `done` runs once the open has landed or
     /// failed, so the next open beside `source` reads the column it left.
-    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, focusing focus: FocusState.Target,
+    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, opening: LinkOpenPlacement<LayoutPaneID>.Opening, focusing focus: FocusState.Target,
                        split: SplitMake?, _ make: Make, done: @escaping @MainActor () -> Void) -> Bool {
-        switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind) {
+        switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind, opening: opening) {
         case .pane(let id):
             defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)

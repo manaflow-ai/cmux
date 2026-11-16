@@ -43,6 +43,7 @@
   "cmuxTUI.restartUnresponsive": {"case": "keep", "why": "A kill switch for a new automatic restart of a stuck cmux-tui; keep it until the restart has proven safe."},
   "coderouter.surface": {"case": "keep", "why": "Native is the default; the React CodeRouter page is an opt-in comparison, not yet chosen to replace it."},
   "diagnostics.hangFiles": {"case": "keep", "why": "A diagnostic tool that writes a stack file for each main-thread hang; the switch lets people stop the logging."},
+  "diagnostics.focusLog": {"case": "keep", "why": "A diagnostic tool: records every keyboard focus change with its cause, to name the code behind a focus loss; off by default because it writes a file."},
   "drop.overlay.spring": {"case": "keep", "why": "A motion comparison for the drop overlay; the default is the shipped feel."},
   "drop.overlay.style": {"case": "keep", "why": "A look comparison of twelve drop overlay styles; the default outline is the chosen one."},
   "focus.flashOnMove": {"case": "keep", "why": "Off until Leo judges the focus-ring flash live (code comment); the feature is not yet accepted."},

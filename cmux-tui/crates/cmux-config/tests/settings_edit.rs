@@ -82,6 +82,39 @@ fn several_edits_publish_once_with_one_revision() {
     }
 }
 
+/// `set_exact` stores a row's default (the app decided the key stays: an
+/// `editor.` row, a build default such as NIGHTLY's
+/// `updates.downloadAutomatically`), where `set` removes it; it keeps the
+/// checks of `set`.
+#[test]
+fn set_exact_keeps_a_default_valued_key() {
+    let before =
+        state(r#"{"editor": {"wordWrap": "on"}, "updates": {"downloadAutomatically": true}}"#);
+    let exact = run(
+        &before,
+        vec![
+            edit("editor.wordWrap", EditKind::SetExact(json!("off"))),
+            edit("updates.downloadAutomatically", EditKind::SetExact(json!(false))),
+        ],
+        user(),
+    )
+    .expect("the edits apply");
+    let written = exact.write.expect("the file changes");
+    let file = root(&written);
+    assert_eq!(file.pointer("/editor/wordWrap"), Some(&json!("off")), "{written}");
+    assert_eq!(file.pointer("/updates/downloadAutomatically"), Some(&json!(false)), "{written}");
+    assert_eq!(exact.outcome.applied, vec![0, 1]);
+
+    let set = run(&before, vec![edit("editor.wordWrap", EditKind::Set(json!("off")))], user())
+        .expect("the edit applies");
+    let written = set.write.expect("the file changes");
+    assert_eq!(root(&written).pointer("/editor/wordWrap"), None, "set removes the default");
+
+    let refused =
+        run(&before, vec![edit("editor.wordWrap", EditKind::SetExact(json!("sideways")))], user());
+    assert!(matches!(refused, Err(Refusal::InvalidValue { .. })), "{refused:?}");
+}
+
 /// One refused edit refuses the op: nothing is written, no revision is used.
 #[test]
 fn a_refused_edit_writes_nothing() {

@@ -48,7 +48,7 @@ import Testing
         nightly.set(try Self.stored(",", command: true), forKey: "shortcut.toggleFullScreen")
 
         let defaults = ActionRegistry.standard()
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         await settings.reload()

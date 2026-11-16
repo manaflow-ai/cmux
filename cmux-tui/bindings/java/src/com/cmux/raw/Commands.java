@@ -14,7 +14,7 @@ public final class Commands {
     public static final CommandMetadata ADD_SCREENS_TO_SCREEN_GROUP = new CommandMetadata("add-screens-to-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_TABS_TO_TAB_GROUP = new CommandMetadata("add-tabs-to-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("replay_history_rows", "attach-replay-history-rows-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
+    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("hybrid_frame", "agent-cli-hybrid-v1"), Map.entry("hybrid_stream", "agent-cli-hybrid-v1"), Map.entry("output_coalesce_ms", "attach-output-coalesce-v1"), Map.entry("replay_history_rows", "attach-replay-history-rows-v1"), Map.entry("replay_history_start", "attach-replay-history-window-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
     public static final CommandMetadata BIND_CONVERSATION_TAB_SESSION = new CommandMetadata("bind-conversation-tab-session", Authority.CONTROL, 12, "agent-session-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_ACTIVATE = new CommandMetadata("browser-activate", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_BACK = new CommandMetadata("browser-back", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -119,6 +119,7 @@ public final class Commands {
     public static final CommandMetadata DELETE_WORKSPACE_GROUP = new CommandMetadata("delete-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DETACH_ATTACHED_VIEW = new CommandMetadata("detach-attached-view", Authority.FRONTEND, 10, "view-attachment-detach-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata DETACH_CLIENT = new CommandMetadata("detach-client", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("by", 12L), Map.entry("surface", 12L)), Map.ofEntries(Map.entry("by", "shared-sizing-v1"), Map.entry("surface", "shared-sizing-v1")));
+    public static final CommandMetadata DEVICE_SETUP = new CommandMetadata("device-setup", Authority.LOCAL_ADMIN, 12, "device-setup-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata EXPORT_LAYOUT = new CommandMetadata("export-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_HANDOFF_ABORT = new CommandMetadata("feed-local-handoff-abort", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_HANDOFF_BEGIN = new CommandMetadata("feed-local-handoff-begin", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -280,6 +281,7 @@ public final class Commands {
     public static final CommandMetadata SWAP_PANE = new CommandMetadata("swap-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_CLIPBOARD_REPLY = new CommandMetadata("terminal-clipboard-reply", Authority.FRONTEND, 12, "terminal-clipboard-read-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_CLIPBOARD_SUBSCRIBE = new CommandMetadata("terminal-clipboard-subscribe", Authority.FRONTEND, 12, "terminal-clipboard-read-v1", StreamKind.SUBSCRIBE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_COMMAND_CONTEXT = new CommandMetadata("terminal-command-context", Authority.CONTROL, 12, "terminal-command-context-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_HISTORY = new CommandMetadata("terminal-history", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_LAST_COMMAND = new CommandMetadata("terminal-last-command", Authority.CONTROL, 12, "terminal-last-command-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -424,6 +426,7 @@ public final class Commands {
         values.put("delete-workspace-group", DELETE_WORKSPACE_GROUP);
         values.put("detach-attached-view", DETACH_ATTACHED_VIEW);
         values.put("detach-client", DETACH_CLIENT);
+        values.put("device-setup", DEVICE_SETUP);
         values.put("export-layout", EXPORT_LAYOUT);
         values.put("feed-local-handoff-abort", FEED_LOCAL_HANDOFF_ABORT);
         values.put("feed-local-handoff-begin", FEED_LOCAL_HANDOFF_BEGIN);
@@ -585,6 +588,7 @@ public final class Commands {
         values.put("swap-pane", SWAP_PANE);
         values.put("terminal-clipboard-reply", TERMINAL_CLIPBOARD_REPLY);
         values.put("terminal-clipboard-subscribe", TERMINAL_CLIPBOARD_SUBSCRIBE);
+        values.put("terminal-command-context", TERMINAL_COMMAND_CONTEXT);
         values.put("terminal-events", TERMINAL_EVENTS);
         values.put("terminal-history", TERMINAL_HISTORY);
         values.put("terminal-last-command", TERMINAL_LAST_COMMAND);

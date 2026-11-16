@@ -22,7 +22,7 @@ need one, take the first row that covers the change:
 Only a change none of these takes (a new stored property or type in existing Swift, a resource, a
 manifest, Rust the app links through FFI) needs the dev build. `scripts/cmux-next/live_apply.py
 BASE HEAD` sorts a change the same way try-pr does. Of the last 1,000 NEXT pull requests that touch
-the app, about 42% go into a nightly this way with no build.
+the app, about 42% went into a nightly this way with no build; of the newest 300 merged (2026-11-15), 70% of the Mac-app ones.
 
 `cmux live start` runs a cmux checkout's webviews dev server (Vite) and points the running
 cmux at it. From then on, a saved edit under `webviews/` shows in every open page and agent

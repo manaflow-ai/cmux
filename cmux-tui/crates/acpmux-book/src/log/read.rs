@@ -136,6 +136,10 @@ pub struct Since {
 pub enum ResumeSize {
     Within(u64),
     Over,
+    /// A header on the way to the record after the cursor is not the next record's (or the log
+    /// ends first): the resume would stop at it, so its size is not known. The caller sends a
+    /// window and rebuilds the book, as for a record a read refused.
+    Damaged,
 }
 
 /// A group row of a page of turns and its checked text. A group row `folds.idx` lists has
@@ -814,9 +818,9 @@ impl Log {
             return Ok(ResumeSize::Within(0));
         }
         // A header that is not the next record's: the resume reads up to it and stops, so
-        // its size is not known here; over sends the window that names the damage.
+        // its size is not known here, and the book is damaged.
         let Some((seg, offset)) = self.since_start(cursor)? else {
-            return Ok(ResumeSize::Over);
+            return Ok(ResumeSize::Damaged);
         };
         let bytes = match self.tail.seg.checked_sub(seg) {
             Some(0) => self.tail.len.checked_sub(offset),

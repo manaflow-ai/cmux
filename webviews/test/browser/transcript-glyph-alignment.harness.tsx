@@ -42,6 +42,9 @@ const row: AcpmuxRow = {
   at: Date.now() - 300_000,
   text: "Check the alignment of this sent message.",
 };
+const PENDING_SENT_AT = Date.now() - 10_000;
+const PENDING_TEXT =
+  "A steer long enough to be wider than its queued note, so the note starts where this text starts and the next line wraps under it.";
 const item: AcpmuxActivity = {
   kind: "tool",
   text: "",
@@ -143,6 +146,26 @@ function App() {
         </div>
         <div className="cv-user" data-version-footer-row>
           <UserBubble row={{ ...row, id: "glyph-versioned-prompt" }} text="The same footer with message versions." />
+        </div>
+        <div className="acpmux-row" style={{ position: "relative", width: 640, height: 96 }} data-pending-row>
+          <div className="cv-user" style={{ position: "relative" }}>
+            <UserBubble
+              row={{
+                ...row,
+                id: "glyph-pending-prompt",
+                text: PENDING_TEXT,
+                steer: "waiting",
+                delivery: {
+                  state: "sending",
+                  queued: true,
+                  promptId: "glyph-pending",
+                  sessionId: "glyph-session",
+                  sentAt: PENDING_SENT_AT,
+                },
+              }}
+              text={PENDING_TEXT}
+            />
+          </div>
         </div>
         <div className="fixture-rhythm" data-glyph-row="tool">
           <ToolRow item={item} />

@@ -34,9 +34,7 @@ use crate::secret_mcp::error_result;
 use anyhow::Result;
 use serde_json::{Value, json};
 
-pub const SERVER_NAME: &str = "acpmux";
-/// The session the tools act for, set in this server's env with its caller token.
-pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
+pub use crate::acpmux_mcp_names::{SERVER_NAME, SESSION_ENV};
 /// How long `send` asks the outbox to wait for the delivery to settle before it answers that the
 /// message is on its way: well under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 /// The daemon's outbox (`server/outbox.rs`) goes on delivering after that, retrying a peer that
@@ -351,9 +349,9 @@ fn served_with(
                     });
                 if bg::TOOLS.contains(&name) {
                     let mut args = args;
-                    if matches!(name, "bg_start" | "run_wait")
-                        && let Some(fields) = args.as_object_mut()
-                    {
+                    // Every bg call names its caller: a start runs as it, and a list or stop
+                    // acts on its own tasks (`hub::BgScope`). Never the agent's own value.
+                    if let Some(fields) = args.as_object_mut() {
                         fields.remove("callerSubagent");
                         if let Some(sub) = &sub {
                             fields.insert("callerSubagent".to_owned(), sub.clone());

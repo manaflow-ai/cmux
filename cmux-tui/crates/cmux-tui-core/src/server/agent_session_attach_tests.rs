@@ -182,6 +182,9 @@ pub(super) struct Fixture {
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
     /// When set, each prompt's acceptance comes this long after the prompt (a cold chat's).
     pub(super) accept_after: Option<Duration>,
+    /// When set, each prompt is refused with this error `data` and never accepted, as acpmux's
+    /// remote guard refuses one (`remote_guard::web_starts_asking`).
+    pub(super) prompt_refusal: Option<Value>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
     /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
@@ -200,6 +203,8 @@ pub(super) struct Fixture {
     /// Peer sessions each list answers beside this machine's ([`peer_rows`]); a served
     /// `localOnly` leaves them out.
     pub(super) peer_rows: usize,
+    /// The attach answers as a peer's chat, forwarded (`peer` on the page).
+    pub(super) attach_peer: bool,
     /// The rows and bytes of every session list the fake answered (`_acpmux/watch` and
     /// `_acpmux/sessions`): what a client read.
     pub(super) list_reads: Arc<Mutex<ListReads>>,
@@ -367,13 +372,17 @@ fn serve(
                     json!({"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}),
                 ];
                 events.extend(fixture.page.iter().cloned());
-                Some(json!({
+                let mut page = json!({
                     "session": {"sessionId": SESSION, "name": "sub", "status": "running",
                                 "pending": [{"permissionId": "perm_attach", "options": []}]},
                     "events": events,
                     "hasMore": false,
                     "lastSeq": 1,
-                }))
+                });
+                if fixture.attach_peer {
+                    page["peer"] = json!("peer-mac");
+                }
+                Some(page)
             }
             // A watch with a page size turns the notices on; the attach reads this machine's own
             // list after it (`localOnly`). A whole watch (no limit) answers that list itself.
@@ -507,6 +516,10 @@ fn serve(
                 }
                 reply
             }
+            "session/prompt" if fixture.prompt_refusal.is_some() => Some(json!({
+                FAKE_ERROR: "a remote device cannot control this chat",
+                FAKE_ERROR_DATA: fixture.prompt_refusal.clone(),
+            })),
             "session/prompt" => {
                 if let Some(gate) = &fixture.prompt_gate {
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
@@ -1076,6 +1089,62 @@ fn attach_replays_the_page_and_streams_live_records_of_that_session_only() {
 }
 
 #[test]
+fn an_unfiltered_stream_closes_on_a_sequence_gap_for_replay() {
+    let mut fake = FakeAcpmux::start("stream-gap");
+    let mux = mux_with(&fake, "asa-stream-gap");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-gap");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // The native client must not accept seq 4 while seq 3 is absent. Closing
+    // makes its normal after-seq attach replay the missing record.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 4, "kind": "agent_message"}));
+    let closed = client.event(WAIT).expect("a close for the gap");
+    assert_eq!(closed["event"], json!("agent-session-closed"));
+    assert_eq!(closed["reason"], json!("gap"));
+}
+
+#[test]
+fn an_unfiltered_stream_passes_an_overlap_without_a_gap_close() {
+    let mut fake = FakeAcpmux::start("stream-overlap");
+    let mux = mux_with(&fake, "asa-stream-overlap");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-overlap");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // A record the page already covers (written while the attach read it) is
+    // an overlap the client drops, not a gap; the next one still continues.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 1, "kind": "agent_message"}));
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 3, "kind": "agent_message"}));
+    for seq in [1, 3] {
+        let event = client.event(WAIT).expect("a record, not a close");
+        assert_eq!(event["event"], json!("agent-session-record"), "{event}");
+        assert_eq!(event["record"]["seq"], json!(seq));
+    }
+}
+
+#[test]
+fn a_peer_chat_stream_passes_its_holes() {
+    let fixture = Fixture { attach_peer: true, ..Fixture::default() };
+    let mut fake = FakeAcpmux::start_with("stream-peer-holes", fixture);
+    let mux = mux_with(&fake, "asa-stream-peer-holes");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-peer-holes");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // A peer's link is not sent every record (`MUX_UNSENT`): its seqs have holes.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 4, "kind": "agent_message"}));
+    let event = client.event(WAIT).expect("the record, not a close");
+    assert_eq!(event["event"], json!("agent-session-record"), "{event}");
+}
+
+#[test]
 fn a_rebound_tab_ends_its_attachment_at_the_next_record() {
     let mut fake = FakeAcpmux::start("rebound");
     let mux = mux_with(&fake, "asa-rebound");
@@ -1209,6 +1278,36 @@ fn a_prompt_acpmux_accepts_after_a_cold_start_is_sent_not_timed_out() {
     let reply = client.answer_within(id, late + WAIT);
     assert_eq!(reply["ok"], json!(true), "{reply}");
     assert_eq!(reply["data"]["turn_id"], json!("turn_1"));
+}
+
+#[test]
+fn a_prompt_acpmux_refuses_is_refused_at_once_with_its_reason_not_timed_out() {
+    // HQ run 43626610988's phone-start row: acpmux answered the phone's `session/prompt` with an
+    // error and never accepted it, and the phone heard `agent_session.timeout` 30 s later.
+    let fixture = Fixture {
+        prompt_refusal: Some(json!({"reason": "remote.local_claude_session"})),
+        ..Fixture::default()
+    };
+    let fake = FakeAcpmux::start_with("prompt-refused", fixture);
+    let mux = mux_with(&fake, "asa-prompt-refused");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "prompt-refused");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let id = client.send(json!({"cmd":"agent-session-prompt","surface":surface,
+                                "prompt_id":"prompt-refused","text":"hello"}));
+    assert!(WAIT < agent_session_attach::PROMPT_ACCEPT_TIMEOUT);
+    let reply = client.answer_within(id, WAIT);
+    assert_code(&reply, "agent_session.refused");
+    assert_eq!(reply["data"]["reason"], json!("remote.local_claude_session"), "{reply}");
+    assert!(
+        reply["error"].as_str().is_some_and(|text| text.contains("remote.local_claude_session")),
+        "{reply}"
+    );
+    // The same prompt id may be sent again: the refused one holds no slot.
+    let again = client.send(json!({"cmd":"agent-session-prompt","surface":surface,
+                                   "prompt_id":"prompt-refused","text":"hello"}));
+    assert_code(&client.answer_within(again, WAIT), "agent_session.refused");
 }
 
 #[test]
@@ -1389,6 +1488,143 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
                "code":"x".repeat(5000)}),
     ] {
         assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
+/// An unbound agent tab of this store (a new chat whose start has not made a session, or whose
+/// start was refused).
+fn unbound_store_tab(mux: &Arc<Mux>, harness: &str) -> SurfaceId {
+    let (_, pane) = terminal_pane(mux);
+    let host = agent_session_attach::agent_session_start::store_host(mux);
+    run(
+        mux,
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":host,"harness":harness}}),
+    )["surface"]
+        .as_u64()
+        .unwrap()
+}
+
+/// A new chat whose start was refused because its agent is not signed in (hq#11225) signs that
+/// agent in on this machine before it has a session (`agent-session-login-machine-v1`): each
+/// login step goes to this machine's acpmux with no `sessionId`, gated as a start is (the same
+/// host check and unbound tab of this store). A tab with a session still needs its attachment.
+#[test]
+fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
+    let fake = FakeAcpmux::start("login-machine");
+    let mux = mux_with(&fake, "asa-login-machine");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY)
+    );
+    let surface = unbound_store_tab(&mux, "cursor");
+    let mut client = Client::connect(&mux, "login-machine");
+    for (frame, method, params, data) in [
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"cursor"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "cursor"}),
+            json!({"loginId": "login_1", "url": "https://claude.ai/oauth/authorize",
+                   "needsCode": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"finish",
+                   "login_id":"login_1","code":"wrong"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId": "login_1", "code": "wrong"}),
+            json!({"refused": {"reason": "bad_code"}}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"finish",
+                   "login_id":"login_1"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId": "login_1"}),
+            json!({"signedIn": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"gemini","key":"AIzaTest"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "gemini", "key": "AIzaTest"}),
+            json!({"saved": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
+                   "login_id":"login_1"}),
+            "_acpmux/agent_login/cancel",
+            json!({"loginId": "login_1"}),
+            json!({}),
+        ),
+    ] {
+        let reply = client.request(frame);
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        assert_eq!(reply["data"], data, "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!(method));
+        assert_eq!(sent["params"], params, "no session: the sign-in is this machine's own");
+    }
+    for bad in [
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"cursor",
+               "sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"cursor"}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    // A tab with a session signs in through its attachment; a tab of another store never here.
+    let bound = agent_tab(&mux, Some(SESSION));
+    let foreign = agent_tab(&mux, None);
+    for surface in [bound, foreign] {
+        assert_code(
+            &client.request(json!({"cmd":"agent-session-login","surface":surface,"op":"start",
+                                   "agent":"cursor"})),
+            "agent_session.not_attached",
+        );
+    }
+    fake.no_frame();
+}
+
+/// On a Cloud VM a session-less sign-in runs only on the caller's `vm_kind: "owner"`, as a start
+/// does; a teammate's proxied link never signs this machine's agent in.
+#[test]
+fn a_new_chats_sign_in_is_gated_as_a_start_is() {
+    let fake = FakeAcpmux::start("login-machine-gate");
+    let mux = mux_with(&fake, "asa-login-machine-gate");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let surface = unbound_store_tab(&mux, "grok");
+    let mut client = Client::connect(&mux, "login-machine-gate");
+    let start = json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"grok"});
+    assert_code(&client.request(start.clone()), "agent_session.host_unverified");
+    let mut other = start.clone();
+    other["vm_kind"] = json!("member");
+    assert_code(&client.request(other), "agent_session.host_unverified");
+    fake.no_frame();
+    let mut owned = start.clone();
+    owned["vm_kind"] = json!("owner");
+    let reply = client.request(owned);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["data"]["loginId"], json!("login_2"), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/agent_login/start"));
+    assert_eq!(sent["params"], json!({"agent": "grok"}));
+    // A teammate's link (`agent-session-proxy-bind`) is refused before acpmux, owner word or not.
+    let mut teammate = Client::connect(&mux, "login-machine-teammate");
+    let author = json!({"id":"tailnet:p@example.com", "login":"p@example.com", "node":"n"});
+    let bound = teammate.request(json!({"cmd":"agent-session-proxy-bind", "author":author}));
+    assert_eq!(bound["ok"], json!(true), "{bound}");
+    for host_session in [json!(""), json!(SESSION)] {
+        let mut frame = start.clone();
+        frame["vm_kind"] = json!("owner");
+        frame["_host_author"] = author.clone();
+        frame["_host_session"] = host_session;
+        let reply = teammate.request(frame);
+        assert_eq!(reply["ok"], json!(false), "{reply}");
     }
     fake.no_frame();
 }

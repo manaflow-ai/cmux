@@ -558,6 +558,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object deviceSetup(DeviceSetupRequest request) throws CmuxException {
+        Object result = execute(Commands.DEVICE_SETUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ExportLayoutResult exportLayout(ExportLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.EXPORT_LAYOUT, request.toWire());
         return ExportLayoutResult.fromWire(result);
@@ -1366,6 +1371,11 @@ public abstract class GeneratedCmuxClient {
 
     public final CmuxStream<ProtocolEvent> terminalClipboardSubscribe(TerminalClipboardSubscribeRequest request) throws CmuxException {
         return openStream(Commands.TERMINAL_CLIPBOARD_SUBSCRIBE, request.toWire());
+    }
+
+    public final TerminalCommandContextResult terminalCommandContext(TerminalCommandContextRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_COMMAND_CONTEXT, request.toWire());
+        return TerminalCommandContextResult.fromWire(result);
     }
 
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {

@@ -98,6 +98,7 @@ enum AgentPaneHandshakeReply {
                 model.wakeSource = nil
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
+                model.openWaits.ran(.handshake)
             }
             model.hasHandshake = true
             // A handshake starts a connection: the page says when its client is ready (`pane.clientReady`).

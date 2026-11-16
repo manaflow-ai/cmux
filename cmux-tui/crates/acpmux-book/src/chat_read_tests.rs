@@ -211,6 +211,34 @@ fn a_resume_of_large_records_counts_and_reads_only_what_it_missed() {
     assert!(read <= headers + MAX_FRAME_BYTES as u64 + 64 * 1024, "{read} bytes read");
 }
 
+/// A header between `seq.idx`'s entry and the cursor that is not the next record's: the measure
+/// says damaged, never over, so its caller knows the book needs a rebuild.
+#[test]
+fn a_resume_measured_past_a_damaged_header_says_damaged() {
+    use crate::log::{HEADER_LEN, ResumeSize};
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    for id in 1..=20 {
+        log.append_settled(id, 1, RawRange::NONE, b"{}").unwrap();
+    }
+    assert_eq!(
+        log.resume_size(8, u64::MAX).unwrap(),
+        ResumeSize::Within(12 * (RECORD_OVERHEAD + 2) as u64)
+    );
+    let row = log.row(5).unwrap();
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(home.path().join(format!("rows/{:06}.seg", row.seg)))
+        .unwrap();
+    file.seek(SeekFrom::Start(u64::from(row.off) - HEADER_LEN as u64 + 4)).unwrap();
+    file.write_all(&99u64.to_le_bytes()).unwrap();
+    assert_eq!(log.resume_size(8, u64::MAX).unwrap(), ResumeSize::Damaged);
+    assert_eq!(
+        log.resume_size(4, u64::MAX).unwrap(),
+        ResumeSize::Within(16 * (RECORD_OVERHEAD + 2) as u64)
+    );
+}
+
 #[test]
 fn truncated_resume_record_names_a_stop_instead_of_a_clean_end() {
     let home = tempfile::tempdir().unwrap();

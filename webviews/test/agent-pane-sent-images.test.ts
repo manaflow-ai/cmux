@@ -10,6 +10,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-sent-images.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -67,19 +68,22 @@ await requireBrowserLane("agent-pane-sent-images.test.ts", async () => {
 
   /// Pastes a small PNG screenshot into the prompt.
   const pasteImage = (page: Page) =>
-    page.evaluate(async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 120;
-      canvas.height = 80;
-      const context = canvas.getContext("2d")!;
-      context.fillStyle = "#3a7bd5";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-      const data = new DataTransfer();
-      data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
-      const target = document.querySelector('.acpmux-composer-prompt [contenteditable="true"]')!;
-      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    page.evaluate(
+      async ({ COMPOSER_EDITOR }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 120;
+        canvas.height = 80;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#3a7bd5";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+        const target = document.querySelector(COMPOSER_EDITOR)!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_EDITOR },
+    );
 
   /// The sent prompts' bubbles: their text and how many image thumbnails each shows.
   const bubbles = (page: Page) =>
@@ -96,7 +100,7 @@ await requireBrowserLane("agent-pane-sent-images.test.ts", async () => {
 
   test("a sent prompt keeps its images: thumbnails that open the viewer, and Edit sends them again", async () => {
     const page = await newChat();
-    const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+    const prompt = page.locator(COMPOSER_EDITOR);
     // Edit forks through the turn before a prompt, so the image goes with the chat's second prompt.
     await prompt.click();
     await page.keyboard.type("hello");

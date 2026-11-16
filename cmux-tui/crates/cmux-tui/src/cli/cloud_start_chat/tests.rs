@@ -19,6 +19,8 @@ fn request(words: &[&str]) -> Request {
 
 #[path = "clone_wait_tests.rs"]
 mod clone_wait;
+#[path = "drill_start_tests.rs"]
+mod drill_start;
 #[path = "folder_tests.rs"]
 mod folder;
 
@@ -2189,6 +2191,33 @@ fn a_start_the_spending_cap_refuses_says_so_and_names_only_running_machines() {
 }
 
 #[test]
+fn a_start_refused_for_a_used_up_claude_limit_answers_its_code_and_when_it_resets() {
+    // cmuxterm-hq run 43633859557 (2026-11-14 19:51Z): the app refused every start before its lease, and the
+    // JSON said only `unavailable` and the words. The code and the reset now reach the caller as they are.
+    let words =
+        "Claude's weekly limit is used up until Nov 18, 3am UTC. Pick Codex, or start after then.";
+    let mut fake = Fake::new(vec![
+        listed_machines(json!([])),
+        Ran {
+            code: 1,
+            stderr: json!({"code": "agent.limit_reached", "message": words,
+                           "data": {"action": "cloudStartSession", "reason": words,
+                                    "until_at": "2026-11-18T03:00:00Z"}})
+            .to_string(),
+            ..Ran::default()
+        },
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "agent.limit_reached", "{error}");
+    assert_eq!(error["message"], words);
+    assert_eq!(error["details"]["until_at"], "2026-11-18T03:00:00Z", "{error}");
+    // Nothing else is started after a refusal before the lease.
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
+#[test]
 fn only_a_cap_refusal_reads_as_a_cap() {
     use super::cap::{Cap, cap_of};
     assert_eq!(cap_of("cmux.cloud.quota_exceeded", "x", None), Some(Cap::Running));
@@ -2802,30 +2831,6 @@ fn the_folder_kind_and_the_session_folder_read() {
     let Outcome::Done(answer) = run(&mut fake, &given) else { panic!("{:?}", fake.ran) };
     assert_eq!(answer["folder"], "given");
     assert_eq!(answer["cwd"], "/home/cmux/work/api");
-}
-
-/// The carrier fault drill's start runs inside the drill's one `--timeout` deadline (`Request::until`), prompt or
-/// not: a start-session that answers past it ends the drill there, before the app's credential is asked, any
-/// carrier is dialed or anything is sent.
-#[test]
-fn a_drill_whose_start_answers_past_its_deadline_sends_nothing() {
-    use crate::carrier::fault::{FaultPlan, FaultSpec, Route};
-    let mut fake = Fake::new(vec![signed_in(), started()]);
-    fake.costs = vec![("start-session", Duration::from_secs(120))];
-    let asked = request(&["--prompt", "count", "--wait", "--timeout", "60"]);
-    let caps = json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]});
-    let spec = FaultSpec { kill: Route::Relay, after_events: 3 };
-    let plan = FaultPlan::new(spec, vec![Route::Relay, Route::Ssh], &caps).unwrap();
-    let until = fake.now() + Duration::from_secs(60);
-    let global = GlobalArgs::default();
-    let Err(Outcome::Failed { error, .. }) =
-        fault::drill_source(&mut fake, &global, &asked, false, (&plan, &caps, until))
-    else {
-        panic!("a late start went on: {:?}", fake.ran)
-    };
-    assert_ne!(error["code"], "carrier_fault.no_credential", "{error}");
-    assert!(fake.called.is_empty(), "nothing after the start: {:?}", fake.called);
-    assert_eq!(fake.ran.len(), 2, "no exec, no send: {:?}", fake.ran);
 }
 
 /// The drill's prompt send past its deadline sends nothing: it never runs a step.

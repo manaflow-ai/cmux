@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
+import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -386,7 +387,7 @@ describe("the tray", () => {
       expect(opened).toEqual([]);
       expect(head.getAttribute("aria-expanded")).toBe("true");
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent running");
-      const lines = [...root.querySelectorAll(".acpmux-running-tray .acpmux-agent-line")];
+      const lines = [...root.querySelectorAll(RUNNING_TRAY_LINE)];
       expect(lines.length).toBe(1);
       const text = (selector: string) => lines[0]!.querySelector(selector)?.textContent;
       expect(text(".acpmux-summary-agent__name")).toBe("Explore the daemon");
@@ -723,7 +724,7 @@ describe("the tray", () => {
       { open: true },
     );
     try {
-      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")];
+      const lines = [...root.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)];
       const running = lines.find((line) => line.dataset.status === "running")!;
       const finished = lines.find((line) => line.dataset.status === "done")!;
       expect(running.hasAttribute("data-timed")).toBe(true);
@@ -1011,7 +1012,7 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head");
       if (head && head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
-      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
+      const lines = [...root.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
       expect(lines).toHaveLength(2);
       for (const line of lines) {
         // One glyph: no word and no second icon before the name.

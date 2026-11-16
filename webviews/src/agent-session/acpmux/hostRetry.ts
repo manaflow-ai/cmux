@@ -82,8 +82,32 @@ export function hostErrorShows(
 /// instead of hours later.
 export const REFUSED_RETRY_MAX_MS = 30_000;
 
-export function nextRetryDelay(delay: number, recovering: boolean): number {
-  return Math.min(delay * 2, recovering ? 2_000 : REFUSED_RETRY_MAX_MS);
+/// A chat on screen asks again within 500 ms for the first 10 s of a recovery (a daemon restart or
+/// handoff usually ends sooner), so it is back within half a second of acpmux answering instead of up
+/// to 2 s later. Asking is one connect from the app's host (`acpmux-bridge`, Swift
+/// AgentPaneTransport); a hidden chat, or a recovery past 10 s, keeps 2 s.
+///
+/// A page that opens its own WebSocket (`browserSocket`: the dev slot's `acpmux-websocket`) keeps 2 s
+/// too: Chromium holds back each of a renderer's WebSocket opens by 1-5 s × 2^min(failed, 16) / 65536
+/// (network WebSocketPerProcessThrottler, failures counted over 2-4 min), so ~25 refused opens in 10 s
+/// delay the one that would succeed by 1-5 s (first-load bench, 10 s drop: 791 -> 2618 ms).
+export const QUICK_RETRY_MAX_MS = 500;
+export const QUICK_RETRY_WINDOW_MS = 10_000;
+
+export function quickRetry({
+  shown,
+  failingForMs,
+  browserSocket = false,
+}: {
+  shown: boolean;
+  failingForMs: number;
+  browserSocket?: boolean;
+}): boolean {
+  return shown && !browserSocket && failingForMs < QUICK_RETRY_WINDOW_MS;
+}
+
+export function nextRetryDelay(delay: number, recovering: boolean, quick = false): number {
+  return Math.min(delay * 2, recovering ? (quick ? QUICK_RETRY_MAX_MS : 2_000) : REFUSED_RETRY_MAX_MS);
 }
 
 /// The first wait before a reconnect.
@@ -167,9 +191,14 @@ export class AcpmuxRestartGate {
   }
 }
 
-/// How long a lost connection stays unsaid before the pane's quiet "Reconnecting…" line shows: a
-/// reconnect that lands sooner (the usual one, well under a second) shows nothing.
-export const RECONNECT_LINE_AFTER_MS = 1_500;
+/// How long a lost connection, or a restore the host reports, stays unsaid before the pane's quiet
+/// line shows. A recovery the person can do nothing about says nothing until it has lasted long
+/// enough to matter (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up").
+/// 10 s is the bound the app already waits out for the same daemon before it says anything (its
+/// startup deadline, its drop grace, the sidebar's "Connecting…" hold), and an update's handoff
+/// answered within it (#27283), so a daemon restart, a handoff or a short drop shows nothing on any
+/// open chat. At 1.5 s every open chat said "Reconnecting…" for each restart.
+export const RECONNECT_LINE_AFTER_MS = 10_000;
 
 /// What the host says while acpmux restores its chats after a start (`restoring`): how long it has
 /// waited so far, in milliseconds, as of `at` (this page's `Date.now()` when it heard it).
@@ -186,8 +215,8 @@ export function readHostRestoring(source: unknown, at: number): HostRestoring | 
 }
 
 /// The quiet line the pane shows while it gets its chat back on its own (Leo, 2026-11-08: "it
-/// fixes itself"): "Restoring sessions… m:ss" while the host says acpmux restores its chats, else
-/// "Reconnecting…" once a lost connection has been coming back for RECONNECT_LINE_AFTER_MS. Past
+/// fixes itself"): "Restoring sessions… m:ss" once the host says acpmux has been restoring its chats
+/// for RECONNECT_LINE_AFTER_MS, else "Reconnecting…" once a lost connection has been coming back that long. Past
 /// HOST_ERROR_DEADLINE_MS a reconnect is the waiting line's or the failure's (HostWaitingLine,
 /// HostUnavailableLine), so this says nothing then. A failure the pane already says (`failureShown`:
 /// a refusal said at once, such as another build's acpmux on the socket) is never covered by
@@ -200,7 +229,11 @@ export function hostRecoveryLine(state: {
   now: number;
 }): { kind: "restoring"; waitedMs: number } | { kind: "reconnecting" } | undefined {
   const { relinkingSince, restoring, failureShown, now } = state;
-  if (restoring) return { kind: "restoring", waitedMs: restoring.waitedMs + Math.max(0, now - restoring.at) };
+  if (restoring) {
+    const waitedMs = restoring.waitedMs + Math.max(0, now - restoring.at);
+    // A restore is as quiet as a reconnect until it has lasted as long: the usual one ends sooner.
+    return waitedMs < RECONNECT_LINE_AFTER_MS ? undefined : { kind: "restoring", waitedMs };
+  }
   if (relinkingSince === undefined || failureShown) return undefined;
   const waited = now - relinkingSince;
   if (waited < RECONNECT_LINE_AFTER_MS || waited >= HOST_ERROR_DEADLINE_MS) return undefined;

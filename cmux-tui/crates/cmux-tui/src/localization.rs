@@ -23,6 +23,7 @@ mod live_code;
 mod local_server;
 mod machine_agent;
 mod menu;
+mod notification_banners;
 mod pairing;
 mod pane_cli;
 mod remote;
@@ -43,7 +44,7 @@ mod update_notice;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
-pub(crate) use app_control::{AppControlMessages, NightlyMessages, VersionLabels};
+pub(crate) use app_control::{AppControlMessages, NightlyMessages, TryMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
 pub(crate) use attention::AttentionMessages;
 pub(crate) use auth_token::AuthTokenMessages;
@@ -61,6 +62,7 @@ pub(crate) use live_code::LiveCodeMessages;
 pub(crate) use local_server::LocalServerMessages;
 pub(crate) use machine_agent::MachineAgentMessages;
 pub(crate) use menu::MenuMessages;
+pub(crate) use notification_banners::NotificationBannersMessages;
 pub(crate) use pairing::PairingMessages;
 pub(crate) use pane_cli::PaneCliMessages;
 pub(crate) use remote::RemoteMessages;
@@ -163,6 +165,7 @@ pub(crate) struct Catalog {
     pub config: ConfigMessages,
     pub attach: AttachMessages,
     pub attention: AttentionMessages,
+    pub notification_banners: NotificationBannersMessages,
     pub cli_connection: CliConnectionMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
@@ -226,6 +229,7 @@ static ENGLISH: Catalog = Catalog {
     config: config::ENGLISH,
     attach: attach::ENGLISH,
     attention: attention::ENGLISH,
+    notification_banners: notification_banners::ENGLISH,
     cli_connection: cli_connection::ENGLISH,
     sidebar: sidebar::ENGLISH,
 };
@@ -266,6 +270,7 @@ static JAPANESE: Catalog = Catalog {
     config: config::JAPANESE,
     attach: attach::JAPANESE,
     attention: attention::JAPANESE,
+    notification_banners: notification_banners::JAPANESE,
     cli_connection: cli_connection::JAPANESE,
     sidebar: sidebar::JAPANESE,
 };

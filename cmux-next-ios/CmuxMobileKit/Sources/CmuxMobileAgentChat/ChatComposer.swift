@@ -519,7 +519,7 @@ struct ChatComposer: View {
                 .contentShape(.circle)
                 .padding(-4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
         .accessibilityIdentifier("agentChat.composer.voice")
     }
@@ -551,7 +551,7 @@ struct ChatComposer: View {
                 .contentShape(.circle)
                 .padding(-4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(state == .empty)
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
@@ -651,7 +651,7 @@ struct ChatComposer: View {
                             .frame(minHeight: SlashSuggestionsBound.minRowHeight)
                             .contentShape(.rect)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.cmuxPressFill)
                     }
                 }
             }
@@ -692,7 +692,7 @@ struct ChatComposer: View {
                     .frame(height: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel(Text("Mention \(artifact.reference)"))
             }
         }
@@ -818,7 +818,7 @@ struct QueuedPromptsView: View {
             Spacer(minLength: 4)
             Button("Resume", systemImage: "play.fill") { store.resumeQueue() }
                 .font(.footnote.weight(.semibold))
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("chat.queue.resume")
         }
@@ -852,7 +852,7 @@ struct QueuedPromptsView: View {
                             .frame(width: 44, height: 44)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .padding(.trailing, -10)
                     .accessibilityLabel("Remove queued message")
                 }
@@ -914,7 +914,7 @@ struct AttachmentThumb: View {
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .offset(x: 17, y: -17)
                 .accessibilityLabel("Remove attachment")
             }

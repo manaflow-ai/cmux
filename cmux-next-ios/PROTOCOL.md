@@ -1160,6 +1160,40 @@ release and the daemon's size lease.
 
 Measured on the rig: cmux-next-ios/verify/size-release-20261021.md.
 
+## Terminal history window (`attach-replay-history-window-v1`; added 2026-11-14)
+
+The Mac keeps a terminal's scrollback; the phone's mirror holds the screen and
+a bounded part of it (cmux-tui `spec/commands.md`, `attach-surface`).
+
+- Attach: the screen alone (`replay_history_rows: 0`,
+  `attach-replay-history-rows-v1`, as before).
+- Scrolling up to the oldest row held: an attach with 2,000 more of the
+  newest rows, up to 10,000. Past them, an attach with a 4,000-row window
+  (`replay_history_rows: 4000, replay_history_start: S`): the Mac sends rows
+  `[S, S+4000)` and the screen, and says how many rows it left out above
+  (`history_rows_omitted`) and between the window and the screen
+  (`history_rows_skipped`). Each step moves the window 1,500 rows up, down to
+  row 0, the oldest row the Mac keeps. The phone never holds more than 10,000
+  history rows, however long the Mac's history is.
+- Scrolling down to the window's last row: the window moves 1,500 rows down.
+  Within 4,000 rows of the screen the Mac sends the rows from `S` down to the
+  screen (no `history_rows_skipped`), and the phone holds the newest rows
+  again. Scrolling up from the screen to the window brings the newest 10,000
+  rows at once.
+- Each such attach replaces the last one; the screen puts the reader back on
+  their rows by text (`TerminalReadingMark`), which a step of 1,500 rows keeps
+  within the 2,000-row search.
+- Resize: the phone declares the capability in `set-client-info`, so each
+  `resized` replay holds the screen and the newest `replay_history_rows` rows
+  of the reflowed terminal (a window becomes the newest 4,000 rows), with
+  `history_rows_omitted`, instead of the whole history.
+
+Compatibility: a daemon without the capability gets no
+`replay_history_start` (the newest rows grow as before, then the whole
+history); a Mac app whose lane refuses the field gets the same attach without
+it; a phone that does not declare the capability keeps getting whole
+`resized` replays.
+
 ## Push notifications (API 0.13.0)
 
 Rich, interactive notifications (`verify/rich-push.md`). Every field below is
@@ -1472,7 +1506,7 @@ priority order but makes the policy per Mac instead of per terminal.
 
 | Setting value | Shown as | Engine policy the daemon applies |
 | --- | --- | --- |
-| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid |
+| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid, except that while a phone or tablet shows the terminal the grid is never narrower than it (a narrower Mac pane clips at the right; rows stay the minimum). An agent's split does not shrink it until the person uses that Mac pane (docs/shared-terminal-sizing.md, "Agent layout changes") |
 | `mac` | Prefer this Mac | `priority` with this Mac's own views first; when no view of this Mac counts (its pane hidden), the most recently active other viewer |
 | `latest` | Prefer the active device | `latest`: the viewer that typed, pasted or focused last |
 | `priority` | Priority order | `priority` over `order`, highest first; a viewer not in the list counts only when no listed viewer does (then the most recently active) |

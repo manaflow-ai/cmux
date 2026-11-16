@@ -188,6 +188,12 @@ export function newTabScreenActions(deps: {
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
     onViewChat: (key) => ignore(callNative("chats.watch", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
+    // A typed path's subfolders (launchRows.ts): names only; the host refuses protected folders.
+    completeFolder: (path) =>
+      callNative("folder.complete", { path }).then((reply) => {
+        const folders = (reply as { folders?: unknown } | undefined)?.folders;
+        return Array.isArray(folders) ? folders.filter((name): name is string => typeof name === "string") : undefined;
+      }),
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),
     onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),

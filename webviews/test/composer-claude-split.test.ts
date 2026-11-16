@@ -22,6 +22,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-claude-split.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -136,7 +137,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
   /** Where the composer's parts draw. */
   const layout = (page: Page, stage: Stage) =>
     page.evaluate(
-      ({ composer, box }) => {
+      ({ composer, box, PLUS_PICKER }) => {
         const root = document.querySelector<HTMLElement>(composer)!;
         const card = root.querySelector<HTMLElement>(box)!;
         const rect = (element: Element | null): Rect | null => {
@@ -185,10 +186,10 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           ),
           mic: rect(card.querySelector(".acpmux-mic")),
           send: rect(card.querySelector(".acpmux-send")),
-          plus: rect(card.querySelector(".acpmux-composer-plus .acpmux-picker-button")),
+          plus: rect(card.querySelector(PLUS_PICKER)),
         };
       },
-      { composer: stage.composer, box: stage.box },
+      { composer: stage.composer, box: stage.box, PLUS_PICKER },
     );
 
   for (const [engine] of engines) {
@@ -258,7 +259,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     test(`${engine}: + is its glyph, named Add, its tooltip "Add files and more"`, async () => {
       const page = await open(engine, COMPOSERS[0]!);
       const plus = await page
-        .locator(".acpmux-composer-plus .acpmux-picker-button")
+        .locator(PLUS_PICKER)
         .first()
         .evaluate((element) => ({
           text: element.textContent?.trim() ?? "",
@@ -323,7 +324,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
             }),
           selector,
         );
-      await page.locator(".acpmux-composer-plus .acpmux-picker-button").first().click();
+      await page.locator(PLUS_PICKER).first().click();
       const rows = page.locator(".acpmux-menu .acpmux-menu-item");
       await rows.first().waitFor();
       const count = await rows.count();
@@ -336,7 +337,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       expect(plusRows[count - 1], "the row under the pointer").toBe(true);
       await page.keyboard.press("Escape");
 
-      await page.locator(".acpmux-composer-box .acpmux-md").first().click();
+      await page.locator(COMPOSER_MD).first().click();
       await page.keyboard.type("@");
       const files = page.locator(".acpmux-mention-row");
       const listed = await files

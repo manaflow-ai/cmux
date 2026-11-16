@@ -237,6 +237,7 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
   "src/agent-session/acpmux/summary/SummaryTasks.tsx": { count: 1, what: "an arriving task row" },
   "src/pages/settings/components/ReadOnlyBanner.tsx": { count: 1, what: "a banner at the top of Settings" },
+  "src/pages/settings/components/TryOnBar.tsx": { count: 1, what: "the try-on bar at the top of Settings" },
   "src/ui/presence.ts": { count: 3, what: "usePresence itself (its declaration, props type and value)" },
 };
 

@@ -29,7 +29,7 @@ pub(super) struct Staged {
 
 /// The app's embedded bundle: `CMUX_REMOTE_APP`, else `Contents/Library`
 /// of the app whose `Contents/Resources/bin` holds this daemon.
-fn embedded() -> Result<PathBuf, String> {
+pub(super) fn embedded() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("CMUX_REMOTE_APP").map(PathBuf::from) {
         return path
             .is_dir()
@@ -72,7 +72,7 @@ fn digest_of(app: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn bundle_id(app: &Path) -> Option<String> {
+pub(super) fn bundle_id(app: &Path) -> Option<String> {
     let output = Command::new("/usr/bin/plutil")
         .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
         .arg(app.join("Contents/Info.plist"))
@@ -163,7 +163,9 @@ pub(super) fn stage(state: &Path) -> Result<Staged, String> {
 
 /// Keeps `current` and the newest other copy; removes the rest.
 fn prune(root: &Path, current: &Path) {
-    let Ok(entries) = std::fs::read_dir(root) else { return };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
     let mut others: Vec<(std::time::SystemTime, PathBuf)> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())

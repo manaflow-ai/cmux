@@ -114,6 +114,8 @@ public actor AgentSessionAttachClient {
         var settings = false
         /// `agent-session-login-v1`.
         var login = false
+        /// `agent-session-login-machine-v1`.
+        var loginMachine = false
         /// `agent-session-content-v1`.
         var content = false
         /// `agent-session-context-v1`.
@@ -593,6 +595,27 @@ public actor AgentSessionAttachClient {
                               timeout: Self.loginTimeout(op) ?? requestTimeout)
     }
 
+    /// `agent-session-login` for a new chat with no session yet (`agent-session-login-machine-v1`,
+    /// hq#11225): one step of its agent's sign-in on that machine itself (acpmux's
+    /// `_acpmux/agent_login/<op>` with no session), on this client's surface, an unbound tab of that
+    /// machine's store. The daemon there gates it as a start: `ownerLink` as for
+    /// ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:startMode:)``, and the step goes
+    /// with `vm_kind: "owner"` over the connection the owner answer was read for. A daemon without
+    /// the capability answers `unsupported`, so the card says to sign in on that machine instead.
+    public func machineLogin(_ op: String, _ fields: [String: String], ownerLink: OwnerLink? = nil) async throws -> Data {
+        let unsupported = Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
+        guard mode == .attach else { return unsupported }
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { _ in }
+        guard served.loginMachine else { return unsupported }
+        var params: [String: any Sendable] = ["op": op]
+        for (key, value) in fields { params[key] = value }
+        if callerOwnsVM { params["vm_kind"] = "owner" }
+        guard !transport.isClosed else {
+            throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the sign-in step was sent")
+        }
+        return try await call("agent-session-login", params, timeout: Self.loginTimeout(op) ?? requestTimeout, on: transport)
+    }
+
     /// The code ``btw(_:)`` throws for a daemon without `agent-session-btw-v1`.
     public static let btwUnsupported = "agent_session.btw_unsupported"
 
@@ -795,6 +818,7 @@ public actor AgentSessionAttachClient {
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
+                            loginMachine: identity.supports(DaemonCapability.agentSessionLoginMachine.rawValue),
                             content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
                             context: identity.supports(DaemonCapability.agentSessionContext.rawValue),
                             btw: identity.supports(DaemonCapability.agentSessionBtw.rawValue))

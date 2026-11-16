@@ -11,6 +11,8 @@ public struct MacScreenHomeActions {
     public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
     /// Sign In under Your Devices while this Mac is signed out of cmux.
     public var signIn: () -> Void = {}
+    /// Start the same guided Share This Mac action used by the sidebar and Devices.
+    public var shareThisMac: () -> Void = {}
 
     public init() {}
 }
@@ -31,7 +33,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     let actions: MacScreenHomeActions
     let systemShortcuts: MacScreenSystemShortcuts?
     let devices: MacScreenHomeDevices?
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let document = MacScreenFlippedView()
     private let column = MacScreenStack.make(.vertical, spacing: 28, alignment: .leading)
     /// What the rows show now (nil before the first build).
@@ -169,6 +171,9 @@ final class MacScreenHomeView: MacScreenThemedView {
         needsLayout = true
         layoutPage()
         MacScreenStack.addFullWidth(header(), to: column)
+        if snapshot.sharing?.showFirstUse == true {
+            MacScreenStack.addFullWidth(firstUseGuide(), to: column)
+        }
         if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list), to: column) }
         if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing, look: snapshot.sharingLook), to: column) }
         if let keyboard = snapshot.keyboard { MacScreenStack.addFullWidth(keyboardSection(keyboard), to: column) }
@@ -185,6 +190,13 @@ final class MacScreenHomeView: MacScreenThemedView {
         MacScreenStack.addFullWidth(MacScreenText(L.t("macScreen.home.subtitle", "See and control your other Macs from a cmux tab."),
                                                   font: MacScreenType.subtitle, ink: \.secondary, wraps: true), to: column)
         return column
+    }
+
+    /// The first-use recipe stays above the device list so a person knows which
+    /// Mac needs the permission and which buttons to press here.
+    private func firstUseGuide() -> NSView {
+        MacScreenHomeParts.note(L.t("macScreen.home.firstUse",
+            "First time? 1. Turn on Allow Mac Screen on the other Mac. 2. Click View Only or Full Control here."))
     }
 
     /// This Mac's access to each host is that host's permission list: read it for the hosts shown, again when they change.

@@ -12,6 +12,16 @@ nonisolated extension ChromeTunables {
         "chrome.dividerStrength", .panes, "Divider strength",
         help: "How strongly the sidebar's edge line, the split panes' lines and the tab row's divider draw, as a multiple of the theme's separator alpha. 1 is a list's hairline.",
         default: 1.75, range: 0.5...4, step: 0.25, unit: .multiplier, code: "ChromeTunables.dividerStrength")
+
+    /// The tab row's divider: a hairline under the tab strips. Off by default (Lawrence, 2026-11-15: "we still have the
+    /// line below tabs which is very bad"): the tab row and the content read as one surface under every tab (terminal,
+    /// browser, chat, Markdown), in Home and in a workspace, and the selected tab alone marks the row. On, the line draws
+    /// at ``Metrics/tabRowDividerStrength`` (Leo's two-tone polish, 2026-11-12), still leaving out a pane whose omnibar
+    /// or row-sharing content meets its tabs. The sidebar's edge line and the split lines are not this toggle's.
+    public static let tabRowDivider = Tunable<Bool>.toggle(
+        "chrome.tabRowDivider", .panes, "Line under the tabs",
+        help: "A hairline under the tab strips, taking over from the title area tone as its contrast drops. Off: no line; the selected tab marks the row.",
+        default: false, code: "ChromeTunables.tabRowDivider")
 }
 
 extension Palette {

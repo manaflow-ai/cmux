@@ -986,7 +986,7 @@ fn quick_timestamp(line: &[u8]) -> Option<u64> {
     const KEY: &[u8] = b"\"timestamp\":\"";
     let rest = line.get(memchr::memmem::rfind(line, KEY)?..)?.strip_prefix(KEY)?;
     let len = memchr::memchr(b'"', rest)?;
-    crate::server::machine_health::rfc3339_ms(std::str::from_utf8(rest.get(..len)?).ok()?)
+    crate::clock_text::rfc3339_ms(std::str::from_utf8(rest.get(..len)?).ok()?)
 }
 
 /// A Claude reply's message id found without parsing the line (`"id":"msg_…"`, as the API
@@ -1033,10 +1033,7 @@ fn escaped_kind(harness: Harness, line: &[u8], tail: &mut Tail, now: u64) {
 }
 
 fn timestamp(record: &Value) -> Option<u64> {
-    record
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .and_then(crate::server::machine_health::rfc3339_ms)
+    record.get("timestamp").and_then(Value::as_str).and_then(crate::clock_text::rfc3339_ms)
 }
 
 fn modified_ms(path: &Path) -> Option<u64> {
@@ -1052,7 +1049,7 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 /// The proleptic Gregorian date of a day count since 1970-01-01.
 fn civil_from_days(days: u64) -> (i64, u32, u32) {
     // A day of a unix-ms time (at most ~2.1e11) always fits an i64.
-    crate::server::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
+    crate::clock_text::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
 }
 
 #[cfg(test)]

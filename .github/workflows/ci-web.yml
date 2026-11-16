@@ -261,7 +261,7 @@ jobs:
           name: web-test-junit-shard${{ steps.shard.outputs.index }}-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/junit.xml
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   web-instant-navigation:
     needs: web-subarea-scope
@@ -609,7 +609,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       # A push's verdicts feed the base's flake history (the webviews-test-history job), which a
       # pull request's base replay reads so a test that flips by itself on the base only warns.

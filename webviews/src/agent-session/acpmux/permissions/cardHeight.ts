@@ -1,6 +1,7 @@
 // Initial geometry of PermissionCard and QuestionCard, before their ResizeObserver reports.
 // Keep the frame on the shared grid; interactive expansion is still measured by the transcript.
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
+import "../measureContext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
 import { chatDensityTextScale, drawnFontSize, chatDisplay, chatMetrics } from "../chatDisplay";
 import { chatUiFontVariables, chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
