@@ -116,6 +116,7 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-keymap",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
@@ -228,6 +229,14 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde",
+]
+
+[[package]]
+name = "cmux-keymap"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

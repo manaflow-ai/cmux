@@ -49,6 +49,7 @@ headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
             "$crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h:CCmuxDaemonConnFFI"
             "$crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h:CCmuxDaemonLaunchFFI"
             "$crates/cmux-health-core/include/cmux_health.h:CCmuxHealthFFI"
+            "$crates/cmux-keymap/include/cmux_keymap.h:CCmuxKeymapFFI"
             "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI"
             "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI")
 

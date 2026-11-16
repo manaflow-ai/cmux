@@ -61,6 +61,7 @@ FIRST_PARTY_GPL = {
     "cmux-daemon-conn-core",
     "cmux-daemon-launch-core",
     "cmux-health-core",
+    "cmux-keymap",
     "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
