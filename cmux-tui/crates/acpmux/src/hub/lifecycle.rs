@@ -115,6 +115,7 @@ impl Hub {
             wait_start,
             throwaway,
             require_asking,
+            hub_via,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -376,6 +377,9 @@ impl Hub {
             };
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
+            // The hub start's trust mark is on the record before it is published or first saved:
+            // a chat restored from any point of its creation keeps its relayed prompts gated.
+            meta.hub_via = hub_via;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =

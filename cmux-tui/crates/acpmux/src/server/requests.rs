@@ -1816,6 +1816,7 @@ async fn dispatch_request_with_identity(
                     && mux_meta(&params).and_then(|m| m.get("throwaway")).and_then(Value::as_bool)
                         == Some(true),
                 require_asking: crate::hub::require_asking::asked(meta),
+                hub_via: super::mesh_relay::start_mark(conn.origin, &params),
             };
             let s = match &admitted {
                 Some(admitted) => {

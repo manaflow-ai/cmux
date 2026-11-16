@@ -707,6 +707,22 @@ async fn wait_control_result(
     .flatten()
 }
 
+/// The `_meta.acpmux` key `run_control` stamps on a hub start with whom it was forwarded for.
+const HUB_VIA_KEY: &str = "hubVia";
+
+/// The trust mark a `session/new` puts on its chat's first record (`SessionMeta::hub_via`): the
+/// one `run_control` stamped on a hub start, read only from the peer-origin connection it runs
+/// the start on. A mark only adds the folder-trust gate to the chat's relayed prompts, so a peer
+/// that sets one itself only narrows its own chat.
+pub(super) fn start_mark(origin: Origin, params: &serde_json::Value) -> Option<String> {
+    (origin == Origin::Peer)
+        .then(|| params.pointer("/_meta/acpmux").and_then(|m| m.get(HUB_VIA_KEY)))
+        .flatten()
+        .and_then(serde_json::Value::as_str)
+        .filter(|via| matches!(*via, "app" | "web" | "device"))
+        .map(str::to_owned)
+}
+
 async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
@@ -768,6 +784,17 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         .flatten()
         .filter(|via| matches!(*via, "app" | "web" | "device"))
         .map(str::to_owned);
+    // The mark goes on the chat's record as it is made (`start_mark`), never after `session/new`
+    // returns: a crash while its harness starts must not restore it unmarked (review F1 of
+    // #38377). Only this daemon sets it; a sender's own is dropped.
+    if let Some(mux) =
+        params.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    {
+        mux.remove(HUB_VIA_KEY);
+    }
+    if let Some(via) = via.as_deref() {
+        crate::hub::merge_mux_meta(&mut params, serde_json::json!({ HUB_VIA_KEY: via }));
+    }
     let (tx, mut rx) = relay_connection(hub);
     let initialized = rpc_call(
         &tx,

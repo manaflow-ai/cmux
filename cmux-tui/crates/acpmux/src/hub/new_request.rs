@@ -127,6 +127,10 @@ pub struct NewRequest {
     /// `_meta.acpmux.requireAsking` (`require_asking.rs`): the start runs only on a harness the
     /// asking table lists, as it resolves it, and its policy fails the start where it is not kept.
     pub require_asking: bool,
+    /// Whom a start through the mesh hub was forwarded for (`SessionMeta::hub_via`, from
+    /// `server/mesh_relay.rs` `run_control` only): on the chat's record from its first save, so a
+    /// crash before its harness starts never restores it unmarked (review F1 of #38377).
+    pub hub_via: Option<String>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

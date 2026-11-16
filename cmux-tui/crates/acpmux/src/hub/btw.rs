@@ -405,6 +405,8 @@ impl Hub {
                     wait_start: false,
                     throwaway: false,
                     require_asking: false,
+                    // Its chat's hub trust mark, as a fork keeps it (`SessionMeta::hub_via`).
+                    hub_via: meta.hub_via.clone(),
                 };
                 let side = match with_inline_creation(
                     self.clone(),

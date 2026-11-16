@@ -47,6 +47,7 @@ use std::time::Duration;
 const START_WAIT: Duration = Duration::from_secs(100);
 
 /// One wait on the receipt (the hub holds it at most 25 s).
+// timeout: one long-poll of the hub's receipt, asked again until START_WAIT; never ends a start.
 const ANSWER_WAIT: Duration = Duration::from_secs(25);
 
 /// `session/new` on hub machine `host`, or None when this daemon has no hub, `host` is no machine
