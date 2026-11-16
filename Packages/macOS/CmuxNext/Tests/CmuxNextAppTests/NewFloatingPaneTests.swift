@@ -93,7 +93,12 @@ import Testing
                 self.focused.append(surface)
                 self.events.append("focus \(surface.rawValue) for intent \(generation)")
             }
-            let act = NewFloatingPane(store: store, split: { try self.split($0) }, float: { self.float($0) }, focus: window.started())
+            return await run(beside: pane, focus: window.started())
+        }
+
+        /// Runs the act for the focused pane `pane` with the focus request `focus` of a window whose intent started.
+        func run(beside pane: PaneID, focus: @escaping @MainActor (SurfaceID) -> Void) async -> ActionWorkFailure? {
+            let act = NewFloatingPane(store: store, split: { try self.split($0) }, float: { self.float($0) }, focus: focus)
             do {
                 try await act.run(beside: pane)
                 return nil
