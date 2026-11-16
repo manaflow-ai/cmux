@@ -43,14 +43,18 @@ on:
         description: "Staging only: measure the shipped spare-ready preclaim login path"
         type: boolean
         default: false
+      ensure_bench:
+        description: "With preclaim: time acp ensure on one fresh staging machine (5 each right after boot, settled, both cores loaded) instead of the burst"
+        type: boolean
+        default: false
       claims:
         description: "Preclaim burst size (1-20)"
         type: string
         default: "10"
       spare_wait:
-        description: "Preclaim only: seconds each claim waits, at most, for a ready spare (0-900; 0 claims at once)"
+        description: "Preclaim only: seconds each claim waits, at most, for a ready spare (0-900; 0 claims at once). 300 by default: a broker dispatch sends no spare_wait, and back-to-back claims on staging's one spare measure its refill, not the claim path"
         type: string
-        default: "0"
+        default: "300"
 
 permissions:
   contents: read
@@ -286,6 +290,7 @@ jobs:
           CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           HQ_GH_TOKEN: ${{ steps.hq-preclaim-token.outputs.token }}
+          PRECLAIM_ENSURE_BENCH: ${{ inputs.ensure_bench && '5' || '' }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-preclaim"
@@ -293,7 +298,7 @@ jobs:
           export PRECLAIM_PRIVATE_ROWS="$private"
           set +e
           bun scripts/cmux-next/cloud-journey.ts --backend staging --model real --cmux "${{ steps.build-cmux-tui.outputs.path }}" \
-            --preclaim --claims '${{ inputs.claims }}' --spare-wait '${{ inputs.spare_wait || '0' }}' --out "$out"
+            --preclaim --claims '${{ inputs.claims }}' --spare-wait '${{ inputs.spare_wait || '300' }}' --out "$out"
           journey_code=$?
           set -e
           if [ ! -s "$private" ]; then
