@@ -55,6 +55,17 @@ fail "$CSS" "a literal keycap corner" '.acpmux-keycap { border-radius: 4px; }'
 fail "$CSS" "a kbd in a button with a literal corner" '.x-action kbd { border-radius: 4px; }'
 pass "$CSS" "a keycap concentric with its button" '.acpmux-keycap { border-radius: calc(var(--ds-radius-control, 8px) - var(--ds-space-1, 4px)); }'
 
+# A card's close x in its corner (Lawrence 2026-11-15: the Updated card's x was not concentric with its corner).
+CARD='let surface = CardSurfaceView(cornerRadius: Self.cardCornerRadius)'
+fail "$SWIFT" "a card's x placed by hand" "$CARD
+        closeButton.frame = NSRect(x: b.width - 4 - close, y: 4, width: close, height: close)"
+pass "$SWIFT" "a card's x in its concentric corner" "$CARD
+        closeButton.frame = Metrics.cornerControl(outerRadius: r, side: close).topTrailingFrame(side: close, in: b, flipped: true)"
+pass "$SWIFT" "an x in a view with no card" "        closeButton.frame = NSRect(x: 0, y: 0, width: 16, height: 16)"
+fail "$CSS" "a round close x in a card" '.wn-card-close { border-radius: 50%; }'
+fail "$CSS" "a literal close x corner" '.x-card-close { border-radius: 9px; }'
+pass "$CSS" "a close x concentric with its card" '.wn-card-close { --concentric-padding: 2px; border-radius: calc(var(--cmux-sidebar-card-radius) - var(--concentric-padding)); }'
+
 LINE="$CSS: .share-dialog { border-radius: 14px }"
 pass "$CSS" "a baseline site" '.share-dialog { border-radius: 14px; }' "$LINE"
 fail "$CSS" "a fixed baseline site left in the list" '.share-dialog { border-radius: calc(var(--ds-radius-control) + 24px); }' "$LINE"
