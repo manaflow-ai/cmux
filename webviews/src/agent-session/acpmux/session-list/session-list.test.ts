@@ -96,7 +96,7 @@ test("registers before open, applies a batch once, and takes after subscribers",
       }
       return {};
     },
-    undefined,
+    new SessionListStore(),
     () => "s.1",
   );
   const opened = await host.open();
@@ -118,7 +118,7 @@ test("malformed and unknown changes never prevent one taken", async () => {
       calls.push({ method, params });
       return method === "list.open" ? { sid: params.sid } : {};
     },
-    undefined,
+    new SessionListStore(),
     () => "s.1",
   );
   await host.open();
@@ -154,7 +154,7 @@ test("a serialized driver batch is applied once by the document store", async ()
       calls.push({ method, params });
       return method === "list.open" ? { sid: params.sid } : {};
     },
-    undefined,
+    new SessionListStore(),
     () => "s.serialized",
   );
   await host.open();
@@ -183,7 +183,7 @@ test("question ids are opaque and a page event may beat its operation reply", as
       }
       return {};
     },
-    undefined,
+    new SessionListStore(),
     () => "local.1",
   );
   await host.open();
@@ -218,7 +218,7 @@ test("on clears a lost state and closes one question without closing its sid", a
       calls.push({ method, params });
       return method === "list.open" ? { sid: params.sid } : {};
     },
-    undefined,
+    new SessionListStore(),
     () => "s.on",
   );
   await host.open();
@@ -239,7 +239,7 @@ test("on clears a lost state and closes one question without closing its sid", a
 test("page refuses unknown caller fields before posting wire-shaped data", async () => {
   const host = new SessionListHost(
     async (method, params) => (method === "list.open" ? { sid: params.sid } : {}),
-    undefined,
+    new SessionListStore(),
     () => "s.request",
   );
   await host.open();
