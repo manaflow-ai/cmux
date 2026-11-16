@@ -11,6 +11,11 @@ real key waits in the event queue) into:
              owner): send to the end of the run-loop turn that committed the edit (`commit_ms`)
   dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
   omnibar    the omnibar of a Chromium tab: send to the commit of the edit (`commit_ms`)
+  agentpane  an agent chat's composer (the mock chat, its page): the page's keydown time to after the frame that
+             shows the edit (`typing_stats` to_paint; the app's typing probe `commit_ms` and the key's round trip
+             beside it). The typed chat is in a workspace with a `zsh -f` terminal beside it (with agentpane, the
+             terminal surface types there); in the load phase half of --chats stream in panes split beside the typed
+             chat (visible) and half in panes on a second screen of that workspace (hidden). Not in the default list
 
 each in two phases:
 
@@ -180,6 +185,8 @@ def make_load(surface_ws):
     if LOAD["made"]:
         return
     LOAD["made"] = True
+    if "agentpane" in opts.surfaces.split(",") and SESSION != "stress":
+        make_chat_scene()
     if SESSION == "stress":
         # STRESS has its printing terminals and agent chats already: stream up to --chats of its chats.
         listed = rpc("debug.agent_pane", {"action": "engine", "pane": "none"}) or {}
@@ -200,7 +207,7 @@ def make_load(surface_ws):
             cli("workspace", ref, "focus")
             action("splitDown", settle=0.4)
             action("terminal.sendText", {"text": BUSY + "\r"})
-    for _ in range(opts.chats):
+    for _ in range(opts.chats - len(LOAD["chat_panes"])):
         reply = action("palette.newAgentChat", settle=1.0)
         # The action answers after ~2 s while the chat still opens: wait for its page, then its composer.
         ready = wait(lambda: (lambda r: r if r.get("document_ready") else None)(
@@ -214,18 +221,72 @@ def make_load(surface_ws):
 
 
 def chat_streams():
-    panes = [p for p in LOAD["chat_panes"] if p]
-    if not panes:
-        return None
-
+    """One stream loop per chat, so every chat streams at once (one loop for all ran them one after another: each
+    stream request answers when its 3 s stream ends)."""
     replies = LOAD.setdefault("stream_replies", [])
 
-    def step(_):
-        for pane in panes:
+    def stepper(pane):
+        def step(_):
             reply = rpc("debug.agent_pane", {"action": "stream", "pane": pane, "rows": 40, "seconds": 3, "chunk_ms": 30}, timeout=10)
             if len(replies) < 4 or (isinstance(reply, dict) and reply.get("error")):
                 replies.append(json.dumps(reply)[:200])
-    return Streamer(step, 3.0)
+        return step
+    return [Streamer(stepper(pane), 3.0) for pane in LOAD["chat_panes"] if pane]
+
+
+def open_chat():
+    """A mock agent chat in the focused pane with its mock session open (a fresh chat shows the start screen);
+    returns (pane, engine)."""
+    reply = action("palette.newAgentChat", settle=1.0)
+    # The action answers after ~2 s while the chat still opens: wait for its page, then its composer.
+    wait(lambda: (lambda r: r if r.get("document_ready") else None)(
+        rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}), 30, step=0.5)
+    engine = rpc("debug.agent_pane", {"action": "engine"}) or {}
+    pane = engine.get("pane")
+    if pane:
+        rpc("debug.agent_pane", {"action": "select_session", "pane": pane, "session": "mock-session"})
+        wait(lambda: (lambda r: r if r.get("composer_visible") else None)(
+            rpc("debug.agent_pane", {"action": "readiness", "pane": pane}, timeout=5) or {}), 20, step=0.25)
+    note(f"chat {pane} ({engine.get('engine')}) {json.dumps(reply)[:120]}")
+    return pane, engine.get("engine")
+
+
+def ensure_chat_ws():
+    """The agentpane scene: workspace `chat typing`, a `zsh -f` terminal (the terminal surface's, with agentpane)
+    and the typed chat split beside it."""
+    if LOAD.get("chat_ws"):
+        return
+    cli("workspace", "create", "--name", "chat typing", "--focus", "--shell", "exec /bin/zsh -f")
+    ws, panes = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("chat typing")), 20) or (None, [])
+    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
+    time.sleep(2)  # the prompt draws
+    LOAD["chat_ws"], LOAD["terminal_ws"], LOAD["terminal_pane"] = ws, ws, (panes[0].get("id") if panes else None)
+    action("splitRight", settle=0.8)
+    LOAD["typed_chat"], LOAD["typed_engine"] = open_chat()
+
+
+def make_chat_scene():
+    """--chats mock chats in the agentpane scene, each in its own pane (a request reaches only a pane's shown tab):
+    half on a second screen of the workspace (hidden), the rest split beside the typed chat (visible)."""
+    if LOAD.get("chat_scene"):
+        return
+    LOAD["chat_scene"] = True
+    ensure_chat_ws()
+    hidden = opts.chats // 2
+    LOAD["hidden_chats"], LOAD["visible_chats"] = [], []
+    if hidden:
+        action("screen.new", settle=1.5)
+        for index in range(hidden):
+            if index:
+                action("splitRight" if index % 2 else "splitDown", settle=0.6)
+            LOAD["hidden_chats"].append(open_chat()[0])
+        action("screen.previous", settle=1.0)
+    rpc("action.run", {"action": "pane.focus", "target": f"pane:{LOAD['typed_chat']}", "focus": True, "origin": "script"})
+    for index in range(opts.chats - hidden):
+        action("splitDown" if index % 2 else "splitRight", settle=0.6)
+        LOAD["visible_chats"].append(open_chat()[0])
+    LOAD["chat_panes"] = LOAD["hidden_chats"] + LOAD["visible_chats"]
+    note(f"chat scene: typed {LOAD['typed_chat']}, hidden {LOAD['hidden_chats']}, visible {LOAD['visible_chats']}")
 
 
 def home_stream(tab=None):
@@ -301,6 +362,9 @@ GENERIC = ("start", "main", "NSApplicationMain", "_DPSNextEvent", "_DPSBlockUnti
            "-[NSApplication(NSEventRouting) nextEventMatchingMask", "-[NSApplication(NSEventRouting) _nextEventMatchingEventMask")
 
 
+TRANSPORT = ("AgentPaneTransport", "AgentPaneFramePacer", "AgentPageProvider", "ChromiumPageHostBridge", "AcpmuxPaneSocket")
+
+
 def digest_sample(text):
     """The main thread of a `sample` report: busy share, and the heaviest frames inclusive (each counted once per
     path), all and ours (the cmux dylib), and leaves. Percent of all main-thread samples (idle included)."""
@@ -315,6 +379,7 @@ def digest_sample(text):
         if started:
             lines.append(line)
     inclusive, ours, leaf, stack = {}, {}, {}, []
+    transport, transport_frames = 0, {}
     total = idle = 0
     for i, line in enumerate(lines):
         m = re.match(r"^([\s+!:|]*)(\d+)\s+(.+?)\s+\(in ([^)]+)\)", line)
@@ -324,6 +389,10 @@ def digest_sample(text):
         while stack and stack[-1][0] >= depth:
             stack.pop()
         total = max(total, count)
+        # Pane transport: the topmost frame of a path in one of TRANSPORT (its callees, JSON encoding included, inside).
+        if any(t in name for t in TRANSPORT) and not any(any(t in n for t in TRANSPORT) for _, n in stack):
+            transport += count
+            transport_frames[name] = transport_frames.get(name, 0) + count
         if name not in {n for _, n in stack}:
             inclusive[name] = inclusive.get(name, 0) + count
             if "cmux DEV" in image and not name.startswith(("closure", "thunk", "partial apply", "reabstraction")):
@@ -338,7 +407,11 @@ def digest_sample(text):
     pct_of = lambda c: round(100.0 * c / total, 1) if total else 0
     top = lambda d, n: [{"frame": k[:200], "pct": pct_of(v)} for k, v in sorted(d.items(), key=lambda kv: -kv[1])
                         if not k.startswith(GENERIC)][:n]
-    return {"samples": total, "busy_pct": pct_of(total - idle), "top": top(inclusive, 60), "ours": top(ours, 40), "leaves": top(leaf, 25)}
+    # `sample ... 1`: one sample a millisecond, so the main thread's samples are its sampled ms.
+    pane_transport = {"samples": transport, "ms_per_s": round(1000.0 * transport / total, 2) if total else None,
+                      "frames": [{"frame": k[:200], "samples": v} for k, v in sorted(transport_frames.items(), key=lambda kv: -kv[1])][:20]}
+    return {"samples": total, "busy_pct": pct_of(total - idle), "top": top(inclusive, 60), "ours": top(ours, 40), "leaves": top(leaf, 25),
+            "pane_transport": pane_transport}
 
 
 def measure(surface, phase, params, column, pid, streams=()):
@@ -436,6 +509,8 @@ def focus_report():
 
 
 def surface_terminal(phase, pid):
+    if "agentpane" in opts.surfaces.split(",") and SESSION != "stress":
+        ensure_chat_ws()
     if not LOAD.get("terminal_ws"):
         cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec /bin/zsh -f")
         ws, panes = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("typing")), 20) or (None, [])
@@ -444,8 +519,7 @@ def surface_terminal(phase, pid):
     streams = []
     if phase == "load":
         make_load(LOAD["terminal_ws"])
-        s = chat_streams()
-        streams = [s] if s else []
+        streams = chat_streams()
     LOAD["focus"] = focus_terminal()
     entry = measure("terminal", phase, {}, "contents_ms", pid, streams)
     action("terminal.sendText", {"text": "\x15"})  # clears the typed line (Ctrl-U)
@@ -473,9 +547,7 @@ def surface_home(phase, pid):
         return None
     streams = [home_stream()] if phase == "load" else []
     if phase == "load":
-        s = chat_streams()
-        if s:
-            streams.append(s)
+        streams += chat_streams()
     LOAD["focus"] = focus_report()
     entry = measure("home", phase, {"probe": "commit"}, "commit_ms", pid, streams)
     rpc("debug.home.drive", {"action": "stream", "text": "done", "done": True})
@@ -506,15 +578,47 @@ def surface_omnibar(phase, pid):
         note(f"omnibar: the field editor is not active ({json.dumps(bar)[:200]})")
     streams = []
     if phase == "load":
-        s = chat_streams()
-        streams = [s] if s else []
+        streams = chat_streams()
     LOAD["focus"] = focus_report()
     entry = measure("omnibar", phase, {"probe": "commit"}, "commit_ms", pid, streams)
     rpc("debug.key", {"key": "escape"})
     return entry
 
 
-SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
+def surface_agentpane(phase, pid):
+    ensure_chat_ws()
+    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": LOAD["chat_ws"]}, "focus": True, "origin": "script"})
+    streams = []
+    if phase == "load":
+        make_load(LOAD["chat_ws"])
+        streams = chat_streams()
+    pane = LOAD.get("typed_chat")
+    if not pane:
+        note("agentpane: no typed chat")
+        return None
+    chat = lambda name, **k: rpc("debug.agent_pane", dict(k, action=name, pane=pane), timeout=20) or {}
+    chat("reset_typing")
+    focused = chat("focus_composer")
+    time.sleep(0.5)  # focus settles
+    LOAD["focus"] = dict(focus_report(), composer=focused.get("focused"))
+    target = {"target": "page", "pane": pane} if LOAD.get("typed_engine") == "cef" else {"pane": pane}
+    entry = measure("agentpane", phase, dict(target, probe="commit"), "commit_ms", pid, streams)
+    page = chat("typing_stats")
+    paint = page.get("to_paint") or {}
+    entry.update(page_typing=page, native_commit_ms=entry["key_to_frame_ms"], column="page to_paint")
+    entry["key_to_frame_ms"] = {"n": page.get("keys"), "p50": paint.get("p50_ms"), "p95": paint.get("p95_ms"),
+                                "max": paint.get("max_ms")} if page.get("keys") else None
+    k = entry["key_to_frame_ms"] or {}
+    note(f"{SESSION} agentpane.{phase}: page key-to-paint p50 {k.get('p50')} p95 {k.get('p95')} max {k.get('max')} ms "
+         f"(n={k.get('n')}); listener {page.get('to_listener')}; composer focused {focused.get('focused')}")
+    if opts.json:
+        json.dump(results, open(opts.json, "w"), indent=1)
+    rpc("debug.key", dict(target, key="a", modifiers=["cmd"]))
+    rpc("debug.key", dict(target, key="delete"))  # clears the typed text
+    return entry
+
+
+SURFACES = {"agentpane": surface_agentpane, "terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
 
 
 def run_session(session):
