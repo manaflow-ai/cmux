@@ -41,6 +41,9 @@ public final class TabFaviconStore {
     @ObservationIgnored private var forgetting: [Key: DemandTimer] = [:]
     /// Failures in a row per URL, for the backoff; a landed icon clears its count.
     @ObservationIgnored private var failures = LRUCache<Key, Int>(capacity: 256)
+    /// Icons a page's own fetch put in the loader's cache, as this store hands them out (`adopt`), with the
+    /// loader's image each came from: one stable `TabImage` per icon, made without writing observed state.
+    @ObservationIgnored private var adopted = LRUCache<Key, (source: NSImage, image: TabImage)>(capacity: 256)
     @ObservationIgnored private let loader: any BrowserFaviconLoading
     /// Times the failure memory (a test moves its own).
     @ObservationIgnored private let clock: any Clock<Duration>
@@ -73,8 +76,7 @@ public final class TabFaviconStore {
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
         else { return nil }
         let key = Key(profile: profile, url: url)
-        if let image = images.peek(key) { return image }
-        if let image = adopt(key, tab: tab) { return image }
+        if let image = images.peek(key) ?? adopt(key, tab: tab) { return image }
         load(key, tab: tab)
         return nil
     }
@@ -83,22 +85,16 @@ public final class TabFaviconStore {
     /// without a second fetch, also while `key`'s failure is remembered: another page of the site (a Spotify
     /// album after the home page's fetch failed) loaded it, so its row and strip item show it now and not when
     /// the failure memory ends (#42435). Reading the live page's `favicon` maps the reading scope again when that
-    /// page's own fetch lands.
+    /// page's own fetch lands. A read writes nothing observed (no other scope maps again in the middle of an
+    /// update): the icon is kept in ``adopted``, and the held-off address keeps its failure until its memory ends.
     private func adopt(_ key: Key, tab: (any BrowserTab)?) -> TabImage? {
         _ = tab?.favicon
-        guard let icon = loader.cachedFavicon(at: key.url, profile: key.profile),
-              let cgImage = icon.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        land(TabImage(cgImage), for: key)
-        return images.peek(key)
-    }
-
-    /// Keeps `image` for `key` and ends any failure it had.
-    private func land(_ image: TabImage, for key: Key) {
-        images.set(image, for: key)
-        failures.removeAll { $0 == key }
-        if let timer = forgetting.removeValue(forKey: key) { timer.cancel() }
-        if failed.contains(key) { failed.remove(key) }
-        revision += 1
+        guard let icon = loader.cachedFavicon(at: key.url, profile: key.profile) else { return nil }
+        if let kept = adopted.peek(key), kept.source === icon { return kept.image }
+        guard let cgImage = icon.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let image = TabImage(cgImage)
+        adopted.set((icon, image), for: key)
+        return image
     }
 
     /// The icon at `address` for `profile` when it is already here; never fetches (a list
@@ -123,7 +119,9 @@ public final class TabFaviconStore {
             guard let self else { return }
             self.pending[key] = nil
             if let cgImage = icon?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                self.land(TabImage(cgImage), for: key)
+                self.images.set(TabImage(cgImage), for: key)
+                self.failures.removeAll { $0 == key }
+                self.revision += 1
             } else {
                 self.remember(failed: key)
             }
