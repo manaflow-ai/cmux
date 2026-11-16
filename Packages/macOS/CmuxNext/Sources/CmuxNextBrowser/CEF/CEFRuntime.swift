@@ -57,14 +57,15 @@ final class CEFRuntime {
     private(set) lazy var spareWindow = CEFSpareWindow()
     /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
     private(set) lazy var pageRendererGC = CEFPageRendererGC(
-        pages: { [unowned self] in
-            tabsByBrowser.map { browser, tab in
+        pages: { [weak self] in
+            guard let self else { return [] }
+            return tabsByBrowser.map { browser, tab in
                 let clients: [Int32] = if case .chromiumRendererClients(let ids) = tab.contentProcesses { ids } else { [] }
                 return CEFPageRendererGC.Page(browser: browser, isCmuxPage: CEFPageRendererGC.isCmuxPage(tab.state.url), rendererClients: clients)
             }
         },
-        post: { [unowned self] browser in
-            postDevTools(browser, method: CEFPageRendererGC.method, params: ["level": CEFPageRendererGC.level])
+        post: { [weak self] browser in
+            _ = self?.postDevTools(browser, method: CEFPageRendererGC.method, params: ["level": CEFPageRendererGC.level])
         })
     /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
     let arriving = CEFArrivingPages()
