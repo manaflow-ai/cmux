@@ -45,12 +45,12 @@ describe("session flow", () => {
   });
 
   it("asks the host when permission is ask; deny tells the viewer", async () => {
-    const { host, viewer } = await setup();
+    const { account, host, viewer } = await setup();
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
     expect(res.json.session).toMatchObject({ state: "pending", scope: "full" });
     const sid = res.json.session.id;
     const req = await host.user!.next((f) => f.type === "session.request");
-    expect(req.session).toEqual({ id: sid, viewerId: viewer.id, viewerName: "Laptop", viewerKeyFingerprint: await keyFingerprint(viewer.signingKey), scope: "full" });
+    expect(req.session).toEqual({ id: sid, viewerId: viewer.id, viewerName: "Laptop", viewerKeyFingerprint: await keyFingerprint(viewer.signingKey), scope: "full", access: "account", viewerUserId: account.userId });
 
     const notHost = await viewer.call("POST", `/v1/sessions/${sid}/decision`, { decision: "once" });
     expect([notHost.status, notHost.json.error.code]).toEqual([403, "not_host"]);

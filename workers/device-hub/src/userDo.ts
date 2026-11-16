@@ -789,9 +789,11 @@ export class UserDO extends DurableObject<Env> {
       await this.approveOrEnd(this.session(id)!, c);
     } else {
       await this.scheduleAlarm();
+      // `access` and `viewerUserId` come from the viewer's verified session, never the body: a
+      // host serves its own account with no prompt on them (D11).
       this.send(hostId, {
         type: "session.request",
-        session: { id, viewerId: me.id, viewerName: me.name, viewerKeyFingerprint: await keyFingerprint(me.signing_key), scope },
+        session: { id, viewerId: me.id, viewerName: me.name, viewerKeyFingerprint: await keyFingerprint(me.signing_key), scope, access: "account", viewerUserId: c.userId },
       });
     }
     const s = this.session(id)!;

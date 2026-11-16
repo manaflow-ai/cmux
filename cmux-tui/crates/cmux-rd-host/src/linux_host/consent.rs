@@ -1,9 +1,10 @@
 //! Who may see this desktop: the same model as the Mac. The hub admits a viewer only with
 //! the person's permission (`view`/`full` rows they granted serve at once; `ask` sends a
-//! `session.request` to this host). This host never answers a request by itself: it records
-//! it in the login session's private runtime directory, and only the person's
-//! `cmux-rd linux-host approve|deny` answers it. This desktop's own consent (`consent.json`,
-//! set at `enable`) may further refuse control, as the Mac's local consent does.
+//! `session.request` to this host). A viewer signed in to the account this desktop is enabled
+//! for is the person themself (design D11): this host approves it with no prompt. Any other
+//! request is recorded in the login session's private runtime directory, and only the
+//! person's `cmux-rd linux-host approve|deny` answers it. This desktop's own consent
+//! (`consent.json`, set at `enable`) may further refuse control, as the Mac's local consent does.
 
 use super::identity::{read_private, write_private};
 use crate::Res;
@@ -13,16 +14,43 @@ use std::path::Path;
 /// Requests the hub ends after 5 minutes without a decision; older ones are dropped here too.
 pub const REQUEST_TTL_MS: u64 = 5 * 60 * 1000;
 
-/// What this host does with a `session.request` push. There is no other variant on purpose:
-/// an unknown viewer is never approved without the person.
+/// What this host does with a `session.request` push. Only the person's own account skips
+/// them: another account, a shared link or shared access is never approved without the person.
 #[derive(Debug, PartialEq, Eq)]
 pub enum OnRequest {
     /// Record it for the person's `approve` or `deny`.
     AskThePerson,
+    /// The viewer is signed in to this desktop's own account: approve it, no prompt.
+    OwnAccount,
 }
 
-pub fn on_request(_request: &Request) -> OnRequest {
-    OnRequest::AskThePerson
+/// `own_user_id`: the account this desktop is enabled for (`account.json`, the hub session it
+/// holds). Same account only on the hub's word: `access` and `viewerUserId` are set by the hub
+/// from the viewer's verified session, never from what the viewer sends, and a request
+/// without them (an older hub) asks.
+pub fn on_request(request: &Request, own_user_id: Option<&str>) -> OnRequest {
+    let own = own_user_id.filter(|u| !u.is_empty());
+    if request.access.as_deref() == Some("account")
+        && own.is_some()
+        && request.viewer_user_id.as_deref() == own
+    {
+        OnRequest::OwnAccount
+    } else {
+        OnRequest::AskThePerson
+    }
+}
+
+/// The scope this host grants its own account: what was asked, lowered to `view` when this
+/// desktop's consent or capture does not allow control (Full Control still needs
+/// `enable --allow-control`). None when this desktop serves nothing.
+pub fn own_account_scope(
+    request: &Request,
+    consent: LocalConsent,
+    applies_input: bool,
+) -> Option<String> {
+    decision_scope(request, None, consent, applies_input)
+        .or_else(|_| decision_scope(request, Some("view"), consent, applies_input))
+        .ok()
 }
 
 /// A viewer's pending request (`session.request`).
@@ -37,6 +65,12 @@ pub struct Request {
     pub viewer_key_fingerprint: Option<String>,
     /// `view` or `full`.
     pub scope: String,
+    /// How the hub admitted the viewer: `account` when it is signed in to this host's account.
+    #[serde(default)]
+    pub access: Option<String>,
+    /// The account the hub verified for the viewer's session.
+    #[serde(default)]
+    pub viewer_user_id: Option<String>,
     #[serde(default)]
     pub received_ms: u64,
 }
@@ -166,14 +200,85 @@ mod tests {
             viewer_name: "Mac".into(),
             viewer_key_fingerprint: None,
             scope: scope.into(),
+            access: None,
+            viewer_user_id: None,
             received_ms: 1_000,
         }
     }
 
+    /// A request as the hub pushes it: `access` and the viewer's verified account.
+    fn request_from(access: &str, viewer_user_id: &str) -> Request {
+        Request {
+            access: Some(access.into()),
+            viewer_user_id: Some(viewer_user_id.into()),
+            ..request("full")
+        }
+    }
+
+    const OWN: Option<&str> = Some("p:me");
+
     #[test]
-    fn a_request_is_never_answered_without_the_person() {
-        assert_eq!(on_request(&request("view")), OnRequest::AskThePerson);
-        assert_eq!(on_request(&request("full")), OnRequest::AskThePerson);
+    fn a_viewer_on_this_desktops_account_is_served_with_no_prompt() {
+        assert_eq!(on_request(&request_from("account", "p:me"), OWN), OnRequest::OwnAccount);
+        let view = Request { scope: "view".into(), ..request_from("account", "p:me") };
+        assert_eq!(on_request(&view, OWN), OnRequest::OwnAccount);
+    }
+
+    #[test]
+    fn a_viewer_on_another_account_still_asks() {
+        assert_eq!(on_request(&request_from("account", "p:other"), OWN), OnRequest::AskThePerson);
+        // The same user id under another auth project is another account.
+        assert_eq!(on_request(&request_from("account", "q:me"), OWN), OnRequest::AskThePerson);
+    }
+
+    #[test]
+    fn a_shared_link_still_asks() {
+        // Even when the hub names this account as the one that opened the link.
+        assert_eq!(on_request(&request_from("link", "p:me"), OWN), OnRequest::AskThePerson);
+    }
+
+    #[test]
+    fn shared_access_still_asks() {
+        assert_eq!(on_request(&request_from("shared", "p:me"), OWN), OnRequest::AskThePerson);
+        assert_eq!(on_request(&request_from("shared", "p:other"), OWN), OnRequest::AskThePerson);
+    }
+
+    #[test]
+    fn without_the_hubs_word_a_request_asks() {
+        // An older hub sends neither field; nothing is assumed.
+        assert_eq!(on_request(&request("view"), OWN), OnRequest::AskThePerson);
+        let no_kind = Request { access: None, ..request_from("account", "p:me") };
+        assert_eq!(on_request(&no_kind, OWN), OnRequest::AskThePerson);
+        // A desktop that does not know its own account, or an empty one, never matches.
+        assert_eq!(on_request(&request_from("account", "p:me"), None), OnRequest::AskThePerson);
+        assert_eq!(on_request(&request_from("account", ""), Some("")), OnRequest::AskThePerson);
+    }
+
+    #[test]
+    fn the_hubs_fields_parse_from_the_push() {
+        let pushed = serde_json::json!({
+            "id": "s1", "viewerId": "v", "viewerName": "Mac", "scope": "view",
+            "access": "account", "viewerUserId": "p:me"
+        });
+        let r: Request = serde_json::from_value(pushed).unwrap();
+        assert_eq!(on_request(&r, OWN), OnRequest::OwnAccount);
+    }
+
+    #[test]
+    fn the_own_account_gets_control_only_with_this_desktops_consent() {
+        let all = LocalConsent { view: true, full: true };
+        let full = request_from("account", "p:me");
+        assert_eq!(own_account_scope(&full, all, true).as_deref(), Some("full"));
+        assert_eq!(
+            own_account_scope(&full, LocalConsent::default(), true).as_deref(),
+            Some("view")
+        );
+        // The Wayland portal applies no input: view.
+        assert_eq!(own_account_scope(&full, all, false).as_deref(), Some("view"));
+        let view = Request { scope: "view".into(), ..full.clone() };
+        assert_eq!(own_account_scope(&view, all, true).as_deref(), Some("view"));
+        let nothing = LocalConsent { view: false, full: false };
+        assert_eq!(own_account_scope(&full, nothing, true), None);
     }
 
     #[test]

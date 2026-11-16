@@ -25,6 +25,13 @@ describe("asking for more than the saved permission", () => {
     expect(await auditEvents(viewer, sid)).toEqual(["requested", "approved"]);
   });
 
+  it("the prompt names the viewer's account from its verified session, never from the body (D11)", async () => {
+    const { account, host, viewer } = await setup();
+    const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view", access: "account", viewerUserId: "p:someone-else" });
+    const prompt = await host.user!.next((f) => f.type === "session.request" && f.session.id === res.json.session.id);
+    expect(prompt.session).toMatchObject({ access: "account", viewerUserId: account.userId });
+  });
+
   it("Always Allow on that prompt raises the saved permission; Deny leaves it", async () => {
     const { host, viewer } = await setup();
     await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" });

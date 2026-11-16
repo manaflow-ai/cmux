@@ -721,13 +721,18 @@ fn handle_push(
                 return;
             };
             request.received_ms = now_ms();
-            match consent::on_request(&request) {
-                consent::OnRequest::AskThePerson => {
-                    eprintln!("{}", ask_line(&request));
-                    if let Err(e) = pending.add(request, now_ms()) {
-                        eprintln!("linux-host: request not recorded: {e}");
+            match consent::on_request(&request, hub.user_id().as_deref()) {
+                consent::OnRequest::OwnAccount => {
+                    let scope = LocalConsent::load(dir).ok().and_then(|consent| {
+                        consent::own_account_scope(&request, consent, applies_input)
+                    });
+                    match scope {
+                        Some(scope) => approve_own_account(hub, request, scope, runtime),
+                        // This desktop serves nothing now: the person decides.
+                        None => ask(&pending, request),
                     }
                 }
+                consent::OnRequest::AskThePerson => ask(&pending, request),
             }
         }
         Some("session.ticket") if push["role"].as_str() == Some("host") => {
@@ -805,6 +810,38 @@ fn start_session(
 }
 
 /// `/end` off the socket thread.
+/// Records `request` for the person's `approve` or `deny`.
+fn ask(pending: &Pending, request: consent::Request) {
+    eprintln!("{}", ask_line(&request));
+    if let Err(e) = pending.add(request, now_ms()) {
+        eprintln!("linux-host: request not recorded: {e}");
+    }
+}
+
+/// Approves the person's own account once with `scope`, off the socket's thread; the hub's
+/// ticket follows. If the hub refuses, the request waits for the person instead.
+fn approve_own_account(
+    hub: &Arc<Hub>,
+    request: consent::Request,
+    scope: String,
+    runtime: &std::path::Path,
+) {
+    let (hub, runtime) = (hub.clone(), runtime.to_owned());
+    let _ = std::thread::Builder::new().name("linux-host-approve".into()).spawn(move || match hub
+        .decide(&request.id, "once", Some(&scope))
+    {
+        Ok(_) => eprintln!(
+            "linux-host: {} is on this desktop's account; approved to {} with no prompt",
+            printable(&request.viewer_name),
+            if scope == "full" { "control" } else { "view" }
+        ),
+        Err(e) => {
+            eprintln!("linux-host: own-account approval not sent ({e}); asking instead");
+            ask(&Pending::new(&runtime), request);
+        }
+    });
+}
+
 fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
     let (hub, id) = (hub.clone(), id.to_owned());
     let _ = std::thread::Builder::new().name("linux-host-end".into()).spawn(move || {
@@ -947,6 +984,8 @@ mod tests {
             viewer_name: name.into(),
             viewer_key_fingerprint: fingerprint.map(str::to_owned),
             scope: "view".into(),
+            access: None,
+            viewer_user_id: None,
             received_ms: 0,
         }
     }
