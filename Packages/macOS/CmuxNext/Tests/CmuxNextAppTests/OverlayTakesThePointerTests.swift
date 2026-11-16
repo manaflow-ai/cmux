@@ -24,6 +24,19 @@ import Testing
         func panePointerEntered(with event: NSEvent) { heard.append("entered") }
         func panePointerMoved(with event: NSEvent) { heard.append("moved") }
         func panePointerExited(with event: NSEvent) { heard.append("exited") }
+        override func rightMouseDown(with event: NSEvent) { heard.append("rightMouseDown") }
+        override func otherMouseDown(with event: NSEvent) { heard.append("otherMouseDown") }
+        override func scrollWheel(with event: NSEvent) { heard.append("scrollWheel") }
+        override func mouseDown(with event: NSEvent) { heard.append("mouseDown") }
+    }
+
+    /// A page window's content that records the presses and scrolls it gets.
+    final class RecordingPage: NSView {
+        var heard: [String] = []
+        override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
+        override func rightMouseDown(with event: NSEvent) { heard.append("rightMouseDown") }
+        override func mouseDown(with event: NSEvent) { heard.append("mouseDown") }
+        override func scrollWheel(with event: NSEvent) { heard.append("scrollWheel") }
     }
 
     final class Panes: LayoutPaneContentProvider {
@@ -47,6 +60,7 @@ import Testing
         let root: LayoutRootView
         private(set) var page: NSWindow?
         let panes = Panes()
+        let pageContent = RecordingPage()
         let center: CmuxToastCenter
 
         init(withPage: Bool, toastFirst: Bool = false) {
@@ -69,6 +83,7 @@ import Testing
             if withPage {
                 let page = NSWindow(contentRect: window.frame, styleMask: [.borderless], backing: .buffered, defer: false)
                 page.isReleasedWhenClosed = false
+                page.contentView = pageContent
                 window.addChildWindow(page, ordered: .above)
                 self.page = page
             }
@@ -133,6 +148,13 @@ import Testing
         }
 
         var screen: ScreenContentView { root.screenViews.values.first! }
+
+        /// A press of `type` at `point` (window coordinates) addressed to `target` (the window or the page).
+        func press(_ type: NSEvent.EventType, at point: NSPoint, to target: NSWindow) -> NSEvent {
+            let location = target.convertPoint(fromScreen: window.convertPoint(toScreen: point))
+            return NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0, windowNumber: target.windowNumber,
+                                      context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
 
         func moved(to point: NSPoint) -> NSEvent {
             NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
@@ -225,5 +247,47 @@ import Testing
         // Off the toast, the pane follows the pointer again (the harness reaches it).
         scene.screen.dividerPointer.mouseMoved(with: scene.moved(to: NSPoint(x: divider.x - 60, y: 600)))
         #expect(pane.heard.contains("entered"), "the pane away from the toast heard \(pane.heard)")
+    }
+
+    // MARK: Presses and scrolls that reach a window under the overlay
+
+    /// The overlay panel takes the mouse only after a move the app sees switched it on: with the cmux window in the
+    /// background, or a pointer that did not move, the window server gives a press or a scroll on the toast to the
+    /// window under it (live on cmux-lawrence-2 at 3ede87f: a right-click on the toast opened the terminal pane's menu
+    /// and the divider's menu, a scroll on it scrolled the terminal). The window passes such an event to the overlay.
+    ///
+    /// The press lands on the toast's padding, not its text: the text is selectable, and a right-click there opens the
+    /// text's own menu, whose tracking loop waits for a person. A scroll is checked live (a test cannot make a scroll
+    /// event addressed to a window), as is a left press (the pane's own views take it before the pane does).
+    @Test(arguments: [NSEvent.EventType.rightMouseDown, .otherMouseDown])
+    func aPressOnTheToastThatReachesTheWindowDoesNotReachThePane(type: NSEvent.EventType) throws {
+        let scene = Scene(withPage: false)
+        defer { scene.close() }
+        let toast = try scene.toastFrame(), divider = try scene.dividerCenter()
+        let onToast = NSPoint(x: toast.minX + 5, y: toast.midY)
+        try #require(onToast.x < divider.x - 10)
+        let pane = try #require(scene.panes.views["p1"])
+        scene.overlayPanel.ignoresMouseEvents = true // no move switched the panel on
+        scene.window.sendEvent(scene.press(type, at: onToast, to: scene.window))
+        #expect(pane.heard.filter { $0.hasSuffix("MouseDown") }.isEmpty, "the pane under the toast heard \(pane.heard)")
+        // Off the toast, the pane gets the press (the harness reaches it).
+        scene.window.sendEvent(scene.press(type, at: NSPoint(x: divider.x - 60, y: 600), to: scene.window))
+        #expect(!pane.heard.filter { $0.hasSuffix("MouseDown") }.isEmpty, "the pane away from the toast heard \(pane.heard)")
+    }
+
+    /// A press on the toast that the window server gives to a page window under it (a Chromium page is a child window,
+    /// and the toast's region is not masked out of it) does not reach the page.
+    @Test func aPressOnTheToastThatReachesAPageDoesNotReachThePage() throws {
+        let scene = Scene(withPage: true)
+        defer { scene.close() }
+        let toast = try scene.toastFrame()
+        let point = NSPoint(x: toast.minX + 5, y: toast.midY)
+        let page = try #require(scene.page)
+        scene.overlayPanel.ignoresMouseEvents = true
+        NSApp.sendEvent(scene.press(.rightMouseDown, at: point, to: page))
+        #expect(scene.pageContent.heard.isEmpty, "the page under the toast heard \(scene.pageContent.heard)")
+        // Off the toast, the page gets it (the harness reaches it).
+        NSApp.sendEvent(scene.press(.rightMouseDown, at: NSPoint(x: point.x, y: 600), to: page))
+        #expect(scene.pageContent.heard == ["rightMouseDown"], "the page away from the toast heard \(scene.pageContent.heard)")
     }
 }
