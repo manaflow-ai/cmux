@@ -143,14 +143,16 @@ impl Compaction {
         }
         // Open the staged inode before committing it. Errors after rename
         // must not leave the publisher believing the old generation is current.
-        let staged_snapshot = DiskSnapshot::open(stage)?
+        let snapshot = DiskSnapshot::open(stage)?
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "staged snapshot"))?;
-        drop(staged_snapshot);
         let table_path = {
             let mut path = self.snapshot_path.as_os_str().to_os_string();
             path.push(".kin");
             PathBuf::from(path)
         };
+        fs::rename(stage, &self.snapshot_path)?;
+        // Commit the snapshot first. The old sidecar is now necessarily
+        // mismatched, so remove it only after the snapshot rename succeeded.
         let _ = fs::remove_file(&table_path);
         if table_stage.exists() {
             // The sidecar is an accelerator. A storage error here must not
@@ -159,9 +161,6 @@ impl Compaction {
                 let _ = fs::remove_file(&table_stage);
             }
         }
-        fs::rename(stage, &self.snapshot_path)?;
-        let snapshot = DiskSnapshot::open(&self.snapshot_path)?
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "installed snapshot"))?;
         let mut cleanup_errors = 0;
         if File::open(&self.directory).and_then(|directory| directory.sync_all()).is_err() {
             // Keep every old log until the rename is known durable.

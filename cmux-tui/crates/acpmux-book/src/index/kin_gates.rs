@@ -307,6 +307,9 @@ fn kin_table_write_gate() {
         let bytes = if with_table {
             let bytes = std::fs::metadata(&table).unwrap().len();
             assert!(bytes <= entries * 64 + 3 * 4096);
+            let header = std::fs::read(&table).unwrap();
+            let actual_entries = u64::from_le_bytes(header[40..48].try_into().unwrap());
+            assert_eq!(actual_entries, entries, "sidecar closure count");
             bytes
         } else {
             0

@@ -295,7 +295,8 @@ fn write_table(
             entry.encode(&mut page[index * ENTRY_BYTES..(index + 1) * ENTRY_BYTES]);
         }
         let crc_at = ENTRY_PAGE_BYTES - PAGE_CRC_BYTES;
-        page[crc_at..].copy_from_slice(&crc32fast::hash(&page[..crc_at]).to_le_bytes());
+        let page_crc = crc32fast::hash(&page[..crc_at]);
+        page[crc_at..].copy_from_slice(&page_crc.to_le_bytes());
         file.write_all(&page)?;
     }
 
@@ -323,7 +324,8 @@ fn write_table(
 fn add_page_crcs(bytes: &mut [u8]) {
     for page in bytes.chunks_exact_mut(ENTRY_PAGE_BYTES) {
         let at = ENTRY_PAGE_BYTES - PAGE_CRC_BYTES;
-        page[at..].copy_from_slice(&crc32fast::hash(&page[..at]).to_le_bytes());
+        let page_crc = crc32fast::hash(&page[..at]);
+        page[at..].copy_from_slice(&page_crc.to_le_bytes());
     }
 }
 
