@@ -27,6 +27,47 @@ import CmuxNextFocusUI
 
     @MainActor final class Summons { var count = 0 }
 
+    @Test func everyAlternateRegistersAndRunsTheAction() throws {
+        let registry = ActionRegistry.standard()
+        let summons = Summons()
+        registry.bind(Self.action) { summons.count += 1 }
+        let other = Shortcut("u", modifiers: [.control, .option, .command])
+        registry.setConfiguredShortcuts([[Self.key], [other]], for: Self.action)
+        let recorder = Recorder()
+        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi })
+        service.start()
+        defer { service.stop() }
+        #expect(recorder.registered.count == 2)
+        for key in [Self.key, other] {
+            let physical = try #require(CarbonHotKey(key, layout: .ansi))
+            let number = try #require(recorder.registered.first(where: { $0.value == physical })?.key)
+            recorder.onPress?(number)
+        }
+        #expect(summons.count == 2)
+
+        registry.setConfiguredShortcuts([[other]], for: Self.action)
+        service.apply()
+        #expect(recorder.registered.count == 1)
+        #expect(recorder.registered.values.first == CarbonHotKey(other, layout: .ansi))
+        registry.setShortcutOverride(nil, for: Self.action)
+        service.apply()
+        #expect(recorder.registered.isEmpty)
+    }
+
+    @Test func aChordFirstStillRegistersTheSingleKeyAlternate() {
+        let registry = ActionRegistry.standard()
+        registry.bind(Self.action) {}
+        registry.setConfiguredShortcuts([
+            [Shortcut("b", modifiers: [.control]), Shortcut("n", modifiers: [])], [Self.key],
+        ], for: Self.action)
+        let recorder = Recorder()
+        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi })
+        service.apply()
+        defer { service.stop() }
+        #expect(recorder.registered.count == 1)
+        #expect(recorder.registered.values.first == CarbonHotKey(Self.key, layout: .ansi))
+    }
+
     static func settings(petOn: Bool) async throws -> (SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-chief-hotkey-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
