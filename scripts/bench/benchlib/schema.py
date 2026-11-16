@@ -44,7 +44,9 @@ def now_iso() -> str:
 
 
 def new_run_id(bench: str) -> str:
-    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # Milliseconds in the id: runs recorded in the same second (imports) still sort in the order they were made.
+    now = _dt.datetime.now(_dt.timezone.utc)
+    stamp = now.strftime("%Y%m%dT%H%M%S") + f"{now.microsecond // 1000:03d}Z"
     return f"{stamp}-{bench}-{secrets.token_hex(4)}"
 
 
