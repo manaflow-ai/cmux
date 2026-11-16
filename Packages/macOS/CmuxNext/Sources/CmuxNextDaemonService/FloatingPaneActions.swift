@@ -3,8 +3,8 @@ public import CmuxNextActions
 public import CmuxNextDaemon
 public import CoreGraphics
 
-/// Floating panes (`floating-panes-v1`): the commands that float a pane, put it back, give it a frame and open a new
-/// pane that floats. A daemon without the capability gets no command.
+/// Floating panes (`floating-panes-v1`): the commands that float a pane, put it back and give it a frame. A daemon
+/// without the capability gets no command. ``NewFloatingPane`` opens a new pane that floats.
 extension DaemonService {
     /// Whether this daemon has floating panes.
     public var floatsPanes: Bool { supports(DaemonCapability.floatingPanes.rawValue) }
@@ -21,21 +21,6 @@ extension DaemonService {
         guard floatsPanes else { return }
         let wire = FloatingPaneSnapshot.Frame(x: Double(frame.minX), y: Double(frame.minY), w: Double(frame.width), h: Double(frame.height))
         Task { await run("float-pane") { _ = try await $0.floatPane(pane, mode: .on, frame: wire) } }
-    }
-
-    /// Opens a new pane that floats on `pane`'s screen: a split on the right of a tiled pane of the screen, then
-    /// `float-pane` on the pane the split made. The split is of `pane`, or of the last tiled pane when `pane` floats.
-    public func newFloatingPane(beside pane: PaneID) {
-        guard floatsPanes, let screen = store.screen(containing: pane) else { return }
-        let floating = Set(screen.floating.map(\.pane))
-        let anchor = floating.contains(pane) ? screen.panes.last { !floating.contains($0.handle) }?.handle ?? pane : pane
-        let options = SpawnOptions(workspace: store.workspace(containing: pane)?.key)
-        Task {
-            await run("new-floating-pane") { connection in
-                let created = try await connection.split(anchor, direction: .right, options: options)
-                if let new = created.pane { _ = try await connection.floatPane(new, mode: .on) }
-            }
-        }
     }
 }
 
@@ -69,7 +54,7 @@ public enum FloatingPaneActions {
             shortcut: Shortcut("n", modifiers: [.control, .shift, .command]),
             invoke: { invocation in
                 guard let (daemon, pane) = target(invocation) else { return }
-                daemon.newFloatingPane(beside: pane)
+                NewFloatingPane.start(on: daemon, beside: pane)
             },
             handler: {}
         ))

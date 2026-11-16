@@ -19,4 +19,15 @@ enum FloatingPaneStrings {
     static var noZoom: String {
         String(localized: "floatingPanes.noZoom", defaultValue: "A floating pane has no zoom.", table: "FloatingPanes", bundle: .module)
     }
+
+    /// The notice of New Floating Pane on a screen that has no tiled pane outside a docked column.
+    static var noTiledPane: String {
+        String(localized: "floatingPanes.noTiledPane", defaultValue: "A floating pane cannot open here: this screen has no tiled pane outside the dock.",
+               table: "FloatingPanes", bundle: .module)
+    }
+
+    /// The notice of New Floating Pane when the split made a pane that the act could not float.
+    static var notFloated: String {
+        String(localized: "floatingPanes.notFloated", defaultValue: "The new pane did not float.", table: "FloatingPanes", bundle: .module)
+    }
 }

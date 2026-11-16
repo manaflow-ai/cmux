@@ -524,6 +524,268 @@
           }
         }
       }
+    },
+    "floatingPanes.noTiledPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A floating pane cannot open here: this screen has no tiled pane outside the dock."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن فتح لوحة عائمة هنا: لا توجد في هذه الشاشة لوحة مرتبة خارج المرسى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plutajući panel se ovdje ne može otvoriti: ovaj ekran nema složeni panel izvan doka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et svævende panel kan ikke åbnes her: denne skærm har intet fliselagt panel uden for docken."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hier kann kein schwebender Bereich geöffnet werden: Dieser Bildschirm hat keinen gekachelten Bereich außerhalb des Docks."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede abrir un panel flotante aquí: esta pantalla no tiene ningún panel en mosaico fuera del dock."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d’ouvrir un panneau flottant ici : cet écran n’a aucun panneau en mosaïque hors du dock."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile aprire un pannello flottante qui: questa schermata non ha pannelli affiancati fuori dal dock."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここではフローティングペインを開けません。この画面にはドックの外にタイル表示のペインがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបើកផ្ទាំងអណ្ដែតនៅទីនេះបានទេ៖ អេក្រង់នេះគ្មានផ្ទាំងធម្មតានៅក្រៅដុកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에서는 플로팅 패널을 열 수 없습니다. 이 화면에는 독 밖에 타일 패널이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et flytende panel kan ikke åpnes her: denne skjermen har ikke noe flislagt panel utenfor docken."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można tu otworzyć pływającego panelu: ten ekran nie ma panelu kafelkowego poza dokiem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível abrir um painel flutuante aqui: esta tela não tem nenhum painel lado a lado fora do dock."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Здесь нельзя открыть плавающую панель: на этом экране нет обычной панели вне дока."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเปิดบานหน้าต่างลอยที่นี่ได้: หน้าจอนี้ไม่มีบานหน้าต่างแบบเรียงต่อกันนอกด็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Burada yüzen bölme açılamaz: bu ekranda yuvanın dışında döşenmiş bölme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тут не можна відкрити плаваючу панель: на цьому екрані немає звичайної панелі поза доком."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể mở khung nổi ở đây: màn hình này không có khung xếp ô nào bên ngoài dock."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在此打开浮动窗格：此屏幕在停靠栏之外没有平铺窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在此開啟浮動窗格：此螢幕在 Dock 之外沒有並排窗格。"
+          }
+        }
+      }
+    },
+    "floatingPanes.notFloated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The new pane did not float."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم تعويم اللوحة الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi panel nije postao plutajući."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det nye panel kom ikke til at svæve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der neue Bereich schwebt nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El nuevo panel no quedó flotante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le nouveau panneau n’est pas devenu flottant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il nuovo pannello non è diventato flottante."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいペインをフロートにできませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងថ្មីមិនបានអណ្ដែតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 패널이 플로팅되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det nye panelet ble ikke flytende."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowy panel nie stał się pływający."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O novo painel não ficou flutuante."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая панель не стала плавающей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่างใหม่ไม่ได้ลอย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni bölme yüzen duruma geçmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нова панель не стала плаваючою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khung mới không nổi được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新窗格未能浮动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新窗格未能浮動。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
