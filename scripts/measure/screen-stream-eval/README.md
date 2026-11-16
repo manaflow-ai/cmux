@@ -23,7 +23,8 @@ these are path diagnostics, not a matched wire-bandwidth comparison with another
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
 main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
-uploads `results.json` and a `summary.md` that shows each number's change against the last daily
+uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
+screen-share-fast goal reads. The summary shows each number's change against the last daily
 run (the last successful one that dispatcher started).
 
 ## Prebuilt tools
@@ -269,6 +270,12 @@ There is no unqualified first-repeat or partial-repeat aggregate.
 Each target also leaves its raw files under
 `artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
 `host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.
+
+`probe.json` is the goal-facing row. It is complete only for a two-Mac run (`run.link` starts with
+`lan`), with an `rd` key p50 and an Apple comparison target's key p50. A missing pair or comparison is
+`outcome: unknown`; a complete run is `pass` only when the cmux key p50 is at most 160 ms, otherwise
+`fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
+observations. It never invents a comparison number from a one-Mac loopback run.
 
 ## Two Macs
 
