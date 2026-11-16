@@ -2128,6 +2128,16 @@ pre.cv-math-source {
 .acpmux-thread {
   transition: none;
 }
+/* The scroll origin (conversation/scrollCoordinates.ts) is the sub-pixel remainder of the scroller's
+   offset, rewritten as a reply streams at the bottom. It is written on the thread, whose `top` is its
+   one reader, and does not inherit: a write restyles the thread alone. Written on the scroller as an
+   inherited property, each write restyled every element under it, some 1,500 in a long chat, per
+   streamed token. */
+@property --acpmux-scroll-origin {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 /* --cv-inset-end: the column's end, moved in while the computer use live preview shows beside it
    (computerUse/computerUsePreview.css). */
 .acpmux-row {
