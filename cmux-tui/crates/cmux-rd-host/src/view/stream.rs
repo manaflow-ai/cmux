@@ -10,17 +10,17 @@ use crate::clock::now_ns;
 use crate::fdwait::wait_readable;
 use crate::wire::Control;
 use crate::Res;
+use cmux_encode::openh264::OpenH264Decoder;
+use cmux_encode::{VideoDecoder, I420};
 use cmux_rd_core::input::InputSender;
 use cmux_rd_core::reassembly::Reassembler;
-use cmux_rd_core::service::{caps, SERVICE_DESKTOP};
+use cmux_rd_core::service::SERVICE_DESKTOP;
 use cmux_rd_link::net::{Net, NetEvent};
 use cmux_rd_link::{EndpointEvent, Event};
 use cmux_rd_proto::{
     Arrival, DatagramHeader, DatagramKind, Feedback, InputEvent, HEADER_LEN, MAX_ARRIVALS,
     MAX_DATAGRAM_VPC,
 };
-use cmux_encode::openh264::OpenH264Decoder;
-use cmux_encode::{VideoDecoder, I420};
 use serde_json::json;
 use std::os::fd::RawFd;
 use std::path::PathBuf;
@@ -229,7 +229,10 @@ pub fn run(
                         let _ = to_hub.send(ToHub::Path(if relayed { "relay" } else { "direct" }));
                         eprintln!(
                             "Path: {name}{}",
-                            rtt_us.map_or(String::new(), |us| format!(", rtt {:.1} ms", us as f64 / 1000.0))
+                            rtt_us.map_or(String::new(), |us| format!(
+                                ", rtt {:.1} ms",
+                                us as f64 / 1000.0
+                            ))
                         );
                         path_kind = Some(name);
                     }
@@ -239,9 +242,15 @@ pub fn run(
                         Ok(Control::Welcome { encoder, width, height, caps, .. }) => {
                             eprintln!(
                                 "Streaming {width}x{height} ({encoder}{})",
-                                if caps.iter().any(|c| c == H264_BASELINE) { ", baseline" } else { "" }
+                                if caps.iter().any(|c| c == H264_BASELINE) {
+                                    ", baseline"
+                                } else {
+                                    ""
+                                }
                             );
-                            welcome = Some(json!({"encoder": encoder, "width": width, "height": height, "caps": caps}));
+                            welcome = Some(
+                                json!({"encoder": encoder, "width": width, "height": height, "caps": caps}),
+                            );
                         }
                         Ok(Control::Refused { reason } | Control::Ended { reason }) => {
                             break 'run format!("the host ended the stream: {reason}");
@@ -294,7 +303,9 @@ pub fn run(
             }
             let packet = if fresh {
                 sender.packet()
-            } else if !sender.is_empty() && now.saturating_sub(last_input_send_ns) >= INPUT_REPEAT_NS {
+            } else if !sender.is_empty()
+                && now.saturating_sub(last_input_send_ns) >= INPUT_REPEAT_NS
+            {
                 sender.repeat_packet()
             } else {
                 None
@@ -316,7 +327,8 @@ pub fn run(
     }
     mailbox.lock().unwrap_or_else(|e| e.into_inner()).closed = true;
     present_waker.wake();
-    let window_report = window_thread.join().unwrap_or_else(|_| Err("the window thread panicked".into()));
+    let window_report =
+        window_thread.join().unwrap_or_else(|_| Err("the window thread panicked".into()));
     let window_report = window_report.unwrap_or_else(|e| {
         eprintln!("cmux-rd view: window: {e}");
         window::Report::default()
@@ -405,7 +417,8 @@ fn on_datagram(
     match h.kind {
         DatagramKind::Video | DatagramKind::Fec => {
             stats.bytes += d.len() as u64;
-            arrivals.push(Arrival { transport_seq: h.transport_seq, arrival_us: (now / 1000) as u32 });
+            arrivals
+                .push(Arrival { transport_seq: h.transport_seq, arrival_us: (now / 1000) as u32 });
             let released = reassembler.push(&h, payload, now / 1000);
             let last = released.len().saturating_sub(1);
             for (i, frame) in released.into_iter().enumerate() {
@@ -555,7 +568,10 @@ mod tests {
     fn percentiles_of_samples() {
         let mut xs = vec![5.0, 1.0, 3.0, 2.0, 4.0];
         let p = pct(&mut xs);
-        assert_eq!((p["p50"].as_f64(), p["max"].as_f64(), p["n"].as_u64()), (Some(3.0), Some(5.0), Some(5)));
+        assert_eq!(
+            (p["p50"].as_f64(), p["max"].as_f64(), p["n"].as_u64()),
+            (Some(3.0), Some(5.0), Some(5))
+        );
         assert!(pct(&mut []).is_null());
     }
 }

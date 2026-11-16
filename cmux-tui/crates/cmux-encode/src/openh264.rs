@@ -19,7 +19,7 @@ use std::path::Path;
 
 use openh264_sys2::*;
 
-use crate::{EncCfg, H264Encoder, I420, Res};
+use crate::{EncCfg, H264Encoder, Res, I420};
 
 /// The OpenH264 entry points in use.
 pub struct OpenH264Api(DynamicAPI);
@@ -186,7 +186,11 @@ pub struct OpenH264 {
 unsafe impl Send for OpenH264 {}
 
 fn ok(rc: c_int, what: &str) -> Res<()> {
-    if rc == 0 { Ok(()) } else { Err(format!("openh264 {what} failed: {rc}").into()) }
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(format!("openh264 {what} failed: {rc}").into())
+    }
 }
 
 /// Settings past [`OpenH264::new`]'s, for measuring speed against sharpness. The default
@@ -635,7 +639,11 @@ impl OpenH264Decoder {
             // SAFETY: each option takes a pointer to an int.
             unsafe {
                 set_option(this.dec, DECODER_OPTION_TRACE_LEVEL, (&mut quiet as *mut c_int).cast());
-                set_option(this.dec, DECODER_OPTION_ERROR_CON_IDC, (&mut conceal as *mut c_int).cast());
+                set_option(
+                    this.dec,
+                    DECODER_OPTION_ERROR_CON_IDC,
+                    (&mut conceal as *mut c_int).cast(),
+                );
             }
         }
         Ok(this)
@@ -661,7 +669,8 @@ impl Drop for OpenH264Decoder {
 
 impl crate::VideoDecoder for OpenH264Decoder {
     fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool> {
-        let decode = self.vtbl()?.DecodeFrameNoDelay.ok_or("openh264 decoder has no DecodeFrameNoDelay")?;
+        let decode =
+            self.vtbl()?.DecodeFrameNoDelay.ok_or("openh264 decoder has no DecodeFrameNoDelay")?;
         let mut planes = [std::ptr::null_mut::<u8>(); 3];
         // SAFETY: zeroed SBufferInfo is the empty answer the decoder fills.
         let mut info: SBufferInfo = unsafe { std::mem::zeroed() };

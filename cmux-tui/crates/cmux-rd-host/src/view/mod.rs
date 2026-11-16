@@ -175,7 +175,9 @@ fn access_token(dir: &Path, token_file: Option<&str>) -> Res<String> {
         let refresh = String::from_utf8_lossy(&bytes).trim().to_owned();
         match stack_login::refresh(stack_login::CONFIG_URL, &refresh) {
             Ok(access) => return Ok(access),
-            Err(e) => eprintln!("cmux-rd view: the kept sign-in no longer works ({e}); signing in again"),
+            Err(e) => {
+                eprintln!("cmux-rd view: the kept sign-in no longer works ({e}); signing in again")
+            }
         }
     }
     let (access, refresh) = stack_login::sign_in_keeping_refresh(
@@ -203,7 +205,9 @@ fn shared_devices(answer: &Value, own_id: &str) -> Vec<HostDevice> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|d| d["id"].as_str().is_some_and(|id| id != own_id) && truthy(&d["macScreenShared"]))
+        .filter(|d| {
+            d["id"].as_str().is_some_and(|id| id != own_id) && truthy(&d["macScreenShared"])
+        })
         .map(|d| HostDevice {
             id: d["id"].as_str().unwrap_or_default().to_owned(),
             name: d["name"].as_str().unwrap_or_default().to_owned(),
@@ -248,13 +252,18 @@ fn pick(devices: &[HostDevice], target: Option<&str>) -> Res<HostDevice> {
     }
     match unique.as_slice() {
         [one] => Ok((*one).clone()),
-        [] => Err(format!("no shared device is called {}; shared: {}", printable(target), names())
-            .into()),
+        [] => {
+            Err(format!("no shared device is called {}; shared: {}", printable(target), names())
+                .into())
+        }
         _ => Err(format!("{} names several devices: {}", printable(target), names()).into()),
     }
 }
 
-fn explain_request(e: Box<dyn std::error::Error + Send + Sync>, host: &str) -> Box<dyn std::error::Error + Send + Sync> {
+fn explain_request(
+    e: Box<dyn std::error::Error + Send + Sync>,
+    host: &str,
+) -> Box<dyn std::error::Error + Send + Sync> {
     let Some(h) = e.downcast_ref::<HubError>() else { return e };
     let host = printable(host);
     match h.code.as_str() {
@@ -277,7 +286,11 @@ fn wait_for_ticket(user: &mut WebSocket, session_id: &str) -> Res<Ticket> {
         let push = match user.recv(Duration::from_millis(500))? {
             None => continue,
             Some(Message::Closed(code, why)) => {
-                return Err(format!("the hub closed this device's socket ({code} {})", printable(&why)).into())
+                return Err(format!(
+                    "the hub closed this device's socket ({code} {})",
+                    printable(&why)
+                )
+                .into())
             }
             Some(Message::Text(text)) => match serde_json::from_str::<Value>(&text) {
                 Ok(v) => v,
@@ -347,11 +360,17 @@ fn view_session(
     let (stun, turn) = rd_doc::servers(&ticket.ice);
     let stun = stun
         .iter()
-        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(std::net::SocketAddr::is_ipv4))
+        .filter_map(|s| {
+            std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(std::net::SocketAddr::is_ipv4)
+        })
         .collect();
     let turn: Vec<crate::carrier::TurnSetup> = turn
         .into_iter()
-        .map(|t| crate::carrier::TurnSetup { addr: t.addr, username: t.username, password: t.password })
+        .map(|t| crate::carrier::TurnSetup {
+            addr: t.addr,
+            username: t.username,
+            password: t.password,
+        })
         .collect();
     let net = cmux_rd_link::net::Net::start(NetConfig {
         role: Role::Initiator,
@@ -443,7 +462,10 @@ fn hub_loop(
                 Ok(Some(Message::Text(text))) => {
                     if let Ok(push) = serde_json::from_str::<Value>(&text) {
                         if push["sessionId"].as_str() == Some(session_id)
-                            && matches!(push["type"].as_str(), Some("session.revoked" | "session.ended"))
+                            && matches!(
+                                push["type"].as_str(),
+                                Some("session.revoked" | "session.ended")
+                            )
                         {
                             tell(FromHub::End(format!(
                                 "the hub ended the session ({})",
@@ -471,7 +493,8 @@ fn hub_loop(
                 let Ok(frame) = serde_json::from_str::<Value>(&text) else { continue };
                 match frame["type"].as_str() {
                     Some("candidate") if frame["sdpMid"].as_str() == Some("cmux-rd") => {
-                        if let Some(c) = frame["candidate"].as_str().and_then(Candidate::from_wire) {
+                        if let Some(c) = frame["candidate"].as_str().and_then(Candidate::from_wire)
+                        {
                             tell(FromHub::Candidate(c));
                         }
                     }
@@ -482,7 +505,10 @@ fn hub_loop(
             Ok(Some(Message::Closed(code, why))) => {
                 signaling = false;
                 if close_ends_session(code) {
-                    tell(FromHub::End(format!("the hub closed the session ({code} {})", printable(&why))));
+                    tell(FromHub::End(format!(
+                        "the hub closed the session ({code} {})",
+                        printable(&why)
+                    )));
                 }
             }
             Err(_) => signaling = false,
@@ -492,7 +518,11 @@ fn hub_loop(
 }
 
 /// Waits for the host's signed answer; pings the user socket meanwhile.
-fn wait_for_answer(signal: &mut WebSocket, user: &mut WebSocket, ticket: &Ticket) -> Res<RdDocument> {
+fn wait_for_answer(
+    signal: &mut WebSocket,
+    user: &mut WebSocket,
+    ticket: &Ticket,
+) -> Res<RdDocument> {
     let deadline = Instant::now() + ANSWER_WITHIN;
     let mut last_ping = Instant::now();
     while Instant::now() < deadline {
@@ -503,7 +533,11 @@ fn wait_for_answer(signal: &mut WebSocket, user: &mut WebSocket, ticket: &Ticket
         let text = match signal.recv(Duration::from_millis(500))? {
             None => continue,
             Some(Message::Closed(code, why)) => {
-                return Err(format!("signaling closed before the answer ({code} {})", printable(&why)).into())
+                return Err(format!(
+                    "signaling closed before the answer ({code} {})",
+                    printable(&why)
+                )
+                .into())
             }
             Some(Message::Text(text)) => text,
         };
@@ -512,7 +546,8 @@ fn wait_for_answer(signal: &mut WebSocket, user: &mut WebSocket, ticket: &Ticket
             Some("answer") => {
                 let sdp = frame["sdp"].as_str().unwrap_or_default();
                 let fp_sig = frame["fpSig"].as_str().unwrap_or_default();
-                if !rd_doc::verify_fp_sig(sdp, fp_sig, &ticket.session_id, "host", &ticket.peer_key) {
+                if !rd_doc::verify_fp_sig(sdp, fp_sig, &ticket.session_id, "host", &ticket.peer_key)
+                {
                     let _ = signal.send_text(r#"{"type":"bye"}"#);
                     return Err("the host's answer is not signed by its device key".into());
                 }
@@ -585,17 +620,25 @@ mod tests {
         assert_eq!(pick(&list, Some("cccc")).unwrap().name, "Laptop");
         assert_eq!(pick(&list, Some("studio")).unwrap().id, "bbbb2222-0000");
         assert!(pick(&list, Some("nope")).is_err());
-        let two_online: Vec<HostDevice> =
-            list.iter().cloned().map(|mut d| { d.online = true; d }).collect();
+        let two_online: Vec<HostDevice> = list
+            .iter()
+            .cloned()
+            .map(|mut d| {
+                d.online = true;
+                d
+            })
+            .collect();
         assert!(pick(&two_online, None).unwrap_err().to_string().contains("several"));
     }
 
     #[test]
     fn the_offer_is_signed_for_the_viewer_role() {
         let hub = Hub::new("https://hub.example", Device::generate("t").unwrap(), None).unwrap();
-        let doc = RdDocument { key: "ab".repeat(32), max_width: Some(1920), ..RdDocument::default() };
+        let doc =
+            RdDocument { key: "ab".repeat(32), max_width: Some(1920), ..RdDocument::default() };
         let frame: Value =
-            serde_json::from_str(&signed_frame("offer", &doc.text(), "sid-1", &hub).unwrap()).unwrap();
+            serde_json::from_str(&signed_frame("offer", &doc.text(), "sid-1", &hub).unwrap())
+                .unwrap();
         let key = hub.device.signer().unwrap().public_key();
         let sdp = frame["sdp"].as_str().unwrap();
         let sig = frame["fpSig"].as_str().unwrap();

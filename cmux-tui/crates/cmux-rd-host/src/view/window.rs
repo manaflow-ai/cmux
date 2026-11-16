@@ -8,16 +8,16 @@
 //! video range) to BGRX in a MIT-SHM segment and put with `ShmPutImage`.
 
 use super::stream::{Picture, SharedMailbox, Waker};
-use cmux_encode::I420;
 use crate::clock::now_ns;
 use crate::fdwait::wait_readable;
 use crate::shm::ShmSeg;
 use crate::Res;
+use cmux_encode::I420;
 use cmux_rd_proto::InputEvent;
 use std::collections::BTreeSet;
 use std::os::fd::AsRawFd;
 use std::sync::mpsc;
-use x11rb::connection::Connection;
+use x11rb::connection::{Connection, RequestConnection};
 use x11rb::properties::WmSizeHints;
 use x11rb::protocol::present::{self, ConnectionExt as _};
 use x11rb::protocol::shm::ConnectionExt as _;
@@ -94,11 +94,29 @@ impl Window {
             screen.root_visual,
             &CreateWindowAux::new().background_pixel(screen.black_pixel).event_mask(events),
         )?;
-        let atom = |name: &str| -> Res<u32> { Ok(conn.intern_atom(false, name.as_bytes())?.reply()?.atom) };
-        let (protocols, delete_atom, net_name, utf8) =
-            (atom("WM_PROTOCOLS")?, atom("WM_DELETE_WINDOW")?, atom("_NET_WM_NAME")?, atom("UTF8_STRING")?);
-        conn.change_property32(PropMode::REPLACE, window, protocols, AtomEnum::ATOM, &[delete_atom])?;
-        conn.change_property8(PropMode::REPLACE, window, AtomEnum::WM_NAME, AtomEnum::STRING, title.as_bytes())?;
+        let atom = |name: &str| -> Res<u32> {
+            Ok(conn.intern_atom(false, name.as_bytes())?.reply()?.atom)
+        };
+        let (protocols, delete_atom, net_name, utf8) = (
+            atom("WM_PROTOCOLS")?,
+            atom("WM_DELETE_WINDOW")?,
+            atom("_NET_WM_NAME")?,
+            atom("UTF8_STRING")?,
+        );
+        conn.change_property32(
+            PropMode::REPLACE,
+            window,
+            protocols,
+            AtomEnum::ATOM,
+            &[delete_atom],
+        )?;
+        conn.change_property8(
+            PropMode::REPLACE,
+            window,
+            AtomEnum::WM_NAME,
+            AtomEnum::STRING,
+            title.as_bytes(),
+        )?;
         conn.change_property8(PropMode::REPLACE, window, net_name, utf8, title.as_bytes())?;
         let gc = conn.generate_id()?;
         conn.create_gc(gc, window, &CreateGCAux::new())?;
@@ -220,7 +238,9 @@ impl Window {
                             tracker.key(usage, false, &mut out);
                         }
                     }
-                    Event::MotionNotify(e) => tracker.pointer(e.event_x.into(), e.event_y.into(), &mut out),
+                    Event::MotionNotify(e) => {
+                        tracker.pointer(e.event_x.into(), e.event_y.into(), &mut out)
+                    }
                     Event::ButtonPress(e) => {
                         tracker.pointer(e.event_x.into(), e.event_y.into(), &mut out);
                         tracker.button(e.detail, true, &mut out);
@@ -286,7 +306,10 @@ impl Window {
             let timeout = if pending && !armed { PACE_GIVE_UP_NS / 5 } else { 100_000_000 };
             // A picture that came while drawing was announced on the waker already drained;
             // `pending` above keeps the wait short instead.
-            wait_readable(&[fd, present_waker.fd()], Some(if pending && armed { 0 } else { timeout }))?;
+            wait_readable(
+                &[fd, present_waker.fd()],
+                Some(if pending && armed { 0 } else { timeout }),
+            )?;
         }
     }
 }
