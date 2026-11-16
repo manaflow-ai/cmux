@@ -14,7 +14,7 @@ public struct CloudCodexSignInConsent {
     public static var spec: CmuxDialogSpec {
         CmuxDialogSpec(
             title: String(localized: "cloud.codexSignInConsent.title", defaultValue: "Use my Codex login on my own Cloud machines?", table: "CloudCredentialRecovery", bundle: .module),
-            lines: [String(localized: "cloud.codexSignInConsent.body", defaultValue: "cmux gives Cloud machines you own short-lived access from the Codex sign-in on this Mac. This Mac keeps the refresh token, so you stay signed in here, and cmux never stores it.", table: "CloudCredentialRecovery", bundle: .module),
+            lines: [String(localized: "cloud.codexSignInConsent.body", defaultValue: "cmux gives Cloud machines you own short-lived access from the Codex sign-in on this Mac.", table: "CloudCredentialRecovery", bundle: .module),
                     String(localized: "cloud.codexSignInConsent.settings", defaultValue: "You can turn this off in Settings > Machines.", table: "CloudCredentialRecovery", bundle: .module)],
             buttons: [.cancel(String(localized: "cloud.loginCopyConsent.decline", defaultValue: "Don't Use", table: "CloudCredentialRecovery", bundle: .module)),
                       CmuxDialogButton(id: accept, title: String(localized: "cloud.loginCopyConsent.accept", defaultValue: "Use My Login", table: "CloudCredentialRecovery", bundle: .module), role: .default)],

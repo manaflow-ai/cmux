@@ -7,7 +7,7 @@ import { ACTION_RUN, MobilePairingOps, PairingActions, type MobilePairingStatus,
 
 const HOST: PairingHost = {
   status: "Online · 1 phone connected",
-  how: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces.",
+  how: "Install cmux on your iPhone and sign in with the same account as this Mac.",
   phonesTitle: "Phones",
   phones: [{ id: "phone-1", title: "iPhone 17 Pro", subtitle: "WireGuard · direct", connected: true }],
   phonesEmpty: "No phones yet.",

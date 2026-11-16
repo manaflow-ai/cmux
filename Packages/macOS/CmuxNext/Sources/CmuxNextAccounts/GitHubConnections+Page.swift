@@ -36,7 +36,7 @@ private extension GitHubConnections {
     static var confirm: String { String(localized: "github.confirm", defaultValue: "Disconnect GitHub? Agents will lose access through this connection.", table: "GitHubConnection", bundle: .module) }
     static var cancel: String { String(localized: "github.cancel", defaultValue: "Cancel", table: "GitHubConnection", bundle: .module) }
     static var refresh: String { String(localized: "github.refresh", defaultValue: "Refresh", table: "GitHubConnection", bundle: .module) }
-    static var detail: String { String(localized: "github.detail", defaultValue: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.", table: "GitHubConnection", bundle: .module) }
+    static var detail: String { String(localized: "github.detail", defaultValue: "Connect the cmux GitHub App.", table: "GitHubConnection", bundle: .module) }
     static var signIn: String { String(localized: "github.signIn", defaultValue: "Sign in to cmux to connect GitHub.", table: "GitHubConnection", bundle: .module) }
     static var unavailable: String { String(localized: "github.unavailable", defaultValue: "GitHub connections are unavailable on this deployment.", table: "GitHubConnection", bundle: .module) }
     static var pendingText: String { String(localized: "github.pending", defaultValue: "Finish connecting in your browser, then refresh.", table: "GitHubConnection", bundle: .module) }

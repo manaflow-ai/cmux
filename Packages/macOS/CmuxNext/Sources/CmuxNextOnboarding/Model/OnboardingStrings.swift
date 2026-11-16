@@ -40,13 +40,8 @@ enum OnboardingStrings {
     /// Only Firefox profiles chosen: no Keychain item to allow.
     static var passwordsFirefoxOnly: String {
         String(localized: "onboarding.passwords.firefoxOnly",
-               defaultValue: "Import asks you to confirm with Touch ID or your password. Firefox keeps its key in the profile, so macOS asks for no Keychain item. If a Firefox profile has a primary password, cmux asks for it once and does not keep it.",
+               defaultValue: "Import asks you to confirm with Touch ID or your password.",
                bundle: .module)
-    }
-    /// Follows the Keychain paragraph when the choice mixes Chromium browsers and Firefox.
-    static var passwordsFirefoxPrimary: String {
-        String(localized: "onboarding.passwords.firefoxPrimary",
-               defaultValue: "If a Firefox profile has a primary password, cmux asks for it once and does not keep it.", bundle: .module)
     }
     /// macOS shows it as “cmux is trying to …” in the Touch ID sheet.
     static var passwordsAuthReason: String {
@@ -91,7 +86,7 @@ enum OnboardingStrings {
     }
     static var keepHistoryInSyncHelp: String {
         String(localized: "onboarding.import.keepInSync.help",
-               defaultValue: "New pages you visit in these browsers show up in cmux too. Everything stays on this Mac.", bundle: .module)
+               defaultValue: "New pages you visit in these browsers show up in cmux too.", bundle: .module)
     }
     /// The row menu's accessibility label.
     static var importInto: String { String(localized: "onboarding.import.target.label", defaultValue: "Import Into", bundle: .module) }

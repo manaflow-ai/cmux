@@ -27,10 +27,10 @@ enum CookieImportStrings {
     static var allow: String { t("cookieImport.consent.allow", "Allow") }
     static var deny: String { t("cookieImport.consent.deny", "Deny") }
     static var afterAllow: String {
-        t("cookieImport.consent.afterAllow", "After Allow, macOS asks for your password to unlock the browser’s cookies. Nothing leaves this Mac.")
+        t("cookieImport.consent.afterAllow", "After Allow, macOS asks for your password to unlock the browser’s cookies.")
     }
     static var afterAllowSafari: String {
-        t("cookieImport.consent.afterAllowSafari", "Safari’s cookies need Full Disk Access for cmux in System Settings. Nothing leaves this Mac.")
+        t("cookieImport.consent.afterAllowSafari", "Safari’s cookies need Full Disk Access for cmux in System Settings.")
     }
     static func agentChat(_ name: String) -> String { String(format: t("cookieImport.requester.agentChat", "Agent chat “%@”"), name) }
     static func terminal(_ name: String) -> String { String(format: t("cookieImport.requester.terminal", "Terminal “%@”"), name) }

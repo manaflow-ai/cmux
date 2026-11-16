@@ -104,7 +104,6 @@ export function ImportHistory({ store, strings, layout = "list", defaultOpen = f
         <div className="history-content">
           <header className="history-header">
             <h1>{t("history.title")}</h1>
-            <p className="history-lead">{t("history.subtitle")}</p>
           </header>
           <div className="history-tools">
             {toolsOf(snapshot.rows, strings).map((tool) => (

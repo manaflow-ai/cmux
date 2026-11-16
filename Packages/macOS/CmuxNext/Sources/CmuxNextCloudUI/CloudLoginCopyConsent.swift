@@ -14,8 +14,7 @@ public struct CloudLoginCopyConsent {
     public static var spec: CmuxDialogSpec {
         CmuxDialogSpec(
             title: String(localized: "cloud.loginCopyConsent.title", defaultValue: "Use my Claude login on my own Cloud machines?", table: "CloudCredentialRecovery", bundle: .module),
-            lines: [String(localized: "cloud.loginCopyConsent.body", defaultValue: "cmux copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. It never goes to team or shared machines, and cmux never stores it.", table: "CloudCredentialRecovery", bundle: .module),
-                    String(localized: "cloud.loginCopyConsent.settings", defaultValue: "You can turn this off in Settings > Machines. Without it, each machine offers Sign in to Claude.", table: "CloudCredentialRecovery", bundle: .module)],
+            lines: [String(localized: "cloud.loginCopyConsent.body", defaultValue: "cmux copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in.", table: "CloudCredentialRecovery", bundle: .module)],
             buttons: [.cancel(String(localized: "cloud.loginCopyConsent.decline", defaultValue: "Don't Use", table: "CloudCredentialRecovery", bundle: .module)),
                       CmuxDialogButton(id: accept, title: String(localized: "cloud.loginCopyConsent.accept", defaultValue: "Use My Login", table: "CloudCredentialRecovery", bundle: .module), role: .default)],
             identifier: identifier)

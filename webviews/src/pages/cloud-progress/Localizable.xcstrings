@@ -663,127 +663,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The Cloud machine did not start. Click Retry; Copy Error copies the details. Reason: %@"
+            "value" : "The Cloud machine did not start. Reason: %@"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Cloud マシンを起動できませんでした。［再試行］をクリックしてください。［エラーをコピー］で詳細をコピーできます。理由: %@"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "لم يبدأ الجهاز السحابي. انقر على إعادة المحاولة؛ ينسخ «نسخ الخطأ» التفاصيل. السبب: %@"
+            "state" : "needs_review",
+            "value" : "لم يبدأ الجهاز السحابي. السبب: %@"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mašina u oblaku se nije pokrenula. Kliknite Pokušaj ponovo; Kopiraj grešku kopira detalje. Razlog: %@"
+            "state" : "needs_review",
+            "value" : "Mašina u oblaku se nije pokrenula. Razlog: %@"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Cloud-maskinen startede ikke. Klik på Prøv igen. Kopiér fejl kopierer detaljerne. Årsag: %@"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Cloud-Maschine ist nicht gestartet. Klicke auf „Erneut versuchen“; „Fehler kopieren“ kopiert die Details. Grund: %@"
+            "state" : "needs_review",
+            "value" : "Die Cloud-Maschine ist nicht gestartet. Grund: %@"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "La máquina en la nube no se inició. Haz clic en Reintentar; Copiar error copia los detalles. Motivo: %@"
+            "state" : "needs_review",
+            "value" : "La máquina en la nube no se inició. Motivo: %@"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "La machine cloud n’a pas démarré. Cliquez sur Réessayer ; Copier l’erreur copie les détails. Raison : %@"
+            "state" : "needs_review",
+            "value" : "La machine cloud n’a pas démarré. Raison : %@"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "La macchina cloud non si è avviata. Fai clic su Riprova; Copia errore copia i dettagli. Motivo: %@"
+            "state" : "needs_review",
+            "value" : "La macchina cloud non si è avviata. Motivo: %@"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "ម៉ាស៊ីនពពកមិនបានចាប់ផ្ដើម។ ចុច ព្យាយាមម្ដងទៀត។ ចម្លងកំហុស នឹងចម្លងព័ត៌មានលម្អិត។ មូលហេតុ៖ %@"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "클라우드 머신을 시작하지 못했습니다. 다시 시도를 클릭하세요. 오류 복사로 세부 정보를 복사할 수 있습니다. 이유: %@"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Skymaskinen startet ikke. Klikk Prøv igjen. Kopier feil kopierer detaljene. Årsak: %@"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Maszyna w chmurze nie uruchomiła się. Kliknij Ponów; Kopiuj błąd kopiuje szczegóły. Powód: %@"
+            "state" : "needs_review",
+            "value" : "Maszyna w chmurze nie uruchomiła się. Powód: %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "A máquina na nuvem não iniciou. Clique em Tentar novamente; Copiar erro copia os detalhes. Motivo: %@"
+            "state" : "needs_review",
+            "value" : "A máquina na nuvem não iniciou. Motivo: %@"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Облачная машина не запустилась. Нажмите «Повторить»; «Скопировать ошибку» копирует подробности. Причина: %@"
+            "state" : "needs_review",
+            "value" : "Облачная машина не запустилась. Причина: %@"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "เครื่องคลาวด์ไม่เริ่มทำงาน คลิกลองอีกครั้ง ส่วนคัดลอกข้อผิดพลาดจะคัดลอกรายละเอียด สาเหตุ: %@"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bulut makinesi başlamadı. Yeniden dene'ye tıklayın; Hatayı kopyala ayrıntıları kopyalar. Neden: %@"
+            "state" : "needs_review",
+            "value" : "Bulut makinesi başlamadı. Neden: %@"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Хмарна машина не запустилася. Натисніть «Повторити»; «Скопіювати помилку» копіює подробиці. Причина: %@"
+            "state" : "needs_review",
+            "value" : "Хмарна машина не запустилася. Причина: %@"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Máy Cloud không khởi động được. Bấm Thử lại; Sao chép lỗi sẽ sao chép chi tiết. Lý do: %@"
+            "state" : "needs_review",
+            "value" : "Máy Cloud không khởi động được. Lý do: %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "云机器未能启动。点按“重试”；“复制错误”会复制详细信息。原因：%@"
+            "state" : "needs_review",
+            "value" : "云机器未能启动。原因：%@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "雲端機器未能啟動。按一下「重試」；「拷貝錯誤」會拷貝詳細資訊。原因：%@"
+            "state" : "needs_review",
+            "value" : "雲端機器未能啟動。原因：%@"
           }
         }
       }
@@ -794,127 +794,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The VM exists. This Mac is opening a link to it and waits for its cmux-tui to answer."
+            "value" : "The VM exists."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "VM は作成済みです。この Mac が VM へのリンクを開き、cmux-tui の応答を待っています。"
+            "state" : "needs_review",
+            "value" : "VM は作成済みです。"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "الجهاز الافتراضي موجود. يفتح هذا الـ Mac رابطًا إليه وينتظر استجابة cmux-tui عليه."
+            "state" : "needs_review",
+            "value" : "الجهاز الافتراضي موجود."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "VM postoji. Ovaj Mac otvara vezu prema njemu i čeka da cmux-tui odgovori."
+            "state" : "needs_review",
+            "value" : "VM postoji."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "VM’en findes. Denne Mac åbner en forbindelse til den og venter på svar fra dens cmux-tui."
+            "state" : "needs_review",
+            "value" : "VM’en findes."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die VM existiert. Dieser Mac öffnet eine Verbindung zu ihr und wartet auf die Antwort ihres cmux-tui."
+            "state" : "needs_review",
+            "value" : "Die VM existiert."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "La VM ya existe. Este Mac abre un enlace con ella y espera la respuesta de su cmux-tui."
+            "state" : "needs_review",
+            "value" : "La VM ya existe."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "La VM existe. Ce Mac ouvre une liaison vers elle et attend la réponse de son cmux-tui."
+            "state" : "needs_review",
+            "value" : "La VM existe."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "La VM esiste. Questo Mac apre un collegamento e attende la risposta del suo cmux-tui."
+            "state" : "needs_review",
+            "value" : "La VM esiste."
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "VM មានហើយ។ Mac នេះកំពុងបើកតំណទៅវា ហើយរង់ចាំ cmux-tui របស់វាឆ្លើយតប។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "VM이 만들어졌습니다. 이 Mac이 VM에 연결을 열고 cmux-tui의 응답을 기다리는 중입니다."
+            "state" : "needs_review",
+            "value" : "VM이 만들어졌습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "VM-en finnes. Denne Macen åpner en kobling til den og venter på svar fra cmux-tui."
+            "state" : "needs_review",
+            "value" : "VM-en finnes."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Maszyna wirtualna istnieje. Ten Mac otwiera połączenie i czeka na odpowiedź jej cmux-tui."
+            "state" : "needs_review",
+            "value" : "Maszyna wirtualna istnieje."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "A VM já existe. Este Mac está abrindo um link para ela e aguarda a resposta do cmux-tui."
+            "state" : "needs_review",
+            "value" : "A VM já existe."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "ВМ создана. Этот Mac открывает к ней канал и ждёт ответа её cmux-tui."
+            "state" : "needs_review",
+            "value" : "ВМ создана."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "VM พร้อมแล้ว Mac เครื่องนี้กำลังเปิดลิงก์ไปยัง VM และรอให้ cmux-tui ตอบกลับ"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "VM oluşturuldu. Bu Mac ona bir bağlantı açıyor ve cmux-tui’nin yanıtını bekliyor."
+            "state" : "needs_review",
+            "value" : "VM oluşturuldu."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "ВМ створено. Цей Mac відкриває до неї канал і чекає на відповідь її cmux-tui."
+            "state" : "needs_review",
+            "value" : "ВМ створено."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "VM đã có. Máy Mac này đang mở liên kết đến VM và chờ cmux-tui của nó phản hồi."
+            "state" : "needs_review",
+            "value" : "VM đã có."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "虚拟机已创建。此 Mac 正在打开到它的连接，等待其 cmux-tui 响应。"
+            "state" : "needs_review",
+            "value" : "虚拟机已创建。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "虛擬機器已建立。這台 Mac 正在開啟連線，等待其 cmux-tui 回應。"
+            "state" : "needs_review",
+            "value" : "虛擬機器已建立。"
           }
         }
       }
@@ -1056,127 +1056,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud is creating the VM. A new machine usually takes under a minute."
+            "value" : "cmux Cloud is creating the VM."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud が VM を作成しています。新しいマシンは通常 1 分以内に作成されます。"
+            "state" : "needs_review",
+            "value" : "cmux Cloud が VM を作成しています。"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "يُنشئ cmux Cloud الجهاز الافتراضي. يستغرق الجهاز الجديد عادةً أقل من دقيقة."
+            "state" : "needs_review",
+            "value" : "يُنشئ cmux Cloud الجهاز الافتراضي."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud kreira VM. Nova mašina obično traje manje od minute."
+            "state" : "needs_review",
+            "value" : "cmux Cloud kreira VM."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud opretter VM’en. En ny maskine tager normalt under et minut."
+            "state" : "needs_review",
+            "value" : "cmux Cloud opretter VM’en."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud erstellt die VM. Eine neue Maschine dauert meist weniger als eine Minute."
+            "state" : "needs_review",
+            "value" : "cmux Cloud erstellt die VM."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud está creando la VM. Una máquina nueva suele tardar menos de un minuto."
+            "state" : "needs_review",
+            "value" : "cmux Cloud está creando la VM."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud crée la VM. Une nouvelle machine prend en général moins d’une minute."
+            "state" : "needs_review",
+            "value" : "cmux Cloud crée la VM."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud sta creando la VM. Una nuova macchina di solito richiede meno di un minuto."
+            "state" : "needs_review",
+            "value" : "cmux Cloud sta creando la VM."
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "cmux Cloud កំពុងបង្កើត VM។ ម៉ាស៊ីនថ្មីជាធម្មតាចំណាយពេលតិចជាងមួយនាទី។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud가 VM을 만드는 중입니다. 새 머신은 보통 1분 이내에 준비됩니다."
+            "state" : "needs_review",
+            "value" : "cmux Cloud가 VM을 만드는 중입니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud oppretter VM-en. En ny maskin tar vanligvis under ett minutt."
+            "state" : "needs_review",
+            "value" : "cmux Cloud oppretter VM-en."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud tworzy maszynę wirtualną. Nowa maszyna zwykle zajmuje mniej niż minutę."
+            "state" : "needs_review",
+            "value" : "cmux Cloud tworzy maszynę wirtualną."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "O cmux Cloud está criando a VM. Uma máquina nova costuma levar menos de um minuto."
+            "state" : "needs_review",
+            "value" : "O cmux Cloud está criando a VM."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud создаёт ВМ. Новая машина обычно готова меньше чем за минуту."
+            "state" : "needs_review",
+            "value" : "cmux Cloud создаёт ВМ."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "cmux Cloud กำลังสร้าง VM โดยปกติเครื่องใหม่ใช้เวลาไม่ถึงหนึ่งนาที"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud VM’yi oluşturuyor. Yeni bir makine genellikle bir dakikadan kısa sürer."
+            "state" : "needs_review",
+            "value" : "cmux Cloud VM’yi oluşturuyor."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud створює ВМ. Нова машина зазвичай готова менш ніж за хвилину."
+            "state" : "needs_review",
+            "value" : "cmux Cloud створює ВМ."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud đang tạo VM. Máy mới thường mất chưa đến một phút."
+            "state" : "needs_review",
+            "value" : "cmux Cloud đang tạo VM."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud 正在创建虚拟机。新机器通常不到一分钟。"
+            "state" : "needs_review",
+            "value" : "cmux Cloud 正在创建虚拟机。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud 正在建立虛擬機器。新機器通常不到一分鐘。"
+            "state" : "needs_review",
+            "value" : "cmux Cloud 正在建立虛擬機器。"
           }
         }
       }
@@ -1319,127 +1319,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This machine is paused. Its disk and session are kept. Resume starts it again."
+            "value" : "This machine is paused."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "このマシンは一時停止中です。ディスクとセッションは保持されています。「再開」で再び起動します。"
+            "state" : "needs_review",
+            "value" : "このマシンは一時停止中です。"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "هذا الجهاز متوقف مؤقتًا. يتم الاحتفاظ بقرصه وجلسته. يؤدي الاستئناف إلى تشغيله مرة أخرى."
+            "state" : "needs_review",
+            "value" : "هذا الجهاز متوقف مؤقتًا."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ova mašina je pauzirana. Njen disk i sesija su sačuvani. Nastavi je ponovo pokreće."
+            "state" : "needs_review",
+            "value" : "Ova mašina je pauzirana."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Denne maskine er sat på pause. Dens disk og session bevares. Genoptag starter den igen."
+            "state" : "needs_review",
+            "value" : "Denne maskine er sat på pause."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Diese Maschine ist pausiert. Ihre Festplatte und Sitzung bleiben erhalten. „Fortsetzen“ startet sie wieder."
+            "state" : "needs_review",
+            "value" : "Diese Maschine ist pausiert."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esta máquina está en pausa. Se conservan su disco y su sesión. Reanudar la vuelve a iniciar."
+            "state" : "needs_review",
+            "value" : "Esta máquina está en pausa."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette machine est en pause. Son disque et sa session sont conservés. Reprendre la redémarre."
+            "state" : "needs_review",
+            "value" : "Cette machine est en pause."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Questa macchina è in pausa. Il disco e la sessione sono conservati. Riprendi la avvia di nuovo."
+            "state" : "needs_review",
+            "value" : "Questa macchina è in pausa."
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "ម៉ាស៊ីននេះកំពុងផ្អាក។ ថាស និងវគ្គរបស់វាត្រូវបានរក្សាទុក។ បន្ត នឹងចាប់ផ្ដើមវាម្ដងទៀត។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "이 머신은 일시 정지되었습니다. 디스크와 세션은 유지됩니다. 재개하면 다시 시작됩니다."
+            "state" : "needs_review",
+            "value" : "이 머신은 일시 정지되었습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Denne maskinen er satt på pause. Disken og økten beholdes. Gjenoppta starter den igjen."
+            "state" : "needs_review",
+            "value" : "Denne maskinen er satt på pause."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ta maszyna jest wstrzymana. Jej dysk i sesja są zachowane. Wznów uruchamia ją ponownie."
+            "state" : "needs_review",
+            "value" : "Ta maszyna jest wstrzymana."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esta máquina está pausada. O disco e a sessão dela são mantidos. Retomar a inicia novamente."
+            "state" : "needs_review",
+            "value" : "Esta máquina está pausada."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Эта машина приостановлена. Её диск и сеанс сохранены. «Возобновить» снова запускает её."
+            "state" : "needs_review",
+            "value" : "Эта машина приостановлена."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "เครื่องนี้หยุดชั่วคราวอยู่ ดิสก์และเซสชันของเครื่องยังคงอยู่ ดำเนินการต่อจะเริ่มเครื่องอีกครั้ง"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu makine duraklatıldı. Diski ve oturumu korunur. Sürdür onu yeniden başlatır."
+            "state" : "needs_review",
+            "value" : "Bu makine duraklatıldı."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Цю машину призупинено. Її диск і сеанс збережено. «Відновити» знову запускає її."
+            "state" : "needs_review",
+            "value" : "Цю машину призупинено."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Máy này đang tạm dừng. Ổ đĩa và phiên của máy được giữ lại. Tiếp tục sẽ khởi động lại máy."
+            "state" : "needs_review",
+            "value" : "Máy này đang tạm dừng."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "该机器已暂停。它的磁盘和会话均已保留。点按“恢复”可再次启动。"
+            "state" : "needs_review",
+            "value" : "该机器已暂停。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "此機器已暫停。它的磁碟和工作階段均已保留。按一下「繼續」即可再次啟動。"
+            "state" : "needs_review",
+            "value" : "此機器已暫停。"
           }
         }
       }
@@ -1450,127 +1450,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud paused this machine after it sat idle. Its disk and session are kept. Resume starts it again."
+            "value" : "cmux Cloud paused this machine after it sat idle."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "このマシンはアイドル状態が続いたため、cmux Cloud が一時停止しました。ディスクとセッションは保持されています。「再開」で再び起動します。"
+            "state" : "needs_review",
+            "value" : "このマシンはアイドル状態が続いたため、cmux Cloud が一時停止しました。"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "أوقف cmux Cloud هذا الجهاز مؤقتًا بعد أن ظل خاملًا. يتم الاحتفاظ بقرصه وجلسته. يؤدي الاستئناف إلى تشغيله مرة أخرى."
+            "state" : "needs_review",
+            "value" : "أوقف cmux Cloud هذا الجهاز مؤقتًا بعد أن ظل خاملًا."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud je pauzirao ovu mašinu nakon što je bila neaktivna. Njen disk i sesija su sačuvani. Nastavi je ponovo pokreće."
+            "state" : "needs_review",
+            "value" : "cmux Cloud je pauzirao ovu mašinu nakon što je bila neaktivna."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud satte denne maskine på pause, efter at den havde været inaktiv. Dens disk og session bevares. Genoptag starter den igen."
+            "state" : "needs_review",
+            "value" : "cmux Cloud satte denne maskine på pause, efter at den havde været inaktiv."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud hat diese Maschine pausiert, nachdem sie inaktiv war. Ihre Festplatte und Sitzung bleiben erhalten. „Fortsetzen“ startet sie wieder."
+            "state" : "needs_review",
+            "value" : "cmux Cloud hat diese Maschine pausiert, nachdem sie inaktiv war."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud pausó esta máquina tras un tiempo inactiva. Se conservan su disco y su sesión. Reanudar la vuelve a iniciar."
+            "state" : "needs_review",
+            "value" : "cmux Cloud pausó esta máquina tras un tiempo inactiva."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud a mis cette machine en pause après une période d’inactivité. Son disque et sa session sont conservés. Reprendre la redémarre."
+            "state" : "needs_review",
+            "value" : "cmux Cloud a mis cette machine en pause après une période d’inactivité."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud ha messo in pausa questa macchina dopo un periodo di inattività. Il disco e la sessione sono conservati. Riprendi la avvia di nuovo."
+            "state" : "needs_review",
+            "value" : "cmux Cloud ha messo in pausa questa macchina dopo un periodo di inattività."
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "cmux Cloud បានផ្អាកម៉ាស៊ីននេះ បន្ទាប់ពីវាទំនេរ។ ថាស និងវគ្គរបស់វាត្រូវបានរក្សាទុក។ បន្ត នឹងចាប់ផ្ដើមវាម្ដងទៀត។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "이 머신이 유휴 상태여서 cmux Cloud가 일시 정지했습니다. 디스크와 세션은 유지됩니다. 재개하면 다시 시작됩니다."
+            "state" : "needs_review",
+            "value" : "이 머신이 유휴 상태여서 cmux Cloud가 일시 정지했습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud satte denne maskinen på pause etter at den var inaktiv. Disken og økten beholdes. Gjenoppta starter den igjen."
+            "state" : "needs_review",
+            "value" : "cmux Cloud satte denne maskinen på pause etter at den var inaktiv."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud wstrzymał tę maszynę po okresie bezczynności. Jej dysk i sesja są zachowane. Wznów uruchamia ją ponownie."
+            "state" : "needs_review",
+            "value" : "cmux Cloud wstrzymał tę maszynę po okresie bezczynności."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "O cmux Cloud pausou esta máquina depois que ela ficou ociosa. O disco e a sessão dela são mantidos. Retomar a inicia novamente."
+            "state" : "needs_review",
+            "value" : "O cmux Cloud pausou esta máquina depois que ela ficou ociosa."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud приостановил эту машину после простоя. Её диск и сеанс сохранены. «Возобновить» снова запускает её."
+            "state" : "needs_review",
+            "value" : "cmux Cloud приостановил эту машину после простоя."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "cmux Cloud หยุดเครื่องนี้ชั่วคราวหลังจากไม่มีการใช้งาน ดิสก์และเซสชันของเครื่องยังคงอยู่ ดำเนินการต่อจะเริ่มเครื่องอีกครั้ง"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud bu makineyi boşta kaldıktan sonra duraklattı. Diski ve oturumu korunur. Sürdür onu yeniden başlatır."
+            "state" : "needs_review",
+            "value" : "cmux Cloud bu makineyi boşta kaldıktan sonra duraklattı."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud призупинив цю машину після простою. Її диск і сеанс збережено. «Відновити» знову запускає її."
+            "state" : "needs_review",
+            "value" : "cmux Cloud призупинив цю машину після простою."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud đã tạm dừng máy này sau khi nó không hoạt động. Ổ đĩa và phiên của máy được giữ lại. Tiếp tục sẽ khởi động lại máy."
+            "state" : "needs_review",
+            "value" : "cmux Cloud đã tạm dừng máy này sau khi nó không hoạt động."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "该机器空闲一段时间后，cmux Cloud 已将其暂停。它的磁盘和会话均已保留。点按“恢复”可再次启动。"
+            "state" : "needs_review",
+            "value" : "该机器空闲一段时间后，cmux Cloud 已将其暂停。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "此機器閒置一段時間後，cmux Cloud 已將其暫停。它的磁碟和工作階段均已保留。按一下「繼續」即可再次啟動。"
+            "state" : "needs_review",
+            "value" : "此機器閒置一段時間後，cmux Cloud 已將其暫停。"
           }
         }
       }
@@ -1582,127 +1582,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud is pausing this machine. Its disk and session are kept. Resume works once it is paused."
+            "value" : "cmux Cloud is pausing this machine."
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "يقوم cmux Cloud بإيقاف هذا الجهاز مؤقتًا. يتم الاحتفاظ بقرصه وجلسته. يعمل الاستئناف بعد إيقافه مؤقتًا."
+            "state" : "needs_review",
+            "value" : "يقوم cmux Cloud بإيقاف هذا الجهاز مؤقتًا."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud pauzira ovu mašinu. Njen disk i sesija su sačuvani. Nastavi radi kada bude pauzirana."
+            "state" : "needs_review",
+            "value" : "cmux Cloud pauzira ovu mašinu."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud sætter denne maskine på pause. Dens disk og session bevares. Genoptag virker, når den er sat på pause."
+            "state" : "needs_review",
+            "value" : "cmux Cloud sætter denne maskine på pause."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud pausiert diese Maschine. Ihre Festplatte und Sitzung bleiben erhalten. „Fortsetzen“ geht, sobald sie pausiert ist."
+            "state" : "needs_review",
+            "value" : "cmux Cloud pausiert diese Maschine."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud está pausando esta máquina. Se conservan su disco y su sesión. Reanudar funciona cuando esté en pausa."
+            "state" : "needs_review",
+            "value" : "cmux Cloud está pausando esta máquina."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud met cette machine en pause. Son disque et sa session sont conservés. Reprendre fonctionne une fois qu'elle est en pause."
+            "state" : "needs_review",
+            "value" : "cmux Cloud met cette machine en pause."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud sta mettendo in pausa questa macchina. Il disco e la sessione sono conservati. Riprendi funziona quando è in pausa."
+            "state" : "needs_review",
+            "value" : "cmux Cloud sta mettendo in pausa questa macchina."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud がこのマシンを一時停止しています。ディスクとセッションは保持されます。一時停止が完了すると「再開」できます。"
+            "state" : "needs_review",
+            "value" : "cmux Cloud がこのマシンを一時停止しています。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "cmux Cloud កំពុងផ្អាកម៉ាស៊ីននេះ។ ថាស និងវគ្គរបស់វាត្រូវបានរក្សាទុក។ បន្ត អាចប្រើបាននៅពេលវាផ្អាករួច។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud가 이 머신을 일시 정지하고 있습니다. 디스크와 세션은 유지됩니다. 일시 정지되면 재개할 수 있습니다."
+            "state" : "needs_review",
+            "value" : "cmux Cloud가 이 머신을 일시 정지하고 있습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud setter denne maskinen på pause. Disken og økten beholdes. Gjenoppta virker når den er satt på pause."
+            "state" : "needs_review",
+            "value" : "cmux Cloud setter denne maskinen på pause."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud wstrzymuje tę maszynę. Jej dysk i sesja są zachowane. Wznów zadziała, gdy będzie wstrzymana."
+            "state" : "needs_review",
+            "value" : "cmux Cloud wstrzymuje tę maszynę."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "O cmux Cloud está pausando esta máquina. O disco e a sessão dela são mantidos. Retomar funciona quando ela estiver pausada."
+            "state" : "needs_review",
+            "value" : "O cmux Cloud está pausando esta máquina."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud приостанавливает эту машину. Её диск и сеанс сохранены. «Возобновить» сработает, когда она будет приостановлена."
+            "state" : "needs_review",
+            "value" : "cmux Cloud приостанавливает эту машину."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "cmux Cloud กำลังหยุดเครื่องนี้ชั่วคราว ดิสก์และเซสชันของเครื่องยังคงอยู่ ดำเนินการต่อได้เมื่อหยุดชั่วคราวแล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud bu makineyi duraklatıyor. Diski ve oturumu korunur. Sürdür, makine duraklatıldığında çalışır."
+            "state" : "needs_review",
+            "value" : "cmux Cloud bu makineyi duraklatıyor."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud призупиняє цю машину. Її диск і сеанс збережено. «Відновити» спрацює, коли її буде призупинено."
+            "state" : "needs_review",
+            "value" : "cmux Cloud призупиняє цю машину."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud đang tạm dừng máy này. Ổ đĩa và phiên của máy được giữ lại. Có thể Tiếp tục khi máy đã tạm dừng."
+            "state" : "needs_review",
+            "value" : "cmux Cloud đang tạm dừng máy này."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud 正在暂停该机器。它的磁盘和会话均会保留。暂停完成后即可“恢复”。"
+            "state" : "needs_review",
+            "value" : "cmux Cloud 正在暂停该机器。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud 正在暫停此機器。它的磁碟和工作階段均會保留。暫停完成後即可「繼續」。"
+            "state" : "needs_review",
+            "value" : "cmux Cloud 正在暫停此機器。"
           }
         }
       }
@@ -1976,127 +1976,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud is starting this machine again. It connects once it runs."
+            "value" : "cmux Cloud is starting this machine again."
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "يقوم cmux Cloud بتشغيل هذا الجهاز مرة أخرى. يتصل بمجرد تشغيله."
+            "state" : "needs_review",
+            "value" : "يقوم cmux Cloud بتشغيل هذا الجهاز مرة أخرى."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud ponovo pokreće ovu mašinu. Povezaće se čim se pokrene."
+            "state" : "needs_review",
+            "value" : "cmux Cloud ponovo pokreće ovu mašinu."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud starter denne maskine igen. Den forbinder, så snart den kører."
+            "state" : "needs_review",
+            "value" : "cmux Cloud starter denne maskine igen."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud startet diese Maschine wieder. Sie verbindet sich, sobald sie läuft."
+            "state" : "needs_review",
+            "value" : "cmux Cloud startet diese Maschine wieder."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud está iniciando esta máquina de nuevo. Se conecta en cuanto esté en marcha."
+            "state" : "needs_review",
+            "value" : "cmux Cloud está iniciando esta máquina de nuevo."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud redémarre cette machine. Elle se connecte dès qu'elle tourne."
+            "state" : "needs_review",
+            "value" : "cmux Cloud redémarre cette machine."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud sta riavviando questa macchina. Si connette appena è in esecuzione."
+            "state" : "needs_review",
+            "value" : "cmux Cloud sta riavviando questa macchina."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud がこのマシンを再び起動しています。起動するとすぐに接続します。"
+            "state" : "needs_review",
+            "value" : "cmux Cloud がこのマシンを再び起動しています。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "cmux Cloud កំពុងចាប់ផ្ដើមម៉ាស៊ីននេះម្ដងទៀត។ វានឹងភ្ជាប់នៅពេលវាដំណើរការ។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud가 이 머신을 다시 시작하고 있습니다. 실행되면 바로 연결됩니다."
+            "state" : "needs_review",
+            "value" : "cmux Cloud가 이 머신을 다시 시작하고 있습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud starter denne maskinen igjen. Den kobler til så snart den kjører."
+            "state" : "needs_review",
+            "value" : "cmux Cloud starter denne maskinen igjen."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud ponownie uruchamia tę maszynę. Połączy się, gdy tylko zacznie działać."
+            "state" : "needs_review",
+            "value" : "cmux Cloud ponownie uruchamia tę maszynę."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "O cmux Cloud está iniciando esta máquina novamente. Ela se conecta assim que estiver em execução."
+            "state" : "needs_review",
+            "value" : "O cmux Cloud está iniciando esta máquina novamente."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud снова запускает эту машину. Она подключится, как только заработает."
+            "state" : "needs_review",
+            "value" : "cmux Cloud снова запускает эту машину."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "cmux Cloud กำลังเริ่มเครื่องนี้อีกครั้ง เครื่องจะเชื่อมต่อทันทีที่ทำงาน"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud bu makineyi yeniden başlatıyor. Çalışır çalışmaz bağlanır."
+            "state" : "needs_review",
+            "value" : "cmux Cloud bu makineyi yeniden başlatıyor."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud знову запускає цю машину. Вона підключиться, щойно запрацює."
+            "state" : "needs_review",
+            "value" : "cmux Cloud знову запускає цю машину."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud đang khởi động lại máy này. Máy sẽ kết nối ngay khi chạy."
+            "state" : "needs_review",
+            "value" : "cmux Cloud đang khởi động lại máy này."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud 正在再次启动该机器。它运行后即会连接。"
+            "state" : "needs_review",
+            "value" : "cmux Cloud 正在再次启动该机器。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux Cloud 正在再次啟動此機器。它執行後即會連線。"
+            "state" : "needs_review",
+            "value" : "cmux Cloud 正在再次啟動此機器。"
           }
         }
       }
@@ -3813,126 +3813,126 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The terminal opens here by itself when the machine is ready. Typing starts there."
+            "value" : "The terminal opens here by itself when the machine is ready."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "マシンの準備ができると、ここにターミナルが自動で開きます。入力はそこから始まります。"
+            "state" : "needs_review",
+            "value" : "マシンの準備ができると、ここにターミナルが自動で開きます。"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "تُفتح الطرفية هنا تلقائيًا عندما يصبح الجهاز جاهزًا. تبدأ الكتابة فيها."
+            "state" : "needs_review",
+            "value" : "تُفتح الطرفية هنا تلقائيًا عندما يصبح الجهاز جاهزًا."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal se ovdje otvara sam kada mašina bude spremna. Kucanje počinje tamo."
+            "state" : "needs_review",
+            "value" : "Terminal se ovdje otvara sam kada mašina bude spremna."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen åbner her af sig selv, når maskinen er klar. Indtastning starter der."
+            "state" : "needs_review",
+            "value" : "Terminalen åbner her af sig selv, når maskinen er klar."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Das Terminal öffnet sich hier von selbst, sobald die Maschine bereit ist. Eingaben beginnen dort."
+            "state" : "needs_review",
+            "value" : "Das Terminal öffnet sich hier von selbst, sobald die Maschine bereit ist."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "La terminal se abre aquí sola cuando la máquina está lista. Podrás escribir allí."
+            "state" : "needs_review",
+            "value" : "La terminal se abre aquí sola cuando la máquina está lista."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le terminal s’ouvre ici tout seul quand la machine est prête. La saisie commence là."
+            "state" : "needs_review",
+            "value" : "Le terminal s’ouvre ici tout seul quand la machine est prête."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale si apre qui da solo quando la macchina è pronta. Potrai scrivere lì."
+            "state" : "needs_review",
+            "value" : "Il terminale si apre qui da solo quando la macchina è pronta."
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "ទែមីណាល់នឹងបើកនៅទីនេះដោយស្វ័យប្រវត្តិ ពេលម៉ាស៊ីនរួចរាល់។ ការវាយអក្សរចាប់ផ្ដើមនៅទីនោះ។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "머신이 준비되면 여기에서 터미널이 자동으로 열립니다. 입력은 터미널에서 시작됩니다."
+            "state" : "needs_review",
+            "value" : "머신이 준비되면 여기에서 터미널이 자동으로 열립니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen åpnes her av seg selv når maskinen er klar. Skrivingen starter der."
+            "state" : "needs_review",
+            "value" : "Terminalen åpnes her av seg selv når maskinen er klar."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal otworzy się tutaj sam, gdy maszyna będzie gotowa. Tam zaczniesz pisać."
+            "state" : "needs_review",
+            "value" : "Terminal otworzy się tutaj sam, gdy maszyna będzie gotowa."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal abre aqui sozinho quando a máquina estiver pronta. A digitação começa nele."
+            "state" : "needs_review",
+            "value" : "O terminal abre aqui sozinho quando a máquina estiver pronta."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал откроется здесь сам, когда машина будет готова. Ввод начнётся в нём."
+            "state" : "needs_review",
+            "value" : "Терминал откроется здесь сам, когда машина будет готова."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "เทอร์มินัลจะเปิดที่นี่เองเมื่อเครื่องพร้อม แล้วจึงเริ่มพิมพ์ได้"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Makine hazır olduğunda terminal burada kendiliğinden açılır. Yazmaya orada başlarsınız."
+            "state" : "needs_review",
+            "value" : "Makine hazır olduğunda terminal burada kendiliğinden açılır."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал відкриється тут сам, коли машина буде готова. Введення почнеться в ньому."
+            "state" : "needs_review",
+            "value" : "Термінал відкриється тут сам, коли машина буде готова."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal sẽ tự mở tại đây khi máy sẵn sàng. Bạn sẽ gõ ở đó."
+            "state" : "needs_review",
+            "value" : "Terminal sẽ tự mở tại đây khi máy sẵn sàng."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "机器就绪后，终端会在这里自动打开，届时即可输入。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "機器就緒後，終端機會在這裡自動開啟，屆時即可輸入。"
           }
         }

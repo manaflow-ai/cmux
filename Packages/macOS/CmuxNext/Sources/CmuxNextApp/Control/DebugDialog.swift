@@ -165,7 +165,7 @@ enum DebugDialog {
             "cloudCodexDevice": AgentPaneCloudAsker.spec(CloudPresenter.codexDeviceAsk(CloudCodexLoginPrompt(
                 verificationURL: URL(string: "https://example.com/device") ?? URL(fileURLWithPath: "/"), userCode: "DEMO-CODE"))),
             "cloudCodexRecovery": codexRecoveryFixture(body: CloudPresenter.codexBrokerDisclosure),
-            "cloudCodexRecoveryBefore": codexRecoveryFixture(body: "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM."),
+            "cloudCodexRecoveryBefore": codexRecoveryFixture(body: "cmux will start a fresh Codex device login in a visible local terminal for this VM."),
             "confirm": CmuxDialogSpec(title: "Close Workspace “api”?", lines: ["vim and npm are still running."],
                                       buttons: [.cancel(), CmuxDialogButton(id: "close", title: "Close", role: .destructive)],
                                       identifier: "cmux.dialog.fixture.confirm"),

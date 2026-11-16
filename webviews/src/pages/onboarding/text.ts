@@ -91,11 +91,11 @@ export function quotedList(items: readonly string[], language: string): string {
   }
 }
 
-/** The Keychain explainer's one line: the items macOS asks about; Firefox alone asks for none. */
-export function keychainLine(strings: Strings, keychainItems: readonly string[], includesFirefox: boolean): string {
+/** The Keychain explainer's one line: the items macOS asks about; Firefox alone asks for none.
+ * Firefox's primary password needs no line here: its own prompt asks for it when one is set. */
+export function keychainLine(strings: Strings, keychainItems: readonly string[]): string {
   if (keychainItems.length === 0) return strings.t("onboarding.passwords.firefoxOnly");
-  const line = strings.format("onboarding.unlock.line", quotedList(keychainItems, strings.language));
-  return includesFirefox ? `${line} ${strings.t("onboarding.passwords.firefoxPrimary")}` : line;
+  return strings.format("onboarding.unlock.line", quotedList(keychainItems, strings.language));
 }
 
 const PRIMARY_KEYS: Record<PrimaryAction, string> = {

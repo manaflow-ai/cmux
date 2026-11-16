@@ -38,7 +38,7 @@ enum FirefoxPrimaryPasswordStrings {
 
     static var message: String {
         t("passwords.firefox.primary.message",
-          "This profile protects its saved passwords with a primary password. cmux uses it once to read them and does not keep it.")
+          "This profile protects its saved passwords with a primary password.")
     }
 
     static var field: String { t("passwords.firefox.primary.field", "Primary password") }

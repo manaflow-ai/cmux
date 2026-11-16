@@ -19,13 +19,8 @@
   letter-spacing: var(--text-title--letter-spacing);
 }
 
-.pairing-subtitle,
 .pairing-muted {
   color: var(--page-text-3);
-}
-
-.pairing-subtitle {
-  margin: 2px 0 0;
 }
 
 .pairing-message {

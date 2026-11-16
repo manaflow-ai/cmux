@@ -7,127 +7,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Phone access lets cmux on your iPhone connect to this Mac. Workspace names and terminal output go only over the encrypted link to your phone."
+            "value": "Phone access lets cmux on your iPhone connect to this Mac."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يتيح وصول الهاتف لتطبيق cmux على iPhone الاتصال بهذا الـ Mac. تنتقل أسماء مساحات العمل ومخرجات الطرفية عبر الرابط المشفّر إلى هاتفك فقط."
+            "state": "needs_review",
+            "value": "يتيح وصول الهاتف لتطبيق cmux على iPhone الاتصال بهذا الـ Mac."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pristup telefona omogućava cmuxu na iPhoneu da se poveže s ovim Macom. Nazivi radnih prostora i izlaz terminala idu samo šifriranom vezom do vašeg telefona."
+            "state": "needs_review",
+            "value": "Pristup telefona omogućava cmuxu na iPhoneu da se poveže s ovim Macom."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Adgang fra telefon lader cmux på din iPhone forbinde til denne Mac. Navne på arbejdsområder og terminaloutput sendes kun over den krypterede forbindelse til din telefon."
+            "state": "needs_review",
+            "value": "Adgang fra telefon lader cmux på din iPhone forbinde til denne Mac."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Mit Telefonzugriff verbindet sich cmux auf deinem iPhone mit diesem Mac. Namen von Arbeitsbereichen und Terminalausgaben gehen nur über die verschlüsselte Verbindung zu deinem Telefon."
+            "state": "needs_review",
+            "value": "Mit Telefonzugriff verbindet sich cmux auf deinem iPhone mit diesem Mac."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "El acceso del teléfono permite que cmux en tu iPhone se conecte a este Mac. Los nombres de los espacios de trabajo y la salida del terminal solo viajan por el enlace cifrado a tu teléfono."
+            "state": "needs_review",
+            "value": "El acceso del teléfono permite que cmux en tu iPhone se conecte a este Mac."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "L’accès du téléphone permet à cmux sur votre iPhone de se connecter à ce Mac. Les noms des espaces de travail et la sortie du terminal passent uniquement par le lien chiffré vers votre téléphone."
+            "state": "needs_review",
+            "value": "L’accès du téléphone permet à cmux sur votre iPhone de se connecter à ce Mac."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "L’accesso dal telefono consente a cmux sul tuo iPhone di connettersi a questo Mac. I nomi delle aree di lavoro e l’output del terminale passano solo dal collegamento cifrato verso il tuo telefono."
+            "state": "needs_review",
+            "value": "L’accesso dal telefono consente a cmux sul tuo iPhone di connettersi a questo Mac."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "電話からのアクセスを許可すると、iPhoneのcmuxがこのMacに接続できます。ワークスペース名とターミナル出力は、電話への暗号化された接続だけを通ります。"
+            "state": "needs_review",
+            "value": "電話からのアクセスを許可すると、iPhoneのcmuxがこのMacに接続できます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ការចូលប្រើពីទូរស័ព្ទអនុញ្ញាតឲ្យ cmux នៅលើ iPhone របស់អ្នកភ្ជាប់ទៅ Mac នេះ។ ឈ្មោះកន្លែងធ្វើការ និងលទ្ធផល terminal ឆ្លងកាត់តែតំណដែលបានអ៊ិនគ្រីបទៅទូរស័ព្ទរបស់អ្នកប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "휴대폰 접근을 허용하면 iPhone의 cmux가 이 Mac에 연결할 수 있습니다. 작업 공간 이름과 터미널 출력은 휴대폰과의 암호화된 연결로만 전송됩니다."
+            "state": "needs_review",
+            "value": "휴대폰 접근을 허용하면 iPhone의 cmux가 이 Mac에 연결할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Med telefontilgang kan cmux på iPhonen koble til denne Macen. Navn på arbeidsområder og terminalutdata går bare over den krypterte forbindelsen til telefonen."
+            "state": "needs_review",
+            "value": "Med telefontilgang kan cmux på iPhonen koble til denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dostęp z telefonu pozwala cmux na iPhonie połączyć się z tym Makiem. Nazwy obszarów roboczych i dane z terminala trafiają tylko przez szyfrowane połączenie do telefonu."
+            "state": "needs_review",
+            "value": "Dostęp z telefonu pozwala cmux na iPhonie połączyć się z tym Makiem."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O acesso do celular permite que o cmux no iPhone se conecte a este Mac. Nomes de espaços de trabalho e a saída do terminal passam apenas pelo link criptografado até o seu celular."
+            "state": "needs_review",
+            "value": "O acesso do celular permite que o cmux no iPhone se conecte a este Mac."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Доступ с телефона позволяет cmux на iPhone подключаться к этому Mac. Названия рабочих пространств и вывод терминала передаются только по зашифрованному каналу на ваш телефон."
+            "state": "needs_review",
+            "value": "Доступ с телефона позволяет cmux на iPhone подключаться к этому Mac."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "การเข้าถึงจากโทรศัพท์ทำให้ cmux บน iPhone เชื่อมต่อกับ Mac เครื่องนี้ได้ ชื่อพื้นที่ทำงานและเอาต์พุตเทอร์มินัลจะส่งผ่านลิงก์ที่เข้ารหัสไปยังโทรศัพท์ของคุณเท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Telefon erişimi, iPhone’undaki cmux’un bu Mac’e bağlanmasını sağlar. Çalışma alanı adları ve terminal çıktısı yalnızca telefonuna giden şifreli bağlantıdan geçer."
+            "state": "needs_review",
+            "value": "Telefon erişimi, iPhone’undaki cmux’un bu Mac’e bağlanmasını sağlar."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Доступ із телефона дає змогу cmux на iPhone під’єднуватися до цього Mac. Назви робочих просторів і вивід термінала передаються лише зашифрованим з’єднанням на ваш телефон."
+            "state": "needs_review",
+            "value": "Доступ із телефона дає змогу cmux на iPhone під’єднуватися до цього Mac."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Quyền truy cập từ điện thoại cho phép cmux trên iPhone kết nối tới máy Mac này. Tên không gian làm việc và đầu ra terminal chỉ đi qua kết nối mã hóa tới điện thoại của bạn."
+            "state": "needs_review",
+            "value": "Quyền truy cập từ điện thoại cho phép cmux trên iPhone kết nối tới máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "开启手机访问后，iPhone 上的 cmux 可以连接这台 Mac。工作区名称和终端输出只通过加密连接发送到你的手机。"
+            "state": "needs_review",
+            "value": "开启手机访问后，iPhone 上的 cmux 可以连接这台 Mac。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "開啟手機存取後，iPhone 上的 cmux 可以連線這台 Mac。工作區名稱和終端機輸出只會透過加密連線傳到你的手機。"
+            "state": "needs_review",
+            "value": "開啟手機存取後，iPhone 上的 cmux 可以連線這台 Mac。"
           }
         }
       }
@@ -1710,127 +1710,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in on this Mac and on your iPhone with the same cmux account. Only phones signed in to that account can connect."
+            "value": "Sign in on this Mac and on your iPhone with the same cmux account."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "سجّل الدخول على هذا الـ Mac وعلى iPhone بحساب cmux نفسه. يمكن فقط للهواتف المسجّلة في هذا الحساب الاتصال."
+            "state": "needs_review",
+            "value": "سجّل الدخول على هذا الـ Mac وعلى iPhone بحساب cmux نفسه."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Prijavite se na ovom Macu i na iPhoneu istim cmux računom. Povezati se mogu samo telefoni prijavljeni na taj račun."
+            "state": "needs_review",
+            "value": "Prijavite se na ovom Macu i na iPhoneu istim cmux računom."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Log ind på denne Mac og på din iPhone med den samme cmux-konto. Kun telefoner, der er logget ind på den konto, kan forbinde."
+            "state": "needs_review",
+            "value": "Log ind på denne Mac og på din iPhone med den samme cmux-konto."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Melde dich auf diesem Mac und auf deinem iPhone mit demselben cmux-Konto an. Nur Telefone mit diesem Konto können sich verbinden."
+            "state": "needs_review",
+            "value": "Melde dich auf diesem Mac und auf deinem iPhone mit demselben cmux-Konto an."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Inicia sesión en este Mac y en tu iPhone con la misma cuenta de cmux. Solo pueden conectarse los teléfonos con esa cuenta."
+            "state": "needs_review",
+            "value": "Inicia sesión en este Mac y en tu iPhone con la misma cuenta de cmux."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Connectez-vous sur ce Mac et sur votre iPhone avec le même compte cmux. Seuls les téléphones connectés à ce compte peuvent se connecter."
+            "state": "needs_review",
+            "value": "Connectez-vous sur ce Mac et sur votre iPhone avec le même compte cmux."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Accedi su questo Mac e sul tuo iPhone con lo stesso account cmux. Solo i telefoni con quell’account possono connettersi."
+            "state": "needs_review",
+            "value": "Accedi su questo Mac e sul tuo iPhone con lo stesso account cmux."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "このMacとiPhoneで同じcmuxアカウントにサインインしてください。そのアカウントでサインインした電話だけが接続できます。"
+            "state": "needs_review",
+            "value": "このMacとiPhoneで同じcmuxアカウントにサインインしてください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ចូលនៅលើ Mac នេះ និងលើ iPhone របស់អ្នកដោយប្រើគណនី cmux ដូចគ្នា។ មានតែទូរស័ព្ទដែលចូលគណនីនោះប៉ុណ្ណោះដែលអាចភ្ជាប់បាន។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac과 iPhone에서 같은 cmux 계정으로 로그인하세요. 그 계정으로 로그인한 휴대폰만 연결할 수 있습니다."
+            "state": "needs_review",
+            "value": "이 Mac과 iPhone에서 같은 cmux 계정으로 로그인하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Logg på denne Macen og iPhonen med den samme cmux-kontoen. Bare telefoner som er logget på den kontoen, kan koble til."
+            "state": "needs_review",
+            "value": "Logg på denne Macen og iPhonen med den samme cmux-kontoen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zaloguj się na tym Macu i na iPhonie tym samym kontem cmux. Połączyć mogą się tylko telefony zalogowane na to konto."
+            "state": "needs_review",
+            "value": "Zaloguj się na tym Macu i na iPhonie tym samym kontem cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Inicie sessão neste Mac e no seu iPhone com a mesma conta do cmux. Só celulares conectados a essa conta podem se conectar."
+            "state": "needs_review",
+            "value": "Inicie sessão neste Mac e no seu iPhone com a mesma conta do cmux."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Войдите на этом Mac и на iPhone в одну и ту же учётную запись cmux. Подключиться могут только телефоны с этой учётной записью."
+            "state": "needs_review",
+            "value": "Войдите на этом Mac и на iPhone в одну и ту же учётную запись cmux."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ลงชื่อเข้าใช้บน Mac เครื่องนี้และบน iPhone ด้วยบัญชี cmux เดียวกัน เฉพาะโทรศัพท์ที่ลงชื่อเข้าใช้บัญชีนั้นเท่านั้นที่เชื่อมต่อได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac’te ve iPhone’unda aynı cmux hesabıyla giriş yap. Yalnızca bu hesapla giriş yapmış telefonlar bağlanabilir."
+            "state": "needs_review",
+            "value": "Bu Mac’te ve iPhone’unda aynı cmux hesabıyla giriş yap."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Увійдіть на цьому Mac і на iPhone в той самий обліковий запис cmux. Під’єднатися можуть лише телефони з цим обліковим записом."
+            "state": "needs_review",
+            "value": "Увійдіть на цьому Mac і на iPhone в той самий обліковий запис cmux."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Đăng nhập trên máy Mac này và trên iPhone bằng cùng một tài khoản cmux. Chỉ điện thoại đăng nhập tài khoản đó mới kết nối được."
+            "state": "needs_review",
+            "value": "Đăng nhập trên máy Mac này và trên iPhone bằng cùng một tài khoản cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "请在这台 Mac 和你的 iPhone 上登录同一个 cmux 账户。只有登录该账户的手机才能连接。"
+            "state": "needs_review",
+            "value": "请在这台 Mac 和你的 iPhone 上登录同一个 cmux 账户。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "請在這台 Mac 與你的 iPhone 上登入同一個 cmux 帳號。只有登入該帳號的手機才能連線。"
+            "state": "needs_review",
+            "value": "請在這台 Mac 與你的 iPhone 上登入同一個 cmux 帳號。"
           }
         }
       }
@@ -2748,137 +2748,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "步驟"
-          }
-        }
-      }
-    },
-    "mobilePairing.page.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use this Mac’s workspaces and terminals from cmux on your iPhone."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استخدم مساحات العمل والطرفيات على هذا الـ Mac من cmux على iPhone."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koristite radne prostore i terminale ovog Maca iz cmuxa na svom iPhoneu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Brug denne Macs arbejdsområder og terminaler fra cmux på din iPhone."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nutze die Arbeitsbereiche und Terminals dieses Mac in cmux auf deinem iPhone."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usa los espacios de trabajo y terminales de este Mac desde cmux en tu iPhone."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisez les espaces de travail et terminaux de ce Mac depuis cmux sur votre iPhone."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usa le aree di lavoro e i terminali di questo Mac da cmux sul tuo iPhone."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このMacのワークスペースとターミナルを、iPhoneのcmuxから使えます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ប្រើកន្លែងធ្វើការ និង terminal របស់ Mac នេះពី cmux នៅលើ iPhone របស់អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iPhone의 cmux에서 이 Mac의 작업 공간과 터미널을 사용하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bruk arbeidsområdene og terminalene på denne Macen fra cmux på iPhonen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Korzystaj z obszarów roboczych i terminali tego Maca w cmux na iPhonie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use os espaços de trabalho e terminais deste Mac no cmux do seu iPhone."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Работайте с рабочими пространствами и терминалами этого Mac из cmux на iPhone."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ใช้พื้นที่ทำงานและเทอร์มินัลของ Mac เครื่องนี้จาก cmux บน iPhone ของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac’in çalışma alanlarını ve terminallerini iPhone’undaki cmux’tan kullan."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Користуйтеся робочими просторами й терміналами цього Mac із cmux на iPhone."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dùng không gian làm việc và terminal của máy Mac này từ cmux trên iPhone."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 iPhone 上的 cmux 中使用这台 Mac 的工作区和终端。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 iPhone 上的 cmux 使用這台 Mac 的工作區和終端機。"
           }
         }
       }
