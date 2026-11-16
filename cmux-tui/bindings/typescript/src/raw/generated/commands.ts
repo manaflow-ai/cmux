@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf. */
+/* cmux-tui mux protocol 12, IR 19bb1d3914ce304254369d796e55ccb5d5cb22ee059bf054b4f71994ecf2185d. */
 
 
 import type * as T from "./types.js";
@@ -1764,6 +1764,8 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "owner"?: (string) | null;
   "page"?: (string) | null;
   "pane"?: (T.Id) | null;
+  /** Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split. */
+  "place"?: (T.TabPlace) | null;
   "route"?: (string) | null;
   "rows"?: (number) | null;
   /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction. */
@@ -1793,11 +1795,15 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "idempotency_key"?: (string) | null;
   "owner"?: (string) | null;
   "pane"?: (T.Id) | null;
+  /** Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split. */
+  "place"?: (T.TabPlace) | null;
   "profile_id"?: (string) | null;
   "rows"?: (number) | null;
   /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after. */
   "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
+  /** Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split. */
+  "transaction"?: (string) | null;
   "url": string;
   /** Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split. */
   "workspace"?: (T.Id) | null;
@@ -1897,9 +1903,13 @@ export interface NewTabRequest extends CmuxRequestBase {
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
   "pane"?: (T.Id) | null;
+  /** Where the tab goes in the strip of pane. Needs pane. */
+  "place"?: (T.TabPlace) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
+  /** Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. */
+  "transaction"?: (string) | null;
 }
 export type NewTabResult = T.SurfaceResult;
 

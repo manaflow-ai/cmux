@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf'
+IR_SHA256 = '19bb1d3914ce304254369d796e55ccb5d5cb22ee059bf054b4f71994ecf2185d'
 
 
 @dataclass(frozen=True)
@@ -2291,6 +2291,7 @@ COMMANDS = {
             'owner': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, 'page-tabs-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'place': CommandFieldMetadata(None, 'tab-create-place-v1'),
             'route': CommandFieldMetadata(None, 'page-tab-route-v1'),
             'rows': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, 'conversation-tab-split-v1'),
@@ -2314,10 +2315,12 @@ COMMANDS = {
             'idempotency_key': CommandFieldMetadata(None, None),
             'owner': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+            'place': CommandFieldMetadata(None, 'tab-create-place-v1'),
             'profile_id': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, 'frontend-browser-tab-split-v1'),
             'title': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, 'tab-create-place-v1'),
             'url': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, 'frontend-browser-tab-workspace-v1'),
         },
@@ -2441,9 +2444,11 @@ COMMANDS = {
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'place': CommandFieldMetadata(12, 'tab-create-place-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'transaction': CommandFieldMetadata(12, 'tab-create-place-v1'),
         },
     ),
     'new-workspace': CommandMetadata(

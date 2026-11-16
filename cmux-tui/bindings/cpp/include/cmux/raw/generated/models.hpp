@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf";
+inline constexpr std::string_view kProtocolIrSha256 = "19bb1d3914ce304254369d796e55ccb5d5cb22ee059bf054b4f71994ecf2185d";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -222,6 +222,7 @@ struct TabGroupEndedTerminal;
 struct TabGroupOutcome;
 struct TabGroupRecord;
 struct TabGroupRun;
+struct TabPlace;
 struct TabRef;
 struct TerminalClipboardHost;
 enum class TerminalClipboardHostKind;
@@ -4155,6 +4156,15 @@ struct NewBrowserTabRequest {
     friend bool operator==(const NewBrowserTabRequest&, const NewBrowserTabRequest&) = default;
 };
 
+struct TabPlace {
+    Field<Id> after{};
+    Field<std::string> after_creation{};
+    Field<Id> before{};
+    Field<bool> joins{};
+    Field<bool> start{};
+    friend bool operator==(const TabPlace&, const TabPlace&) = default;
+};
+
 struct NewConversationTabRequest {
     Field<AgentSessionSource> agent_session{};
     Field<std::uint16_t> cols{};
@@ -4164,6 +4174,7 @@ struct NewConversationTabRequest {
     Field<std::string> owner{};
     Field<std::string> page{};
     Field<Id> pane{};
+    Field<TabPlace> place{};
     Field<std::string> route{};
     Field<std::uint16_t> rows{};
     Field<ConversationTabSplit> split{};
@@ -4191,10 +4202,12 @@ struct NewFrontendBrowserTabRequest {
     Field<std::string> idempotency_key{};
     Field<std::string> owner{};
     Field<Id> pane{};
+    Field<TabPlace> place{};
     Field<std::string> profile_id{};
     Field<std::uint16_t> rows{};
     Field<ConversationTabSplit> split{};
     Field<std::string> title{};
+    Field<std::string> transaction{};
     std::string url{};
     Field<Id> workspace{};
     friend bool operator==(const NewFrontendBrowserTabRequest&, const NewFrontendBrowserTabRequest&) = default;
@@ -4301,9 +4314,11 @@ struct NewTabRequest {
     Field<std::map<std::string, std::string, std::less<>>> env{};
     std::optional<bool> keep{};
     Field<Id> pane{};
+    Field<TabPlace> place{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
+    Field<std::string> transaction{};
     friend bool operator==(const NewTabRequest&, const NewTabRequest&) = default;
 };
 
@@ -5888,6 +5903,7 @@ struct SurfaceResult {
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     std::optional<std::string> terminal_resource_id{};
+    std::optional<std::string> transaction{};
     std::optional<std::string> workspace_id{};
     friend bool operator==(const SurfaceResult&, const SurfaceResult&) = default;
 };
@@ -5905,6 +5921,7 @@ struct TabAddedEvent {
     Id pane{};
     Id screen{};
     Id surface{};
+    Field<std::string> transaction{};
     Id workspace{};
     friend bool operator==(const TabAddedEvent&, const TabAddedEvent&) = default;
 };
@@ -7860,6 +7877,12 @@ template <>
 struct Codec<TabGroupRun> {
     static Result<Json> encode(const TabGroupRun& value);
     static Result<TabGroupRun> decode(const Json& value);
+};
+
+template <>
+struct Codec<TabPlace> {
+    static Result<Json> encode(const TabPlace& value);
+    static Result<TabPlace> decode(const Json& value);
 };
 
 template <>

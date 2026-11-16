@@ -188,6 +188,7 @@ MODEL_BY_PATH = {
     'types/TabGroupOutcome': models.TabGroupOutcome,
     'types/TabGroupRecord': models.TabGroupRecord,
     'types/TabGroupRun': models.TabGroupRun,
+    'types/TabPlace': models.TabPlace,
     'types/TerminalClipboardHost': models.TerminalClipboardHost,
     'types/TerminalClipboardReplyResult': models.TerminalClipboardReplyResult,
     'types/TerminalClipboardSubscribeResult': models.TerminalClipboardSubscribeResult,

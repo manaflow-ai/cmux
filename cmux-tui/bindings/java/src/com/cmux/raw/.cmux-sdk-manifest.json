@@ -782,8 +782,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "551b01b5b079d711de4a1b7e65ac7d2a0ec9b8ad1d695c17ee61c8c72c73af1e",
-      "size": 83795
+      "sha256": "a3c78b27f80617634dae81185eac9829a7f9b2dcdc3351ca1d14cedb8681b852",
+      "size": 84078
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1992,8 +1992,8 @@
     },
     {
       "path": "NewConversationTabRequest.java",
-      "sha256": "48220f72500dfb32fadd17aec4ead52fe883652476a418ba8eb783b7da6fb093",
-      "size": 10319
+      "sha256": "e79a7fed3d1529b122f062e29cca0c0ae9ea25f909473af127eb80c26f11e10c",
+      "size": 11125
     },
     {
       "path": "NewConversationTabResult.java",
@@ -2002,8 +2002,8 @@
     },
     {
       "path": "NewFrontendBrowserTabRequest.java",
-      "sha256": "f89ff90201525730679573ad7314920f7aa5062686ca339322cc529fca182821",
-      "size": 10999
+      "sha256": "d23d0bde2d71fa3e6bddd5639fddd31bba5956cbc8e60c8163d8b8d38a3e6723",
+      "size": 12698
     },
     {
       "path": "NewPaneRequest.java",
@@ -2037,8 +2037,8 @@
     },
     {
       "path": "NewTabRequest.java",
-      "sha256": "03bdb258ea26c01249bda64ac6a0ac83cd1c32569fc66ada23185f36545e67e9",
-      "size": 6426
+      "sha256": "4de7ad14de77d4a416ceb5274fd1c086c4570e3c384d85e62ed7e364e7a3ef60",
+      "size": 8024
     },
     {
       "path": "NewWorkspaceRequest.java",
@@ -2217,7 +2217,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "60d89a5db7e8f0eff97365c12d13170e6cdb0ab7ca404fd5f74cdb5e4668365a",
+      "sha256": "087255e4e216f7ede3b7d794df93b8a403370b9f03f6c870df49c70e7c88a9db",
       "size": 8232
     },
     {
@@ -3152,8 +3152,8 @@
     },
     {
       "path": "SurfaceResult.java",
-      "sha256": "1eb3f195856d560eb5b29fcf28ddbf6294eb8fd8d72351973092063b59315105",
-      "size": 6894
+      "sha256": "5587541db8982cb54edb79dae2571d194c8fb8d2aa69dd859a8b6e5e7bab3d64",
+      "size": 7646
     },
     {
       "path": "SwapPaneRequest.java",
@@ -3167,8 +3167,8 @@
     },
     {
       "path": "TabAddedEvent.java",
-      "sha256": "a28562ddafd4aa06572849fbbf1fbfb78a975aa4896231dd4c262e16b3a3be29",
-      "size": 5555
+      "sha256": "5a017e690b3b66cb8861f0d1fc8e86b0c9f9a8f9a341bc9c05b77728cb4ab223",
+      "size": 6421
     },
     {
       "path": "TabBrowserSource.java",
@@ -3214,6 +3214,11 @@
       "path": "TabKind.java",
       "sha256": "574fa6b43bb269754219908f75af61b0a0d23b82c218e397da066907a7fc4bac",
       "size": 889
+    },
+    {
+      "path": "TabPlace.java",
+      "sha256": "3be0f47a6b6ec9347fa4964f9f4342686872e77c04c072a5febb26b486034c13",
+      "size": 4820
     },
     {
       "path": "TabRenamedEvent.java",
@@ -3742,7 +3747,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf",
+  "ir_sha256": "19bb1d3914ce304254369d796e55ccb5d5cb22ee059bf054b4f71994ecf2185d",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
