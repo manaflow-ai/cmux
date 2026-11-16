@@ -208,6 +208,7 @@ def generated_family(path: str) -> str | None:
         spec = importlib.util.spec_from_file_location("generated_merge", TOOLS_ROOT / "scripts/cmux-next/generated_merge.py")
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
+        sys.modules[spec.name] = module  # dataclasses look their module up while the class is made
         spec.loader.exec_module(module)
         _GENERATED_CATALOG[:] = [module, module.Catalog(TOOLS_ROOT)]
     module, catalog = _GENERATED_CATALOG

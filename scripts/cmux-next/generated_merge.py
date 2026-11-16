@@ -195,6 +195,7 @@ def _load_guard(repo: Path):
     spec = importlib.util.spec_from_file_location("generated_files_guard_for_merge", repo / GUARD)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    sys.modules[spec.name] = module  # dataclasses look their module up while the class is made
     spec.loader.exec_module(module)
     return module
 
