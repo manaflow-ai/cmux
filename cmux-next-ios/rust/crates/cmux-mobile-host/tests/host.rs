@@ -1791,12 +1791,14 @@ async fn device_traffic_reads_back_a_phones_bytes_over_the_link_socket() {
     assert!(total_in(&after) - total_in(&before) >= BYTES as u64, "{after}");
 
     if let Some(cli) = std::env::var_os("CMUX_TRAFFIC_CLI") {
-        let run = |args: &'static [&'static str]| {
-            let mut command = tokio::process::Command::new(&cli);
-            command.arg("--socket").arg(&daemon_socket).args(args);
-            command
-        };
-        let json = run(&["device", "traffic", "--json"]).output().await.expect("cmux device traffic --json");
+        // As typed in a cmux terminal (the session socket from the environment),
+        // and with --socket for the table.
+        let json = tokio::process::Command::new(&cli)
+            .args(["device", "traffic", "--json"])
+            .env("CMUX_TUI_SOCKET", &daemon_socket)
+            .output()
+            .await
+            .expect("cmux device traffic --json");
         let stdout = String::from_utf8_lossy(&json.stdout);
         eprintln!("cmux device traffic --json (rc {:?}): {stdout}", json.status.code());
         eprintln!("stderr: {}", String::from_utf8_lossy(&json.stderr));
@@ -1805,7 +1807,13 @@ async fn device_traffic_reads_back_a_phones_bytes_over_the_link_socket() {
         assert_eq!(answer["pid"], std::process::id());
         let (cli_in, cli_out) = traffic_row(&answer, "control");
         assert!(cli_in >= in_after && cli_out >= out_after, "{answer}");
-        let table = run(&["device", "traffic"]).output().await.expect("cmux device traffic");
+        let table = tokio::process::Command::new(&cli)
+            .arg("--socket")
+            .arg(&daemon_socket)
+            .args(["device", "traffic"])
+            .output()
+            .await
+            .expect("cmux device traffic");
         let text = String::from_utf8_lossy(&table.stdout);
         eprintln!("cmux device traffic (rc {:?}):\n{text}", table.status.code());
         assert!(table.status.success());

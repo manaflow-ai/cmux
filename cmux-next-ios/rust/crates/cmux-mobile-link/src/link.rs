@@ -1218,7 +1218,7 @@ impl ChannelSender {
             match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
                 Pushed::Queued => {
                     if let Some(meter) = &self.meter {
-                        let _ = (meter, size);
+                        meter.add_sent(size);
                     }
                 }
                 Pushed::Shutdown => return Err(self.inner.closed_error()),
@@ -1276,7 +1276,7 @@ impl ChannelReceiver {
                 match &event {
                     ChannelEvent::Data(data) => {
                         if let Some(meter) = &self.meter {
-                            let _ = (meter, data.len());
+                            meter.add_received(data.len());
                         }
                     }
                     ChannelEvent::Closed(_) => self.done = true,
