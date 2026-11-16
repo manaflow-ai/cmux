@@ -196,11 +196,11 @@ impl ActIdRing {
     pub fn remember_receipt(&mut self, receipt: ActIdReceipt) -> io::Result<()> {
         self.entries.retain(|entry| entry.id_hash != receipt.id_hash);
         self.entries.push_back(receipt);
-        if self.entries.len() > ACT_ID_CAPACITY {
-            if let Some(evicted) = self.entries.pop_front() {
-                self.floor =
-                    Some(self.floor.map_or(evicted.ack_seq, |floor| floor.max(evicted.ack_seq)));
-            }
+        if self.entries.len() > ACT_ID_CAPACITY
+            && let Some(evicted) = self.entries.pop_front()
+        {
+            self.floor =
+                Some(self.floor.map_or(evicted.ack_seq, |floor| floor.max(evicted.ack_seq)));
         }
         Ok(())
     }
