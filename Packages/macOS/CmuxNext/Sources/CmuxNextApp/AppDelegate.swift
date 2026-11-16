@@ -351,7 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UserOnlySettingConfirmation.install(settings, services: services)
         // Every palette-exposed schema setting in the palette (R93).
         services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
-            services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
+            services?.windows.active.map { SettingOption.swatches(of: $0.themeScope.tokens) } ?? []
         }
         services.history.startDaemonSync(settings: settings)
         services.locationTrail.watchScope(settings: settings)

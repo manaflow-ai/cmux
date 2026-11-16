@@ -1,0 +1,309 @@
+{
+  "title": "Change Font…: the font picker in each layout (palette.fontPickerStyle): every family in its own face, the target strip, the sample and the size and line height sliders",
+  "settings": {
+    "terminal": {
+      "fontFamily": "Menlo",
+      "fontSize": 13
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Layout: dock",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "palette.fontPickerStyle",
+          "value": "dock"
+        }
+      },
+      "shot": false,
+      "optional": "debug.tunables is DEBUG only"
+    },
+    {
+      "title": "Open Change Font…",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "query": "change font"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Run it",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "return",
+          "target": "palette"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Dock: Terminal fonts, each in its own face; Menlo current",
+      "wait": 0.5
+    },
+    {
+      "title": "Down to the next family",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "down",
+          "target": "palette"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Size up two steps",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "=",
+          "modifiers": [
+            "cmd"
+          ],
+          "target": "palette"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Size up",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "=",
+          "modifiers": [
+            "cmd"
+          ],
+          "target": "palette"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Dock: the highlighted family at 15 pt, previewed in the sample",
+      "wait": 0.5
+    },
+    {
+      "title": "Tab to the next target",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "tab",
+          "target": "palette"
+        }
+      },
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "Dock: the next target; its own sizes",
+      "wait": 0.5
+    },
+    {
+      "title": "Leave (everything restores)",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    },
+    {
+      "title": "Close the palette",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "already closed"
+    },
+    {
+      "title": "Layout: inline",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "palette.fontPickerStyle",
+          "value": "inline"
+        }
+      },
+      "shot": false,
+      "optional": "debug.tunables is DEBUG only"
+    },
+    {
+      "title": "Open Change Font…",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "query": "change font"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Run it",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "return",
+          "target": "palette"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Down to the next family",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "down",
+          "target": "palette"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Inline: a sample on every row, both sliders in one line",
+      "wait": 0.5
+    },
+    {
+      "title": "Leave",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    },
+    {
+      "title": "Close the palette",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "already closed"
+    },
+    {
+      "title": "Layout: side",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "palette.fontPickerStyle",
+          "value": "side"
+        }
+      },
+      "shot": false,
+      "optional": "debug.tunables is DEBUG only"
+    },
+    {
+      "title": "Open Change Font…",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "query": "change font"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Run it",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "return",
+          "target": "palette"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Down to the next family",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "down",
+          "target": "palette"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Side: targets, sample and sliders in a column beside the families",
+      "wait": 0.5
+    },
+    {
+      "title": "Leave",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    },
+    {
+      "title": "Close the palette",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "already closed"
+    }
+  ]
+}

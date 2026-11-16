@@ -7,6 +7,8 @@ public final class SettingsPaletteProvider: PaletteProvider {
     public let id = "settings"
     public let showsItemsForEmptyQuery: Bool
     private let source: any PaletteSettingsSource
+    /// The font picker's last target, so Change Font… reopens where it was left.
+    private let fontTarget = PaletteFontTargetMemory()
 
     public init(source: any PaletteSettingsSource, showsItemsForEmptyQuery: Bool) {
         self.source = source
@@ -38,9 +40,13 @@ public final class SettingsPaletteProvider: PaletteProvider {
         row.isFontFamily || row.id.localizedCaseInsensitiveContains("font")
     }
 
-    /// Change Font…: one page of the font settings (terminal, chat, code, editor, Markdown), each
-    /// opening its value list, where the fonts draw in their own face, recent ones first.
+    /// Change Font…: the font picker (``PaletteFontPage``). One page for every surface's font: the
+    /// families of one target (Terminal first, else the one used last) drawn in their own face, a
+    /// target strip to switch surfaces, a sample and size and line height sliders. Every move previews
+    /// family, size and line height together in the surface; Return writes them in one write. Without
+    /// a target (no font family setting listed) it is the list of font settings it used to be.
     private func changeFontItem(_ rows: [PaletteSettingRow]) -> PaletteItem {
+        let source = source, memory = fontTarget
         let section = PaletteSection(id: "fonts", title: PaletteStrings.changeFont, order: 0)
         let items = rows.map { row in
             var item = item(row)
@@ -48,14 +54,18 @@ public final class SettingsPaletteProvider: PaletteProvider {
             item.isDemoted = false
             return item
         }
-        let page = PalettePageSpec(
-            id: "settings:fonts", title: PaletteStrings.changeFont, placeholder: PaletteStrings.changeFont, symbol: "textformat",
+        let settingsList = PalettePageSpec(
+            id: PaletteFontPage.id, title: PaletteStrings.changeFont, placeholder: PaletteStrings.changeFont, symbol: "textformat",
             providers: [StaticPaletteProvider(id: "font-settings", items: items)], keepsSectionOrder: true
         )
         return PaletteItem(
             id: "settings:changeFont", title: PaletteStrings.changeFont, symbol: "textformat", section: Self.section,
             keywords: ["font", "fonts", "typeface", "family", "terminal", "chat", "code", "editor", "markdown", "size", "line height"],
-            primary: PaletteCommand(id: "choose", title: PaletteStrings.choose, symbol: "return", effect: .push(page)),
+            primary: PaletteCommand(id: "choose", title: PaletteStrings.choose, symbol: "return", effect: .deferred {
+                // The rows as they are now: a font kept a moment ago is the current one.
+                guard let tuner = PaletteFontTuner(rows: source.rows, source: source, memory: memory) else { return .push(settingsList) }
+                return .push(PaletteFontPage.page(tuner))
+            }),
             frecencyKey: "settings:changeFont"
         )
     }

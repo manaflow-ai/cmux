@@ -25,6 +25,11 @@ public final class SettingsController {
     public private(set) var snapshot: CmuxConfigSnapshot = .empty
     /// The dotted key the palette previews now (`preview`), or nil.
     public internal(set) var previewingKey: String?
+    /// Every key the shown preview sets (`preview(_:)` with several edits); empty while none shows.
+    public internal(set) var previewingKeys: Set<String> = []
+    /// The shown preview is the font picker's: its terminal font steps show in the terminal
+    /// (`lookFollowed`). Ends with the preview.
+    public var previewsTerminalFont = false
     /// The snapshot a preview shows, or nil while none does (`preview`).
     public internal(set) var previewSnapshot: CmuxConfigSnapshot?
     /// The settings in effect: a preview's snapshot while one shows, else the loaded one. Live
@@ -474,6 +479,8 @@ public final class SettingsController {
             lastSource = loaded.inputs
             // A file change ends a preview: the loaded values apply.
             previewingKey = nil
+            previewingKeys = []
+            previewsTerminalFont = false
             previewSnapshot = nil
             diagnostics = applier.apply(loaded.snapshot)
             // For the next launch: AppKit keeps this launch's text weight (ProcessFontSmoothing).

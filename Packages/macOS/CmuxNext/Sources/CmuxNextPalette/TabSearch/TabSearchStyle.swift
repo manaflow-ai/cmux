@@ -36,5 +36,11 @@ public nonisolated enum PaletteTunables {
         help: "How a palette row that flips a state (Focus Ring, Left Sidebar, a Settings switch) shows whether it is on now. Applies the next time the palette opens.",
         default: .stateWord, code: "PaletteTunables.toggleStyle")
 
-    public static var all: [TunableDescriptor] { [tabSearchStyle.descriptor, toggleStyle.descriptor] + scopeDescriptors }
+    /// The font picker's layout (the gallery's variants, ``PaletteFontPickerStyle``).
+    public static let fontPickerStyle = Tunable<PaletteFontPickerStyle>.choice(
+        "palette.fontPickerStyle", .palette, "Font picker layout",
+        help: "How Change Font… lays out its families, sample and size and line height sliders. Applies the next time it opens.",
+        default: .dock, code: "PaletteTunables.fontPickerStyle")
+
+    public static var all: [TunableDescriptor] { [tabSearchStyle.descriptor, toggleStyle.descriptor, fontPickerStyle.descriptor] + scopeDescriptors }
 }

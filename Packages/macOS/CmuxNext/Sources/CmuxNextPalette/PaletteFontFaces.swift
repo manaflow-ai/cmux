@@ -19,8 +19,21 @@ final class PaletteFontFaces {
     func font(family: String, size: CGFloat) -> NSFont? {
         let key = Key(family: family, size: size)
         if let font = fonts[key] { return font }
-        let made = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size)
+        let made = Self.systemFace(family, size: size) ?? NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size)
         if fonts.count < Self.limit { fonts[key] = made }
         return made
+    }
+
+    /// The system's own faces by the names a choice of fonts gives them (`.system`, `.serif`,
+    /// `.mono`): no family name reaches them through the font manager.
+    private static func systemFace(_ name: String, size: CGFloat) -> NSFont? {
+        switch name {
+        case ".system": return NSFont.systemFont(ofSize: size)
+        case ".mono": return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        case ".serif":
+            let base = NSFont.systemFont(ofSize: size)
+            return base.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: size) }
+        default: return nil
+        }
     }
 }

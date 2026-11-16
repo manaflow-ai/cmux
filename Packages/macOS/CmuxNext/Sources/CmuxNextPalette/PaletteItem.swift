@@ -55,6 +55,8 @@ public struct PaletteItem: Identifiable {
     /// A font family the title draws in (a font setting's values show each
     /// font in its own face). Nil, or a family not installed, draws the body font.
     public var fontFamily: String?
+    /// The subtitle draws in `fontFamily`'s face too (a font row's sample).
+    public var subtitleInFace = false
     /// A group color drawn as a ball in the icon's place, resolved by the row in its window's
     /// theme scope (a room's theme) and again on a theme change (cx-wqn5).
     public var ball: PaletteBall?

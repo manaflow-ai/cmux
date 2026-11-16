@@ -95,6 +95,9 @@ public struct PalettePageSpec {
     public var initialQuerySelection: Int?
     /// Values chosen so far on a multi-value step, drawn as chips before the query.
     public var tokens: [PaletteToken] = []
+    /// The font picker's state: the palette shows its target strip, sample and sliders with the
+    /// page (``PaletteFontTunerView``) and the page's keys step them.
+    public var fontTuner: PaletteFontTuner?
 
     public init(
         id: String,

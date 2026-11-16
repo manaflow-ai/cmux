@@ -411,6 +411,8 @@ public final class PaletteController {
         panel.capturesKeyEquivalent = { [weak self] event in
             guard let model = self?.model else { return false }
             if PaletteKeyMap.isActionsKey(event) { return model.selectedItem != nil || model.actionsMenu != nil }
+            // Cmd-= and Cmd-- size the font picker's font, not the window's text behind the palette.
+            if model.fontTuner != nil, model.actionsMenu == nil, PaletteFontTunerKey.key(for: event) != nil { return true }
             guard PaletteKeyMap.isCloseItem(event) else { return false }
             return model.currentPageOwnsCloseKey || model.selectedItem?.closeCommand != nil
         }
@@ -452,6 +454,10 @@ public final class PaletteController {
             return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
         }
         if Self.inputMethodOwns(event, in: window) { return false }
+        // The font picker's Tab (next target) and Cmd-= / Cmd-- (size, with Option the line height).
+        if model.fontTuner != nil, model.actionsMenu == nil, let key = PaletteFontTunerKey.key(for: event) {
+            return model.handleFontTuner(key)
+        }
         let caret = Self.caret(in: window)
         guard let command = PaletteKeyMap.command(
             for: event,

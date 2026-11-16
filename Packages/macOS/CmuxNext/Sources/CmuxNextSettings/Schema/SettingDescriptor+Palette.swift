@@ -130,7 +130,9 @@ extension SettingDescriptor {
         return color.alpha < 1 ? rgb + String(format: "%02X", byte(color.alpha)) : rgb
     }
 
-    static func format(_ value: Double, _ unit: SettingNumber.Unit) -> String {
+    /// How a value of `unit` reads: "13 pt", "160%", "1,300 ms" (the palette's values, the font
+    /// picker's slider labels).
+    public static func format(_ value: Double, _ unit: SettingNumber.Unit) -> String {
         if unit == .fraction {
             return value.formatted(.percent.precision(.fractionLength(0...1)))
         }

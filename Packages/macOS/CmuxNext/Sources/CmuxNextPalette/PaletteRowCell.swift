@@ -131,6 +131,8 @@ final class PaletteRowCell: NSTableCellView {
     private var symbolName: String?
     private var titleText = ""
     private var titleFace: NSFont?
+    /// A font row's sample draws in the row's face (``PaletteItem/subtitleInFace``).
+    private var subtitleFace: NSFont?
     private var highlights: [Int] = []
     private var subtitleText = ""
     private var subtitleHighlights: [Int] = []
@@ -171,6 +173,7 @@ final class PaletteRowCell: NSTableCellView {
         titleText = item.title
         titleFace = item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.body.pointSize) }
         highlights = row.highlights
+        subtitleFace = item.subtitleInFace ? item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.caption.pointSize) } : nil
         // A reused cell can come from before a text size change.
         subtitle.refreshFont()
         accessory.refreshFont()
@@ -216,7 +219,10 @@ final class PaletteRowCell: NSTableCellView {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
             title.attributedStringValue = Self.highlighted(titleText, highlights, face: titleFace)
-            if subtitleHighlights.isEmpty {
+            if let subtitleFace {
+                subtitle.attributedStringValue = NSAttributedString(
+                    string: subtitleText, attributes: [.font: subtitleFace, .foregroundColor: Palette.textSecondary])
+            } else if subtitleHighlights.isEmpty {
                 subtitle.stringValue = subtitleText
             } else {
                 subtitle.attributedStringValue = Self.highlightedSubtitle(subtitleText, subtitleHighlights)

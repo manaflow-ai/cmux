@@ -66,6 +66,8 @@ public final class PaletteModel {
     public internal(set) var pageCrumbs: [String] = []
     /// The current page's chosen values, drawn as chips before the query (`PalettePageSpec.tokens`).
     public internal(set) var pageTokens: [PaletteToken] = []
+    /// The current page's font picker (`PalettePageSpec.fontTuner`), nil on every other page.
+    public internal(set) var fontTuner: PaletteFontTuner?
     /// Why the last command could not run, shown as its row's subtitle
     /// until the query or the page changes (never a beep).
     public internal(set) var notice: PaletteNotice?
