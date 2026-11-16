@@ -21,6 +21,9 @@
 //   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
 // - `focus-lost`: a text input lost the keyboard with no key or click in the last half second
 //   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
+// - `first-load`: how a chat page loaded shown, judged frame by frame as the first-load bench judges
+//   it (firstLoadWatch.ts): `copy` (a drawn copy showed first), `first` and `settled` (ms from
+//   navigation), `shifts` (frames that moved the composer or the bottom row), `blank`, `why`.
 //
 // Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
 // second after the last one, never a loop that runs while the page is still.
@@ -31,6 +34,7 @@
 // handler, and tests that hand it no sender, send nothing. Before the page host sent them (Leo's
 // NIGHTLY, 2026-11-11), the ring file held no page line at all, only the app's own.
 
+import { watchFirstLoad } from "./firstLoadWatch";
 import { watchFocusLoss } from "./focusLossWatch";
 import { postNative } from "./native";
 
@@ -343,6 +347,7 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
   const doc = win.document;
   const navigation = win.performance?.getEntriesByType?.("navigation")[0] as PerformanceNavigationTiming | undefined;
   flicker.record("page-load", { type: navigation?.type ?? "unknown" });
+  watchFirstLoad(win, (fields) => flicker.record("first-load", fields));
 
   const longFrame = (ms: number) => flicker.record("long-frame", { ms });
   const types = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver

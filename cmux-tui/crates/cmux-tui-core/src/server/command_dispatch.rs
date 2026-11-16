@@ -357,21 +357,7 @@ fn dispatch_command(
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            cmd_tabs::new_tab(
-                mux,
-                client,
-                actor,
-                pane,
-                cwd,
-                env,
-                cols,
-                rows,
-                keep,
-                terminal_id,
-                shell_args,
-            )
-        }
+        Command::NewTab(params) => cmd_tabs::new_tab(mux, client, actor, params),
         Command::NewConversationTab(params) => cmd_tabs::new_conversation_tab(mux, client, params),
         Command::BindConversationTabSession(params) => {
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)

@@ -277,7 +277,7 @@ export function launchRows(
 }
 
 /// One chat row.
-export type ChatRow = { type: "chat"; id: string; key?: string; title: string; harness?: string; detail?: string };
+export type ChatRow = { type: "chat"; id: string; key?: string; title: string; harness?: string };
 
 /// The chats whose title (or folder name) the text finds: a prefix or a word's start, or for 3+
 /// characters anywhere in the title; the newest first within a tier. A live session and a device
@@ -313,7 +313,6 @@ export function chatRows(query: string, chats: readonly OmnibarChat[], limit = M
       ...(chat.key ? { key: chat.key } : {}),
       title: chat.title,
       ...(chat.harness ? { harness: chat.harness } : {}),
-      ...(chat.cwd ? { detail: homePath(chat.cwd) } : {}),
     }));
 }
 
