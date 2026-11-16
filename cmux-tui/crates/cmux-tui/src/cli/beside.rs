@@ -86,6 +86,11 @@ pub(super) fn placement(identity: &Value) -> Option<Placement> {
     Some(Placement::NewColumn { workspace, chat_pane })
 }
 
+/// Where a browser tab created with no place goes: not decided yet (red).
+pub(super) fn browser_placement(_identity: &Value) -> Option<Placement> {
+    None
+}
+
 /// The `pane.split` params that open the terminal a `tab.create_terminal`
 /// asked for as a new column right of `chat_pane`: its command, directory
 /// and size carry over; `name` does not (a split has none), so the caller
@@ -333,6 +338,44 @@ mod tests {
             placement(&identity(beside)),
             Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_b".into() })
         );
+    }
+
+    #[test]
+    fn a_browser_with_no_place_is_a_tab_in_the_column_right_of_the_caller() {
+        let lone = json!({"pane": "pane_web", "placement": "existing_column", "panes": [
+            {"id": "pane_web", "kinds": ["browser"]},
+        ]});
+        assert_eq!(
+            browser_placement(&identity(lone)),
+            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_web".into() })
+        );
+        let terminal = json!({"pane": "pane_term", "placement": "existing_column", "panes": [
+            {"id": "pane_term", "kinds": ["terminal"]},
+        ]});
+        assert_eq!(
+            browser_placement(&identity(terminal)),
+            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_term".into() }),
+            "a browser beside a lone terminal pane is a tab there, never a split below it"
+        );
+        let column = json!({"pane": "pane_web", "placement": "existing_column", "panes": [
+            {"id": "pane_web", "kinds": ["browser"]}, {"id": "pane_md", "kinds": []},
+        ]});
+        assert_eq!(
+            browser_placement(&identity(column)),
+            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_web".into() })
+        );
+        let mixed = json!({"pane": "pane_a", "placement": "existing_column", "panes": [
+            {"id": "pane_a", "kinds": ["terminal"]}, {"id": "pane_b", "kinds": []},
+        ]});
+        assert_eq!(
+            browser_placement(&identity(mixed)),
+            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_b".into() })
+        );
+        assert_eq!(
+            browser_placement(&identity(json!({"pane": null, "placement": "new_column"}))),
+            None
+        );
+        assert_eq!(browser_placement(&json!({"caller": {"found": false}, "beside": null})), None);
     }
 
     #[test]
