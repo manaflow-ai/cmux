@@ -64,6 +64,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
+    /// Its window showed this workspace as a guest when it was built: another window owns it, so its terminals are
+    /// views of this window's own (`PaneController+SharedSpace`). The window builds it again when that changes.
+    let isGuestView: Bool
     #if DEBUG
     /// This controller's share of `DebugLayoutCounters.workspaceApplies` and `.topologySends`: the
     /// process-wide counters also count every other workspace (tests run side by side).
@@ -144,6 +147,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
         self.workspace = workspace
         isParked = parked
+        isGuestView = services.windows.registry.value.isGuest(workspace.id, in: state.id)
         self.daemon = daemon
         self.services = services
         self.state = state
