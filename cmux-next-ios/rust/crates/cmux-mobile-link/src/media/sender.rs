@@ -58,12 +58,13 @@ pub struct SenderConfig {
 impl Default for SenderConfig {
     fn default() -> Self {
         Self {
-            // The phone's page: 804x1444 at up to 60 fps. Start where the rd
-            // stream's text pages sit and let feedback find the path.
+            // WireGuard may be a metered or shaped route. Start below the
+            // smallest useful path estimate so the first burst cannot fill a
+            // bottleneck queue before TWCC supplies a measurement.
             cc: CcConfig {
                 min_bps: 250_000,
                 max_bps: 20_000_000,
-                start_bps: 2_500_000,
+                start_bps: 1_000_000,
                 relay_max_bps: 20_000_000,
                 ..CcConfig::default()
             },
@@ -547,7 +548,7 @@ mod tests {
     }
 
     /// A path that delivers about 1 Mbit/s: the receiver's TWCC feedback
-    /// drives the target down from its 2.5 Mbit/s start.
+    /// keeps the target at the low start instead of probing above capacity.
     #[test]
     fn twcc_feedback_from_a_slow_path_lowers_the_target() {
         let mut core = SenderCore::new(SenderConfig::default(), 1);
