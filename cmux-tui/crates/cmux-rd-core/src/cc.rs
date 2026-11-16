@@ -13,7 +13,12 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::profile::EncodeProfile;
 use cmux_rd_proto::Arrival;
+
+mod ultra;
+pub use ultra::UltraConfig;
+use ultra::UltraState;
 
 /// The network path class reported by the link (transport.md section 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -286,6 +291,8 @@ struct Sent {
 #[derive(Debug)]
 pub struct CongestionController {
     config: CcConfig,
+    profile: EncodeProfile,
+    ultra: UltraState,
     target_bps: u64,
     path: PathKind,
     sent: HashMap<u16, Sent>,
@@ -315,6 +322,8 @@ impl CongestionController {
     pub fn new(config: CcConfig, path: PathKind) -> Self {
         let mut cc = Self {
             config,
+            profile: EncodeProfile::Standard,
+            ultra: UltraState::default(),
             target_bps: config.start_bps,
             path,
             sent: HashMap::new(),
@@ -340,6 +349,63 @@ impl CongestionController {
     /// The bitrate the encoder should aim for now.
     pub fn target_bps(&self) -> u64 {
         self.target_bps
+    }
+
+    pub fn profile(&self) -> EncodeProfile {
+        self.profile
+    }
+
+    /// Selection alone is not a capacity measurement. Until probes arrive the
+    /// ultra profile keeps the configured startup rate, including its FEC.
+    pub fn set_profile(&mut self, profile: EncodeProfile) {
+        if self.profile == profile {
+            return;
+        }
+        self.profile = profile;
+        self.on_path_changed(self.path);
+        self.target_bps = self.config.start_bps;
+        self.ultra.wire_bps = self.config.start_bps;
+        self.clamp();
+    }
+
+    pub fn configure_ultra(&mut self, config: UltraConfig) {
+        self.ultra.config = config;
+        self.clamp();
+    }
+
+    /// A completed probe on the current path, validated by its planner. The
+    /// caller resets the planner on path changes; stale trains must not apply.
+    pub fn on_probe_capacity(&mut self, capacity_bps: u64) {
+        if self.profile != EncodeProfile::Ultra || capacity_bps < 2 {
+            return;
+        }
+        self.ultra.capacity_bps = Some(capacity_bps);
+        if let Some(held) = self.ultra.held_wire_bps(self.ultra_path_ceiling()) {
+            // A new estimate cannot clear a queue that has not drained.
+            self.ultra.wire_bps =
+                if self.ultra.standing_queue { self.ultra.wire_bps.min(held) } else { held };
+        }
+        self.clamp();
+    }
+
+    /// Total departure budget, including FEC, repairs and probes. Standard
+    /// retains its existing pacer policy; ultra uses this as a strict ceiling.
+    pub fn wire_budget_bps(&self) -> u64 {
+        if self.profile == EncodeProfile::Ultra { self.ultra.wire_bps } else { self.target_bps }
+    }
+
+    /// Ultra parity/source byte ratio. Standard's existing loss policy owns FEC.
+    pub fn ultra_fec_ratio(&self) -> Option<f64> {
+        (self.profile == EncodeProfile::Ultra).then(|| self.ultra.fec_ratio())
+    }
+
+    fn ultra_path_ceiling(&self) -> u64 {
+        if self.path == PathKind::DoRelay {
+            self.ultra.config.max_wire_bps.min(self.config.relay_max_bps)
+        } else {
+            self.ultra.config.max_wire_bps
+        }
+        .max(1)
     }
 
     pub fn usage(&self) -> Usage {
@@ -401,6 +467,13 @@ impl CongestionController {
     /// capacity change at once) and applies the relay cap immediately.
     pub fn on_path_changed(&mut self, path: PathKind) {
         self.path = path;
+        if self.profile == EncodeProfile::Ultra {
+            self.ultra.reset_path();
+            self.ultra.wire_bps = self.config.start_bps;
+            // No old-path sample can seed a new-path delay or capacity estimate.
+            self.sent.clear();
+            self.sent_order.clear();
+        }
         self.groups = InterArrival::default();
         self.trend = Trendline::default();
         self.arrival_clock = None;
@@ -420,7 +493,8 @@ impl CongestionController {
     /// target starts at `lan_start_bps`.
     pub fn on_rtt(&mut self, rtt_us: u64) {
         self.response_window_us = rtt_us.max(MIN_DECREASE_INTERVAL_US);
-        if rtt_us < self.config.lan_rtt_us
+        if self.profile == EncodeProfile::Standard
+            && rtt_us < self.config.lan_rtt_us
             && self.path != PathKind::DoRelay
             && self.capacity_bps.is_none()
             && self.last_decrease_us.is_none()
@@ -485,8 +559,12 @@ impl CongestionController {
             .collect();
         samples.sort_unstable_by_key(|s| s.0);
         let mut evidence = false;
+        let has_samples = !samples.is_empty();
         for (sent_us, raw_arrival, bytes) in samples {
             let arrival = self.unwrap_arrival(raw_arrival as u32);
+            if self.profile == EncodeProfile::Ultra {
+                self.ultra.observe_delay(sent_us, arrival);
+            }
             if bytes > 0 {
                 self.acked.push_back((arrival, bytes));
                 self.acked_bytes += u64::from(bytes);
@@ -508,6 +586,16 @@ impl CongestionController {
                     self.acked_bytes -= u64::from(b);
                 }
             }
+        }
+        if self.profile == EncodeProfile::Ultra {
+            if loss.is_finite() {
+                self.ultra.loss = loss.clamp(0.0, 1.0);
+            }
+            if has_samples {
+                self.update_ultra(now_us);
+            }
+            self.clamp();
+            return;
         }
         let overuse = evidence && self.usage == Usage::Overuse;
         if overuse || loss > 0.10 {
@@ -564,6 +652,32 @@ impl CongestionController {
         }
     }
 
+    fn update_ultra(&mut self, now_us: u64) {
+        if self.ultra.standing_queue {
+            self.usage = Usage::Overuse;
+            if self.last_decrease_us.is_none() || now_us >= self.next_decrease_us {
+                let before = self.ultra.wire_bps;
+                // Queue evidence, never loss alone, permits this cut. A low-rate
+                // encoder does not turn its throughput into a capacity estimate.
+                let mut next = (before as f64 * BETA) as u64;
+                if let Some(acked) = self.acked_bps()
+                    && self.sent_bps(now_us).is_some_and(|sent| sent > 1.2 * acked)
+                {
+                    next = next.min((acked * BETA) as u64);
+                }
+                self.ultra.wire_bps = next.max(1);
+                self.last_decrease_us = Some(now_us);
+                self.next_decrease_us = now_us.saturating_add(self.response_window_us);
+            }
+        } else if self.ultra.queue_clear {
+            self.usage = Usage::Normal;
+            if let Some(held) = self.ultra.held_wire_bps(self.ultra_path_ceiling()) {
+                self.ultra.wire_bps = held;
+            }
+        }
+        // There is no multiplicative growth on sparse/idle media feedback.
+    }
+
     fn increase(&mut self, now_us: u64) {
         let dt = self
             .last_increase_us
@@ -597,6 +711,15 @@ impl CongestionController {
     }
 
     fn clamp(&mut self) {
+        if self.profile == EncodeProfile::Ultra {
+            let ceiling = self
+                .ultra
+                .held_wire_bps(self.ultra_path_ceiling())
+                .unwrap_or_else(|| self.ultra_path_ceiling());
+            self.ultra.wire_bps = self.ultra.wire_bps.clamp(1, ceiling);
+            self.target_bps = self.ultra.media_bps().max(1);
+            return;
+        }
         let max = if self.path == PathKind::DoRelay {
             self.config.max_bps.min(self.config.relay_max_bps)
         } else {
