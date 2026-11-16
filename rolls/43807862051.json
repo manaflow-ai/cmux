@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43807862051",
+  "recorded_at": "2026-11-16T05:10:26Z",
+  "reason": "cmux-tui 39f140d4984c changes the image's cmux-tui (pinned 2945d17d284f)",
+  "dry_run": false,
+  "cmux_tui": "39f140d4984cbc1d83f3cf99fcc8e8e7a5dd2c48",
+  "fixes": [
+    {
+      "sha": "39f140d4984cbc1d83f3cf99fcc8e8e7a5dd2c48",
+      "mergedAt": "2026-11-15T20:48:55-08:00",
+      "subject": "GitHub webhooks reach extensions as github.changed (#44146)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T05:10:26Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
