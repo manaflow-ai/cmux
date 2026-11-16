@@ -3344,9 +3344,9 @@ def _assert_setup_node_reads_a_pin_file(workflows: Path) -> None:
                 if kind == "steps":
                     steps = [step for job in jobs.values() for step in (job.get("steps") or [])
                              if step.get("id") == source_job]
-                    source = yaml.safe_dump(steps, width=10_000)
                 else:
-                    source = yaml.safe_dump(jobs.get(source_job) or {}, width=10_000)
+                    steps = (jobs.get(source_job) or {}).get("steps") or []
+                source = "\n".join(str(step.get("run", "")) for step in steps)
                 pin = ".node-version-22" if output.endswith("_22") else ".node-version"
                 assert f"{output}=$(tr -d '[:space:]' < {pin})" in source, (
                     f"{rel}:{number}: job {source_job} must read output {output} from {pin}"

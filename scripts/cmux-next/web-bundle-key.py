@@ -266,8 +266,11 @@ def declared_bun_version(root):
 def declared_node_version(root):
     # .node-version at the repo root is the one Node pin (every setup-node step reads it with
     # node-version-file). A fixture ROOT without one falls back to this checkout's file.
-    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-    for candidate in (os.path.join(root, ".node-version"), os.path.join(here, ".node-version")):
+    candidates = [os.path.join(root, ".node-version")]
+    if "__file__" in globals():  # run as a script or module, not exec()-ed by a test
+        here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+        candidates.append(os.path.join(here, ".node-version"))
+    for candidate in candidates:
         try:
             with open(candidate, encoding="utf-8") as handle:
                 value = handle.read().strip()
