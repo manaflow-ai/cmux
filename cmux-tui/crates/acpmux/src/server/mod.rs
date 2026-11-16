@@ -768,29 +768,9 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     Ok(listener)
 }
 
-/// How long to wait after a failed `accept`. A connection that died in the queue is gone, so the
-/// next accept can run at once; anything else (EMFILE, ENFILE, ENOBUFS) leaves the connection
-/// queued, and an immediate retry would spin a core and flood the log until descriptors free up.
-pub(crate) fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
-    use std::io::ErrorKind::{ConnectionAborted, ConnectionReset, Interrupted};
-    match error.kind() {
-        ConnectionAborted | ConnectionReset | Interrupted => std::time::Duration::ZERO,
-        _ => std::time::Duration::from_millis(100),
-    }
-}
-
-/// Whether a failed `accept` means the listener itself is gone (closed, never listening or not a
-/// socket), so a retry can never succeed. Any other failure is about one connection or a passing
-/// shortage, and the loop pauses ([`accept_retry_delay`]) and accepts again.
-/// Its callers are the Linux sandbox proxy and the tailnet ingress.
-#[cfg_attr(not(any(target_os = "linux", feature = "tailnet")), allow(dead_code))]
-pub(crate) fn accept_ends_listener(error: &std::io::Error) -> bool {
-    #[cfg(unix)]
-    if matches!(error.raw_os_error(), Some(libc::EBADF | libc::EINVAL | libc::ENOTSOCK)) {
-        return true;
-    }
-    error.kind() == std::io::ErrorKind::UnexpectedEof
-}
+#[cfg_attr(not(any(feature = "tailnet", feature = "hub-carrier")), allow(unused_imports))]
+pub(crate) use crate::accept_errors::accept_ends_listener;
+pub(crate) use crate::accept_errors::accept_retry_delay;
 
 #[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
@@ -885,21 +865,7 @@ pub async fn check_listen_address(addr: &str, allow_network: bool) -> Result<()>
     };
     ws_auth::check_listen(addr, &addrs, false)
 }
-
-/// [`check_listen_address`] for a caller off the async executor (`Config::start_refusal`, which
-/// `config --set` and `_acpmux/reload_config` run): the same rule, a name resolved the same way.
-pub fn check_listen_address_blocking(addr: &str, allow_network: bool) -> Result<()> {
-    if allow_network {
-        return Ok(());
-    }
-    let addrs: Vec<std::net::SocketAddr> = match addr.parse() {
-        Ok(one) => vec![one],
-        Err(_) => std::net::ToSocketAddrs::to_socket_addrs(addr)
-            .map(Iterator::collect)
-            .unwrap_or_default(),
-    };
-    ws_auth::check_listen(addr, &addrs, false)
-}
+pub use crate::ws_auth::check_listen_address_blocking;
 
 /// The origin of the app's bundled agent pane page (a `cmux-agent` URL
 /// scheme handler). A `file://` page would send `Origin: null`, which every
@@ -1480,35 +1446,7 @@ async fn serve_http(
 
 // ------------------------------------------------------------ connection
 
-/// Where a connection came from. A `Web` connection (the WebSocket
-/// listener: peer daemons, remote clients, relays) is remote-origin: remote
-/// chains build their settings from scratch, so it never starts or sets a
-/// preset that carries harness args or a system prompt, and the session
-/// pool never serves it. `LocalApp` is the app's own agent pane, proven by
-/// every condition in `local_app.rs`: the pool serves it, it may start any
-/// configured preset, and like `Web` it never sets a preset's harness args
-/// or system prompt and never reads a token back.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Origin {
-    /// The local Unix socket.
-    #[default]
-    Local,
-    /// The WebSocket listener.
-    Web,
-    /// The app's agent pane over the WebSocket listener (`local_app.rs`).
-    LocalApp,
-    /// A peer acpmux daemon over the WebSocket listener, proven by this
-    /// launch's peer token (`peer_auth.rs`). It has the Web's rights except
-    /// the current-mode rule for prompts and permission answers.
-    Peer,
-}
-
-impl Origin {
-    /// Web or Peer: a connection held to the Web's rules.
-    pub fn web_class(self) -> bool {
-        matches!(self, Origin::Web | Origin::Peer)
-    }
-}
+pub use crate::conn_origin::Origin;
 
 /// A connection from the local Unix socket.
 pub async fn serve_connection(
@@ -2388,10 +2326,9 @@ mod cancel_classes_tests;
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
 mod client_request;
-mod clock_text;
 mod in_flight;
+pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
-pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
@@ -2453,8 +2390,8 @@ mod prompt_cancel;
 mod workflow_activity;
 mod workflow_runs;
 mod worktrees;
-pub mod ws_auth;
 use crate::hub::is_permission_ask;
+pub use crate::ws_auth;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 pub(crate) use workflow_activity::owner_call as workflow_owner_call;
@@ -2533,9 +2470,6 @@ mod compressed_link_tests;
 
 #[cfg(test)]
 mod key_route_tests;
-
-#[cfg(test)]
-mod accept_retry_tests;
 
 #[cfg(test)]
 mod nodelay_tests;
