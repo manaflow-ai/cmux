@@ -7543,11 +7543,13 @@ export class AcpmuxDirectClient {
       void this.permissions.refresh().catch(() => {});
       this.readMissedAfterLag(sessionId, generation, hostLast ?? pageEnd ?? this.lastSeq, 0);
     }
-    // The chat's records reached the page with its attach: its quiet is watched from here.
+    // The chat's records reached the page with its attach: a working chat's quiet is watched from here. A chat at
+    // rest arms nothing: the check would wake the pane only to find it not working (CMUX-571 idle wakeups); its next
+    // record, list change or wake arms the watch again.
     this.chatEventAt = Date.now();
     this.quietChecks = 0;
     this.stopQuietWatch();
-    this.armQuietWatch();
+    if (this.workingNow()) this.armQuietWatch();
     // The machine answered: these rows are its chat now, not the Mac's copy.
     this.peerCopy = undefined;
     if (this.copyBack === sessionId) this.copyBack = undefined;
