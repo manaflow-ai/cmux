@@ -495,10 +495,6 @@
             "key": "settings.browser.hibernation.help",
             "text": "Frees memory; history and position are kept."
           },
-          "summary": {
-            "key": "settings.browser.hibernation.summary",
-            "text": "Frees memory; history and scroll are kept"
-          },
           "kind": "choice_or_number",
           "swift_owner": "BrowserHibernationSetting",
           "choices": [
@@ -1700,10 +1696,6 @@
           "help": {
             "key": "settings.browser.externalLinkPatterns.help",
             "text": "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
-          },
-          "summary": {
-            "key": "settings.browser.externalLinkPatterns.summary",
-            "text": "Links that open in your default browser"
           },
           "kind": "string_list",
           "default": [],

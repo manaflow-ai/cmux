@@ -160,7 +160,6 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
         <summary className="group-title cursor-default select-none" data-integrations-toggle="">
           {t("settingsWindow.agentIntegrations.title")}
         </summary>
-        <div className="row-help">{t("settingsWindow.agentIntegrations.help")}</div>
         <div className="accounts-header">
           <Button
             type="button"

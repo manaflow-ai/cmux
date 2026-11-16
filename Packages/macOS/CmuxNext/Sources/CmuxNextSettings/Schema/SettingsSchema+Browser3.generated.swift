@@ -175,7 +175,6 @@ extension BrowserSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.browser.externalPatterns", "URLs to Always Open Externally"),
                 help: SettingsText.keyed("settings.browser.externalLinkPatterns.help", "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."),
-                summary: SettingsText.keyed("settings.browser.externalLinkPatterns.summary", "Links that open in your default browser"),
                 kind: .stringList,
                 default: .array(LinkRouting.rulesDefault.map { .string($0) }),
                 keywords: ["denylist", "blocklist", "regex", "external", "default browser"],

@@ -133,10 +133,6 @@
             "key": "settings.tabs.newTabApp.help",
             "text": "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page."
           },
-          "summary": {
-            "key": "settings.tabs.newTabApp.summary",
-            "text": "An extension's New Tab page"
-          },
           "kind": "text",
           "swift_owner": "NewTabAppSetting",
           "default": null,
@@ -429,10 +425,6 @@
           "help": {
             "key": "settings.tabs.barOrder.help",
             "text": "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
-          },
-          "summary": {
-            "key": "settings.tabs.barOrder.summary",
-            "text": "Which sits on top in a browser pane"
           },
           "kind": "choice",
           "swift_owner": {

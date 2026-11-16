@@ -75,7 +75,6 @@ nonisolated enum TerminalSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.terminal.linkOpener.rules", "Program Link Rules"),
                 help: SettingsText.keyed("settings.terminal.linkOpener.rules.help", "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"),
-                summary: SettingsText.keyed("settings.terminal.linkOpener.rules.summary", "Rules for program links"),
                 kind: .stringList,
                 default: .array(TerminalLinkOpener.rulesDefault.map { .string($0) }),
                 keywords: ["browser", "rules", "url", "link", "caller", "regex", "profile", "script"],

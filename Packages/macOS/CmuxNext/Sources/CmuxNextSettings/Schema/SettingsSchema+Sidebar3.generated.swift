@@ -43,7 +43,6 @@ extension SidebarSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
                 help: SettingsText.keyed("settings.sidebar.cards.tips.help", "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
-                summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.tipsDefault),
                 keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"]
@@ -54,7 +53,6 @@ extension SidebarSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.priorityView.enabled", "Priority View"),
                 help: SettingsText.keyed("settings.sidebar.priorityView.enabled.help", "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."),
-                summary: SettingsText.keyed("settings.sidebar.priorityView.enabled.summary", "Agent chats that need you, at the top of the sidebar"),
                 kind: .toggle,
                 default: .bool(SidebarPriorityViewSetting.enabledDefault),
                 keywords: ["sidebar", "priority", "attention", "agents", "chats", "needs you", "activity", "bell", "inbox"]
@@ -114,7 +112,6 @@ extension SidebarSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.tabs.commandDigits", "Command-1 to 9 Select"),
                 help: SettingsText.keyed("settings.tabs.commandDigits.help", "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."),
-                summary: SettingsText.keyed("settings.tabs.commandDigits.summary", "Workspaces or tabs on Command-1 to 9"),
                 kind: .choice([
                     SettingChoice(CommandDigitsSetting.workspaces.rawValue, SettingsText.keyed("settings.tabs.commandDigits.workspaces", "Workspaces")),
                     SettingChoice(CommandDigitsSetting.tabs.rawValue, SettingsText.keyed("settings.tabs.commandDigits.tabs", "Tabs")),
@@ -128,7 +125,6 @@ extension SidebarSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.numbering", "Command-Number Shortcuts"),
                 help: SettingsText.keyed("settings.sidebar.numbering.help", "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1."),
-                summary: SettingsText.keyed("settings.sidebar.numbering.summary", "What Command-1 to Command-9 go to"),
                 kind: .choice([
                     SettingChoice(SidebarNavigationSettings.Scope.allItems.rawValue, SettingsText.keyed("settings.sidebar.scope.allItems", "Every Item")),
                     SettingChoice(SidebarNavigationSettings.Scope.workspacesOnly.rawValue, SettingsText.keyed("settings.sidebar.scope.workspacesOnly", "Workspaces Only")),
@@ -155,7 +151,6 @@ extension SidebarSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.stepping", "Next and Previous Item"),
                 help: SettingsText.keyed("settings.sidebar.stepping.help", "What Command-Control-] and Command-Control-[ step through."),
-                summary: SettingsText.keyed("settings.sidebar.stepping.summary", "What Command-Control-] and [ step through"),
                 kind: .choice([
                     SettingChoice(SidebarNavigationSettings.Scope.allItems.rawValue, SettingsText.keyed("settings.sidebar.scope.allItems", "Every Item")),
                     SettingChoice(SidebarNavigationSettings.Scope.workspacesOnly.rawValue, SettingsText.keyed("settings.sidebar.scope.workspacesOnly", "Workspaces Only")),

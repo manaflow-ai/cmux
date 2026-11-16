@@ -212,7 +212,6 @@
   letter-spacing: var(--text-control--letter-spacing);
 }
 /* A lead-in starts on its title. */
-:root[data-settings-look="refined"] .settings .density-help { margin-left: var(--settings-header-inset); }
 
 :root[data-settings-look="refined"] .settings .rows {
   border: 1px solid var(--polish-edge);

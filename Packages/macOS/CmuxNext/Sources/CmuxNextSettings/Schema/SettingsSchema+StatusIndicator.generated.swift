@@ -50,7 +50,6 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.statusIndicator.style", "Style"),
                 help: SettingsText.keyed("settings.statusIndicator.style.help", "How sidebar rows, tabs and panes show work in progress."),
-                summary: SettingsText.keyed("settings.statusIndicator.style.summary", "How work in progress shows"),
                 kind: .choice([
                     SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.keyed("settings.choice.thinArc", "Thin Arc")),
                     SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.keyed("settings.choice.macSpinner", "macOS Spinner")),
@@ -138,7 +137,6 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.status.inferCommandBusy", "Show Running Commands"),
                 help: SettingsText.keyed("settings.status.inferCommandBusy.help", "A shell command that runs a while shows as busy."),
-                summary: SettingsText.keyed("settings.status.inferCommandBusy.summary", "Mark long shell commands as busy"),
                 kind: .toggle,
                 default: .bool(StatusIndicatorConfigParser.inferCommandBusyDefault),
                 keywords: []

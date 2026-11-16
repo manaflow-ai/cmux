@@ -150,9 +150,11 @@ export function ChiefsCard({ focus = null }: { focus?: string | null }) {
           {t("chief.settings.new")}
         </button>
       </div>
-      <p className="row-help" data-intro="">
-        {t(unavailable ? "chief.settings.unavailable" : "chief.settings.intro")}
-      </p>
+      {unavailable && (
+        <p className="row-help" data-intro="">
+          {t("chief.settings.unavailable")}
+        </p>
+      )}
       <EngineRow focused={focus === CHIEF_ENGINE} />
       {chiefs && chiefs.length === 0 && !unavailable && <p className="row-help">{t("chief.settings.empty")}</p>}
       {chiefs && chiefs.length > 0 && (

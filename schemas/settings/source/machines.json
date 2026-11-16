@@ -45,10 +45,6 @@
             "key": "settings.computerUse.driver.help",
             "text": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."
           },
-          "summary": {
-            "key": "settings.computerUse.driver.summary",
-            "text": "Which helper runs Computer Use"
-          },
           "kind": "choice",
           "choices": [
             {
@@ -91,10 +87,6 @@
             "key": "settings.computerUse.livePreview.help",
             "text": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
           },
-          "summary": {
-            "key": "settings.computerUse.livePreview.summary",
-            "text": "Shows the app an agent uses in its chat"
-          },
           "kind": "toggle",
           "default": true,
           "keywords": [
@@ -125,10 +117,6 @@
           "help": {
             "key": "settings.freeModel.enabled.help",
             "text": "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
-          },
-          "summary": {
-            "key": "settings.freeModel.enabled.summary",
-            "text": "Free AI model while signed out"
           },
           "kind": "toggle",
           "default": true,

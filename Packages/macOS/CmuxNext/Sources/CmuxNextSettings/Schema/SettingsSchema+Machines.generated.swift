@@ -125,7 +125,6 @@ nonisolated enum MachineSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.computerUse.driver", "Computer Use Driver"),
                 help: SettingsText.keyed("settings.computerUse.driver.help", "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."),
-                summary: SettingsText.keyed("settings.computerUse.driver.summary", "Which helper runs Computer Use"),
                 kind: .choice([
                     SettingChoice(ComputerUseDriver.legacy.rawValue, SettingsText.keyed("settings.computerUse.driver.legacy", "Legacy")),
                     SettingChoice(ComputerUseDriver.upstream.rawValue, SettingsText.keyed("settings.computerUse.driver.upstream", "Upstream")),
@@ -139,7 +138,6 @@ nonisolated enum MachineSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.computerUse.livePreview", "Live Preview in Chat"),
                 help: SettingsText.keyed("settings.computerUse.livePreview.help", "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."),
-                summary: SettingsText.keyed("settings.computerUse.livePreview.summary", "Shows the app an agent uses in its chat"),
                 kind: .toggle,
                 default: .bool(ComputerUseSettings.livePreviewDefault),
                 keywords: ["computer use", "live preview", "preview", "agent activity", "screenshot", "chat"]
@@ -158,7 +156,6 @@ extension MachineSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.freeModel.enabled", "Free AI Model Without Sign-In"),
                 help: SettingsText.keyed("settings.freeModel.enabled.help", "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."),
-                summary: SettingsText.keyed("settings.freeModel.enabled.summary", "Free AI model while signed out"),
                 kind: .toggle,
                 default: .bool(FreeModelSettings.enabledDefault),
                 keywords: ["ai", "model", "free", "sign in", "agents", "models"]
@@ -368,6 +365,25 @@ extension MachineSettingsSchema {
                 ]),
                 default: .string(RemoteSettings.ultraDefault.rawValue),
                 keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
+    static var deviceHub: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
+        return [
+            SettingDescriptor(
+                DeviceHubSettings.urlPath,
+                section: .development,
+                group: group,
+                title: SettingsText.keyed("settings.deviceHub.url", "Device Hub Address"),
+                help: SettingsText.keyed("settings.deviceHub.url.help", "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."),
+                summary: SettingsText.keyed("settings.deviceHub.url.summary", "Device hub address"),
+                kind: .url,
+                default: .string(DeviceHubSettings.urlDefault),
+                keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
             ),
         ]
     }

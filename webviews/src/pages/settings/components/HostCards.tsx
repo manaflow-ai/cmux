@@ -342,14 +342,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                 ▦
               </span>
               <span className="backdrop-title">{t("settingsWindow.backdropPicker.shuffleFolder")}</span>
-              <span className="row-help">{t("settingsWindow.backdropPicker.shuffleFolderHelp")}</span>
             </button>
             <button type="button" className="backdrop-tile" onClick={() => void store.chooseBackdropImage()}>
               <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
                 +
               </span>
               <span className="backdrop-title">{t("settingsWindow.backdropPicker.chooseImage")}</span>
-              <span className="row-help">{t("settingsWindow.backdropPicker.dropHint")}</span>
             </button>
             <button
               type="button"
@@ -361,7 +359,6 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                 ⌕
               </span>
               <span className="backdrop-title">{t("settingsWindow.artBrowser.open")}</span>
-              <span className="row-help">{t("settingsWindow.artBrowser.help")}</span>
             </button>
             <button
               type="button"
@@ -373,7 +370,6 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                 ↓
               </span>
               <span className="backdrop-title">{t("settingsWindow.backdropPicker.fromLink")}</span>
-              <span className="row-help">{t("settingsWindow.backdropPicker.fromLinkHelp")}</span>
             </button>
           </>
         )}

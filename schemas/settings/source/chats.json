@@ -57,10 +57,6 @@
             "key": "settings.chats.roots.help",
             "text": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
           },
-          "summary": {
-            "key": "settings.chats.roots.summary",
-            "text": "Extra folders to read chats from"
-          },
           "kind": "folder_list",
           "default": [],
           "keywords": [

@@ -22,10 +22,6 @@
             "key": "settings.agentPane.outsideRoots.help",
             "text": "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."
           },
-          "summary": {
-            "key": "settings.agentPane.outsideRoots.summary",
-            "text": "File links outside the chat's folders"
-          },
           "kind": "choice",
           "choices": [
             {

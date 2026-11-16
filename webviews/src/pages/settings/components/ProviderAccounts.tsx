@@ -367,7 +367,6 @@ export function ProviderAccounts({ family, accounts }: { family: string; account
   const run = (gesture: HarnessesRun) => void send(gesture);
   return (
     <div className="accounts-body harness-accounts" data-harness-accounts={family}>
-      <div className="row-help">{t("settingsWindow.harnesses.accounts.help")}</div>
       {accounts.map((account) => (
         <AccountRow key={account.id} account={account} all={accounts} run={run} busy={busy} />
       ))}

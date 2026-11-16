@@ -151,12 +151,7 @@ export function CustomizeLibraryView({
             <span className="row-help">{t("settingsPage.customizeLibrary.empty")}</span>
           </div>
         ) : listing ? (
-          <>
-            <div className="row" data-library-help="">
-              <span className="row-help">{t("settingsPage.customizeLibrary.help")}</span>
-            </div>
-            <LibraryList listing={listing} layout={layout} busy={busy} actions={actions} />
-          </>
+          <LibraryList listing={listing} layout={layout} busy={busy} actions={actions} />
         ) : null}
       </div>
       {removing && (

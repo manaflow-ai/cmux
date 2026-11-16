@@ -28,7 +28,6 @@ nonisolated enum AgentPaneSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.outsideRoots", "Files Outside the Project"),
                 help: SettingsText.keyed("settings.agentPane.outsideRoots.help", "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."),
-                summary: SettingsText.keyed("settings.agentPane.outsideRoots.summary", "File links outside the chat's folders"),
                 kind: .choice([
                     SettingChoice(AgentPaneReplySetting.OutsideRoots.confirm.rawValue, SettingsText.keyed("settings.choice.agentPaneConfirm", "Ask First")),
                     SettingChoice(AgentPaneReplySetting.OutsideRoots.text.rawValue, SettingsText.keyed("settings.choice.agentPaneText", "Show as Text")),

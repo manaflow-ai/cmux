@@ -665,10 +665,6 @@
             "key": "settings.sidebar.minimal.help",
             "text": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."
           },
-          "summary": {
-            "key": "settings.sidebar.minimal.summary",
-            "text": "Buttons show only on hover"
-          },
           "kind": "toggle",
           "default": false,
           "keywords": [
@@ -1386,10 +1382,6 @@
             "key": "settings.sidebar.cards.tips.help",
             "text": "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."
           },
-          "summary": {
-            "key": "settings.sidebar.cards.tips.summary",
-            "text": "A daily tip about a feature you haven't used"
-          },
           "kind": "toggle",
           "default": true,
           "keywords": [
@@ -1414,10 +1406,6 @@
           "help": {
             "key": "settings.sidebar.priorityView.enabled.help",
             "text": "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."
-          },
-          "summary": {
-            "key": "settings.sidebar.priorityView.enabled.summary",
-            "text": "Agent chats that need you, at the top of the sidebar"
           },
           "kind": "toggle",
           "default": false,
@@ -1619,10 +1607,6 @@
             "key": "settings.tabs.commandDigits.help",
             "text": "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."
           },
-          "summary": {
-            "key": "settings.tabs.commandDigits.summary",
-            "text": "Workspaces or tabs on Command-1 to 9"
-          },
           "kind": "choice",
           "choices": [
             {
@@ -1666,10 +1650,6 @@
           "help": {
             "key": "settings.sidebar.numbering.help",
             "text": "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1."
-          },
-          "summary": {
-            "key": "settings.sidebar.numbering.summary",
-            "text": "What Command-1 to Command-9 go to"
           },
           "kind": "choice",
           "choices": [
@@ -1760,10 +1740,6 @@
           "help": {
             "key": "settings.sidebar.stepping.help",
             "text": "What Command-Control-] and Command-Control-[ step through."
-          },
-          "summary": {
-            "key": "settings.sidebar.stepping.summary",
-            "text": "What Command-Control-] and [ step through"
           },
           "kind": "choice",
           "choices": [

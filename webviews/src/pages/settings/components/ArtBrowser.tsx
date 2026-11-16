@@ -58,7 +58,6 @@ export function ArtBrowser({ onClose }: { onClose: () => void }) {
           {t("settingsWindow.artBrowser.close")}
         </Button>
       </form>
-      <p className="row-help">{t("settingsWindow.artBrowser.help")}</p>
       <output className="row-help">
         {status === "searching"
           ? t("settingsWindow.artBrowser.searching")

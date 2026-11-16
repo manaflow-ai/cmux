@@ -79,7 +79,7 @@ await requireBrowserLane("settings-header-edge.test.ts", async () => {
     page.evaluate(() => {
       const page = document.querySelector(".content .section-title")!.getBoundingClientRect().left;
       const out: { header: string; left: number; expected: number }[] = [];
-      for (const title of document.querySelectorAll<HTMLElement>(".content .group-title, .content .density-help")) {
+      for (const title of document.querySelectorAll<HTMLElement>(".content .group-title")) {
         const box = title.getBoundingClientRect();
         if (box.width === 0 || box.height === 0) continue;
         const glass = title.closest<HTMLElement>(".group.ui-glass");

@@ -84,10 +84,7 @@ export function ComputerUseCard({ focus = null }: { focus?: string | null }) {
         {row(COMPUTER_USE_ENABLED)}
         {/* The guided setup: it offers to turn Computer Use on, then walks each grant. */}
         {!locked && (
-          <ActionRow
-            title={t("settingsWindow.computerUse.setUpTitle")}
-            help={state && !off ? phaseText(state) : t("settingsWindow.computerUse.setUpHelp")}
-          >
+          <ActionRow title={t("settingsWindow.computerUse.setUpTitle")} help={state && !off ? phaseText(state) : ""}>
             {failed ? (
               <Button
                 type="button"

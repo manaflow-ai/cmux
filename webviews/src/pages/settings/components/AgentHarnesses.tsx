@@ -93,9 +93,6 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
           {t("settingsPage.agents.refresh")}
         </Button>
       </div>
-      <p className="mt-1 mb-3 text-[12px] leading-[17px] text-muted" data-intro="">
-        {t("settingsPage.agents.intro")}
-      </p>
       {state && <AgentsBody state={state} panel={panel} setPanel={setPanel} run={run} />}
       {state?.status === "unreachable" && state.message && (
         <output className="my-2 block text-[12px] text-warning">{state.message}</output>
