@@ -158,8 +158,11 @@ impl Package {
     }
 
     /// The app's palette commands for `apps-list`: the catalog ops with a
-    /// `palette` entry, as `{op, title, when?}`.
-    pub fn palette_commands(&self) -> Vec<Value> {
+    /// `palette` entry, as `{op, title, when?, page_keys?}`. `page_keys` are
+    /// the single keys that run the op on a browser page (`page_keys.rs`),
+    /// with the person's bindings from `key_overrides` (the app's
+    /// `cmux.keys` storage value) in place of the catalog's.
+    pub fn palette_commands(&self, key_overrides: Option<&Value>) -> Vec<Value> {
         self.catalog_ops()
             .into_iter()
             .filter_map(|(op, entry)| {
@@ -170,9 +173,25 @@ impl Package {
                 if let Some(when) = palette.get("when") {
                     command.set("when", when.clone());
                 }
+                let keys = super::page_keys::keys(&op, &entry, key_overrides);
+                if !keys.is_empty() {
+                    command.set("page_keys", serde_json::json!(keys));
+                }
+                let shortcuts = super::shortcuts::shortcuts(&entry);
+                if !shortcuts.is_empty() {
+                    command.set("shortcuts", Value::Array(shortcuts));
+                }
                 Some(command)
             })
             .collect()
+    }
+
+    /// Whether any catalog op asks for a page key (so `apps-list` reads the
+    /// person's bindings for this app).
+    pub fn has_page_keys(&self) -> bool {
+        self.catalog_ops()
+            .iter()
+            .any(|(op, entry)| !super::page_keys::keys(op, entry, None).is_empty())
     }
 
     /// Whether the app has a script (`runtime.main`). A native-pane app
@@ -484,7 +503,7 @@ mod tests {
             manifest: json!({ "catalog": "catalog.json" }),
         };
         let export = package.export_for_op("notes.open");
-        let commands = package.palette_commands();
+        let commands = package.palette_commands(None);
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(export.as_deref(), Some("open"));
         assert_eq!(

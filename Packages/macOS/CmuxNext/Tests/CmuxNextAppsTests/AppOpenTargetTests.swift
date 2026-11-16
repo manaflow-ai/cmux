@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextApps
 import Foundation
 import Testing
@@ -60,5 +61,34 @@ struct AppOpenTargetTests {
         let record = try #require(AppRecord(json: json))
         #expect(record.instance == AppInstance(id: "inst_9", target: "self-hosted:ops@build-01", state: .running,
                                                url: URL(string: "http://100.64.0.9:49153/")))
+    }
+}
+
+/// Extensions' key chords become registry actions that follow the apps (AppCommandShortcuts).
+@MainActor
+struct AppCommandShortcutTests {
+    private func entry(_ op: String, _ chords: [AppRecord.Command.Chord]) -> AppCommandShortcuts.Entry {
+        AppCommandShortcuts.Entry(app: "local/notes", appName: "Notes", command: AppRecord.Command(op: op, title: AppLocalizedText(op), shortcuts: chords))
+    }
+
+    @Test func aChordIsTheCommandsDefaultShortcutAndRunsIt() {
+        let registry = ActionRegistry()
+        var ran: [String] = []
+        let shortcuts = AppCommandShortcuts(registry: registry) { app, op in ran.append("\(app) \(op)") }
+        shortcuts.apply([entry("local.notes.add", [AppRecord.Command.Chord(key: "k", modifiers: ["cmd", "shift"])]), entry("local.notes.bare", [])])
+        let id = AppCommandShortcuts.actionID(app: "local/notes", op: "local.notes.add")
+        #expect(registry.effectiveShortcut(for: id) == Shortcut("k", modifiers: [.command, .shift]))
+        #expect(registry.action(for: AppCommandShortcuts.actionID(app: "local/notes", op: "local.notes.bare")) == nil)
+        registry.action(for: id)?.handler()
+        #expect(ran == ["local/notes local.notes.add"])
+        // The app goes away: so does its action.
+        shortcuts.apply([])
+        #expect(registry.action(for: id) == nil)
+    }
+
+    @Test func onlyAChordWithCommandControlOrOptionIsAShortcut() {
+        #expect(AppCommandShortcuts.shortcut(AppRecord.Command.Chord(key: "/", modifiers: ["opt"])) == Shortcut("/", modifiers: [.option]))
+        #expect(AppCommandShortcuts.shortcut(AppRecord.Command.Chord(key: "k", modifiers: ["shift"])) == nil)
+        #expect(AppCommandShortcuts.shortcut(AppRecord.Command.Chord(key: "k", modifiers: ["hyper"])) == nil)
     }
 }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextApps
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemonService
 import CmuxNextIcons
@@ -56,6 +57,17 @@ final class AppsService {
 
     func start() {
         client.start()
+        // Extensions' key chords as registry actions, following the commands the palette reaches.
+        let shortcuts = AppCommandShortcuts(registry: services.registry) { [weak services] app, op in
+            guard let services, let entry = AppCommandPalette.entries(services.apps).first(where: { $0.app.id == app && $0.command.op == op }) else { return }
+            services.registry.track(AppCommandPalette.run(entry, services: services, origin: .user))
+        }
+        // task-owner: this service, for the app's life; event-driven (Observation).
+        Task { [weak self] in
+            for await entries in ObservationStream({ [weak self] in self.map { AppCommandPalette.entries($0).map { .init(app: $0.app.id, appName: $0.app.manifest.name.resolved(), command: $0.command) } } ?? [] }) {
+                shortcuts.apply(entries)
+            }
+        }
         // task-owner: one off-main load of the bundled package directories and the scope table at launch
         Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }
@@ -71,7 +83,8 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats()]))
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(),
+                                                           BrowserPageAppOps(control: actionControl)]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()

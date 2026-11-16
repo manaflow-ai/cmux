@@ -60,6 +60,8 @@ mod openers;
 #[cfg_attr(not(test), allow(dead_code))]
 mod page_bridge;
 #[cfg(unix)]
+mod page_keys;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod relay;
@@ -77,6 +79,8 @@ mod server_tmp;
 mod servers;
 #[cfg(unix)]
 mod serves;
+#[cfg(unix)]
+mod shortcuts;
 #[cfg(unix)]
 mod sidebar;
 #[cfg(all(test, unix))]
