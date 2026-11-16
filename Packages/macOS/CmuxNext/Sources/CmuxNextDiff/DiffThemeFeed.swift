@@ -9,7 +9,7 @@ public import Foundation
 /// The page applies it as its last `<style>` (webviews/src/diff/page.ts `startPageDiffTheme`).
 public final class DiffThemeFeed {
     /// A stylesheet larger than this is not one: the page gets "" instead.
-    static let fileLimit = 2 * 1024 * 1024
+    nonisolated static let fileLimit = 2 * 1024 * 1024
 
     public let file: URL
     private var current: String?
