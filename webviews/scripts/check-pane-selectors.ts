@@ -39,7 +39,7 @@ export interface OwnedSelector {
 
 export async function ownedSelectors(root = ROOT): Promise<Map<string, OwnedSelector>> {
   const owned = new Map<string, OwnedSelector>();
-  for (const file of walk(join(root, "src")).filter((f) => /Selectors\.ts$/.test(f))) {
+  for (const file of walk(join(root, "src")).filter((f) => f.endsWith("Selectors.ts"))) {
     const exports = (await import(file)) as Record<string, unknown>;
     for (const [name, value] of Object.entries(exports)) {
       if (typeof value !== "string") continue;
@@ -56,7 +56,7 @@ export function checkedFiles(root = ROOT): string[] {
   return [
     ...walk(join(root, "test")),
     ...walk(join(root, "src")).filter((f) => /\.(gallery|test)\.tsx?$/.test(f)),
-  ].filter((f) => !/Selectors\.ts$/.test(f));
+  ].filter((f) => !f.endsWith("Selectors.ts"));
 }
 
 export interface RawSelector {
