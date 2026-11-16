@@ -28,9 +28,10 @@ use std::time::Duration;
 const DEFAULT_DISPLAY: &str = ":99";
 #[cfg(target_os = "macos")]
 const DEFAULT_DISPLAY: &str = "main";
-/// Linux: Cisco's OpenH264 binary. macOS: the hardware encoder, fed the captured IOSurface.
+/// Linux: the GPU through VAAPI when a render node encodes H.264, else Cisco's OpenH264 binary
+/// (`encoder::open`, "auto"). macOS: the hardware encoder, fed the captured IOSurface.
 #[cfg(target_os = "linux")]
-pub(crate) const DEFAULT_CODEC: &str = "openh264";
+pub(crate) const DEFAULT_CODEC: &str = "auto";
 #[cfg(target_os = "macos")]
 pub(crate) const DEFAULT_CODEC: &str = "videotoolbox";
 /// X apps draw one change with several requests, so the Linux host waits briefly for the
