@@ -40,6 +40,8 @@ public final class AppsClient {
     /// where icons and scene images are when the supervisor sent no `bundle_dir`.
     public private(set) var bundledDirectories: [String: URL] = [:]
     @ObservationIgnored let transport: any AppsTransport
+    /// The apps' command shortcuts in a registry's binding table (``followKeyBindings(in:)``).
+    @ObservationIgnored public internal(set) var keyBindings: AppKeyBindings?
     @ObservationIgnored var mounts: [String: AppMount] = [:]
     @ObservationIgnored private var nextKey = 0
     @ObservationIgnored var nextLog = 1
