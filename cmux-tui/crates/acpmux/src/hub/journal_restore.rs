@@ -281,6 +281,8 @@ impl Hub {
                 "at most {MAX_RECORDS} records restore at once"
             )));
         }
+        #[cfg(any(debug_assertions, test))]
+        note_taken(id, raw.len());
         let mut records = Vec::with_capacity(raw.len());
         let mut last = after;
         for r in raw {
@@ -1220,4 +1222,22 @@ fn test_flush_fails(id: &str) -> bool {
 #[cfg(not(debug_assertions))]
 fn test_flush_fails(_: &str) -> bool {
     false
+}
+
+/// The records every restore request of a chat carried, by chat: a fault test counts what a
+/// restore cut midway sends again (`tests/machine_move_journey.rs`).
+#[cfg(any(debug_assertions, test))]
+static TAKEN: std::sync::Mutex<Vec<(String, usize)>> = std::sync::Mutex::new(Vec::new());
+
+/// The records every restore request of chat `id` carried so far, summed.
+#[cfg(any(debug_assertions, test))]
+#[doc(hidden)]
+pub fn records_taken(id: &str) -> usize {
+    let taken = TAKEN.lock().unwrap_or_else(|e| e.into_inner());
+    taken.iter().filter(|(chat, _)| chat == id).map(|(_, n)| n).sum()
+}
+
+#[cfg(any(debug_assertions, test))]
+fn note_taken(id: &str, records: usize) {
+    TAKEN.lock().unwrap_or_else(|e| e.into_inner()).push((id.to_owned(), records));
 }
