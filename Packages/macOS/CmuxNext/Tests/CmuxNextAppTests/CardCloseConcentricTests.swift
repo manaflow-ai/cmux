@@ -10,11 +10,19 @@ import Testing
 /// (``ConcentricContainer/cornerControl(outerRadius:side:minimumPadding:)``). Measured on every dismissable card as
 /// it lays out.
 @MainActor @Suite(.serialized) struct CardCloseConcentricTests {
-    /// What breaks the rule for the x at `close` (with `radius`) in the card at `card` rounded by `outer`.
+    /// What breaks the rule for the x at `close` (with `radius`) in the top trailing corner of the card at `card`
+    /// rounded by `outer`: the top and the side insets differ, or the x does not round by the corner less the inset.
+    /// (The bottom is the card's text's: a one-line card is short, so the x sits nearer its bottom than its top.)
     private static func broken(close: CGRect, radius: CGFloat, card: CGRect, outer: CGFloat) -> [String] {
         let side = card.maxX - close.maxX
-        return ConcentricContainer.violations(child: close, childRadius: radius, in: card, outerRadius: outer, padding: side)
-            + (side < 0 ? ["the x is \(side) pt past the card's side"] : [])
+        // The card's top in either coordinate space: the edge the x is nearer.
+        let top = min(close.minY - card.minY, card.maxY - close.maxY)
+        let expected = max(0, min(outer - side, min(close.width, close.height) / 2))
+        var out: [String] = []
+        if side < 0 { out.append("the x is \(side) pt past the card's side") }
+        if abs(top - side) > 0.5 { out.append("top inset \(top) is not the side inset \(side)") }
+        if abs(radius - expected) > 0.5 { out.append("the x rounds by \(radius), not \(outer) - \(side) = \(expected)") }
+        return out
     }
 
     private static func radius(of button: SidebarIconButton) -> CGFloat {
