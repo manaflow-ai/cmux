@@ -188,6 +188,9 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ActionCatalog", "action.macScreen.open", "Screen Sharing"),
         keywords: &["mac", "screen", "remote", "control", "screen sharing", "screen share", "share screen", "remote desktop", "vnc", "rdp", "view", "watch", "device", "machine", "computer", "other mac", "pair", "share this mac"],
+        // Cmd-Shift-S, S for Screen: no other default, menu key, Ghostty default, macOS shortcut
+        // or first-party app key holds it (tests/default_keymap_conflicts.rs).
+        default_shortcut: Some(Shortcut { key: "s", modifiers: SHIFT | CMD }),
         category: "tab",
         symbol: "display",
         surfaces: PALETTE | MENU | CONTEXT_MENU,
