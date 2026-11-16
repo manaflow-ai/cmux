@@ -17,7 +17,7 @@ import Testing
     }
 
     @Test func settingsHasNoQuitRows() {
-        for path in RetiredQuitSettings.paths {
+        for path in SettingsController.retiredQuitPaths {
             #expect(SettingsSchema.descriptor(for: path) == nil, Comment(rawValue: path.joined(separator: ".")))
             #expect(SettingsSchema.isRetired(path))
         }
@@ -44,7 +44,7 @@ import Testing
         await settings.reload()
 
         #expect(try await settings.removeRetiredQuitSettings())
-        for path in RetiredQuitSettings.paths {
+        for path in SettingsController.retiredQuitPaths {
             #expect(try await settings.file.value(at: path) == nil, Comment(rawValue: path.joined(separator: ".")))
         }
         // The `app` object they left empty goes too; other settings stay.
