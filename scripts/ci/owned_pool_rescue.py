@@ -6027,8 +6027,25 @@ STALL_SWITCH_VALUES = frozenset({"on", "pr-rescue"})
 
 def stall_pull_only(switch: str | None) -> bool:
     """Whether the stall move may move pull_request runs only: vars.CI_BLACKSMITH_MACOS is `pr-rescue`, under which a
-    same-tree dispatch's re-run still takes CI_SIDE_LANE_RUNNER (its event is not pull_request)."""
+    dispatch's re-run takes CI_SIDE_LANE_RUNNER unless its workflow treats a same-tree pull request run as its pull
+    request (DISPATCH_PR_RESCUE)."""
     return (switch or "").strip() == "pr-rescue"
+
+
+# cmux-next.yml's `pr-rescue` clause that sends a same-tree run of a pull request (same_tree_origin pull_request,
+# cmux_next_tree_notify.py) off the side lane on the bot's re-run, as the pull request's own run. Before it, run
+# 43854064455 (PR #44408's same-tree daemon tests and scheme compile) queued its scheme compile on
+# glaeda-side-std-xcode-26.6 from 11:01Z to 12:41Z on 2026-11-16 with the stall move skipping it under `pr-rescue`.
+# A dispatch is moved under `pr-rescue` only when its own workflow, at its head, has the clause
+# (dispatch_reruns_off_side()): an older branch's re-run would rejoin the side lane at its back.
+DISPATCH_PR_RESCUE = ("(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' && "
+                      "inputs.same_tree_origin != 'pull_request' || github.run_attempt < 2)")
+
+
+def dispatch_reruns_off_side(workflow_text: str | None) -> bool:
+    """Whether a dispatch's cmux-next.yml (`workflow_text`, at the run's head) sends a same-tree pull request run's
+    bot re-run off the side lane under `pr-rescue` (DISPATCH_PR_RESCUE). Fails closed: no text is no."""
+    return bool(workflow_text) and DISPATCH_PR_RESCUE in str(workflow_text)
 
 
 def stall_destinations(runner: str | None, pools: str | None, switch: str | None = "on") -> tuple[str, ...] | None:
@@ -6612,7 +6629,8 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
     off) and with an `owned` route, it is the owned stall move instead (see OWNED_STALL_MOVE): `start` gets the owned
     label as its fourth argument, at most OWNED_MOVES_PER_SWEEP moves start, and a run moves at most once. Returns how
     many it started. Raises READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run.
-    `pull_only` (stall_pull_only()) leaves every run but a pull_request one: its re-run would rejoin the owned side
+    `pull_only` (stall_pull_only()) leaves every run but a pull_request one, unless it is a dispatch whose workflow
+    sends its re-run off the side label (dispatch_reruns_off_side()): else its re-run would rejoin the owned side
     label."""
     in_owned = destination is None and owned is not None
     cap = OWNED_MOVES_PER_SWEEP if in_owned else STALL_MOVES_PER_SWEEP
@@ -6633,8 +6651,10 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         if began is None or (at - began).total_seconds() < STALL_MIN_AGE_SECONDS:
             continue
         target = stall_target(run, repository)
-        if (isinstance(target, str) or in_owned and is_delivery_target(target)
-                or pull_only and run.get("event") != "pull_request"):
+        # Under `pr-rescue` a dispatch (stall_target() keeps only same-tree pull request ones) moves only once its
+        # workflow says its re-run leaves the side lane (dispatch_reruns_off_side(), read after a stall is found).
+        side_rerun = pull_only and run.get("event") != "pull_request"
+        if isinstance(target, str) or in_owned and is_delivery_target(target) or side_rerun and in_owned:
             continue
         try:
             jobs = client.jobs(run_id, target.attempt)
@@ -6650,6 +6670,17 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         if blocked:
             log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {blocked}")
             continue
+        if side_rerun:
+            try:
+                text = client.workflow_file(target.path, target.head_sha)
+            except READ_ERRORS as error:
+                log(f"[run {run_id}] {STALL_MOVE}: could not read {target.path} at {target.head_sha[:12]} ({error}); "
+                    "next scan")
+                continue
+            if not dispatch_reruns_off_side(text):
+                log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but its {target.path} at {target.head_sha[:12]} "
+                    "re-runs a dispatch on the side lane under pr-rescue (no DISPATCH_PR_RESCUE clause)")
+                continue
         try:
             newer = client.newer_head_runs(target.path, run_id, target.head_sha)
             covering = covering_run(client, newer, jobs) if newer else None
