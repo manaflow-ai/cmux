@@ -1164,7 +1164,7 @@ code {
 .apps-listing-actions .apps-button,
 .apps-hero-actions .apps-button {
   padding: 4px 16px;
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
 }
 
 .apps-listing-actions .apps-button.primary,
