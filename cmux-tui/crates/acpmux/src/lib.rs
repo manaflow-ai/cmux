@@ -37,9 +37,9 @@ pub mod author;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
-pub mod build_info;
 #[path = "cli/bounded_child.rs"]
 pub(crate) mod bounded_child;
+pub mod build_info;
 pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
@@ -194,8 +194,8 @@ pub mod peer_link;
 pub mod peer_mirror;
 pub mod peer_paths;
 pub mod peer_states;
-pub mod person_tokens;
 pub mod person_proof;
+pub mod person_tokens;
 pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
