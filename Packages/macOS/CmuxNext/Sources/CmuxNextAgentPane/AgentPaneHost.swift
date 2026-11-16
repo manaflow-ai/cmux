@@ -602,8 +602,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                                     approver: AgentPanePeerApprover? = nil,
                                     adoption: AcpmuxAdoptionGate = .live) async throws -> AcpmuxWebEndpoint {
         Self.markLookup("lookup_start", owned: owned)
-        // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
-        await adoption.untilEnded()
+        // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9): the
+        // adoption stops a daemon of a home it moves. A home it no longer changes (every relaunch
+        // after the first) is looked up at once while it ends in the background; one it may still
+        // change waits a bounded time, then the pane retries (``AcpmuxAdoptionGate``).
+        guard await adoption.lookupMayProceed(home: environment.home) else {
+            logger.info("acpmux lookup waits for the build-home adoption home=\(environment.home.path, privacy: .public)")
+            Self.markLookup("adoption_pending", owned: owned)
+            throw AgentPaneHostError.daemonRestarting
+        }
         Self.markLookup("adopted", owned: owned)
         // This lookup took a stray daemon over or handed a stale one off: Settings' daemon line
         // says restarting until it ends.
@@ -696,7 +703,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
         do {
             Self.markLookup("spawn_start", owned: owned)
-            let launched = try await AcpmuxDaemonLauncher.launchReporting(environment)
+            let launched = try await AcpmuxDaemonLauncher.launchReporting(environment, adoption: adoption)
             Self.markLookup("spawn_ready", owned: owned)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {

@@ -26,7 +26,7 @@ nonisolated struct AcpmuxAdoptionGate: Sendable {
     static let live = AcpmuxAdoptionGate(
         mayChange: { home in
             BuildHomeAdoption.applies(bundleID: Bundle.main.bundleIdentifier, environment: ProcessInfo.processInfo.environment)
-                && mayChange(home: home)
+                && AcpmuxAdoptionGate.mayChange(home: home)
         },
         untilEnded: { await AcpmuxEnvironment.adoptBuildHomes() },
         limit: .seconds(10))
