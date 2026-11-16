@@ -13,10 +13,13 @@ extension ActionRegistry {
     ]
 
     /// Binds each ``awaitingHandlers`` row this catalog has and nothing has bound yet as
-    /// unavailable in this build. A row the catalog lacks (an older FFI) binds nothing.
+    /// unavailable in this build, left out of every context menu (no menu offers a row that
+    /// cannot run). A row the catalog lacks (an older FFI) binds nothing.
+    @MainActor
     public func bindAwaitingHandlers() {
         for id in Self.awaitingHandlers where descriptor(for: id) != nil && !isBound(id) {
             bindUnavailable(id, reason: Self.awaitingHandlerReason)
+            ActionTargetVisibility.hide(id, in: self) { _ in true }
         }
     }
 
