@@ -822,6 +822,31 @@ pub(super) fn placements(
         .collect()
 }
 
+/// The web panes (`render: web`) of `manifest` as the daemon hosts them: its
+/// record's `web_pages`. A page the manifest declares that the daemon does
+/// not list is a load problem (a daemon older than web panes, or a page its
+/// rules refused), so `--once` fails instead of reporting a pane that never
+/// opens.
+pub(super) fn web_check(manifest: &Value, record: Option<&Value>) -> Result<Vec<Value>, Problem> {
+    let served: Vec<Value> = record
+        .and_then(|r| r.get("web_pages"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for page in cmux_app_manifest::web_pages(manifest) {
+        if !served.iter().any(|s| s.field("interface").as_str() == Some(page.interface.as_str())) {
+            return Err(Problem {
+                field: Some(format!("/implements/{}/web", page.interface.replace('/', "~1"))),
+                ..Problem::message(format!(
+                    "cmux does not host the web page of {} ({}/{}); run `cmux version` to compare the CLI and the daemon",
+                    page.interface, page.root, page.entry
+                ))
+            });
+        }
+    }
+    Ok(served)
+}
+
 /// The interface the load check mounts: a view that renders with no context.
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
@@ -858,6 +883,9 @@ pub(super) struct Outcome {
     pub interrupted: bool,
     /// `cmux-app.d.ts` was rewritten from the running cmux (API version).
     pub types_updated: Option<String>,
+    /// The web panes (`render: web`) the daemon hosts for the app (its
+    /// record's `web_pages`): `{interface, root, entry, symbol}` each.
+    pub web: Vec<Value>,
 }
 
 impl Outcome {
@@ -880,6 +908,7 @@ impl Outcome {
             next: None,
             interrupted: false,
             types_updated: None,
+            web: Vec::new(),
         }
     }
 
@@ -919,6 +948,7 @@ impl Outcome {
             "logs": self.logs,
             "next": self.next,
             "typesUpdated": self.types_updated,
+            "web": self.web,
         })
     }
 
@@ -946,6 +976,13 @@ impl Outcome {
                 }
                 if self.installed == Some(false) {
                     line.push_str(", as a preview (not installed)");
+                }
+                if !self.web.is_empty() {
+                    let count = self.web.len();
+                    line.push_str(&format!(
+                        "; {count} web pane{} reloads in place",
+                        if count == 1 { "" } else { "s" }
+                    ));
                 }
                 if let Some(version) = &self.types_updated {
                     line.push_str(&format!("; {TYPES_FILE} now matches this cmux (API {version})"));
@@ -1122,6 +1159,10 @@ impl Session {
             placements(&pkg.manifest, &pkg.id, installed && enabled && !hidden, &new_tab);
         let new_tab_held =
             outcome.placed.iter().find_map(|p| p.field("why").as_str().map(str::to_owned));
+        match web_check(&pkg.manifest, record.as_ref()) {
+            Ok(web) => outcome.web = web,
+            Err(problem) => return outcome.failed(Phase::Load, vec![problem]),
+        }
         if !installed {
             outcome.next = Some(format!(
                 "cmux apps install {}   (shows a card in cmux; until then it loads as a preview)",
