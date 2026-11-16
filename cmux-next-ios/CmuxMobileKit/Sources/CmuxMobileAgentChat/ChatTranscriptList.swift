@@ -655,9 +655,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // shorter than the screen): read the page before it. The list keeps the reader's rows
         // in place as it lands (`reload`'s anchor).
         if shownID == "session-start", store.hasEarlierHistory { store.loadEarlier() }
-        // A reused cell a send's glide moved or faded is drawn at rest for its new row.
-        if let id = shownID, !settlingRowIDs.contains(id), cell.contentView.transform != .identity || cell.contentView.alpha < 1,
-           !fadeIn.contains(id) {
+        // While a send glides, a cell shown for any other row is drawn at rest (one the glide
+        // moved or faded may be reused for it). Outside a glide nothing here touches a cell.
+        if !settlingRowIDs.isEmpty, let id = shownID, !settlingRowIDs.contains(id), !fadeIn.contains(id),
+           cell.contentView.transform != .identity || cell.contentView.alpha < 1 {
             cell.contentView.transform = .identity
             cell.contentView.alpha = 1
         }

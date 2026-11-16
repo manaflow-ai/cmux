@@ -112,10 +112,13 @@ struct ChatSendSettle {
 
 #if DEBUG
 /// What the send glide did, newest last (DEBUG): the transcript shows it as the value of a
-/// one-point accessibility element, `chat.sendSettle.trace`, which ChatSendMotionUITests prints,
+/// one-point accessibility element, `chat.sendSettle.trace`, which ChatSendMotionUITests attaches,
 /// so a fleet recording says why a send glided or did not.
 @MainActor
 enum ChatSendTrace {
+    /// A run that picks a send motion at launch (`-cmuxMobile.dev.sendMotion`, ChatSendMotionUITests)
+    /// shows the trace; no other build or test adds its element.
+    static let isShown = ProcessInfo.processInfo.arguments.contains("-" + DeveloperOptions.sendMotionKey)
     private(set) static var lines: [String] = []
     static var changed: (() -> Void)?
 

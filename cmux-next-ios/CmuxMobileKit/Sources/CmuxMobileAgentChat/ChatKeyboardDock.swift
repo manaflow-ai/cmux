@@ -367,15 +367,18 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         center.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         surface.scroller = self
         #if DEBUG
-        // What the send glide did (`ChatSendTrace`), for ChatSendMotionUITests to print.
-        let sendTrace = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-        sendTrace.alpha = 0.02
-        sendTrace.isUserInteractionEnabled = false
-        sendTrace.isAccessibilityElement = true
-        sendTrace.accessibilityIdentifier = "chat.sendSettle.trace"
-        sendTrace.accessibilityLabel = "send trace"
-        view.addSubview(sendTrace)
-        ChatSendTrace.changed = { [weak sendTrace] in sendTrace?.accessibilityValue = ChatSendTrace.lines.joined(separator: " | ") }
+        // What the send glide did (`ChatSendTrace`), for ChatSendMotionUITests to read: only in a
+        // run that picks a send motion (`-cmuxMobile.dev.sendMotion`), never in other tests.
+        if ChatSendTrace.isShown {
+            let sendTrace = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+            sendTrace.alpha = 0.02
+            sendTrace.isUserInteractionEnabled = false
+            sendTrace.isAccessibilityElement = true
+            sendTrace.accessibilityIdentifier = "chat.sendSettle.trace"
+            sendTrace.accessibilityLabel = "send trace"
+            view.addSubview(sendTrace)
+            ChatSendTrace.changed = { [weak sendTrace] in sendTrace?.accessibilityValue = ChatSendTrace.lines.joined(separator: " | ") }
+        }
         #endif
         surface.stackHeightFrame = { [weak self] in self?.stackHeightFrame($0) }
         if let height = surface.drawnStackHeight { stackHeightFrame(height) }
