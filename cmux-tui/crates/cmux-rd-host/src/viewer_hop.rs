@@ -45,7 +45,6 @@ pub struct HopStats {
 /// What one frame cost between release here and the glass, from the app's reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameTiming {
-    pub frame: u32,
     /// Release here to the app's report that its decoder finished.
     pub release_to_decoded_us: Option<u64>,
     /// The decoder's own time for the frame.
@@ -85,13 +84,18 @@ pub struct ViewerHop {
     in_flight: Option<InFlight>,
     /// After an overrun, frames are dropped until one starts a new chain.
     awaiting_resume: bool,
+    /// The pane is connected (`attach`): only then does a cut chain ask for a keyframe.
+    attached: bool,
+    /// Frames handed to the app, newest last (bounded): a recovery frame that references
+    /// one of them decodes without anything waiting here.
+    delivered: VecDeque<u32>,
     stats: HopStats,
     sent: VecDeque<SentFrame>,
     timings: Vec<FrameTiming>,
 }
 
-fn resumes(frame: &CompleteFrame) -> bool {
-    frame.flags & (flags::KEYFRAME | flags::RECOVERY) != 0 || frame.body.ref_frame == REF_NONE
+fn is_keyframe(frame: &CompleteFrame) -> bool {
+    frame.flags & flags::KEYFRAME != 0 || frame.body.ref_frame == REF_NONE
 }
 
 impl ViewerHop {
@@ -107,6 +111,8 @@ impl ViewerHop {
             waiting: VecDeque::new(),
             in_flight: None,
             awaiting_resume: false,
+            attached: false,
+            delivered: VecDeque::new(),
             stats: HopStats::default(),
             sent: VecDeque::new(),
             timings: Vec::new(),
@@ -158,7 +164,6 @@ impl ViewerHop {
                 if let Some(i) = self.sent.iter().position(|s| s.frame == frame) {
                     let s = self.sent[i];
                     self.timings.push(FrameTiming {
-                        frame,
                         release_to_decoded_us: s.decoded_us.map(|d| d.saturating_sub(s.release_us)),
                         decode_us: s.decode_us,
                         release_to_presented_us: Some(presented_us.saturating_sub(s.release_us)),
@@ -181,6 +186,10 @@ impl ViewerHop {
         let Waiting { frame, release_us } = self.waiting.pop_front()?;
         self.in_flight = Some(InFlight { frame: frame.frame, sent_us: now_us });
         self.stats.sent += 1;
+        if self.delivered.len() >= TIMING_SLOTS {
+            self.delivered.pop_front();
+        }
+        self.delivered.push_back(frame.frame);
         if self.sent.len() >= TIMING_SLOTS {
             self.sent.pop_front();
         }
@@ -243,10 +252,27 @@ impl ViewerHop {
         }
     }
 
+    /// Whether the app decodes `frame` without any frame still waiting here: a keyframe,
+    /// or a recovery frame whose reference the app already has. (A recovery frame names an
+    /// acknowledged frame, and the reassembler acknowledges on release, so its reference
+    /// may well be one still waiting here: then it is not.)
+    fn decodes_alone(&self, frame: &CompleteFrame) -> bool {
+        is_keyframe(frame)
+            || (frame.flags & flags::RECOVERY != 0
+                && self.delivered.contains(&frame.body.ref_frame))
+    }
+
+    /// The pane connected: a chain cut while nobody read asks for a keyframe now.
+    pub fn attach(&mut self) {
+        self.attached = true;
+        if self.awaiting_resume {
+            self.receiver.request_keyframe();
+        }
+    }
+
     fn release(&mut self, frame: CompleteFrame, now_us: u64) {
-        if resumes(&frame) {
-            // The app decodes this one without anything waiting: the waiting frames
-            // would only be shown and then replaced.
+        if self.decodes_alone(&frame) {
+            // The waiting frames would only be shown and then replaced.
             self.stats.replaced += self.waiting.len() as u64;
             self.waiting.clear();
             self.awaiting_resume = false;
@@ -257,7 +283,10 @@ impl ViewerHop {
             self.stats.overrun += self.waiting.len() as u64 + 1;
             self.waiting.clear();
             self.awaiting_resume = true;
-            self.receiver.request_keyframe();
+            // Before the pane connects nobody reads: no keyframe until it does.
+            if self.attached {
+                self.receiver.request_keyframe();
+            }
             return;
         }
         self.waiting.push_back(Waiting { frame, release_us: now_us });
@@ -293,6 +322,18 @@ mod tests {
         fn send(&mut self, hop: &mut ViewerHop, key: bool, now: u64) {
             for d in self.datagrams(key, 3000) {
                 assert!(ViewerHop::takes(&d));
+                hop.push_datagram(&d, now);
+            }
+        }
+
+        /// One recovery frame that references `ref_frame`.
+        fn send_recovery(&mut self, hop: &mut ViewerHop, ref_frame: u32, now: u64) {
+            let frame = self.next;
+            self.next += 1;
+            let body = FrameBody { t_capture_us: 1, ref_frame, access_unit: vec![9; 3000] };
+            for d in
+                self.p.packetize(frame, flags::RECOVERY, &body, 0).expect("packetize").datagrams
+            {
                 hop.push_datagram(&d, now);
             }
         }
@@ -340,6 +381,7 @@ mod tests {
     #[test]
     fn an_app_that_stops_reading_costs_a_bounded_wait_and_one_keyframe_request() {
         let mut hop = ViewerHop::new(200_000, 5_000);
+        hop.attach();
         let mut host = Host::new(0);
         host.send(&mut hop, true, 0);
         let _held = hop.next_frame(0).unwrap();
@@ -382,7 +424,6 @@ mod tests {
         assert_eq!(
             hop.take_timings(),
             vec![FrameTiming {
-                frame: 1,
                 release_to_decoded_us: Some(4_500),
                 decode_us: Some(4_000),
                 release_to_presented_us: Some(12_000),
@@ -407,5 +448,46 @@ mod tests {
         let d = &host.datagrams(true, 100)[0];
         assert!(!ViewerHop::takes(d), "another stream's video stays the app's");
         assert!(!ViewerHop::takes(&[0u8; 3]));
+    }
+
+    #[test]
+    fn a_recovery_frame_never_replaces_the_frame_it_references() {
+        let mut hop = ViewerHop::new(200_000, 5_000);
+        let mut host = Host::new(0);
+        host.send(&mut hop, true, 0);
+        let first = hop.next_frame(0).unwrap();
+        host.send(&mut hop, false, 1); // frame 2, waiting
+        host.send_recovery(&mut hop, 2, 2); // frame 3 references the waiting frame 2
+        consume(&mut hop, &first, 3);
+        assert_eq!(hop.next_frame(3).unwrap().frame, 2, "its reference goes first");
+        assert_eq!(hop.stats().replaced, 0);
+    }
+
+    #[test]
+    fn a_recovery_frame_on_a_delivered_reference_replaces_the_waiting_ones() {
+        let mut hop = ViewerHop::new(200_000, 5_000);
+        let mut host = Host::new(0);
+        host.send(&mut hop, true, 0);
+        let first = hop.next_frame(0).unwrap();
+        host.send(&mut hop, false, 1);
+        host.send(&mut hop, false, 2);
+        host.send_recovery(&mut hop, first.frame, 3);
+        consume(&mut hop, &first, 4);
+        assert_eq!(hop.next_frame(4).unwrap().frame, 4);
+        assert_eq!(hop.stats().replaced, 2);
+    }
+
+    #[test]
+    fn no_keyframe_is_asked_for_before_the_pane_connects() {
+        let mut hop = ViewerHop::new(200_000, 5_000);
+        let mut host = Host::new(0);
+        host.send(&mut hop, true, 0);
+        for _ in 0..(MAX_WAITING + 3) {
+            host.send(&mut hop, false, 1);
+        }
+        assert!(hop.stats().overrun > 0);
+        assert!(!hop.receiver.need_recovery(), "nobody reads yet: no keyframe");
+        hop.attach();
+        assert!(hop.receiver.need_recovery(), "the pane connected: now one");
     }
 }

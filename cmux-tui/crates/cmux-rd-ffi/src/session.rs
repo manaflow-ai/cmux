@@ -158,7 +158,10 @@ impl Session {
 
     fn report(&mut self, report: LocalReport) {
         if self.local_reports.len() >= MAX_LOCAL_REPORTS {
-            self.local_reports.pop_front();
+            // A lost Consumed costs the connect process a credit timeout: presented times go first.
+            let presented =
+                self.local_reports.iter().position(|r| matches!(r, LocalReport::Presented { .. }));
+            let _ = self.local_reports.remove(presented.unwrap_or(0));
         }
         self.local_reports.push_back(report);
     }
@@ -169,8 +172,8 @@ impl Session {
         let Ok(frame) = LocalFrame::decode(payload) else { return };
         let stream = frame.stream;
         let Some(local) = self.local.get_mut(&stream) else { return };
-        let resumes = frame.flags & (flags::KEYFRAME | flags::RECOVERY) != 0
-            || frame.body.ref_frame == REF_NONE;
+        // Only a keyframe starts a new chain here: a recovery frame may reference the dropped one.
+        let resumes = frame.flags & flags::KEYFRAME != 0 || frame.body.ref_frame == REF_NONE;
         let mut keyframe_wanted = false;
         if local.frames.len() >= MAX_LOCAL_READY {
             // The connect process ran ahead of the caller: the dropped frame breaks the

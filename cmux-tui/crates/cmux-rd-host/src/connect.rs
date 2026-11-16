@@ -263,6 +263,9 @@ fn bridge(net: &Net, listener: &UnixListener, mut hop: Option<ViewerHop>) -> Res
                 Ok((stream, _)) => {
                     stream.set_nonblocking(true)?;
                     pane = Some(stream);
+                    if let Some(h) = &mut hop {
+                        h.attach();
+                    }
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) => return Err(e.into()),
