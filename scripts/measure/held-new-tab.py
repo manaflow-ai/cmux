@@ -20,7 +20,8 @@ new key-down of T starts its repeats again after the first delay (`mixed_repeat_
 
 KEY SOURCE. The first act is the check if a process of this step may post a key at the HID tap (`HID grant:
 yes|no`; the check never asks, so no dialog). The keys come from `debug.key` (`app-queue`), in one of 2 launch
-forms (--launch-form; `launch_form` and `key_source` in the report say which one the rows used):
+forms (--launch-form; `launch_form` and `key_source` in the report say which one the rows used, and a row's
+`key_source` is the form's name):
 
   activate  the app is launched as a person's app (no CMUX_NEXT_NO_ACTIVATE: it takes the keyboard). A row is ONE
             `debug.key {"sequence"}` in the shell window as the key window: the app builds each key as a real
@@ -58,11 +59,35 @@ request is in no log. `tab_shows` is the count of changes of a pane's shown tab 
 `opens` says how many of the row's new tab pages took the page that the app keeps ready (`warm`) and how many did
 not (`cold`), from `debug.new_tab`, which keeps the last OPENINGS opens only.
 
-`order`: the pane's tab list and selected tab after the row (`debug.focus`, read after the frames) against a small
-pure model of the keys that did something: Cmd-T puts a tab directly right of the selected tab, selects it and
-keeps the tab it came from as its opener; Cmd-W closes the selected tab and selects, first match, a tab it
-opened, a tab of the same opener, its opener, the next tab, the previous tab. `equal` says if both agree, tab by
-tab; a new tab is known by its place, not by its key (`order_by`).
+`order`: the pane's tab list and selected tab after the row against a small pure model of the keys that did
+something: Cmd-T puts a tab directly right of the selected tab, selects it and keeps the tab it came from as its
+opener; Cmd-W closes the selected tab and selects, first match, a tab it opened, a tab of the same opener, its
+opener, the next tab, the previous tab. The list is the store's own (`snapshot.get`: each tab's id and kind), read
+after the frames when no tab is a stand-in, or after LIST_SETTLE_S; the focus model's list (`debug.focus`) is
+beside it (`focus_list_is_the_store_list`). The model knows a tab by its id (`order_by`): a tab of the start has
+its id; each Cmd-W is checked by the id that the app's own `closed` mark names, and a new tab gets its id from the
+close that names it. The app names no id at the key that makes a tab, so a new tab that no Cmd-W closed gets its
+id by its place in the end list (`new_tabs` counts both kinds). `equal` says if both agree; `first_difference`
+names the first key whose close is not the model's (`where: key`), else the first place of the end list (`list`),
+else the selected tab (`selected`), each with the tab's id, its kind and where it came from. `close` starts with
+the openers that `hold` left; when `hold` gave none (its own order was not equal, or its list had a stand-in tab)
+`close` gives no verdict. `list_read_after_last_key_ms` is the time from the row's last key to the end of that
+list read.
+
+`slow_keys`: each key that made or closed a tab and whose first commit ended more than SLOW_KEY_MS after the key
+(the slowest SLOW_KEYS of them): the key's age when its action started and the action's time, its age when that
+commit started and the commit's time. `opens.main_ms`: the main thread time of the row's opens from the ready
+page (`warm`) and of the others (`cold`), as the app counted each from the open action to the page in its pane.
+
+After the rounds, ONE more `hold` take is recorded with more signpost categories (WIDE_CATEGORIES); its row has
+the scenario `hold, wider recording` and the round `wide`, so it is in no number of the rounds' rows.
+`wider_recording.slow_keys` names, for each slow key, the 3 intervals with the most time between the key and the
+end of its first commit (a task of the main frame budget by its class and owner); see WIDE_LIMIT.
+
+After each row but `hold`, the workspace gets the start's shape again: each pane and tab that the start did not
+have is closed, and for each tab of the start that the row closed, the rows' pane gets a new terminal tab
+(`tabs_given_back`). What is still different then is in `not_restored` and is a failure of the run. A take whose
+pane is gone, or whose pane does not get the focus, has no key and no film: its row says `not_run` and why.
 
 `first_frame`: for each key that made or closed a tab, was the pane's shown tab changed for that key by the end
 of the first Core Animation commit after the key's action (`shown`), was a later key's action before that commit
@@ -71,12 +96,13 @@ shown tab (the input journal); that the tab's own view had its content in that f
 
 --film DIR adds one `mixed` take under `debug.window_record` (it slows the app: not for a table).
 
-Prints one `HELD-NEW-TAB {json}` line and writes report.json to --out. Exit 0 when each row measured what it
+Prints one `HELD-NEW-TAB {json}` line and writes report.json to --out; with --artifact FILE it also packs the
+report, each take's record and signpost stream and the film's frames into that one .tgz. Exit 0 when each row measured what it
 names; 2 when a row did not and each round still has a valid row; 1 when the preflight failed or a round has no
 valid row (the run ends after that round); 3 when it cannot run as asked. Run on a fleet GUI host
 (held-new-tab.sh), never on a Mac that someone works on.
 """
-import argparse, ctypes, importlib.util, json, os, re, socket, subprocess, sys, threading, time, traceback
+import argparse, ctypes, importlib.util, json, os, re, socket, subprocess, sys, tarfile, threading, time, traceback
 from pathlib import Path
 
 NEXT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-next")
@@ -92,10 +118,26 @@ ROWS = ("mixed", "hold", "close")
 REPEAT_RULE = "the system's: each new key-down of T starts its repeats again after the first delay"
 SEED_LIMIT = ("the page tabs have no favicon and the terminals have one folder: the new tab page's favicon work and "
               "its list of folders are not in these rows")
-ORDER_LIMIT = ("a new tab is known by its place in the pane's list and by the count, not by the key that made it; "
-               "`close` starts with the openers of `hold`, each other row with none")
+ORDER_LIMIT = ("the app names no id at the key that makes a tab: a new tab gets its id from the Cmd-W that closes it, "
+               "or by its place in the end list when no Cmd-W closed it; `close` starts with the openers of `hold`, each "
+               "other row with none")
+STAND_IN = "pending_tab_"  # the id of a tab that the daemon does not have yet (perf-stress-session.py PROVISIONAL_TAB)
+LIST_SETTLE_S = 5.0  # the wait for an end list with no stand-in tab
+SLOW_KEY_MS, SLOW_KEYS = 200.0, 20
+ROW_CATEGORIES = ("action",)
+WIDE_CATEGORIES = ("action", "stall", "stalls", "tab-switch")
+WIDE_NAME = "hold, wider recording"
+WIDE_LIMIT = ("one more `hold` take after the rounds, recorded with more signpost categories; it is in no number of the "
+              "rounds' rows. `between`: the 3 intervals with the most time between a slow key and the end of its first "
+              "commit; the `action` stream is not in it (the key's own action and commit are in `slow_keys`). In the "
+              "`one-key` form each key is one call of the control socket, so the key's whole action runs inside the main "
+              "frame budget task of that call: that task is left out, and its parts have no name here. The recording of "
+              "more categories can slow the app: compare this row's input to next commit with the `hold` rows")
 FRAME_LIMIT = ("a frame is the app's Core Animation commit; `shown` is the pane's change of its shown tab, not that "
                "the tab's own view had its content; the window server's work is not in the count")
+SHOWN_LIMIT = ("`shown` counts a key only when the pane's `show` record is not after the end of the key's first commit. "
+               "If the app shows a new tab one frame after its open by design (a page with no view yet), that key is "
+               "`not_shown` here by design and not by a fault: its delay is in `shown_after_the_commit_ms`")
 # The launcher's base environment with 2 changes: the agent pages are the real ones (the mock makes a new tab page
 # cheaper), and the input journal is on in each build kind (it is in a tagged build).
 LAUNCH_ENV = {"CMUX_NEXT_AGENT_PANE_MOCK": None, "CMUX_NEXT_INPUT_JOURNAL": "1"}
@@ -123,6 +165,11 @@ def hid_grant():
         return None
 
 
+def uptime():
+    """Now on the clock of a key event's time (s)."""
+    return time.clock_gettime(time.CLOCK_UPTIME_RAW)
+
+
 def post_keys(source, rpc, steps, pane, form):
     """The ONE key source of a take, in the launch's key form: {base_s, duration_ms} or {error}. `activate`:
     `debug.key`'s reply to the sequence, which the app plays by its own clock in the shell window as the key window.
@@ -139,7 +186,6 @@ def post_keys(source, rpc, steps, pane, form):
         at += step.get("after_ms") or 0
         if step["down"] and step["key_code"] in letters:
             downs.append((at, letters[step["key_code"]]))
-    uptime = lambda: time.clock_gettime(time.CLOCK_UPTIME_RAW)
     base, replies = uptime() + 0.05, [None] * len(downs)
 
     def press(index, offset, letter):
@@ -204,6 +250,21 @@ def pane_order(rpc, pane):
     return None
 
 
+def pane_tabs(builder, rpc, workspace, pane, settle=0.0):
+    """The store's list of `pane` (`snapshot.get`): each tab's id and kind in order and the selected tab, with the
+    focus model's word on the pane (`pane_order`) beside it; None when the store has no such pane with a tab. With
+    `settle` (s) it waits that long at most for a list with no stand-in tab (such an id is not the daemon's)."""
+    tabs = builder.settled_tabs(workspace, pane, seconds=settle) if settle else builder.tabs(workspace, pane)
+    if not tabs:
+        return None
+    focus = pane_order(rpc, pane) or {}
+    chosen = next((tab.get("id") for tab in tabs if tab.get("selected")), None)
+    return {"tabs": [tab.get("id") for tab in tabs], "kinds": [tab.get("kind") for tab in tabs],
+            "selected": chosen if chosen is not None else focus.get("selected"), "selected_from": "focus" if chosen is None else "store",
+            "provisional": sum(str(tab.get("id") or "").startswith(STAND_IN) for tab in tabs), "focus_tabs": focus.get("tabs"),
+            **{key: focus.get(key) for key in ("focus_tab", "consistent", "mismatches")}}
+
+
 def shows_of(journal, pane):
     """[the time (s, the clock of the key times), the tab] of each `show` record of `pane` in journal entries."""
     out = []
@@ -216,15 +277,16 @@ def shows_of(journal, pane):
     return out
 
 
-def oracle(tabs, selected, openers, letters):
+def oracle(tabs, selected, openers, letters, names=None):
     """The model of the keys: (the tab list, the selected tab, each tab's opener) after `letters` on a pane. A
-    new tab is ("new", n). An opener that is closed takes its relations with it."""
+    new tab is ("new", n): n counts the new tabs, or is the entry of `names` for it. An opener that is closed takes
+    its relations with it."""
     tabs, openers, made = list(tabs), dict(openers), 0
     for letter in letters:
         at = tabs.index(selected) if selected in tabs else None
         if letter == "t":
             made += 1
-            new = ("new", made)
+            new = ("new", names[made - 1] if names else made)
             tabs.insert(len(tabs) if at is None else at + 1, new)
             openers[new], selected = selected, new
         elif at is not None:
@@ -238,25 +300,199 @@ def oracle(tabs, selected, openers, letters):
     return tabs, selected, openers
 
 
+def closes_by_key(record):
+    """{a key's index: the tab ids of its `closed` mark}: the app names each tab that a Cmd-W closed."""
+    times, out = list(record.get("press_times_s") or []), {}
+    bound = BENCH.press_bound(times)
+    for mark in (record.get("trace") or {}).get("events") or []:
+        index = BENCH.nearest(times, mark.get("event_s"), bound) if mark.get("kind") == "closed" else None
+        if index is not None:
+            out.setdefault(index, list(mark.get("tabs") or []))
+    return out
+
+
 def order_row(record, fates, openers):
-    """The row `order` and the openers that the next row starts with (by real tab id; {} when not known)."""
-    before, after = (record.get("order") or {}).get("before"), (record.get("order") or {}).get("after")
-    letters = record.get("press_letters") or []
+    """The row `order` (the docstring) and the openers that the next row starts with, by real tab id; None when
+    they are not known. `openers`: the ones that this row starts with; None when the row before did not give them."""
+    order = record.get("order") or {}
+    before, after, letters = order.get("before"), order.get("after"), record.get("press_letters") or []
     if not before or not after or len(fates or []) != len(letters):
-        return {"equal": None, "why": "no tab list of the pane before or after the keys, or no fate of each key"}, {}
-    did = [letter for letter, fate in zip(letters, fates) if fate in BENCH.APPLIED_FATES]
-    tabs, selected, opened = oracle(before["tabs"], before["selected"], openers, did)
-    real = after["tabs"]
-    same = lambda want, got: got not in before["tabs"] if isinstance(want, tuple) else want == got
-    differs = next((i for i in range(max(len(tabs), len(real))) if i >= len(tabs) or i >= len(real) or not same(tabs[i], real[i])), None)
-    place = lambda items, item: items.index(item) if item in items else None
-    equal = differs is None and place(tabs, selected) == place(real, after["selected"])
-    name = dict(zip(tabs, real)) if equal else {}
-    return {"equal": equal, "order_by": "place", "limit": ORDER_LIMIT, "keys_in_the_model": len(did), "tabs_before": len(before["tabs"]),
-            "tabs": len(real), "expected_tabs": len(tabs), "first_difference_at": differs,
-            "selected_at": place(real, after["selected"]), "expected_selected_at": place(tabs, selected),
-            "focus_is_the_selected_tab": after.get("focus_tab") == after["selected"], "focus_consistent": after.get("consistent"),
-            "focus_mismatches": after.get("mismatches")}, {name[t]: name[o] for t, o in opened.items() if t in name and o in name}
+        return {"equal": None, "why": "no tab list of the pane before or after the keys, or no fate of each key"}, None
+    if openers is None:
+        return {"equal": None, "why": "the row before gave no openers of its tabs (its own order was not equal, or its list had a "
+                                      "stand-in tab), so the model cannot say which tab a close selects"}, None
+    kinds = {**dict(zip(before["tabs"], before.get("kinds") or [])), **dict(zip(after["tabs"], after.get("kinds") or []))}
+    old, closed = set(before["tabs"]), closes_by_key(record)
+    # `real`: the id of each new tab of the model, from the close that named it or from its place in the end list.
+    known, real, keys, made, by_close, by_place, difference = set(old), {}, 0, 0, 0, 0, None
+
+    def words(tab):
+        if tab is None:
+            return None
+        if isinstance(tab, tuple):
+            return {"tab": real.get(tab), "kind": kinds.get(real.get(tab)), "from": f"key {tab[1]} of the row"}
+        maker = next((new for new, ident in real.items() if ident == tab), None)
+        where = "before the row" if tab in old else f"key {maker[1]} of the row" if maker else "the row, its key is not known"
+        return {"tab": tab, "kind": kinds.get(tab), "from": where}
+
+    tabs, selected, opened = list(before["tabs"]), before["selected"], dict(openers)
+    for index, (letter, fate) in enumerate(zip(letters, fates)):
+        if fate not in BENCH.APPLIED_FATES:
+            continue
+        keys += 1
+        if letter == "w":
+            got = closed.get(index) or []
+            if isinstance(selected, tuple) and selected not in real and len(got) == 1 and got[0] not in known:
+                real[selected] = got[0]
+                known.add(got[0])
+                by_close += 1
+            if got != [real.get(selected, selected)]:
+                difference = {"where": "key", "key": index, "letter": letter, "expected": words(selected), "got": [words(tab) for tab in got]}
+                break
+        else:
+            made += 1
+        tabs, selected, opened = oracle(tabs, selected, opened, letter, names=[index])
+    end = after["tabs"]
+    for at in range(max(len(tabs), len(end)) if difference is None else 0):
+        want, got = tabs[at] if at < len(tabs) else None, end[at] if at < len(end) else None
+        if isinstance(want, tuple) and want not in real and got is not None and got not in known:
+            real[want] = got
+            known.add(got)
+            by_place += 1
+        if got is None or real.get(want, want) != got:
+            difference = {"where": "list", "place": at, "expected": words(want), "got": words(got)}
+            break
+    if difference is None and real.get(selected, selected) != after["selected"]:
+        difference = {"where": "selected", "expected": words(selected), "got": words(after["selected"])}
+    stand_ins = sum(str(tab).startswith(STAND_IN) for tab in end)
+    focus = after.get("focus_tabs")
+    row = {"equal": difference is None, "order_by": "identity", "limit": ORDER_LIMIT, "keys_in_the_model": keys,
+           "tabs_before": len(before["tabs"]), "tabs": len(end),
+           "expected_tabs": None if difference and difference["where"] == "key" else len(tabs), "first_difference": difference,
+           "new_tabs": {"made": made, "named_by_a_close": by_close, "known_by_place": by_place},
+           "selected": after["selected"], "selected_from": after.get("selected_from"), "provisional_after": stand_ins,
+           "focus_list_is_the_store_list": None if focus is None else focus == end, "focus_tabs": None if focus is None else len(focus),
+           "focus_is_the_selected_tab": after.get("focus_tab") == after["selected"], "focus_consistent": after.get("consistent"),
+           "focus_mismatches": after.get("mismatches")}
+    if difference or stand_ins:
+        return row, None
+    return row, {real.get(t, t): real.get(o, o) for t, o in opened.items() if t in tabs and o in tabs}
+
+
+def read_stream(signposts, ndjson):
+    with open(ndjson) as f:
+        return signposts.parse(f.read().splitlines(), signposts.local_timebase())["intervals"]
+
+
+def key_runs(intervals, record):
+    """{a key's index: {"perform": its first run, "commit": its first commit}} from the user intervals of the keys'
+    actions (the `action` stream), each given to the key of its event time."""
+    letters, times, out = record.get("press_letters") or [], list(record.get("press_times_s") or []), {}
+    ids, bound = {BENCH.ACTIONS[p] for p in letters}, BENCH.press_bound(times)
+    for interval in intervals:
+        fields, part = interval["fields"], {"action.perform": "perform", "action.commit": "commit"}.get(interval["name"])
+        if not part or fields.get("id") not in ids or fields.get("origin") != "user" or interval.get("missed") \
+                or float(fields.get("input_age_ms", "-1")) < 0:
+            continue
+        index = BENCH.nearest(times, BENCH.event_time(interval), bound)
+        if index is not None and (part not in out.setdefault(index, {}) or interval["at_s"] < out[index][part]["at_s"]):
+            out[index][part] = interval
+    return out
+
+
+def slow(runs, fates):
+    """[(a key's index, its first commit, the ms from the key to that commit's end)] of each key that made or closed
+    a tab and whose first commit ended more than SLOW_KEY_MS after the key, the slowest first."""
+    found = []
+    for index in sorted(runs):
+        commit = runs[index].get("commit")
+        total = float(commit["fields"]["input_age_ms"]) + commit["ms"] if commit else 0.0
+        if total > SLOW_KEY_MS and fates[index] in BENCH.APPLIED_FATES:
+            found.append((index, commit, total))
+    return sorted(found, key=lambda key: -key[2])
+
+
+def slow_keys(runs, record, fates):
+    """The row `slow_keys` (the docstring)."""
+    letters, found = record.get("press_letters") or [], slow(runs, fates)
+    age = lambda interval: round(float(interval["fields"]["input_age_ms"]), 2) if interval else None
+    keys = [{"key": index, "letter": letters[index], "fate": fates[index], "key_to_commit_ms": round(total, 2),
+             "age_at_action_start_ms": age(runs[index].get("perform")),
+             "action_ms": round(runs[index]["perform"]["ms"], 2) if runs[index].get("perform") else None,
+             "age_at_commit_start_ms": age(commit), "commit_ms": round(commit["ms"], 2)} for index, commit, total in found[:SLOW_KEYS]]
+    return {"over_ms": SLOW_KEY_MS, "count": len(found), "keys": keys}
+
+
+def between(intervals, runs, record, fates, form):
+    """The wider recording's slow keys (WIDE_LIMIT): ([{key, key_to_commit_ms, between: the 3 names with the most
+    time}], the count of the keys' own control call tasks that were left out)."""
+    times, out, own = list(record.get("press_times_s") or []), [], 0
+    for index, commit, total in slow(runs, fates)[:SLOW_KEYS]:
+        start, end, sums = times[index], commit["at_s"] + commit["ms"] / 1000, {}
+        for interval in intervals:
+            ms = (min(end, interval["at_s"] + interval["ms"] / 1000) - max(start, interval["at_s"])) * 1000
+            if interval["category"] == "action" or ms <= 0:
+                continue
+            fields = interval["fields"]
+            if form == "one-key" and "debug.key" in str(fields.get("owner") or ""):
+                own += 1
+                continue
+            name = interval["name"] if interval["name"].startswith(interval["category"] + ".") else f"{interval['category']}.{interval['name']}"
+            what = " ".join([name] + [f"{key}={fields[key]}" for key in ("class", "owner") if key in fields])
+            sums[what] = (sums.get(what, (0.0, 0))[0] + ms, sums.get(what, (0.0, 0))[1] + 1)
+        top = sorted(sums.items(), key=lambda item: -item[1][0])[:3]
+        out.append({"key": index, "key_to_commit_ms": round(total, 2),
+                    "between": [{"what": what, "ms": round(ms, 1), "count": count} for what, (ms, count) in top]})
+    return out, own
+
+
+def opens_of(last):
+    """The row `opens` from the app's records of the row's opens (`debug.new_tab`)."""
+    def part(spare):
+        values = [o["ms"] for o in last if o.get("spare") is spare and isinstance(o.get("ms"), (int, float))]
+        return {**(BENCH.percentiles(values) or {"n": 0}), "sum": round(sum(values), 1)}
+    return {"warm": sum(o.get("spare") is True for o in last), "cold": sum(o.get("spare") is False for o in last),
+            "known_of_the_last": OPENINGS, "main_ms": {"warm": part(True), "cold": part(False)}}
+
+
+def restore(builder, workspace, pane, state):
+    """The start's shape again after a row: (the start state for the next row, what is still different, the count
+    of tabs given back). burst-bench.py's restore closes each pane and tab that the start did not have. A tab of
+    the start that the row CLOSED does not come back by that, so for each one the rows' pane gets a new terminal
+    tab (a new id: the returned state has it). Nothing is given back when a pane is gone or new."""
+    left = BENCH.restore(builder, STRESS, workspace, pane, state)
+    now = BENCH.start_state(builder, workspace)
+    if now == state:
+        return state, [], 0
+    if set(now) != set(state) or not now[pane] < state[pane] or any(now[other] != state[other] for other in state if other != pane):
+        return state, left or ["the workspace is not as the start had it"], 0
+    lost = len(state[pane]) - len(now[pane])
+    try:
+        for _ in range(lost):
+            builder.add_tab(workspace, pane, "terminal")
+    except STRESS.StressShapeError as error:
+        return state, [f"a tab of the start did not come back: {error}"], lost
+    new = BENCH.start_state(builder, workspace)
+    if set(new) == set(state) and len(new[pane]) == len(state[pane]) and now[pane] <= new[pane] \
+            and all(new[other] == state[other] for other in state if other != pane):
+        return new, [], lost
+    return state, [f"pane {pane} has {len(new.get(pane, ()))} tabs after {lost} given back, not the {len(state[pane])} of the start"], lost
+
+
+def pack(out, film, target):
+    """ONE file for a step to bring back (a step's command names one artifact): the report, each take's record and
+    signpost stream, and with a film its frames.json and each fifth frame. Returns the names in it."""
+    names = {f"{found.parent.name}/{found.name}": found
+             for found in sorted(Path(out).glob("*/scenario.json")) + sorted(Path(out).glob("*/run.ndjson"))}
+    if (Path(out) / "report.json").exists():
+        names["report.json"] = Path(out) / "report.json"
+    frames = Path(film) / "frames" if film else None
+    if frames and (frames / "frames.json").exists():
+        names.update({f"film/{found.name}": found for found in [frames / "frames.json"] + sorted(frames.glob("frame-*[05].jpg"))})
+    with tarfile.open(target, "w:gz") as tar:
+        for name, found in names.items():
+            tar.add(found, arcname=name)
+    return list(names)
 
 
 def first_frame(signposts, ndjson, record, fates):
@@ -290,7 +526,7 @@ def first_frame(signposts, ndjson, record, fates):
             late += [(shown[key] - end) * 1000] if key in shown else []
     applied = sum(fate in BENCH.APPLIED_FATES for fate in fates)
     return {"by_key": out, "keys_with_no_commit": applied - len(keys), "shown_after_the_commit_ms": BENCH.percentiles(late),
-            "show_records": len(record.get("shows") or []), "limit": FRAME_LIMIT}
+            "show_records": len(record.get("shows") or []), "limit": FRAME_LIMIT, "shown_limit": SHOWN_LIMIT}
 
 
 def bluetoothd():
@@ -327,10 +563,14 @@ def take(opts):
     tabs = lambda: builder.tabs(opts.workspace, opts.pane)
     count = lambda: {"tabs": len(tabs()), "panes": len(builder.panes(builder.workspace(opts.workspace)))}
     try:
-        builder.focus_pane(opts.pane)
+        builder.focus_pane(opts.pane)  # waits for the focus model to name the pane
     except STRESS.StressShapeError as error:
-        record["errors"].append(str(error))
-    before, order = count(), {"before": pane_order(rpc, opts.pane)}
+        # No key and no film without the focus of the rows' pane: the keys would act on another pane.
+        record["not_run"] = f"the pane of the rows did not get the focus: {error}"
+        with open(os.path.join(opts.out, "scenario.json"), "w") as f:
+            json.dump(record, f, indent=1)
+        return 0
+    before, order = count(), {"before": pane_tabs(builder, rpc, opts.workspace, opts.pane)}
     # Each journal and `debug.focus` read is outside the frame take: before it starts or after it ends.
     seen = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq")
     first = bluetoothd()
@@ -378,7 +618,8 @@ def take(opts):
     trace = rpc("debug.burst", {"action": "stop"}) or {}
     journal = [] if seen is None else [e for e in (rpc("debug.journal", {"last": JOURNAL}) or {}).get("entries") or [] if (e.get("seq") or 0) > seen]
     shows = sum(e.startswith("show pane=") for e in re.findall(r'"event":\s*"([^"]*)"', json.dumps(journal)))
-    order["after"] = pane_order(rpc, opts.pane)
+    order["after"] = pane_tabs(builder, rpc, opts.workspace, opts.pane, settle=LIST_SETTLE_S)
+    list_read = uptime()
     if opts.film and not STRESS.wait(lambda: os.path.exists(os.path.join(opts.film, "frames.json")), 20, step=0.2):
         record["errors"].append("the film has no frames.json")
     starts = bluetoothd_starts(start, end)
@@ -386,8 +627,8 @@ def take(opts):
     for tab in tabs():
         kinds[tab.get("kind")] = kinds.get(tab.get("kind"), 0) + 1
     base = sent.get("base_s")
-    record.update({"presses": len(letters), "before": before, "after": count(), "press_letters": letters,
-                   "press_times_s": [base + o / 1000 for o in offsets] if isinstance(base, (int, float)) else [],
+    times = [base + o / 1000 for o in offsets] if isinstance(base, (int, float)) else []
+    record.update({"presses": len(letters), "before": before, "after": count(), "press_letters": letters, "press_times_s": times,
                    "key_repeat": {k: armed.get(k) for k in ("key_repeat_delay_s", "key_repeat_interval_s")},
                    "held_repeat_ms": [delay, interval], "trace": trace, "sequence_ms": duration * 1000,
                    "frames": {k: frames.get(k) for k in BENCH.FRAME_FIELDS}, "settled_ms": settled_ms,
@@ -397,6 +638,7 @@ def take(opts):
                             "actions_not_run_by_reply": sum(1 for r in sent.get("replies") or [] if isinstance(r, dict) and r.get("refused_action")),
                             "tab_shows": shows if journal else None, "tab_shows_whole": bool(journal) and journal[0].get("seq") == seen + 1,
                             "tab_shows_ring": JOURNAL,
+                            "list_read_after_last_key_ms": round((list_read - times[-1]) * 1000, 1) if times else None,
                             "bluetoothd": {"new_pid_before": fresh, "pid_changed": moved, "log_starts": starts},
                             "disturbed": bool(moved or starts)}})
     with open(os.path.join(opts.out, "scenario.json"), "w") as f:
@@ -615,6 +857,11 @@ def launch(opts, form):
                  "display_link": {k: link.get(k) for k in ("frames", "p50_ms", "refresh_ms")}}
 
 
+def not_run(scenario, index, form, why):
+    """The row of a take that had no key: it is in no number, and the run has a failure for it."""
+    return {"scenario": scenario, "round": index, "key_source": form, "not_run": why, "errors": [], "invalid": [f"not run: {why}"]}
+
+
 def run(opts, app, signposts, report, form):
     builder = STRESS.Stress(app.rpc)
     path, roots = daemon_of(app)
@@ -643,47 +890,73 @@ def run(opts, app, signposts, report, form):
     for _ in range(opts.neighbours):
         builder.add_tab(workspace, pane, "terminal")
     state, openers = BENCH.start_state(builder, workspace), {}
-    for index, name in [(r, n) for r in range(opts.rounds) for n in ROWS] + ([("film", "mixed")] if opts.film else []):
+    takes = [(r, n) for r in range(opts.rounds) for n in ROWS] + [("wide", "hold")] + ([("film", "mixed")] if opts.film else [])
+    for index, name in takes:
+        wide = index == "wide"
+        # The wider recording has a scenario name of its own: a reader that groups the rows by `scenario` (the bench
+        # `newtab` does) then keeps it out of the numbers of `hold`, with no change of that reader.
+        scenario, row = WIDE_NAME if wide else name, None
         out = os.path.join(opts.out, f"{index}-{name}")
-        os.makedirs(out, exist_ok=True)
         ndjson, before, start = os.path.join(out, "run.ndjson"), stats(path), time.time()
-        command = [sys.executable, os.path.join(NEXT, "perf-signposts.py"), "--pid", str(app.process.pid), "--category", "action",
-                   "--save", ndjson, "--allow-loss", "--json", "--", sys.executable, os.path.abspath(__file__), "--row", name,
-                   "--socket", app.socket, "--workspace", workspace, "--pane", pane, "--out", out, "--keys", opts.keys,
-                   "--launch-form", form,
-                   "--keep", str(len(state[pane])), "--hold-ms", str(opts.hold_ms), "--every-ms", str(opts.every_ms),
-                   "--repeat-delay-ms", str(opts.repeat_delay_ms), "--repeat-ms", str(opts.repeat_ms), "--deadline", str(opts.deadline)]
-        done = subprocess.run(command + (["--film", os.path.join(opts.film, "frames")] if index == "film" else []),
-                              check=False, stdout=subprocess.DEVNULL)
-        try:
-            with open(os.path.join(out, "scenario.json")) as f:
-                record = json.load(f)
-        except (OSError, ValueError) as error:
-            record = {"scenario": name, "errors": [f"no record of the take (exit {done.returncode}): {error}"]}
-        row = BENCH.summarize(signposts, ndjson, record) if os.path.exists(ndjson) else \
-            {"scenario": name, "errors": record.get("errors", []) + ["no signpost stream"], "invalid": []}
-        fates = row.get("fates") or {}
-        try:
-            # `close` starts with the openers that `hold` left; each other row starts after a restore by script.
-            known = openers if name == "close" else {}
-            row["order"], openers = order_row(record, row.get("press_fates"), known)
-            row["order"]["openers_at_start"] = len(known)
-            if row.get("press_fates"):
-                row["first_frame"] = first_frame(signposts, ndjson, record, row["press_fates"])
-        except Exception as error:  # noqa: BLE001  a fault of these 2 fields must not lose the row
-            row["order_or_first_frame_error"], openers = repr(error), {}
-        row.update({"round": index, "key_source": opts.keys, **(record.get("take") or {}), "keys_posted": record.get("presses"),
-                    "tabs_made": fates.get("created", 0), "tabs_closed": fates.get("closed", 0),
-                    "keys_without_effect": (record.get("presses") or 0) - fates.get("created", 0) - fates.get("closed", 0),
-                    "daemon_requests": requests_between(before, stats(path)), "daemon_slow": slow_records(roots, start, time.time())})
-        if name != "close" and row["tabs_made"]:
-            last = ((app.rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or [])[-min(OPENINGS, row["tabs_made"]):]
-            row["opens"] = {"warm": sum(o.get("spare") is True for o in last), "cold": sum(o.get("spare") is False for o in last),
-                            "known_of_the_last": OPENINGS}
-        if name != "hold":  # `close` is the row that closes what `hold` made
-            row["not_restored"] = BENCH.restore(builder, STRESS, workspace, pane, state)
+        if pane not in {found["id"] for found in builder.panes(builder.workspace(workspace))}:
+            row = not_run(scenario, index, form, f"the pane {pane} of the rows is gone")
+        else:
+            os.makedirs(out, exist_ok=True)
+            command = [sys.executable, os.path.join(NEXT, "perf-signposts.py"), "--pid", str(app.process.pid)]
+            for category in WIDE_CATEGORIES if wide else ROW_CATEGORIES:
+                command += ["--category", category]
+            command += ["--save", ndjson, "--allow-loss", "--json", "--", sys.executable, os.path.abspath(__file__), "--row", name,
+                        "--socket", app.socket, "--workspace", workspace, "--pane", pane, "--out", out, "--keys", opts.keys,
+                        "--launch-form", form,
+                        "--keep", str(len(state[pane])), "--hold-ms", str(opts.hold_ms), "--every-ms", str(opts.every_ms),
+                        "--repeat-delay-ms", str(opts.repeat_delay_ms), "--repeat-ms", str(opts.repeat_ms), "--deadline", str(opts.deadline)]
+            done = subprocess.run(command + (["--film", os.path.join(opts.film, "frames")] if index == "film" else []),
+                                  check=False, stdout=subprocess.DEVNULL)
+            try:
+                with open(os.path.join(out, "scenario.json")) as f:
+                    record = json.load(f)
+            except (OSError, ValueError) as error:
+                record = {"scenario": name, "errors": [f"no record of the take (exit {done.returncode}): {error}"]}
+            if record.get("not_run"):
+                row = not_run(scenario, index, form, record["not_run"])
+        if row is not None:
+            openers = None  # a row that did not run leaves no openers for the next one
+        else:
+            row = BENCH.summarize(signposts, ndjson, record) if os.path.exists(ndjson) else \
+                {"scenario": name, "errors": record.get("errors", []) + ["no signpost stream"], "invalid": []}
+            row["scenario"] = scenario
+            fates = row.get("fates") or {}
+            try:
+                # `close` starts with the openers that `hold` left; each other row starts after a restore by script.
+                known = openers if name == "close" else {}
+                row["order"], openers = order_row(record, row.get("press_fates"), known)
+                row["order"]["openers_at_start"] = None if known is None else len(known)
+                if row.get("press_fates"):
+                    row["first_frame"] = first_frame(signposts, ndjson, record, row["press_fates"])
+            except Exception as error:  # noqa: BLE001  a fault of these 2 fields must not lose the row
+                row["order_or_first_frame_error"], openers = repr(error), None
+            try:
+                if row.get("press_fates"):
+                    intervals = read_stream(signposts, ndjson)
+                    runs = key_runs(intervals, record)
+                    row["slow_keys"] = slow_keys(runs, record, row["press_fates"])
+                    if wide:
+                        found, own = between(intervals, runs, record, row["press_fates"], form)
+                        row["wider_recording"] = {"categories": list(WIDE_CATEGORIES), "key_form": form, "limit": WIDE_LIMIT,
+                                                  "slow_keys": found, "own_call_tasks_left_out": own}
+            except Exception as error:  # noqa: BLE001  a fault of these fields must not lose the row
+                row["slow_keys_error"] = repr(error)
+            row.update({"round": index, "key_source": form, **(record.get("take") or {}), "keys_posted": record.get("presses"),
+                        "tabs_made": fates.get("created", 0), "tabs_closed": fates.get("closed", 0),
+                        "keys_without_effect": (record.get("presses") or 0) - fates.get("created", 0) - fates.get("closed", 0),
+                        "daemon_requests": requests_between(before, stats(path)), "daemon_slow": slow_records(roots, start, time.time())})
+            if name != "close" and row["tabs_made"]:
+                row["opens"] = opens_of(((app.rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or [])[-min(OPENINGS, row["tabs_made"]):])
+            if name != "hold" or wide:  # `close` is the row that closes what `hold` made
+                state, row["not_restored"], row["tabs_given_back"] = restore(builder, workspace, pane, state)
         report["rows"].append(row)
         report["failures"] += [f"{index} {name}: {why}" for why in (row.get("errors") or []) + (row.get("invalid") or [])]
+        report["failures"] += [f"{index} {name}: not restored: {why}" for why in row.get("not_restored") or []]
         print(f"HELD-NEW-TAB-ROW {index} {name}: " + json.dumps({k: v for k, v in row.items() if k != "press_fates"}), flush=True)
         if name == ROWS[-1] and not any(valid(r) for r in report["rows"] if r.get("round") == index):
             report["failures"].append(f"round {index} has no valid row: the run ends here")
@@ -707,6 +980,7 @@ def main():
     parser.add_argument("--deadline", type=float, default=60.0, help="seconds after a take's frames for the app to say it is done")
     parser.add_argument("--seed-deadline", type=float, default=900.0, help="seconds for the session's maker")
     parser.add_argument("--film", help="a folder for one more `mixed` take under debug.window_record")
+    parser.add_argument("--artifact", help="a .tgz to pack: the report, each take's record and signpost stream, the film's frames")
     parser.add_argument("--launch-form", default="auto", choices=tuple(LAUNCH_FORMS),
                         help="activate: launch without CMUX_NEXT_NO_ACTIVATE (the app takes the keyboard, as a person's does), the keys as "
                              "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")
@@ -746,7 +1020,7 @@ def main():
                 print(f"held-new-tab: NOT RUN: the app did not launch: {why}", flush=True)
                 return 3
     if app:
-        report.update({"launch_form": forms[0], "key_source": f"{opts.keys}: {KEY_SOURCES[forms[0]]}"})
+        report.update({"launch_form": forms[0], "key_source": f"{forms[0]}: {KEY_SOURCES[forms[0]]}"})
         report["launch"] = {"ready_s": app.ready_seconds, "limits": app.limits, "executable": os.path.basename(app.binary),
                             "agent_page_mock": "CMUX_NEXT_AGENT_PANE_MOCK" in app.launched_env, **facts,
                             "env": {k: v for k, v in sorted(app.launched_env.items()) if k.startswith(("CMUX_", "ACPMUX_"))}}
@@ -760,6 +1034,11 @@ def main():
     with open(os.path.join(opts.out, "report.json"), "w") as f:
         json.dump(report, f, indent=1)
     print("HELD-NEW-TAB " + json.dumps(report), flush=True)
+    if opts.artifact:
+        try:
+            print(f"held-new-tab: artifact {opts.artifact}: {len(pack(opts.out, opts.film, opts.artifact))} files", flush=True)
+        except (OSError, tarfile.TarError) as error:
+            print(f"held-new-tab: no artifact {opts.artifact}: {error!r}", flush=True)
     # A round with no valid row (and so a run with none) and a failed preflight are a failed step in each case.
     empty = [index for index in range(opts.rounds) if not any(valid(row) for row in report["rows"] if row.get("round") == index)]
     return 0 if not report["failures"] else 1 if empty else 2

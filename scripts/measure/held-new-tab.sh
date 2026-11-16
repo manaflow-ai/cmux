@@ -7,7 +7,10 @@
 #   cmux-ci run --class exclusive --measurement --label measure [--label gui-session-v1] \
 #     --script scripts/measure/held-new-tab.sh --ref <sha> --arg=--config=bench --arg=--vdisplay=120 \
 #     [--arg=--workspaces=N] [--arg=--repeat-delay-ms=MS] [--arg=--repeat-ms=MS] [--arg=--film] [--arg=--no-gate] \
-#     [--arg=--launch-form=auto|activate|one-key] --artifact held-new-tab.json [--artifact held-new-tab-film.tar]
+#     [--arg=--launch-form=auto|activate|one-key] --artifact held-new-tab.tgz
+# A step brings back ONE --artifact (of 2 the client keeps the last): held-new-tab.tgz is the report, each take's
+# record and signpost stream, and with --film frames.json and each fifth JPEG frame; held-new-tab.json is the report
+# alone (the bench `newtab` asks for that one).
 # --config=<debug|release|bench> picks reload.sh's build configuration, --vdisplay=HZ a virtual main display at HZ
 # (as burst-bench.sh; the helper is this script's own, no label gives it), --film one more take as JPEG frames,
 # --no-gate exit 0 when a row did not measure what it names and each round still has a valid row (the tool's exit 2;
@@ -86,12 +89,9 @@ if [[ -n "$vdisplay_hz" ]]; then
   fi
 fi
 status=0
-python3 scripts/measure/held-new-tab.py --app "$app" --out "$out/measure" --display="$display" ${measure_args[@]+"${measure_args[@]}"} || status=$?
+python3 scripts/measure/held-new-tab.py --app "$app" --out "$out/measure" --display="$display" \
+  --artifact "$PWD/held-new-tab.tgz" ${measure_args[@]+"${measure_args[@]}"} || status=$?
 cp "$out/measure/report.json" "$PWD/held-new-tab.json" 2>/dev/null || true
-# The film: each fifth JPEG frame of the take and frames.json (the time of each frame).
-if [ -f "$out/film/frames/frames.json" ]; then
-  (cd "$out/film/frames" && tar -cf "$OLDPWD/held-new-tab-film.tar" frames.json frame-*[05].jpg) || true
-fi
 # An artifact comes back only from a passing step: --no-gate passes a run in which each round has a valid row (the
 # tool's exit 2). A failed preflight, and a round with no valid row, stay a failed step.
 if [[ "$gate" == 0 && "$status" == 2 && -f held-new-tab.json ]]; then status=0; fi
