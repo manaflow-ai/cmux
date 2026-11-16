@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43926298366",
+  "recorded_at": "2026-11-16T18:24:55Z",
+  "reason": "image inputs changed in bfbe3dd45c7ea1b77b8d414915e14c802b075e77..398a23b4da837770f443c8303b882a8a2ffd7cec",
+  "dry_run": false,
+  "cmux_tui": "c2ccb8326c93be65aac31d76c30a64951b658954",
+  "fixes": [
+    {
+      "sha": "398a23b4da837770f443c8303b882a8a2ffd7cec",
+      "mergedAt": "2026-11-16T10:11:54-08:00",
+      "subject": "cmux-vm-image: retry the provider's \"at capacity\" 429 on every image-script call (#44690)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T18:24:55Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
