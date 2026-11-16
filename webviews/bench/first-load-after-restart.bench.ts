@@ -396,38 +396,66 @@ type CpuProfile = {
 };
 /// PROFILE=1: self ms per function over every round's adopt, and how many adopts were profiled.
 const selfMs = new Map<string, number>();
+/// Inclusive ms: each function counted once per sample it is on the stack of.
+const totalMs = new Map<string, number>();
+/// A built-in's (no url: style reads, layout, DOM calls) self ms by the nearest bundle function that called it.
+const nativeByCaller = new Map<string, number>();
 let profiled = 0;
 const OUTSIDE = new Set(["(idle)", "(program)", "(root)"]);
+type ProfileNode = CpuProfile["nodes"][number];
+const nodeKey = (frame: ProfileNode["callFrame"]) =>
+  `${frame.functionName || "(anonymous)"} ${frame.url.split("/").pop() ?? ""}:${frame.lineNumber + 1}`;
+const bump = (map: Map<string, number>, key: string, ms: number) => map.set(key, (map.get(key) ?? 0) + ms);
 /// Adds the samples of one adopt: from its first busy sample (the event's own turn, right after the
 /// profiler started) for the time it took to the newest answer drawn (`untilMs - atMs`), plus a frame.
 function addProfile(profile: CpuProfile, atMs: number, untilMs: number): void {
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
   let t = 0;
   let from: number | undefined;
   const span = untilMs - atMs + 17;
   profile.samples.forEach((id, index) => {
-    t += profile.timeDeltas[index] / 1000;
-    const frame = byId.get(id)?.callFrame;
-    if (!frame) return;
+    const ms = profile.timeDeltas[index] / 1000;
+    t += ms;
+    const node = byId.get(id);
+    if (!node) return;
+    const frame = node.callFrame;
     if (from === undefined) {
       if (OUTSIDE.has(frame.functionName)) return;
       from = t;
     }
     if (t - from > span || frame.functionName === "(idle)") return;
-    const file = frame.url.split("/").pop() ?? "";
-    const key = `${frame.functionName || "(anonymous)"} ${file}:${frame.lineNumber + 1}`;
-    selfMs.set(key, (selfMs.get(key) ?? 0) + profile.timeDeltas[index] / 1000);
+    bump(selfMs, nodeKey(frame), ms);
+    const seen = new Set<string>();
+    let caller: string | undefined;
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const up = byId.get(at);
+      if (!up || up.callFrame.functionName === "(root)") break;
+      const key = nodeKey(up.callFrame);
+      if (!seen.has(key)) bump(totalMs, key, ms);
+      seen.add(key);
+      if (caller === undefined && at !== id && up.callFrame.url) caller = key;
+    }
+    if (!frame.url && caller) bump(nativeByCaller, `${frame.functionName} <- ${caller}`, ms);
   });
   profiled += 1;
 }
 function printProfile(): void {
   if (!profiled) return;
   const total = [...selfMs.values()].reduce((a, b) => a + b, 0);
-  console.log(
+  const top = (title: string, map: Map<string, number>, count: number) => {
+    console.log(title);
+    for (const [key, ms] of [...map].sort((a, b) => b[1] - a[1]).slice(0, count))
+      console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}`);
+  };
+  top(
     `reopen-spare adopt profile: ${(total / profiled).toFixed(1)} ms busy per adopt (n=${profiled}), top self time:`,
+    selfMs,
+    30,
   );
-  for (const [key, ms] of [...selfMs].sort((a, b) => b[1] - a[1]).slice(0, 30))
-    console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}`);
+  top("reopen-spare adopt profile, inclusive:", totalMs, 45);
+  top("reopen-spare adopt profile, built-ins by caller:", nativeByCaller, 20);
 }
 
 type Round = {
