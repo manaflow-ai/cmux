@@ -2313,7 +2313,9 @@ describe("claudeTranscriptModelsProgram", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
 
+describe("preclaim MET table fields", () => {
   test("preclaim health names a deploy commit only: staging's fixed API version and a refused read say why", () => {
     // Staging's cmux-api answers {ok, environment, version: "0.1.0"} (its deploy config API_VERSION): a version, never a deploy.
     expect(preclaimHealthSnapshot({ status: 200, body: { ok: true, environment: "staging", version: "0.1.0" } })).toEqual({ http_status: 200, outcome: "ok", commit: null, commit_unavailable: "/v1/health names 0.1.0, not a deploy commit" });
@@ -2356,7 +2358,7 @@ describe("claudeTranscriptModelsProgram", () => {
     expect(preclaimHoldMinutes({ usage: { vm_hours_used: null, vm_hours_used_by_you: null } })).toEqual({ hold_minutes_t0: null, hold_minutes_t0_unavailable: "cloud.plan.get usage names no machine-hours (the meter has no total for this month)" });
     const refused = preclaimHoldMinutes(new Error("cloud.plan.get: HTTP 403 team_0123456789abcdef0123 secret-token"), ["secret-token"]);
     expect(refused.hold_minutes_t0).toBeNull();
-    expect(refused.hold_minutes_t0_unavailable).toStartWith("cloud.plan.get failed: cloud.plan.get: HTTP 403");
+    expect(refused.hold_minutes_t0_unavailable).toBe("cloud.plan.get failed: <host>: HTTP 403 <id> [secret]");
     expect(refused.hold_minutes_t0_unavailable).not.toContain("team_0123456789abcdef0123");
     expect(refused.hold_minutes_t0_unavailable).not.toContain("secret-token");
   });
