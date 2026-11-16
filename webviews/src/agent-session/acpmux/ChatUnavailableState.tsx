@@ -195,36 +195,32 @@ export function ChatUnavailableState({
       className="acpmux-empty acpmux-unavailable"
       data-unavailable={unavailable.reason}
       // A paused machine is a calm state, never an alert (a resume is one click or one send away).
-      role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
+      role={unavailable.reason === "paused" ? "status" : "alert"}
       data-enter="fade"
     >
-      {unavailable.reason === "offline" ? (
-        <Spinner size={28} loading className="acpmux-unavailable-spinner" />
-      ) : (
-        <svg
-          className="acpmux-empty-glyph"
-          width={36}
-          height={36}
-          viewBox="0 0 36 36"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-          {unavailable.reason === "deleted" ||
-          unavailable.reason === "notFound" ||
-          unavailable.reason === "gone" ||
-          unavailable.reason === "unreached" ? (
-            <path d="M13.5 18h9" />
-          ) : (
-            <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
-          )}
-        </svg>
-      )}
+      <svg
+        className="acpmux-empty-glyph"
+        width={36}
+        height={36}
+        viewBox="0 0 36 36"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
+        {unavailable.reason === "deleted" ||
+        unavailable.reason === "notFound" ||
+        unavailable.reason === "gone" ||
+        unavailable.reason === "unreached" ? (
+          <path d="M13.5 18h9" />
+        ) : (
+          <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
+        )}
+      </svg>
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
       <div className="acpmux-unavailable-copy">
         {unavailable.reason === "paused" ? (
