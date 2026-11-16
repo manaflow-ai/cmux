@@ -167,7 +167,7 @@ class GuardTests(unittest.TestCase):
         failed["$workers"]["scriptVersion"] = {"id": "0f0e0d0c-1111-2222-3333-444455556666"}
         reset = event("not json", status=200)
         reset["$workers"]["outcome"] = "canceled"
-        path = event_file({"service": PROD, "id": "window", "needles": "13:"})
+        path = event_file({"service": PROD, "id": "window", "needles": "12:"})
         try:
             code, out, query, upload = run_main(["--from", "2026-11-11T13:20:00Z", "--from-event", path],
                                                 response={"result": {"events": {"events": [failed, failed, reset]}}})
