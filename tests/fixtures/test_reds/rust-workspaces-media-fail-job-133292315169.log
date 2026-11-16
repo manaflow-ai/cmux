@@ -1,0 +1,668 @@
+2026-11-16T12:18:43.6967610Z ##[group]Run PATH="$HOME/.cargo/bin:$PATH" python3 .github/scripts/rust-workspaces.py run "$ROOT"
+2026-11-16T12:18:43.6967975Z [36;1mPATH="$HOME/.cargo/bin:$PATH" python3 .github/scripts/rust-workspaces.py run "$ROOT"[0m
+2026-11-16T12:18:43.6984437Z shell: /usr/bin/bash -e {0}
+2026-11-16T12:18:43.6984570Z env:
+2026-11-16T12:18:43.6984740Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-16T12:18:43.6984944Z   GHOSTTY_ZIG_SOURCE: ghostty-next
+2026-11-16T12:18:43.6985085Z   CMUX_GHOSTTY_SRC: 
+2026-11-16T12:18:43.6985214Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 177
+2026-11-16T12:18:43.6985368Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 422
+2026-11-16T12:18:43.6985515Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-16T12:18:43.6985747Z   CMUX_TUI_RUSTDOC: /home/runner/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustdoc
+2026-11-16T12:18:43.6985976Z   CACHE_ON_FAILURE: false
+2026-11-16T12:18:43.6986101Z   CARGO_INCREMENTAL: 0
+2026-11-16T12:18:43.6986261Z   ROOT: cmux-next-ios/rust
+2026-11-16T12:18:43.6986386Z ##[endgroup]
+2026-11-16T12:19:04.3596424Z ##[group]cmux-next-ios/rust: cargo test --locked --workspace
+2026-11-16T12:19:38.8829014Z     Finished `test` profile [unoptimized + debuginfo] target(s) in 34.50s
+2026-11-16T12:19:38.9025023Z      Running unittests src/lib.rs (target/debug/deps/cmux_mobile_host-9f99fdd0b1d6fdae)
+2026-11-16T12:19:38.9042101Z 
+2026-11-16T12:19:38.9042824Z running 302 tests
+2026-11-16T12:19:38.9051027Z test acpmux_policy::tests::daemon_expected_agent_is_checked_independently_of_terminal_session ... ok
+2026-11-16T12:19:38.9051427Z test acpmux_policy::tests::aliases_and_conflicting_target_keys_fail_closed ... ok
+2026-11-16T12:19:38.9051709Z test acpmux_policy::tests::a_refused_request_is_marked_for_acpmux_to_decide ... ok
+2026-11-16T12:19:38.9051979Z test acpmux_policy::tests::a_phone_switches_agents_only_to_asking_modes ... ok
+2026-11-16T12:19:38.9052252Z test acpmux_policy::tests::control_of_a_session_needs_its_current_mode_to_ask ... ok
+2026-11-16T12:19:38.9052552Z test acpmux_policy::tests::exposure_keeps_unmentioned_chats_and_rejects_blocked_batches ... ok
+2026-11-16T12:19:38.9055166Z test acpmux_policy::tests::daemon_agent_rosters_events_and_projections_hide_blocked_agents ... ok
+2026-11-16T12:19:38.9055599Z test acpmux_policy::tests::daemon_nested_projection_keeps_other_tabs_and_terminal_identity ... ok
+2026-11-16T12:19:38.9055917Z test acpmux_policy::tests::nested_lists_are_filtered_and_binary_is_not_used_as_json ... ok
+2026-11-16T12:19:38.9056181Z test acpmux_policy::tests::other_config_options_are_refused ... ok
+2026-11-16T12:19:38.9056468Z test acpmux_policy::tests::retry_checks_the_current_mode_and_requires_full_access_when_it_does_not_ask ... ok
+2026-11-16T12:19:38.9056746Z test acpmux_policy::tests::other_messages_and_batches ... ok
+2026-11-16T12:19:38.9057086Z test acpmux_policy::tests::catalog_queries_are_global_but_targeted_queries_are_checked ... ok
+2026-11-16T12:19:38.9057359Z test activity::tests::entries_append_as_private_json_lines ... ok
+2026-11-16T12:19:38.9057599Z test acpmux_policy::tests::both_fork_names_have_identical_phone_controls ... ok
+2026-11-16T12:19:38.9059418Z test acpmux_policy::tests::server_approval_replies_are_allowed_only_when_correlated ... ok
+2026-11-16T12:19:38.9059828Z test acpmux_policy::tests::the_mode_config_option_is_held_to_the_same_rule ... ok
+2026-11-16T12:19:38.9060680Z test acpmux_policy::tests::session_new_batch_response_binds_each_returned_chat ... ok
+2026-11-16T12:19:38.9061041Z test acpmux_policy::tests::wrapped_chat_ids_and_legacy_daemon_rows_cannot_bypass_exposure ... ok
+2026-11-16T12:19:38.9061358Z test appearance::tests::only_the_current_wallpaper_is_served ... ok
+2026-11-16T12:19:38.9061631Z test appearance::tests::appearance_look_drops_each_invalid_field_alone ... ok
+2026-11-16T12:19:38.9061901Z test appearance::tests::sanitize_keeps_a_good_theme_and_normalizes_it ... ok
+2026-11-16T12:19:38.9066428Z test appearance::tests::phones_hear_an_appearance_only_when_it_changes ... ok
+2026-11-16T12:19:38.9066761Z test appearance::tests::terminal_lines_keep_only_the_theme_keys_with_plain_values ... ok
+2026-11-16T12:19:38.9067132Z test appearance::tests::sanitize_refuses_what_the_phone_cannot_derive_from ... ok
+2026-11-16T12:19:38.9067451Z test appearance::tests::appearance_look_fields_are_served_as_the_app_sent_them ... ok
+2026-11-16T12:19:38.9067749Z test appearance::tests::appearance_without_look_is_the_message_from_before_it ... ok
+2026-11-16T12:19:38.9068015Z test activity::tests::the_file_rotates_and_keeps_one_previous ... ok
+2026-11-16T12:19:38.9068245Z test appearance::tests::the_control_line_parses_with_defaults ... ok
+2026-11-16T12:19:38.9068492Z test appearance::tests::the_terminal_theme_rides_the_appearance_message ... ok
+2026-11-16T12:19:38.9071287Z test appearance::tests::terminal_lines_need_a_background_and_a_foreground_and_are_bounded ... ok
+2026-11-16T12:19:38.9071593Z test browser::tests::a_second_viewer_of_a_tab_replaces_the_first ... ok
+2026-11-16T12:19:38.9071798Z test auth::tests::reads_sub_and_exp ... ok
+2026-11-16T12:19:38.9071972Z test browser::tests::host_pages_are_read ... ok
+2026-11-16T12:19:38.9072177Z test browser::tests::hello_carries_the_secret_and_the_rb_service ... ok
+2026-11-16T12:19:38.9072429Z test browser::tests::checks_share_one_read_of_the_mac_per_burst ... ok
+2026-11-16T12:19:38.9072717Z test browser::tests::a_page_the_phone_may_not_load_is_taken_back ... ok
+2026-11-16T12:19:38.9073145Z test browser::tests::tabs_and_urls ... ok
+2026-11-16T12:19:38.9073418Z test browser::tests::release_and_stop_ends_the_host_only_for_its_own_viewer ... ok
+2026-11-16T12:19:38.9073691Z test browser::tests::refused_links_on_a_page_that_stays_never_blank_it ... ok
+2026-11-16T12:19:38.9078012Z test browser::tests::the_hosts_file_policy_names_the_shared_folders_and_the_macs_pages ... ok
+2026-11-16T12:19:38.9078322Z test browser::tests::the_broker_asks_the_app_and_tells_it_to_stop ... ok
+2026-11-16T12:19:38.9078563Z test browser::tests::the_open_address_stays_approved ... ok
+2026-11-16T12:19:38.9078783Z test browser::tests::the_phone_says_which_tab_is_shown ... ok
+2026-11-16T12:19:38.9079029Z test browser::tests::the_host_limit_stops_a_hidden_tab_before_the_shown_one ... ok
+2026-11-16T12:19:38.9079534Z test browser::tests::the_policy_is_sent_once_and_again_when_it_changes ... ok
+2026-11-16T12:19:38.9079901Z test browser::tests::viewer_messages_pass_and_host_ones_do_not ... ok
+2026-11-16T12:19:38.9080106Z test browser_policy::tests::file_urls ... ok
+2026-11-16T12:19:38.9080294Z test browser_policy::tests::messages_are_sentences ... ok
+2026-11-16T12:19:38.9080517Z test browser_policy::tests::a_page_the_mac_shows_always_loads ... ok
+2026-11-16T12:19:38.9080715Z test browser_policy::tests::schemes ... ok
+2026-11-16T12:19:38.9081040Z test browser_track::tests::a_full_window_holds_the_hosts_frame_gate_and_pli_forces_an_idr ... ok
+2026-11-16T12:19:38.9081326Z test browser_policy::tests::files_load_inside_the_shared_folders_only ... ok
+2026-11-16T12:19:38.9082362Z test browser_policy::tests::a_shared_file_loads_at_its_resolved_path ... ok
+2026-11-16T12:19:38.9082616Z test browser_track::tests::only_the_main_streams_media_is_the_bridges ... ok
+2026-11-16T12:19:38.9083056Z test browser_track::tests::a_lane_taken_back_right_after_it_was_lost_still_gets_a_keyframe ... ok
+2026-11-16T12:19:38.9083326Z test chief_answers::tests::the_message_is_fixed ... ok
+2026-11-16T12:19:38.9085550Z test chief_policy::tests::conversations_outside_the_scope_are_refused ... ok
+2026-11-16T12:19:38.9093397Z test chief_policy::tests::a_paired_links_question_answer_needs_its_approval ... ok
+2026-11-16T12:19:38.9093678Z test chief_policy::tests::events_reach_the_phone_only_in_scope ... ok
+2026-11-16T12:19:38.9093959Z test chief_answers::tests::only_this_phones_fresh_signature_over_this_answer_counts_once ... ok
+2026-11-16T12:19:38.9094244Z test chief_policy::tests::home_inbox_windows_are_cut_after_the_scope ... ok
+2026-11-16T12:19:38.9094472Z test chief_policy::tests::scope_rule ... ok
+2026-11-16T12:19:38.9094674Z test chief_policy::tests::home_inbox_and_list_state_stay_in_scope ... ok
+2026-11-16T12:19:38.9096283Z test chief_policy::tests::search_hits_are_narrowed ... ok
+2026-11-16T12:19:38.9101535Z test chief_policy::tests::the_ios_chief_session_passes ... ok
+2026-11-16T12:19:38.9101791Z test chief_policy::tests::ids_are_never_reused_while_waiting ... ok
+2026-11-16T12:19:38.9102073Z test chief_policy::tests::unlisted_commands_ops_parts_and_command_params_are_refused ... ok
+2026-11-16T12:19:38.9102588Z test cloud_acp::tests::a_machine_with_no_ordinary_workspace_gets_one_for_the_chat ... ok
+2026-11-16T12:19:38.9103285Z test cloud_acp::tests::a_phone_start_names_no_other_agent_policy_server_or_option ... ok
+2026-11-16T12:19:38.9103792Z test cloud_acp::tests::a_phone_starts_a_claude_chat_in_the_machine_store_and_can_prompt_it ... ok
+2026-11-16T12:19:38.9104170Z test cloud_acp::tests::a_phone_that_leaves_mid_start_closes_its_empty_tab ... ok
+2026-11-16T12:19:38.9104610Z test cloud_acp::tests::a_prompt_waits_past_the_machines_acceptance_bound ... ok
+2026-11-16T12:19:38.9105173Z test cloud_acp::tests::a_refused_start_closes_its_empty_tab_and_tells_the_phone ... ok
+2026-11-16T12:19:38.9107210Z test cloud_acp::tests::a_start_that_times_out_closes_its_empty_tab ... ok
+2026-11-16T12:19:38.9107604Z test cloud_acp::tests::cannot_route_unknown_session_or_native_commands_or_unsigned_approvals ... ok
+2026-11-16T12:19:38.9107972Z test appearance::tests::a_wallpaper_is_read_once_named_by_content_and_bounded ... ok
+2026-11-16T12:19:38.9108424Z test cloud_acp::tests::a_steer_runs_after_the_turn_and_only_a_steer_only_prompt_is_refused ... ok
+2026-11-16T12:19:38.9109303Z test cloud_acp::tests::directory_refresh_detaches_stale_surfaces_and_refuses_inflight_old_pages ... ok
+2026-11-16T12:19:38.9109978Z test cloud_acp::tests::native_history_and_live_records_keep_their_actual_sequence_and_shape ... ok
+2026-11-16T12:19:38.9110627Z test cloud_acp::tests::page_cursors_are_not_renumbered_and_rebound_tabs_cannot_prompt_another_chat ... ok
+2026-11-16T12:19:38.9111153Z test cloud_acp::tests::a_start_past_the_session_cap_closes_its_tab_instead_of_listing_it ... ok
+2026-11-16T12:19:38.9111541Z test config::tests::chief_session_matches_the_mac_app ... ok
+2026-11-16T12:19:38.9112206Z test control::tests::cloud_links_carry_paid_status_and_ran_and_asleep_machines_have_no_socket ... ok
+2026-11-16T12:19:38.9112609Z test cloud_acp::tests::pending_requests_are_bounded_expire_and_ignore_late_replies ... ok
+2026-11-16T12:19:38.9113521Z test control::tests::events_are_tagged_json ... ok
+2026-11-16T12:19:38.9114623Z test control::tests::corrupt_or_unreadable_policy_fails_closed ... ok
+2026-11-16T12:19:38.9114881Z test control::tests::missing_policy_defaults_to_available_and_unconfigured ... ok
+2026-11-16T12:19:38.9115208Z test cloud_acp::tests::every_prompt_rechecks_mode_and_refuses_full_access_unknown_or_auto_approved_sessions ... ok
+2026-11-16T12:19:38.9115655Z test control::tests::failed_grant_persistence_does_not_replace_existing_chat_off_policy ... ok
+2026-11-16T12:19:38.9116352Z test control::tests::phone_credentials_replace_the_set_and_never_print ... ok
+2026-11-16T12:19:38.9116956Z test control::tests::persisted_chat_off_survives_restart_while_other_chats_inherit ... ok
+2026-11-16T12:19:38.9117249Z test control::tests::parses_control_lines ... ok
+2026-11-16T12:19:38.9117598Z test host::recovery_tests::wake_recovery_performance ... ignored, 45 second baseline; run explicitly for the PR Performance table
+2026-11-16T12:19:38.9117941Z test host::tests::a_4002_close_is_a_removal ... ok
+2026-11-16T12:19:38.9118262Z test host::tests::only_a_401_marks_the_token_refused ... ok
+2026-11-16T12:19:38.9118543Z test link_deflate::tests::only_deflate_is_asked_for ... ok
+2026-11-16T12:19:38.9119091Z test cloud_acp::tests::prompt_attaches_then_answers_at_durable_acceptance_without_waiting_for_turn_end ... ok
+2026-11-16T12:19:38.9119426Z test link_socket::tests::peer_close_codes_map_to_our_answers ... ok
+2026-11-16T12:19:38.9119687Z test link_socket::tests::the_link_socket_sits_beside_the_daemon_socket ... ok
+2026-11-16T12:19:38.9119969Z test localhost::tests::a_port_is_a_number_or_its_text_and_never_zero_or_out_of_range ... ok
+2026-11-16T12:19:38.9120985Z test machine::tests::describe_says_only_what_a_peer_may_know ... ok
+2026-11-16T12:19:38.9122544Z test mailbox::tests::a_claim_that_cannot_be_saved_is_not_applied ... ok
+2026-11-16T12:19:38.9178601Z test link_deflate::tests::small_messages_and_phones_that_did_not_ask_get_text ... ok
+2026-11-16T12:19:38.9182675Z test activity::tests::concurrent_records_lose_nothing_at_a_rotation ... ok
+2026-11-16T12:19:38.9188093Z test link_deflate::tests::a_large_list_goes_as_an_envelope_the_phone_can_read ... ok
+2026-11-16T12:19:38.9206318Z test mailbox::tests::a_deny_may_leave_the_option_to_the_mac ... ok
+2026-11-16T12:19:38.9328329Z test host::recovery_tests::wake_recovers_signaling_and_phone_dial ... ok
+2026-11-16T12:19:38.9347231Z test mailbox::tests::a_phone_clock_a_little_ahead_is_allowed ... ok
+2026-11-16T12:19:38.9368395Z test mailbox::tests::a_reply_that_came_over_a_link_is_not_applied_again_from_the_mailbox ... ok
+2026-11-16T12:19:38.9402285Z test mailbox::tests::an_ack_is_signed_by_the_mac_identity_key ... ok
+2026-11-16T12:19:38.9445763Z test mailbox::tests::a_reply_that_cannot_be_applied_yet_is_kept_and_applied_later ... ok
+2026-11-16T12:19:38.9487354Z test mailbox::tests::an_unreadable_spent_store_applies_nothing ... ok
+2026-11-16T12:19:38.9573080Z test browser_track::tests::the_hosts_bitrate_follows_the_lanes_target ... ok
+2026-11-16T12:19:38.9574714Z test mailbox::tests::spent_replies_and_outcomes_survive_a_restart_until_they_expire ... ok
+2026-11-16T12:19:38.9586678Z test auth::tests::supplied_tokens_wait_for_a_fresh_one ... ok
+2026-11-16T12:19:38.9587244Z test auth::tests::a_refused_supplied_token_is_not_reused ... ok
+2026-11-16T12:19:38.9587664Z test mailbox_apply::tests::a_deny_with_no_option_takes_the_prompts_own_reject ... ok
+2026-11-16T12:19:38.9588155Z test mailbox_apply::tests::a_prompt_is_run_once_whichever_way_it_came ... ok
+2026-11-16T12:19:38.9588781Z test mailbox_apply::tests::a_terminal_reply_goes_only_to_the_program_that_asked ... ok
+2026-11-16T12:19:38.9589160Z test mailbox_apply::tests::a_terminal_reply_needs_its_notification_and_a_program ... ok
+2026-11-16T12:19:38.9590915Z test mailbox_apply::tests::an_agent_on_the_terminal_needs_its_session_or_nothing_is_typed ... ok
+2026-11-16T12:19:38.9591678Z test mailbox_apply::tests::an_agents_notification_uses_expect_agent_where_the_daemon_has_it ... ok
+2026-11-16T12:19:38.9592198Z test mailbox_apply::tests::an_allow_carries_the_phones_approval_and_a_deny_none ... ok
+2026-11-16T12:19:38.9592638Z test mailbox_apply::live_notification_exposure_tests::live_notification_reply_cannot_type_into_a_blocked_agent ... ok
+2026-11-16T12:19:38.9593048Z test mailbox_apply::tests::exposure_checks_use_the_resolved_session_id ... ok
+2026-11-16T12:19:38.9594281Z test mailbox_apply::tests::requests_pass_the_policies_a_link_uses ... ok
+2026-11-16T12:19:38.9598219Z test media_session::tests::a_media_session_needs_a_live_paired_link_of_the_same_phone ... ok
+2026-11-16T12:19:38.9598852Z test mailbox_apply::tests::an_info_answer_must_name_a_canonical_session ... ok
+2026-11-16T12:19:38.9610161Z test mailbox::tests::the_vector_reply_opens_and_verifies ... ok
+2026-11-16T12:19:38.9610426Z test needs_you::tests::each_request_pushes_once_as_an_ask ... ok
+2026-11-16T12:19:38.9614354Z test needs_you::tests::an_open_request_is_never_forgotten ... ok
+2026-11-16T12:19:38.9614684Z test needs_you::tests::a_restart_never_pushes_a_request_again ... ok
+2026-11-16T12:19:38.9615064Z test netwatch::tests::address_and_interface_messages_are_relevant ... ok
+2026-11-16T12:19:38.9616805Z test notify::tests::a_chief_reply_names_its_conversation_and_says_its_first_lines ... ok
+2026-11-16T12:19:38.9617182Z test needs_you::tests::the_set_reaches_subscribers_only_when_it_changes ... ok
+2026-11-16T12:19:38.9618545Z test notify::tests::a_session_in_a_workspace_tab_names_the_workspace_and_tab ... ok
+2026-11-16T12:19:38.9618983Z test notify::tests::a_turn_that_ends_while_shown_still_pushes ... ok
+2026-11-16T12:19:38.9620507Z test needs_you::tests::sanitize_keeps_only_what_is_safe_to_serve ... ok
+2026-11-16T12:19:38.9620852Z test notify::tests::exposure_policy_blocks_disabled_chat_and_unbound_agent_hooks ... ok
+2026-11-16T12:19:38.9621722Z test notify::tests::exposure_policy_keeps_native_terminal_agent_notifications ... ok
+2026-11-16T12:19:38.9622037Z test notify::tests::exposure_policy_unavailable_fails_closed_for_every_notification ... ok
+2026-11-16T12:19:38.9625542Z test notify::tests::chief_compactor_sessions_never_push ... ok
+2026-11-16T12:19:38.9625910Z test notify::tests::chief_turns_push_as_chief_replied_coalesced_per_chief ... ok
+2026-11-16T12:19:38.9626286Z test notify::tests::finished_turns_coalesce_per_session_within_the_window ... ok
+2026-11-16T12:19:38.9628015Z test notify::tests::ids_and_labels_are_sanitized ... ok
+2026-11-16T12:19:38.9628326Z test notify::tests::questions_permissions_and_turns_carry_what_the_person_acts_on ... ok
+2026-11-16T12:19:38.9628732Z test notify::tests::the_watch_asks_for_its_first_page_only ... ok
+2026-11-16T12:19:38.9631022Z test notify::tests::sub_sessions_and_chief_children_do_not_push_a_finished_turn_but_still_ask ... ok
+2026-11-16T12:19:38.9631434Z test notify_content::tests::acpmux_normalized_and_interactive_questions ... ok
+2026-11-16T12:19:38.9632652Z test notify_content::tests::codex_questions_keep_free_text ... ok
+2026-11-16T12:19:38.9633043Z test notify_content::tests::permission_options_keep_ids_and_kinds ... ok
+2026-11-16T12:19:38.9634166Z test notify_content::tests::places_from_the_daemon_tree ... ok
+2026-11-16T12:19:38.9635923Z test notify_content::tests::claude_single_and_multi_select_questions ... ok
+2026-11-16T12:19:38.9637519Z test notify_content::tests::tail_is_the_last_lines ... ok
+2026-11-16T12:19:38.9638876Z test notify_secfix_tests::a_cut_label_ends_with_an_ellipsis ... ok
+2026-11-16T12:19:38.9639416Z test notify_secfix_tests::a_kind_no_phone_wanted_is_tried_again_soon ... ok
+2026-11-16T12:19:38.9640263Z test notify_secfix_tests::a_terminal_push_carries_no_screen ... ok
+2026-11-16T12:19:38.9640535Z test notify_secfix_tests::combining_mark_floods_are_cut_to_two_per_letter ... ok
+2026-11-16T12:19:38.9641847Z test notify_secfix_tests::ids_the_worker_would_refuse_are_dropped_not_mangled ... ok
+2026-11-16T12:19:38.9642235Z test notify_secfix_tests::ordinary_text_ids_and_commit_shas_stay ... ok
+2026-11-16T12:19:38.9643158Z test notify_secfix_tests::secrets_are_redacted ... ok
+2026-11-16T12:19:38.9645462Z test notify_secfix_tests::terminal_notifications_are_throttled_per_tab_and_in_all ... ok
+2026-11-16T12:19:38.9647440Z test notify_secfix_tests::titles_bodies_tails_and_questions_are_redacted ... ok
+2026-11-16T12:19:38.9649841Z test notify_terminal::tests::a_question_after_the_terminals_own_alert_still_pushes ... ok
+2026-11-16T12:19:38.9651466Z test notify_terminal::tests::a_terminal_agent_hook_pushes_as_what_happened ... ok
+2026-11-16T12:19:38.9654292Z test notify_terminal::tests::a_terminal_agent_question_pushes_as_a_question ... ok
+2026-11-16T12:19:38.9654661Z test notify_content::tests::questions_and_options_are_cut_to_the_limits ... ok
+2026-11-16T12:19:38.9655969Z test notify_terminal::tests::an_error_level_is_failed ... ok
+2026-11-16T12:19:38.9656284Z test notify_terminal::tests::an_agent_hook_in_a_terminal_pushes_once_with_its_echo ... ok
+2026-11-16T12:19:38.9657196Z test notify_terminal::tests::an_osc_notification_becomes_a_terminal_push ... ok
+2026-11-16T12:19:38.9657458Z test notify_terminal::tests::cli_notifications_and_replies ... ok
+2026-11-16T12:19:38.9660877Z test notify_terminal::tests::one_terminal_agent_event_pushes_once ... ok
+2026-11-16T12:19:38.9661347Z test notify_terminal::tests::one_terminal_question_pushes_once_named_by_its_tool_use ... ok
+2026-11-16T12:19:38.9665279Z test notify_terminal::tests::terminal_agent_events_are_not_capped_like_program_alerts ... ok
+2026-11-16T12:19:38.9665633Z test notify_terminal::tests::wants_filters_for_a_minute_then_asks_again ... ok
+2026-11-16T12:19:38.9665946Z test notify_terminal::tests::the_second_hook_without_a_tool_use_id_is_the_same_question ... ok
+2026-11-16T12:19:38.9666211Z test notify_terminal::tests::what_is_not_pushed ... ok
+2026-11-16T12:19:38.9669027Z test notify_waiting::tests::a_watch_list_page_it_cannot_trust_fails_the_watch ... ok
+2026-11-16T12:19:38.9669472Z test notify_waiting::tests::a_watch_list_past_one_reply_reads_its_rest_from_the_cursor ... ok
+2026-11-16T12:19:38.9669918Z test notify_waiting::tests::a_resolved_or_superseded_wait_discards_its_late_reply ... ok
+2026-11-16T12:19:38.9670336Z test notify_waiting::tests::closed_and_unreachable_sessions_do_not_revive_pending_asks ... ok
+2026-11-16T12:19:38.9670774Z test notify_waiting::tests::entering_needs_permission_produces_exactly_one_push_request ... ok
+2026-11-16T12:19:38.9671223Z test notify_waiting::tests::existing_turn_pushes_still_pass_through_and_errors_reconnect ... ok
+2026-11-16T12:19:38.9671650Z test notify_waiting::tests::live_permission_first_and_recovery_still_send_only_once ... ok
+2026-11-16T12:19:38.9672061Z test notify_waiting::tests::reconnect_recovers_a_question_without_repeating_its_push ... ok
+2026-11-16T12:19:38.9674554Z test notify_waiting::tests::recovered_push_survives_failure_to_send_the_next_lookup ... ok
+2026-11-16T12:19:38.9676608Z test notify_waiting::tests::unrelated_state_changes_do_not_refetch_and_a_new_wait_does ... ok
+2026-11-16T12:19:38.9677929Z test pairing::tests::a_bad_push_key_is_refused_by_itself ... ok
+2026-11-16T12:19:38.9682997Z test pairing::tests::a_push_key_counts_only_with_the_identity_keys_signature ... ok
+2026-11-16T12:19:38.9683386Z test pairing::tests::a_refusal_silences_that_device_whatever_key ... ok
+2026-11-16T12:19:38.9683839Z test pairing::tests::new_keys_ask_a_bounded_number_of_times ... ok
+2026-11-16T12:19:38.9688404Z test pairing::tests::only_so_many_channels_wait_behind_auth ... ok
+2026-11-16T12:19:38.9688896Z test pairing::tests::registration_dates_become_epoch_millis ... ok
+2026-11-16T12:19:38.9689158Z test pairing::tests::standing_needs_the_same_id_and_both_keys ... ok
+2026-11-16T12:19:38.9689388Z test pairing::tests::the_challenge_is_fixed ... ok
+2026-11-16T12:19:38.9720909Z test pairing::tests::the_mac_identity_carries_its_box_key ... ok
+2026-11-16T12:19:38.9722463Z test notify_waiting::tests::large_snapshots_drain_one_lookup_at_a_time_and_drop_obsolete_queued_states ... ok
+2026-11-16T12:19:38.9735966Z test peer::tests::a_machine_opens_only_what_it_was_granted ... ok
+2026-11-16T12:19:38.9736383Z test pairing::tests::waiters_follow_every_running_auth ... ok
+2026-11-16T12:19:38.9736604Z test peer::tests::kinds_parse_and_default_to_phone ... ok
+2026-11-16T12:19:38.9736823Z test peer::tests::grants_read_from_the_apps_devices_line ... ok
+2026-11-16T12:19:38.9737077Z test policy::tests::agent_tabs_get_this_macs_host ... ok
+2026-11-16T12:19:38.9737493Z test policy::tests::allows_listed_commands ... ok
+2026-11-16T12:19:38.9737729Z test policy::tests::agent_tabs_refuse_other_sources_and_hosts ... ok
+2026-11-16T12:19:38.9737948Z test policy::tests::allows_the_terminal_feed ... ok
+2026-11-16T12:19:38.9738160Z test policy::tests::allows_the_phone_terminal_session ... ok
+2026-11-16T12:19:38.9738371Z test policy::tests::allows_the_terminal_feed_reply ... ok
+2026-11-16T12:19:38.9738588Z test policy::tests::allows_the_workspace_resource_ops ... ok
+2026-11-16T12:19:38.9738795Z test policy::tests::bad_json_and_missing_cmd ... ok
+2026-11-16T12:19:38.9738999Z test policy::tests::browser_tabs_open_web_pages_only ... ok
+2026-11-16T12:19:38.9739214Z test policy::tests::duplicate_keys_are_sent_as_checked ... ok
+2026-11-16T12:19:38.9739432Z test policy::tests::allows_the_workspace_group_ops ... ok
+2026-11-16T12:19:38.9739665Z test policy::tests::group_ownership_is_checked_against_the_macs_state ... ok
+2026-11-16T12:19:38.9739948Z test policy::tests::notification_reply_takes_only_its_notification_and_text ... ok
+2026-11-16T12:19:38.9740214Z test policy::tests::ownership_is_checked_against_the_macs_state ... ok
+2026-11-16T12:19:38.9740435Z test policy::tests::mirrors_the_swift_allowlist ... ok
+2026-11-16T12:19:38.9740649Z test policy::tests::personal_order_is_a_place_only ... ok
+2026-11-16T12:19:38.9740913Z test policy::tests::phone_sizing_commands_pass_and_client_info_is_marked_remote ... ok
+2026-11-16T12:19:38.9741199Z test policy::tests::phone_sub_view_identity_names_no_user_or_device ... ok
+2026-11-16T12:19:38.9741442Z test policy::tests::projections_are_scoped_to_the_phone ... ok
+2026-11-16T12:19:38.9744790Z test policy::tests::refuses_other_resource_ops_and_params ... ok
+2026-11-16T12:19:38.9746201Z test policy::tests::refuses_unlisted_and_command_bearing_requests ... ok
+2026-11-16T12:19:38.9746722Z test policy::tests::restart_shell_takes_only_the_tab ... ok
+2026-11-16T12:19:38.9748862Z test policy::tests::saved_tab_groups_take_only_the_saved_id_and_a_pane ... ok
+2026-11-16T12:19:38.9749921Z test policy::tests::refuses_other_workspace_group_shapes ... ok
+2026-11-16T12:19:38.9750216Z test policy::tests::the_phone_cannot_claim_the_app_identity ... ok
+2026-11-16T12:19:38.9750617Z test push_keys::tests::only_phones_still_paired_with_the_same_identity_count ... ok
+2026-11-16T12:19:38.9752299Z test push_keys::tests::past_the_limit_the_key_set_longest_ago_goes ... ok
+2026-11-16T12:19:38.9793853Z test push_keys::tests::the_file_is_private_and_survives_a_restart ... ok
+2026-11-16T12:19:38.9799152Z test mailbox::tests::a_signed_sealed_reply_passes_once_and_a_repeat_answers_its_first_outcome ... ok
+2026-11-16T12:19:38.9812722Z test seal::tests::a_push_seals_to_the_vector_and_opens ... ok
+2026-11-16T12:19:38.9814552Z test seal::tests::public_keys_parse_only_as_uncompressed_points ... ok
+2026-11-16T12:19:38.9826115Z test seal::tests::the_box_key_matches_the_vector ... ok
+2026-11-16T12:19:38.9877181Z test sealed_notify::tests::a_failed_box_never_puts_the_content_in_clear ... ok
+2026-11-16T12:19:38.9894619Z test seal::tests::fresh_seals_round_trip_and_differ ... ok
+2026-11-16T12:19:38.9925949Z test mailbox::tests::the_mailbox_acks_every_settled_item_signed_and_applies_only_checked_ones ... ok
+2026-11-16T12:19:38.9944889Z test sealed_notify::tests::a_phone_without_a_push_key_keeps_the_plain_content ... ok
+2026-11-16T12:19:38.9945630Z test sealed_notify::tests::the_ask_secrets_come_from_the_pending_prompt ... ok
+2026-11-16T12:19:38.9948271Z test services::session_exposure_queue_tests::queued_daemon_command_and_reply_use_current_policy ... ok
+2026-11-16T12:19:38.9953980Z test services::tests::a_fifo_inside_a_root_is_refused_without_blocking ... ok
+2026-11-16T12:19:38.9956023Z test services::tests::a_file_in_a_workspace_folder_is_inside_the_shared_roots ... ok
+2026-11-16T12:19:38.9958080Z test services::tests::a_phones_new_tab_line_gets_the_macs_folder ... ok
+2026-11-16T12:19:38.9960154Z test services::tests::a_phones_new_terminal_opens_in_its_panes_folder ... ok
+2026-11-16T12:19:38.9960663Z test services::tests::acpmux_messages_are_joined ... ok
+2026-11-16T12:19:38.9961168Z test services::tests::browser_tabs_are_a_capability_only_with_a_browser_host ... ok
+2026-11-16T12:19:38.9963044Z test services::tests::cloud_directory_says_paid_status_and_ran_and_never_a_socket_or_owner ... ok
+2026-11-16T12:19:38.9965738Z test services::tests::cloud_handshake_refuses_old_daemons_before_sending_mobile_commands ... ok
+2026-11-16T12:19:38.9982724Z test seal::tests::a_reply_opens_with_the_box_key_only_in_its_context ... ok
+2026-11-16T12:19:39.0003878Z test sealed_notify::tests::content_leaves_only_in_boxes_the_phone_opens ... ok
+2026-11-16T12:19:39.0006513Z test mailbox::tests::each_check_rejects_with_its_reason ... ok
+2026-11-16T12:19:39.0006949Z test services::tests::confine_keeps_reads_inside_roots ... ok
+2026-11-16T12:19:39.0007222Z test services::tests::only_one_owned_link_is_a_cloud_machine_the_phone_may_reach ... ok
+2026-11-16T12:19:39.0007567Z test services::tests::session_names ... ok
+2026-11-16T12:19:39.0007931Z test services::tests::surface_streams_cloud_desktops_only_with_a_surface_source ... ok
+2026-11-16T12:19:39.0008696Z test services::tests::publish_never_replaces ... ok
+2026-11-16T12:19:39.0008912Z test services::tests::the_macs_browser_tabs_are_listed ... ok
+2026-11-16T12:19:39.0009507Z test services::tests::upload_names_are_safe ... ok
+2026-11-16T12:19:39.0012371Z test sealed_notify::tests::a_large_notification_fits_one_box ... ok
+2026-11-16T12:19:39.0012678Z test services::tests::with_no_daemon_the_browser_checks_fail_closed ... ok
+2026-11-16T12:19:39.0014821Z test services::tests::workspace_folders_share_projects_never_home_or_above ... ok
+2026-11-16T12:19:39.0015128Z test side_completion::tests::closed_scope_drops_pending_and_rejects_late_registration ... ok
+2026-11-16T12:19:39.0015585Z test side_completion::tests::only_the_matching_reply_completes_a_request ... ok
+2026-11-16T12:19:39.0015906Z test side_completion::tests::missing_and_null_ids_complete_without_exposing_the_internal_id ... ok
+2026-11-16T12:19:39.0016259Z test size_release::tests::a_phone_close_and_a_removal_release_and_a_drop_does_not ... ok
+2026-11-16T12:19:39.0016611Z test size_release::tests::claims_follow_attach_resize_and_release ... ok
+2026-11-16T12:19:39.0017089Z test surface::tests::a_cloud_desktop_streams_only_the_owners_one_running_machine ... ok
+2026-11-16T12:19:39.0017524Z test size_release::tests::pending_releases_end_on_their_answers_and_hide_them ... ok
+2026-11-16T12:19:39.0053724Z test surface::tests::a_surface_viewer_sends_no_navigation_or_page_messages ... ok
+2026-11-16T12:19:39.0054317Z test surface::tests::a_viewer_that_goes_releases_its_finger_and_keys_and_a_halving_halves_what_was_sent ... ok
+2026-11-16T12:19:39.0054813Z test surface::tests::a_view_only_source_gets_no_phone_input ... ok
+2026-11-16T12:19:39.0055204Z test surface::tests::cloud_desktop_keys_name_a_machine_and_its_team ... ok
+2026-11-16T12:19:39.0055567Z test surface::tests::only_phone_page_tabs_stream ... ok
+2026-11-16T12:19:39.0055948Z test surface::tests::phone_input_becomes_touches_text_keys_and_buttons_only ... ok
+2026-11-16T12:19:39.0056341Z test surface::tests::tab_keys_name_daemon_surfaces ... ok
+2026-11-16T12:19:39.0056648Z test surface::tests::source_frames_round_trip ... ok
+2026-11-16T12:19:39.0057066Z test workspace_cache::tests::a_failed_snapshot_never_becomes_an_authorization_view ... ok
+2026-11-16T12:19:39.0057886Z test workspace_cache::tests::deltas_already_in_the_snapshot_do_not_invalidate_layout ... ok
+2026-11-16T12:19:39.0058488Z test workspace_cache::tests::deltas_replace_add_move_and_remove_entities ... ok
+2026-11-16T12:19:39.0058958Z test workspace_cache::tests::dropping_an_unanswered_mutation_invalidates_other_channels ... ok
+2026-11-16T12:19:39.0059456Z test services::tests::cloud_native_line_preserves_partial_data_when_read_is_cancelled ... ok
+2026-11-16T12:19:39.0059946Z test workspace_cache::tests::in_flight_invalidation_does_not_publish_an_old_answer ... ok
+2026-11-16T12:19:39.0060426Z test workspace_cache::tests::malformed_delta_and_coarse_events_invalidate_snapshots ... ok
+2026-11-16T12:19:39.0060926Z test workspace_cache::tests::malformed_optional_layout_waits_for_an_event_then_recovers ... ok
+2026-11-16T12:19:39.0061418Z test workspace_cache::tests::old_delta_cannot_restore_data_from_before_the_snapshot ... ok
+2026-11-16T12:19:39.0061883Z test workspace_cache::tests::one_worker_per_socket_lives_only_while_handles_exist ... ok
+2026-11-16T12:19:39.0062415Z test workspace_cache::tests::optional_layout_errors_preserve_other_snapshots_without_immediate_retry ... ok
+2026-11-16T12:19:39.0062986Z test workspace_cache::tests::readiness_wait_wakes_on_publication_and_checks_only_requested_views ... ok
+2026-11-16T12:19:39.0063473Z test workspace_cache::tests::registry_replacement_refuses_old_authority ... ok
+2026-11-16T12:19:39.0063964Z test workspace_cache::tests::screen_replacement_keeps_new_children_and_revision_gaps_invalidate ... ok
+2026-11-16T12:19:39.0064531Z test workspace_cache::tests::shared_invalidation_rejects_in_flight_snapshots_from_prior_generations ... ok
+2026-11-16T12:19:39.0065079Z test workspace_cache::tests::snapshot_revision_is_a_floor_but_new_transaction_deltas_all_apply ... ok
+2026-11-16T12:19:39.0065602Z test workspace_cache::tests::structural_tab_deltas_wait_for_authoritative_active_selection ... ok
+2026-11-16T12:19:39.0066123Z test workspace_cache::tests::transient_snapshot_failure_ends_session_and_next_session_recovers ... ok
+2026-11-16T12:19:39.0066660Z test workspace_cache::tests::tree_changes_invalidate_layout_and_reject_pending_layout_answers ... ok
+2026-11-16T12:19:39.0181588Z test mailbox::tests::a_reply_must_name_what_its_kind_needs ... ok
+2026-11-16T12:19:39.0262599Z test workspace_cache::tests::idle_subscription_probe_expires_a_hung_socket ... ok
+2026-11-16T12:19:39.0272513Z test services::tests::the_acpmux_socket_takes_a_frame_past_16_mib ... ok
+2026-11-16T12:19:39.0315835Z test services::tests::cloud_native_line_rejects_oversize_before_newline ... ok
+2026-11-16T12:19:39.0938753Z test workspace_cache::tests::idle_probes_retry_transient_layout_errors_without_restarting_other_views ... ok
+2026-11-16T12:19:39.2164611Z test notify::tests::reporter_rechecks_after_token_wait_when_chat_is_revoked ... ok
+2026-11-16T12:19:39.2354248Z test mailbox::tests::a_hostd_that_just_started_waits_for_the_apps_keys ... ok
+2026-11-16T12:19:39.2354430Z 
+2026-11-16T12:19:39.2354574Z test result: ok. 301 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.33s
+2026-11-16T12:19:39.2354782Z 
+2026-11-16T12:19:39.2385228Z      Running unittests src/bin/cmux-mobile-dial.rs (target/debug/deps/cmux_mobile_dial-26988d757fa9b44c)
+2026-11-16T12:19:39.2393479Z 
+2026-11-16T12:19:39.2393534Z running 0 tests
+2026-11-16T12:19:39.2393643Z 
+2026-11-16T12:19:39.2393801Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-11-16T12:19:39.2393969Z 
+2026-11-16T12:19:39.2396567Z      Running unittests src/main.rs (target/debug/deps/cmux_mobile_host-8a08ab206e7c48db)
+2026-11-16T12:19:39.2401075Z 
+2026-11-16T12:19:39.2401260Z running 0 tests
+2026-11-16T12:19:39.2401334Z 
+2026-11-16T12:19:39.2401457Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-11-16T12:19:39.2401624Z 
+2026-11-16T12:19:39.2402702Z      Running unittests src/bin/cmux-mobile-lanebench.rs (target/debug/deps/cmux_mobile_lanebench-bb81fdb97bf8a311)
+2026-11-16T12:19:39.2406963Z 
+2026-11-16T12:19:39.2407016Z running 0 tests
+2026-11-16T12:19:39.2407508Z 
+2026-11-16T12:19:39.2407745Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-11-16T12:19:39.2407928Z 
+2026-11-16T12:19:39.2408147Z      Running unittests src/bin/cmux-mobile-stub-tui.rs (target/debug/deps/cmux_mobile_stub_tui-265667b9d6769e44)
+2026-11-16T12:19:39.2412488Z 
+2026-11-16T12:19:39.2412546Z running 0 tests
+2026-11-16T12:19:39.2412611Z 
+2026-11-16T12:19:39.2412730Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-11-16T12:19:39.2412991Z 
+2026-11-16T12:19:39.2413737Z      Running tests/host.rs (target/debug/deps/host-807d4569d3c4d931)
+2026-11-16T12:19:39.2430824Z 
+2026-11-16T12:19:39.2430882Z running 22 tests
+2026-11-16T12:19:39.2813005Z test a_paired_phone_is_not_asked_before_the_app_sends_its_devices ... ok
+2026-11-16T12:19:39.2839474Z test a_link_runs_one_auth_at_a_time ... ok
+2026-11-16T12:19:39.2857591Z test a_phone_the_user_refused_is_closed_denied ... ok
+2026-11-16T12:19:39.2887477Z test a_scanned_pairing_code_reaches_the_app_with_the_request ... ok
+2026-11-16T12:19:39.2941314Z test a_mac_opens_only_what_this_mac_granted_it ... ok
+2026-11-16T12:19:39.3311948Z test a_busy_terminal_channel_the_phone_closes_still_releases_its_size ... ok
+2026-11-16T12:19:39.3410443Z test after_a_refusal_new_keys_for_that_phone_ask_nothing ... ok
+2026-11-16T12:19:39.3437297Z test browser_video_stays_on_the_channel_for_an_older_phone_over_wireguard ... ok
+2026-11-16T12:19:39.3547680Z test a_terminal_channel_the_phone_closes_releases_its_sizes ... ok
+2026-11-16T12:19:39.3656538Z test a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone ... ok
+2026-11-16T12:19:39.3891402Z test dials_without_a_stamped_user_are_refused ... ok
+2026-11-16T12:19:39.4101775Z test channels_opened_after_auth_wait_for_it ... ok
+2026-11-16T12:19:39.5004898Z test surface_video_rides_rtp_inside_the_wireguard_tunnel ... ok
+2026-11-16T12:19:39.5650509Z test services_over_wireguard ... ok
+2026-11-16T12:19:39.5822621Z test the_mac_proves_its_key_and_a_chief_answer_needs_the_phones_signature ... ok
+2026-11-16T12:19:39.6011768Z test surface_video_rides_the_webrtc_track ... ok
+2026-11-16T12:19:39.6222123Z test services_over_wireguard_turn_tls_with_udp_blocked ... ok
+2026-11-16T12:19:39.7653818Z test services_over_webrtc ... ok
+2026-11-16T12:19:40.2660727Z test browser_video_rides_rtp_inside_the_wireguard_tunnel ... ok
+2026-11-16T12:19:40.2738881Z test browser_video_rides_the_webrtc_track ... ok
+2026-11-16T12:19:42.2190120Z test an_upload_past_the_old_100_mib_cap_is_saved_whole ... ok
+2026-11-16T12:19:43.7063049Z test a_file_past_the_old_64_mib_cap_streams_whole_in_bounded_chunks ... ok
+2026-11-16T12:19:43.7063259Z 
+2026-11-16T12:19:43.7063395Z test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.46s
+2026-11-16T12:19:43.7063569Z 
+2026-11-16T12:19:43.7106701Z      Running tests/machine_id.rs (target/debug/deps/machine_id-48fa07d87a1bb76f)
+2026-11-16T12:19:43.7115135Z 
+2026-11-16T12:19:43.7115219Z running 9 tests
+2026-11-16T12:19:43.7117728Z test a_mac_registration_carries_its_machine_id_and_siblings ... ok
+2026-11-16T12:19:43.7118024Z test an_override_must_be_a_machine_id ... ok
+2026-11-16T12:19:43.7118374Z test the_host_uuid_never_prints ... ok
+2026-11-16T12:19:43.7118933Z test the_machine_id_is_per_computer_and_account_and_hides_the_host_uuid ... ok
+2026-11-16T12:19:43.7119177Z test an_overridden_machine_id_claims_no_siblings ... ok
+2026-11-16T12:19:43.7119518Z test a_registration_with_an_override_sends_no_siblings_and_writes_no_marker ... ok
+2026-11-16T12:19:43.7120297Z test a_folder_from_another_machine_is_not_a_sibling ... ok
+2026-11-16T12:19:43.7124293Z test siblings_are_the_other_builds_device_ids_on_this_mac ... ok
+2026-11-16T12:19:43.7131311Z test at_most_sixteen_siblings ... ok
+2026-11-16T12:19:43.7131729Z 
+2026-11-16T12:19:43.7132282Z test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-11-16T12:19:43.7132495Z 
+2026-11-16T12:19:43.7134363Z      Running tests/reliability_matrix.rs (target/debug/deps/reliability_matrix-1d96ecc22e2fc2cf)
+2026-11-16T12:19:43.7142613Z 
+2026-11-16T12:19:43.7142746Z running 8 tests
+2026-11-16T12:19:43.7143106Z test cell_degenerate_keystroke_behind_mb_tool_output ... ignored, iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)
+2026-11-16T12:19:43.7143620Z test cell_degenerate_open_session_behind_mb_tool_output ... ignored, iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)
+2026-11-16T12:19:43.7144124Z test cell_degenerate_slow_consumer_after_outage ... ignored, iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)
+2026-11-16T12:19:43.7144583Z test cell_host_daemon_restart ... ignored, iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)
+2026-11-16T12:19:43.7145031Z test cell_host_mac_asleep_link_notices ... ignored, iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)
+2026-11-16T12:19:43.7145492Z test cell_network_high_latency_and_loss ... ignored, iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)
+2026-11-16T12:19:43.7145968Z test cell_network_offline_then_back_with_backlog ... ignored, iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)
+2026-11-16T12:19:43.7146418Z test cell_scale_session_list ... ignored, iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)
+2026-11-16T12:19:43.7146653Z 
+2026-11-16T12:19:43.7146818Z test result: ok. 0 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-11-16T12:19:43.7146985Z 
+2026-11-16T12:19:43.7147127Z      Running tests/session_exposure.rs (target/debug/deps/session_exposure-3fdb26dd16b35629)
+2026-11-16T12:19:43.7156276Z 
+2026-11-16T12:19:43.7156544Z running 9 tests
+2026-11-16T12:19:43.7498564Z test handoff_ids_resolve_both_sessions_before_forwarding ... ok
+2026-11-16T12:19:43.7522247Z test live_acpmux_connection_is_revoked_when_exposure_turns_off ... ok
+2026-11-16T12:19:43.7524194Z test named_alias_is_forwarded_as_the_resolved_canonical_session ... ok
+2026-11-16T12:19:43.7588523Z test visible_chat_approval_answer_reaches_backend ... ok
+2026-11-16T12:19:43.7941214Z test global_catalog_queries_still_reach_backend ... ok
+2026-11-16T12:19:43.9486663Z test named_alias_is_resolved_to_a_blocked_canonical_session ... ok
+2026-11-16T12:19:43.9510866Z test handoff_cannot_use_a_blocked_source_capsule ... ok
+2026-11-16T12:19:43.9529080Z test pending_approval_is_refused_after_exposure_is_disabled ... ok
+2026-11-16T12:19:43.9546114Z test ordinary_client_reply_id_cannot_authorize_an_approval ... ok
+2026-11-16T12:19:43.9546337Z 
+2026-11-16T12:19:43.9546527Z test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+2026-11-16T12:19:43.9546744Z 
+2026-11-16T12:19:43.9562873Z      Running tests/side_query_latency.rs (target/debug/deps/side_query_latency-1a16ad8687c07a60)
+2026-11-16T12:19:43.9572541Z 
+2026-11-16T12:19:43.9572621Z running 1 test
+2026-11-16T12:19:47.2359934Z test keystrokes_do_not_wait_for_workspace_side_queries ... ok
+2026-11-16T12:19:47.2360121Z 
+2026-11-16T12:19:47.2360253Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.28s
+2026-11-16T12:19:47.2360428Z 
+2026-11-16T12:19:47.2366795Z      Running tests/state_dependent_queries.rs (target/debug/deps/state_dependent_queries-fe456622ba485472)
+2026-11-16T12:19:47.2379288Z 
+2026-11-16T12:19:47.2379380Z running 4 tests
+2026-11-16T12:19:47.4925271Z test new_tab_uses_the_selection_acknowledged_before_it ... ok
+2026-11-16T12:19:47.4925556Z test new_tab_on_another_channel_sees_the_acknowledged_selection ... ok
+2026-11-16T12:19:47.4935997Z test a_disconnect_before_mutation_reply_invalidates_other_channels ... ok
+2026-11-16T12:19:47.4938982Z test a_pending_terminal_wait_does_not_block_mutations_or_input ... ok
+2026-11-16T12:19:47.4939149Z 
+2026-11-16T12:19:47.4939287Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+2026-11-16T12:19:47.4939455Z 
+2026-11-16T12:19:47.4947158Z      Running unittests src/lib.rs (target/debug/deps/cmux_mobile_link-e5d88030bbff78c5)
+2026-11-16T12:19:47.4957736Z 
+2026-11-16T12:19:47.4957906Z running 106 tests
+2026-11-16T12:19:47.4960590Z test api::tests::stun_urls ... ok
+2026-11-16T12:19:47.4961142Z test api::tests::ice_cache_lifetime_follows_the_ttl ... ok
+2026-11-16T12:19:47.4961640Z test class_queue::tests::classes_follow_the_datagram_shape ... ok
+2026-11-16T12:19:47.4963770Z test dial::turn::tests::picks_udp_then_tls_on_443 ... ok
+2026-11-16T12:19:47.4964589Z test dial::tests::another_sessions_error_does_not_fail_this_session ... ok
+2026-11-16T12:19:47.4965074Z test class_queue::tests::a_closed_queue_refuses_and_ends_the_writer ... ok
+2026-11-16T12:19:47.4965529Z test class_queue::tests::bulk_and_media_share_the_stream_by_bytes ... ok
+2026-11-16T12:19:47.4968494Z test dial::turn::tests::stream_framing_splits_stun_and_padded_channel_data ... ok
+2026-11-16T12:19:47.4968745Z test class_queue::tests::stale_media_is_dropped ... ok
+2026-11-16T12:19:47.4968963Z test dial::turn::tests::udp_blocked_and_relay_only_need_their_server ... ok
+2026-11-16T12:19:47.4969217Z test dial::webrtc::tests::a_signaling_outage_does_not_fail_the_handshake ... ok
+2026-11-16T12:19:47.4969465Z test class_queue::tests::classes_are_bounded_and_drop_their_oldest ... ok
+2026-11-16T12:19:47.4969766Z test dial::wireguard::paths::tests::a_network_change_hands_the_route_back_until_paths_answer_again ... ok
+2026-11-16T12:19:47.4970118Z test dial::wireguard::paths::tests::a_cut_that_takes_every_direct_path_falls_back_to_the_relay_not_a_stale_one ... ok
+2026-11-16T12:19:47.4970426Z test dial::wireguard::paths::tests::a_route_no_longer_wanted_is_left ... ok
+2026-11-16T12:19:47.4972130Z test dial::wireguard::paths::tests::a_route_announced_as_relayed_later_is_ranked_as_a_relay ... ok
+2026-11-16T12:19:47.4972962Z test dial::wireguard::paths::tests::a_slow_route_that_loses_a_probe_probes_the_others_at_once ... ok
+2026-11-16T12:19:47.4973607Z test dial::wireguard::paths::tests::the_lan_address_wins_over_the_tailnet_and_the_relay ... ok
+2026-11-16T12:19:47.4974194Z test dial::wireguard::paths::tests::a_quiet_route_sprays_then_falls_back_to_the_relay ... ok
+2026-11-16T12:19:47.4976214Z test class_queue::tests::control_and_input_never_wait_behind_bulk ... ok
+2026-11-16T12:19:47.4976740Z test dial::wireguard::tests::a_direct_address_learned_from_arrivals_wins_over_the_held_relay ... ok
+2026-11-16T12:19:47.4977168Z test dial::wireguard::roam::tests::roam_messages_are_small_json ... ok
+2026-11-16T12:19:47.4977686Z test dial::wireguard::tests::a_route_to_the_peers_retired_relayed_address_gives_way_to_its_new_one ... ok
+2026-11-16T12:19:47.4978142Z test dial::wireguard::tests::a_suspect_learned_route_still_gets_the_spray ... ok
+2026-11-16T12:19:47.4978501Z test dial::wireguard::tests::no_stun_answer_means_udp_looks_blocked ... ok
+2026-11-16T12:19:47.4979757Z test dial::wireguard::tests::the_cellular_path_is_the_last_one_reported ... ok
+2026-11-16T12:19:47.4980154Z test dial::wireguard::tests::host_endpoints_cover_every_interface_primary_first ... ok
+2026-11-16T12:19:47.4980536Z test dial::wireguard::tests::send_classes_follow_the_pacer ... ok
+2026-11-16T12:19:47.4980861Z test frame::tests::rejects_unknown_type_and_oversize ... ok
+2026-11-16T12:19:47.4981542Z test dial::wireguard::tests::udp_to_the_peers_relayed_address_is_a_turn_path ... ok
+2026-11-16T12:19:47.4982065Z test dial::wireguard::tests::ultra_is_auto_by_default_and_metered_on_cellular ... ok
+2026-11-16T12:19:47.4982442Z test hybrid::tests::a_warm_up_wants_video_until_it_runs_out ... ok
+2026-11-16T12:19:47.4982756Z test frame::tests::round_trip_and_partial_input ... ok
+2026-11-16T12:19:47.4983160Z test dial::wireguard::tests::an_unanswered_handshake_initiation_is_repeated_until_the_peer_answers ... ok
+2026-11-16T12:19:47.4983534Z test keepalive::tests::next_tick_is_todays_period_unless_aligned ... ok
+2026-11-16T12:19:47.4983780Z test keepalive::tests::beats_of_every_period_fall_on_the_ten_second_grid ... ok
+2026-11-16T12:19:47.4998976Z test keepalive::wake_budget::the_millisecond_grid_is_the_code_grid ... ok
+2026-11-16T12:19:47.4999384Z test link::tests::an_aligned_keepalive_pings_on_every_beat_and_nowhere_else ... ok
+2026-11-16T12:19:47.4999733Z test dial::wireguard::tests::a_new_allocation_on_the_old_relayed_address_is_confirmed ... ok
+2026-11-16T12:19:47.5000029Z test link::tests::an_aligned_keepalive_still_closes_a_silent_link ... ok
+2026-11-16T12:19:47.5000356Z test link::tests::bad_channel_parity_is_refused ... ok
+2026-11-16T12:19:47.6494450Z test dial::wireguard::tests::a_silent_stun_server_does_not_hold_the_gather ... ok
+2026-11-16T12:19:47.6986207Z test dial::wireguard::tests::a_roam_replays_the_newest_datagrams_that_fit_oldest_first ... ok
+2026-11-16T12:19:47.7017238Z test link::tests::close_wakes_a_send_waiting_for_room ... ok
+2026-11-16T12:19:48.1615524Z test link::tests::input_and_other_channels_overtake_a_flood_on_one_stream ... ok
+2026-11-16T12:19:48.1618776Z test link::tests::large_writes_are_chunked ... ok
+2026-11-16T12:19:48.1630847Z test link::tests::open_echo_close_and_ping ... ok
+2026-11-16T12:19:48.1631312Z test link::tests::open_request_lane_on_the_wire ... ok
+2026-11-16T12:19:48.1752043Z test link::tests::input_lane_stream_bypasses_a_flood ... ok
+2026-11-16T12:19:48.1756168Z test link::tests::the_peers_close_stops_our_sends ... ok
+2026-11-16T12:19:48.1757592Z test media::h264::tests::a_keyframe_round_trips_through_stap_a_and_fu_a ... ok
+2026-11-16T12:19:48.1758021Z test media::h264::tests::a_small_p_frame_is_one_packet ... ok
+2026-11-16T12:19:48.1789163Z test media::receiver::tests::a_frame_still_arriving_is_not_given_up ... ok
+2026-11-16T12:19:48.1791063Z test media::receiver::tests::a_lost_tail_with_nothing_after_it_is_given_up ... ok
+2026-11-16T12:19:48.1792562Z test media::receiver::tests::a_p_frame_before_the_first_keyframe_is_not_released ... ok
+2026-11-16T12:19:48.1794222Z test media::receiver::tests::a_resent_packet_completes_its_frame_and_the_held_frames_follow_in_order ... ok
+2026-11-16T12:19:48.1798304Z test media::receiver::tests::an_unrecoverable_gap_is_dropped_with_a_pli_and_the_next_keyframe_resumes ... ok
+2026-11-16T12:19:48.1802410Z test media::receiver::tests::frames_round_trip_in_order_with_no_buffering ... ok
+2026-11-16T12:19:48.1804631Z test media::receiver::tests::path_changes_send_one_pli_per_interval ... ok
+2026-11-16T12:19:48.1805763Z test media::receiver::tests::reordered_packets_inside_a_frame_need_no_resend ... ok
+2026-11-16T12:19:48.1806211Z test media::resend::tests::a_packet_goes_again_only_after_the_gap_and_at_most_three_times ... ok
+2026-11-16T12:19:48.2171230Z test media::resend::tests::old_sequence_numbers_are_forgotten_so_a_wrap_sends_again ... ok
+2026-11-16T12:19:48.2171837Z test media::routes::tests::a_dead_route_falls_back_only_at_a_keyframe_and_drops_frames_meanwhile ... ok
+2026-11-16T12:19:48.2172386Z test media::routes::tests::a_recovered_route_takes_over_at_a_keyframe_while_the_old_one_keeps_sending ... ok
+2026-11-16T12:19:48.2173278Z test media::routes::tests::a_stalled_route_backs_off_and_is_tried_again ... ok
+2026-11-16T12:19:48.2173634Z test media::routes::tests::no_route_left_closes_the_lane ... ok
+2026-11-16T12:19:48.2174026Z test media::routes::tests::the_floor_never_stalls_away_while_the_preferred_route_backs_off ... ok
+2026-11-16T12:19:48.2174926Z test media::routes::tests::the_last_route_never_stalls_away ... ok
+2026-11-16T12:19:48.2175401Z test media::routes::tests::the_webrtc_route_wins_and_the_first_frame_needs_no_keyframe ... ok
+2026-11-16T12:19:48.2186529Z test media::sender::tests::a_stalled_path_marks_the_sender_congested_until_feedback_arrives ... ok
+2026-11-16T12:19:48.2190662Z test media::sender::tests::deferred_loss_uses_settled_packet_weight_not_current_twcc_size ... ok
+2026-11-16T12:19:48.2191585Z test media::sender::tests::frames_get_consecutive_sequence_numbers_a_marker_and_the_capture_timestamp ... ok
+2026-11-16T12:19:48.2193463Z test media::sender::tests::path_change_discards_pending_loss_before_new_path_feedback ... ok
+2026-11-16T12:19:48.2193973Z test media::sender::tests::pli_and_fir_ask_for_a_keyframe_at_most_every_250_ms ... ok
+2026-11-16T12:19:48.2202550Z test media::sender::tests::reordered_twcc_chunks_do_not_invent_loss_or_cut_bitrate ... ok
+2026-11-16T12:19:48.2271811Z test media::sender::tests::twcc_feedback_from_a_slow_path_lowers_the_target ... ok
+2026-11-16T12:19:48.2272698Z test media::tag::tests::a_tag_rides_the_access_unit_and_comes_off_whole ... ok
+2026-11-16T12:19:48.2274140Z test media::tag::tests::a_tagged_keyframe_still_starts_with_its_parameter_sets ... ok
+2026-11-16T12:19:48.2274560Z test media::tests::a_late_older_keyframe_of_the_left_route_never_takes_the_gate_back ... ok
+2026-11-16T12:19:48.2275016Z test media::tests::a_later_tabs_keyframe_on_the_next_route_passes_although_its_clock_is_behind ... ok
+2026-11-16T12:19:48.2275436Z test media::tests::a_source_stuck_behind_the_gate_asks_for_a_keyframe ... ok
+2026-11-16T12:19:48.2275854Z test media::tests::a_still_pages_keyframe_with_the_same_timestamp_on_the_next_route_passes ... ok
+2026-11-16T12:19:48.2276135Z test media::tests::a_timestamp_slightly_ahead_of_the_clock_estimate_is_now ... ok
+2026-11-16T12:19:48.2276377Z test media::tests::rtp_timestamps_round_trip_to_the_capture_time ... ok
+2026-11-16T12:19:48.2284197Z test media::track::tests::drops_spread_near_the_requested_share ... ok
+2026-11-16T12:19:48.2284553Z test media::twcc::tests::the_recorders_feedback_reads_back ... ok
+2026-11-16T12:19:48.2284919Z test media::wireguard::tests::a_blackout_drops_its_window_and_the_resends_of_it ... ok
+2026-11-16T12:19:48.2285318Z test media::wireguard::tests::a_full_rtp_packet_fits_one_tunnel_datagram ... ok
+2026-11-16T12:19:48.2285722Z test media::wireguard::tests::rtp_and_rtcp_are_told_apart_by_the_payload_type_byte ... ok
+2026-11-16T12:19:48.2286104Z test media::wireguard::tests::the_bottleneck_paces_and_drops_past_its_queue ... ok
+2026-11-16T12:19:48.2287220Z test send_queue::tests::signals_go_out_in_order_then_the_queue_closes ... ok
+2026-11-16T12:19:48.2287657Z test signaling::tests::a_keepalive_tick_sends_the_websocket_ping_and_the_application_ping ... ok
+2026-11-16T12:19:48.2288559Z test signaling::tests::an_older_workers_answer_to_the_application_ping_is_not_an_error_of_a_dial ... ok
+2026-11-16T12:19:48.2289259Z test signaling::tests::mailbox_frames_match_the_contract ... ok
+2026-11-16T12:19:48.2289708Z test signaling::tests::signal_url_shapes ... ok
+2026-11-16T12:19:48.2290633Z test signaling::tests::wg_versions_and_tls_relayed_addresses ... ok
+2026-11-16T12:19:48.2291231Z test signaling::tests::wire_shapes_match_the_contract ... ok
+2026-11-16T12:19:48.2294290Z test testing::tests::a_released_relay_address_is_direct_again_when_reused ... ok
+2026-11-16T12:19:48.2294777Z test timing::tests::keeps_first_mark_in_order ... ok
+2026-11-16T12:19:48.6216221Z test link::tests::a_probe_counts_any_inbound_frame_and_fails_only_on_silence ... ok
+2026-11-16T12:19:49.0547646Z test keepalive::wake_budget::radio_wakes_per_idle_minute ... ok
+2026-11-16T12:19:49.4960819Z test link::tests::keepalive_counts_any_inbound_frame ... ok
+2026-11-16T12:19:49.4997256Z test link::tests::a_lane_the_peer_never_attached_is_not_used ... ok
+2026-11-16T12:19:51.0022149Z test link::tests::an_unread_channel_does_not_stall_the_link ... ok
+2026-11-16T12:19:51.7161536Z test link::tests::ping_overtakes_queued_bulk_data ... ok
+2026-11-16T12:19:55.9542218Z test link::tests::a_channel_read_slowly_does_not_delay_the_others ... ok
+2026-11-16T12:19:55.9542482Z 
+2026-11-16T12:19:55.9542626Z test result: ok. 106 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.46s
+2026-11-16T12:19:55.9542801Z 
+2026-11-16T12:19:55.9553225Z      Running tests/fast_path.rs (target/debug/deps/fast_path-0e814fff94b9d3e5)
+2026-11-16T12:19:55.9569289Z 
+2026-11-16T12:19:55.9569342Z running 1 test
+2026-11-16T12:20:03.9695985Z test a_cut_direct_path_moves_to_the_relay_without_a_long_stall ... ok
+2026-11-16T12:20:03.9696510Z 
+2026-11-16T12:20:03.9696714Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.01s
+2026-11-16T12:20:03.9696978Z 
+2026-11-16T12:20:03.9707364Z      Running tests/hybrid.rs (target/debug/deps/hybrid-c84d3729f58d096b)
+2026-11-16T12:20:03.9721399Z 
+2026-11-16T12:20:03.9721524Z running 4 tests
+2026-11-16T12:20:03.9999773Z test a_mac_without_media_sessions_leaves_the_lane_out ... ok
+2026-11-16T12:20:05.7772405Z test a_silent_media_session_stalls_video_falls_back_and_the_session_is_tried_again ... ok
+2026-11-16T12:20:15.0462573Z test with_udp_blocked_the_media_session_fails_and_video_stays_in_the_tunnel ... ok
+2026-11-16T12:20:17.6234877Z test video_moves_onto_the_media_session_falls_back_into_the_tunnel_and_returns ... ok
+2026-11-16T12:20:17.6235095Z 
+2026-11-16T12:20:17.6235232Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.65s
+2026-11-16T12:20:17.6235410Z 
+2026-11-16T12:20:17.6252593Z      Running tests/loopback.rs (target/debug/deps/loopback-be24bbf87ee1b799)
+2026-11-16T12:20:17.6270113Z 
+2026-11-16T12:20:17.6271957Z running 24 tests
+2026-11-16T12:20:17.6272105Z test throughput_probe ... ignored
+2026-11-16T12:20:17.6295363Z test a_socket_the_backend_closed_refuses_to_queue ... ok
+2026-11-16T12:20:17.6664355Z test a_second_socket_for_a_device_replaces_the_first ... ok
+2026-11-16T12:20:17.6696233Z test dialing_another_users_mac_is_refused ... ok
+2026-11-16T12:20:17.6928785Z test wireguard_carries_the_link_directly ... ok
+2026-11-16T12:20:17.7181095Z test wireguard_input_lane_falls_back_with_an_older_mac ... ok
+2026-11-16T12:20:17.7558364Z test wireguard_input_lane_has_its_own_tcp_stream ... ok
+2026-11-16T12:20:17.7763800Z test webrtc_carries_the_link ... ok
+2026-11-16T12:20:17.8271950Z test webrtc_input_lane_has_its_own_data_channel ... ok
+2026-11-16T12:20:17.8624434Z test webrtc_input_lane_falls_back_with_an_older_mac ... ok
+2026-11-16T12:20:18.2923697Z test fake_signaling_records_a_device_before_its_connect_returns ... ok
+2026-11-16T12:20:18.6300750Z test the_backend_refuses_relay_frames_and_keeps_the_socket ... ok
+2026-11-16T12:20:18.6690102Z test webrtc_dial_gives_up_on_an_unanswered_offer_at_its_answer_deadline ... ok
+2026-11-16T12:20:19.0410222Z test wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls ... ok
+2026-11-16T12:20:19.0623106Z test wireguard_with_an_older_peer_confirms_by_its_datagrams ... ok
+2026-11-16T12:20:19.1259898Z test wireguard_one_way_lan_settles_on_turn ... ok
+2026-11-16T12:20:19.1261274Z test wireguard_relay_only_uses_turn ... ok
+2026-11-16T12:20:19.1272976Z test wireguard_without_turn_and_without_udp_fails_fast ... ok
+2026-11-16T12:20:19.7000137Z test wireguard_falls_back_from_turn_udp_to_turn_tls ... ok
+2026-11-16T12:20:20.3313346Z test wireguard_with_udp_blocked_rides_turn_over_tls ... ok
+2026-11-16T12:20:26.3329889Z test wireguard_mac_takes_the_turn_allocation_it_missed_while_answering ... ok
+2026-11-16T12:20:26.7316519Z test wireguard_takes_the_turn_allocation_it_missed_while_dialing ... ok
+2026-11-16T12:20:31.7289964Z test wireguard_upgrades_from_the_peers_turn_once_direct_works ... ok
+2026-11-16T12:20:34.3882209Z test wireguard_survives_one_way_udp_through_the_peers_turn ... ok
+2026-11-16T12:20:34.3882402Z 
+2026-11-16T12:20:34.3882542Z test result: ok. 23 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 16.76s
+2026-11-16T12:20:34.3882721Z 
+2026-11-16T12:20:34.3905795Z      Running tests/mailbox_queue.rs (target/debug/deps/mailbox_queue-8751244f4ecdb471)
+2026-11-16T12:20:34.3914295Z 
+2026-11-16T12:20:34.3914371Z running 1 test
+2026-11-16T12:20:34.3928381Z test a_mailbox_frame_sent_right_after_hello_is_never_lost ... ok
+2026-11-16T12:20:34.3928525Z 
+2026-11-16T12:20:34.3928661Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-11-16T12:20:34.3928826Z 
+2026-11-16T12:20:34.3932195Z      Running tests/media.rs (target/debug/deps/media-de7aa2b898813b68)
+2026-11-16T12:20:34.3942129Z 
+2026-11-16T12:20:34.3945007Z running 12 tests
+2026-11-16T12:20:34.4377846Z test a_newer_claim_preempts_the_older_source ... ok
+2026-11-16T12:20:34.4389197Z test an_older_phone_gets_no_track ... ok
+2026-11-16T12:20:34.4787243Z test an_older_mac_leaves_the_lane_out_and_the_link_works ... ok
+2026-11-16T12:20:34.5239493Z test wireguard_with_an_older_mac_stays_on_the_channel ... ok
+2026-11-16T12:20:34.5305201Z test wireguard_with_an_older_phone_stays_on_the_channel ... ok
+2026-11-16T12:20:38.4201372Z test video_frames_ride_rtp_inside_the_wireguard_tunnel ... ok
+2026-11-16T12:20:38.4301110Z test video_frames_ride_a_track_on_the_links_peer_connection ... ok
+2026-11-16T12:20:40.4172011Z test wireguard_lost_packets_come_back_by_nack ... ok
+2026-11-16T12:20:40.4327368Z test wireguard_unrecoverable_loss_resumes_at_a_requested_keyframe ... ok
+2026-11-16T12:20:40.4644168Z test lost_packets_come_back_by_nack_and_frames_stay_decodable ... ok
+2026-11-16T12:20:41.4326588Z test wireguard_roam_mid_stream_keeps_the_lane_and_asks_for_a_keyframe ... ok
+2026-11-16T12:20:46.4207892Z test wireguard_bitrate_adapts_to_a_capped_link ... FAILED
+2026-11-16T12:20:46.4208172Z 
+2026-11-16T12:20:46.4208234Z failures:
+2026-11-16T12:20:46.4208295Z 
+2026-11-16T12:20:46.4208390Z ---- wireguard_bitrate_adapts_to_a_capped_link stdout ----
+2026-11-16T12:20:46.4208995Z targets [1626101, 1286126, 1252619, 1430414, 1296054, 1490521, 1304087, 1237016, 1325569, 1233098], skipped 0, frames 600, SenderState { target_bps: 1241854, in_flight_bytes: 0, congested: false, loss: 0.0, feedback_delay_us: 30484, keyframe_requests: 1, packets_sent: 1802, nacks_received: 0, feedback_wait_us: 0 }
+2026-11-16T12:20:46.4209477Z 
+2026-11-16T12:20:46.4209654Z thread 'wireguard_bitrate_adapts_to_a_capped_link' (13073) panicked at crates/cmux-mobile-link/tests/media.rs:307:5:
+2026-11-16T12:20:46.4209965Z [1626101, 1286126, 1252619, 1430414, 1296054, 1490521, 1304087, 1237016, 1325569, 1233098]
+2026-11-16T12:20:46.4210217Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+2026-11-16T12:20:46.4210367Z 
+2026-11-16T12:20:46.4210369Z 
+2026-11-16T12:20:46.4210418Z failures:
+2026-11-16T12:20:46.4210536Z     wireguard_bitrate_adapts_to_a_capped_link
+2026-11-16T12:20:46.4210640Z 
+2026-11-16T12:20:46.4210776Z test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.03s
+2026-11-16T12:20:46.4210952Z 
+2026-11-16T12:20:46.4237133Z error: test failed, to rerun pass `-p cmux-mobile-link --test media`
+2026-11-16T12:20:46.4286099Z ##[endgroup]
+2026-11-16T12:20:46.4302649Z ##[error]`cargo test --locked --workspace` failed in cmux-next-ios/rust
+2026-11-16T12:20:46.4307234Z rust-workspaces: cmux-next-ios/rust: red (test)
+2026-11-16T12:20:46.4362073Z ##[error]Process completed with exit code 1.
+2026-11-16T12:20:46.4497385Z Post job cleanup.
+2026-11-16T12:20:46.4938487Z [command]/usr/local/bin/git version
+2026-11-16T12:20:46.4969670Z git version 2.55.0
+2026-11-16T12:20:46.4988289Z Temporarily overriding HOME='/home/runner/_work/_temp/e507dc84-0b68-41ed-9421-da2d6e264bcf' before making global git config changes
+2026-11-16T12:20:46.4988655Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-16T12:20:46.4991660Z [command]/usr/local/bin/git config --global --add safe.directory /home/runner/_work/cmux/cmux
+2026-11-16T12:20:46.5015221Z Removing SSH command configuration
+2026-11-16T12:20:46.5018417Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-16T12:20:46.5042274Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-16T12:20:46.5215797Z Removing HTTP extra header
+2026-11-16T12:20:46.5219128Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-16T12:20:46.5250417Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-16T12:20:46.5387085Z Removing includeIf entries pointing to credentials config files
+2026-11-16T12:20:46.5391405Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-16T12:20:46.5421849Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-16T12:20:46.5744541Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-16T12:20:46.5766018Z ##[group]Run '/job_completed.sh'
+2026-11-16T12:20:46.5780611Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-16T12:20:46.5780791Z env:
+2026-11-16T12:20:46.5780913Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 177
+2026-11-16T12:20:46.5781061Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 422
+2026-11-16T12:20:46.5781205Z   BLACKSMITH_CHECK_RUN_ID: 133292315169
+2026-11-16T12:20:46.5781361Z   BLACKSMITH_JOB_DISPLAY_NAME: cmux-next-ios/rust
+2026-11-16T12:20:46.5781524Z   GITHUB_ACTIONS_CACHE_MODE: write
+2026-11-16T12:20:46.5781671Z ##[endgroup]
+2026-11-16T12:20:46.5874822Z Docker container cache not activated, skipping hash computation.
+2026-11-16T12:20:46.6214636Z No active SSH sessions detected. Proceeding with shutdown immediately.
+2026-11-16T12:20:46.6302447Z Cleaning up orphan processes
