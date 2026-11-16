@@ -12,12 +12,12 @@ import Testing
         var symbol: CGFloat
     }
 
-    private static func drawn(_ density: SidebarDensity, _ textSize: SidebarTextSize = .standard) -> Drawn {
+    private static func drawn(_ density: SidebarDensity, _ textSize: SidebarTextSize = .standard, preset: DensityPreset = .compact) -> Drawn {
         let saved = DesignSettings.shared.sidebarSections.density, text = DesignSettings.shared.sidebarSections.textSize
         let interface = DesignSettings.shared.densityTokens
         DesignSettings.shared.sidebarSections.density = density
         DesignSettings.shared.sidebarSections.textSize = textSize
-        DesignSettings.shared.densityTokens = .compact
+        DesignSettings.shared.densityTokens = preset.tokens
         defer {
             DesignSettings.shared.sidebarSections.density = saved
             DesignSettings.shared.sidebarSections.textSize = text
@@ -35,13 +35,13 @@ import Testing
         return Drawn(glyph: glyph, symbol: image?.size.height ?? 0)
     }
 
-    @Test func compactKeepsItsSixteenPointGlyph() {
-        #expect(Self.drawn(.compact).glyph == 16)
+    @Test func compactGlyphFollowsDefaultsColumn() {
+        #expect(Self.drawn(.compact).glyph == (16.5 * CGFloat(DensityPreset.compact.scaleFactor) * 2).rounded() / 2)
     }
 
-    @Test(arguments: SidebarTextSize.allCases)
-    func comfortableDrawsALargerIconThanCompact(_ textSize: SidebarTextSize) {
-        let compact = Self.drawn(.compact, textSize), comfortable = Self.drawn(.comfortable, textSize)
+    @Test(arguments: SidebarTextSize.allCases, DensityPreset.allCases)
+    func comfortableDrawsALargerIconThanCompact(_ textSize: SidebarTextSize, preset: DensityPreset) {
+        let compact = Self.drawn(.compact, textSize, preset: preset), comfortable = Self.drawn(.comfortable, textSize, preset: preset)
         #expect(comfortable.glyph > compact.glyph, "compact \(compact.glyph), comfortable \(comfortable.glyph)")
         #expect(comfortable.symbol > compact.symbol, "compact symbol \(compact.symbol), comfortable \(comfortable.symbol)")
     }
