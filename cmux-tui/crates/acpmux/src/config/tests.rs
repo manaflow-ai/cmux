@@ -504,6 +504,50 @@ fn an_unsynced_atomic_write_keeps_the_old_copy_until_rename() {
     assert_eq!(syncs.get(), 0);
 }
 
+/// A joined Mac's `machine-consent/` held `refusal.json` and 8 `refusal.tmp-<pid>-<n>` files: the
+/// daemon writing the refusal was stopped between the temporary copy's open and its rename, and
+/// nothing removed the copy after. The next write to the same file removes the copies of
+/// processes no longer running; a running process's copy, and a copy made in the last minute,
+/// stay.
+#[cfg(unix)]
+#[test]
+fn an_atomic_write_removes_the_temporary_copies_dead_processes_left() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("refusal.json");
+    let mut exited = std::process::Command::new("true").spawn().unwrap();
+    let dead = exited.id();
+    exited.wait().unwrap();
+    let mut running = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    let live = running.id();
+    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    let left = |name: String, old: bool| {
+        let tmp = home.path().join(name);
+        let file = std::fs::File::create(&tmp).unwrap();
+        if old {
+            file.set_modified(hour_ago).unwrap();
+        }
+        tmp
+    };
+    let stale = left(format!("refusal.tmp-{dead}-3"), true);
+    let stale_bare = left(format!("refusal.tmp-{dead}"), true);
+    let fresh = left(format!("refusal.tmp-{dead}-4"), false);
+    let alive = left(format!("refusal.tmp-{live}-0"), true);
+    let other = left(format!("consent.tmp-{dead}-0"), true);
+    let not_a_pid = left("refusal.tmp-notes".to_owned(), true);
+
+    write_atomic(&path, b"{}").unwrap();
+
+    let _ = running.kill();
+    let _ = running.wait();
+    assert_eq!(std::fs::read(&path).unwrap(), b"{}");
+    assert!(!stale.exists(), "a dead process's copy stays: {}", stale.display());
+    assert!(!stale_bare.exists(), "a dead process's copy stays: {}", stale_bare.display());
+    assert!(fresh.exists(), "a copy made in the last minute was removed");
+    assert!(alive.exists(), "a running process's copy was removed");
+    assert!(other.exists(), "another file's copy was removed");
+    assert!(not_a_pid.exists(), "a name with no pid was removed");
+}
+
 /// `acpmux config --set transport.wireguard=true` with no `wireguardStatic` block (cmux#43305's
 /// carrier step, 2026-11-15): the daemon then refused to start. What the CLI does (load, set,
 /// save) either refuses and leaves config.json as it was, or writes a config the daemon's own

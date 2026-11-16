@@ -31,6 +31,11 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// tint that darkens the window under the palette (Leo 2026-10-20: shown
     /// in one frame it was too jarring). Reduce Motion caps it at `crossfade`.
     case scrim
+    /// A window's background picture turning to its next one on its own (a schedule, a shuffle, a
+    /// dynamic wallpaper's sun): the old picture crossfades into the new one. An ambient change
+    /// nothing waits on, so off the scale like `highlight`; instant under Reduce Motion
+    /// (`WindowMaterialView.crossfadeArt`).
+    case wallpaper
     /// Drag lift shadow.
     case lift
     /// A room, workspace or terminal theme switch recoloring in place.

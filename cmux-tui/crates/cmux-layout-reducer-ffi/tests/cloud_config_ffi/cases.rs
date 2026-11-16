@@ -257,6 +257,22 @@ fn the_device_identity_items_answer_here() {
 }
 
 #[test]
+fn the_device_list_answers_here() {
+    let (code, listed) = call(
+        c"cloud_identity_device_list",
+        &json!({"this": {"id": "nightly"},
+                "devices": [{"id": "dev", "name": "Desk Mac", "platform": "macos"},
+                            {"id": "nightly", "name": "Desk Mac", "platform": "macos"},
+                            {"id": "air", "name": "Laptop", "platform": "macos", "online": true}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        listed,
+        json!({"thisDevice": ["nightly", "dev"], "others": [{"id": "air", "ids": ["air"]}]})
+    );
+}
+
+#[test]
 fn an_unknown_op_or_a_bad_request_is_refused() {
     assert_eq!(call(c"cloud_config_nope", &json!({})).0, ERR_INVALID);
     assert_eq!(call(c"cloud_config_from_selection", &json!({"isDebugBuild": "no"})).0, ERR_INVALID);
