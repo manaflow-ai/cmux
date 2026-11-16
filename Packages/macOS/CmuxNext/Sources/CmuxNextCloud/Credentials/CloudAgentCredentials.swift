@@ -97,10 +97,19 @@ public final class CloudAgentCredentials {
         chosen[ChatKey(machine: machine, chat: chat)]
     }
 
-    /// The credential the chat's start sends, read now; nil when no connection was chosen for it. A
-    /// chosen connection that cannot be read throws: the start says so instead of using another route.
-    public func launchCredential(chat: String, machine: String) async throws -> CloudAgentCredential? {
-        guard let id = connection(chat: chat, machine: machine) else { return nil }
+    /// Cloud first use's rule, set by the app (``CloudSetup/choose(harness:model:account:)``): the connection a Cloud
+    /// chat that no Cloud start chose for launches on (`cmux chat --on vm`, `cmux cloud start-session`, a new chat
+    /// opened in a machine's workspace). Nil: such a chat starts on the machine's own route.
+    public var setup: CloudSetup?
+
+    /// The credential the chat's start sends, read now. A chosen connection that cannot be read throws:
+    /// the start says so instead of using another route. With no choice, the connection Cloud first use
+    /// picks for `harness` (``setup``); nil when none serves it or it cannot be read (the machine's own route).
+    public func launchCredential(chat: String, machine: String, harness: String? = nil, model: String? = nil) async throws -> CloudAgentCredential? {
+        guard let id = connection(chat: chat, machine: machine) else {
+            guard let picked = await setup?.choose(harness: harness, model: model, account: nil).connectionID else { return nil }
+            return try? await credential(forConnection: picked)
+        }
         return try await credential(forConnection: id)
     }
 

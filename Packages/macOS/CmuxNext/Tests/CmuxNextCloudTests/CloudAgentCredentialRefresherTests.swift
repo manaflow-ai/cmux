@@ -179,6 +179,35 @@ struct CloudAgentCredentialRefresherTests {
         }
     }
 
+    /// A chat no Cloud start chose for (`cmux chat --on vm`'s `cloud start-session`, a new chat in a
+    /// machine's workspace) launches on the connection Cloud first use picks for its harness: the
+    /// Claude Code login, which never serves Cloud, is skipped for the token; a harness nothing serves,
+    /// or a pick that cannot be read, starts on the machine's own route instead of refusing.
+    @Test func aChatNoStartChoseForLaunchesOnCloudFirstUsesPick() async throws {
+        var asked: [String] = []
+        var unreadable = false
+        let credentials = CloudAgentCredentials { id in
+            asked.append(id)
+            if unreadable { return Data(#"{"error":"nope"}"#.utf8) }
+            return Data(#"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"},"expires_at":null}"#.utf8)
+        }
+        #expect(try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude") == nil, "no rule set: the machine's own route")
+        credentials.setup = CloudSetup(read: {
+            CloudSetup.Snapshot(personal: [CloudSetup.Connection(id: "claude-login", families: ["claude"], servesCloud: false),
+                                           CloudSetup.Connection(id: "claude-token", families: ["claude"])], organization: nil)
+        })
+        let launch = try #require(try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude", model: "opus"))
+        #expect(asked == ["claude-token"] && launch.env.keys.sorted() == ["CLAUDE_CODE_OAUTH_TOKEN"])
+        #expect(try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "codex") == nil && asked.count == 1, "nothing serves codex: no read")
+        unreadable = true
+        #expect(try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude") == nil, "an unreadable pick is the machine's own route")
+        // A Cloud start's own choice still wins over the rule.
+        unreadable = false
+        credentials.use(connection: "route-claude", chat: "cli-tab", machine: "m1")
+        _ = try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude")
+        #expect(asked.last == "route-claude")
+    }
+
     /// The Cloud start hands its choice to the launch: a `.connection` names its id, every other choice
     /// none, and a tab that got another key than the start planned keeps the choice.
     @Test func theStartsChoiceReachesTheLaunchUnderTheTabsKey() {

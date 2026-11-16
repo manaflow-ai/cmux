@@ -395,7 +395,7 @@ extension AgentTabStore {
             guard let services, let reply = await QuitAgents.environment(services)?.connectionCredential(id: id) else { throw CloudAgentCredentials.Failure.unavailable(connection: id) }
             return reply
         }
-        tabs.cloudCredentials = services.cloud.agentCredentials
+        tabs.cloudCredentials = services.cloud.agentCredentials; services.cloud.agentCredentials.setup = services.cloud.setup // a start no Cloud start chose for (the CLI's) takes Cloud first use's pick
         tabs.remoteHostScoped = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTab(key.key, onMachine: key.machine), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)

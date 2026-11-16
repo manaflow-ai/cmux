@@ -239,7 +239,7 @@ struct CloudStartSession {
         let copy = try await copiedIfAsked(request, to: session, account: account), cwd = copy?.chat ?? request.cwd // before the session starts in it
         try still(name)
         try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {}
-        steps.done("approvals") // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them
+        steps.done("approvals"); if await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
