@@ -35,12 +35,25 @@ nonisolated struct TabKeysOracle: Sendable, Equatable {
 
     /// Close Tab on `name`.
     mutating func close(_ name: String) {
-        guard let index = tabs.firstIndex(of: name) else { return }
+        guard let index = tabs.firstIndex(of: name) else {
+            // Only after `take`: the strip selected a tab that it did not list. No rule gives the next selection.
+            if selected == name { selected = nil }
+            opener[name] = nil
+            opener = opener.filter { $0.value != name }
+            return
+        }
         let next = name == selected ? successor(of: name, at: index) : selected
         tabs.remove(at: index)
         opener[name] = nil
         opener = opener.filter { $0.value != name }
         selected = next
+    }
+
+    /// After a recorded difference: the oracle goes on from the strip's list and selection. Each opener that the keys
+    /// made stays, also for a tab that the strip does not list at this time.
+    mutating func take(tabs: [String], selected: String?) {
+        self.tabs = tabs
+        self.selected = selected
     }
 
     private func successor(of name: String, at index: Int) -> String? {

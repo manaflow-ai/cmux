@@ -17,7 +17,10 @@ import Testing
 ///
 /// One run for each seed gives four results, each its own test:
 /// - `order`: the strip's tab list and its selected tab are the oracle's at once after each key, after the key's turn
-///   and after each delivery; at the end the daemon's list and the store's list are the oracle's too.
+///   and after each delivery; at the end the daemon's list and the store's list are the oracle's too. A seed does not
+///   stop at a difference. It records it, the oracle takes the strip's list and selection, and the seed goes on:
+///   each later difference is checked from what the app had after the one before it, so one fault does not hide the
+///   next. The first difference is the failure text; the others follow it, with their count.
 /// - `shown`: after each turn the pane shows the selected tab (the test makes the frame's own call).
 /// - `focus`: after each turn the key focus is on that tab, where it is a tab the keys made.
 /// - `typed` (the seeds with letter keys): a letter key directly after a New Tab key is for the new tab. The window's
@@ -43,6 +46,15 @@ import Testing
 /// still). The letter comes directly after the key's handler, before the app's next turn. A hold that ends with no
 /// field ready sends its keys on as the product does, to what has the keyboard then. The seeds with no letter keys
 /// have no probe view and the hold's own clock.
+///
+/// Limits of a seed that goes on. The next key of a seed depends on what is selected, so after a difference the keys
+/// of one seed can differ between two versions of the code. The oracle keeps each opener that the keys made; the
+/// app's own openers after a fault are not read, so a later difference can be an effect of an earlier one. A fault
+/// that the app mends by itself at a later delivery counts two times: when it comes and when it goes. So the count
+/// of a seed is a count of differences, not of faults.
+///
+/// The `typed` check has a test of its own (`theLetterKeyCheckReportsAHoldThatEndsWithNoFieldReady`): a run that ends
+/// the hold itself must make the check report a difference.
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(10)))
 struct TabKeysOrderFuzzTests {
     /// One key list and its deliveries: all of it follows from `value`.
@@ -53,8 +65,12 @@ struct TabKeysOrderFuzzTests {
         let closeEvery: Int?
         /// A letter key directly after about half of the New Tab keys.
         var letters = false
+        /// A fault that the run makes itself, for the test of the `typed` check: it ends the window's hold directly
+        /// after the first letter key that the hold took.
+        var endsHoldEarly = false
         var testDescription: String {
             "seed \(value): \(keys) keys, \(closeEvery.map { "held, a close at each \($0)th" } ?? "mixed")\(letters ? ", letter keys" : "")"
+                + (endsHoldEarly ? ", the run ends the hold" : "")
         }
     }
 
@@ -64,6 +80,9 @@ struct TabKeysOrderFuzzTests {
         Seed(value: 5, keys: 32, closeEvery: 8), Seed(value: 6, keys: 48, closeEvery: nil),
         Seed(value: 7, keys: 64, closeEvery: 16, letters: true), Seed(value: 8, keys: 100, closeEvery: nil, letters: true),
     ]
+
+    /// The keys of seed 3 in a run that ends the window's hold itself: the test of the `typed` check.
+    nonisolated static let holdEndsEarly = Seed(value: 3, keys: 16, closeEvery: 4, letters: true, endsHoldEarly: true)
 
     /// What one seed's run found: the first difference of each class, nil for none.
     nonisolated struct Outcome: Sendable {
@@ -75,20 +94,25 @@ struct TabKeysOrderFuzzTests {
         var typed: String?
         /// The run could not test the letter keys: a cause of the fixture, not of the product.
         var typedSetup: String?
+        /// The keys that the run pressed, and the differences of the order that it recorded.
+        var keys = 0
+        var differences = 0
+        /// The run ended the window's hold itself (`Seed.endsHoldEarly`).
+        var holdEnded = false
     }
 
     /// One run for each seed, shared by its tests.
-    private static var outcomes: [UInt64: Outcome] = [:]
+    private static var outcomes: [String: Outcome] = [:]
 
     static func outcome(_ seed: Seed) async throws -> Outcome {
-        if let outcome = outcomes[seed.value] { return outcome }
+        if let outcome = outcomes[seed.testDescription] { return outcome }
         // An inert address for each New Tab page, as the other agent tab suites use: the pages load nothing.
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
         let outcome = try await LargeSessionWindowFixture.withController(.large, agentPaneEnvironment: environment) { store, controller in
             let run = try TabKeysOrderRun(seed, store: store, controller: controller)
             return await run.outcome()
         }
-        outcomes[seed.value] = outcome
+        outcomes[seed.testDescription] = outcome
         return outcome
     }
 
@@ -96,7 +120,7 @@ struct TabKeysOrderFuzzTests {
     func eachKeyActsOnTheTabsOfTheKeysBeforeIt(seed: Seed) async throws {
         let outcome = try await Self.outcome(seed)
         #expect(outcome.setup == nil, "\(seed.testDescription): \(outcome.setup ?? "")")
-        #expect(outcome.order == nil, "\(seed.testDescription): \(outcome.order ?? "")")
+        #expect(outcome.order == nil, "\(seed.testDescription): \(outcome.differences) differences in \(outcome.keys) keys. \(outcome.order ?? "")")
     }
 
     @Test(arguments: seeds)
@@ -119,6 +143,18 @@ struct TabKeysOrderFuzzTests {
         #expect(outcome.setup == nil, "\(seed.testDescription): \(outcome.setup ?? "")")
         #expect(outcome.typedSetup == nil, "\(seed.testDescription): \(outcome.typedSetup ?? "")")
         #expect(outcome.typed == nil, "\(seed.testDescription): \(outcome.typed ?? "")")
+    }
+
+    /// A test of the `typed` check itself. The run ends the window's hold as a failed opening does, directly after the
+    /// first letter key that the hold took. No field is ready then, so the check must report a difference.
+    @Test func theLetterKeyCheckReportsAHoldThatEndsWithNoFieldReady() async throws {
+        let seed = Self.holdEndsEarly
+        let outcome = try await Self.outcome(seed)
+        #expect(outcome.setup == nil, "\(seed.testDescription): \(outcome.setup ?? "")")
+        #expect(outcome.typedSetup == nil, "\(seed.testDescription): \(outcome.typedSetup ?? "")")
+        try #require(outcome.holdEnded, "setup: the hold took no letter key in this run, so the run ended no hold")
+        let typed = try #require(outcome.typed, "the check found no difference in a run whose hold ended with no field ready")
+        #expect(typed.contains("ended with no field ready") || typed.contains("got "), "the check reported another difference: \(typed)")
     }
 }
 
@@ -144,6 +180,8 @@ final class TabKeysKeyProbe: NSView {
     private var names: [String: String]
     private var opened = 0
     private var found = TabKeysOrderFuzzTests.Outcome()
+    /// Each difference of the order after the first one, without the keys before it.
+    private var later: [String] = []
     private var trace: [String] = []
     /// The tree the session started from: the model's tree is this one with the pane's tabs replaced.
     private let base: DaemonTree
@@ -210,10 +248,11 @@ final class TabKeysKeyProbe: NSView {
 
     /// Presses the seed's keys, hands the daemon's events and replies over at the seed's points, and compares.
     func outcome() async -> TabKeysOrderFuzzTests.Outcome {
-        for number in 1...seed.keys where found.setup == nil && found.order == nil {
+        for number in 1...seed.keys where found.setup == nil {
             await press(number)
+            found.keys = number
             // Up to 5: a key makes about 5 deliveries (a create's event and reply; a move's 2 events, reply and tree).
-            for _ in 0..<random.next(in: 0...5) where found.setup == nil && found.order == nil {
+            for _ in 0..<random.next(in: 0...5) where found.setup == nil {
                 guard let what = await deliver() else { break }
                 compare("after \(what) (key \(number) was the last key)")
             }
@@ -223,10 +262,14 @@ final class TabKeysKeyProbe: NSView {
         while owed, rounds < seed.keys * 20 + 50 {
             guard let what = await deliver() else { break }
             rounds += 1
-            if found.setup == nil, found.order == nil { compare("after \(what) (all keys pressed)") }
+            if found.setup == nil { compare("after \(what) (all keys pressed)") }
         }
         if owed { fail(\.setup, "the daemon still had events, replies or a tree to give after \(rounds) deliveries") }
-        if found.setup == nil, found.order == nil { compareEnd() }
+        if found.setup == nil { compareEnd() }
+        if let first = found.order, !later.isEmpty {
+            found.order = first + " THEN \(later.count) more differences, each one checked from the app's state after the one before it: "
+                + later.prefix(6).map { String($0.prefix(400)) }.joined(separator: " || ")
+        }
         return found
     }
 
@@ -246,25 +289,30 @@ final class TabKeysKeyProbe: NSView {
             lettersWait = false
             let ran = registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
             oracle.close(target)
-            if !ran { return fail(\.order, "\(point): the action was refused") }
+            if ran { compare("\(point), at once", frame: false) } else { differs("\(point): the action was refused") }
         } else {
             opened += 1
             let tab = "t\(opened)"
             point = "key \(number) (New Tab, \(tab))"
             trace.append(point)
-            let before = Set(pane.orderedIDs.map(\.rawValue))
+            let before = Set(pane.orderedIDs.map(\.rawValue)), held = Set(pane.pane.tabs.map(\.id))
             let ran = registry.perform("newTab.default", invocation: ActionInvocation(origin: .user))
             let made = pane.orderedIDs.map(\.rawValue).filter { !before.contains($0) }
+            // The store's new record names the tab also when the strip does not list exactly one new tab.
+            let recorded = pane.pane.tabs.map(\.id).filter { !held.contains($0) }
             oracle.open(tab)
-            guard ran, made.count == 1 else {
-                return fail(\.order, "\(point): the action \(ran ? "ran" : "was refused") and the strip has \(made.count) new tabs at once")
-            }
-            names[made[0]] = tab
-            if opened == 1, !controller.services.agentTabs.isNewTabPage(made[0], machine: pane.daemon.machineID) {
+            if recorded.count == 1 { names[recorded[0]] = tab } else if made.count == 1 { names[made[0]] = tab }
+            if let first = recorded.first ?? made.first, opened == 1, !controller.services.agentTabs.isNewTabPage(first, machine: pane.daemon.machineID) {
                 return fail(\.setup, "\(point): the tab is not a New Tab page, so the keys take another path than the model's")
             }
+            // A refused key makes no tab: the next New Tab key gets this name.
+            if !ran { opened -= 1 }
+            if ran, made.count == 1 {
+                compare("\(point), at once", frame: false)
+            } else {
+                differs("\(point): the action \(ran ? "ran" : "was refused") and the strip has \(made.count) new tabs at once")
+            }
         }
-        compare("\(point), at once", frame: false)
         if !closes { typeLetter(point) }
         await turn()
         if model.creates.count != opened {
@@ -285,6 +333,12 @@ final class TabKeysKeyProbe: NSView {
         trace.append("a letter key")
         if input.capture(key, in: window) {
             lettersWait = true
+            if seed.endsHoldEarly, !found.holdEnded {
+                // The fault of the test of the check: the hold ends as a failed opening ends it.
+                trace.append("the run ends the hold")
+                input.cancel(in: window)
+                found.holdEnded = true
+            }
         } else {
             fail(\.typed, "\(point): the window's key hold did not take a letter key typed directly after it. \(holdLog)")
         }
@@ -396,7 +450,7 @@ final class TabKeysKeyProbe: NSView {
         let selected = pane.stripModel.selectedID.map { name($0.rawValue) }
         let want = "\(oracle.tabs.joined(separator: " ")) [\(oracle.selected ?? "-")]"
         if strip != oracle.tabs || selected != oracle.selected {
-            return fail(\.order, "\(point): the strip is \(strip.joined(separator: " ")) [\(selected ?? "-")], the oracle says \(want)")
+            return differs("\(point): the strip is \(strip.joined(separator: " ")) [\(selected ?? "-")], the oracle says \(want)")
         }
         guard frame else { return }
         // What the frame drain of the content presentation calls for a pane that waits for its frame.
@@ -416,16 +470,26 @@ final class TabKeysKeyProbe: NSView {
         learnNames()
         let daemon = model.tabs.map { model.name($0) }
         if daemon != oracle.tabs {
-            fail(\.order, "at the end the daemon holds \(daemon.joined(separator: " ")), the oracle says \(oracle.tabs.joined(separator: " "))")
+            differs("at the end the daemon holds \(daemon.joined(separator: " ")), the oracle says \(oracle.tabs.joined(separator: " "))", resync: false)
         }
         let held = store.pane(pane.pane.handle)?.tabs.map(\.id) ?? []
         let stored = held.map { name($0) }
         if stored != oracle.tabs {
-            fail(\.order, "at the end the store holds \(stored.joined(separator: " ")), the oracle says \(oracle.tabs.joined(separator: " "))")
+            differs("at the end the store holds \(stored.joined(separator: " ")), the oracle says \(oracle.tabs.joined(separator: " "))", resync: false)
         }
         let standIns = (held + pane.orderedIDs.map(\.rawValue)).filter { ProvisionalTab.isProvisional($0) }
-        if !standIns.isEmpty { fail(\.order, "at the end \(standIns.count) stand-in tabs are left: \(standIns.map { name($0) })") }
-        if !model.faults.isEmpty { fail(\.order, "the daemon got \(model.faults)") }
+        if !standIns.isEmpty { differs("at the end \(standIns.count) stand-in tabs are left: \(standIns.map { name($0) })", resync: false) }
+        if !model.faults.isEmpty { differs("the daemon got \(model.faults)", resync: false) }
+    }
+
+    /// Records a difference of the order. The first one is the failure text, with the keys and deliveries before it.
+    /// With `resync` the oracle then takes the strip's list and selection, so the seed goes on from what the app has.
+    private func differs(_ text: String, resync: Bool = true) {
+        if found.order == nil { fail(\.order, text) } else { later.append(text) }
+        found.differences += 1
+        guard resync else { return }
+        oracle.take(tabs: pane.orderedIDs.map { name($0.rawValue) }, selected: pane.stripModel.selectedID.map { name($0.rawValue) })
+        trace.append("the oracle takes the strip: \(oracle.tabs.joined(separator: " ")) [\(oracle.selected ?? "-")]")
     }
 
     /// Keeps the first difference of a class, with the keys and deliveries before it.
