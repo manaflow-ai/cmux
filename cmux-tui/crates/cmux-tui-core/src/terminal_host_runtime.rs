@@ -1762,7 +1762,23 @@ mod unix {
             let deadline = Instant::now()
                 .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
                 .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
-            self.terminate().context("send terminal-host termination")?;
+            if let Err(error) = self.terminate() {
+                // A legacy host that already ended has closed the link, so its
+                // Terminate cannot be sent. Its Exit frame or exit record below still
+                // decides; a live host behind a closed link fails there instead.
+                let host_gone = !self.record.supports_terminate_ack
+                    && error.downcast_ref::<std_io::Error>().is_some_and(|error| {
+                        matches!(
+                            error.kind(),
+                            std_io::ErrorKind::BrokenPipe
+                                | std_io::ErrorKind::NotConnected
+                                | std_io::ErrorKind::ConnectionReset
+                        )
+                    });
+                if !host_gone {
+                    return Err(error.context("send terminal-host termination"));
+                }
+            }
             let identity = self.identity();
             let record_path = self.record_path.clone();
             let protocol_version = self.protocol_version;
@@ -7293,6 +7309,21 @@ mod unix {
                 .expect("a host that ended after its exit frame still reports its exit");
 
             assert_eq!(record, TerminalHostExitRecord::new(&attachment.identity(), exit));
+        }
+
+        #[test]
+        fn termination_through_a_link_the_daemon_closed_does_not_report_a_live_host_exited() {
+            let (mut attachment, _live_host) = input_ack_surface_fixture();
+            attachment.disconnect();
+
+            let error = attachment
+                .terminate_and_wait_for_exit()
+                .expect_err("a live host without an exit frame or record has not exited");
+
+            assert!(
+                error.to_string().contains("disconnected before its exit receipt"),
+                "{error:#}"
+            );
         }
 
         #[test]
