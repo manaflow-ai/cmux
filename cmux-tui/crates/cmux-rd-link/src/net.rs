@@ -260,6 +260,15 @@ fn interface_addresses() -> Vec<IpAddr> {
     out
 }
 
+/// A candidate kind's slot in the driver's counts: host, srflx, relay.
+fn kind_index(kind: CandidateKind) -> usize {
+    match kind {
+        CandidateKind::Host => 0,
+        CandidateKind::ServerReflexive => 1,
+        CandidateKind::Relay => 2,
+    }
+}
+
 fn now_us(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
 }
@@ -368,6 +377,8 @@ impl Net {
             relay_only: config.relay_only,
             candidates_done: false,
             start: Instant::now(),
+            gathered: std::cell::Cell::new([0; 3]),
+            heard: 0,
         };
         // Host candidates are known at once.
         for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
@@ -515,10 +526,21 @@ struct Driver {
     relay_only: bool,
     candidates_done: bool,
     start: Instant,
+    /// Local candidates reported, by kind (host, srflx, relay), for a failure's reason.
+    gathered: std::cell::Cell<[u32; 3]>,
+    /// Packets from anywhere but a STUN or TURN server, handed to the link.
+    heard: u64,
 }
 
 impl Driver {
     fn emit(&self, event: NetEvent) {
+        if let NetEvent::Candidate(c) = &event {
+            let mut gathered = self.gathered.get();
+            if let Some(n) = gathered.get_mut(kind_index(c.kind)) {
+                *n += 1;
+            }
+            self.gathered.set(gathered);
+        }
         if self.events.send(event).is_ok() {
             // SAFETY: one byte from a local to the event pipe's write end (owned by `Net`,
             // which joins this thread before closing it).
@@ -727,9 +749,29 @@ impl Driver {
         }
     }
 
+    /// What this side gathered, what the peer sent, and how many packets it
+    /// heard: a failure says whether the handshake ever reached this side
+    /// (`heard 0`: a NAT, firewall or missing route dropped it) and which
+    /// routes each side had. Counts only, never an address.
+    fn routes_seen(&self) -> String {
+        let [host, srflx, relay] = self.gathered.get();
+        let mut peer = [0u32; 3];
+        for c in &self.remote {
+            if let Some(n) = peer.get_mut(kind_index(c.kind)) {
+                *n += 1;
+            }
+        }
+        let [p_host, p_srflx, p_relay] = peer;
+        format!(
+            "local host {host} srflx {srflx} relay {relay}; \
+             peer host {p_host} srflx {p_srflx} relay {p_relay}; heard {}",
+            self.heard
+        )
+    }
+
     fn run(&mut self) {
         if let Err(e) = self.serve() {
-            self.emit(NetEvent::Failed(e.to_string()));
+            self.emit(NetEvent::Failed(format!("{e} ({})", self.routes_seen())));
         }
     }
 
@@ -797,6 +839,7 @@ impl Driver {
                         {
                             match server.client.on_packet(packet, now) {
                                 TurnReceive::Data { peer, payload } => {
+                                    self.heard += 1;
                                     let relay = u16::try_from(index).unwrap_or(u16::MAX);
                                     if self.deliver(Route::Relay { relay, peer }, payload, now)? {
                                         return Ok(());
@@ -819,6 +862,7 @@ impl Driver {
                             self.on_stun(packet);
                             continue;
                         }
+                        self.heard += 1;
                         if self.deliver(Route::Udp(from), packet, now)? {
                             return Ok(());
                         }

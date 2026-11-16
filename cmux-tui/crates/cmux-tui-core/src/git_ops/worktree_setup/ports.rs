@@ -60,7 +60,8 @@ fn lock(folder: &OwnFolder, wait: Duration) -> Lock {
     Lock { file, _guard: guard }
 }
 
-/// Why the repository's ports file gives no list of ports.
+/// Why an allocation gives no block of the repository's ports file: the
+/// file gives no list of ports, or the list is not written.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum NoList {
     /// The file is above the size limit.
@@ -70,6 +71,9 @@ pub(super) enum NoList {
     /// or its bytes are not a JSON object of ports (an empty file, a list
     /// that is cut short, a JSON value of a different form).
     NotAList,
+    /// The list with the new block is not written to the file: no later
+    /// allocation of the repository knows that block.
+    NotWritten,
 }
 
 /// What a setup's log says when the ports file is above the size limit.
@@ -78,6 +82,9 @@ const TOO_LARGE: &str =
 /// What a setup's log says when the ports file is not a list of ports.
 const NOT_A_LIST: &str =
     "the file cmux-worktree-ports.json in the repository's git folder is not a list of ports";
+/// What a setup's log says when the list of ports is not written.
+const NOT_WRITTEN: &str =
+    "the file cmux-worktree-ports.json in the repository's git folder is not written";
 
 impl NoList {
     /// What a setup's log says of the ports file.
@@ -85,6 +92,7 @@ impl NoList {
         match self {
             Self::TooLarge => TOO_LARGE,
             Self::NotAList => NOT_A_LIST,
+            Self::NotWritten => NOT_WRITTEN,
         }
     }
 }
@@ -104,10 +112,10 @@ fn load(folder: &OwnFolder) -> Result<BTreeMap<String, u16>, NoList> {
     }
 }
 
-fn save(folder: &OwnFolder, ports: &BTreeMap<String, u16>) {
-    if let Ok(bytes) = serde_json::to_vec_pretty(ports) {
-        let _ = folder.write(PORTS_FILE, &bytes);
-    }
+/// Writes `ports` as the whole of the ports file ([`OwnFolder::write`]),
+/// with the error of a write that fails.
+fn save(folder: &OwnFolder, ports: &BTreeMap<String, u16>) -> std::io::Result<()> {
+    folder.write(PORTS_FILE, &serde_json::to_vec_pretty(ports)?)
 }
 
 fn key(root: &Path) -> String {
@@ -189,7 +197,10 @@ pub(super) fn lookup(folder: &OwnFolder, root: &Path) -> Option<u16> {
 ///
 /// No port is given, and the thing at the name of the ports file stays,
 /// when the ports file gives no list ([`NoList`]): the setup of the
-/// worktree then does not start, and its log says why. No port is given
+/// worktree then does not start, and its log says why. The same holds
+/// when the list with the new block is not written
+/// ([`NoList::NotWritten`]): a block that no list has can be the block of
+/// another worktree later. No port is given
 /// either when `folder` is not open
 /// ([`OwnFolder::not_opened`]): the blocks that the other worktrees have
 /// are not known then, and a line on stderr says why the folder is not
@@ -217,16 +228,22 @@ pub(super) fn allocate_within(
     }
     let _guard = lock(folder, wait);
     let mut ports = load(folder)?;
-    Ok(free_block(folder, &mut ports, root))
+    free_block(folder, &mut ports, root)
 }
 
 /// The block of `root` in `ports`, kept from before or the first free
 /// one, which is then saved in `folder`. The first block that a repository
-/// looks at comes from the path of its ports file.
-fn free_block(folder: &OwnFolder, ports: &mut BTreeMap<String, u16>, root: &Path) -> Option<u16> {
+/// looks at comes from the path of its ports file. A new block whose list
+/// is not written is not given ([`NoList::NotWritten`]), and a line on
+/// stderr has the error of the write.
+fn free_block(
+    folder: &OwnFolder,
+    ports: &mut BTreeMap<String, u16>,
+    root: &Path,
+) -> Result<Option<u16>, NoList> {
     use std::hash::{Hash as _, Hasher as _};
     if let Some(port) = ports.get(&key(root)) {
-        return Some(*port);
+        return Ok(Some(*port));
     }
     ports.retain(|folder, _| Path::new(folder).exists());
     let taken: std::collections::BTreeSet<u16> = ports.values().copied().collect();
@@ -239,15 +256,25 @@ fn free_block(folder: &OwnFolder, ports: &mut BTreeMap<String, u16>, root: &Path
             !taken.contains(port)
                 && (*port..*port + PORT_BLOCK)
                     .all(|port| TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok())
-        })?;
+        });
+    let Some(port) = port else { return Ok(None) };
     ports.insert(key(root), port);
-    save(folder, ports);
-    Some(port)
+    if let Err(error) = save(folder, ports) {
+        eprintln!(
+            "cmux-tui: {}: the list of ports is not written ({error}); the worktree {} gets no \
+             ports",
+            folder.path().join(PORTS_FILE).display(),
+            root.display()
+        );
+        return Err(NoList::NotWritten);
+    }
+    Ok(Some(port))
 }
 
 /// Takes the worktree out of the list, so its block is free. With no file
-/// lock the list is not written: the block is free at a later allocation,
-/// when the worktree's folder is gone ([`free_block`]).
+/// lock the list is not written, and a write that fails is not reported:
+/// the block is free at a later allocation, when the worktree's folder is
+/// gone ([`free_block`]).
 pub(super) fn free(folder: &OwnFolder, root: &Path) {
     let held = lock(folder, WAIT);
     if held.file.is_none() {
@@ -255,6 +282,6 @@ pub(super) fn free(folder: &OwnFolder, root: &Path) {
     }
     let Ok(mut ports) = load(folder) else { return };
     if ports.remove(&key(root)).is_some() {
-        save(folder, &ports);
+        let _ = save(folder, &ports);
     }
 }
