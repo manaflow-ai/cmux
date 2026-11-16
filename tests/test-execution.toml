@@ -2243,6 +2243,10 @@ path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_checks_cargo_workspace.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_signing_runner_claim.py"
 lane = "linux-guard"
 

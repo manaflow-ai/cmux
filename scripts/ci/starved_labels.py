@@ -14,7 +14,8 @@ The wait counts from when the job could first run (wait_start()): a job behind
 a running sibling in its run, which may be its `needs`, is not counted, and one
 beside a queued sibling alerts only after STARVED_GATED_AFTER.
 
-Every glaeda-* label is in scope. Nothing in the tree says which runner label
+Every glaeda-* label is in scope, and the owned Linux label (FLEET_LINUX).
+Nothing in the tree says which runner label
 a merge-blocking job asks for (cmux-next's build-fleet compile takes
 vars.CI_COMPILE_CHECK_GATEWAY), so the alert covers the whole fleet.
 
@@ -49,6 +50,9 @@ STARVED_AFTER = dt.timedelta(minutes=10)
 # it: the jobs API names no `needs`. Its alert waits this longer bound instead.
 STARVED_GATED_AFTER = dt.timedelta(minutes=60)
 FLEET_PREFIX = "glaeda-"
+# The owned Linux label: ephemeral runners a reconciler boots per queued job. When that reconciler cannot
+# boot one, a job waits here as silently as on a held glaeda label (run 43807536777: 13 h, 2026-11-16).
+FLEET_LINUX = "cmux-fleet-linux-x64"
 ISSUE_PREFIX = "Runner label starved: "
 ISSUE_LABEL = "ci-runner-starved"
 
@@ -62,7 +66,8 @@ def parse_time(value: str | None) -> dt.datetime | None:
 
 def fleet_key(job: Mapping[str, Any]) -> str:
     """The fleet labels a job asked for, joined; "" when it asked for none."""
-    return "+".join(sorted({str(label) for label in job.get("labels") or () if str(label).startswith(FLEET_PREFIX)}))
+    return "+".join(sorted({str(label) for label in job.get("labels") or ()
+                            if str(label).startswith(FLEET_PREFIX) or str(label) == FLEET_LINUX}))
 
 
 def _served(job: Mapping[str, Any], now: dt.datetime, after: dt.timedelta) -> bool:

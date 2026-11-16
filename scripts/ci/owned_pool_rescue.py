@@ -156,6 +156,12 @@ owned job stalled past a bound, queued with no runner or held by a runner
 with no step progress, and moves it to Blacksmith when nothing is lost and
 Blacksmith has room (STALL_MOVE, stall_scan(), stall_move()).
 
+One bound overrides those soft holds (OWNED_WAIT_BOUND_SECONDS, 45 minutes; Leo, 2026-11-16: "no required check
+waits past a bound on any owned label; past it, it moves to Blacksmith"): a job of a pull request's run that has
+waited that long for a runner moves to Blacksmith though the label has no free slot, is stalled, or has a deeper
+queue, and past the sweeper's move cap (one move a scan still). A running sibling, a delivery run, a re-run that would
+stay on the owned labels, and vars.CI_BLACKSMITH_MACOS off still keep it.
+
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
 (with 1 job). An E2E run is a workflow_dispatch, not a pull request, so there
@@ -3109,6 +3115,11 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
             # finished run. A ci.yml attempt-1 full re-run never gets here (repicks(), above).
             names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
             return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
+        past = past_wait_bound(target, looked, now(), seen)
+        if past:
+            log(f"moving past the owned wait bound ({OWNED_WAIT_BOUND_SECONDS // 60} min): {past}"
+                + (f", though the re-run takes {held}" if held else ""))
+            break
         if held and now() >= deadline:
             if nightly_moves(target):
                 # NIGHTLY_HOLD_SECONDS: a held nightly job is moved at the watch limit, never left queued.
@@ -3150,6 +3161,40 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
                                 deadline=deadline, floor_seconds=floor, seen=seen, sign_seen=sign_seen,
                                 sign_text=sign_text)
     return outcome, reason, held
+
+
+# Leo, 2026-11-16: "no required check waits past a bound on any owned label; past it, it moves to Blacksmith." The
+# bound is the longest owned queue any picker ever plans (pr_runner_pool's MAX_QUEUE_ROUNDS rounds of
+# QUEUE_ROUND_SECONDS, 45 minutes), which is also the stall move's STALL_QUEUE_SECONDS (40 minutes, a p90 swift-test)
+# plus one stall scan's period (STALL_SCAN_TICKS minutes): no plan expected a wait past it, and a job past it has had
+# the stall move's soft holds for a whole scan. Past it, the soft holds stop holding a job of a run that gates a pull
+# request's checks: no free Blacksmith slot, a stalled Blacksmith label, and a Blacksmith queue deeper than the owned
+# one (hold_for_destination(), stall_scan()). The hard limits stay: a running sibling (the cancel would kill it), a
+# delivery run (nightly, DEV, promote; is_delivery_target()), a re-run that would not leave the owned labels, and the
+# per-scan move cap. On 2026-11-16 glaeda-side-std-xcode-26.6 had 5-8 of its 53 runners online, 46-52 jobs queued and
+# its oldest 2.5 h (cmuxterm-hq#12087), while those holds kept pull request checks there.
+OWNED_WAIT_BOUND_SECONDS = MAX_QUEUE_ROUNDS * QUEUE_ROUND_SECONDS
+
+
+def owned_wait(job: Mapping[str, Any], now: dt.datetime, first_seen: dt.datetime | None = None) -> float:
+    """How long an owned job has waited for a runner to start it: queued with no runner, or held in its runner's
+    setup (glaeda's capacity wait), from the later of its creation and when the watch first saw it; 0 otherwise."""
+    if not job_pool(job) or not (waiting_for_runner(job) or in_setup(job)):
+        return 0.0
+    return queued_seconds(job, now, first_seen)
+
+
+def past_wait_bound(target: "Target", jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
+                    first_seen: Mapping[Any, dt.datetime] | None = None) -> str:
+    """The owned jobs of `target` waiting past OWNED_WAIT_BOUND_SECONDS, named for the log, or "" when none is or the
+    bound does not apply: a delivery run, or a run whose bot re-run of failed jobs stays on the owned labels
+    (bot_rerun_leaves_owned(); a cmux-next attempt the stall scan moves instead, stall_scan())."""
+    if is_delivery_target(target) or not bot_rerun_leaves_owned(target.path, target.attempt):
+        return ""
+    seen = first_seen or {}
+    waits = [(str(job.get("name") or job.get("id")), owned_wait(job, now, seen.get(job.get("id")))) for job in jobs]
+    return ", ".join(f"{name} waited {int(waited // 60)} min"
+                     for name, waited in sorted(waits) if waited >= OWNED_WAIT_BOUND_SECONDS)
 
 
 def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
@@ -6038,41 +6083,54 @@ STALL_DESTINATION = "blacksmith-6vcpu-macos-26"
 # 43738810586 attempt 3 (cmux-bot's, refusals only) queued its generated files on the saturated
 # glaeda-side-std-xcode-26.6 from 18:14Z with the stall move off (STALL_SWITCH_OFF), though its attempt 4 would
 # have taken Blacksmith; nothing else moves a bot's last owned attempt at an open head (cmuxterm-hq#11566).
+# A dispatch that gates a pull request (same_tree_pull_dispatch()) moves under `pr-rescue` too once its head's
+# cmux-next.yml sends a bot's re-run of it off the minis (PULL_DISPATCH_RESCUE_CLAUSE).
 STALL_SWITCH_VALUES = frozenset({"on", "pr-rescue"})
+
+# The text of cmux-next.yml's owned fallback under `pr-rescue` (feat-cmux-next, cmuxterm-hq#12109) that sends a bot's
+# re-run (attempt 2 and later) of a dispatch gating a pull request (default run name `cmux-next · <sha>`, a pull
+# request's same-tree run or a dispatch on its branch) off the side lane, as a pull_request run's re-run. A re-run
+# reads the workflow at the run's head, so a dispatch whose head lacks it would rejoin the side lane at the back of
+# its queue: the stall move leaves those (stall_scan()). cmux#44529's scheme compile (run 43879624016, job
+# 133341854319) queued on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16 while the scan skipped every
+# dispatch under `pr-rescue`.
+PULL_DISPATCH_RESCUE_CLAUSE = (
+    "(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 || github.event_name != 'pull_request' && "
+    "(github.event_name != 'workflow_dispatch' || "
+    "!contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || "
+    "inputs.same_tree_origin != '' && inputs.same_tree_origin != 'pull_request' || inputs.dev_daily == true || "
+    "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
+    "inputs.no_reuse == true))"
+)
 
 
 def stall_pull_only(switch: str | None) -> bool:
-    """Whether the stall move may move pull_request runs only: vars.CI_BLACKSMITH_MACOS is `pr-rescue`, under which a
-    dispatch's re-run takes CI_SIDE_LANE_RUNNER unless its workflow treats a same-tree pull request run as its pull
-    request (DISPATCH_PR_RESCUE)."""
+    """Whether the stall move may move pull request runs only: vars.CI_BLACKSMITH_MACOS is `pr-rescue`, under which
+    cmux-next.yml sends only a pull_request run's re-run off the side lane, and, where the run's head carries
+    PULL_DISPATCH_RESCUE_CLAUSE, a bot's re-run of a dispatch gating a pull request (stall_moves_dispatch()). Every
+    other dispatch's re-run still takes CI_SIDE_LANE_RUNNER."""
     return (switch or "").strip() == "pr-rescue"
 
 
-# cmux-next.yml's `pr-rescue` clause that sends a same-tree run of a pull request (same_tree_origin pull_request,
-# cmux_next_tree_notify.py) off the side lane on the bot's re-run, as the pull request's own run. Before it, run
-# 43854064455 (PR #44408's same-tree daemon tests and scheme compile) queued its scheme compile on
-# glaeda-side-std-xcode-26.6 from 11:01Z to 12:41Z on 2026-11-16 with the stall move skipping it under `pr-rescue`.
-# A dispatch is moved under `pr-rescue` only when its own workflow, at its head, has the clause
-# (dispatch_reruns_off_side()): an older branch's re-run would rejoin the side lane at its back.
-DISPATCH_PR_RESCUE = ("(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' && "
-                      "inputs.same_tree_origin != 'pull_request' || github.run_attempt < 2)")
-
-
-# cmux-next.yml's path routing job, which a same-tree run skips (its `if` reads inputs.same_tree_sha == '') and a
-# plain dispatch on a pull request's branch runs. Both are named `cmux-next · <head>`, but only a same-tree run reads
-# same_tree_origin, so only its re-run leaves the side lane through DISPATCH_PR_RESCUE.
-SAME_TREE_SKIPPED_JOB = "cmux-next path routing"
-
-
-def same_tree_run(jobs: Sequence[Mapping[str, Any]]) -> bool:
-    """Whether an attempt's jobs are a same-tree run's: its path routing job is there and skipped."""
-    return any(job.get("name") == SAME_TREE_SKIPPED_JOB and job.get("conclusion") == "skipped" for job in jobs)
-
-
-def dispatch_reruns_off_side(workflow_text: str | None) -> bool:
-    """Whether a dispatch's cmux-next.yml (`workflow_text`, at the run's head) sends a same-tree pull request run's
-    bot re-run off the side lane under `pr-rescue` (DISPATCH_PR_RESCUE). Fails closed: no text is no."""
-    return bool(workflow_text) and DISPATCH_PR_RESCUE in str(workflow_text)
+def stall_moves_dispatch(client: GitHub, run: Mapping[str, Any], log: Callable[[str], None]) -> bool:
+    """Whether the stall move under `pr-rescue` (stall_pull_only()) may move a cmux-next.yml run that is not a
+    pull_request run: a dispatch gating one pull request (same_tree_pull_dispatch()) whose head's cmux-next.yml
+    carries PULL_DISPATCH_RESCUE_CLAUSE, so the bot's re-run leaves the side lane. One read of the workflow at the
+    run's head; a failed read leaves the run to the next scan."""
+    if not same_tree_pull_dispatch(run):
+        return False
+    head = str(run.get("head_sha") or "")
+    try:
+        text = client.workflow_file(CMUX_NEXT_WORKFLOW_PATH, head)
+    except READ_ERRORS as error:
+        log(f"[run {run.get('id')}] {STALL_MOVE}: could not read {CMUX_NEXT_WORKFLOW_PATH} at {head[:12]} ({error}); "
+            "next scan")
+        return False
+    if PULL_DISPATCH_RESCUE_CLAUSE not in (text or ""):
+        log(f"[run {run.get('id')}] {STALL_MOVE} leaves it: its head {head[:12]}'s {CMUX_NEXT_WORKFLOW_PATH} sends a "
+            "bot's re-run of this dispatch to the side lane under pr-rescue")
+        return False
+    return True
 
 
 def stall_destinations(runner: str | None, pools: str | None, switch: str | None = "on") -> tuple[str, ...] | None:
@@ -6656,12 +6714,14 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
     off) and with an `owned` route, it is the owned stall move instead (see OWNED_STALL_MOVE): `start` gets the owned
     label as its fourth argument, at most OWNED_MOVES_PER_SWEEP moves start, and a run moves at most once. Returns how
     many it started. Raises READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run.
-    `pull_only` (stall_pull_only()) leaves every run but a pull_request one, unless it is a dispatch whose workflow
-    sends its re-run off the side label (dispatch_reruns_off_side()): else its re-run would rejoin the owned side
-    label."""
+    `pull_only` (stall_pull_only()) leaves every run but a pull_request one and a dispatch gating one whose head
+    sends the bot's re-run off the side label (stall_moves_dispatch(), read once a run has stalled): any other's
+    re-run would rejoin the owned side label."""
     in_owned = destination is None and owned is not None
     cap = OWNED_MOVES_PER_SWEEP if in_owned else STALL_MOVES_PER_SWEEP
-    if len(moves) >= cap or destination is None and not in_owned:
+    # Past its cap a sweeper still moves a run waiting past OWNED_WAIT_BOUND_SECONDS (one a scan at most).
+    capped = len(moves) >= cap
+    if capped and in_owned or destination is None and not in_owned:
         return 0
     name = OWNED_STALL_MOVE if in_owned else STALL_MOVE
     started = 0
@@ -6678,10 +6738,10 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         if began is None or (at - began).total_seconds() < STALL_MIN_AGE_SECONDS:
             continue
         target = stall_target(run, repository)
-        # Under `pr-rescue` a dispatch (stall_target() keeps only same-tree pull request ones) moves only once its
-        # workflow says its re-run leaves the side lane (dispatch_reruns_off_side(), read after a stall is found).
-        side_rerun = pull_only and run.get("event") != "pull_request"
-        if isinstance(target, str) or in_owned and is_delivery_target(target) or side_rerun and in_owned:
+        if isinstance(target, str) or in_owned and is_delivery_target(target):
+            continue
+        dispatch = run.get("event") != "pull_request"
+        if pull_only and dispatch and not same_tree_pull_dispatch(run):
             continue
         try:
             jobs = client.jobs(run_id, target.attempt)
@@ -6697,21 +6757,19 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         if blocked:
             log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {blocked}")
             continue
-        if side_rerun and not same_tree_run(jobs):
-            log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but it is a dispatch that is not a same-tree run, whose "
-                "re-run takes the side lane under pr-rescue")
+        if pull_only and dispatch and not stall_moves_dispatch(client, run, log):
             continue
-        if side_rerun:
-            try:
-                text = client.workflow_file(target.path, target.head_sha)
-            except READ_ERRORS as error:
-                log(f"[run {run_id}] {STALL_MOVE}: could not read {target.path} at {target.head_sha[:12]} ({error}); "
-                    "next scan")
-                continue
-            if not dispatch_reruns_off_side(text):
-                log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but its {target.path} at {target.head_sha[:12]} "
-                    "re-runs a dispatch on the side lane under pr-rescue (no DISPATCH_PR_RESCUE clause)")
-                continue
+        # OWNED_WAIT_BOUND_SECONDS: the stalled jobs that have waited past the bound for a runner to start them. Only
+        # toward Blacksmith: the owned stall move's re-run stays on the owned labels.
+        stalled = {stall.job_id for stall in stalls}
+        past = "" if in_owned else ", ".join(
+            f"{job.get('name') or job.get('id')} waited {int(waited // 60)} min"
+            for job, waited in ((job, owned_wait(job, at)) for job in jobs if job_key(job) in stalled)
+            if waited >= OWNED_WAIT_BOUND_SECONDS)
+        if capped and not past:
+            log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but this sweeper made its {cap} moves; only a job past "
+                f"the owned wait bound ({OWNED_WAIT_BOUND_SECONDS // 60} min) moves now")
+            continue
         try:
             newer = client.newer_head_runs(target.path, run_id, target.head_sha)
             covering = covering_run(client, newer, jobs) if newer else None
@@ -6748,7 +6806,10 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
             full = next((why for why in (stall_room(snapshot, at, wanted, recent, label) for label in destination)
                          if why), "") or next((why for why in (deeper_queue(
                              snapshot, {stall.label for stall in stalls}, label) for label in destination) if why), "")
-        if full:
+        if full and past:
+            log(f"[run {run_id}] {name}: {past}, past the owned wait bound ({OWNED_WAIT_BOUND_SECONDS // 60} min), "
+                f"so it moves though {full}")
+        elif full:
             log(f"[run {run_id}] {name} waits: {what}, but {full}")
             continue
         moved.add((run_id, target.attempt))
@@ -6760,7 +6821,7 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         else:
             start(target, stalls)
         started += 1
-        if started >= STALL_MOVES_PER_SCAN or len(moves) >= cap:
+        if started >= STALL_MOVES_PER_SCAN or in_owned and len(moves) >= cap:
             break
     return started
 
