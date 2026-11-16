@@ -444,9 +444,11 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})"
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
+          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
             ${acpmux_features:+"$acpmux_features"}
+          # As the Linux legs: the build id only in this binary, staged as acpmux.
+          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
 
       # Warm start for the shipped fat-LTO legs on feat-cmux-next pushes (both musl targets and
       # the macOS targets built on Linux): the previous build's whole target dir and cargo
@@ -606,12 +608,15 @@ jobs:
           warm() { ../scripts/ci/machine-channel-warm-target.sh "$1" "$disk" "$t"; }
           warm restore || echo "warning: warm target restore failed; building as is" >&2
           trap 'warm record || echo "warning: warm target record failed" >&2' EXIT
+          # The shipping features (hub carrier) for acpmux-standalone, which passes them to acpmux.
+          # The script prints one `--features=...` argument or nothing.
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t")"
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
             "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
             "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \
             "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \
-            "acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone" \
+            "acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone $acpmux_features" \
             "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml"
           # acpmux-standalone is the acpmux program with its build id stamped in the binary
           # only: `-p acpmux` stamps the acpmux lib, and every new commit recompiled it, 209 s
@@ -653,9 +658,11 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})"
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
+          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
             ${acpmux_features:+"$acpmux_features"}
+          # As the Linux legs: the build id only in this binary, staged as acpmux.
+          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
@@ -843,10 +850,12 @@ jobs:
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" "$browser_host_binary"
           fi
           # The slim terminal host rides the same way as cmux-tui-host-<target>
-          # and installs as cmux-tui-host beside cmux-tui, where a macOS daemon
-          # runs every terminal host from (host_exe.rs). macOS only for now.
+          # and installs as cmux-tui-host beside cmux-tui, where a macOS or
+          # Linux daemon runs every terminal host from (host_exe.rs,
+          # host_exe/linux.rs). Required on macOS and Linux musl: a missing one
+          # fails this step (cp); the gnu-named Linux assets copy the musl one.
           terminal_host_binary=""
-          if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
+          if [[ "$STAGE_TARGET" == *-apple-darwin || "$STAGE_TARGET" == *-unknown-linux-musl ]]; then
             terminal_host_binary="dist/cmux-tui-host-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-host" "$terminal_host_binary"
           fi

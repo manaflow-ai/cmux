@@ -1,11 +1,13 @@
-//! One viewer's media session: the I/O loop around this OS's desktop (desktop.rs:
-//! capture, encode, injection). The media logic (frame gate, congestion control,
-//! packetize with FEC, NACK history, recovery, exactly-once input) is the shared
-//! engine, cmux-rd-engine (rd change C7 step 2).
+//! One viewer's media session: the I/O loop around this OS's desktop (desktop.rs: damage and
+//! injection here, capture and encode on the session's encode thread, encode_thread.rs, so
+//! input never waits behind an encode). The media logic (frame gate, congestion control,
+//! packetize with FEC, NACK history, recovery, exactly-once input) is the shared engine,
+//! cmux-rd-engine (rd change C7 step 2).
 
 use crate::carrier::{Carrier, Incoming};
 use crate::clock::now_ns;
-use crate::desktop::Desktop;
+use crate::desktop::{Desktop, FrameSource};
+use crate::encode_thread::{Done, EncodeThread};
 use crate::fdwait::wait_readable;
 use crate::upstream::{UpstreamSink, Upstreams};
 use crate::wire::Control;
@@ -14,7 +16,7 @@ use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
-use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -55,15 +57,20 @@ pub struct SessionCfg {
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub max_width: Option<u32>,
+    /// Linux: how the screen is captured (X11, or the portal on a Wayland session).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub capture: crate::capture_backend::CaptureBackend,
 }
 
 pub struct MediaSession {
     desktop: Box<dyn Desktop>,
-    au: Vec<u8>,
+    /// Capture and encode, off this thread, so input never waits behind an encode.
+    encoder: EncodeThread,
+    /// Damage seen while the encode thread was busy, for the frame after its current one.
+    held_damage: Option<Rect>,
     engine: MediaEngine,
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
-    deferred_error: Option<String>,
     stats_frames_sent: u64,
     encode_ms: VecDeque<f64>,
     next_stats_ns: u64,
@@ -158,7 +165,19 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
-        let desktop = crate::desktop::open(cfg)?;
+        let (desktop, frames) = crate::desktop::open(cfg)?;
+        Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)
+    }
+
+    /// A session on an opened desktop (tests use a fake one).
+    fn with_desktop(
+        desktop: Box<dyn Desktop>,
+        frames: Box<dyn FrameSource>,
+        cfg: &SessionCfg,
+        max_datagram: usize,
+        negotiated_caps: &[String],
+        sink: Box<dyn UpstreamSink>,
+    ) -> Res<Self> {
         let (w, h) = desktop.size();
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
         let engine = MediaEngine::new(
@@ -178,10 +197,10 @@ impl MediaSession {
         );
         Ok(Self {
             desktop,
-            au: Vec::new(),
+            encoder: EncodeThread::spawn(frames)?,
+            held_damage: None,
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
-            deferred_error: None,
             stats_frames_sent: 0,
             encode_ms: VecDeque::new(),
             next_stats_ns: now_ns(),
@@ -198,7 +217,7 @@ impl MediaSession {
     }
 
     pub fn encoder_name(&self) -> String {
-        self.desktop.encoder_name()
+        self.encoder.encoder_name()
     }
 
     /// Runs until the viewer stops, the host stops the session, or the carrier fails.
@@ -214,16 +233,11 @@ impl MediaSession {
         let mut had_control = table.may_inject_input(session, viewer);
         // The first frame covers the whole screen (an IDR).
         if let Some(req) = self.engine.start(now_us()) {
-            if let Err(e) = self.encode(carrier, &req) {
-                return format!("encode/send failed: {e}");
-            }
+            self.encoder.submit(req);
         }
         loop {
             if !table.may_send_media(session, viewer) {
                 return "session not active".into();
-            }
-            if let Some(e) = self.deferred_error.take() {
-                return format!("encode/send failed: {e}");
             }
             // The viewer sends feedback at least every second. Keep the ticket
             // alive through a full network drop so the viewer can reattach.
@@ -232,9 +246,7 @@ impl MediaSession {
             }
             let now = now_us();
             if let Some(req) = self.engine.poll(now) {
-                if let Err(e) = self.encode(carrier, &req) {
-                    return format!("encode/send failed: {e}");
-                }
+                self.encoder.submit(req);
             }
             let timeout = self.engine.next_deadline_us().map(|t| t.saturating_sub(now_us()) * 1000);
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
@@ -255,6 +267,7 @@ impl MediaSession {
             let timeout = Some(timeout.max(1_000_000));
             let mut fds = carrier.fds();
             fds.push(self.desktop.fd());
+            fds.push(self.encoder.fd());
             if let Err(e) = wait_readable(&fds, timeout) {
                 return format!("wait failed: {e}");
             }
@@ -285,6 +298,10 @@ impl MediaSession {
             // cumulative frame acknowledgement arrives, use its measured RTT
             // to size the BDP-equivalent send window just like the secure link.
             self.engine.update_frames_in_flight_from_rtt(carrier.path_rtt_us());
+            // A frame the encode thread finished: packetize and send it.
+            if let Err(e) = self.send_encoded(carrier) {
+                return format!("encode/send failed: {e}");
+            }
             // Damage from the desktop.
             damage.clear();
             if let Err(e) = self.drain_settled(&mut damage) {
@@ -296,11 +313,16 @@ impl MediaSession {
                 timing.damage_us.get_or_insert(now_us());
             }
             if let Some(r) = merged {
-                let req = self.engine.damage(0, r, now_us());
-                trace(&format!("damage {r:?} -> {req:?}"));
-                if let Some(req) = req {
-                    if let Err(e) = self.encode(carrier, &req) {
-                        return format!("encode/send failed: {e}");
+                self.held_damage = Some(self.held_damage.map_or(r, |held| held.union(r)));
+            }
+            // While a frame encodes, damage waits here: the next frame captures the newest
+            // picture once the encode thread is free, instead of queueing frames behind it.
+            if self.encoder.is_idle() {
+                if let Some(r) = self.held_damage.take() {
+                    let req = self.engine.damage(0, r, now_us());
+                    trace(&format!("damage {r:?} -> {req:?}"));
+                    if let Some(req) = req {
+                        self.encoder.submit(req);
                     }
                 }
             }
@@ -347,25 +369,29 @@ impl MediaSession {
         Ok(())
     }
 
-    fn encode(&mut self, carrier: &mut dyn Carrier, req: &EncodeRequest) -> Res<()> {
-        self.desktop.capture(req.damage)?;
-        let t_capture_us = now_us();
-        self.desktop.set_bitrate(req.target_kbps);
-        let t0 = now_ns();
-        let idr = self.desktop.encode(req.force_idr, t_capture_us as i64, &mut self.au)?;
+    /// Hands the engine the frame the encode thread finished, if there is one, and sends its
+    /// datagrams.
+    fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
+        let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
+        let frame = result?;
         if let Some(timing) = self.timing.as_mut() {
-            timing.frame(self.desktop.picked_times(), t_capture_us, now_us(), self.au.len(), idr);
+            let (shown, len) = (frame.picked_times, frame.access_unit.len());
+            timing.frame(shown, frame.t_capture_us, frame.encoded_us, len, frame.idr);
         }
-        self.encode_ms.push_back((now_ns() - t0) as f64 / 1e6);
+        self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
         }
-        let encoded = Encoded { access_unit: std::mem::take(&mut self.au), idr, t_capture_us };
+        let encoded = Encoded {
+            access_unit: frame.access_unit,
+            idr: frame.idr,
+            t_capture_us: frame.t_capture_us,
+        };
         let out =
-            self.engine.encoded(req, Some(encoded), now_us()).map_err(|e| format!("{e:?}"))?;
+            self.engine.encoded(&req, Some(encoded), now_us()).map_err(|e| format!("{e:?}"))?;
         if out.halve_bitrate {
             // Too large to send (about 4.6 MB): the engine dropped it and asks for a keyframe.
-            self.desktop.set_bitrate(self.desktop.kbps() / 2);
+            self.encoder.halve_bitrate();
         }
         for datagram in &out.datagrams {
             carrier.send_datagram(datagram)?;
@@ -373,8 +399,8 @@ impl MediaSession {
         Ok(())
     }
 
-    /// Sends an engine output's datagrams, injects its input and encodes its
-    /// requested frame.
+    /// Sends an engine output's datagrams, injects its input and hands its
+    /// requested frame to the encode thread.
     fn apply(
         &mut self,
         carrier: &mut dyn Carrier,
@@ -394,9 +420,7 @@ impl MediaSession {
             self.inject(event, table, session, viewer);
         }
         if let Some(req) = out.encode {
-            if let Err(e) = self.encode(carrier, &req) {
-                self.deferred_error = Some(e.to_string());
-            }
+            self.encoder.submit(req);
         }
     }
 
@@ -463,7 +487,7 @@ impl MediaSession {
         sorted.sort_by(f64::total_cmp);
         let encode_ms_p50 = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
         let stats = Control::Stats {
-            kbps: self.desktop.kbps(),
+            kbps: self.encoder.kbps(),
             frames: stats.frames,
             keyframes: stats.keyframes,
             cpu_pct,
@@ -482,5 +506,215 @@ mod tests {
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
         assert!(!viewer_silent_too_long(90_000_000));
         assert!(viewer_silent_too_long(90_000_001));
+    }
+}
+
+#[cfg(test)]
+mod encode_off_loop_tests {
+    use super::*;
+    use crate::carrier::{Carrier, Incoming};
+    use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, PrincipalClass};
+    use cmux_rd_core::session::StartRequest;
+    use cmux_rd_proto::{DatagramHeader, DatagramKind, InputEvent, InputPacket};
+    use std::os::fd::{AsRawFd, RawFd};
+    use std::os::unix::net::UnixStream;
+    use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+    use std::sync::mpsc;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[derive(Default)]
+    struct Seen {
+        encode_started: AtomicBool,
+        injected: AtomicBool,
+        encode_returned: AtomicBool,
+        injected_before_encode_returned: AtomicBool,
+    }
+
+    struct FakeDesktop {
+        seen: Arc<Seen>,
+        /// Never readable: this desktop reports no damage.
+        quiet: (UnixStream, UnixStream),
+    }
+
+    impl Desktop for FakeDesktop {
+        fn size(&self) -> (u32, u32) {
+            (64, 64)
+        }
+        fn fd(&self) -> RawFd {
+            self.quiet.1.as_raw_fd()
+        }
+        fn drain(&mut self, _out: &mut Vec<Rect>) -> Res<()> {
+            Ok(())
+        }
+        fn inject(&mut self, _event: &InputEvent) -> Res<()> {
+            self.seen.injected.store(true, SeqCst);
+            Ok(())
+        }
+        fn release_all(&mut self) -> Res<()> {
+            Ok(())
+        }
+    }
+
+    /// Its first encode blocks until the test releases it (at most 5 s), like a slow 4K encode.
+    struct BlockingEncoder {
+        seen: Arc<Seen>,
+        release: mpsc::Receiver<()>,
+        first: bool,
+    }
+
+    impl FrameSource for BlockingEncoder {
+        fn capture(&mut self, _damage: Rect) -> Res<()> {
+            Ok(())
+        }
+        fn encode(&mut self, _force_idr: bool, _pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+            if std::mem::take(&mut self.first) {
+                self.seen.encode_started.store(true, SeqCst);
+                let _ = self.release.recv_timeout(Duration::from_secs(5));
+                let injected = self.seen.injected.load(SeqCst);
+                self.seen.injected_before_encode_returned.store(injected, SeqCst);
+                self.seen.encode_returned.store(true, SeqCst);
+            }
+            out.extend_from_slice(&[0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00]);
+            Ok(true)
+        }
+        fn set_bitrate(&mut self, _kbps: u32) {}
+        fn kbps(&self) -> u32 {
+            1000
+        }
+        fn encoder_name(&self) -> String {
+            "blocking test encoder".into()
+        }
+    }
+
+    /// Sends one key press once the encode started, releases the encode once the press was
+    /// injected, and stops the session once the encode returned.
+    struct FakeCarrier {
+        seen: Arc<Seen>,
+        release: Option<mpsc::Sender<()>>,
+        sent_input: bool,
+        /// Always readable, so the loop keeps reading.
+        ready: (UnixStream, UnixStream),
+    }
+
+    impl Carrier for FakeCarrier {
+        fn fds(&self) -> Vec<RawFd> {
+            vec![self.ready.1.as_raw_fd()]
+        }
+        fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String> {
+            if self.seen.encode_started.load(SeqCst) && !self.sent_input {
+                self.sent_input = true;
+                let mut d = DatagramHeader {
+                    flags: 0,
+                    kind: DatagramKind::Input,
+                    stream: 0,
+                    frame: 0,
+                    index: 0,
+                    count: 0,
+                    fec_count: 0,
+                    transport_seq: 0,
+                }
+                .encode()
+                .to_vec();
+                let packet = InputPacket {
+                    first_seq: 1,
+                    events: vec![InputEvent::Key { usage: 4, down: true }],
+                };
+                d.extend_from_slice(&packet.encode());
+                out.push(Incoming::Datagram(d));
+            }
+            if self.seen.injected.load(SeqCst) {
+                if let Some(release) = self.release.take() {
+                    let _ = release.send(());
+                }
+            }
+            if self.seen.encode_returned.load(SeqCst) {
+                out.push(Incoming::Control(Control::Stop));
+            }
+            Ok(())
+        }
+        fn send_datagram(&mut self, _datagram: &[u8]) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn cfg() -> SessionCfg {
+        SessionCfg {
+            display: String::new(),
+            max_fps: 60,
+            start_kbps: 1000,
+            max_kbps: 2000,
+            preset: String::new(),
+            profile: String::new(),
+            codec: String::new(),
+            openh264_lib: None,
+            content: "screen".into(),
+            threads: 1,
+            stats_every_ms: 1000,
+            settle_us: 0,
+            upstream_record: None,
+            upstream_record_max_bytes: 0,
+            frames_in_flight: 2,
+            input_frame_now: false,
+            max_width: None,
+            capture: crate::capture_backend::CaptureBackend::default(),
+        }
+    }
+
+    #[test]
+    fn viewer_input_is_injected_while_a_frame_encodes() {
+        let seen = Arc::new(Seen::default());
+        let (release_tx, release_rx) = mpsc::channel();
+        let desktop =
+            FakeDesktop { seen: seen.clone(), quiet: UnixStream::pair().expect("socket pair") };
+        let encoder = BlockingEncoder { seen: seen.clone(), release: release_rx, first: true };
+        let mut session = MediaSession::with_desktop(
+            Box::new(desktop),
+            Box::new(encoder),
+            &cfg(),
+            1200,
+            &[],
+            Box::new(crate::upstream::NoSink),
+        )
+        .expect("session");
+        let ready = UnixStream::pair().expect("socket pair");
+        use std::io::Write;
+        (&ready.0).write_all(&[1]).expect("make the carrier readable");
+        let mut carrier =
+            FakeCarrier { seen: seen.clone(), release: Some(release_tx), sent_input: false, ready };
+        let viewer = Principal {
+            user: "owner".into(),
+            install: "test".into(),
+            class: PrincipalClass::User,
+            interactive: true,
+        };
+        let mut table = SessionTable::new(HostPolicy {
+            enabled: true,
+            owner_user: viewer.user.clone(),
+            grants: Vec::new(),
+            consent: ConsentRule::AskOthers,
+            unattended_allowed: true,
+        });
+        let id = table
+            .start(StartRequest {
+                key: "k",
+                caller: Some(&viewer),
+                for_client: None,
+                mode: Mode::Control,
+                console_user: None,
+                now_ms: 0,
+            })
+            .expect("session starts");
+        assert!(table.may_inject_input(id, &viewer));
+        let reason = session.run(&mut carrier, &mut table, id, &viewer);
+        assert_eq!(reason, "stopped by viewer");
+        assert!(seen.injected.load(SeqCst), "the key press was never injected");
+        assert!(
+            seen.injected_before_encode_returned.load(SeqCst),
+            "the key press waited for the encode to finish"
+        );
     }
 }

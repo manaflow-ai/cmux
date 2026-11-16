@@ -191,3 +191,83 @@ fn a_missing_candidate_still_reaches_the_handshake_timeout() {
         Err(LinkError::HandshakeTimeout)
     ));
 }
+
+/// The longest gap (µs) between two packets each side sent during `ms` of a
+/// still session (no datagrams, no control), and how many each sent.
+fn quiet_gaps(pair: &mut Pair, world: &World, ms: u64) -> ((u64, usize), (u64, usize)) {
+    let start = pair.now;
+    let (mut viewer_last, mut host_last) = (start, start);
+    let (mut viewer, mut host) = ((0, 0), (0, 0));
+    for _ in 0..ms {
+        pair.now += 1_000;
+        let sent = pair.viewer.poll_transmit(pair.now).unwrap();
+        if !sent.is_empty() {
+            viewer.0 = viewer.0.max(pair.now - viewer_last);
+            viewer.1 += sent.len();
+            viewer_last = pair.now;
+        }
+        for t in sent {
+            let Some(from) = world.to_host(t.route) else { continue };
+            let events = pair.host.on_packet(from, &t.packet, pair.now).unwrap();
+            assert!(
+                events.iter().all(|e| !matches!(e, EndpointEvent::Link(Event::Datagram(_)))),
+                "a keep-awake delivers nothing"
+            );
+        }
+        let sent = pair.host.poll_transmit(pair.now).unwrap();
+        if !sent.is_empty() {
+            host.0 = host.0.max(pair.now - host_last);
+            host.1 += sent.len();
+            host_last = pair.now;
+        }
+        for t in sent {
+            if let Some(from) = world.to_viewer(t.route) {
+                pair.viewer.on_packet(from, &t.packet, pair.now).unwrap();
+            }
+        }
+    }
+    viewer.0 = viewer.0.max(pair.now - viewer_last);
+    host.0 = host.0.max(pair.now - host_last);
+    (viewer, host)
+}
+
+#[test]
+fn a_still_session_keeps_both_radios_awake_until_it_goes_idle() {
+    use cmux_rd_link::endpoint::{KEEP_AWAKE_IDLE_US, KEEP_AWAKE_US};
+    let lan = World { lan_works: true, wan_works: false, relay_works: false };
+    let mut pair = Pair::new();
+    pair.viewer.set_keep_awake(Some(KEEP_AWAKE_US));
+    pair.host.set_keep_awake(Some(KEEP_AWAKE_US));
+    pair.viewer.send_control(b"hello".to_vec(), 0).unwrap();
+    pair.run(&lan, 3_000);
+    assert_eq!(pair.viewer_path(), Some(PathKind::DirectLan));
+    // A still screen: neither side goes longer than the interval without a packet.
+    let (viewer, host) = quiet_gaps(&mut pair, &lan, 2_000);
+    assert!(viewer.0 <= KEEP_AWAKE_US, "viewer gap {viewer:?}");
+    assert!(host.0 <= KEEP_AWAKE_US, "host gap {host:?}");
+    // About one packet per interval on top of the paths' own probes (the dead
+    // paths are probed every 100 ms: about 40 in two seconds), not more.
+    assert!(host.1 <= (2_000_000 / KEEP_AWAKE_US) as usize + 45, "host sent {host:?}");
+    // A datagram resets the gap: no keep-awake right after it.
+    let _ = pair.host.send_datagram(b"frame").unwrap();
+    assert!(pair.host.poll_transmit(pair.now + KEEP_AWAKE_US / 2).unwrap().is_empty());
+    // Idle past the limit: only the path's own probes and answers remain.
+    pair.now += KEEP_AWAKE_IDLE_US;
+    let (_, host) = quiet_gaps(&mut pair, &lan, 3_000);
+    assert!(host.0 >= 100_000, "an idle session kept sending: {host:?}");
+    // Traffic again: keep-awake comes back on both sides.
+    pair.viewer.send_control(b"input".to_vec(), pair.now).unwrap();
+    pair.run(&lan, 50);
+    let (viewer, host) = quiet_gaps(&mut pair, &lan, 500);
+    assert!(viewer.0 <= KEEP_AWAKE_US && host.0 <= KEEP_AWAKE_US, "{viewer:?} {host:?}");
+}
+
+#[test]
+fn keep_awake_is_off_by_default() {
+    let lan = World { lan_works: true, wan_works: false, relay_works: false };
+    let mut pair = Pair::new();
+    pair.viewer.send_control(b"hello".to_vec(), 0).unwrap();
+    pair.run(&lan, 3_000);
+    let (_, host) = quiet_gaps(&mut pair, &lan, 2_000);
+    assert!(host.0 >= 100_000, "the host kept sending without keep-awake: {host:?}");
+}

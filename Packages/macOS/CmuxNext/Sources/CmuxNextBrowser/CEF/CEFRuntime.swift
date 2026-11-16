@@ -55,6 +55,24 @@ final class CEFRuntime {
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
     /// The spare window and the page made ahead in it (`CEFSpareWindow`): this runtime's own.
     private(set) lazy var spareWindow = CEFSpareWindow()
+    /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
+    private(set) lazy var pageRendererGC = CEFPageRendererGC(
+        pages: { [weak self] in
+            guard let self else { return [] }
+            return tabsByBrowser.map { browser, tab in
+                let clients: [Int32] = if case .chromiumRendererClients(let ids) = tab.contentProcesses { ids } else { [] }
+                return CEFPageRendererGC.Page(browser: browser, isCmuxPage: CEFPageRendererGC.isCmuxPage(tab.state.url), rendererClients: clients)
+            }
+        },
+        heapUsed: { [weak self] browser in
+            guard let tab = self?.tabsByBrowser[browser],
+                  let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
+            return CEFPageRendererGC.usedSize(reply)
+        },
+        collect: { [weak self] browser in
+            guard let tab = self?.tabsByBrowser[browser] else { return }
+            _ = try? await tab.devTools(method: "HeapProfiler.collectGarbage", params: [:], timeout: .seconds(10))
+        })
     /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
     let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
@@ -457,6 +475,9 @@ final class CEFRuntime {
         ThemeScope.app.store.addResponder(self)
         // Extension popup windows keep their window id (CEFPopupWindows).
         if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
+        // The omnibar's direct-URL-input prerender (fork API 33; CEF keeps Prerender2 off otherwise). Chromium's
+        // own checks still decide each one: "Preload pages", Battery Saver, Data Saver, memory (CEFTab+OmniboxPreload).
+        shim.setOmniboxPrerender(1)
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).

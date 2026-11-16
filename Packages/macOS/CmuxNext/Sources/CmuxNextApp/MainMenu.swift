@@ -12,9 +12,10 @@ enum MainMenu {
         let mainMenu = NSMenu()
         // About (`about`: the standard panel with the build's credits) comes first, as in every Mac app.
         var app: [NSMenuItem] = registry.makeMenuItem(for: "about").map { [$0, .separator()] } ?? []
-        // Keep the app menu to the primary settings/update controls. Quit (Cmd-Q) keeps the
-        // sessions running and never asks (Leo 2026-11-05); the two quits that end them sit under it.
-        let quitIDs: [ActionID] = ["quit", "quitEndSessions", "quitEndEverything"]
+        // Keep the app menu to the primary settings/update controls. One Quit (CMUX-630, Leo
+        // 2026-11-15: "we should just have the one quit"): Quit cmux (Cmd-Q) is the Dock's Quit, quits
+        // the app only and never asks. The quits that end the sessions are palette rows and CLI flags.
+        let quitIDs: [ActionID] = ["quit"]
         let placedElsewhere = Set((quitIDs + [ActionID("about")]).compactMap { registry.title(for: $0) })
         app += compactMainMenuItems(for: .app, registry: registry).filter { !placedElsewhere.contains($0.title) }
         app += [
@@ -68,8 +69,7 @@ enum MainMenu {
     /// a new catalog placement cannot silently reintroduce menu overload.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
         .app: [
-            "about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
-            "quitEndSessions", "quitEndEverything",
+            "about", "openSettings", "customize.open", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
         ],
         .file: [
             "newTab", "newBrowserWorkspace", "newTab.default", "palette.newAgentChat", "palette.quickAgentChat",
@@ -83,7 +83,7 @@ enum MainMenu {
         ],
         .server: ["server.addServer", "server.showPanel"],
         .window: [
-            "newWindow", "newIncognitoWindow", "window.mergeAll", "toggleFullScreen", "commandPalette", "goToWorkspace",
+            "newWindow", "newIncognitoWindow", "window.mergeAll", "space.new", "space.previous", "space.next", "toggleFullScreen", "commandPalette", "goToWorkspace",
             "globalSearch", "showMainWindow",
         ],
         .help: ["help.documentation", "palette.searchShortcuts", "updates.whatsNew", "sendFeedback", "help.showCrashLogs"],
