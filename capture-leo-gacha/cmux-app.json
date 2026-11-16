@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": { "en": "Chief gacha" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: press Pull, a card shakes, pops open and reveals a Chief with its rarity's glow and a burst of sparkles. A collection log keeps every Chief you pulled, and an agent finishing a turn gives you a free pull." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "sparkles" },
+  "categories": ["sidebar", "agents"],
+  "keywords": ["gacha", "chief", "mascot", "collection", "animation", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": { "en": "Chief gacha" },
+      "symbol": "sparkles"
+    },
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": { "en": "Chief gacha" },
+      "symbol": "sparkles",
+      "options": { "defaultRegion": "bottom", "maxRows": 3 }
+    }
+  },
+  "scopes": {
+    "agent:read": "See when one of your agents finishes a turn, to give you a free pull. Nothing about what the agent did is read."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "variant": { "type": "string", "title": "Card style", "enum": ["holo", "pixel", "glass"], "default": "holo" },
+      "agentPulls": { "type": "boolean", "title": "Free pull when an agent finishes a turn", "default": true }
+    }
+  },
+  "activation": ["onInterface:cmux.pane/1", "onInterface:cmux.section/1"],
+  "files": ["main.js", "assets/"]
+}
