@@ -7,13 +7,13 @@
     {"title": "Share beside Projects", "wait": 1.5, "clip": true},
     {
       "title": "Share beside This Mac in the grouped layout",
-      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.groupByComputer", "value": true}},
+      "cmux": ["settings", "set", "sidebar.groupByComputer", "true"],
       "wait": 2,
       "clip": true
     },
     {
       "title": "Return to the flat layout",
-      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.groupByComputer", "value": false}},
+      "cmux": ["settings", "set", "sidebar.groupByComputer", "false"],
       "wait": 1.5,
       "clip": true
     },
