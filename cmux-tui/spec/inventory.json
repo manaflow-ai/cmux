@@ -701,6 +701,12 @@
       ]
     },
     {
+      "name": "agent-cli-frame",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
       "name": "agent-presence-changed",
       "streams": [
         "subscribe"
