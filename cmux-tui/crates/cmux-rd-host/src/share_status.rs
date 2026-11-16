@@ -355,7 +355,7 @@ mod probe {
         if capture.wait_first_frame(FRAME_PROBE_TIMEOUT_NS).is_err() {
             return FrameProbe::NoFrame;
         }
-        match capture.newest().and_then(|(frame, _)| frame.luma_grid(32, 18)) {
+        match capture.frames().newest().and_then(|(frame, _)| frame.luma_grid(32, 18)) {
             // 420v is video range: black is 16.
             Some(samples) => FrameProbe::Frame { black: is_black(&samples, 16) },
             None => FrameProbe::Failed("the captured frame could not be read".into()),
