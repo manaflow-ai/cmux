@@ -1,8 +1,10 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextLayout
 @testable import CmuxNextSidebar
 import Foundation
+import Observation
 import Testing
 
 /// A new window's sidebar is complete in its first frame. The band above the list draws each item from the item's
