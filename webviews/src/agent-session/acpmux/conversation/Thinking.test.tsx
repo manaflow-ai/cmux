@@ -11,6 +11,7 @@ import { WorkingFor } from "./WorkingFor";
 import { StatusVerbContext } from "../statusVerbs";
 import { WaitingOnContext } from "./waitingOn";
 import { setChatDisplay } from "../chatDisplay";
+import { WRITING_MS } from "./thinkingModel";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -230,3 +231,54 @@ test("the needs-input dot grows in only when an ask opens under a drawn line, an
   expect(container.querySelector(".cv-needs-input-glyph.is-asked")).not.toBeNull();
   expect(container.querySelector(".cv-needs-input-glyph.is-answered")).toBeNull();
 });
+
+/// A transcript's live line pulse (liveLinePulse.ts) driven by hand: `emit` stands for a chunk the line
+/// hears with no draw of its own.
+function handPulse(line: Partial<AcpmuxRow>, heard?: number) {
+  const listeners = new Set<() => void>();
+  let current = { id: "thinking-live", version: 1, at: 0, kind: "thinking", ...line } as AcpmuxRow;
+  return {
+    line: () => current,
+    heard: () => heard,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    emit(next: Partial<AcpmuxRow>, at?: number) {
+      current = { ...current, ...next };
+      heard = at ?? heard;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+// Review of the live line's pulse: the line's frame draws again for its place, long after a chunk the
+// pulse already brought; that draw is no new event, so a silent line still reads Waiting.
+test("a late draw bringing a key the pulse already heard keeps the time it was heard", () => {
+  const T0 = 1_000_000;
+  const now = () => T0 + 11_000;
+  const pulse = handPulse({ heardKey: "h:2" }, T0 + 1_000);
+  const line = (heardKey: string) => (
+    <Thinking since={T0 - 60_000} now={now} heardAt={T0} heardKey={heardKey} turnTotal pulse={pulse} />
+  );
+  act(() => root!.render(line("h:1")));
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Waiting");
+  act(() => root!.render(line("h:2")));
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Waiting");
+});
+
+test("a late draw bringing a key the pulse already heard does not start its Writing window again", async () => {
+  const quietAt = Date.now() - 6_000;
+  const pulse = handPulse({ quietKey: "a:1" });
+  const line = (quietKey: string) => (
+    <Thinking liveState="writing" quietKey={quietKey} quietAt={quietAt} pulse={pulse} />
+  );
+  act(() => root!.render(line("a:1")));
+  expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+  act(() => pulse.emit({ quietKey: "a:2" }));
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Writing");
+  await act(() => new Promise((done) => setTimeout(done, WRITING_MS + 300)));
+  expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+  act(() => root!.render(line("a:2")));
+  expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+}, 15_000);
