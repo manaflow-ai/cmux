@@ -106,11 +106,14 @@ root = "cmux-tui/crates/cmux-app-ffi"
 run = true
 
 # The bench feature set is the one that builds without x264 (OpenH264 from source),
-# as in scripts/ci/cmux-tui-rust-check.sh rd-host.
+# plus the device hub host (`link`) and the portal handshakes over D-Bus (`portal-dbus`, no
+# libpipewire: its tests run a mock portal on a private dbus-daemon). The rd-host mode of
+# scripts/ci/cmux-tui-rust-check.sh (macOS) keeps bench alone.
 [[workspace]]
 root = "cmux-tui/crates/cmux-rd-host"
 run = true
-args = ["--no-default-features", "--features", "bench"]
+args = ["--no-default-features", "--features", "bench,link,portal-dbus"]
+apt = ["dbus"]
 
 [[workspace]]
 root = "cmux-tui/crates/acpmux-hot/guest"

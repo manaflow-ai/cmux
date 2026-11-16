@@ -9204,6 +9204,24 @@ terminal has the same size, the first frame is one delta from that frame
 (`base` is `hybrid_frame`), not the whole screen. Any other attach, any
 terminal whose agent is something else, and any connection without the
 capability gets the byte stream, and the two fields change nothing for it.
+A connection that also declared `agent-cli-hybrid-v2` gets each frame as an
+`agent-cli-lean` event instead (the same frames in a lean form; see `events.md`).
+A connection that declared both and `terminal-shell-lines-v1` gets a plain
+shell's terminal (its own program is a shell: bash, zsh, fish, sh and the
+like) as the same `agent-cli-lean` frames, its lines and cursor. A full-screen
+program the shell runs (the alternate screen, or mouse tracking 1000, 1002 or
+1003) goes as `output` PTY bytes from the byte that starts it, after a last
+frame of what came before; when it ends, frames go on from the screen the
+viewer then shows, with no keyframe (the next frame names its `frame` and
+`base`). The input modes frames do not carry (cursor keys 1, focus 1004,
+bracketed paste 2004, mouse encodings 1005/1006/1015, keypad `ESC =`/`ESC >`)
+reach every viewer that declared `terminal-shell-lines-v1`, agent CLI or shell,
+as `output` bytes: the ones the screen has set right after the first frame,
+then each set and reset as it is written, so the viewer's keys and pastes
+encode the way the program expects. A shell that is full-screen when it attaches starts with `vt-state`,
+and a `resized` while full-screen (or leaving it) passes as `resized`. A
+terminal whose own program is neither a shell nor an agent CLI keeps the byte
+stream.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 

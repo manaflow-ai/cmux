@@ -10,6 +10,10 @@
 #   head=SHA     with dmg=build: build SHA as the head instead of this checkout (a pull request's head: the controller
 #                runs this script only at a commit of feat-cmux-next, so an A/B of a PR names it here)
 #   runs=N       measured relaunches per side (1 to 10, default 5), after one priming launch
+#   session=stress3  before the measured relaunches, each side's home gets a 3-window, 60-workspace session: one more
+#                launch after the priming one, in which launch-ready-seed.py opens 3 windows, makes 60 workspaces across
+#                them (a terminal each), shows Home in the front window and quits with Keep Sessions (LR-SEED). The
+#                default, session=small, measures the priming launch's session (one window on Home).
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
 #                and print its main thread from process start to the window on screen (launch-ready-profile.py)
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
@@ -20,7 +24,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   for arg in "$@"; do
     case "$arg" in
@@ -29,6 +33,7 @@ main() {
       head=*) headsha="${arg#head=}" ;;
       runs=*) runs="${arg#runs=}" ;;
       profile=0|profile=1) profile="${arg#profile=}" ;;
+      session=small|session=stress3) session="${arg#session=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -40,6 +45,8 @@ main() {
   xcrun swiftc -O -o "$out/launch-ready" scripts/measure/launch-ready.swift >"$out/swiftc.log" 2>&1 \
     || { echo "LR probe build failed"; cat "$out/swiftc.log"; exit 3; }
   cp scripts/measure/launch-ready-profile.py "$out/profile.py"
+  cp scripts/measure/launch-ready-seed.py "$out/seed.py"
+  echo "LR session $session"
   local sides=(head)
   if [[ "$dmg" == build ]]; then
     # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
@@ -47,6 +54,8 @@ main() {
     sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
     source "$out/nightly-fresh-launch-lib.sh"
     declare -F build_dmg >/dev/null || { echo "LR build_dmg missing from nightly-fresh-launch.sh"; exit 3; }
+    # build_dmg resolves each side's acpmux with this copy: a base commit may predate resolve-acpmux.sh.
+    cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
     local here; here="$(git rev-parse HEAD)"
     local head="${headsha:-$here}" want
     for want in $base $head; do
@@ -83,6 +92,7 @@ main() {
     hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
     echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$out/$side/$(basename "$found")/Contents/Info.plist" 2>/dev/null)"
     probe "$out" "$side" prime 10 0 || rc=1
+    if [[ "$session" == stress3 ]]; then seed "$out" "$side" || rc=1; fi
   done
   for ((i = 1; i <= runs; i++)); do
     for side in "${sides[@]}"; do
@@ -94,13 +104,16 @@ main() {
   [[ -n "$pids" ]] && kill $pids 2>/dev/null
   python3 -I - "$out/runs.jsonl" <<'PY'
 import json, statistics, sys
+from collections import Counter
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
 for side in dict.fromkeys(r["side"] for r in rows):
-    done = [r for r in rows if r["side"] == side and r["label"] != "prime" and r.get("window_on_screen") is not None]
+    done = [r for r in rows if r["side"] == side and r["label"] not in ("prime", "seed") and r.get("window_on_screen") is not None]
     med = {"n": len(done)}
     for key in ("finished_launching", "window_on_screen", "active", "request_to_start"):
         vals = [r[key] for r in done if r.get(key) is not None]
         med[key] = round(statistics.median(vals), 1) if vals else None
+    # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
+    med["first_reveal"] = dict(sorted(Counter(r.get("first_reveal") or "none" for r in done).items()))
     names = dict.fromkeys(name for r in done for name in r["marks"])
     for key in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
         vals = [r["marks"][key] for r in done if key in r["marks"]]
@@ -118,6 +131,7 @@ probe() {
   trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
+  quiesce "$app" "$side" "$label"
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
       >>"$out/xctrace.log" 2>&1 &
@@ -137,4 +151,47 @@ probe() {
   [[ "$line" != *'"error"'* ]]
 }
 
-main "$@"; exit $?
+# seed OUT SIDE: one more launch of SIDE's copy with SIDE's home, in which launch-ready-seed.py makes the stress3
+# session and quits with Keep Sessions. The probe ends when the app does; its 600 s settle is only a backstop.
+seed() {
+  local out="$1" side="$2" launch status probed
+  rm -f "$out/home-$side/app.sock" # the priming launch's: the seed waits for this launch's own socket
+  probe "$out" "$side" seed 600 0 >"$out/seed-$side.probe" &
+  launch=$!
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$out/home-$side/app.sock" \
+    2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
+  status=${PIPESTATUS[0]}
+  wait "$launch"; probed=$?
+  cat "$out/seed-$side.probe"
+  [[ "$status" == 0 && "$probed" == 0 ]]
+}
+
+# quiesce APP SIDE LABEL: before a launch, wait until no process of APP's previous run is left (the app and its
+# Chromium helpers: anything running from APP/Contents/MacOS or APP/Contents/Frameworks), at most 60 s, then 2 s
+# more. The probe returns once the app's own pid exits; without this wait the next launch started while that copy's
+# helpers were still tearing down, and every number counted it. The daemons in Contents/Resources/bin are left
+# alone: a quit keeps them by design, so a person's relaunch finds them running too. Prints LR-SETTLE.
+quiesce() {
+  local app="$1" side="$2" label="$3" started now left waited
+  started="$(python3 -I -c 'import time; print(int(time.time() * 1000))')"
+  while :; do
+    left="$(quiesce_left "$app")"
+    now="$(python3 -I -c 'import time; print(int(time.time() * 1000))')"
+    waited=$((now - started))
+    [[ "$left" == 0 || "$waited" -ge 60000 ]] && break
+    sleep 0.1
+  done
+  sleep 2
+  echo "LR-SETTLE $side $label waited_ms=$waited left=$left settle_s=2"
+}
+
+# quiesce_left APP: how many processes run from APP/Contents/MacOS or APP/Contents/Frameworks. The paths reach awk
+# through its environment (in its arguments, awk would match its own command line), so the prefix goes on awk: on
+# ps, awk read empty strings, macOS awk's index($0, "") matched every line, and each launch waited the full 60 s.
+quiesce_left() {
+  ps -axo command= | LR_MACOS="$1/Contents/MacOS/" LR_FRAMEWORKS="$1/Contents/Frameworks/" \
+    awk 'index($0, ENVIRON["LR_MACOS"]) || index($0, ENVIRON["LR_FRAMEWORKS"]) { n++ } END { print n + 0 }'
+}
+
+# Sourced (tests/launch-ready-quiesce.test.sh), it only defines its functions.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; exit $?; fi

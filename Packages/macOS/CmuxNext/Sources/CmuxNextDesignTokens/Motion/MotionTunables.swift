@@ -100,7 +100,7 @@ public nonisolated enum MotionTunables {
         .lift: (MotionScale.micro, "Sidebar drag lift shadow."),
         .theme: (MotionScale.micro, "Room, workspace or terminal theme switch."),
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
-        .launch: (MotionScale.large, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
+        .launch: (MotionScale.large, "Launch mark resolving on the glass (scaled by the animation speed; 300 ms at most)."),
         .clickPulse: (MotionScale.large, "Agent cursor click ripple grows and fades (cmux-cua timing, 250 ms there)."),
         .cursorHide: (MotionScale.large, "Agent cursor fades out once its agent goes idle."),
         .hibernateIcon: (MotionScale.large, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),

@@ -106,18 +106,21 @@ It changes only what is drawn. Your `appearance.*` values and workspace and pane
 
 ## `appearance.fontSmoothing`
 
-How heavy cmux's own text draws: tab titles, the sidebar, the command palette, menus, toasts, dialogs and every other native control.
+How text draws in cmux's own controls (tab titles, the sidebar, the command palette, menus, toasts, dialogs) and in its web pages (chat, Settings, New Tab). It follows the CSS `-webkit-font-smoothing` values.
 
 ```json
 {
-  "appearance": { "fontSmoothing": "system" }
+  "appearance": { "fontSmoothing": "auto" }
 }
 ```
 
-- `"antialiased"` (default): thin strokes with no font smoothing, the look of `-webkit-font-smoothing: antialiased`. Native text then matches cmux's chat, New Tab and the web pages beside it.
-- `"system"`: the Mac's own font smoothing (stem darkening), which draws strokes a little heavier, more so for light text on a dark background. If you turned font smoothing off for every app (`defaults -currentHost write -g AppleFontSmoothing -int 0`), that choice applies.
+- `"auto"` (default): no override. Native controls use the Mac's own font smoothing (or none, if you turned it off for every app with `defaults -currentHost write -g AppleFontSmoothing -int 0`), and each web page keeps its own CSS. This is the look cmux had before the setting existed.
+- `"antialiased"`: thin, grayscale strokes everywhere, the look of `-webkit-font-smoothing: antialiased`. Small or dim text gets lighter: about 15% less ink for dark text on light, about 27% less for light text on dark, more so on a 1x display.
+- `"subpixel"`: the heavier macOS font smoothing everywhere, the look of `-webkit-font-smoothing: subpixel-antialiased`, even if smoothing is off for every app.
 
-It takes effect after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Web pages keep their own CSS. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing system`.
+`"system"`, the earlier name, still reads as `"auto"`.
+
+Web pages change at once. Native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
 
 ## `app.windowTitleTemplate`
 
