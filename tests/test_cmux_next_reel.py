@@ -159,6 +159,32 @@ class BuildTests(unittest.TestCase):
         self.assertIn("refused URL", refused[55])
         self.assertNotIn('href="file:', page)
 
+    def test_a_narrow_clip_fills_the_frame_at_2x(self):
+        # Leo, 2026-11-16: "the video being so narrow resolution at some points". A tall red clip used to
+        # sit in the middle of white bars at 1280x800; now it is on its own blurred copy at 2560x1600.
+        notes = {"build": "100", "items": [{"title": "Narrow", "author": "Ada", "pr": 11}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                            "color=c=red:size=200x600:rate=10:duration=1", "-pix_fmt", "yuv420p",
+                            str(tmp / "narrow.mp4")], check=True)
+            out = tmp / "out"
+            done = reel("--build", "100", "--notes", str(write(tmp / "notes.json", notes)),
+                        "--clips", str(write(tmp / "clips.json", {"11": str(tmp / "narrow.mp4")})),
+                        "--out", str(out), "--allow-unsigned")
+            self.assertEqual(done.returncode, 0, done.stderr)
+            size = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                   "stream=width,height", "-of", "csv=p=0", str(out / "reel.mp4")],
+                                  capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(size, "2560,1600")
+            # One pixel at the left edge, half a second into the clip (after the 1.5 s card).
+            pixel = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", "2", "-i", str(out / "reel.mp4"),
+                                    "-frames:v", "1", "-vf", "format=rgb24,crop=2:2:4:800", "-f", "rawvideo",
+                                    "-"], capture_output=True, check=True).stdout
+        red, green, blue = pixel[:3]
+        self.assertGreater(red, 100, pixel)
+        self.assertLess(max(green, blue), 80, pixel)
+
 
 # gh: every read is a 404 (nothing published yet); every contents PUT is logged
 # with its body and succeeds. Nothing reaches GitHub.
