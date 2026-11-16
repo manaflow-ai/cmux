@@ -8,7 +8,7 @@ const TOKEN: &[u8] = b"sk-ant-oat01-abcdefghijklmnopqrstuvwxyz0123456789";
 const STAGING: &str = "7C0F6B2E-1F4B-4E8E-9A54-2A8C3D1E5F60";
 const PATH: &str = "/home/cmux/.cmux/credential-transfer/7C0F6B2E-1F4B-4E8E-9A54-2A8C3D1E5F60.json";
 
-fn copy(provider: Provider) -> Verdict {
+fn copy(provider: Provider) -> Request {
     Request {
         provider,
         machine_id: "vm-1".into(),
