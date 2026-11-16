@@ -706,6 +706,9 @@ export function rdStartScript(
     `[ -S ${sq(x11)} ] || drain "display ${AGENT_DISPLAY} is not running"`,
     `[ -s ${sq(xauthority)} ] || drain "no copy of the display cookie at ${xauthority}"`,
     `[ -e ${sq(marker)} ] || drain "OpenH264 is not installed (${RD_OPENH264_UNIT} failed; the next connection tries again)"`,
+    // The host streams whatever the display shows; when the desktop session never puts a window on it,
+    // the host's own journal says so at error level (the check's stderr), next to the session unit's failure.
+    `( XAUTHORITY=${sq(xauthority)} DISPLAY=${AGENT_DISPLAY} ${DESKTOP_CHECK_SCRIPT} --wait ${DESKTOP_CHECK_SECONDS + 10} >/dev/null || echo "<3>cmux-rd-start: display ${AGENT_DISPLAY} has no windows; the viewer sees a black screen (systemctl status ${DESKTOP_SESSION_UNIT})" >&2 ) &`,
     `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun ${RD_LINK_STUN}`,
     "",
   ].join("\n");

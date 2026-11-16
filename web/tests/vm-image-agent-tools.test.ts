@@ -178,7 +178,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     // The desktop session's closure, pinned from the lock like the browser's.
     const wm = phases.find((p) => p.name === "agent-tools-display-wm-apt-install")!.command;
     for (const [name, version] of Object.entries(lock.apt.ubuntu.firstUse["display-wm"])) expect(wm).toContain(`'${name}=${version}'`);
-    expect(lock.roles["display-wm"].apt).toEqual(["openbox", "xterm", "x11-utils"]);
+    expect(lock.roles["display-wm"].apt).toEqual(["openbox", "xterm"]);
     for (const phase of phases) await bashSyntax(phase.command);
     await bashSyntax(staticCheckCommand());
   });
@@ -434,6 +434,10 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(setup).toContain(`/etc/systemd/system/${DESKTOP_SESSION_UNIT}`);
     expect(setup).toContain("command -v openbox >/dev/null && command -v xterm >/dev/null");
     expect(setup).toContain(`! systemctl is-active --quiet ${DESKTOP_SESSION_UNIT}`);
+    // The host's start also checks, in the background, and names a black display in its own journal.
+    const start = rdStartScript("/store/cmux-rd");
+    expect(start).toContain(`DISPLAY=:99 ${DESKTOP_CHECK_SCRIPT} --wait ${DESKTOP_CHECK_SECONDS + 10} >/dev/null || echo "<3>cmux-rd-start: display :99 has no windows`);
+    expect(start.indexOf(DESKTOP_CHECK_SCRIPT)).toBeLessThan(start.indexOf("exec '/store/cmux-rd' host"));
     const parsed = await runChild("python3", ["-I", "-c", "import ast, sys; ast.parse(sys.stdin.read())"], { input: desktopCheckScript(), timeout: 20_000 });
     expect(parsed.stderr).toBe("");
     expect(parsed.status).toBe(0);
