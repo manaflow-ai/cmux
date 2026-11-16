@@ -144,6 +144,15 @@ pub(super) struct HybridViewer {
     scan: Option<FullScreenScan>,
 }
 
+/// What a viewer declared: the lean frames (`agent-cli-hybrid-v2`), the shell adapter for
+/// this terminal, and [`TERMINAL_SHELL_LINES_CAPABILITY`] (its input modes as bytes).
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Wants {
+    pub(super) lean: bool,
+    pub(super) shell: bool,
+    pub(super) lines: bool,
+}
+
 impl HybridViewer {
     /// The viewer of a terminal of `cols` x `rows` whose screen `replay` rebuilds, and its
     /// first `agent-cli-frame`: a keyframe, or a delta from the frame `resume` names when its
@@ -155,10 +164,9 @@ impl HybridViewer {
         rows: u16,
         replay: &[u8],
         resume: Option<(String, u64)>,
-        lean: bool,
-        shell: bool,
-        lines: bool,
+        wants: Wants,
     ) -> anyhow::Result<(HybridViewer, Option<Value>)> {
+        let Wants { lean, shell, lines } = wants;
         let term = shadow(cols, rows, replay)?;
         let render = ghostty_vt::RenderState::new()?;
         let kept = resume.as_ref().and_then(|(id, _)| {
@@ -515,7 +523,7 @@ mod tests {
     #[test]
     fn a_left_stream_resumes_from_its_frame_and_another_size_starts_over() {
         let (mut viewer, first) =
-            HybridViewer::start(7, 20, 4, b"hello", None, false, false, false).unwrap();
+            HybridViewer::start(7, 20, 4, b"hello", None, Wants::default()).unwrap();
         let first = first.unwrap();
         assert_eq!(first["base"], Value::Null);
         let id = first["stream"].as_str().unwrap().to_owned();
@@ -532,9 +540,7 @@ mod tests {
             4,
             b"hello\r\nworld!",
             Some((id.clone(), applied)),
-            false,
-            false,
-            false,
+            Wants::default(),
         )
         .unwrap();
         let resumed = resumed.unwrap();
@@ -542,8 +548,7 @@ mod tests {
         assert_eq!(resumed["base"].as_u64(), Some(applied));
         drop(_viewer);
         let (_viewer, other) =
-            HybridViewer::start(7, 30, 4, b"hello", Some((id, applied)), false, false, false)
-                .unwrap();
+            HybridViewer::start(7, 30, 4, b"hello", Some((id, applied)), Wants::default()).unwrap();
         assert_eq!(other.unwrap()["base"], Value::Null);
     }
 }
