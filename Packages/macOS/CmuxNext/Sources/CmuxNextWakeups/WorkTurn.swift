@@ -47,6 +47,9 @@ public final class WorkTurn<Result: Sendable>: Sendable {
 @MainActor
 public final class WorkLine<Result: Sendable> {
     private var last: Task<Result, Never>?
+    /// How many works of this line found, at their turn, the thing they act on hidden with no end of what hid it (a new
+    /// tab's move whose tab a close hid, and the close has not settled). A test reads it; no code of the app does.
+    public private(set) var targetsHiddenAtTheirTurn = 0
 
     public init() {}
 
@@ -57,4 +60,7 @@ public final class WorkLine<Result: Sendable> {
         last = turn.place
         return turn
     }
+
+    /// A work of this line found its thing hidden at its turn (``targetsHiddenAtTheirTurn``).
+    public func noteTargetHiddenAtItsTurn() { targetsHiddenAtTheirTurn += 1 }
 }

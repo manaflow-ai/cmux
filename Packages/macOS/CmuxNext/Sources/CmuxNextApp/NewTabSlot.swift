@@ -134,6 +134,8 @@ enum NewTabSlot {
             if !listed() { await ObservationDeadline(owner: "NewTabSlot.listed").until(listed, limit: listLimit) }
             let found = listed()
             _ = await earlier?.value // its own list wait, then its move's reply
+            // The read at the move's turn finds the tab hidden by a close that has not settled: counted, for a test.
+            if found, locate() == nil, let home = pane(), !gone(services.daemon(for: home).store) { services.paneController(for: home)?.placements.noteTargetHiddenAtItsTurn() }
             // A duplicate joins its original's group right after it, in one write that also puts it there.
             if found, let joins, case let (tab, pane)? = locate(), let joined = await TabGroupWrites.join(tab, beside: joins, in: pane, daemon: services.daemon(for: pane)) {
                 if !joined { services.paneController(for: pane)?.resyncStrip() }
