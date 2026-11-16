@@ -556,7 +556,7 @@ fn wait_for_answer(
                     return Err("the host's answer is not signed by its device key".into());
                 }
                 return RdDocument::parse(sdp).ok_or_else(|| {
-                    "the host answered with WebRTC, not cmux.rd/1 (update cmux on the host)".into()
+                    "the host answered with WebRTC, not cmux.rd/1: this viewer needs a host that offers cmux.rd/1".into()
                 });
             }
             Some("bye") => return Err("the host said bye before answering".into()),
