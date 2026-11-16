@@ -425,14 +425,15 @@ export const gridScenes: GridScene[] = [
     level: "fail",
   },
   // HostError.tsx's folder harness card is the shared inline notice (ui/Notice.tsx), on the same
-  // card grid (grid.md 5.6): padding 12, radius 12, its action row 8 under the text.
+  // card grid (grid.md 5.6): padding 12, its action row 8 under the text. Its corner is concentric with
+  // its buttons (ui/notice.css): the button corner plus the card padding, not the card radius.
   {
     ...scene("cards.notice", "agent-pane.host-error", "enable", ".acpmux-host-error .ui-notice", [
       value("edge: padding", ":scope", "padding", token("cards-padding")),
       value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
       value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
       from("action row", ".ui-notice-actions > :first-child", "top", point(".ui-notice-text", "bottom"), token("gap")),
-      value("radius", ":scope", "radius", token("cards-radius")),
+      value("radius", ":scope", "radius", `calc(var(--ds-radius-control) + ${token("cards-padding")})`),
     ]),
     level: "fail" as const,
   },
