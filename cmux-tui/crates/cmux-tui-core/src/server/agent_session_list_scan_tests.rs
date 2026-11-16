@@ -22,15 +22,31 @@ const TUI_CORE_V1_LIST_USES: &[Named<'static>] = &[
         2,
         "`call_whole_list`, the v1 fallbacks' pager: each page after the first, and its check",
     ),
-    ("cmux-tui-core/src/server/agent_session_children.rs", "\"_acpmux/sessions\"", 1, "7c (b)"),
-    ("cmux-tui-core/src/server/agent_session_stream.rs", "\"_acpmux/sessions\"", 1, "7c (b)"),
+    (
+        "cmux-tui-core/src/server/agent_session_children.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "the children verb's fallback (7c part two)",
+    ),
+    (
+        "cmux-tui-core/src/server/agent_session_stream.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "the attach's descendants, its fallback (7c part two)",
+    ),
     (
         "cmux-tui-core/src/server/agent_session_stream.rs",
         "\"_acpmux/watch\"",
-        2,
-        "7c (c): the attach's push, a follow of `live` (decision 248)",
+        3,
+        "7c (c): the attach's push, a follow of `live` (decision 248); one is the v2 path's \
+         one-row switch until then",
     ),
-    ("cmux-tui-core/src/server/chief_work.rs", "\"_acpmux/sessions\"", 1, "7c (b): chief-work"),
+    (
+        "cmux-tui-core/src/server/chief_work.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "chief-work's fallback (7c part two)",
+    ),
     (
         "cmux-tui-core/src/mux/agent_chat_notices.rs",
         "\"_acpmux/sessions\"",

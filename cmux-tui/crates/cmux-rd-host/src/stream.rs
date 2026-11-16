@@ -90,18 +90,23 @@ pub struct MediaSession {
 /// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
 /// since the last frame; `release_us`, when the gate let the encode start; `encoded_us`, when the
-/// encode ended. All on the protocol clock in µs.
+/// encode ended; `sent_us`, when its last datagram was handed to the carrier. Every injected
+/// input also gets a line of its own, `{"inject_us", "recv_us"}` (`recv_us`: when the datagram
+/// that carried it was read), so a remote viewer's key press can be matched to its injection
+/// (`scripts/screen-share-vs.py`). All on the protocol clock in µs.
 struct Timing {
     out: std::fs::File,
     input_us: Option<u64>,
     damage_us: Option<u64>,
+    /// When the datagram being handled now was read.
+    recv_us: Option<u64>,
 }
 
 impl Timing {
     fn from_env() -> Option<Self> {
         let path = std::env::var_os("CMUX_RD_TIMING_LOG")?;
         match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-            Ok(out) => Some(Self { out, input_us: None, damage_us: None }),
+            Ok(out) => Some(Self { out, input_us: None, damage_us: None, recv_us: None }),
             Err(e) => {
                 eprintln!("cmux-rd host: CMUX_RD_TIMING_LOG {}: {e}", path.to_string_lossy());
                 None
@@ -114,6 +119,7 @@ impl Timing {
         shown: Option<(u64, u64)>,
         release_us: u64,
         encoded_us: u64,
+        sent_us: u64,
         encoded_bytes: usize,
         idr: bool,
     ) {
@@ -125,9 +131,25 @@ impl Timing {
             "damage_us": self.damage_us.take(),
             "release_us": release_us,
             "encoded_us": encoded_us,
+            "sent_us": sent_us,
             "encoded_bytes": encoded_bytes,
             "idr": idr,
         });
+        let _ = writeln!(self.out, "{line}");
+    }
+
+    /// The session opened its capture and encoder: asked at `open_us`, ready at `ready_us`.
+    fn opened(&mut self, open_us: u64, ready_us: u64) {
+        use std::io::Write;
+        let line = serde_json::json!({ "open_us": open_us, "desktop_ready_us": ready_us });
+        let _ = writeln!(self.out, "{line}");
+    }
+
+    /// An input was injected at `inject_us`.
+    fn injected(&mut self, inject_us: u64) {
+        use std::io::Write;
+        self.input_us = Some(inject_us);
+        let line = serde_json::json!({ "inject_us": inject_us, "recv_us": self.recv_us });
         let _ = writeln!(self.out, "{line}");
     }
 }
@@ -176,8 +198,15 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
+        let open_us = now_us();
         let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
-        Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)
+        let ready_us = now_us();
+        let mut session =
+            Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;
+        if let Some(timing) = session.timing.as_mut() {
+            timing.opened(open_us, ready_us);
+        }
+        Ok(session)
     }
 
     /// A session on an opened desktop (tests use a fake one).
@@ -416,10 +445,11 @@ impl MediaSession {
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
-        if let Some(timing) = self.timing.as_mut() {
-            let (shown, len) = (frame.picked_times, frame.access_unit.len());
-            timing.frame(shown, frame.t_capture_us, frame.encoded_us, len, frame.idr);
-        }
+        // Logged after the send, with the send time (`sent_us`).
+        let logged = self.timing.is_some().then(|| {
+            let len = frame.access_unit.len();
+            (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, frame.idr)
+        });
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
@@ -437,6 +467,11 @@ impl MediaSession {
         }
         for datagram in &out.datagrams {
             carrier.send_datagram(datagram)?;
+        }
+        if let (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) =
+            (self.timing.as_mut(), logged)
+        {
+            timing.frame(shown, t_capture_us, encoded_us, now_us(), len, idr);
         }
         Ok(())
     }
@@ -475,8 +510,15 @@ impl MediaSession {
         viewer: &Principal,
     ) {
         let may_inject = table.may_inject_input(session, viewer);
-        let out = self.engine.on_datagram(datagram, may_inject, now_us());
+        let now = now_us();
+        if let Some(timing) = self.timing.as_mut() {
+            timing.recv_us = Some(now);
+        }
+        let out = self.engine.on_datagram(datagram, may_inject, now);
         self.apply(carrier, out, table, session, viewer);
+        if let Some(timing) = self.timing.as_mut() {
+            timing.recv_us = None;
+        }
     }
 
     fn inject(
@@ -496,7 +538,7 @@ impl MediaSession {
             eprintln!("inject failed: {e}");
         }
         if let Some(timing) = self.timing.as_mut() {
-            timing.input_us = Some(now_us());
+            timing.injected(now_us());
         }
     }
 
