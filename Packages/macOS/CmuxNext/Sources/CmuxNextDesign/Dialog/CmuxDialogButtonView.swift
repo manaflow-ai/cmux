@@ -14,6 +14,8 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// ``CmuxDialogSpec/Layout/safeDefault`` dialog.
     public let isQuiet: Bool
     private var isHovering = false { didSet { refresh() } }
+    /// Whether the title shows the key hint at all (a keyed button whose style shows no key for its role does not).
+    private let drawsHint: Bool
     private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
     /// The keyboard focus ring, just outside the button.
@@ -23,6 +25,11 @@ public final class CmuxDialogButtonView: ClickableButton {
     private let focusGap = CALayer()
     /// The key drawn on a plate at the trailing end (a cmux dialog's card), instead of as text after the title.
     private let keycapView: CmuxDialogKeycapView?
+    /// How a keyed button draws its key (``CmuxDialogKeycapStyle``): today's plate unless the Keycap Playground
+    /// shows another.
+    let keycapStyle: CmuxDialogKeycapStyle
+    /// Draws the button in this state whatever the pointer does (the Keycap Playground's hover and pressed rows).
+    var previewState: CmuxDialogButtonLook.State? { didSet { refresh() } }
     /// The button's corner: rounder with a keycap, so the plate inside keeps one inset all round.
     private var cornerRadius: CGFloat {
         keycapView == nil ? CmuxDialogMetrics.buttonCornerRadius : CmuxDialogMetrics.keycapButtonCornerRadius
@@ -32,12 +39,21 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// answers it (the overlay page's dialog through ``CmuxDialogKeys``), so pass the hint that
     /// ``CmuxDialogKeys/hint(for:in:)`` gives for the host's spec. `keycap` draws the hint on a plate at the
     /// button's trailing end (the cmux dialog card, ``CmuxDialogView``), on a taller, rounder button.
-    public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, keycap: Bool = false,
-                target: AnyObject?, action: Selector) {
+    public convenience init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, keycap: Bool = false,
+                            target: AnyObject?, action: Selector) {
+        self.init(button, hint: hint, quiet: quiet, keycap: keycap, keycapStyle: .plate, target: target, action: action)
+    }
+
+    /// A keyed button drawing its key in `keycapStyle` (the Keycap Playground); a style that shows no key for this
+    /// button's role (``CmuxDialogKeycapStyle/showsKey(for:)``) draws the title alone.
+    init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, keycap: Bool,
+         keycapStyle: CmuxDialogKeycapStyle, target: AnyObject?, action: Selector) {
         self.button = button
         keyHint = hint
         isQuiet = quiet
-        keycapView = keycap ? hint.map { CmuxDialogKeycapView($0.glyph) } : nil
+        self.keycapStyle = keycapStyle
+        drawsHint = !keycap || keycapStyle.showsKey(for: button.role)
+        keycapView = keycap && keycapStyle.showsKey(for: button.role) ? hint.map { CmuxDialogKeycapView($0.glyph, style: keycapStyle) } : nil
         super.init(frame: .zero)
         if let keycapView {
             keycapView.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.keycap.\(button.id)")
@@ -154,10 +170,10 @@ public final class CmuxDialogButtonView: ClickableButton {
         focusGap.cornerRadius = cornerRadius + gap
         CATransaction.commit()
         if let keycapView {
-            let inset = CmuxDialogMetrics.keycapInset
-            let height = max(0, bounds.height - inset * 2)
+            let height = keycapView.height(inButton: bounds.height)
             let width = keycapView.width(forHeight: height)
-            keycapView.frame = NSRect(x: bounds.maxX - inset - width, y: inset, width: width, height: height)
+            keycapView.frame = NSRect(x: bounds.maxX - keycapStyle.trailing - width, y: (bounds.height - height) / 2,
+                                      width: width, height: height)
         }
     }
 
@@ -191,7 +207,7 @@ public final class CmuxDialogButtonView: ClickableButton {
 
     /// The look this button draws now (its role, hover and press, in its theme scope).
     var look: CmuxDialogButtonLook {
-        let state: CmuxDialogButtonLook.State = isHighlighted ? .pressed : isHovering ? .hover : .rest
+        let state: CmuxDialogButtonLook.State = previewState ?? (isHighlighted ? .pressed : isHovering ? .hover : .rest)
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             return CmuxDialogButtonLook(role: button.role, tokens: tokens, state: state, quiet: isQuiet,
@@ -227,7 +243,7 @@ public final class CmuxDialogButtonView: ClickableButton {
                 needsLayout = true
                 return
             }
-            attributedTitle = keyHint?.attributedTitle(button.title, font: font, color: look.title.nsColor, hintColor: look.keyHint.nsColor)
+            attributedTitle = (drawsHint ? keyHint : nil)?.attributedTitle(button.title, font: font, color: look.title.nsColor, hintColor: look.keyHint.nsColor)
                 ?? NSAttributedString(string: button.title, attributes: [.foregroundColor: look.title.nsColor, .font: font])
         }
         invalidateIntrinsicContentSize()
@@ -238,9 +254,8 @@ extension CmuxDialogButtonView {
     /// The room after the title for the gap and the keycap, less the leading inset: the title and this room,
     /// centered in the button, leave the leading inset before the title and the keycap's inset after the plate.
     fileprivate func keycapRoom(_ keycap: CmuxDialogKeycapView) -> CGFloat {
-        let height = CmuxDialogMetrics.keycapButtonHeight - CmuxDialogMetrics.keycapInset * 2
-        return max(0, CmuxDialogMetrics.keycapGap + keycap.width(forHeight: height) + CmuxDialogMetrics.keycapInset
-            - CmuxDialogMetrics.keycapLeading)
+        let height = keycap.height(inButton: CmuxDialogMetrics.keycapButtonHeight)
+        return max(0, keycap.style.gap + keycap.width(forHeight: height) + keycap.style.trailing - CmuxDialogMetrics.keycapLeading)
     }
 }
 

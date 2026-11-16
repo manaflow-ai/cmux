@@ -225,6 +225,7 @@ import {
   FOLLOW_BOTTOM_DEADBAND_PX,
   SCROLL_ANCHOR_SETTLE_MS,
 } from "./virtualTranscriptModel";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// How soon after the box's last width a new one counts as the same live resize (a drag's frames come
 /// every 8 to 17 ms; a window's or a strip's one-off change never has a second within it), and how
@@ -1060,6 +1061,9 @@ const FIRST_SEND_FRESH_MS = 2000;
 /// reader reached rows that were not loaded yet, so the page fades in. Pages ask well ahead
 /// (OLDER_AHEAD_VIEWPORTS), so a page normally lands farther away and draws in place.
 const OLDER_LATE_VIEWPORTS = 1;
+/// Loaded rows at least this many views tall keep the older-history room while the reader waits at
+/// their top (`giveRoomNearTop`); a shorter tail gives it up, so a scroll up is never pushed back down.
+const OLDER_KEEP_ROOM_VIEWPORTS = 3;
 
 /// Whether the reader's view is at the top of the loaded rows, read before a page lands above them.
 /// A hidden or unplaced scroller draws in place (WebKit would play a hidden page's fade on return).
@@ -4329,7 +4333,7 @@ function TranscriptView({
       if (!node) return;
       const mounted = [...node.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
       if (mounted) {
-        mounted.focus();
+        focusRoute(mounted, "system", "a transcript row mounted");
         pendingFocus.current = undefined;
         return;
       }
@@ -4355,7 +4359,7 @@ function TranscriptView({
     );
     if (target) {
       // focusRow already put the row in view; End's last row is in view at the end of its ride.
-      target.focus({ preventScroll: true });
+      focusRoute(target, "system", "the transcript's pending focus", { preventScroll: true });
       pendingFocus.current = undefined;
     }
   }, [range, effectiveActiveRowId]);
@@ -4385,7 +4389,7 @@ function TranscriptView({
           const mounted = [...(ref.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])].find(
             (row) => row.dataset.rowId === lastId,
           );
-          if (mounted) mounted.focus({ preventScroll: true });
+          if (mounted) focusRoute(mounted, "system", "the transcript's pending focus", { preventScroll: true });
           else pendingFocus.current = lastId;
         }
         jumpToLatestRef.current(false, "end-key");
@@ -5523,14 +5527,23 @@ function TranscriptView({
   const anchorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
-  /// Lets the room above the loaded rows go when the view is within a viewport of their top with no
-  /// page there yet (`roomGone` above). Runs after each placement and on every scroll event.
+  /// Lets the room above the loaded rows go when they are a tail shorter than the view and the view is
+  /// within a viewport of their top with no page there yet (`roomGone` above). Runs after each
+  /// placement and on every scroll event.
+  ///
+  /// Rows that fill the view keep the room: the reader stops at the loaded rows' top (`handleScroll`)
+  /// until the page lands into it. Given up there, the room went at every page the reader caught up
+  /// with and came back whole, the chat's estimated height, when the next page landed: the thumb leapt
+  /// from the top to the bottom and back once a page, and the row on screen jumped by up to a viewport
+  /// as the room came back (Leo, 2026-11-15: "this is super wack the way we're scrolling up
+  /// infinitely :("; test/transcript-older-pages-anchor.test.ts).
   const giveRoomNearTop = () => {
     const node = ref.current;
     const room = layout.origin ?? 0;
     const first = rows[0];
     if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
     if (userScrollIntent(node).isScrollbarDragging()) return;
+    if (node.scrollHeight - room >= node.clientHeight * OLDER_KEEP_ROOM_VIEWPORTS) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
     // A tail shorter than the view keeps its place at the view's foot: the room left is what lies
     // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
@@ -5799,11 +5812,15 @@ function TranscriptView({
     const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
     const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
     if (room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging()) {
+      // Only a pointer held on the scroller (a thumb drag the scrollbar check missed) keeps its target
+      // for the page to bring into reach. A wheel's step into the room is given back here and stays
+      // given back: kept, it was replayed in one frame when the page landed, and the row being read
+      // leapt by that step on top of the wheel's own (test/transcript-older-pages-anchor.test.ts).
       olderScrollTarget.current = noteOlderScrollTarget(
         olderScrollTarget.current,
         layoutScrollTop(node),
         room,
-        userScrollIntent(node).isHeld(),
+        userScrollIntent(node).isPressed(),
       );
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
@@ -6598,12 +6615,14 @@ function TranscriptView({
     olderAsking.current = true;
     const ask = ++olderAsk.current;
     const askedAt = performance.now();
+    window.__cmuxOlderTrace?.("ask", askedAt, ask);
     // A page that lands changes the key in the commit it brings, and the check after it asks for
     // the next. An ask that brought nothing (a read that failed, or one the client dropped) leaves
     // the key as it was: ask once more a moment later, as long as the view is still near the top.
     // At the very top no scroll event comes to ask for it, and a check on every render would ask
     // on every streamed chunk (Leo 2026-10-21: a 720-turn chat stopped paging for good).
     const settled = () => {
+      window.__cmuxOlderTrace?.("settled", performance.now(), ask);
       if (ask !== olderAsk.current) return;
       olderAsking.current = false;
       clearTimeout(olderRecheck.current);
@@ -6643,6 +6662,8 @@ function TranscriptView({
   // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    // Held at the loaded rows' top, a wheel up moves nothing: the reader is still scrolling up (`rising`).
+    if (event.deltaY < 0) olderAhead.wheeledUp(performance.now());
     const loadedTop = layout.origin ?? 0;
     if (event.deltaY >= 0 || layoutScrollTop(event.currentTarget) > loadedTop + 0.5 || olderAsking.current) return;
     olderLoadRequested.current = undefined;

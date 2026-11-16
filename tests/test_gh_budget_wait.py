@@ -53,6 +53,8 @@ if [ "$1 $2" = "api rate_limit" ]; then
   if [ "${4:-}" = ".resources.core.remaining" ]; then echo "${CORE_LEFT:-5000}"; else echo 0; fi
   exit 0
 fi
+# A call on the spare token (GH_TOKEN equal to $SPARE) has its own limit: never refused.
+if [ -n "${SPARE:-}" ] && [ "${GH_TOKEN:-}" = "$SPARE" ]; then echo "spare call $*" >> "$state/log"; echo "ok $*"; exit 0; fi
 echo "call $*" >> "$state/log"
 left="$(cat "$state/refusals" 2>/dev/null || echo 0)"
 if [ "$left" -gt 0 ]; then
@@ -156,6 +158,30 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result)
         self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240", "300", "300"])
         self.assertEqual(h.waited(), 1020)
+
+    def test_a_refusal_moves_to_the_spare_token_at_once(self) -> None:
+        # Run 43797999732's image roll dispatch: "HTTP 403: API rate limit exceeded for installation" on
+        # github.token, whose budget every workflow shares; the cmux-bot App's token has its own.
+        h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="0", GH_TOKEN="workflow", SPARE="bot",
+                         GH_TOKEN_SPARE="bot")
+        result = h.gh("workflow", "run", "cloud-vm-image-roll.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run cloud-vm-image-roll.yml",
+                                     "spare call workflow run cloud-vm-image-roll.yml"])
+        self.assertIn("the next try goes out on GH_TOKEN_SPARE now", result.stderr)
+        self.assertEqual(h.waited(), 0)
+
+    def test_a_refused_spare_token_waits_as_before(self) -> None:
+        h = self.harness(refusals=2, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="bot")
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call api x", "call api x", "rate_limit", "call api x"])
+        self.assertEqual(h.waited(), 1)
+
+    def test_no_spare_token_waits_as_before(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="")
+        self.assertEqual(h.gh("api", "x").returncode, 0)
+        self.assertEqual(h.calls(), ["call api x", "rate_limit", "call api x"])
 
     def test_a_429_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")

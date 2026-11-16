@@ -267,12 +267,13 @@ fn default_start_kbps(
 }
 
 /// Whether a session with the setup line's `scope` (`view` or `control`) starts view only
-/// with `capture`: a capture that applies no input (the Wayland portal) is view only, so the
-/// viewer is told view, not a control session whose input is dropped.
-fn view_only_for(scope: &str, capture: CaptureBackend) -> Res<bool> {
+/// when its capture does or does not apply input: one that applies none (the Wayland portal
+/// without a RemoteDesktop grant) is view only, so the viewer is told view, not a control
+/// session whose input is dropped.
+fn view_only_for(scope: &str, applies_input: bool) -> Res<bool> {
     match scope {
         "view" => Ok(true),
-        "control" => Ok(!capture.applies_input()),
+        "control" => Ok(!applies_input),
         other => Err(format!("scope {other}: use view or control").into()),
     }
 }
@@ -303,13 +304,13 @@ pub fn run(opts: &Opts) -> Res<()> {
         })
     }));
     let capture = CaptureBackend::from_env(setup.capture.as_deref().or(opts.get("capture")))?;
-    let view_only = view_only_for(&setup.scope, capture)?;
+    let view_only = view_only_for(&setup.scope, capture.applies_input())?;
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::mac::capture::displays() {
+    match crate::desktop::displays() {
         Ok((sizes, current)) => {
             say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
         }
@@ -328,7 +329,10 @@ pub fn run(opts: &Opts) -> Res<()> {
         local: keys,
         expected_remote: peer_key,
         stun,
-        bind: "0.0.0.0:0".parse()?,
+        // `--link-bind IP:PORT` (measurement only): the link's UDP socket on one interface's
+        // address, so a Mac with Ethernet and Wi-Fi on one subnet sends from Wi-Fi when asked
+        // (scripts/screen-share-vs.py --link wifi). The app never passes it.
+        bind: opts.str_or("link-bind", "0.0.0.0:0").parse()?,
         turn: crate::carrier::turn_servers(&setup.turn),
         relay_only: setup.relay_only,
     })?;
@@ -525,13 +529,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn portal_sessions_are_view_only_whatever_the_scope() {
-        // The portal backend drops input: a control session there would not be one.
-        assert!(view_only_for("view", CaptureBackend::X11).unwrap());
-        assert!(!view_only_for("control", CaptureBackend::X11).unwrap());
-        assert!(view_only_for("view", CaptureBackend::Portal).unwrap());
-        assert!(view_only_for("control", CaptureBackend::Portal).unwrap());
-        assert!(view_only_for("full", CaptureBackend::X11).is_err());
+    fn portal_sessions_control_only_with_a_remote_desktop_grant() {
+        // Without the grant the portal drops input: a control session there would not be one.
+        let x11 = CaptureBackend::X11.applies_input_with(false);
+        assert!(view_only_for("view", x11).unwrap());
+        assert!(!view_only_for("control", x11).unwrap());
+        let portal = CaptureBackend::Portal.applies_input_with(false);
+        assert!(view_only_for("view", portal).unwrap());
+        assert!(view_only_for("control", portal).unwrap());
+        let granted = CaptureBackend::Portal.applies_input_with(true);
+        assert!(view_only_for("view", granted).unwrap());
+        assert!(!view_only_for("control", granted).unwrap());
+        assert!(view_only_for("full", x11).is_err());
     }
 
     #[test]

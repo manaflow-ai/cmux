@@ -2,16 +2,15 @@ package import AppKit
 
 /// Hosts the presenter's layer at the image rect (1:1 device pixels, padded
 /// or clipped, never scaled; `RemoteViewGeometry`) and the remote cursor
-/// overlay for view mode. Flipped, like stream pixels.
+/// overlay (`RemoteCursorPresentation`: where the remote cursor differs from
+/// the local pointer). Flipped, like stream pixels.
 package final class RemoteVideoView: NSView {
     private(set) var presenter: (any RemoteFramePresenter)?
     package private(set) var framePixels: CGSize = .zero
     private let cursorLayer = CALayer()
     private var cursor: RemoteCursorState?
-    /// Draws the remote cursor (view mode only; control mode shows the local one).
-    var showsRemoteCursor = false {
-        didSet { if showsRemoteCursor != oldValue { needsLayout = true } }
-    }
+    /// Whether the overlay draws the remote cursor (the pane's presentation decision).
+    private(set) var drawsCursorOverlay = false
     /// How the frame maps onto the pane (`.fit` for compatibility sources).
     package var scaling: RemoteViewGeometry.Scaling = .native {
         didSet {
@@ -28,10 +27,18 @@ package final class RemoteVideoView: NSView {
         wantsLayer = true
         layer?.masksToBounds = true
         cursorLayer.actions = RemoteLayerActions.none
-        cursorLayer.contentsGravity = .topLeft
-        cursorLayer.contents = NSCursor.arrow.image
+        cursorLayer.contentsGravity = .resize
+        cursorLayer.magnificationFilter = .linear
+        cursorLayer.minificationFilter = .trilinear
         cursorLayer.isHidden = true
         cursorLayer.zPosition = 1
+        // The shadow the window server draws under every macOS cursor (HIServices cursors/*/info.plist:
+        // black at 0.45, blur 2, 1 pt down), in this view's points, as on a worn remote shape.
+        // Cursor images carry none. Flipped: positive y falls below.
+        cursorLayer.shadowColor = CGColor(gray: 0, alpha: 1)
+        cursorLayer.shadowOpacity = 0.45
+        cursorLayer.shadowRadius = 1
+        cursorLayer.shadowOffset = CGSize(width: 0, height: 1)
         layer?.addSublayer(cursorLayer)
     }
 
@@ -60,9 +67,12 @@ package final class RemoteVideoView: NSView {
         needsLayout = true
     }
 
-    func setRemoteCursor(_ cursor: RemoteCursorState?) {
+    /// The remote cursor and whether the overlay draws it. Moves the layer at once (a
+    /// cursor update must not wait for the next layout pass).
+    func setRemoteCursor(_ cursor: RemoteCursorState?, drawsOverlay: Bool) {
         self.cursor = cursor
-        needsLayout = true
+        drawsCursorOverlay = drawsOverlay
+        placeCursor()
     }
 
     package func setBackground(_ color: NSColor) {
@@ -93,15 +103,34 @@ package final class RemoteVideoView: NSView {
         } else {
             presenter?.layer.isHidden = true
         }
-        if let geometry, showsRemoteCursor, let cursor, cursor.visible {
-            let image = NSCursor.arrow
-            let hotSpot = image.hotSpot
-            let point = geometry.panePoint(forStreamPixel: cursor.position.x, cursor.position.y)
-            cursorLayer.frame = CGRect(origin: CGPoint(x: point.x - hotSpot.x, y: point.y - hotSpot.y), size: image.image.size)
-            cursorLayer.isHidden = false
-        } else {
-            cursorLayer.isHidden = true
-        }
         CATransaction.commit()
+        placeCursor()
+    }
+
+    /// The overlay at the remote position, in the remote shape at the picture's scale
+    /// (the system arrow until a shape arrived).
+    private func placeCursor() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard drawsCursorOverlay, let geometry, let cursor, cursor.visible,
+              geometry.containsStreamPixel(cursor.position.x, cursor.position.y) else {
+            cursorLayer.isHidden = true
+            return
+        }
+        let point = geometry.panePoint(forStreamPixel: cursor.position.x, cursor.position.y)
+        let frame: CGRect
+        if let shape = cursor.shape {
+            let scale = geometry.pointsPerStreamPixel
+            if cursorLayer.contents as AnyObject? !== shape.image { cursorLayer.contents = shape.image }
+            frame = CGRect(x: point.x - shape.hotSpot.x * scale, y: point.y - shape.hotSpot.y * scale,
+                           width: shape.pixelSize.width * scale, height: shape.pixelSize.height * scale)
+        } else {
+            let arrow = NSCursor.arrow
+            if cursorLayer.contents as AnyObject? !== arrow.image { cursorLayer.contents = arrow.image }
+            frame = CGRect(origin: CGPoint(x: point.x - arrow.hotSpot.x, y: point.y - arrow.hotSpot.y), size: arrow.image.size)
+        }
+        cursorLayer.frame = frame
+        cursorLayer.isHidden = false
     }
 }

@@ -56,7 +56,7 @@
       "staleAfterSeconds": 60
     },
     "github.changes": {
-      "docs": "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag).",
+      "docs": "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag). Pushed by github.changed (webhooks); polled every 60 s until that push is live.",
       "scopes": [
         "integration:github:read",
         "net:api.github.com"
@@ -238,9 +238,12 @@
           }
         ]
       },
-      "push": [],
+      "push": [
+        "github.changed"
+      ],
       "pollFloorSeconds": 30,
-      "staleAfterSeconds": 60
+      "staleAfterSeconds": 60,
+      "safetyPollSeconds": 900
     },
     "github.pulls": {
       "docs": "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls.",

@@ -37686,6 +37686,53 @@ Result<AgentCliFrameEvent> Codec<AgentCliFrameEvent>::decode(const Json& value) 
     return result;
 }
 
+Result<Json> Codec<AgentCliLeanEvent>::encode(const AgentCliLeanEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("agent-cli-lean")));
+    auto encoded_f = encode_value(value.f);
+    if (!encoded_f) return std::move(encoded_f).error();
+    object.emplace("f", std::move(encoded_f).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    return Json(std::move(object));
+}
+
+Result<AgentCliLeanEvent> Codec<AgentCliLeanEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    AgentCliLeanEvent result{};
+    const Json* field_f = value.find("f");
+    if (!field_f) {
+        return make_error(ErrorCode::decode, "missing required field 'f'");
+    }
+    if (field_f) {
+        auto decoded = decode_value<Base64>(*field_f);
+        if (!decoded) return std::move(decoded).error();
+        result.f = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("agent-cli-lean"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<AgentInventoryChangedEvent>::encode(const AgentInventoryChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -46085,6 +46132,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "agent-cli-lean") {
+        auto decoded = decode_value<AgentCliLeanEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "agent-inventory-changed") {
         auto decoded = decode_value<AgentInventoryChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -47108,10 +47160,11 @@ constexpr std::array<CommandMetadata, 302> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 95> kEvents{{
+constexpr std::array<EventMetadata, 96> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-cli-frame", 12U, "agent-cli-hybrid-v1", "attach-byte", "emitted"},
+    {"agent-cli-lean", 12U, "agent-cli-hybrid-v2", "attach-byte", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
     {"agent-inventory-watch-ended", 12U, "agent-inventory-watch-v1", "control", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},

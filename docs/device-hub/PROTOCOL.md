@@ -59,7 +59,7 @@ host-signed allow lists are later work.
 ## Records (User DO SQLite)
 
 ```
-devices(id TEXT PK, name, platform 'macos'|'ios', signing_key, agreement_key,
+devices(id TEXT PK, name, platform 'macos'|'ios'|'linux', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
         name_pinned INT 0/1, owner_kind, owner_id)
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,

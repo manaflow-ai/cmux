@@ -39,6 +39,8 @@ main() {
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   echo "NFL host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   if [[ "$dmg" == build ]]; then
+    # build_dmg resolves each side's acpmux with this copy: a base commit may predate resolve-acpmux.sh.
+    cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
     build_ab "$out" "$rounds" "$arms" "$base" "$config"
     return $?
   fi
@@ -75,8 +77,24 @@ build_dmg() {
     fi
     ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$name.log" 2>&1 || { echo "NFL GhosttyKit download failed" >&2; return 3; }
   fi
+  # acpmux before reload.sh, for this commit's tree: a fleet measurement Mac never runs Cargo, and an older commit's
+  # reload.sh stops on a cache miss ("no cached acpmux for this checkout"). The copy taken before any checkout
+  # (NFL_RESOLVE_ACPMUX) also resolves a base commit that predates resolve-acpmux.sh; reload.sh takes the path as given.
+  # One Mac's launch: the app and its acpmux for this Mac's architecture, as a fleet measurement step's reload.sh
+  # already builds it, also when this runs outside one (the published acpmux is arm64 only).
+  export CMUX_RELOAD_NATIVE_ARCH="${CMUX_RELOAD_NATIVE_ARCH:-1}"
+  local resolve="${NFL_RESOLVE_ACPMUX:-$PWD/scripts/cmux-next/resolve-acpmux.sh}" acpmux=() arch=()
+  [[ "$CMUX_RELOAD_NATIVE_ARCH" == 1 && -z "${CMUX_NEXT_ACPMUX_ARCHS:-}" ]] \
+    && arch=(CMUX_NEXT_ACPMUX_ARCHS="$([[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" == 1 ]] && echo arm64 || uname -m)")
+  if [[ -z "${CMUX_NEXT_ACPMUX_BIN:-}" && -x "$resolve" ]]; then
+    local bin
+    bin="$(env ${arch[@]+"${arch[@]}"} "$resolve" --repo "$PWD" 2>>"$out/build-$name.log")" \
+      || { echo "NFL acpmux for $name: none (build-$name.log)" >&2; return 3; }
+    acpmux=(CMUX_NEXT_ACPMUX_BIN="$bin")
+    echo "NFL acpmux $name $bin"
+  fi
   local started=$SECONDS
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag nflab --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
+  env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag nflab --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$name.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "NFL build $name failed: no app path" >&2

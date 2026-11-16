@@ -648,6 +648,16 @@ the entries so a cold mini reports, and the summary shows the time.
 The fleet's `queued` hand-back always runs cold on Blacksmith 6 vCPU macOS, whose fast-tier p90 was
 19.8 minutes (#38181's data), so it gets 35: a slow cold build still gives the verdict.
 
+An app FFI re-pin (`ffi_repin`) changes the CCmuxAppFFI binary target, so every
+CmuxNext module rebuilds cold before `HandlerCoverageTests` runs. With 20
+minutes, #43935's tier hit the job limit on cmux23-glaeda-3 (2026-11-15) and
+showed `cancelled`, not red. The re-pin merged, and every Debug launch then
+stopped in `HandlerCoverage.verify` (three terminal-to-chat catalog rows without
+handlers) until #44082. A re-pin gets 50 minutes. Its `Run the fast tier` step
+has a 45-minute limit: a step past its limit fails the job, so a slow re-pin
+build shows red with the step named, never `cancelled`. Other runs keep the job
+limit (the step's 360 is never reached).
+
 ## note-40
 
 Above `fast-tier: Fingerprint this job's inputs` in `.github/workflows/cmux-next.yml`.
@@ -3588,3 +3598,26 @@ The build-fleet compiles' gateway, taken (or a wider class of it) only while a r
 (gateway_runner). With none idle, swift-canary-fleet does not run and swift-canary cascades. The PR's app
 compile took its gateway before the quiet period ended (app-compile-placement); with none, its Mac Release
 compile, which runs when app-compile-fleet gives no verdict, is in CASCADE_RUNS above.
+
+## note-388
+
+Above `PR_HEAD_SHA` in the `Classify pull request paths` step's env and above the
+`cmux_next_base_merge_carry.py` call in its run, in `.github/workflows/cmux-next.yml`.
+
+The base-merge carry. merge_hold asks a pull request whose fast-gates green went stale to merge
+feat-cmux-next in (update-branch), and only after every check at the older head H finished and passed; it
+then lands the base merge M on its merged-tree checks alone (cmux-next/fast-gates on Linux,
+cmux-next/compile on the build fleet, the web compile) and carries the rest from H (merge_hold
+merged_tree_hold). This workflow still ran every Mac tier again at M. On 2026-11-16 at 05:44Z, with
+macos-pool-load at 134 queued on glaeda-std-xcode-26.6 and 126 on glaeda-side-std-xcode-26.6 (oldest 187
+min), 18 of the 60 open cmux-next pull request runs were on base-merge heads and 13 more same-tree dispatches
+tested their trees: Mac jobs no merge waited on, queued in front of pull requests that do wait on theirs. The
+land loops take the update-branch step up to four rounds, so one PR could queue four copies of its Mac tiers.
+
+After the router, a same-repository pull request run asks scripts/ci/cmux_next_base_merge_carry.py. When the
+head is a merge of a feat-cmux-next commit into H, its tree is exactly git's clean merge of the two (no
+resolved conflict, nothing slipped into the merge commit), H has a cmux-next pull_request run that concluded
+success, and the PR has no `full-ci`, the fast tier, generated files, daemon tests, scheme compile, Swift test
+and Swift canary outputs are set false (appended after the router's: the last value wins) and the summary names
+H and its run. The native tier stays as routed. Anything unread is no carry. `CMUX_NEXT_BASE_MERGE_CARRY=0`
+turns it off. tests/test_cmux_next_base_merge_carry.py is the detector.

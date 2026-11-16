@@ -190,8 +190,7 @@ pub fn hold(machine: &Value, now_ms: u64) -> Option<String> {
         Value::String(s) if !s.trim().is_empty() => (Some(s.clone()), None),
         Value::Object(_) => (
             text("reason").or_else(|| text("why")).map(str::to_owned),
-            hold.get("until")
-                .map(|u| u.as_str().and_then(crate::server::machine_health::rfc3339_ms)),
+            hold.get("until").map(|u| u.as_str().and_then(crate::clock_text::rfc3339_ms)),
         ),
         _ => return Some(format!("held (its hold {hold} cannot be read)")),
     };
@@ -311,7 +310,7 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
     if let Some(why) = hold(machine, now_ms) {
         return Some(why);
     }
-    let time = |v: &Value| v.as_str().and_then(crate::server::machine_health::rfc3339_ms);
+    let time = |v: &Value| v.as_str().and_then(crate::clock_text::rfc3339_ms);
     // A list, or an entry's hosts, that cannot be read may name any machine: it holds them all.
     const UNREADABLE: &str = "held: the registry's reservations cannot be read";
     let entries = match registry.get("reservations") {

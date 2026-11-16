@@ -525,7 +525,14 @@ impl Peer {
             }
             return Err("refused (test)".into());
         }
-        let (via, opened) = self.open_first().await?;
+        let (via, opened) = match self.open_first().await {
+            Ok(opened) => opened,
+            Err(error) => {
+                // No path opened: the network, not a slow peer (`SilenceBudget::dial_struggled`).
+                self.with_silence(SilenceBudget::dial_struggled);
+                return Err(error);
+            }
+        };
         // A losing ssh attempt's process ends now.
         if via != Via::Ssh {
             self.end_tunnel().await;
@@ -896,8 +903,10 @@ impl Peer {
             b.opened(tokio::time::Instant::now());
             (was, b.current())
         });
-        if silence != was {
+        if silence > was {
             tracing::info!(peer = %self.name, "silence budget {}s (was {}s; a link dropped for silence opened again: the peer is slow, not gone)", silence.as_secs(), was.as_secs());
+        } else if silence < was {
+            tracing::info!(peer = %self.name, "silence budget {}s (was {}s; the redial failed first: the network was gone, not the peer slow)", silence.as_secs(), was.as_secs());
         }
         // The first read's gap is the connect, not an answer.
         if let Some(heard) = &heard {
@@ -932,6 +941,9 @@ impl Peer {
         let mut wake_probe: Option<tokio::time::Instant> = None;
         // Why `wake_probe` is set when a network change set it, not a wake.
         let mut probe_cause: Option<String> = None;
+        // `wake_probe` was set by a request sent on a link already silent a ping interval: a link
+        // it drops tells the budget (`SilenceBudget::probe_dropped`).
+        let mut request_probe = false;
         // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
         // the regular ping's tick may be served first, and its write must be held to the probe's
         // deadline, never the whole send budget.
@@ -942,7 +954,7 @@ impl Peer {
                     // One deadline for the ping to go out and its answer to come back.
                     let deadline = tokio::time::Instant::now() + WAKE_PROBE;
                     match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
-                        Ok(Ok(())) => (wake_probe, probe_cause) = (Some(deadline), None),
+                        Ok(Ok(())) => (wake_probe, probe_cause, request_probe) = (Some(deadline), None, false),
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(stopped_reading(WAKE_PROBE)),
                     }
@@ -1069,6 +1081,15 @@ impl Peer {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
+                    // A request's probe on a link still reading bytes (a large frame on its way, the
+                    // pong queued behind it) is moving: wait another `NETWORK_PROBE`, not drop it.
+                    if request_probe && heard.as_ref().is_some_and(|h| h.silent() < network::NETWORK_PROBE) {
+                        wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE);
+                        continue;
+                    }
+                    if request_probe {
+                        self.with_silence(SilenceBudget::probe_dropped);
+                    }
                     break Err(match probe_cause {
                         Some(why) => why,
                         None => format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()),
@@ -1084,6 +1105,7 @@ impl Peer {
                         match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
                             Ok(Ok(())) => {
                                 wake_probe = Some(deadline);
+                                request_probe = false;
                                 probe_cause = Some(format!(
                                     "no answer {}s after this computer's network changed",
                                     network::NETWORK_PROBE.as_secs()
@@ -1186,6 +1208,7 @@ impl Peer {
                     frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
                     wake_probe = None;
+                    request_probe = false;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
                     let (text, compressed) = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => {
@@ -1380,6 +1403,8 @@ impl Peer {
                     }
                     // Before the frame is marked: a link a wake check drops never had it.
                     check_wake!();
+                    // Read before the write: a large frame's write is not the peer's silence.
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
                     // Marked before the write: a frame that is partly written may still run.
                     let prompt_key = key.as_ref();
                     if let Some(key) = prompt_key {
@@ -1403,6 +1428,30 @@ impl Peer {
                         }
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
+                    }
+                    // A request on a link silent for a ping interval: a network gone without a
+                    // reset takes the write into the kernel's buffer and answers nothing. A ping
+                    // goes out with it and the link is dropped and redialed when nothing answers
+                    // within `NETWORK_PROBE`, not after the whole silence budget. Not for a peer
+                    // that proved slow (`SilenceBudget::may_probe`).
+                    if wake_probe.is_none() && silent >= timings.ping_every && self.with_silence(|b| b.may_probe()) {
+                        let deadline = tokio::time::Instant::now() + network::NETWORK_PROBE;
+                        match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                            Ok(Ok(())) => {
+                                wake_probe = Some(deadline);
+                                request_probe = true;
+                                probe_cause = Some(format!(
+                                    "no answer {}s after a request on a link silent {}s",
+                                    network::NETWORK_PROBE.as_secs(),
+                                    silent.as_secs()
+                                ));
+                            }
+                            Ok(Err(e)) => break Err(e.to_string()),
+                            Err(_) => {
+                                self.with_silence(SilenceBudget::probe_dropped);
+                                break Err(stopped_reading(network::NETWORK_PROBE));
+                            }
+                        }
                     }
                 }
             }

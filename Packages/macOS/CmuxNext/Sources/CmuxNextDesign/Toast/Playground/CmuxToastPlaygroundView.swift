@@ -8,6 +8,7 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
     private let center: CmuxToastCenter
     private(set) var rows: [CmuxToastPlaygroundRow] = []
     private let pickedLabel = ThemedLabel(labelWithString: "")
+    private let cards: [CmuxToastPlaygroundCard]
     let scrollView = OverlayScrollView()
 
     /// - Parameters:
@@ -15,9 +16,11 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
     ///   - themes: The light and dark sheets' themes.
     ///   - fire: Shows `style`'s toasts as real toasts (in the window the person works in).
     ///   - focus: Which styles show (Debug Settings > Toasts > Playground shows).
+    ///   - cards: Sidebar cards it shows for real, one Show button each (``CmuxToastPlaygroundCard``).
     init(center: CmuxToastCenter, themes: CmuxToastPlaygroundThemes, focus: CmuxToastPlaygroundFocus = .all,
-         fire: @escaping (CmuxToastStyle) -> Void) {
+         cards: [CmuxToastPlaygroundCard] = [], fire: @escaping (CmuxToastStyle) -> Void) {
         self.center = center
+        self.cards = cards
         super.init(frame: .zero)
         let tuning = center.tuning
         rows = focus.styles.map { style in
@@ -41,7 +44,7 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
             + "Pick makes it the style of every toast and prompt in the app, now and after a relaunch.")
         intro.font = Typography.body
         intro.themeColor = { Palette.textSecondary }
-        let column = NSStackView(views: [pickedLabel, intro] + rows)
+        let column = NSStackView(views: [pickedLabel, intro] + cardsRow() + rows)
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 28
@@ -72,6 +75,30 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
         ]
         constraints += rows.map { $0.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -48) }
         NSLayoutConstraint.activate(constraints)
+    }
+
+    /// "Sidebar cards": one Show button per card, which shows it in the window the person works in.
+    private func cardsRow() -> [NSView] {
+        guard !cards.isEmpty else { return [] }
+        let label = ThemedLabel(labelWithString: "Sidebar cards")
+        label.font = Typography.system(size: TypeScale.body, weight: TypeScale.emphasis)
+        label.themeColor = { Palette.textPrimary }
+        let buttons = cards.enumerated().map { index, card in
+            let button = NSButton(title: "Show \(card.title)", target: self, action: #selector(showCard(_:)))
+            button.bezelStyle = .push
+            button.tag = index
+            button.setAccessibilityIdentifier("cmux.toastPlayground.card.\(index)")
+            return button
+        }
+        let row = NSStackView(views: [label] + buttons)
+        row.orientation = .horizontal
+        row.spacing = 12
+        return [row]
+    }
+
+    @objc private func showCard(_ sender: NSButton) {
+        guard cards.indices.contains(sender.tag) else { return }
+        cards[sender.tag].show()
     }
 
     func toastStyleDidChange(_ style: CmuxToastStyle) {

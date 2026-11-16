@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -120,7 +121,7 @@ final class NewTabInputCoordinator {
             // The native page (tabs.nativeNewTabPage): its field, once the page is in the pane.
             if let pane, let window, let key = pane.currentTabKey, LocalPageTab.page(of: key) == .nativeNewTab {
                 guard let field = nativeNewTabHost(in: pane.view)?.fieldView, field.window === window else { return false }
-                return window.firstResponder === field || window.makeFirstResponder(field)
+                return window.firstResponder === field || FocusRoute(.person, "the new tab the person opened: its field").moveKeyboard(in: window, to: field)
             }
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
@@ -131,7 +132,7 @@ final class NewTabInputCoordinator {
             // them first (one key-window change, #24913).
             if !window.isKeyWindow, NSApp.isActive {
                 guard window.mayTakeKey(from: NSApp.keyWindow) else { return false }
-                if view.chromiumPage == nil { window.makeKey() }
+                if view.chromiumPage == nil { FocusRoute(.person, "the new tab the person opened: its window").makeKey(window) }
             }
             // The window refuses a page's web view outside an input event and the focus model's own
             // moves while the model names another pane (AgentPaneView.refusesSelfFocus), and the
@@ -148,7 +149,7 @@ final class NewTabInputCoordinator {
                 view.focusChat()
                 return true
             }
-            return window.makeFirstResponder(view.webView)
+            return FocusRoute(.person, "the new tab the person opened: its page").moveKeyboard(in: window, to: view.webView)
         }, deliver: { [weak router, weak window] event in
             guard let router, let window else { return }
             Self.replay(Self.retarget(event, to: window), held: event, in: window, router: router, keyboard: keyboard)
@@ -179,13 +180,13 @@ final class NewTabInputCoordinator {
                   shown === window || target.followsNewWindow, !view.isHiddenOrHasHiddenAncestor else { return false }
             // A Chromium page window or the old window may be key: the page's window takes it. A
             // Chromium page's grant (below) moves the keys itself: one key-window change (#24913).
-            if !shown.isKeyWindow, NSApp.isActive, view.chromiumPage == nil { shown.makeKey() }
+            if !shown.isKeyWindow, NSApp.isActive, view.chromiumPage == nil { FocusRoute(.system, "an incoming new tab: its window").makeKey(shown) }
             target.pageWindow = shown
             if view.chromiumPage != nil {
                 view.focusChat()
                 return true
             }
-            return shown.makeFirstResponder(view.webView)
+            return FocusRoute(.system, "an incoming new tab: its page").moveKeyboard(in: shown, to: view.webView)
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
             guard let router, let to = target.pageWindow ?? (target.followsNewWindow ? NSApp.keyWindow : nil) ?? window else { return }

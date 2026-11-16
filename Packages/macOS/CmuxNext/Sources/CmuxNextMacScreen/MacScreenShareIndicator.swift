@@ -17,6 +17,10 @@ final class MacScreenShareIndicator: NSObject {
     static let stopSharingThisMacAction: ActionID = "macScreen.stopSharingThisMac"
 
     private var item: NSStatusItem?
+    /// The in-app host bar is the first-class stop affordance. The menu bar item remains as a
+    /// compact fallback for hosts that are covered by a full-screen app.
+    /// Created only when a viewer connects; headless launches do not create an extra panel.
+    private var bar: MacScreenSharingBar?
     /// The registry's row for an action (`ActionRegistry.makeMenuItem`); the app sets it.
     var menuItem: (ActionID) -> NSMenuItem? = { _ in nil }
     /// Whether the session shown offers Revoke This Device.
@@ -36,9 +40,12 @@ final class MacScreenShareIndicator: NSObject {
             item.button?.image = image
             self.item = item
             rebuild()
+            // `update(title:)` stages the content and presents the bar after the title is ready.
         } else if !visible, let item {
             NSStatusBar.system.removeStatusItem(item)
             self.item = nil
+            bar?.hide()
+            bar = nil
         }
     }
 
@@ -47,7 +54,23 @@ final class MacScreenShareIndicator: NSObject {
         self.title = title
         self.offersRevoke = offersRevoke
         self.offersTurnOff = offersTurnOff
+        let bar = bar ?? {
+            let created = MacScreenSharingBar()
+            self.bar = created
+            return created
+        }()
+        // The bar's Stop is the menu's: an agent's share with no viewer ends Share This Mac.
+        let stop = offersTurnOff ? Self.stopSharingThisMacAction : Self.stopSharingAction
+        bar.update(title: title) { [weak self] in self?.run(stop) }
+        bar.show()
         rebuild()
+    }
+
+    /// Runs the same registered action as the menu item. This keeps the one-click bar on the
+    /// app's action path (and therefore the CLI and palette path) instead of duplicating teardown.
+    private func run(_ action: ActionID) {
+        guard let item = menuItem(action), let target = item.target, let selector = item.action else { return }
+        _ = NSApp.sendAction(selector, to: target, from: item)
     }
 
     private func rebuild() {

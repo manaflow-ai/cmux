@@ -118,6 +118,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         variables = [
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
+            // The tint the window lays natively over a picture or the desktop under a see-through
+            // page (WindowBackdrop's tint opacity): a highlight fit to the page's surfaces measures
+            // them over it (webviews ui/highlightContrast.ts `pageCanvases`), as the page cannot see it.
+            "--cmux-window-tint": Self.css(tokens.windowBackground.withAlpha(windowTint)),
             // The page color made opaque (its own background over the theme's, if it has one),
             // for rings, pills and glyphs on fills that must hide what is under them.
             "--cmux-surface-solid": Self.css(surfaceKind.map {

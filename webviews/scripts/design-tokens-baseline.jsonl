@@ -678,8 +678,7 @@
 {"file":"pages/changelog/updateSurfaces.css","kind":"duration","property":"transition","values":{"color 0.12s ease-out":1,"opacity 0.12s ease-out":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"font-weight","property":"font-weight","values":{"500":2}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"height","property":"height","values":{"18px":1,"8px":1}}
-{"file":"pages/changelog/updateSurfaces.css","kind":"radius","property":"border-radius","values":{"var(--cmux-sidebar-card-radius, 10px)":1,"9px":1}}
-{"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"top","values":{"7px":1}}
+{"file":"pages/changelog/updateSurfaces.css","kind":"radius","property":"border-radius","values":{"var(--cmux-sidebar-card-radius, 10px)":1}}
 {"file":"pages/changelog/updateSurfaces.gallery.tsx","kind":"spacing","property":"padding","values":{"10px":1}}
 {"file":"pages/chief-usage/styles.css","kind":"height","property":"height","values":{"8px":1,"2px":2,"3px":1,"4px":1}}
 {"file":"pages/chief-usage/styles.css","kind":"radius","property":"border-radius","values":{"2px":4}}

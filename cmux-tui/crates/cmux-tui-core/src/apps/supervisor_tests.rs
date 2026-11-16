@@ -1097,6 +1097,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 mod chat_widgets;
 #[path = "supervisor_composer_tests.rs"]
 mod composer;
+#[path = "supervisor_github_tests.rs"]
+mod github_gateway;
 #[path = "supervisor_inventory_demand_tests.rs"]
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
@@ -1122,6 +1124,9 @@ mod rollback_tolerance;
 
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
+
+#[path = "supervisor_page_call_tests.rs"]
+mod page_calls;
 
 #[path = "supervisor_activation_tests.rs"]
 mod activation;

@@ -60,12 +60,48 @@ fn lock(folder: &OwnFolder, wait: Duration) -> Lock {
     Lock { file, _guard: guard }
 }
 
-/// The ports of each worktree. A ports file above the size limit is not
-/// read, and it is not a list with no worktree: a port of a list that
-/// starts empty can be the port of another worktree.
-fn load(folder: &OwnFolder) -> Result<BTreeMap<String, u16>, TooLarge> {
-    let bytes = folder.read(PORTS_FILE)?;
-    Ok(bytes.and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default())
+/// Why the repository's ports file gives no list of ports.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum NoList {
+    /// The file is above the size limit.
+    TooLarge,
+    /// A thing is at the name of the file, and it gives no list: it is not
+    /// read as a file (a folder, a link, a file that the read fails for),
+    /// or its bytes are not a JSON object of ports (an empty file, a list
+    /// that is cut short, a JSON value of a different form).
+    NotAList,
+}
+
+/// What a setup's log says when the ports file is above the size limit.
+const TOO_LARGE: &str =
+    "the file cmux-worktree-ports.json in the repository's git folder is larger than 1 MiB";
+/// What a setup's log says when the ports file is not a list of ports.
+const NOT_A_LIST: &str =
+    "the file cmux-worktree-ports.json in the repository's git folder is not a list of ports";
+
+impl NoList {
+    /// What a setup's log says of the ports file.
+    pub(super) fn text(self) -> &'static str {
+        match self {
+            Self::TooLarge => TOO_LARGE,
+            Self::NotAList => NOT_A_LIST,
+        }
+    }
+}
+
+/// The ports of each worktree. With no thing at the name of the ports file
+/// the list has no worktree. A thing at the name that gives no list
+/// ([`NoList`]) is not a list with no worktree: a port of a list that starts
+/// empty can be the port of another worktree.
+fn load(folder: &OwnFolder) -> Result<BTreeMap<String, u16>, NoList> {
+    match folder.read(PORTS_FILE) {
+        Ok(Some(bytes)) => serde_json::from_slice(&bytes).map_err(|_| NoList::NotAList),
+        // No file was read. The look at the name comes after the read, so a
+        // file that came to the name meanwhile is not taken as no file.
+        Ok(None) if folder.has(PORTS_FILE) => Err(NoList::NotAList),
+        Ok(None) => Ok(BTreeMap::new()),
+        Err(TooLarge) => Err(NoList::TooLarge),
+    }
 }
 
 fn save(folder: &OwnFolder, ports: &BTreeMap<String, u16>) {
@@ -151,12 +187,14 @@ pub(super) fn lookup(folder: &OwnFolder, root: &Path) -> Option<u16> {
 /// it. A repository starts looking at a block its folder picks, so two
 /// repositories rarely start at the same one.
 ///
-/// No port is given, and the file stays, when the ports file is above
-/// the size limit. No port is given either when `folder` is not open
+/// No port is given, and the thing at the name of the ports file stays,
+/// when the ports file gives no list ([`NoList`]): the setup of the
+/// worktree then does not start, and its log says why. No port is given
+/// either when `folder` is not open
 /// ([`OwnFolder::not_opened`]): the blocks that the other worktrees have
 /// are not known then, and a line on stderr says why the folder is not
 /// open.
-pub(super) fn allocate(folder: &OwnFolder, root: &Path) -> Result<Option<u16>, TooLarge> {
+pub(super) fn allocate(folder: &OwnFolder, root: &Path) -> Result<Option<u16>, NoList> {
     allocate_within(folder, root, WAIT)
 }
 
@@ -165,7 +203,7 @@ pub(super) fn allocate_within(
     folder: &OwnFolder,
     root: &Path,
     wait: Duration,
-) -> Result<Option<u16>, TooLarge> {
+) -> Result<Option<u16>, NoList> {
     if let Some(kind) = folder.not_opened() {
         // No list is read: a block of a list that starts empty can be the
         // block of another worktree.

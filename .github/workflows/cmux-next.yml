@@ -125,6 +125,7 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/cmux_next_base_merge_carry.py
       - scripts/ci/gh_expressions.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
@@ -132,6 +133,7 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - tests/test_cmux_next_base_merge_carry.py
       - tests/test_cmux_next_base_tier.py
       - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
@@ -468,6 +470,7 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/cmux_next_base_merge_carry.py
       - scripts/ci/gh_expressions.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
@@ -475,6 +478,7 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - tests/test_cmux_next_base_merge_carry.py
       - tests/test_cmux_next_base_tier.py
       - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
@@ -885,6 +889,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-97
           EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-388
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          SAME_REPO_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          BASE_MERGE_CARRY: ${{ format('{0}', vars.CMUX_NEXT_BASE_MERGE_CARRY) != '0' }}
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
@@ -1085,6 +1094,12 @@ jobs:
               && "$GITHUB_REF" != refs/heads/feat-cmux-next && "$GITHUB_REF" != refs/heads/next-batch/* ]]; then
               printf 'scheme=false\nnative=false\n' >> "$GITHUB_OUTPUT"
               echo '- working-branch dispatch: the scheme and Release compiles are skipped (dispatch with full=true to run them).' >> "$GITHUB_STEP_SUMMARY"
+            fi
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-388
+            if [[ "$EVENT_NAME" == pull_request && "$SAME_REPO_PR" == true && "$BASE_MERGE_CARRY" == true ]]; then
+              python3 scripts/ci/cmux_next_base_merge_carry.py --repo "$GITHUB_REPOSITORY" --head "$PR_HEAD_SHA" \
+                --base-ref "$PR_BASE_REF" --labels "$labels" --github-output "$GITHUB_OUTPUT" \
+                --summary "$GITHUB_STEP_SUMMARY" || true
             fi
           fi
           # Whether this pull request changes the cmux-tui it would test against:
@@ -1879,7 +1894,9 @@ jobs:
             python3 scripts/cmux-next/tests/test_bench_launch.py
             python3 scripts/cmux-next/tests/test_bench_launch_calls.py
             python3 scripts/cmux-next/tests/test_bench_launch_executable.py
+            python3 scripts/cmux-next/tests/test_bench_launch_person_mac.py
             python3 scripts/cmux-next/tests/test_bench_memory_webkit_direct.py
+            python3 scripts/cmux-next/tests/test_bench_page_engine.py
             python3 scripts/cmux-next/tests/test_bench_power_guard.py
             python3 scripts/cmux-next/tests/test_bench_power_loaded.py
             python3 scripts/cmux-next/tests/test_bench_startup_agent_mark.py
@@ -1925,6 +1942,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_swift_logic_lines.py
             python3 scripts/cmux-next/tests/test_tab_switch_frames.py
             python3 scripts/cmux-next/tests/test_tab_switch_judge.py
+            python3 scripts/cmux-next/tests/test_tab_switch_settle.py
             python3 scripts/cmux-next/tests/test_tag_teardown.py
             python3 scripts/cmux-next/tests/test_teardown_clone_cleanup.py
             python3 scripts/cmux-next/tests/test_terminal_throughput_bench.py
@@ -3480,7 +3498,7 @@ jobs:
       actions: read
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-39
-    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || 20 }}
+    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 20 }}
     env:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-197
       CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 'report' || '' }}
@@ -3669,6 +3687,8 @@ jobs:
       - name: Run the fast tier
         id: fast-tier-run
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && (steps.reuse.outputs.hit != 'true') }}
+        # Why: docs/ci/cmux-next-workflow-notes.md#note-39
+        timeout-minutes: ${{ needs.path_route.outputs.ffi_repin == 'true' && 45 || 360 }}
         env:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}

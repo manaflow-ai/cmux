@@ -269,7 +269,7 @@ fn a_held_host_is_never_a_placement_candidate() {
     reg["machines"]["big"]["hold"] = json!({"until": "2026-10-30T20:50:00Z"});
     let hosts = lane_hosts_at(Some(&reg), 0).unwrap();
     assert!(registry_lanes(&hosts, "big-box").unwrap()[HELD].is_string());
-    let after = crate::server::machine_health::rfc3339_ms("2026-10-30T20:50:01Z").unwrap();
+    let after = crate::clock_text::rfc3339_ms("2026-10-30T20:50:01Z").unwrap();
     let hosts = lane_hosts_at(Some(&reg), after).unwrap();
     assert!(registry_lanes(&hosts, "big-box").unwrap().get(HELD).is_none());
 }
@@ -346,7 +346,7 @@ fn a_retired_host_is_never_a_placement_candidate() {
 fn a_reserved_host_is_never_a_placement_candidate() {
     let both =
         [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
-    let at = |t: &str| crate::server::machine_health::rfc3339_ms(t).unwrap();
+    let at = |t: &str| crate::clock_text::rfc3339_ms(t).unwrap();
     let mut reg = registry();
     reg["reservations"] = json!([{"id": "lawrence-2026-10-29", "owner": "lawrencecchen",
         "hosts": ["big-box"], "from": "2026-10-29T20:50:00Z", "until": "2026-10-30T20:50:00Z"}]);

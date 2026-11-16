@@ -59,8 +59,9 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
     (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_stream.rs",
         "\"_acpmux/watch\"",
-        1,
-        "turns watching on with `limit: 1`; the list is read by `call_whole_list`",
+        2,
+        "turns watching on with `limit: 1`, its page unread: on v1 the list is read by \
+         `call_whole_list`, and on the v2 list the descendants by `page` with `family` (row 7c)",
     ),
     (
         "cmux-tui/crates/cmux-tui-core/src/server/mobile_chat.rs",

@@ -132,6 +132,10 @@ nonisolated enum UpdaterStrings {
     // The tips card (BOTTOM-LEFT-CARDS K1)
     static var tipEyebrow: String { text("updater.tip.eyebrow", "Did you know?") }
     static var tipDismiss: String { text("updater.tip.dismiss", "Hide This Tip") }
+    // The one-time GitHub star ask (``StarPromptCenter``)
+    static var starTitle: String { text("updater.star.title", "Star cmux on GitHub") }
+    static var starDetail: String { text("updater.star.detail", "A star helps other developers find it.") }
+    static var starOpen: String { text("updater.star.open", "Open GitHub") }
 
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {

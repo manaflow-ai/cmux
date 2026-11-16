@@ -300,6 +300,66 @@ fn an_invalid_manifest_names_its_file_and_field_and_exits_4() {
     assert!(errors[0].message.contains("local/broken"), "{errors:?}");
 }
 
+/// A fresh clone: `src/main.ts` and no `dist/` (every example gitignores it). The build makes
+/// `dist/main.js`, so the manifest check before the build does not ask for it; with nothing to
+/// build, a missing main script is still a manifest error (exit 4).
+#[test]
+fn ext_dev_builds_a_fresh_folder_before_checking_its_main() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "fresh");
+    let built = root.path().join("built-main.js");
+    std::fs::copy(dir.join("dist/main.js"), &built).unwrap();
+    std::fs::remove_dir_all(dir.join("dist")).unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/fresh", false);
+
+    // `--build CMD` writes the main script.
+    let mut options = dev_options(&dir);
+    options.build = Some(format!("mkdir -p dist && cp '{}' dist/main.js", built.display()));
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.build, Some("command"));
+    assert!(local.join("fresh/dist/main.js").is_file(), "the built script is copied");
+
+    // The packer writes it from `src/main.ts` when bun is on PATH.
+    if let Some(bun) = dev::find_bun() {
+        std::fs::remove_dir_all(dir.join("dist")).unwrap();
+        let mut options = dev_options(&dir);
+        options.bun = Some(bun);
+        let outcome = dev::once(&global(&fake.socket), &options, false);
+        assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+        assert_eq!(outcome.build, Some("pack"));
+        assert!(dir.join("dist/main.js").is_file(), "the packer wrote the main script");
+    } else {
+        eprintln!("bun is not on PATH: the packer half of this test needs it");
+    }
+
+    // Nothing to build (no `--build`, and no bun for `src/main.ts`): still exit 4 at manifest,
+    // with or without a daemon.
+    std::fs::remove_dir_all(dir.join("dist")).ok();
+    for socket in [fake.socket.clone(), PathBuf::from("/nonexistent/cmux.sock")] {
+        let outcome = dev::once(&global(&socket), &dev_options(&dir), false);
+        assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+        assert_eq!(outcome.exit_code(), exit::MANIFEST_INVALID);
+        assert_eq!(outcome.build, None);
+        let error = &outcome.errors[0];
+        assert_eq!(error.field.as_deref(), Some("/runtime/main"), "{error:?}");
+        assert!(error.message.contains("path.missing"), "{error:?}");
+    }
+    std::fs::remove_file(dir.join("src/main.ts")).unwrap();
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+    assert_eq!(outcome.exit_code(), exit::MANIFEST_INVALID);
+
+    // A build that does not write the main script fails the check after it.
+    std::fs::write(dir.join("src/main.ts"), "").unwrap();
+    let mut options = dev_options(&dir);
+    options.build = Some("true".into());
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+    assert_eq!(outcome.errors[0].field.as_deref(), Some("/runtime/main"));
+}
+
 #[test]
 fn a_failed_build_names_file_and_line_and_exits_5() {
     let root = tempfile::tempdir().unwrap();
@@ -500,7 +560,8 @@ fn serve(
                 let apps = if local.join(name).is_dir() {
                     vec![
                         json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
-                        "hidden": false, "available": true, "bundle_dir": local.join(name)}),
+                        "hidden": false, "available": true, "bundle_dir": local.join(name),
+                        "web_pages": served_web_pages(&local.join(name))}),
                     ]
                 } else {
                     vec![]
@@ -957,6 +1018,82 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
     let (_, code) = shot::report(&broken, &dir, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
+}
+
+/// `ext dev` reports the web panes (`render: web`) the daemon hosts, and
+/// fails the load when the daemon does not host one the manifest declares.
+#[test]
+fn ext_dev_reports_web_panes_and_fails_when_the_daemon_hosts_none() {
+    let manifest = json!({
+        "id": "local/web-pane", "runtime": { "web": { "root": "web" } },
+        "implements": { "cmux.pane/1": { "web": "web/index.html" } }
+    });
+    let page = json!({ "interface": "cmux.pane/1", "root": "web", "entry": "index.html" });
+    let served = json!({ "id": "local/web-pane", "web_pages": [page] });
+    assert_eq!(dev::web_check(&manifest, Some(&served)).unwrap(), vec![page]);
+    // A daemon older than web panes lists no `web_pages`.
+    let old = json!({ "id": "local/web-pane" });
+    let problem = dev::web_check(&manifest, Some(&old)).unwrap_err();
+    assert_eq!(problem.field.as_deref(), Some("/implements/cmux.pane~11/web"));
+    // A scene app has nothing to check.
+    let scene =
+        json!({ "id": "local/s", "implements": { "cmux.pane/1": { "export": "renderPane" } } });
+    assert!(dev::web_check(&scene, Some(&old)).unwrap().is_empty());
+}
+
+/// The sample web pane in examples/extensions passes the manifest and file
+/// checks `ext dev` runs first, and its page is one the daemon hosts.
+#[test]
+fn the_web_pane_example_is_a_valid_package() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/extensions/web-pane");
+    let pkg = dev::load_package(&dir).expect("valid package");
+    assert_eq!(pkg.id, "local/web-pane");
+    let pages = cmux_app_manifest::web_pages(&pkg.manifest);
+    assert_eq!(pages.len(), 1);
+    assert_eq!(
+        (pages[0].interface.as_str(), pages[0].root.as_str(), pages[0].entry.as_str()),
+        ("cmux.pane/1", "web", "index.html")
+    );
+}
+
+/// The `web_pages` the real daemon lists for the copied package (supervisor
+/// `entry`: cmux_app_manifest::web_pages of its manifest).
+fn served_web_pages(package: &Path) -> Vec<Value> {
+    let Ok(text) = std::fs::read_to_string(package.join("cmux-app.json")) else { return vec![] };
+    let Ok(manifest) = serde_json::from_str::<Value>(&text) else { return vec![] };
+    cmux_app_manifest::web_pages(&manifest)
+        .into_iter()
+        .map(|p| json!({ "interface": p.interface, "root": p.root, "entry": p.entry, "symbol": p.symbol }))
+        .collect()
+}
+
+/// `cmux ext dev --once --json` on the sample web pane: the files are copied
+/// to the daemon's local folder, the reload is picked up, no scene probe
+/// runs (a web pane has no export), and the result names the hosted page.
+#[test]
+fn once_loads_the_web_pane_example() {
+    let sample =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/extensions/web-pane");
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("web-pane");
+    for file in ["cmux-app.json", "web/index.html", "web/page.js", "web/page.css"] {
+        let to = dir.join(file);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(sample.join(file), &to).unwrap();
+    }
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/web-pane", true);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.changed);
+    assert_eq!(outcome.probe, None, "a web pane has no scene to probe");
+    assert!(local.join("web-pane/web/index.html").is_file());
+    let json = outcome.to_json(&dir);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["web"][0]["interface"], "cmux.pane/1");
+    assert_eq!(json["web"][0]["entry"], "index.html");
+    assert!(outcome.line().contains("1 web pane reloads in place"), "{}", outcome.line());
+    assert!(!fake.cmds().contains(&"apps-mount".to_string()));
 }
 
 /// A copied change reloads as soon as the daemon's pass answers, with no

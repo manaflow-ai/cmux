@@ -201,6 +201,21 @@ class RegressionTests(unittest.TestCase):
         rows = cron.rows_of_part(cron.PART_BY_NAME["throughput"], report, budgets_mod, {})
         self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.8)
 
+    def test_typing_stage_rows_are_stored_never_judged(self):
+        # CMUX-571 typing-latency: to_listener and to_work say where acp.<engine>.typing.to_frame's time goes; they are
+        # stored and shown (measurement only), while to_frame itself stays judged.
+        now = {"acp.chromium.typing.to_work@cmux20-bench": row(12.0), "acp.own.typing.to_listener@cmux20-bench": row(9.0),
+               "acp.chromium.typing.to_frame@cmux20-bench": row(14.0)}
+        base = {"acp.chromium.typing.to_work@cmux20-bench": row(3.0), "acp.own.typing.to_listener@cmux20-bench": row(1.0),
+                "acp.chromium.typing.to_frame@cmux20-bench": row(10.0)}
+        regs = cron.find_regressions(now, base, 8.33, 8.33, budgets_mod)
+        self.assertEqual([r["name"] for r in regs], ["acp.chromium.typing.to_frame@cmux20-bench"])
+        self.assertEqual(cron.part_for_row("acp.chromium.typing.to_work@cmux20-bench"), "chat-anim")
+        report = {"rows": [{"name": "acp.chromium.typing.to_work", "p50": 3.1, "p95": 6.0, "unit": "ms", "budget": None,
+                            "floor": 1.0}]}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["chat-anim"], report, budgets_mod, {})
+        self.assertEqual(rows["acp.chromium.typing.to_work"]["p95"], 6.0)
+
     def test_newly_over_target_regresses_under_ten_percent(self):
         # A frame row's target at 60 Hz is 20.8 ms: 20.0 -> 21.5 is +7.5 % but crosses it by more than the floor.
         regs = cron.find_regressions({"p.frame": row(21.5)}, {"p.frame": row(20.0)}, 16.67, 16.67, budgets_mod)

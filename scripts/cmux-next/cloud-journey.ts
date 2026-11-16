@@ -229,6 +229,8 @@ export class Journey {
   readonly secrets: string[] = [];
   readonly firstText = new FirstTextTiming();
   preclaimRows: PreclaimClaimRecord[] | null = null;
+  preclaimBurst: PreclaimBurstFacts | null = null;
+  preclaimFailures: PreclaimFailureRecord[] = [];
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
@@ -256,7 +258,7 @@ export class Journey {
     if (!this.outDir) return;
     const meta = this.publicSafe ? preclaimPublicMeta() : this.meta;
     writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
-    const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows)}`;
+    const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows, this.preclaimFailures, this.preclaimBurst)}`;
     writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
   }
 }
@@ -359,6 +361,33 @@ export type PreclaimHealthSnapshot = {
   http_status: number;
   outcome: "ok" | "error";
   commit: string | null;
+  /** Why `commit` is null: the answer's status, or what it named instead of a deploy commit. */
+  commit_unavailable: string | null;
+};
+
+/**
+ * The MET table's per-claim fields. Every value that could not be measured is null with its `*_unavailable` reason,
+ * never 0, so the table reads `unavailable: <reason>` instead of a number nobody measured.
+ */
+export type PreclaimMetFields = {
+  /** The claim's spare, from its created_at to its cloud.spare.ready (the frame's `at`, else its running_since). */
+  refill_to_ready_ms: number | null;
+  refill_to_ready_unavailable: string | null;
+  /** The claim answer's value.claim.behind (cmux-platform#1429) for that same spare: one image roll behind or current. */
+  refill_image: "behind" | "current" | null;
+  refill_image_unavailable: string | null;
+  /** After bind, the login check: the spare's receipt on a hit, the post-bind copy on a miss. */
+  post_bind_login_ms: number | null;
+  post_bind_login_ms_unavailable: string | null;
+  /** From the claim's create request to the agent's first reply text. */
+  claim_to_first_text_ms: number | null;
+  claim_to_first_text_unavailable: string | null;
+  /** The platform deploy commit serving the claim (its /v1/health `commit`), else the API's. */
+  staging_sha: string | null;
+  staging_sha_unavailable: string | null;
+  /** Whether a deploy commit changed between the claim's health_before and health_after reads. */
+  deploy_overlap: boolean | null;
+  deploy_overlap_unavailable: string | null;
 };
 
 export type PreclaimClaimRecord = {
@@ -369,21 +398,77 @@ export type PreclaimClaimRecord = {
   lease_hit: boolean | null;
   health_before: PreclaimHealthSnapshot;
   health_after: PreclaimHealthSnapshot;
+  /** The platform origin's /v1/health around the claim: the API's carries only a fixed API version. */
+  platform_health_before: PreclaimHealthSnapshot;
+  platform_health_after: PreclaimHealthSnapshot;
   claim_to_bound: PreclaimClaimSplit;
   post_bind_login: "receipt" | "post-bind" | "missing" | "not_checked";
   first_chat_ms: number | null;
   first_reply_ms: number | null;
+} & PreclaimMetFields;
+
+/** The burst-wide MET facts, read once before claim 0. */
+export type PreclaimBurstFacts = {
+  claims_expected: number;
+  /** The account's machine-minutes this period at t0 (cloud.plan.get usage, the caller's share when it is split). */
+  hold_minutes_t0: number | null;
+  hold_minutes_t0_unavailable: string | null;
+  /**
+   * Why the first reply was not judged (the model refused or never answered the turn), else null. The reply is measured,
+   * never gated: run 43860687099's claim worked and its turn hit the test account's weekly limit.
+   */
+  reply_not_judged: string | null;
+  /** How long the claim waited for the warm to name a ready spare (--spare-wait); null when the burst does not wait. */
+  spare_wait_ms: number | null;
+  /** The wait's bound ran out with no ready spare, so the claim went ahead: a cold create here is not a claim-path miss. */
+  cold_after_wait: boolean;
+  /** The claim answer's value.claim.behind (cmux-platform#1429): the spare was held across an image roll; null with no claim. */
+  claimed_behind: boolean | null;
+  /** The claim answer's skipped spares by reason (cmux-platform#1418), e.g. image or a #1414 guard reason; null when absent. */
+  spare_skips: Record<string, number> | null;
+  spare_fallback: string | null;
 };
 
 export type PreclaimFailureRecord = {
   claim: number;
   outcome: "fail";
   error: string;
+  /** The claimed machine's facts at the failure (preclaimGuestFacts), when it existed. */
+  guest?: string;
+  /** Whether the failed claim had taken a spare held across a roll (null when it failed before the claim answered). */
+  claimed_behind: boolean | null;
 };
 
+/**
+ * Guest facts within 12,000 characters, the sections before the journal first: run 43873927808 kept only the last 8,000,
+ * and the journal pushed out the own-login and acp tail sections that say why a claim failed.
+ */
+function guestFactsCapped(guest: string, max = 12_000): string {
+  const at = guest.indexOf("== journal");
+  if (guest.length <= max || at < 0) return guest.slice(0, max);
+  const head = guest.slice(0, Math.min(at, max / 2));
+  const mark = "== journal (last lines)\n";
+  return head + mark + guest.slice(at).slice(-(max - head.length - mark.length));
+}
+
 /** A failed claim stays visible in the private evidence without exposing credentials publicly. */
-export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = []): PreclaimFailureRecord {
-  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600) };
+export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = [], claimedBehind: boolean | null = null, guest?: string): PreclaimFailureRecord {
+  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600), claimed_behind: claimedBehind, ...(guest === undefined ? {} : { guest: guestFactsCapped(scrub(guest, secrets)) }) };
+}
+
+/**
+ * What the claimed machine shows when a claim fails after it exists (run 43824872130: the first chat's `acp wait` exited
+ * 1 and the machine was deleted with no trace): whether the guest sees its own Claude login, the chat session's acp
+ * events and the journal's agent lines. Private rows only, scrubbed by the caller; never the login itself.
+ */
+export async function preclaimGuestFacts(exec: Exec, session: string): Promise<string> {
+  const facts = await exec([
+    `${GUEST}echo "== own login"; (. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude) && echo yes || echo no`,
+    `echo "== acp tail ${session}"; "$c" acp tail ${shq(session)} 2>&1 | tail -40 | cut -c1-400`,
+    `echo "== acp list"; "$c" acp list 2>&1 | tail -10 | cut -c1-300`,
+    `echo "== journal"; journalctl -m --no-pager -o short-monotonic --since -15min 2>/dev/null | grep -iE 'acp|claude|auth|login|harness' | tail -80 | cut -c1-400`,
+  ].join("; "), 60_000).catch((error) => ({ code: 1, stdout: `unreadable: ${String((error as Error)?.message ?? error).slice(0, 200)}`, stderr: "" }));
+  return facts.stdout;
 }
 
 export function preclaimRunComplete(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[], expectedClaims: number): boolean {
@@ -439,35 +524,151 @@ export function preclaimClaimRecord(input: {
   leaseHit?: boolean | null;
   healthBefore?: PreclaimHealthSnapshot;
   healthAfter?: PreclaimHealthSnapshot;
+  platformHealthBefore?: PreclaimHealthSnapshot;
+  platformHealthAfter?: PreclaimHealthSnapshot;
   postBindLogin?: "receipt" | "post-bind" | "missing" | "not_checked";
   firstChatMs?: number | null;
   firstReplyMs?: number | null;
+  met?: Partial<PreclaimMetFields>;
+  replyNotJudged?: string | null;
+  spareWait?: SpareWait | null;
 }): PreclaimClaimRecord {
   const answer = input.answer && typeof input.answer === "object" ? input.answer as Record<string, unknown> : {};
   const machine = typeof input.machine === "string" ? input.machine : typeof answer.machine_id === "string" ? answer.machine_id : null;
   const spare = typeof input.spare === "string" ? input.spare : null;
+  const unread: PreclaimHealthSnapshot = { http_status: 0, outcome: "error", commit: null, commit_unavailable: "not read" };
+  const healthBefore = input.healthBefore ?? unread, healthAfter = input.healthAfter ?? unread;
+  const platformBefore = input.platformHealthBefore ?? unread, platformAfter = input.platformHealthAfter ?? unread;
+  const none = "not recorded";
+  const met: PreclaimMetFields = {
+    refill_to_ready_ms: null, refill_to_ready_unavailable: none, refill_image: null, refill_image_unavailable: none,
+    post_bind_login_ms: null, post_bind_login_ms_unavailable: none, claim_to_first_text_ms: null, claim_to_first_text_unavailable: none,
+    ...preclaimDeployFields(healthBefore, healthAfter, platformBefore, platformAfter),
+    ...input.met,
+  };
   return {
     claim: input.claim,
     machine,
     spare,
     lease_id: typeof input.leaseId === "string" ? input.leaseId : null,
     lease_hit: input.leaseHit !== undefined ? input.leaseHit : classifyLeaseHit(answer, input.brokerLog),
-    health_before: input.healthBefore ?? { http_status: 0, outcome: "error", commit: null },
-    health_after: input.healthAfter ?? { http_status: 0, outcome: "error", commit: null },
+    health_before: healthBefore,
+    health_after: healthAfter,
+    platform_health_before: platformBefore,
+    platform_health_after: platformAfter,
     claim_to_bound: claimToBoundSplit(answer.stages_ms ?? answer.claim_to_bound ?? answer.claimToBound),
     post_bind_login: input.postBindLogin ?? "not_checked",
     first_chat_ms: input.firstChatMs ?? null,
     first_reply_ms: input.firstReplyMs ?? null,
+    ...met,
+    reply_not_judged: input.replyNotJudged ?? null,
+    spare_wait_ms: input.spareWait?.waited_ms ?? null,
+    cold_after_wait: input.spareWait?.cold_after_wait === true,
+    ...spareFields(answer),
   };
 }
+
+/** A held claim (one roll behind) fails when its login never arrived; a failed claim that took one counts too. Claim-path facts only: the reply is never judged. */
+const heldRowFailed = (r: PreclaimClaimRecord) => r.post_bind_login === "missing";
+
+/**
+ * The burst's counts. Held claims (a spare kept claimable across an image roll, CLOUD_SPARE_ROLL_HOLD) are counted apart from
+ * normal hits, with their failures, so a roll-crossing burst shows whether held spares still passed the claim guard (#1414).
+ */
+export function preclaimSummary(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[] = []) {
+  const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
+  const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
+  const heldRows = rows.filter((r) => r.claimed_behind === true);
+  const heldFailed = failures.filter((f) => f.claimed_behind === true);
+  const lease_misses = rows.filter((r) => r.lease_hit === false).length;
+  const waits = rows.map((r) => r.spare_wait_ms).filter((v): v is number => v !== null).sort((a, b) => a - b);
+  return {
+    claims: rows.length,
+    lease_hits: rows.filter((r) => r.lease_hit === true).length,
+    lease_misses,
+    // A miss after a ready spare was reported (or with no wait at all); a miss after the wait ran out counts apart.
+    cold_creates: rows.filter((r) => r.lease_hit === false && !r.cold_after_wait).length,
+    cold_after_wait: rows.filter((r) => r.lease_hit === false && r.cold_after_wait).length,
+    spare_wait_p90_ms: waits.length ? waits[Math.max(0, Math.ceil(waits.length * 0.9) - 1)] : null,
+    held_claims: heldRows.length + heldFailed.length,
+    held_failures: heldRows.filter(heldRowFailed).length + heldFailed.length,
+    image_skips: rows.reduce((n, r) => n + (r.spare_skips?.image ?? 0), 0),
+    claims_with_image_skip: rows.filter((r) => (r.spare_skips?.image ?? 0) > 0).length,
+    post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length,
+    replies: rows.filter((r) => r.first_reply_ms !== null).length,
+    replies_not_judged: rows.filter((r) => r.reply_not_judged !== null).length,
+    claim_to_bound_p90_ms: p90,
+  };
+}
+
+/** A git commit (7 to 40 hex). Staging's API answers `version: "0.1.0"` (its deploy config API_VERSION): a version, not a deploy. */
+const DEPLOY_COMMIT = /^[0-9a-f]{7,40}$/i;
 
 /** Keep health evidence useful without copying response bodies or account identifiers into the run output. */
 export function preclaimHealthSnapshot(answer: Answer): PreclaimHealthSnapshot {
   const body = answer.body && typeof answer.body === "object" ? answer.body as Record<string, unknown> : {};
   const value = body.value && typeof body.value === "object" ? body.value as Record<string, unknown> : body;
-  const candidates = [value.commit, value.sha, value.revision, value.version];
-  const commit = candidates.find((v): v is string => typeof v === "string" && /^[0-9A-Za-z._-]{1,80}$/.test(v)) ?? null;
-  return { http_status: answer.status, outcome: answer.status >= 200 && answer.status < 300 ? "ok" : "error", commit };
+  const ok = answer.status >= 200 && answer.status < 300;
+  const commit = ok ? [value.commit, value.sha, value.revision, value.version].find((v): v is string => typeof v === "string" && DEPLOY_COMMIT.test(v)) ?? null : null;
+  const named = publicVersion(value.commit) ?? publicVersion(value.version);
+  const why = commit !== null ? null : !ok ? `/v1/health answered HTTP ${answer.status}` : named ? `/v1/health names ${named}, not a deploy commit` : "/v1/health names no deploy commit";
+  return { http_status: answer.status, outcome: ok ? "ok" : "error", commit, commit_unavailable: why };
+}
+
+/**
+ * The deploy serving a claim and whether one landed during it: the platform's commit first (it runs the claim; staging's
+ * API answers only a fixed version), and an overlap wherever a service named a commit both before and after.
+ */
+export function preclaimDeployFields(apiBefore: PreclaimHealthSnapshot, apiAfter: PreclaimHealthSnapshot, platformBefore: PreclaimHealthSnapshot, platformAfter: PreclaimHealthSnapshot): Pick<PreclaimMetFields, "staging_sha" | "staging_sha_unavailable" | "deploy_overlap" | "deploy_overlap_unavailable"> {
+  const sha = platformBefore.commit ?? apiBefore.commit;
+  const pairs = [[platformBefore, platformAfter], [apiBefore, apiAfter]].filter(([a, b]) => a.commit !== null && b.commit !== null);
+  return {
+    staging_sha: sha,
+    staging_sha_unavailable: sha !== null ? null : `platform: ${platformBefore.commit_unavailable}; api: ${apiBefore.commit_unavailable}`,
+    deploy_overlap: pairs.length ? pairs.some(([a, b]) => a.commit !== b.commit) : null,
+    deploy_overlap_unavailable: pairs.length ? null : "no service's /v1/health named a deploy commit both before and after the claim",
+  };
+}
+
+/**
+ * The claim's spare from its created_at to ready, both on the platform's clock: the cloud.spare.ready frame's `at`
+ * (SpareReady.ts), else the spare's running_since when the journey subscribed after it was ready (the subscribe
+ * snapshot names the spare but carries no time). Claim 0's spare was warmed before the burst, not refilled after a claim.
+ */
+export function preclaimRefillToReady(claim: number, spare: string | null, readyFrame: unknown, spareRow: unknown): Pick<PreclaimMetFields, "refill_to_ready_ms" | "refill_to_ready_unavailable"> {
+  const no = (why: string) => ({ refill_to_ready_ms: null, refill_to_ready_unavailable: why });
+  if (claim === 0) return no("claim 0's spare was warmed before the burst, not refilled after a claim");
+  if (spare === null) return no("warm-spare named no spare (the claim was a cold create)");
+  const event = normalizedWireValue(readyFrame);
+  const data = event.data && typeof event.data === "object" ? event.data as Record<string, unknown> : event;
+  const row = spareRow && typeof spareRow === "object" ? spareRow as Record<string, unknown> : {};
+  const readyAt = typeof data.at === "number" ? data.at : typeof row.running_since === "number" ? row.running_since : null;
+  if (readyAt === null) return no("neither the spare.ready frame nor the spare's record carries a ready time");
+  if (typeof row.created_at !== "number") return no("the spare's record has no created_at");
+  const ms = readyAt - row.created_at;
+  return ms < 0 ? no("the spare's ready time precedes its created_at") : { refill_to_ready_ms: Math.round(ms), refill_to_ready_unavailable: null };
+}
+
+/** Whether the claim took the spare the journey timed, and that spare's image: value.claim.behind (cmux-platform#1429). */
+export function preclaimRefillImage(answer: unknown, spare: string | null, machine: unknown): Pick<PreclaimMetFields, "refill_image" | "refill_image_unavailable"> {
+  const no = (why: string) => ({ refill_image: null, refill_image_unavailable: why });
+  if (spare === null) return no("warm-spare named no spare (the claim was a cold create)");
+  if (machine !== spare) return no("the claim did not take the spare the journey timed");
+  const behind = spareFields(answer).claimed_behind;
+  if (behind === null) return no("the claim answer has no value.claim to say behind or current");
+  return { refill_image: behind ? "behind" : "current", refill_image_unavailable: null };
+}
+
+/**
+ * The account's machine-minutes at t0 from cloud.plan.get's usage: the caller's own share when the plan splits it, else
+ * the team's. The meter answers null while the month's total is unknown; that reads as unavailable, never 0.
+ */
+export function preclaimHoldMinutes(plan: unknown, secrets: string[] = []): Pick<PreclaimBurstFacts, "hold_minutes_t0" | "hold_minutes_t0_unavailable"> {
+  if (plan instanceof Error) return { hold_minutes_t0: null, hold_minutes_t0_unavailable: `cloud.plan.get failed: ${publicError(plan.message, secrets).slice(0, 200)}` };
+  const usage = (plan as { usage?: Record<string, unknown> } | null)?.usage ?? {};
+  const hours = typeof usage.vm_hours_used_by_you === "number" ? usage.vm_hours_used_by_you : typeof usage.vm_hours_used === "number" ? usage.vm_hours_used : null;
+  if (hours === null) return { hold_minutes_t0: null, hold_minutes_t0_unavailable: "cloud.plan.get usage names no machine-hours (the meter has no total for this month)" };
+  return { hold_minutes_t0: Math.round(hours * 600) / 10, hold_minutes_t0_unavailable: null };
 }
 
 /** Lease ids are correlation handles in the public summary, never bearer values or machine ids. */
@@ -476,12 +677,53 @@ export function opaquePreclaimLeaseId(value: unknown): string | null {
   return `lease:${createHash("sha256").update(value).digest("hex").slice(0, 12)}`;
 }
 
-/** Public preclaim evidence is limited to timings, outcomes and opaque lease handles. */
-export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[]): string {
-  const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
-  const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
-  const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90 };
-  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
+/** Public preclaim evidence is limited to timings, outcomes, opaque lease handles and short deploy commits. */
+export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[] = [], burst: PreclaimBurstFacts | null = null): string {
+  const summary = preclaimSummary(rows, failures);
+  const yesNo = (v: boolean | null) => (v === null ? "unknown" : v ? "yes" : "no");
+  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- cold creates: ${summary.cold_creates}`, ...(rows.some((r) => r.spare_wait_ms !== null) ? [`- cold after the ready-spare wait ran out: ${summary.cold_after_wait}`, `- ready-spare wait p90: ${summary.spare_wait_p90_ms ?? "-"} ms`] : []), `- held claims (one image roll behind): ${summary.held_claims}`, `- held claim failures: ${summary.held_failures}`, `- image skips: ${summary.image_skips} (claims with one: ${summary.claims_with_image_skip})`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- replies not judged: ${summary.replies_not_judged}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | held | spare wait | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${yesNo(r.lease_hit)} | ${yesNo(r.claimed_behind)} | ${r.spare_wait_ms === null ? "-" : `${r.spare_wait_ms}${r.cold_after_wait ? " (ran out)" : ""}`} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n" + (burst ? `\n${preclaimMetMarkdown(rows, burst)}` : "");
+}
+
+/** Nearest-rank percentile (the burst's p90 rule), or null with no values. */
+const rankOf = (values: number[], q: number): number | null => values.length ? [...values].sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * q) - 1)] : null;
+const metCell = (value: unknown, why: string | null) => (value === null || value === undefined ? `unavailable: ${why ?? "not recorded"}` : String(value)).replace(/\|/g, "\\|");
+/** The distinct reasons the rows give for a missing value, so an empty aggregate names why. */
+const metWhy = (rows: PreclaimClaimRecord[], why: (r: PreclaimClaimRecord) => string | null, fallback: string) => [...new Set(rows.map(why).filter((w): w is string => Boolean(w)))].join("; ") || fallback;
+
+/**
+ * The lead's MET table: hit rate (bar 10/10), refill-to-ready p50/p90 split behind/current, post-bind login p90 on
+ * hits (bar 0.5 s), claim-to-first-text p90 against bound p90 + reply turn + 2 s, hold minutes at t0, and each claim's
+ * staging SHA and deploy overlap. Timings, outcomes and short commits only; any field not measured says why.
+ */
+export function preclaimMetMarkdown(rows: PreclaimClaimRecord[], burst: PreclaimBurstFacts): string {
+  const n = rows.length;
+  const hits = rows.filter((r) => r.lease_hit === true).length;
+  const lines = ["### MET table", "", "| measure | value | bar | met |", "|:---|:---|:---|:---:|"];
+  lines.push(n ? `| hit rate | ${hits}/${n} | 10/10 | ${hits === n && n >= 10 ? "yes" : "no"} |` : "| hit rate | unavailable: no claim completed | 10/10 | no |");
+  for (const image of ["behind", "current"] as const) {
+    const vs = rows.filter((r) => r.refill_image === image && r.refill_to_ready_ms !== null).map((r) => r.refill_to_ready_ms!);
+    const why = rows.some((r) => r.refill_to_ready_ms !== null) ? `no timed refill took a spare ${image === "behind" ? "one image roll behind" : "on the current image"}` : metWhy(rows, (r) => r.refill_to_ready_unavailable, "no claim completed");
+    lines.push(`| refill-to-ready p50 / p90 (${image}) | ${vs.length ? `${rankOf(vs, 0.5)} / ${rankOf(vs, 0.9)} ms (n=${vs.length})` : metCell(null, why)} | - | - |`);
+  }
+  const logins = rows.filter((r) => r.lease_hit === true && r.post_bind_login_ms !== null).map((r) => r.post_bind_login_ms!);
+  const loginP90 = rankOf(logins, 0.9);
+  const loginWhy = hits ? metWhy(rows.filter((r) => r.lease_hit === true), (r) => r.post_bind_login_ms_unavailable, "not recorded") : "no claim was a lease hit";
+  lines.push(`| post-bind login p90 (hits) | ${loginP90 === null ? metCell(null, loginWhy) : `${loginP90} ms (n=${logins.length})`} | 500 ms | ${loginP90 === null ? "-" : loginP90 <= 500 ? "yes" : "no"} |`);
+  const texts = rows.filter((r) => r.claim_to_first_text_ms !== null).map((r) => r.claim_to_first_text_ms!);
+  const textP90 = rankOf(texts, 0.9);
+  const boundP90 = rankOf(rows.filter((r) => r.claim_to_bound.bound_ms !== null).map((r) => r.claim_to_bound.bound_ms!), 0.9);
+  const replyP90 = rankOf(rows.filter((r) => r.first_reply_ms !== null).map((r) => r.first_reply_ms!), 0.9);
+  const bar = boundP90 !== null && replyP90 !== null ? boundP90 + replyP90 + 2000 : null;
+  const barWhy = boundP90 === null ? "no claim answer named its bound stage" : "no reply turn was timed";
+  lines.push(`| claim-to-first-text p90 | ${textP90 === null ? metCell(null, metWhy(rows, (r) => r.claim_to_first_text_unavailable, "no claim completed")) : `${textP90} ms (n=${texts.length})`} | ${bar === null ? metCell(null, barWhy) : `${bar} ms (bound p90 ${boundP90} + reply p90 ${replyP90} + 2000)`} | ${textP90 === null || bar === null ? "-" : textP90 <= bar ? "yes" : "no"} |`);
+  lines.push(`| hold minutes at t0 | ${metCell(burst.hold_minutes_t0, burst.hold_minutes_t0_unavailable)} | - | - |`);
+  lines.push(`| claims | ${n} of ${burst.claims_expected} | 10 | ${n === burst.claims_expected && n >= 10 ? "yes" : "no"} |`);
+  lines.push("", "| claim | lease hit | refill to ready ms | refill image | post-bind login ms | claim to first text ms | staging sha | deploy overlap |", "|---:|:---:|:---|:---|:---|:---|:---|:---|");
+  for (const r of rows) {
+    const overlap = r.deploy_overlap === null ? null : r.deploy_overlap ? "yes" : "no";
+    lines.push(`| ${r.claim} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${metCell(r.refill_to_ready_ms, r.refill_to_ready_unavailable)} | ${metCell(r.refill_image, r.refill_image_unavailable)} | ${metCell(r.post_bind_login_ms, r.post_bind_login_ms_unavailable)} | ${metCell(r.claim_to_first_text_ms, r.claim_to_first_text_unavailable)} | ${metCell(r.staging_sha?.slice(0, 12) ?? null, r.staging_sha_unavailable)} | ${metCell(overlap, r.deploy_overlap_unavailable)} |`);
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function normalizedWireValue(value: unknown): Record<string, unknown> {
@@ -542,6 +784,8 @@ async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "
     const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error("warm-spare timed out")); }, 120_000);
     child.on("error", reject);
     child.on("close", (code: number | null) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr }); });
+    // A cmux that exits before reading stdin (a usage refusal) closes the pipe: its exit code and answer say why, not EPIPE.
+    child.stdin!.on("error", () => undefined);
     child.stdin!.end(`${api.bearer}\n${installToken}\n`);
   });
   if (result.code !== 0) throw new Error(warmSpareRefusal(result));
@@ -570,10 +814,31 @@ export function warmSpareRefusal(result: { code: number; stdout: string; stderr:
   return `warm-spare refused (exit ${result.code})${said ? `: ${said.slice(0, 300)}` : ""}`;
 }
 
-export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number }> {
+/** The platform origin a backend's client-config names (`platform_origin`, an https origin), as the app reads it. */
+export function clientPlatformOrigin(body: unknown): string {
+  const raw = (body as { platform_origin?: unknown } | null)?.platform_origin;
+  let url: URL | null = null;
+  try { url = typeof raw === "string" ? new URL(raw) : null; } catch {}
+  if (!url || url.protocol !== "https:" || url.origin !== String(raw).replace(/\/+$/, "")) throw new Error("client-config names no https platform_origin");
+  return url.origin;
+}
+
+/**
+ * The first chat on a claimed machine. The agent starting and taking the prompt are claim-path facts and throw; the reply
+ * is the model's, so a refused or missing reply comes back as replyNotJudged and never fails the claim (lead: "make the
+ * gate read claim-path fields only, so a model limit can never block it again").
+ */
+export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number | null; replyNotJudged: string | null }> {
   const started = Date.now();
   const ensured = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m claude --json 2>&1; echo "@@exit $?"`, 120_000);
-  if (!/@@exit 0/.test(ensured.stdout)) throw new Error(`preclaim ${session}: agent start refused`);
+  const ensureExit = /@@exit (\d+)/.exec(ensured.stdout)?.[1];
+  if (ensureExit !== "0") {
+    // Say why (run 43873927808 claim 4 kept only "agent start refused"): ensure's own exit, or the exec cutting it off.
+    const ran = `after ${Math.round((Date.now() - started) / 1000)} s`;
+    const how = ensureExit === undefined ? `no exit within the 120 s exec, code ${ensured.code}, ${ran}` : `exit ${ensureExit} ${ran}`;
+    const said = `${ensured.stdout.replace(/@@exit \d+\n?/, "")}${ensured.stderr}`.trim().slice(-300);
+    throw new Error(`preclaim ${session}: agent start refused (${how})${said ? `: ${said}` : ""}`);
+  }
   const chatMs = Date.now() - started;
   const sent = await exec(`${GUEST}printf '%s' ${shq(prompt)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
   if (!/@@exit 0/.test(sent.stdout)) throw new Error(`preclaim ${session}: chat send refused`);
@@ -582,11 +847,21 @@ export async function runPreclaimChat(exec: Exec, session: string, prompt: strin
     const reply = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1`, 45_000);
     const wait = /@@wait (\d+)/.exec(reply.stdout)?.[1];
     const text = reply.stdout.replace(/@@wait \d+\n?/, "").trim();
-    if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted };
+    if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted, replyNotJudged: null };
     // The send is queued: an idle exit before the turn starts is not a failed reply.
-    if (wait && wait !== "0" && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}`);
+    if (wait && wait !== "0" && wait !== "3") return { chatMs, replyMs: null, replyNotJudged: `reply wait exit ${wait}: ${await failedTurnWhy(exec, session, text)}` };
   }
-  throw new Error(`preclaim ${session}: no reply within ${budgetMs / 1000} s`);
+  return { chatMs, replyMs: null, replyNotJudged: `no reply within ${budgetMs / 1000} s` };
+}
+
+/**
+ * Why a turn failed: a failed turn (`acp wait` exit 1) prints no reply, so this names the session's last turn_error
+ * (e.g. a harness with no sign-in on the machine), else the last message (run 43817240410 recorded only "exit 1").
+ */
+export async function failedTurnWhy(exec: Exec, session: string, last: string): Promise<string> {
+  const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
+  const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
+  return (why || last).slice(-300);
 }
 
 /** A cold claim has no warm receipt, so it uses the same credential transfer after bind. */
@@ -608,8 +883,34 @@ async function installPreclaimLogin(api: Api, machine: string, exec: Exec, progr
   }
 }
 
-/** A spare warmed for the account with the person's login copied onto it on spare.ready, as the app's SpareReady path. */
-export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown> };
+/**
+ * A spare warmed for the account with the person's login copied onto it on spare.ready, as the app's SpareReady path.
+ * `readyFrame` and `spareRow` time its refill to ready (preclaimRefillToReady); both null with no spare.
+ */
+export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown>; readyFrame?: unknown; spareRow?: unknown };
+
+/** A claim's bounded wait for a ready spare: how long, how many warms, and whether the bound ran out first. */
+export type SpareWait = { waited_ms: number; attempts: number; cold_after_wait: boolean };
+
+/**
+ * --spare-wait: before a claim, ask the warm (the same warm-spare the claim path reads) until it names a ready spare, for at
+ * most budgetMs, so a one-spare pool can refill between claims and a burst tests make-before-break rather than refill speed.
+ * With no budget it asks once (wait null). When the bound runs out the claim still goes ahead, marked cold_after_wait.
+ */
+export async function waitForReadySpare<T extends { spare: string | null }>(prepare: () => Promise<T>, budgetMs: number, opts: { pollMs?: number; now?: () => number; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ prepared: T; wait: SpareWait | null }> {
+  if (!(budgetMs > 0)) return { prepared: await prepare(), wait: null };
+  const pollMs = opts.pollMs ?? 15_000;
+  const now = opts.now ?? Date.now;
+  const pause = opts.sleep ?? sleep;
+  const started = now();
+  for (let attempts = 1; ; attempts++) {
+    const prepared = await prepare();
+    const waited = now() - started;
+    if (prepared.spare !== null) return { prepared, wait: { waited_ms: waited, attempts, cold_after_wait: false } };
+    if (waited + pollMs > budgetMs) return { prepared, wait: { waited_ms: waited, attempts, cold_after_wait: true } };
+    await pause(pollMs);
+  }
+}
 
 /**
  * The app's part on a warm spare (SpareReady): warm-spare names a spare, the journey waits for its cloud.spare.ready,
@@ -635,19 +936,20 @@ export async function prepareSpareLogin(a: {
   const spare = typeof warm.machine === "string" ? warm.machine : null;
   let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
   let leaseId = opaquePreclaimLeaseId(warm.lease_id ?? warm.leaseId ?? warm.reservation_id ?? warm.reservationId);
+  let readyFrame: unknown = null, spareRow: unknown = null;
   if (spare) {
-    await waitForCloudSpareReady({ ...a.api, team: a.wireTeam }, spare, a.readyBudgetMs);
+    readyFrame = await waitForCloudSpareReady({ ...a.api, team: a.wireTeam }, spare, a.readyBudgetMs);
     const ready = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, ready: spare });
     leaseId ??= opaquePreclaimLeaseId(ready.lease_id ?? ready.leaseId ?? ready.reservation_id ?? ready.reservationId);
     if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
     const exec = directExec(a.api, spare, a.journey);
-    await waitMachine(a.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+    spareRow = await waitMachine(a.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
     await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope);
     const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
     if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
     if (copy.generation) await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
   }
-  return { spare, generation: copy.generation, leaseId, request: a.request };
+  return { spare, generation: copy.generation, leaseId, request: a.request, readyFrame, spareRow };
 }
 
 /** Whether the claim answer's machine carries the login the spare's copy installed (warm-spare loginReceipt). */
@@ -657,7 +959,7 @@ export async function spareLoginReceipt(cmux: string, api: Pick<Api, "origin" | 
   return receipt.installed === true;
 }
 
-async function runPreclaimBurst(args: {
+export async function runPreclaimBurst(args: {
   backend: Backend;
   api: Api;
   cmux: string;
@@ -671,6 +973,10 @@ async function runPreclaimBurst(args: {
   privateRowsPath?: string;
   team?: string;
   user: any;
+  /** The platform origin's /v1/health read (tests answer it; the API's own reads go through `api`). */
+  fetchJson?: typeof http;
+  /** --spare-wait: the bound on each claim's wait for a ready spare (waitForReadySpare); 0 claims at once. */
+  spareWaitMs?: number;
 }): Promise<number> {
   if (!args.cmux) throw new Error("--preclaim needs --cmux PATH so the shipped Rust warm/ready path is exercised");
   if (!validLogin("claude", args.login)) throw new Error("--preclaim needs a valid Claude setup-token login (or --model stub)");
@@ -681,49 +987,86 @@ async function runPreclaimBurst(args: {
   let verificationFailed = false;
   const scopeTeam = args.team ?? args.install.team ?? String(args.user?.personal_team ?? args.user?.team ?? "");
   const wireTeam = scopeTeam || args.api.team;
-  const scope = { platform: args.backend.api, team: scopeTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
+  // The platform the app sends a warm to: client-config's platform_origin (CloudConfiguration.artifactsAPIBaseURL), never the
+  // API host: cloud-api forwards a fixed list of platform paths, and /v1/cloud/spare/warm is not one (an empty 404).
+  let platform: string | null = null;
+  const scopeOf = (origin: string) => ({ platform: origin, team: scopeTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") });
   const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(args.team));
   const account = args.account;
+  const fetchJson = args.fetchJson ?? http;
+  // The platform runs the claim, so its deploy commit is the staging SHA; a failed read is a reason, not a failed claim.
+  const platformHealth = (origin: string) => fetchJson("GET", `${origin}/v1/health`, undefined, {}, 30_000).then(preclaimHealthSnapshot, (error): PreclaimHealthSnapshot => ({ http_status: 0, outcome: "error", commit: null, commit_unavailable: `platform /v1/health failed: ${publicError(String((error as Error)?.message ?? error), args.journey.secrets).slice(0, 120)}` }));
+  const burst: PreclaimBurstFacts = { claims_expected: args.claims, hold_minutes_t0: null, hold_minutes_t0_unavailable: "not read yet" };
   const writeOutput = () => {
     if (!args.outDir && !args.privateRowsPath) return;
     if (args.outDir) mkdirSync(args.outDir, { recursive: true });
-    const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
-    const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
-    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90, outcome: verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? "fail" : "pass", complete: preclaimRunComplete(rows, failures, args.claims) };
-    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary }, rows, failures }, null, 2)}\n`);
+    const summary = { ...preclaimSummary(rows, failures), outcome: verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? "fail" : "pass", complete: preclaimRunComplete(rows, failures, args.claims) };
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary, burst }, rows, failures }, null, 2)}\n`);
     args.journey.preclaimRows = rows;
+    args.journey.preclaimBurst = burst;
+    args.journey.preclaimFailures = failures;
     args.journey.flush();
   };
   try {
+    // Hold minutes at t0: the account's machine-minutes before claim 0 makes any machine.
+    Object.assign(burst, preclaimHoldMinutes(await Promise.resolve().then(() => args.api.read("cloud.plan.get", {})).catch((error) => error instanceof Error ? error : new Error(String(error))), args.journey.secrets));
     for (let index = 0; index < args.claims; index++) {
       let claimedMachine: string | null = null;
+      let claimedBehind: boolean | null = null;
       try {
       const healthBefore = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
-      const request = { platform: args.backend.api, account, scope, currentScope: scope };
-      const prepared = await prepareSpareLogin({ api: args.api, cmux: args.cmux, stateDir, installToken: args.install.token, request, wireTeam, programs, login: args.login, ownerScope: args.team ? "owner or team" : "owner", index, journey: args.journey });
+      platform ??= clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+      const platformHealthBefore = await platformHealth(platform);
+      const scope = scopeOf(platform);
+      const request = { platform, account, scope, currentScope: scope };
+      const { prepared, wait: spareWait } = await waitForReadySpare(() => prepareSpareLogin({ api: args.api, cmux: args.cmux, stateDir, installToken: args.install.token, request, wireTeam, programs, login: args.login, ownerScope: args.team ? "owner or team" : "owner", index, journey: args.journey }), args.spareWaitMs ?? 0);
       const { spare, leaseId } = prepared;
+      const claimSentAt = Date.now();
       const answer = await args.api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
       const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
       claimedMachine = typeof machine === "string" ? machine : null;
+      claimedBehind = spareFields(answer).claimed_behind;
       const explicitLease = classifyLeaseHit(answer);
       const leaseHit = explicitLease ?? (spare === null ? false : typeof machine === "string" ? machine === spare : null);
+      const loginMode = preclaimLoginMode(spare, typeof machine === "string" ? machine : null);
+      // Post-bind login: the receipt check on a hit (the login is already on the spare), the copy itself on a miss.
+      let postBindLoginMs: number | null = null;
+      let postBindLoginWhy: string | null = "the claim answered no machine";
       if (typeof machine === "string") {
         await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
-        if (preclaimLoginMode(spare, machine) === "post-bind") {
+        if (loginMode === "post-bind") {
+          const copyAt = Date.now();
           await installPreclaimLogin(args.api, machine, directExec(args.api, machine, args.journey), programs, args.login, index, args.team ? "owner or team" : "owner");
+          postBindLoginMs = Date.now() - copyAt;
+          postBindLoginWhy = null;
         }
       }
+      const receiptAt = Date.now();
       const receiptInstalled = typeof machine === "string" ? await spareLoginReceipt(args.cmux, args.api, stateDir, args.install.token, prepared, machine) : false;
+      if (typeof machine === "string" && loginMode === "preclaim") {
+        postBindLoginMs = prepared.generation ? Date.now() - receiptAt : null;
+        postBindLoginWhy = prepared.generation ? null : "the spare's copy named no generation, so no login receipt was asked";
+      }
       let firstChatMs: number | null = null;
       let firstReplyMs: number | null = null;
+      let claimToFirstTextMs: number | null = null;
+      let replyNotJudged: string | null = null;
       if (typeof machine === "string") {
         const chat = await runPreclaimChat(directExec(args.api, machine, args.journey), `preclaim-${args.tag}-${index}`, `Reply with one short sentence for preclaim ${index}.`, 300_000);
+        claimToFirstTextMs = chat.replyMs === null ? null : Date.now() - claimSentAt;
         firstChatMs = chat.chatMs;
         firstReplyMs = chat.replyMs;
+        replyNotJudged = chat.replyNotJudged === null ? null : scrub(chat.replyNotJudged, args.journey.secrets).slice(0, 600);
       }
       const healthAfter = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
-      const loginMode = preclaimLoginMode(spare, typeof machine === "string" ? machine : null);
-      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, postBindLogin: loginMode === "post-bind" ? "post-bind" : receiptInstalled ? "receipt" : "missing" });
+      const platformHealthAfter = await platformHealth(platform);
+      const met: Partial<PreclaimMetFields> = {
+        ...preclaimRefillToReady(index, spare, prepared.readyFrame ?? null, prepared.spareRow ?? null),
+        ...preclaimRefillImage(answer, spare, machine),
+        post_bind_login_ms: postBindLoginMs, post_bind_login_ms_unavailable: postBindLoginWhy,
+        claim_to_first_text_ms: claimToFirstTextMs, claim_to_first_text_unavailable: claimToFirstTextMs !== null ? null : replyNotJudged !== null ? `no first text: ${replyNotJudged.slice(0, 200)}` : "the claim answered no machine, so no chat ran",
+      };
+      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, platformHealthBefore, platformHealthAfter, firstChatMs, firstReplyMs, replyNotJudged, spareWait, met, postBindLogin: loginMode === "post-bind" ? "post-bind" : receiptInstalled ? "receipt" : "missing" });
       rows.push(record);
       if (typeof machine === "string") {
         await args.api.deleteMachine(machine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
@@ -731,8 +1074,10 @@ async function runPreclaimBurst(args: {
       }
       writeOutput();
       } catch (error) {
+        // The machine's own facts first: deleting it is the end of every log that says why.
+        const guest = claimedMachine ? await preclaimGuestFacts(directExec(args.api, claimedMachine, args.journey), `preclaim-${args.tag}-${index}`) : undefined;
         if (claimedMachine) await args.api.deleteMachine(claimedMachine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
-        failures.push(preclaimFailureRecord(index, error, args.journey.secrets));
+        failures.push(preclaimFailureRecord(index, error, args.journey.secrets, claimedBehind, guest));
         writeOutput();
         throw error;
       }
@@ -2505,6 +2850,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cmux = argValue("--cmux", argv);
   const preclaim = argv.includes("--preclaim");
   const preclaimClaims = Number(argValue("--claims", argv) ?? 10);
+  // --spare-wait SECONDS (0..900): each preclaim claim first waits, at most this long, for the warm to name a ready spare.
+  const preclaimSpareWait = Number(argValue("--spare-wait", argv) ?? 0);
+  if (!Number.isInteger(preclaimSpareWait) || preclaimSpareWait < 0 || preclaimSpareWait > 900) throw new Error("--spare-wait must be 0..900 seconds");
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
@@ -2793,6 +3141,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS,
           team,
           user,
+          spareWaitMs: preclaimSpareWait * 1000,
         });
         if (value !== 0) throw new Error("preclaim verification failed");
         return { value, detail: `claims ${preclaimClaims}` };
@@ -3238,10 +3587,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (wait === "0" && last) return last;
         if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
         if (wait && wait !== "3" && wait !== "0") {
-          // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
-          const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
-          const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
-          throw new Error(`acp wait exit ${wait}: ${(why || last).slice(-300)}`);
+          throw new Error(`acp wait exit ${wait}: ${await failedTurnWhy(exec, session, last)}`);
         }
       }
       throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
