@@ -5,8 +5,15 @@
 // draws one view row.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { ChatSource, HOLD_ATTACH_CAPABILITY, KEPT_WINDOWS, chatRowsState, resetChatRowsState } from "./chatSource";
-import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, OPEN_ANSWER_MS } from "./host";
+import {
+  ChatSource,
+  HOLD_ATTACH_CAPABILITY,
+  KEPT_WINDOWS,
+  chatRowsOtherSids,
+  chatRowsState,
+  resetChatRowsState,
+} from "./chatSource";
+import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, CHAT_ROWS_SLOW, OPEN_ANSWER_MS } from "./host";
 import { receiveChatRows, resetChatRowsReceiver } from "./receiver";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
@@ -312,4 +319,54 @@ test("one store's throw leaves the other stores' changes applied and the batch t
   expect(two.rows.view("chat-b")!.rows.length).toBe(11);
   const taken = [...one.posts, ...two.posts].filter((post) => post.method === "chat.rows.taken");
   expect(taken).toEqual([{ method: "chat.rows.taken", params: { batch: 10 } }]);
+});
+
+test("a chat whose first window does not come in time falls to v1 and its sid is closed", async () => {
+  const { rows, posts, fell, feed, opens } = source();
+  rows.firstWindowMs = 5;
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(fell).toEqual([{ chat: "chat-a", code: CHAT_ROWS_SLOW }]);
+  expect(posts.at(-1)).toEqual({ method: "chat.rows.close", params: { sid: "rows.1" } });
+  expect(rows.holds("chat-a")).toBe(false);
+  // What comes for it after is dropped, and the chat stays v1 until another is chosen.
+  feed(chat.get("window")!);
+  expect(rows.view("chat-a")).toBeUndefined();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(false);
+  expect(opens()).toBe(1);
+  // A first window in time stops the deadline.
+  expect(await rows.choose("chat-b", HOLDS)).toBe(true);
+  feed(renamed(chat.get("window")!, "rows.2"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(fell).toHaveLength(1);
+  expect(rows.holds("chat-b")).toBe(true);
+});
+
+test("an open answered with another sid falls that chat once, counted, and the switch stays", async () => {
+  let other = true;
+  const { rows, opens } = source((post) =>
+    post.method === "chat.rows.open" && other ? Promise.resolve({ sid: "theirs" }) : undefined,
+  );
+  expect(await rows.choose("chat-a", HOLDS)).toBe(false);
+  expect(chatRowsOtherSids()).toBe(1);
+  expect(chatRowsState()).toBe("unknown");
+  other = false;
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  expect(opens()).toBe(2);
+});
+
+test("a second choose of the chat whose open is out waits on that open, posting none", async () => {
+  let answer = () => {};
+  const gate = new Promise<void>((resolve) => (answer = resolve));
+  const { rows, posts, opens } = source((post) =>
+    post.method === "chat.rows.open" ? gate.then(() => ({ sid: post.params.sid })) : undefined,
+  );
+  const first = rows.choose("chat-a", HOLDS);
+  const second = rows.choose("chat-a", HOLDS);
+  answer();
+  expect(await first).toBe(true);
+  expect(await second).toBe(true);
+  expect(opens()).toBe(1);
+  expect(posts.some((post) => post.method === "chat.rows.close")).toBe(false);
+  expect(rows.holds("chat-a")).toBe(true);
 });
