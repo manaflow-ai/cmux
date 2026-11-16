@@ -813,7 +813,7 @@ import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { nativeUnsentPrompts } from "./unsentPrompts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
-import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import { paintAdoptedSnapshot, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -7177,6 +7177,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setPastTurns(undefined);
       setProjectDraft(undefined);
       void runAdoption(adoption);
+      // The chat's copy, while it attaches: a released chat the spare took showed nothing until then,
+      // later than a page built again showed its copy (chatSnapshot/live.ts `paintAdoptedSnapshot`). Not
+      // for a subagent's pane, which shows the subagent from its first frame, not the chat's rows.
+      const ticket = adoptionTicket.current;
+      if (!adoptionPlan(adoption).revealsFirst)
+        void paintAdoptedSnapshot(adoption.sessionId, callNative, () => ticket === adoptionTicket.current);
     },
     [runAdoption],
   );
