@@ -47,6 +47,8 @@ main() {
     sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
     source "$out/nightly-fresh-launch-lib.sh"
     declare -F build_dmg >/dev/null || { echo "LR build_dmg missing from nightly-fresh-launch.sh"; exit 3; }
+    # build_dmg resolves each side's acpmux with this copy: a base commit may predate resolve-acpmux.sh.
+    cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
     local here; here="$(git rev-parse HEAD)"
     local head="${headsha:-$here}" want
     for want in $base $head; do
