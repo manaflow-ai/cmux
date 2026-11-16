@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 2b6ea7510ba99e4f71d578f8e65fb425aa0e0d2b3891a4b16fb8d62ca66cf73d
+// app-ffi-pin-checksum: 0560b17915d54916cdc539a98607ef63d67bee1781ae049633ca3c89669b5af1
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -1448,6 +1448,18 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // The ABI-3 list client wrapper and its byte transport. This target owns the C handle;
+        // the sidebar target consumes its changes without linking the app target.
+        .target(
+            name: "CmuxNextAgentList",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextAgentActivity",
+                "CmuxNextCompat",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // The thumbnail grid: tiles, the thumbnail cache, drag out, drop reading, Quick Look and the
         // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks only.
         .target(
@@ -1687,6 +1699,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextDevices",
+                "CmuxNextPalette",
                 "CmuxNextRemoteView",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
@@ -2193,6 +2206,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // CmuxNextCompat: the tests import it directly (Mutex); undeclared, an incremental build kept a
             // test object compiled against its older interface (an undefined Mutex.withLock symbol at link).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentList",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextTestSupport",

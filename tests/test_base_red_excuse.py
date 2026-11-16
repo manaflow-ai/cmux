@@ -14544,7 +14544,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
             "cmux-skill-contract.yml", "agent-brands.yml",
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
-            "cmux-next-react-doctor.yml"),
+            "cmux-next-react-doctor.yml",
+            # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
+            "cmux-next-tab-switch.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
