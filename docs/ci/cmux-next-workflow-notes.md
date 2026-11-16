@@ -648,6 +648,16 @@ the entries so a cold mini reports, and the summary shows the time.
 The fleet's `queued` hand-back always runs cold on Blacksmith 6 vCPU macOS, whose fast-tier p90 was
 19.8 minutes (#38181's data), so it gets 35: a slow cold build still gives the verdict.
 
+An app FFI re-pin (`ffi_repin`) changes the CCmuxAppFFI binary target, so every
+CmuxNext module rebuilds cold before `HandlerCoverageTests` runs. With 20
+minutes, #43935's tier hit the job limit on cmux23-glaeda-3 (2026-11-15) and
+showed `cancelled`, not red. The re-pin merged, and every Debug launch then
+stopped in `HandlerCoverage.verify` (three terminal-to-chat catalog rows without
+handlers) until #44082. A re-pin gets 50 minutes. Its `Run the fast tier` step
+has a 45-minute limit: a step past its limit fails the job, so a slow re-pin
+build shows red with the step named, never `cancelled`. Other runs keep the job
+limit (the step's 360 is never reached).
+
 ## note-40
 
 Above `fast-tier: Fingerprint this job's inputs` in `.github/workflows/cmux-next.yml`.

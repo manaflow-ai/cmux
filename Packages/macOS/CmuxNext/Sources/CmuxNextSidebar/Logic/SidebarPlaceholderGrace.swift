@@ -7,9 +7,9 @@ import CmuxNextWakeups
 @MainActor
 public final class SidebarPlaceholderGrace {
     public static let delay: Duration = .milliseconds(300)
-    /// The startup diagnostic bound kept by callers that also manage placeholder grace.
-    /// Automatic connection labels remain hidden after this bound.
-    public static let connectingDelay: Duration = .seconds(10)
+    /// The wait before one list names "Connecting…": the shared connection quiet time
+    /// (``QuietHold/connectionDelay``: the daemon's startup deadline, which the store's drop grace uses too).
+    public static let connectingDelay: Duration = QuietHold.connectionDelay
 
     /// Runs when a section's wait ends (the bridge runs its rows pass again).
     public var onEnd: (@MainActor () -> Void)?
@@ -55,8 +55,13 @@ public final class SidebarPlaceholderGrace {
         ended.remove(section)
     }
 
-    /// Automatic connection recovery never adds a label or spinner to the cached rows.
-    /// A state a person must act on (sign-in, install, update or failure) remains visible.
+    /// `sections` with each machine (This Mac too) whose link has been coming up, dropped or out of reach for
+    /// less than this grace's wait marked `holdsStatusLabel`: neither its header (`SectionHeaderRowView`)
+    /// nor one list names "Connecting…", "Reconnecting…", "Unreachable" or "Offline" until it lasts
+    /// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"), since the link
+    /// redials on its own and most drops end inside the wait. The wait spans every such state in a
+    /// row (reconnecting, then unreachable) and starts again once the link is up. A state a person
+    /// must act on (sign-in, install, update) is never held.
     public func holdingConnectingLabels(_ sections: [SidebarSection]) -> [SidebarSection] {
         keep(Set(sections.map(\.id)))
         return sections.map { section in
@@ -65,8 +70,7 @@ public final class SidebarPlaceholderGrace {
                 reset(section.id)
                 return section
             }
-            // No action is available during automatic recovery, even after the grace.
-            reset(section.id)
+            guard !allows(section.id) else { return section }
             machine.holdsStatusLabel = true
             var held = section
             held.kind = .machine(machine)
