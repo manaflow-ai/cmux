@@ -60,7 +60,9 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
             content.topAnchor.constraint(equalTo: holder.topAnchor),
             content.bottomAnchor.constraint(equalTo: holder.bottomAnchor)
         ])
-        let surface = Glass.makeSurface(.sheet, content: holder)
+        // Concentric with its buttons, `Metrics.space5` in (Lawrence 2026-11-15: "all dialogs needs concentric padding
+        // with buttons inside").
+        let surface = Glass.makeSurface(.sheet, content: holder, cornerRadius: Metrics.buttonContainer(padding: Metrics.space5).outerRadius)
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = NSRect(origin: .zero, size: size)
         surface.autoresizingMask = [.width, .height]
