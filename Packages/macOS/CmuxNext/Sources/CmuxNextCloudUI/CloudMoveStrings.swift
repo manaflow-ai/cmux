@@ -1,5 +1,5 @@
 public import CmuxNextCloud
-import Foundation
+public import Foundation
 
 /// Move to Cloud's text (the App's `CloudMove`, `CloudStartChat`, `CloudBringBack`). Keys live in
 /// Resources/Cloud.xcstrings with every app locale.
@@ -114,8 +114,8 @@ public struct CloudMoveStrings {
                               table: "Cloud", bundle: .module), machine, detail)
     }
     /// The app server's refusal of a create at the team's machine count limit (upstream `cloud.quota.vm_limit`).
-    public static let machineLimitCode = "cmux.cloud.vm_limit"
-    public static var machineLimit: String {
+    public nonisolated static let machineLimitCode = "cmux.cloud.vm_limit"
+    public nonisolated static var machineLimit: String {
         String(localized: "cloud.error.machineLimit", defaultValue: "This team is at its Cloud machine limit, and paused machines count. Delete a machine you no longer need, then try again.", table: "Cloud", bundle: .module)
     }
 }
