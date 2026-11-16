@@ -91,6 +91,30 @@ struct DeviceHubStartupRecoveryTests {
         #expect(count == 2)
     }
 
+    /// Signed out, Device Hub Address empty, and the launch restore not ended (on a fresh home it can stall):
+    /// Screen Sharing says to sign in, never that the address is not a valid web address.
+    @Test func signedOutWithAnEmptyHubAddressIsNotAnInvalidAddress() async throws {
+        let pages = pages()
+        let (began, reportBegan) = AsyncStream<Void>.makeStream()
+        let (restore, endRestore) = AsyncStream<Void>.makeStream()
+        let service = DeviceHubService(pages: pages, account: .init(awaitRestored: {
+            reportBegan.yield()
+            for await _ in restore { break }
+        }, userID: { nil }, accessToken: { throw CancellationError() }), bundleIdentifier: "test.hub-recovery",
+            loginKeychain: LoginKeychain())
+        defer { endRestore.finish(); reportBegan.finish() }
+        service.start(settings: settings())
+        var starts = began.makeAsyncIterator()
+        _ = await starts.next()
+        let home = MacScreenHomeView(host: pages.host, actions: .init(), devices: .init(pages: pages))
+        guard case .signedOut? = MacScreenHomeSnapshot(home: home).devices else {
+            Issue.record("signed out with an empty hub address read \(String(describing: MacScreenHomeSnapshot(home: home).devices))")
+            return
+        }
+        #expect(service.settingsModel.state.available)
+        #expect(service.settingsModel.state.status.text == L.t("devices.status.signedOut", "Sign in to cmux to see your devices."))
+    }
+
     @Observable @MainActor final class AccountState {
         var user = "old"
     }
