@@ -590,7 +590,18 @@ extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
 
 impl Capture {
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
-        Self::start_with_marker(which, fps, max_width, None)
+        Self::start_with_marker(which, fps, max_width, true, None)
+    }
+
+    /// A session's capture: `shows_cursor` false leaves the cursor out of the pictures (the
+    /// viewer draws it from cursor metadata, cap `cursor`).
+    pub fn start_for_session(
+        which: &str,
+        fps: u32,
+        max_width: Option<u32>,
+        shows_cursor: bool,
+    ) -> Res<Self> {
+        Self::start_with_marker(which, fps, max_width, shows_cursor, None)
     }
 
     #[cfg(feature = "bench")]
@@ -600,20 +611,22 @@ impl Capture {
         max_width: Option<u32>,
         marker: MarkerConfig,
     ) -> Res<Self> {
-        Self::start_with_marker(which, fps, max_width, Some(marker))
+        Self::start_with_marker(which, fps, max_width, true, Some(marker))
     }
 
     fn start_with_marker(
         which: &str,
         fps: u32,
         max_width: Option<u32>,
+        shows_cursor: bool,
         #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
         #[cfg(not(feature = "bench"))] marker: Option<()>,
     ) -> Res<Self> {
         let (content, displays) = shareable_displays()?;
         let picked = pick(&displays, which);
-        let result =
-            picked.and_then(|(display, id)| Self::stream(display, id, fps, max_width, marker));
+        let result = picked.and_then(|(display, id)| {
+            Self::stream(display, id, fps, max_width, shows_cursor, marker)
+        });
         release_all(content, &displays);
         result
     }
@@ -623,6 +636,7 @@ impl Capture {
         id: u32,
         fps: u32,
         max_width: Option<u32>,
+        shows_cursor: bool,
         #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
         #[cfg(not(feature = "bench"))] marker: Option<()>,
     ) -> Res<Self> {
@@ -686,7 +700,13 @@ impl Capture {
                 sel(c"setQueueDepth:"),
                 QUEUE_DEPTH,
             );
-            msg::<unsafe extern "C" fn(Id, Sel, bool)>()(config, sel(c"setShowsCursor:"), true);
+            // Without the cursor when the viewer draws it from metadata (cap `cursor`): one
+            // cursor on the viewer's screen, not the local one over a baked-in copy.
+            msg::<unsafe extern "C" fn(Id, Sel, bool)>()(
+                config,
+                sel(c"setShowsCursor:"),
+                shows_cursor,
+            );
             msg::<unsafe extern "C" fn(Id, Sel, *const c_void)>()(
                 config,
                 sel(c"setColorSpaceName:"),
@@ -801,9 +821,14 @@ impl Capture {
 
     /// The newest complete frame (kept, so a recovery keyframe needs no new capture), with its
     /// display and arrival times when ScreenCaptureKit gave a display time.
+    #[cfg(feature = "bench")]
     pub fn newest(&self) -> Option<(PixelBuffer, Option<(u64, u64)>)> {
-        let shared = self.shared.lock().unwrap_or_else(|p| p.into_inner());
-        shared.newest.clone().map(|frame| (frame, shared.newest_times))
+        self.frames().newest()
+    }
+
+    /// A reader of the newest frame for the session's encode thread.
+    pub fn frames(&self) -> Frames {
+        Frames(self.shared.clone())
     }
 
     #[cfg(feature = "bench")]
@@ -815,6 +840,19 @@ impl Capture {
             samples: shared.presented.as_mut().map_or_else(Vec::new, |queue| queue.take()),
             queue_overflow: shared.presented.as_ref().is_some_and(|queue| queue.overflowed()),
         }
+    }
+}
+
+/// The newest captured frame of a [`Capture`], read from another thread (the session's encode
+/// thread) while the capture's owner drains damage.
+pub struct Frames(Arc<Mutex<Shared>>);
+
+impl Frames {
+    /// The newest complete frame (kept, so a recovery keyframe needs no new capture), with its
+    /// display and arrival times when ScreenCaptureKit gave a display time.
+    pub fn newest(&self) -> Option<(PixelBuffer, Option<(u64, u64)>)> {
+        let shared = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        shared.newest.clone().map(|frame| (frame, shared.newest_times))
     }
 }
 
