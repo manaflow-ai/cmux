@@ -309,8 +309,8 @@ fn ask_key(entry: &Value) -> Option<Key> {
     if key.len() != 2 {
         return None;
     }
-    let session = key[0].as_str()?.to_owned();
-    let permission = key[1].as_str()?.to_owned();
+    let session = key.first()?.as_str()?.to_owned();
+    let permission = key.get(1)?.as_str()?.to_owned();
     if session.len() > 1024 || permission.len() > 1024 {
         return None;
     }
