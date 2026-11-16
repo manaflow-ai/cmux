@@ -429,7 +429,8 @@ public final class HoverCardCoordinator {
             // A target takes the card from its owner's content: the owner hears it ended.
             finishOwned()
             guard let source = owners[target.id]?.source, let parent = source.hoverCardWindow, parent.isVisible,
-                  let anchor = source.hoverCardAnchor(for: target.id), let body = source.hoverCardBody(for: target.id)
+                  let anchor = source.hoverCardAnchor(for: target.id),
+                  let body = MotionTrace.measure("hoverCard.body", { source.hoverCardBody(for: target.id) })
             else {
                 // The target vanished between the hit test and the show.
                 send(.targetRemoved(target.id))

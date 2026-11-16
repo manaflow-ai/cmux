@@ -229,7 +229,8 @@ final class HoverCardPanel: NSPanel {
             sizeConstraints = [newBody.widthAnchor.constraint(equalToConstant: 0), newBody.heightAnchor.constraint(equalToConstant: 0)]
             NSLayoutConstraint.activate(edgeConstraints)
             body = newBody
-            if fadesBodies { fadeIn(newBody) }
+            // A view that left a glide stays clear (`endLeaving`); it shows whole unless it fades in.
+            if fadesBodies { fadeIn(newBody) } else if let layer = newBody.layer { Motion.setModel(layer, "opacity", Float(1)) }
         }
         isInteractive = interactive
         ignoresMouseEvents = !interactive
@@ -257,7 +258,10 @@ final class HoverCardPanel: NSPanel {
         // This card's shape (a tab's card has the tab's), read on every show: the density setting
         // may have changed the radius since the last card.
         host?.cornerRadius = cornerRadius ?? Self.cornerRadius
-        place()
+        // A glide sets the window's frame once, to the frame that holds both places (`morph`): placed at
+        // rest first, the window was resized and drawn twice in one show (msg 34360: 3 ms a show).
+        let morphs = glides && !sweeping && Motion.hoverCards.animatesMovement(in: self)
+        MotionTrace.measure("hoverCard.place") { place(appliesFrame: !morphs) }
         lastPresent = HoverCardPresentNote(onScreen: previous != nil, glides: glides, sweeping: sweeping, fadesBodies: fadesBodies,
                                            sameBody: sameBody, moves: Motion.hoverCards.animatesMovement(in: self),
                                            liveResize: Motion.isLiveResizing(self))
@@ -267,8 +271,11 @@ final class HoverCardPanel: NSPanel {
             // A visible card: it slides from where it is drawn to its new place, and resizes
             // there when the next card is another size (a quick return during the fade-out
             // fades back in from the alpha it reached).
-            lastPresent.morphed = morph(from: previous, always: glides)
-            if !lastPresent.morphed { slide(from: offset(of: previous, to: cardFrame)) }
+            lastPresent.morphed = MotionTrace.measure("hoverCard.morph") { morph(from: previous, always: glides) }
+            if !lastPresent.morphed {
+                if morphs { applyRestFrame() }
+                slide(from: offset(of: previous, to: cardFrame))
+            }
             if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
         } else if placement == .besideRow {
             // Leo: "We can just have it instantly come in on the first load; the delay
@@ -371,7 +378,9 @@ final class HoverCardPanel: NSPanel {
         if let previous { _ = morph(from: previous) }
     }
 
-    func place() {
+    /// Lays the card out for its anchor and size. `appliesFrame` false: the rest frame is worked out
+    /// (`restCardFrame`) and the window stays where it is, for a morph that sets it next.
+    func place(appliesFrame: Bool = true) {
         glass.layoutSubtreeIfNeeded()
         let scale = max(parentWindowRef?.backingScaleFactor ?? 2, 1)
         // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.
@@ -393,8 +402,13 @@ final class HoverCardPanel: NSPanel {
             : nil
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).
-        let margin = Self.windowMargin
         restCardFrame = CGRect(origin: origin, size: size)
+        if appliesFrame { applyRestFrame() }
+    }
+
+    /// The window at the card's rest frame plus its clear band.
+    func applyRestFrame() {
+        let margin = Self.windowMargin
         setFrame(restCardFrame.insetBy(dx: -margin, dy: -margin), display: true)
     }
 

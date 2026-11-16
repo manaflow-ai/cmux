@@ -50,13 +50,15 @@ extension HoverCardPanel {
         Motion.hoverCards.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
     }
 
-    /// The leaving content goes now, its fade ended; it is whole again for its next show.
+    /// The leaving content goes now, its fade ended. It stays clear: made whole while still in the
+    /// window, it drew at full strength for one frame before AppKit took its layer out (the live
+    /// recording of the first fix). `present` makes it whole when it shows again.
     func endLeaving() {
         guard let view = leavingBody else { return }
         leavingBody = nil
         if let layer = view.layer {
             layer.removeAnimation(forKey: "opacity")
-            Motion.setModel(layer, "opacity", Float(1))
+            Motion.setModel(layer, "opacity", Float(0))
         }
         view.removeFromSuperview()
         view.translatesAutoresizingMaskIntoConstraints = false

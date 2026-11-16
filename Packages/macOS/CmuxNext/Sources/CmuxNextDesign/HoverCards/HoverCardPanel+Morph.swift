@@ -56,7 +56,8 @@ extension HoverCardPanel {
     /// or when motion is off; the caller then slides or places it at once.
     @discardableResult
     func morph(from previous: CGRect, spring: MotionSpring = .panel, always: Bool = false) -> Bool {
-        let rest = cardFrame
+        // Where `place()` put the card (the window may still be at the last card's: a glide sets it here).
+        let rest = restCardFrame
         guard always || abs(previous.width - rest.width) > 0.5 || abs(previous.height - rest.height) > 0.5 else { return false }
         // The same gate as the slide it runs with (`Motion.set`): Reduce Motion, speed off, or a live resize of the
         // window this card is a child of, resize at once.
