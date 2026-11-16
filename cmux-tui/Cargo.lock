@@ -1119,6 +1119,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-cli-render"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
+ "base64",
+ "ghostty-vt",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -2359,6 +2369,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "base64",
+ "cmux-agent-cli-render",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -3934,6 +3945,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "ghostty-vt-sys",
+ "memchr",
  "png",
 ]
 

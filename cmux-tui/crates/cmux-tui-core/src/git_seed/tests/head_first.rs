@@ -101,11 +101,11 @@ fn at_the_head_the_start_files_carry_work_and_every_tool_still_waits() {
 }
 
 #[test]
-fn a_head_with_start_settings_or_mcp_servers_is_never_marked() {
+fn a_head_with_start_settings_is_never_marked() {
     for (label, path, subpath) in [
         ("settings", ".claude/settings.json", None),
-        ("mcp", ".mcp.json", None),
-        ("submcp", "d/.mcp.json", Some("d")),
+        ("local", ".claude/settings.local.json", None),
+        ("sub", "d/.claude/settings.json", Some("d")),
     ] {
         let world = World::new(&format!("head-{label}"));
         write(&world.mac.join(path), "{}\n");

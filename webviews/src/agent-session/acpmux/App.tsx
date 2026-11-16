@@ -822,7 +822,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
-import { hatSeenKey, unseenHatQuestions } from "./question/hatSeen";
+import { hatSeenKey, hatQuestionsShown, stackCardKeys } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -3994,9 +3994,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // The ones the person put away (the hat's × or Escape, question/hatSeen.ts) leave it; they share
   // the pinned asks' dismissals, so a tagged ask put away in one place leaves both.
+  // Nor the ones a card in the asks stack above it already shows (a pinned tagged ask, a
+  // sub-session's ask): one ask renders once (question/hatSeen.ts `hatQuestionsShown`).
+  const onStackCards = useMemo(() => stackCardKeys(pinnedAsks, childAsk), [pinnedAsks, childAsk]);
   const hatQuestionsUnseen = useMemo(
-    () => unseenHatQuestions(hatQuestionsRead, askDismissals.keys),
-    [hatQuestionsRead, askDismissals],
+    () => hatQuestionsShown(hatQuestionsRead, askDismissals.keys, onStackCards),
+    [hatQuestionsRead, askDismissals, onStackCards],
   );
   const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsUnseen)
     ? hatQuestionsKept.current

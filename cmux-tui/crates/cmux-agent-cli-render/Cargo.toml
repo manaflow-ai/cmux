@@ -1,0 +1,21 @@
+[package]
+name = "cmux-agent-cli-render"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Draw an agent CLI's terminal look (Claude Code first) from its session's acpmux records: records, terminal size and palette in, a cell grid of styled runs out (the render-mode shape, spec/render.md). R&D: tests/parity.rs measures it against the real CLI's screen"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true
+
+[dev-dependencies]
+# The records a View Only chat of a Claude Code terminal gets, made by acpmux's own transcript
+# readers, and the real screens, parsed by the terminal the phone draws with.
+acpmux = { path = "../acpmux" }
+base64.workspace = true
+ghostty-vt.workspace = true
