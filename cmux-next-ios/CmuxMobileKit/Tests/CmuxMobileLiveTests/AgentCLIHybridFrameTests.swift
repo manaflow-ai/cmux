@@ -103,7 +103,8 @@ import Testing
 
     @Test func aLeanKeyframeDrawsWhatItsV1TwinDraws() throws {
         var decoder = AgentCLIHybridLeanDecoder()
-        let lean = try #require(decoder.decode(leanKeyframe))
+        let decoded = decoder.decode(leanKeyframe)
+        let lean = try #require(decoded)
         let v1 = try #require(AgentCLIHybridFrame(event(frame: 1, base: nil, data: keyframeData)))
         #expect(lean == v1)
         #expect(lean.terminalBytes == v1.terminalBytes)
@@ -111,9 +112,11 @@ import Testing
 
     @Test func aFollowingLeanFrameIsNumberedByTheOneBefore() throws {
         var decoder = AgentCLIHybridLeanDecoder()
-        _ = try #require(decoder.decode(leanKeyframe))
+        let keyframe = decoder.decode(leanKeyframe)
+        #expect(keyframe != nil)
         // Flags 16 (cursor shown, unmoved), no shift, one span: row 2, 5 cells in style 0 as a run of "x".
-        let next = try #require(decoder.decode(Data([16, 0, 1, 2, 0, 11, 0, 2, 5, 0x78])))
+        let decoded = decoder.decode(Data([16, 0, 1, 2, 0, 11, 0, 2, 5, 0x78]))
+        let next = try #require(decoded)
         #expect(next.frame == 2 && next.base == 1 && next.stream == "s1")
         #expect(next.columns == 20 && next.rows == 4 && next.cursorX == 1 && next.cursorY == 3 && next.cursorVisible)
         let style = AgentCLIHybridFrame.Style(fg: .palette(174), bg: .standard, attrs: 1)
@@ -122,19 +125,28 @@ import Testing
 
     @Test func aBadLeanFrameLeavesTheDecoderAsItWas() throws {
         var decoder = AgentCLIHybridLeanDecoder()
-        #expect(decoder.decode(Data([16, 0, 0])) == nil, "no frame to follow yet")
-        _ = try #require(decoder.decode(leanKeyframe))
+        let orphan = decoder.decode(Data([16, 0, 0]))
+        #expect(orphan == nil, "no frame to follow yet")
+        let keyframe = decoder.decode(leanKeyframe)
+        #expect(keyframe != nil)
         // Style 1 is not in the table yet and brings none: refused, frame 2 still follows 1.
-        #expect(decoder.decode(Data([16, 0, 1, 0, 0, 3, 1])) == nil)
-        #expect(decoder.decode(leanKeyframe + Data([0])) == nil, "trailing bytes")
-        #expect(try #require(decoder.decode(Data([16, 0, 0]))).frame == 2)
+        let unknownStyle = decoder.decode(Data([16, 0, 1, 0, 0, 3, 1]))
+        #expect(unknownStyle == nil)
+        let trailing = decoder.decode(leanKeyframe + Data([0]))
+        #expect(trailing == nil, "trailing bytes")
+        let next = decoder.decode(Data([16, 0, 0]))
+        #expect(next?.frame == 2)
     }
 
     @Test func theParserDrawsLeanFramesLikeV1Ones() throws {
         var lean = DaemonTerminalEventParser(surface: 7)
         var v1 = DaemonTerminalEventParser(surface: 7)
-        #expect(lean.parse(leanLine(leanKeyframe)) == v1.parse(line(event(frame: 1, base: nil, data: keyframeData))))
-        #expect(lean.parse(leanLine(Data([16, 0, 0]))) == v1.parse(line(event(frame: 2, base: 1, data: Data([0, 0, 0, 0])))))
+        let leanFirst = lean.parse(leanLine(leanKeyframe))
+        let v1First = v1.parse(line(event(frame: 1, base: nil, data: keyframeData)))
+        #expect(leanFirst == v1First && !leanFirst.isEmpty)
+        let leanNext = lean.parse(leanLine(Data([16, 0, 0])))
+        let v1Next = v1.parse(line(event(frame: 2, base: 1, data: Data([0, 0, 0, 0]))))
+        #expect(leanNext == v1Next && !leanNext.isEmpty)
     }
 
     /// Every lean frame of a recorded Claude Code session (cmux-tui's
@@ -156,7 +168,8 @@ import Testing
         var decoder = AgentCLIHybridLeanDecoder()
         for (frame, packed) in zip(v1, lean) {
             let bytes = try #require((packed["f"] as? String).flatMap { Data(base64Encoded: $0) })
-            let decoded = try #require(decoder.decode(bytes))
+            let read = decoder.decode(bytes)
+            let decoded = try #require(read)
             let expected = try #require(AgentCLIHybridFrame(frame))
             #expect(decoded.stream == expected.stream && decoded.frame == expected.frame && decoded.base == expected.base)
             #expect(decoded.terminalBytes == expected.terminalBytes, "frame \(expected.frame)")
