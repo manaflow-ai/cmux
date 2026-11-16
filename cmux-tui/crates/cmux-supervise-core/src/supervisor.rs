@@ -78,8 +78,10 @@ pub struct Spec {
     pub state_dir: PathBuf,
     pub start: Cmd,
     /// Its own restart command (`acpmux daemon restart`, `systemctl restart ...`). When set,
-    /// a restart of a live process goes through it and only it; else the process is stopped
-    /// by its recorded identity and started again.
+    /// a restart of a live process goes through it and only it: the command makes the
+    /// successor, which claims its own owner record ([`record::claim_current`]), and the
+    /// supervisor starts nothing beside it. Else the process is stopped by its recorded
+    /// identity and started again.
     pub restart: Option<Cmd>,
     pub probe: Box<dyn Probe>,
     /// The longest real hold: progress may stall this long during real work.
@@ -148,14 +150,28 @@ impl Supervisor {
         Self::new(spec).serve()
     }
 
-    /// Start it, or, when its recorded owner already runs and answers, return that owner:
-    /// a start of a running thing is a no-op that returns its endpoint.
+    /// Start it, or, when its recorded owner still runs, return that owner: a start of a
+    /// running thing is a no-op that returns its endpoint. An owner whose liveness cannot be
+    /// read ([`Liveness::Unknown`]) may still run, so it is kept too; a record that cannot be
+    /// read proves nothing, so nothing starts beside it (an error names the file).
     pub fn ensure(&mut self) -> std::io::Result<OwnerRecord> {
-        if let record::Loaded::Record(r) = record::load(&self.files.owner)
-            && r.liveness() == Liveness::Alive
-            && self.spec.probe.ready()
-        {
-            return Ok(r);
+        self.ensure_started().map(|(owner, _)| owner)
+    }
+
+    /// [`Self::ensure`], with the cause when the start it made did not answer readiness.
+    fn ensure_started(&mut self) -> std::io::Result<(OwnerRecord, Option<StopCause>)> {
+        match record::load(&self.files.owner) {
+            record::Loaded::Record(r) => match r.liveness() {
+                Liveness::Alive | Liveness::Unknown => return Ok((r, None)),
+                Liveness::Dead => {}
+            },
+            record::Loaded::Unreadable(why) => {
+                return Err(std::io::Error::other(format!(
+                    "{}: an owner record that cannot be read ({why}); nothing starts beside it",
+                    self.files.owner.display()
+                )));
+            }
+            record::Loaded::Missing => {}
         }
         self.files.intent.clear()?;
         self.start()
@@ -163,10 +179,21 @@ impl Supervisor {
 
     pub fn serve(&mut self) -> std::io::Result<Ended> {
         std::fs::create_dir_all(&self.spec.state_dir)?;
-        let mut owner = self.ensure()?;
+        // `unready`: a start that never answered readiness, a failed start restarted like a
+        // stall (one that exited instead is a death the loop sees).
+        let (mut owner, mut unready) = self.ensure_started()?;
         let mut stall = Stall::default();
         let clock = Instant::now();
         loop {
+            if let Some(cause) = unready.take().filter(|_| !self.wait_exit(Duration::ZERO)) {
+                let state = self.files.budget.record(cause)?;
+                if state.exceeded() {
+                    return Ok(self.hold(&owner));
+                }
+                (owner, unready) = self.restart(&owner, owner.liveness())?;
+                stall = Stall::default();
+                continue;
+            }
             self.write_health(Some(&owner), "running", None);
             let exited = self.wait_exit(self.spec.look_every);
             let liveness = if exited { Liveness::Dead } else { owner.liveness() };
@@ -200,7 +227,7 @@ impl Supervisor {
                     if state.exceeded() {
                         return Ok(self.hold(&owner));
                     }
-                    owner = self.restart(&owner, liveness)?;
+                    (owner, unready) = self.restart(&owner, liveness)?;
                     stall = Stall::default();
                 }
             }
@@ -216,7 +243,9 @@ impl Supervisor {
         Ended::BudgetExceeded(causes)
     }
 
-    fn start(&mut self) -> std::io::Result<OwnerRecord> {
+    /// Spawn the start command and record its owner; with it, the cause when it did not answer
+    /// readiness within `ready_within` (and still runs).
+    fn start(&mut self) -> std::io::Result<(OwnerRecord, Option<StopCause>)> {
         let previous = record::load(&self.files.owner);
         let child = self.spec.start.command().spawn()?;
         // The record names the child before anything waits on it.
@@ -235,14 +264,16 @@ impl Supervisor {
         self.write_health(Some(&owner), "starting", None);
         let deadline = Instant::now() + self.spec.ready_within;
         while !self.spec.probe.ready() {
-            if Instant::now() >= deadline {
-                break;
-            }
+            // An exit is seen by the loop as a death.
             if self.wait_exit(Duration::from_millis(20)) {
                 break;
             }
+            if Instant::now() >= deadline {
+                let why = format!("no readiness within {:?}", self.spec.ready_within);
+                return Ok((owner, Some(StopCause::NoProgress(why))));
+            }
         }
-        Ok(owner)
+        Ok((owner, None))
     }
 
     /// The supervisor owns the child: it ends with the supervisor (`cmux_process::Child`).
@@ -273,27 +304,83 @@ impl Supervisor {
         }
     }
 
-    fn restart(&mut self, owner: &OwnerRecord, liveness: Liveness) -> std::io::Result<OwnerRecord> {
+    fn restart(
+        &mut self,
+        owner: &OwnerRecord,
+        liveness: Liveness,
+    ) -> std::io::Result<(OwnerRecord, Option<StopCause>)> {
         if liveness == Liveness::Alive {
-            match &self.spec.restart {
-                Some(cmd) => {
-                    let _ = cmd.command().status();
-                }
-                None => self.stop_owner(owner),
+            if let Some(cmd) = self.spec.restart.clone() {
+                return self.restart_through(&cmd, owner);
             }
+            self.stop_owner(owner);
             self.reap();
         }
         self.start()
     }
 
-    /// Stop the recorded owner: its process group, only while the record still names it.
+    /// A restart through the thing's own restart command: it must succeed, and the successor it
+    /// made must claim a newer owner record and answer readiness within `ready_within`. The
+    /// supervisor starts nothing itself; the old child's handle ends (and is reaped) after.
+    fn restart_through(
+        &mut self,
+        cmd: &Cmd,
+        owner: &OwnerRecord,
+    ) -> std::io::Result<(OwnerRecord, Option<StopCause>)> {
+        let status = cmd.command().status()?;
+        if !status.success() {
+            return Err(std::io::Error::other(format!(
+                "the restart command {} exited {status}",
+                cmd.program.display()
+            )));
+        }
+        let deadline = Instant::now() + self.spec.ready_within;
+        loop {
+            if let record::Loaded::Record(r) = record::load(&self.files.owner)
+                && r.epoch > owner.epoch
+                && r.liveness() == Liveness::Alive
+                && self.spec.probe.ready()
+            {
+                self.reap_or_end();
+                return Ok((r, None));
+            }
+            if Instant::now() >= deadline {
+                return Err(std::io::Error::other(format!(
+                    "the restart command {} made no ready successor within {:?}",
+                    cmd.program.display(),
+                    self.spec.ready_within
+                )));
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Drop the old child's handle: reaped when it exited, else ended and reaped
+    /// (`cmux_process::Child`).
+    fn reap_or_end(&mut self) {
+        if self.wait_exit(Duration::ZERO) {
+            self.reap();
+        } else {
+            self.child = None;
+        }
+    }
+
+    /// Stop the recorded owner, only while the record still names it: its process group when it
+    /// leads one of its own (its descendants end with it), else its pid.
     fn stop_owner(&mut self, owner: &OwnerRecord) {
         #[cfg(unix)]
         if owner.liveness() == Liveness::Alive {
-            // SAFETY: plain signals to a group the record proves is the owner's.
-            unsafe { libc::kill(owner.pid as libc::pid_t, libc::SIGTERM) };
+            // SAFETY: getpgrp has no preconditions.
+            let own_group = unsafe { libc::getpgrp() } as u32;
+            let target = if owner.pgid == owner.pid && owner.pgid != own_group {
+                -(owner.pgid as libc::pid_t)
+            } else {
+                owner.pid as libc::pid_t
+            };
+            // SAFETY: plain signals to the pid or group the record proves is the owner's.
+            unsafe { libc::kill(target, libc::SIGTERM) };
             if !self.wait_exit(Duration::from_secs(5)) && owner.liveness() == Liveness::Alive {
-                unsafe { libc::kill(owner.pid as libc::pid_t, libc::SIGKILL) };
+                unsafe { libc::kill(target, libc::SIGKILL) };
             }
         }
         #[cfg(not(unix))]

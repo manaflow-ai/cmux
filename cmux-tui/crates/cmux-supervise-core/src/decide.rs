@@ -7,7 +7,8 @@
 //!   at least [`MIN_FAILED_LOOKS`] looks. Time alone never counts: a machine that slept, or a
 //!   supervisor that did not look, has no failed looks to show, so a long gap restarts nothing.
 //!
-//! [`Liveness::Unknown`] proves nothing either way: the supervisor keeps what runs.
+//! [`Liveness::Unknown`] proves nothing either way: the supervisor keeps what runs. A standing
+//! stop intent is never restarted: dead, it stays stopped; alive, it is stopping.
 
 use std::time::Duration;
 
@@ -92,7 +93,8 @@ pub fn decide(f: Facts<'_>) -> Decision {
             crate::budget::StopCause::Died("gone by its recorded identity".into())
         }
         Liveness::Alive => {
-            if !f.stall.proven(f.bound, f.now) {
+            // A meant stop under way, however long it takes, is never restarted.
+            if f.intent.is_some() || !f.stall.proven(f.bound, f.now) {
                 return Decision::Keep;
             }
             crate::budget::StopCause::NoProgress(format!(
@@ -164,5 +166,16 @@ mod tests {
         assert_eq!(decide(quit), Decision::StayStopped("person quit".into()));
         let over = Facts { budget_exceeded: true, ..facts(Liveness::Dead, &stall, s(0)) };
         assert_eq!(decide(over), Decision::Hold);
+    }
+
+    #[test]
+    fn a_meant_stop_that_stalls_past_the_bound_is_never_restarted() {
+        let mut stall = Stall::default();
+        for t in [0, 30, 61] {
+            stall.look(Progress::Stalled, s(t));
+        }
+        let stopping =
+            Facts { intent: Some("person quit"), ..facts(Liveness::Alive, &stall, s(61)) };
+        assert_eq!(decide(stopping), Decision::Keep);
     }
 }

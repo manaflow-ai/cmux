@@ -55,9 +55,22 @@ impl Intent {
         serde_json::from_slice(&std::fs::read(&self.path).ok()?).ok()
     }
 
-    /// Whether the stop of the owner of `epoch` was meant.
+    /// Whether the stop of the owner of `epoch` was meant. An intent file that is there but
+    /// cannot be read or parsed counts as meant (fail closed): a stop someone asked for is never
+    /// undone by a file this crate cannot read. Only an explicit start ([`Self::clear`]) ends it.
     pub fn meant(&self, epoch: u64) -> Option<StopIntent> {
-        self.read().filter(|i| i.epoch >= epoch)
+        match std::fs::read(&self.path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => Some(Self::unreadable(epoch, &e.to_string())),
+            Ok(bytes) => match serde_json::from_slice::<StopIntent>(&bytes) {
+                Ok(i) => Some(i).filter(|i| i.epoch >= epoch),
+                Err(e) => Some(Self::unreadable(epoch, &e.to_string())),
+            },
+        }
+    }
+
+    fn unreadable(epoch: u64, why: &str) -> StopIntent {
+        StopIntent { reason: format!("a stop intent that cannot be read ({why})"), epoch, at_ms: 0 }
     }
 
     /// An explicit start: the intent no longer stands.
@@ -86,6 +99,20 @@ mod tests {
         intent.clear().unwrap();
         intent.clear().unwrap();
         assert!(intent.read().is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_intent_file_that_does_not_parse_still_means_stop() {
+        let dir =
+            std::env::temp_dir().join(format!("supervise-intent-torn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let intent = Intent::new(dir.join("stop-intent.json"));
+        std::fs::write(intent.path(), b"{\"reason\": \"person q").unwrap();
+        assert!(intent.meant(7).unwrap().reason.contains("cannot be read"));
+        intent.clear().unwrap();
+        assert!(intent.meant(7).is_none(), "an explicit start ends it");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

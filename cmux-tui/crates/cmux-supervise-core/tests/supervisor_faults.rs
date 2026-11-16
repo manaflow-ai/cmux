@@ -124,6 +124,48 @@ fn a_crash_loop_past_the_budget_holds_with_its_causes_on_the_health() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A thing that runs but never answers readiness.
+struct NeverReady;
+
+impl Probe for NeverReady {
+    fn ready(&mut self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn a_start_that_never_answers_readiness_is_a_failed_start_counted_against_the_budget() {
+    let dir = dir("unready");
+    let mut spec = spec(&dir, "exec sleep 30", Driven::default(), 1);
+    spec.probe = Box::new(NeverReady);
+    spec.ready_within = Duration::from_millis(200);
+    let ended = Supervisor::run(spec).unwrap();
+    match ended {
+        Ended::BudgetExceeded(causes) => {
+            assert_eq!(causes.len(), 2);
+            assert!(causes.iter().all(|c| matches!(c, StopCause::NoProgress(_))), "{causes:?}");
+        }
+        other => panic!("{other:?}"),
+    }
+    let last = owner(&dir).unwrap();
+    assert_eq!(last.epoch, 2, "one restart, then the hold; never 'running' on no answer");
+    wait_for("the unready start ends with its supervisor", Duration::from_secs(5), || {
+        last.liveness() == Liveness::Dead
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_owner_record_that_cannot_be_read_starts_nothing_beside_it() {
+    let dir = dir("unreadable");
+    let path = dir.join("thing.owner.json");
+    std::fs::write(&path, b"{\"pid\": 12").unwrap();
+    let err = Supervisor::run(spec(&dir, "exec sleep 30", Driven::default(), 5)).unwrap_err();
+    assert!(err.to_string().contains("cannot be read"), "{err}");
+    assert_eq!(std::fs::read(&path).unwrap(), b"{\"pid\": 12", "the record is left as it was");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_stall_shorter_than_the_longest_hold_never_restarts_and_a_longer_one_restarts_once() {
     let dir = dir("stall");

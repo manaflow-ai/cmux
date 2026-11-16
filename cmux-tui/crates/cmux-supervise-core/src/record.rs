@@ -23,11 +23,14 @@ pub struct OwnerRecord {
     pub boot_id: String,
     /// One more than the record it replaced; 1 for the first.
     pub epoch: u64,
+    /// The command line with every value cut out ([`redact`]): the record is served on health
+    /// and status and written to death events, and a daemon's flags carry secrets (`--token`).
     pub argv: Vec<String>,
 }
 
 impl OwnerRecord {
-    /// The record for `who`, one epoch past `previous`.
+    /// The record for `who`, one epoch past `previous`. Of `argv` it keeps only what [`redact`]
+    /// leaves.
     pub fn new(who: Identity, previous: Option<&OwnerRecord>, argv: Vec<String>) -> Self {
         Self {
             pid: who.pid,
@@ -35,7 +38,7 @@ impl OwnerRecord {
             pgid: who.pgid,
             boot_id: who.boot_id,
             epoch: previous.map_or(1, |p| p.epoch.saturating_add(1)),
-            argv,
+            argv: redact(&argv),
         }
     }
 
@@ -62,6 +65,38 @@ impl OwnerRecord {
     pub fn is_current(&self) -> bool {
         identity::current().is_some_and(|me| me == self.identity())
     }
+}
+
+/// What [`redact`] puts in place of a value.
+pub const REDACTED: &str = "<redacted>";
+
+/// A command line with no value left in it: the program, flag names (cut at `=`) and bare
+/// subcommand words (`daemon`, `run`). A flag's value, and a positional argument that is not a
+/// plain lowercase word, read [`REDACTED`]: which flags carry a secret is each program's
+/// business, so the record keeps no value at all.
+pub fn redact(argv: &[String]) -> Vec<String> {
+    let Some((program, rest)) = argv.split_first() else { return Vec::new() };
+    let word = |a: &str| !a.is_empty() && a.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
+    let mut out = vec![program.clone()];
+    let mut after_flag = false;
+    for arg in rest {
+        if arg.len() > 1 && arg.starts_with('-') {
+            match arg.split_once('=') {
+                Some((name, _)) => {
+                    out.push(format!("{name}={REDACTED}"));
+                    after_flag = false;
+                }
+                None => {
+                    out.push(arg.clone());
+                    after_flag = true;
+                }
+            }
+        } else {
+            out.push(if !after_flag && word(arg) { arg.clone() } else { REDACTED.into() });
+            after_flag = false;
+        }
+    }
+    out
 }
 
 /// What reading a record file found.
@@ -165,10 +200,13 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The temporary sibling: this process's own name, so two writers never share one.
+/// The temporary sibling: this process's pid and a count per write, so two writers, in two
+/// processes or two threads of one, never share one.
 fn tmp_path(path: &Path) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
-    name.push(format!(".tmp.{}", std::process::id()));
+    name.push(format!(".tmp.{}.{n}", std::process::id()));
     path.with_file_name(name)
 }
 
@@ -200,6 +238,67 @@ mod tests {
         assert_eq!(second.epoch, 2);
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert_eq!(owner_liveness(&path), Liveness::Alive);
+        assert!(std::fs::read_dir(&dir).unwrap().count() == 1, "no temporary file is left");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_record_keeps_flag_names_and_subcommands_never_a_value() {
+        let argv: Vec<String> = [
+            "/opt/cmux/acpmux",
+            "daemon",
+            "run",
+            "--token",
+            "s3cret",
+            "--listen=0.0.0.0:47811",
+            "--memory",
+            "-v",
+            "/home/a/x",
+            "plainword",
+        ]
+        .map(String::from)
+        .to_vec();
+        let who = identity::current().unwrap_or(Identity {
+            pid: 1,
+            start_time: 0,
+            pgid: 1,
+            boot_id: String::new(),
+        });
+        let record = OwnerRecord::new(who, None, argv);
+        assert_eq!(
+            record.argv,
+            [
+                "/opt/cmux/acpmux",
+                "daemon",
+                "run",
+                "--token",
+                REDACTED,
+                &format!("--listen={REDACTED}"),
+                "--memory",
+                "-v",
+                REDACTED,
+                "plainword",
+            ]
+        );
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(!json.contains("s3cret") && !json.contains("47811"), "{json}");
+    }
+
+    #[test]
+    fn writers_on_two_threads_never_share_a_temporary_file() {
+        let dir = dir("threads");
+        let path = dir.join("owner.json");
+        std::thread::scope(|s| {
+            for t in 0..8u8 {
+                let path = &path;
+                s.spawn(move || {
+                    for _ in 0..50 {
+                        write_file(path, &[t; 64]).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(std::fs::read(&path).unwrap().len(), 64);
         assert!(std::fs::read_dir(&dir).unwrap().count() == 1, "no temporary file is left");
         let _ = std::fs::remove_dir_all(&dir);
     }
