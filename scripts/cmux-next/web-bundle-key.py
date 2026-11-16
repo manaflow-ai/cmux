@@ -13,9 +13,10 @@ fields only: the Xcode verify phase runs with a PATH that may lack bun.
 `--inputs` prints the pathspecs the source key hashes, one per line. `--routed` prints the
 pathspecs a change to which runs the web CI checks (routed_inputs below).
 
-The source key includes the pinned Bun and Node toolchain identity. Set CMUX_WEB_BUN_VERSION or
-CMUX_WEB_NODE_VERSION when a workflow computes the key so a toolchain change cannot reuse a
-published manifest for the same sources.
+The source key includes the pinned Bun and Node toolchain identity: the bun
+webviews/package.json declares and the node ROOT/.node-version declares (CMUX_WEB_BUN_VERSION
+or CMUX_WEB_NODE_VERSION override them), so a toolchain change cannot reuse a published
+manifest for the same sources.
 
 Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs | --routed]
 """
@@ -262,11 +263,26 @@ def declared_bun_version(root):
         sys.exit(f"web-bundle-key: {error}")
 
 
+def declared_node_version(root):
+    # .node-version at the repo root is the one Node pin (every setup-node step reads it with
+    # node-version-file). A fixture ROOT without one falls back to this checkout's file.
+    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+    for candidate in (os.path.join(root, ".node-version"), os.path.join(here, ".node-version")):
+        try:
+            with open(candidate, encoding="utf-8") as handle:
+                value = handle.read().strip()
+        except OSError:
+            continue
+        if value:
+            return value
+    sys.exit(f"web-bundle-key: no Node pin: {os.path.join(root, '.node-version')} is missing or empty")
+
+
 def toolchain_identity(root):
-    # Keep these defaults in one place: workflows export the same values before computing keys.
-    # CMUX_WEB_BUN_VERSION, when set, is used without reading the pin.
+    # The pins are webviews/package.json devEngines (bun) and .node-version (node).
+    # CMUX_WEB_BUN_VERSION / CMUX_WEB_NODE_VERSION, when set, are used without reading the pins.
     bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION") or declared_bun_version(root))
-    node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION", "24.22.1"))
+    node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION") or declared_node_version(root))
     return f"bun={bun}\nnode={node}\n"
 
 

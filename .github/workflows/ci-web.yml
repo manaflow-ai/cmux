@@ -422,7 +422,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.22.1"
+          node-version-file: .node-version
 
       # The web bundles are build output (cx-vn5): this builds them into the
       # gitignored resource paths that the budget, React Compiler and webviews
@@ -796,7 +796,7 @@ jobs:
         if: ${{ steps.pick.outputs.files != '0' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version: "24.22.1"
+          node-version-file: .node-version
 
       - name: Install webview dependencies
         if: ${{ steps.pick.outputs.files != '0' }}
@@ -1005,7 +1005,7 @@ jobs:
         if: ${{ steps.head.outputs.reds != '0' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version: "24.22.1"
+          node-version-file: .node-version
 
       - name: Install webview dependencies
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}

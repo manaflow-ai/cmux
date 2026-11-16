@@ -3257,10 +3257,11 @@ def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     assert "runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}" in block
 
 
-def test_every_setup_bun_step_declares_a_version() -> None:
+def test_every_setup_bun_and_setup_node_step_follows_its_one_pin() -> None:
     # webviews/package.json devEngines is the one bun version; every setup-bun
     # step in every workflow installs exactly it, so a bump is one edit there
-    # plus these copies, and a copy left behind fails here.
+    # plus these copies, and a copy left behind fails here. Node has no copies
+    # at all: every setup-node step reads a pin file (_assert_setup_node_reads_a_pin_file).
     package = json.loads((ROOT / "webviews" / "package.json").read_text(encoding="utf-8"))
     pin = package["devEngines"]["packageManager"]["version"]
     workflows = ROOT / ".github" / "workflows"
@@ -3306,6 +3307,54 @@ def test_every_setup_bun_step_declares_a_version() -> None:
             )
 
     assert found >= 20, "setup-bun inventory unexpectedly disappeared"
+    _assert_setup_node_reads_a_pin_file(workflows)
+
+
+# The Node pins, one file per Node line (repo root, so every cone sparse checkout has them):
+# .node-version is the default line; .node-version-22 the 22 line the Oct 2026 security pin
+# kept (8b2e0183c6); .node-version-sdk-floor the oldest Node the TypeScript SDK supports
+# (cmux-tui/bindings/typescript engines >=20), which cmux-tui-sdks.yml tests on.
+NODE_PIN_FILES = (".node-version", ".node-version-22", ".node-version-sdk-floor")
+# A job whose workspace root is another commit (or none) checks out its own commit's pins here.
+NODE_PIN_CHECKOUT = ".build/node-pin"
+
+
+def _assert_setup_node_reads_a_pin_file(workflows: Path) -> None:
+    for name in NODE_PIN_FILES:
+        value = (ROOT / name).read_text(encoding="utf-8").strip()
+        assert re.fullmatch(r"\d+\.\d+\.\d+", value), f"{name} must hold one exact Node version, not {value!r}"
+    allowed = set(NODE_PIN_FILES) | {f"{NODE_PIN_CHECKOUT}/{name}" for name in NODE_PIN_FILES}
+    found = 0
+    for workflow_path in sorted(workflows.glob("*.yml")):
+        rel = workflow_path.relative_to(ROOT)
+        text = workflow_path.read_text(encoding="utf-8")
+        for number, line in enumerate(text.splitlines(), 1):
+            literal = re.match(r"^\s+node-version:\s*(.*)$", line)
+            assert not literal, (
+                f"{rel}:{number}: setup-node pins Node {literal.group(1).strip()} by hand; use "
+                "node-version-file: .node-version (the one Node pin; .node-version-22 or "
+                ".node-version-sdk-floor for those lines) and bump the version there"
+            )
+        for job_name, job in (yaml.safe_load(text).get("jobs") or {}).items():
+            pinned = False
+            for step in job.get("steps") or []:
+                uses = str(step.get("uses", ""))
+                with_ = step.get("with") or {}
+                if uses.startswith("actions/checkout@") and with_.get("path") == NODE_PIN_CHECKOUT:
+                    pinned = True
+                if not uses.startswith("actions/setup-node@"):
+                    continue
+                found += 1
+                source = with_.get("node-version-file")
+                assert source in allowed, (
+                    f"{rel} job {job_name}: setup-node must read node-version-file: .node-version "
+                    f"(or another file of {NODE_PIN_FILES}), not {source!r}"
+                )
+                assert not source.startswith(NODE_PIN_CHECKOUT) or pinned, (
+                    f"{rel} job {job_name}: setup-node reads {source} but no earlier step checks out "
+                    f"the pins into {NODE_PIN_CHECKOUT}"
+                )
+    assert found >= 100, "setup-node inventory unexpectedly disappeared"
 
 
 def test_web_typecheck_retries_native_tsgo_abort() -> None:

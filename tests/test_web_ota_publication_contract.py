@@ -90,9 +90,10 @@ class WebOTAPublicationContractTests(unittest.TestCase):
 
     def test_workflow_pins_identity_and_records_manifest_toolchain(self):
         workflow = WORKFLOW.read_text()
-        self.assertIn('CMUX_WEB_NODE_VERSION: "24.22.1"', workflow)
+        self.assertNotIn("CMUX_WEB_NODE_VERSION:", workflow)
+        self.assertIn('key["declared_node_version"](".")', workflow)
         self.assertIn('bun-version: "1.4.4"', workflow)
-        self.assertIn('node-version: ${{ env.CMUX_WEB_NODE_VERSION }}', workflow)
+        self.assertIn("node-version-file: .node-version", workflow)
         self.assertIn('"bun": normalize(subprocess.run(["bun", "--version"]', workflow)
         self.assertIn('"node": normalize(subprocess.run(["node", "--version"]', workflow)
         self.assertIn('manifest_matches_toolchain"]', workflow)

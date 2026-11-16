@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '24'
+          node-version-file: .node-version
       - name: Test edge authentication and read-only deployment checks
         working-directory: workers/fleet-artifacts
         run: npm test
@@ -67,7 +67,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '24'
+          node-version-file: .node-version
       - name: Confirm existing private bucket and account
         id: preflight
         env:

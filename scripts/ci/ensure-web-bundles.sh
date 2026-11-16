@@ -15,7 +15,8 @@ set -euo pipefail
 
 BUILD="${CMUX_WEB_BUNDLES_BUILD:-scripts/cmux-next/build-web-bundles.sh}"
 CACHE="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}"
-NODE_PIN="24.11.1"
+# .node-version is the one Node pin (setup-node reads it with node-version-file).
+NODE_PIN="$(tr -d '[:space:]' < .node-version)"
 
 if "$BUILD" --verify > /dev/null 2>&1; then
   echo "web bundles are current"

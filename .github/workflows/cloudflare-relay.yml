@@ -127,7 +127,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.23.4"
+          node-version-file: .node-version-22
           cache: npm
           cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
 
@@ -277,9 +277,19 @@ jobs:
           sparse-checkout: |
             scripts/cmux-next/release
             scripts/ci
+      # setup-node reads node-version-file from the workspace, whose root is another commit
+      # here (or nothing): read the pins (.node-version*) of this workflow's own commit.
+      - name: Check out the Node pins
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .build/node-pin
+          sparse-checkout: /.node-version*
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.23.4"
+          node-version-file: .build/node-pin/.node-version-22
           cache: npm
           cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -568,9 +578,19 @@ jobs:
           sparse-checkout: |
             scripts/cmux-next/release
             scripts/ci
+      # setup-node reads node-version-file from the workspace, whose root is another commit
+      # here (or nothing): read the pins (.node-version*) of this workflow's own commit.
+      - name: Check out the Node pins
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .build/node-pin
+          sparse-checkout: /.node-version*
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.23.4"
+          node-version-file: .build/node-pin/.node-version-22
           cache: npm
           cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -723,7 +743,7 @@ jobs:
             scripts/ci/api_call_log
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.23.4"
+          node-version-file: .node-version-22
           cache: npm
           cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
       - run: npm ci --no-audit --no-fund

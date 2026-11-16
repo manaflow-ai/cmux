@@ -23,11 +23,11 @@ case "$1" in
   --from) [ -f "$2/Packages/built" ] && touch "$STATE/installed" ;;
 esac
 EOF
-# Fake toolchain at the pins: the bun webviews/package.json declares, node 24.11.1.
+# Fake toolchain at the pins: the bun webviews/package.json declares, the node .node-version declares.
 BUN_PIN=$(python3 -I scripts/webviews_bun_version.py webviews/package.json)
 mkdir -p "$WORK/bin"
 printf '#!/bin/sh\necho %s\n' "$BUN_PIN" > "$WORK/bin/bun"
-printf '#!/bin/sh\necho v24.11.1\n' > "$WORK/bin/node"
+printf '#!/bin/sh\necho v%s\n' "$(tr -d '[:space:]' < .node-version)" > "$WORK/bin/node"
 chmod +x "$WORK/build" "$WORK/bin/bun" "$WORK/bin/node"
 
 run() {
