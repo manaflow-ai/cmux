@@ -120,7 +120,6 @@ class SidList {
       missing: EMPTY_KEYS,
       unknown: EMPTY_KEYS,
     });
-    this.changed = true;
   }
 
   renameQuestion(from: string, to: string): void {
