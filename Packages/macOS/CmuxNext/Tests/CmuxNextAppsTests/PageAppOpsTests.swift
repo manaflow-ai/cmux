@@ -24,7 +24,7 @@ struct PageAppOpsTests {
             if params["tab"]?.stringValue == "tab_gone" { throw AppHostCapabilityError(code: "not_found", message: "No tab tab_gone") }
             let tab = JSONValue.string(params["tab"]?.stringValue ?? "tab_focused")
             let value: JSONValue
-            if script.contains("JSON.stringify({ url: location.href") {
+            if script.contains("JSON.stringify({ url: cap(location.href") {
                 value = .string(page)
             } else if script.contains("const selector = 'a[href]") {
                 value = .string(targets)
