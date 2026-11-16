@@ -125,7 +125,7 @@ final class ChiefComputerPageService: InternalPageProvider {
         return HomeChiefComputer.Status(used: true, computer: (machine, state), acting: services.cloud.computerControl.isInUse(machine: machine))
     }
 
-    /// The machine's screen by the route of `cmux cloud computer screenshot`: exec writes it, the file read brings it back.
+    /// The machine's screen by the route of `cmux cloud computer screenshot`: exec prints it inline, the file read only when it did not.
     private static func machineScreen(_ services: AppServices, _ machine: String, _ pointer: MachinePointer) async -> CGImage? {
         let api = services.cloud.machineAPI
         do {
@@ -134,8 +134,11 @@ final class ChiefComputerPageService: InternalPageProvider {
                 screenLogger.error("computer screen: capture exited \(ran.exitCode, privacy: .public)")
                 return nil
             }
-            let file = try await api.readFile(machine, path: HomeChiefComputerRoute.machineScreenFile)
             pointer.point = HomeChiefComputerRoute.machinePointer(ran.stdout)
+            if let frame = HomeChiefComputerRoute.machineFrame(ran.stdout), let image = await HomeChiefComputerRoute.image(base64: frame) {
+                return image
+            }
+            let file = try await api.readFile(machine, path: HomeChiefComputerRoute.machineScreenFile)
             return await HomeChiefComputerRoute.image(base64: file.dataBase64)
         } catch {
             if !Task.isCancelled { screenLogger.error("computer screen: read failed: \(String(describing: error), privacy: .public)") }

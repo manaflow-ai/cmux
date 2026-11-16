@@ -58,8 +58,10 @@ public nonisolated struct HomeChiefComputerRoute: Sendable {
     /// Where a Cloud machine's screen is written for the Computer tab (its own file: the Chief's `screenshot` has another).
     public static let machineScreenFile = "/home/cmux/.cache/cmux-computer/panel.png"
 
-    /// The shell that writes a Cloud machine's screen to ``machineScreenFile``: the steps of `cmux cloud computer screenshot`
-    /// (cloud_tools.rs DESKTOP_PRELUDE and its `screenshot` op), run through the machine's exec.
+    /// The shell that captures a Cloud machine's screen: the steps of `cmux cloud computer screenshot`
+    /// (cloud_tools.rs DESKTOP_PRELUDE and its `screenshot` op), run through the machine's exec. It prints the frame
+    /// inline (`frame:` and base64, a JPEG when the machine has Pillow, else the PNG) so one exec round trip brings
+    /// it back, then the pointer's JSON. The file stays for ``machineScreenFile``'s read when no frame line came.
     public static let machineScreenCommand = #"""
     export HOME=/home/cmux PATH=/opt/cmux/current/bin:$PATH DISPLAY=:99 XAUTHORITY=/home/cmux/.cache/cmux-display/Xauthority-99 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cmux-agent-a11y-99/bus
     cmux-cua status >/dev/null 2>&1 || sudo -n systemctl start cmux-agent-cua.service >/dev/null 2>&1 || exit 1
@@ -67,12 +69,25 @@ public nonisolated struct HomeChiefComputerRoute: Sendable {
     if [ "$scope" != desktop ]; then cmux-cua call set_config '{"capture_scope":"desktop"}' >/dev/null || exit 1; fi
     mkdir -p /home/cmux/.cache/cmux-computer && rm -f /home/cmux/.cache/cmux-computer/panel.png
     cmux-cua call get_desktop_state '{"screenshot_out_file":"/home/cmux/.cache/cmux-computer/panel.png"}' >/dev/null && test -s /home/cmux/.cache/cmux-computer/panel.png || exit 1
+    printf 'frame:'
+    python3 -c 'import sys,io,base64;from PIL import Image;i=Image.open(sys.argv[1]).convert("RGB");b=io.BytesIO();i.save(b,"JPEG",quality=72);sys.stdout.write(base64.b64encode(b.getvalue()).decode())' /home/cmux/.cache/cmux-computer/panel.png 2>/dev/null || base64 -w0 /home/cmux/.cache/cmux-computer/panel.png
+    echo
     cmux-cua call get_cursor_position '{}' 2>/dev/null || true
     """#
 
+    /// The frame ``machineScreenCommand`` printed inline, as base64; nil when it printed none.
+    public static func machineFrame(_ output: String) -> String? {
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) where line.hasPrefix("frame:") {
+            let value = line.dropFirst("frame:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        return nil
+    }
+
     /// The pointer in the screen's pixels, from what ``machineScreenCommand`` printed; nil when it did not say.
     public static func machinePointer(_ output: String) -> CGPoint? {
-        guard let start = output.firstIndex(of: "{"), let data = String(output[start...]).data(using: .utf8),
+        let rest = output.split(separator: "\n").filter { !$0.hasPrefix("frame:") }.joined(separator: "\n")
+        guard let start = rest.firstIndex(of: "{"), let data = String(rest[start...]).data(using: .utf8),
               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let x = (value["x"] as? NSNumber)?.doubleValue, let y = (value["y"] as? NSNumber)?.doubleValue else { return nil }
         return CGPoint(x: x, y: y)
