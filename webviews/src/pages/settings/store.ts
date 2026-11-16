@@ -609,6 +609,41 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: Control (and screen) from this Mac on an owned machine on or off. */
+  setRemoteControl(id: string, on: boolean): Promise<string | null> {
+    return this.devicesConsent("cmux.settings.devices.remote_control", { id, on });
+  }
+
+  /** Settings > Devices: Control between my devices for the whole account on or off. */
+  setRemoteControlAccount(on: boolean): Promise<string | null> {
+    return this.devicesConsent("cmux.settings.devices.remote_control_account", { on });
+  }
+
+  /** Settings > Devices: Refresh trusted Macs (this Mac collects its peers' keys again). */
+  refreshTrust(): Promise<string | null> {
+    return this.devicesConsent("cmux.settings.devices.trust_refresh", {});
+  }
+
+  /** Settings > Devices on the target Mac: trust another Mac's key (its one-time ask), or remove or dismiss it. */
+  setGrantorTrust(id: string, trusted: boolean): Promise<string | null> {
+    return this.devicesConsent("cmux.settings.devices.grantor_trust", { id, trusted });
+  }
+
+  /** One remote Control consent op, then re-read the host lists. Answers the line to show under the
+   * control: the host's refusal, or the failed call's sentence; null when it worked. */
+  private async devicesConsent<
+    K extends
+      | "cmux.settings.devices.remote_control"
+      | "cmux.settings.devices.remote_control_account"
+      | "cmux.settings.devices.trust_refresh"
+      | "cmux.settings.devices.grantor_trust",
+  >(op: K, params: SettingsOps[K][0]): Promise<string | null> {
+    const reply = await this.request(op, params);
+    await this.refreshHost();
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value.error ?? null;
+  }
+
   /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
   async setMachineVmHost(id: string, on: boolean): Promise<void> {
     await this.request("cmux.settings.machines.vm_host", { id, on });

@@ -11,6 +11,9 @@ import { useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import type {
+  DevicesControlAccount,
+  DevicesControlRow,
+  DevicesControlState,
   DevicesDevice,
   DevicesJoinState,
   DevicesLabels,
@@ -27,6 +30,7 @@ export function DevicesCard() {
   const store = useStore();
   const { devices, host } = useSettingsState();
   const join = host?.devices_join ?? null;
+  const control = host?.devices_control ?? null;
   // Like Accounts: the host reads again when the card mounts (a stable callback ref runs once per mount).
   const mounted = useCallback(
     (node: HTMLDivElement | null) => {
@@ -36,9 +40,293 @@ export function DevicesCard() {
   );
   return (
     <div className="devices" data-card="devices" ref={mounted}>
-      {devices && <DevicesBody state={devices} join={join} />}
+      {devices && <DevicesBody state={devices} join={join} control={control} />}
       {!devices && join && <JoinGroup join={join} />}
+      {!devices && control && <ControlGroup control={control} />}
     </div>
+  );
+}
+
+/** Four words in the one look the page compares them in, wherever they show. */
+function Words({ words, attribute }: { words: string[]; attribute: string }) {
+  return (
+    <div className="devices-words font-mono selectable" {...{ [attribute]: "" }}>
+      {words.join(" ")}
+    </div>
+  );
+}
+
+/**
+ * Control between my devices: an account-wide switch (on for every device signed in to the
+ * account) and one switch per machine the person owns, which narrows it. A switch turns Control
+ * and screen sharing on or off there with a grant this Mac signs after the person's own click and
+ * Touch ID (off takes none). A machine that has not trusted this Mac's key yet asks once, on
+ * itself, showing the four words this group shows for this Mac (`this_mac_words`) beside Refresh
+ * Trusted Macs.
+ */
+function ControlGroup({ control }: { control: DevicesControlState }) {
+  const store = useStore();
+  const [setting, setSetting] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const words = control.this_mac_words && control.this_mac_words.length > 0 ? control.this_mac_words : null;
+  const refresh = control.refresh ?? null;
+  return (
+    <section className="group" data-devices-group="control">
+      <h3 className="group-title">{control.title}</h3>
+      <div className="rows">
+        <div className="row" data-devices-control-intro="">
+          <div className="row-label">
+            <div className="row-help devices-line">{control.help}</div>
+          </div>
+        </div>
+        {control.account && (
+          <ControlAccount
+            account={control.account}
+            locked={setting !== null}
+            onSet={() => setSetting("account")}
+            onDone={() => setSetting(null)}
+          />
+        )}
+        {control.rows.map((row) => (
+          <ControlRow
+            key={row.id}
+            row={row}
+            locked={setting !== null}
+            onSet={() => setSetting(row.id)}
+            onDone={() => setSetting(null)}
+          />
+        ))}
+        {(words || refresh) && (
+          <div className="row" data-devices-control-trust="">
+            <div className="row-main">
+              <div className="row-label">
+                {words && (
+                  <div className="row-help font-mono selectable" data-devices-control-this-words="">
+                    {words.join(" ")}
+                  </div>
+                )}
+                {refreshError && (
+                  <div className="row-error devices-line" role="alert">
+                    {refreshError}
+                  </div>
+                )}
+              </div>
+              {refresh && (
+                <div className="row-control">
+                  <Button
+                    type="button"
+                    className="button"
+                    data-devices-control-action="refresh"
+                    disabled={setting !== null}
+                    onClick={() => {
+                      setSetting("refresh");
+                      setRefreshError(null);
+                      void store
+                        .refreshTrust()
+                        .then(setRefreshError)
+                        .finally(() => setSetting(null));
+                    }}
+                  >
+                    {refresh}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {control.error && (
+          <div className="row">
+            <div className="row-error" role="alert">
+              {control.error}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** The account-wide switch: on for every device signed in to the account; a machine's own row narrows it. */
+function ControlAccount({
+  account,
+  locked,
+  onSet,
+  onDone,
+}: {
+  account: DevicesControlAccount;
+  locked: boolean;
+  onSet: () => void;
+  onDone: () => void;
+}) {
+  const store = useStore();
+  const [error, setError] = useState<string | null>(null);
+  const titleId = useId();
+  return (
+    <div className="row" data-devices-control-account="">
+      <div className="row-main">
+        <div className="row-label">
+          <div className="row-title" id={titleId}>
+            {account.title}
+          </div>
+          <div className="row-help devices-line">{account.help}</div>
+          {error && (
+            <div className="row-error devices-line" role="alert">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="row-control">
+          <Switch
+            checked={account.on}
+            disabled={account.busy || locked}
+            labelId={titleId}
+            onToggle={(on) => {
+              onSet();
+              setError(null);
+              void store.setRemoteControlAccount(on).then(setError).finally(onDone);
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ControlRow({
+  row,
+  locked,
+  onSet,
+  onDone,
+}: {
+  row: DevicesControlRow;
+  locked: boolean;
+  onSet: () => void;
+  onDone: () => void;
+}) {
+  const store = useStore();
+  const [error, setError] = useState<string | null>(null);
+  const titleId = useId();
+  const offline = !row.online || row.status === "offline";
+  const asking = row.status === "ask_pending" && row.words && row.words.length > 0;
+  return (
+    <div className="row devices-control-row" data-devices-control-row={row.id} data-devices-control-status={row.status}>
+      <div className="row-main">
+        <div className="row-label">
+          <div className="row-title" id={titleId}>
+            {row.name}
+          </div>
+          {row.status === "error" ? (
+            <div className="row-error devices-line" role="alert">
+              {row.detail}
+            </div>
+          ) : (
+            <div className="row-help devices-line">{row.detail}</div>
+          )}
+          {asking && <Words words={row.words!} attribute="data-devices-control-words" />}
+          {error && (
+            <div className="row-error devices-line" role="alert" data-devices-control-error="">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="row-control">
+          <Switch
+            checked={row.on}
+            disabled={row.busy || offline || locked}
+            labelId={titleId}
+            onToggle={(on) => {
+              onSet();
+              setError(null);
+              void store.setRemoteControl(row.id, on).then(setError).finally(onDone);
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * On this joined Mac: the one-time ask from another of the person's Macs to trust its key (Allow
+ * after matching the words, or Not now), and the Macs it trusts, each with Remove. Allowing takes
+ * the person's click and Touch ID here; Remove and Not now always work.
+ */
+function GrantorRows({ join }: { join: DevicesJoinState }) {
+  const store = useStore();
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ask = join.grantor_ask ?? null;
+  const grantors = join.grantors ?? [];
+  const trust = (id: string, trusted: boolean) => {
+    setRunning(true);
+    setError(null);
+    void store
+      .setGrantorTrust(id, trusted)
+      .then(setError)
+      .finally(() => setRunning(false));
+  };
+  return (
+    <>
+      {ask && (
+        <div className="row devices-grantor-ask" data-devices-grantor-ask={ask.id}>
+          <div className="row-main">
+            <div className="row-label">
+              <div className="row-title devices-line">{ask.title}</div>
+              <div className="row-help devices-line">{ask.help}</div>
+              <Words words={ask.words} attribute="data-devices-grantor-words" />
+            </div>
+            <div className="row-control accounts-buttons">
+              <Button
+                type="button"
+                className="button"
+                data-devices-grantor-action="dismiss"
+                disabled={running}
+                onClick={() => trust(ask.id, false)}
+              >
+                {ask.dismiss}
+              </Button>
+              <Button
+                type="button"
+                className="button"
+                data-devices-grantor-action="allow"
+                disabled={running}
+                onClick={() => trust(ask.id, true)}
+              >
+                {ask.allow}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {grantors.map((grantor) => (
+        <div className="row" key={grantor.id} data-devices-grantor={grantor.id}>
+          <div className="row-main">
+            <div className="row-label">
+              <div className="row-title">{grantor.title}</div>
+              <div className="row-help">{grantor.subtitle}</div>
+            </div>
+            <div className="row-control">
+              <Button
+                type="button"
+                className="button"
+                data-devices-grantor-action="remove"
+                disabled={running}
+                onClick={() => trust(grantor.id, false)}
+              >
+                {grantor.remove}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ))}
+      {error && (
+        <div className="row">
+          <div className="row-error" role="alert" data-devices-grantor-error="">
+            {error}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -86,6 +374,7 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
             </div>
           </div>
         ))}
+        <GrantorRows join={join} />
         {join.error && (
           <div className="row">
             <div className="row-help" role="alert">
@@ -151,7 +440,15 @@ function Status({ tone, children }: { tone: DevicesTone; children: ReactNode }) 
   );
 }
 
-function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinState | null }) {
+function DevicesBody({
+  state,
+  join,
+  control,
+}: {
+  state: DevicesState;
+  join: DevicesJoinState | null;
+  control: DevicesControlState | null;
+}) {
   const [error, run] = useRun();
   const { labels } = state;
   const header = (
@@ -195,6 +492,7 @@ function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinSt
       <>
         {header}
         {join && <JoinGroup join={join} />}
+        {control && <ControlGroup control={control} />}
       </>
     );
   return (
@@ -209,6 +507,7 @@ function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinSt
         </section>
       )}
       {join && <JoinGroup join={join} />}
+      {control && <ControlGroup control={control} />}
       {state.sharing && <SharingGroup sharing={state.sharing} labels={labels} />}
       <section className="group" data-devices-group="others">
         <h3 className="group-title">{labels.othersSection}</h3>

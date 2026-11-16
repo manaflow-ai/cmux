@@ -195,7 +195,66 @@ export type DevicesJoinState = {
   /** The label of the action that turns every switch off while the record is unknown; null while it is known. */
   revoke_all: string | null;
   switches: Array<{ surface: JoinConsentSurface; title: string; help: string; on: boolean }>;
+  /** Another of the person's Macs asked once to turn Control on here: trust its key after matching
+   * the four words with the ones that Mac shows. Absent (an older host) or null: no ask. */
+  grantor_ask?: DevicesGrantorAsk | null;
+  /** The Macs whose key this Mac trusts to turn Control on or off here. Absent on an older host. */
+  grantors?: DevicesGrantor[];
 };
+
+/** The one pending ask to trust another Mac's key (`devices_join.grantor_ask`), every text localized. */
+export type DevicesGrantorAsk = {
+  id: string;
+  title: string;
+  help: string;
+  /** The key's four words, to match with the words the asking Mac shows for its own key. */
+  words: string[];
+  /** The Allow button's label. */
+  allow: string;
+  /** The Not now button's label. */
+  dismiss: string;
+};
+
+/** A Mac whose key this Mac trusts (`devices_join.grantors`), every text localized. */
+export type DevicesGrantor = { id: string; title: string; subtitle: string; remove: string };
+
+/** Where a machine's Control from this Mac stands. */
+export type DevicesControlStatus = "on" | "off" | "ask_pending" | "offline" | "unknown" | "error";
+
+/** One machine the person owns, with its Control (and screen) switch from this Mac. */
+export type DevicesControlRow = {
+  id: string;
+  name: string;
+  platform: string;
+  online: boolean;
+  on: boolean;
+  /** A set is in flight: the switch is disabled until it ends. */
+  busy: boolean;
+  status: DevicesControlStatus;
+  /** One localized line under the name. */
+  detail: string;
+  /** While `ask_pending`: the words the machine shows for this Mac's key. */
+  words: string[] | null;
+  log: Array<{ time: string; what: string }>;
+};
+
+/** Settings > Devices: Control from this Mac (`devices_control`), every text localized. */
+export type DevicesControlState = {
+  title: string;
+  help: string;
+  /** This Mac's key as four words, which a machine shows when it asks once to trust it. */
+  this_mac_words: string[] | null;
+  error: string | null;
+  rows: DevicesControlRow[];
+  /** The account-wide switch at the top of the group (on for every device of the account; a row
+   * narrows it). Absent on an older host, null when the host does not offer it. */
+  account?: DevicesControlAccount | null;
+  /** The label of the quiet Refresh trusted Macs button; absent or null: no button. */
+  refresh?: string | null;
+};
+
+/** Control between my devices for the whole account (`devices_control.account`), texts localized. */
+export type DevicesControlAccount = { title: string; help: string; on: boolean; busy: boolean };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
@@ -237,6 +296,8 @@ export type HostLists = {
   devices?: DevicesHostState | null;
   /** Settings > Devices: this joined Mac's Screen sharing and Control consent (labs.machineJoin); null unless joined. */
   devices_join?: DevicesJoinState | null;
+  /** Settings > Devices: Control from this Mac, one switch per owned machine; null unless joined (labs.machineJoin). */
+  devices_control?: DevicesControlState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
   import_suggestions?: unknown;
   /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
@@ -1248,6 +1309,16 @@ export type SettingsOps = {
   "cmux.settings.machines.vm_host": [{ id: string; on: boolean }, { error?: string }];
   /** Native: Settings > Devices' consent switch of this joined Mac (Screen sharing, Control, Your other Macs) (on: the person's gesture only). */
   "cmux.settings.devices.join_consent": [{ surface: JoinConsentSurface; on: boolean }, { error?: string }];
+  /** Native: Settings > Devices' Control from this Mac switch on an owned machine: a signed grant for
+   * control and screen together (on: the person's gesture and Touch ID; off: none). */
+  "cmux.settings.devices.remote_control": [{ id: string; on: boolean }, { error?: string }];
+  /** Native: on the target Mac, trust (the person's gesture and Touch ID) or remove/dismiss another Mac's key. */
+  "cmux.settings.devices.grantor_trust": [{ id: string; trusted: boolean }, { error?: string }];
+  /** Native: Settings > Devices' account switch: an account-wide grant for every device of the account
+   * (on: the person's gesture and Touch ID; off: none). */
+  "cmux.settings.devices.remote_control_account": [{ on: boolean }, { error?: string }];
+  /** Native: Settings > Devices' Refresh trusted Macs: this Mac collects its peers' keys again (the person's gesture). */
+  "cmux.settings.devices.trust_refresh": [Record<string, never>, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */
