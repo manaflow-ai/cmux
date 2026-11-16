@@ -43,8 +43,8 @@ import Testing
         return steps
     }
 
-    /// What the pane learns of the machine before it connects (none before this change).
-    static func prepare(_ pane: RemoteDesktopPaneView) {}
+    /// What the pane learns of the machine before it connects: the Connect card's target (`RemoteViewPageTab`).
+    static func prepare(_ pane: RemoteDesktopPaneView) { pane.connectionTarget = target }
 
     static func measure(_ name: String, _ view: NSView, theme: String, dark: Bool, shots: URL?) async throws -> Step {
         _ = NSApplication.shared
@@ -107,6 +107,29 @@ import Testing
             print("remote-connect-sequence \(step.name) card=\(step.card) title=\(step.title) texts=\(step.texts)")
         }
         print("remote-connect-sequence layout shifts: \(Self.shifts(steps)) over \(steps.count) steps")
+        #expect(Self.shifts(steps) == 0, "one frame from Connect to the first frame")
+        #expect(Set(steps.dropFirst().map(\.texts)).count == 1, "the dial's steps change no text")
+        #expect(steps.allSatisfy { $0.texts.first == "rd-demo-linux" })
+    }
+
+    /// Cancel on the connecting card stops the connect, as the state card's Cancel did.
+    @Test func theConnectingCardsCancelStopsTheConnect() throws {
+        let pane = RemoteDesktopPaneView(frame: NSRect(origin: .zero, size: Self.size))
+        Self.prepare(pane)
+        var cancelled = 0
+        pane.card.onCancel = { cancelled += 1 }
+        var state = RemotePaneState(hostName: "vm-id-not-a-name")
+        state.viaCloudTunnel = true
+        pane.render(state: state, settings: RemoteDesktopSettings())
+        let card = try #require(pane.connectingCard)
+        #expect(pane.card.isHidden)
+        #expect(RemoteViewUnavailableView.text(for: card.content).title == "rd-demo-linux", "the target's name, never the host id")
+        card.onCancel?()
+        #expect(cancelled == 1)
+        state.status = RemoteViewStatus(path: .viaCloudRegion, state: .streaming)
+        state.hasFrame = true
+        pane.render(state: state, settings: RemoteDesktopSettings())
+        #expect(pane.connectingCard == nil, "the first frame takes the card away")
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))

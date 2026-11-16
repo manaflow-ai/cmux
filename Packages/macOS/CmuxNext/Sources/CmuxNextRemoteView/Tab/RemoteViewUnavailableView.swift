@@ -8,9 +8,15 @@ import CmuxNextDesign
 ///
 ///
 /// One card, one alignment, leading: the machine's name (never an id) with its status as a chip at
-/// the end of the same row, one line of text, then Connect as the theme's primary button (the
-/// dialogs' default button, ``CmuxDialogButtonView``). The text wraps at the card's width, never past
-/// its inset. Leo, 2026-11-16, on the old card: "is is a weirdly styled thing :(".
+/// the end of the same row, then Connect as the theme's primary button (the dialogs' default
+/// button, ``CmuxDialogButtonView``). No sentence says how the tab opened or what Connect does
+/// (Leo, 2026-11-16: "why even say lal that bullshit? esp the second line."). An unavailable tab's
+/// one line of text wraps at the card's width, never past its inset. Leo, 2026-11-16, on the old
+/// card: "is is a weirdly styled thing :(".
+///
+/// `.connecting` is the same card in the same frame once Connect is pressed: the spinner takes the
+/// icon's place and Cancel takes Connect's, so nothing moves until the first frame shows
+/// (``RemoteDesktopPaneView`` draws it over the pane; Leo, 2026-11-16: "so many layout shifts").
 public final class RemoteViewUnavailableView: NSView {
     public enum Content: Sendable, Hashable {
         case unavailable(RemoteViewUnavailableReason)
@@ -18,14 +24,18 @@ public final class RemoteViewUnavailableView: NSView {
         case confirm(host: String)
         /// Ask before connecting with human-facing machine metadata.
         case confirmTarget(RemoteConnectionTarget)
+        /// Connecting to the machine (`reconnecting`: again, over its last frame).
+        case connecting(RemoteConnectionTarget, reconnecting: Bool)
     }
 
     public let content: Content
     /// Connect pressed (confirm content only).
     public var onConnect: (() -> Void)?
-    private let icon: NSImageView
+    /// Cancel pressed (connecting content only).
+    var onCancel: (() -> Void)?
+    private let icon: NSView
     private let title: ChromeLabel
-    private let detail: ChromeLabel
+    private let detail: ChromeLabel?
     private let status: RemoteStatusChip?
     private let button: CmuxDialogButtonView?
     private let surface = Glass.makeOverlayPanel(cornerRadius: 16)
@@ -37,14 +47,18 @@ public final class RemoteViewUnavailableView: NSView {
     public init(content: Content) {
         self.content = content
         let text = Self.text(for: content)
-        icon = RemoteChrome.symbol(text.symbol, size: TypeScale.title)
+        let symbol = RemoteChrome.symbol(text.symbol, size: TypeScale.title)
+        icon = text.spinner ? Self.spinner(side: symbol.image?.size.height ?? TypeScale.titleLineHeight) : symbol
         title = RemoteChrome.label(text.title, size: TypeScale.title, weight: TypeScale.emphasis)
-        detail = RemoteChrome.wrapping(text.detail, size: TypeScale.body, width: 0)
+        detail = text.detail.map { RemoteChrome.wrapping($0, size: TypeScale.body, width: 0) }
         status = text.status.map { RemoteStatusChip(text: $0, live: text.live) }
         switch content {
         case .confirm, .confirmTarget:
             button = CmuxDialogButtonView(CmuxDialogButton(id: "remote-connect", title: RemoteViewStrings.connect, role: .default),
                                           hint: nil, target: nil, action: #selector(RemoteViewUnavailableView.connectPressed))
+        case .connecting:
+            button = CmuxDialogButtonView(CmuxDialogButton(id: "remote-cancel", title: RemoteViewStrings.cancel, role: .normal),
+                                          hint: nil, target: nil, action: #selector(RemoteViewUnavailableView.cancelPressed))
         case .unavailable:
             button = nil
         }
@@ -72,18 +86,18 @@ public final class RemoteViewUnavailableView: NSView {
         ])
         setAccessibilityElement(button == nil)
         setAccessibilityRole(.group)
-        setAccessibilityLabel([text.title, text.status, text.detail].compactMap { $0 }.joined(separator: ". "))
+        setAccessibilityLabel([text.spoken ?? text.title, text.status, text.detail].compactMap { $0 }.joined(separator: ". "))
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Header row (icon, name, status chip at the end), the text at the row's width, then Connect.
+    /// Header row (icon, name, status chip at the end), the text (if any) at the row's width, then the button.
     private func arrange() -> NSStackView {
         let inset = Metrics.space6 + Metrics.space4
-        detail.alignment = .natural
+        detail?.alignment = .natural
         // The card's width decides where the text breaks, not the text's one-line width.
-        detail.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        detail?.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
@@ -92,11 +106,9 @@ public final class RemoteViewUnavailableView: NSView {
         let column = stack([heading, detail, button], vertical: true, spacing: Metrics.space4)
         column.alignment = .leading
         column.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
-        column.setCustomSpacing(Metrics.space6, after: detail)
-        NSLayoutConstraint.activate([
-            heading.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -2 * inset),
-            detail.widthAnchor.constraint(equalTo: heading.widthAnchor),
-        ])
+        column.setCustomSpacing(Metrics.space6, after: (detail as NSView?) ?? heading)
+        heading.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -2 * inset).isActive = true
+        detail?.widthAnchor.constraint(equalTo: heading.widthAnchor).isActive = true
         return column
     }
 
@@ -109,6 +121,19 @@ public final class RemoteViewUnavailableView: NSView {
     }
 
     @objc private func connectPressed() { onConnect?() }
+    @objc private func cancelPressed() { onCancel?() }
+
+    /// The themed spinner at the icon's size, so swapping one for the other moves nothing.
+    private static func spinner(side: CGFloat) -> NSView {
+        let indicator = StatusIndicatorView.spinner()
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            indicator.widthAnchor.constraint(equalToConstant: side),
+            indicator.heightAnchor.constraint(equalToConstant: side),
+        ])
+        indicator.spin(true)
+        return indicator
+    }
 
     public override var acceptsFirstResponder: Bool { true }
 
@@ -126,17 +151,24 @@ public final class RemoteViewUnavailableView: NSView {
         let next = performWithTheme { RemotePaneColors.resolved() }
         guard next != colors else { return }
         colors = next
-        layer?.backgroundColor = next.background.cgColor
-        icon.contentTintColor = next.textSecondary
+        // Connecting draws over the pane, whose video view paints the same background (and a
+        // reconnect's last frame).
+        if case .connecting = content {} else { layer?.backgroundColor = next.background.cgColor }
+        (icon as? NSImageView)?.contentTintColor = next.textSecondary
         title.textColor = next.textPrimary
-        detail.textColor = next.textSecondary
+        detail?.textColor = next.textSecondary
         status?.apply(next)
     }
 
     struct Text: Equatable {
         var symbol: String
         var title: String
-        var detail: String
+        /// One line under the heading; nil for a machine's card, whose name and status say it.
+        var detail: String?
+        /// What VoiceOver reads in place of the title ("Connecting to …"); nil reads the title.
+        var spoken: String?
+        /// A spinner in the icon's place (connecting).
+        var spinner = false
         /// The machine's status and region, drawn as a chip beside the title.
         var status: String?
         /// The status is a live one (running, starting): the chip's dot is the success color.
@@ -150,8 +182,14 @@ public final class RemoteViewUnavailableView: NSView {
             return text(for: .confirmTarget(RemoteConnectionTarget(name: host)))
         case let .confirmTarget(target):
             return Text(symbol: target.kind == .desktop ? "display" : "network",
-                        title: RemoteViewStrings.confirmTitle(target), detail: RemoteViewStrings.confirmDetail(target),
+                        title: RemoteViewStrings.confirmTitle(target), detail: nil,
                         status: RemoteViewStrings.confirmStatus(target), live: target.isLive)
+        case let .connecting(target, reconnecting):
+            var text = text(for: .confirmTarget(target))
+            let name = RemoteViewStrings.confirmTitle(target)
+            text.spoken = reconnecting ? RemoteViewStrings.reconnectingTitle(name) : RemoteViewStrings.connectingTitle(name)
+            text.spinner = true
+            return text
         case let .unavailable(reason):
             let detail = switch reason {
             case .notInThisBuild: RemoteViewStrings.unavailableNotInBuild
