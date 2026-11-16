@@ -91,6 +91,15 @@ function usable(state: RowState): boolean {
  * layout (the store rolls back) and shows the daemon's problems beside the items they name. Use
  * Item Switches resets the shown setting, so the rows go back to the element switches.
  */
+/** Focuses the grab handle of the chip at `at` inside the editor `root`. */
+function focusChip(root: HTMLElement | null, at: Place) {
+  root
+    ?.querySelector<HTMLElement>(
+      `[data-layout-line="${at.line}"] [data-chip][data-index="${at.index}"] .row-layout-chip-grab`,
+    )
+    ?.focus();
+}
+
 export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {
   const store = useStore();
   const states = {
@@ -518,7 +527,7 @@ function LayoutEditor({
     const pending = focus.current;
     if (!pending || pending.after === layout) return;
     focus.current = null;
-    focusChip(pending.at);
+    focusChip(root.current, pending.at);
   });
   const hintId = useId();
   const options = addable(layout);
@@ -658,15 +667,8 @@ function LayoutEditor({
     const here = flat.findIndex((place) => place.line === at.line && place.index === at.index);
     const step = direction === "left" || direction === "up" ? -1 : 1;
     const next = flat[here + step];
-    if (next) focusChip(next);
+    if (next) focusChip(root.current, next);
   };
-  function focusChip(at: Place) {
-    root.current
-      ?.querySelector<HTMLElement>(
-        `[data-layout-line="${at.line}"] [data-chip][data-index="${at.index}"] .row-layout-chip-grab`,
-      )
-      ?.focus();
-  }
 
   const slotTitle = (slot: Slot) => tokenTitle(slot);
   return (
