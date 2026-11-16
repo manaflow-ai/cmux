@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'd013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1'
+IR_SHA256 = '395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8'
 
 
 @dataclass(frozen=True)
@@ -1515,6 +1515,20 @@ COMMANDS = {
             'surface': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
+    'device-setup': CommandMetadata(
+        'device-setup',
+        'local-admin',
+        12,
+        'device-setup-v1',
+        ('local-admin',),
+        None,
+        {
+            'allow_agents': CommandFieldMetadata(None, None),
+            'device': CommandFieldMetadata(None, None),
+            'dry_run': CommandFieldMetadata(None, None),
+            'verb': CommandFieldMetadata(None, None),
+        },
+    ),
     'export-layout': CommandMetadata(
         'export-layout',
         'control',
@@ -2291,6 +2305,7 @@ COMMANDS = {
             'owner': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, 'page-tabs-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'place': CommandFieldMetadata(None, 'tab-create-place-v1'),
             'route': CommandFieldMetadata(None, 'page-tab-route-v1'),
             'rows': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, 'conversation-tab-split-v1'),
@@ -2314,10 +2329,12 @@ COMMANDS = {
             'idempotency_key': CommandFieldMetadata(None, None),
             'owner': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+            'place': CommandFieldMetadata(None, 'tab-create-place-v1'),
             'profile_id': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, 'frontend-browser-tab-split-v1'),
             'title': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, 'tab-create-place-v1'),
             'url': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, 'frontend-browser-tab-workspace-v1'),
         },
@@ -2441,9 +2458,11 @@ COMMANDS = {
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'place': CommandFieldMetadata(12, 'tab-create-place-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'transaction': CommandFieldMetadata(12, 'tab-create-place-v1'),
         },
     ),
     'new-workspace': CommandMetadata(
@@ -4089,6 +4108,7 @@ EVENTS = {
     'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
     'agent-cli-frame': EventMetadata('agent-cli-frame', 12, 'agent-cli-hybrid-v1', ('attach-byte',), 'emitted'),
+    'agent-cli-lean': EventMetadata('agent-cli-lean', 12, 'agent-cli-hybrid-v2', ('attach-byte',), 'emitted'),
     'agent-inventory-changed': EventMetadata('agent-inventory-changed', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
@@ -4123,6 +4143,7 @@ EVENTS = {
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'device-setup-step': EventMetadata('device-setup-step', 12, None, ('control',), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'feed-reports-changed': EventMetadata('feed-reports-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
     'feed-view-changed': EventMetadata('feed-view-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),

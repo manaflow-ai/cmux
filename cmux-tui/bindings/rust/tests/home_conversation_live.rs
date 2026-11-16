@@ -207,6 +207,7 @@ fn home_and_conversation_results_live_daemon() {
             owner: Optional::Value("local".into()),
             page: Optional::Missing,
             pane: Optional::Missing,
+            place: Optional::Missing,
             route: Optional::Missing,
             rows: Optional::Missing,
             split: Optional::Missing,

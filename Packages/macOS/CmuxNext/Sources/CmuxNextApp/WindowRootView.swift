@@ -21,7 +21,7 @@ import Observation
 /// terminal read as one sheet with no panel edges or seams. In a
 /// translucent window that sheet is one material with one theme tint
 /// (`backdropView`, the bottom subview) and everything above it is clear.
-final class WindowRootView: NSView, WindowSurfacePainting {
+final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`); its glass keeps the key look through `activeLook`.
     let backdropView: WindowMaterialView
@@ -392,7 +392,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if !view.handKeyboardToWindow(), let window {
             // A field editor that refuses to resign while it validates: end the edit, then resign.
             window.endEditing(for: nil)
-            window.makeFirstResponder(nil)
+            FocusRoute(.system, "a withdrawn view gives up the keys").moveKeyboard(in: window, to: nil)
         }
         view.isHidden = true
         // Parked once hidden: the hidden subtree hears nothing more.

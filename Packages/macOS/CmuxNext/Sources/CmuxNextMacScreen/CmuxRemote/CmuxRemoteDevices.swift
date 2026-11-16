@@ -32,17 +32,42 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
     private func channel() async throws -> RemoteDeviceChannel {
         if let live = control.withLock({ $0 }), live.isOpen { return live }
         let fresh = RemoteDeviceChannel(socket: try await open())
-        if let source = consentNow.load() {
-            let consent = await source()
-            _ = try? await fresh.call("consent", ["enabled": consent.enabled, "view": consent.view, "full": consent.full])
+        do {
+            _ = try await fresh.call("host.mode", ["mode": "relay-only"])
+            if let source = consentNow.load() {
+                let consent = await source()
+                _ = try? await fresh.call("consent", ["enabled": consent.enabled, "view": consent.view, "full": consent.full])
+            }
+        } catch {
+            fresh.close()
+            throw error
         }
-        control.withLock { $0 = fresh }
-        return fresh
+        // Two simultaneous signing requests may open channels together. Keep one; an orphan
+        // channel would keep worker hosting disabled even after the app's real channel closes.
+        let selected = control.withLock { current in
+            if let live = current, live.isOpen { return live }
+            current = fresh
+            return fresh
+        }
+        if selected !== fresh { fresh.close() }
+        return selected
     }
 
     /// This device's identity from the worker (its keys stay in the worker's Secure Enclave).
     func identity(renew: Bool = false) async throws -> DeviceIdentity {
         let answer = try await channel().call(renew ? "device.renew" : "device.identity")
+        return try makeIdentity(answer)
+    }
+
+    /// The renewal closure supplied to ``DeviceHub`` is synchronous and is
+    /// invoked off the main actor. Use the same bounded request channel as
+    /// signing to fetch a fresh worker identity when the hub rejected this
+    /// device as removed or key-mismatched.
+    func blockingIdentity(renew: Bool = false) throws -> DeviceIdentity {
+        try makeIdentity(try blockingCall(renew ? "device.renew" : "device.identity", [:]))
+    }
+
+    private func makeIdentity(_ answer: [String: Any]) throws -> DeviceIdentity {
         guard let id = (answer["id"] as? String).flatMap(UUID.init(uuidString:)),
               let signing = (answer["signing_key"] as? String).flatMap({ Data(base64Encoded: $0) }),
               let agreement = (answer["agreement_key"] as? String).flatMap({ Data(base64Encoded: $0) }) else {
@@ -88,8 +113,18 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
     /// The hub's pushes from the worker's socket, as a socket this app's hub reads.
     func subscribe() async throws -> any DeviceHubSocketConnection {
         let fresh = RemoteDeviceChannel(socket: try await open())
-        _ = try await fresh.call("hub.subscribe")
-        subscription.withLock { $0 = fresh }
+        do {
+            _ = try await fresh.call("host.mode", ["mode": "relay-only"])
+            _ = try await fresh.call("hub.subscribe")
+        } catch {
+            fresh.close()
+            throw error
+        }
+        let previous = subscription.withLock { current in
+            defer { current = fresh }
+            return current
+        }
+        previous?.close()
         return RemotePushConnection(channel: fresh)
     }
 }

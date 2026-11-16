@@ -26,6 +26,8 @@
 //! - [`keychain`]: the deadline of the app's calls into its own Keychain items,
 //!   and the refusal, naming the item, of a call that misses it (the app FFI's
 //!   gate runs the call on its own thread).
+//! - [`signin`]: the install token's owner: renew at 2/3 of its life beside the held token, wait on a mint
+//!   at most its bound, and name the step of a mint that stalls (remote-cloud-durability F13).
 //! - [`agent_key`]: `vm.agent_key.create` and `cmux vm token create`: the
 //!   request a VM agent key is minted with and how the VM API's answer reads.
 
@@ -39,3 +41,4 @@ pub mod identity;
 pub mod install_key_slots;
 pub mod keychain;
 pub mod origin;
+pub mod signin;

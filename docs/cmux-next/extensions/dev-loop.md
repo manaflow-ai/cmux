@@ -100,7 +100,11 @@ and repeat until both look right.
 1. A change in the folder (dot files, `node_modules` and editor backups ignored) wakes the
    watch; 120 ms of quiet later one reload starts. A save that leaves the folder's contents as
    they were reloads nothing.
-2. The manifest is validated by the validator cmux itself runs (`cmux-app-manifest`).
+2. The manifest is validated by the validator cmux itself runs (`cmux-app-manifest`). When step 3
+   will build, the main script it writes (`runtime.main`, `dist/main.js`) need not exist yet, so a
+   fresh clone (examples gitignore `dist/`) builds; the full check, the main script included,
+   runs again after the build. With nothing to build, a missing main script ends the reload at
+   phase manifest.
 3. Build: `--build CMD` when given; else, with `src/main.ts` and `bun` on PATH, the packer every
    sample uses (`cmux-app-host/tools/pack.ts`, built into the CLI) writes `dist/main.js`; a plain
    `dist/main.js` needs no build. `cmux-extension-sdk` resolves to the folder's own copy
