@@ -782,6 +782,8 @@ impl Supervisor {
     pub(super) fn persist(&self, mirror: &Mirror) -> std::io::Result<()> {
         use std::io::Write as _;
         let Some(dir) = &self.config.state_dir else { return Ok(()) };
+        #[cfg(test)]
+        persist_test_pause(dir);
         // A fresh daemon may not have created its state directory yet.
         std::fs::create_dir_all(dir)?;
         let temp = dir.join("apps.json.tmp");
@@ -854,6 +856,28 @@ fn background_triggers(outs: &[Out]) -> Option<BTreeSet<String>> {
         }
     }
     triggered.then_some(saved)
+}
+
+/// A slow `apps.json` write on demand: an fsync on a busy disk takes seconds.
+#[cfg(test)]
+static PERSIST_PAUSES: Mutex<Vec<(std::path::PathBuf, Duration)>> = Mutex::new(Vec::new());
+
+/// The next `apps.json` write into `dir` takes `pause` longer.
+#[cfg(test)]
+pub(super) fn pause_next_persist(dir: &std::path::Path, pause: Duration) {
+    PERSIST_PAUSES.lock().recover_poison().push((dir.to_path_buf(), pause));
+}
+
+#[cfg(test)]
+fn persist_test_pause(dir: &std::path::Path) {
+    let pause = {
+        let mut pauses = PERSIST_PAUSES.lock().recover_poison();
+        let index = pauses.iter().position(|(d, _)| d == dir);
+        index.map(|i| pauses.remove(i).1)
+    };
+    if let Some(pause) = pause {
+        std::thread::sleep(pause);
+    }
 }
 
 fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {

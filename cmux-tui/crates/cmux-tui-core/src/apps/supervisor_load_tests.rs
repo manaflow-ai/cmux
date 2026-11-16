@@ -316,6 +316,44 @@ fn a_slow_host_start_holds_up_neither_the_mount_nor_apps_list() {
     f.wait("the view's first scene", |e| e["event"] == "apps-scene" && e["mount_id"] == "m1");
 }
 
+/// A slow `apps.json` write (an fsync behind a busy disk) holds up only the
+/// install that waits for it: `apps-list` answers meanwhile, and a second
+/// install in that time is kept with the first, in memory and on disk (base
+/// red: the write ran under the supervisor lock).
+#[test]
+fn a_slow_apps_json_write_holds_up_only_its_own_install() {
+    let f = fixture();
+    write_app(&f.state.join("apps/local"), "slowsave", "local/slowsave", json!({}));
+    f.supervisor.reload_local_apps(&Default::default());
+    super::super::supervisor::pause_next_persist(&f.state, Duration::from_secs(3));
+    let install = |app: &str| {
+        let supervisor = f.supervisor.clone();
+        let op = SetOp {
+            key: format!("install-{app}"),
+            app: app.into(),
+            origin: Origin::User,
+            installed: Some(true),
+            ..SetOp::default()
+        };
+        std::thread::spawn(move || supervisor.set(CLIENT, op).map(|_| ()))
+    };
+    let slow = install("local/slowsave");
+    std::thread::sleep(Duration::from_millis(300));
+    let second = install("local/spy");
+    let start = Instant::now();
+    let _ = f.supervisor.list();
+    let list = start.elapsed();
+    slow.join().unwrap().unwrap();
+    second.join().unwrap().unwrap();
+    assert!(list < Duration::from_secs(1), "apps-list waited {list:?} behind an apps.json write");
+    let listed = f.supervisor.list();
+    let saved = std::fs::read_to_string(f.state.join("apps.json")).unwrap();
+    for app in ["local/slowsave", "local/spy"] {
+        assert_eq!(app_entry(&listed, app)["installed"], true, "{app} is installed");
+        assert!(saved.contains(&format!("\"{app}\"")), "{app} is in apps.json");
+    }
+}
+
 #[test]
 fn load_bench() {
     if !bench_selected() {
