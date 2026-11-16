@@ -503,22 +503,36 @@ mod tests {
     }
 
     fn scene_picture(painter: &Painter, w: usize, h: usize, counter: u32, ph: u32) -> Vec<u8> {
-        let (y_stride, uv_stride) = (w + 64, w + 64);
-        let mut y = vec![0xAA; y_stride * h];
-        let mut uv = vec![0xAA; uv_stride * h / 2];
-        painter.paint(
-            &mut Nv12 { y: &mut y, y_stride, uv: &mut uv, uv_stride, width: w, height: h },
-            counter,
-            ph,
-        );
-        // Every pixel was written, luma and chroma.
+        let stride = w + 64;
+        // Painted over two different fills: every pixel inside the picture, luma and chroma,
+        // must come out the same (any byte left unwritten shows its fill).
+        let [(ya, uva), (yb, uvb)] = [0x00u8, 0xffu8].map(|fill| {
+            let (mut y, mut uv) = (vec![fill; stride * h], vec![fill; stride * h / 2]);
+            painter.paint(
+                &mut Nv12 {
+                    y: &mut y,
+                    y_stride: stride,
+                    uv: &mut uv,
+                    uv_stride: stride,
+                    width: w,
+                    height: h,
+                },
+                counter,
+                ph,
+            );
+            (y, uv)
+        });
         for r in 0..h {
-            assert!(y[r * y_stride..r * y_stride + w].iter().all(|&v| v != 0xAA), "y row {r}");
+            assert_eq!(ya[r * stride..r * stride + w], yb[r * stride..r * stride + w], "y row {r}");
         }
         for r in 0..h / 2 {
-            assert!(uv[r * uv_stride..r * uv_stride + w].iter().all(|&v| v != 0xAA), "uv row {r}");
+            assert_eq!(
+                uva[r * stride..r * stride + w],
+                uvb[r * stride..r * stride + w],
+                "uv row {r}"
+            );
         }
-        y
+        ya
     }
 
     #[test]
