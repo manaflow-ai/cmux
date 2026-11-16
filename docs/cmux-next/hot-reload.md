@@ -24,7 +24,7 @@ a video, click through it; compile checks, CI and suites come after the look. Of
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
 | Swift, Rust the app links, resources | a build: `hot-apply.py plan SHA` says which | |
 
-`cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build, and
+`cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build (a fork's only when you run `use` again), and
 `library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
 tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
 [cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
