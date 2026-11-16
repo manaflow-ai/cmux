@@ -111,9 +111,10 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "step-to-live",
     between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
-    value: 38,
+    value: 43,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source:
+      "22 line + run gap 16 over the footer's 32 slot, its words centred: the line keeps the slot a reply gives it (cmux#24569; 32/16, Leo 2026-11-16)",
   },
 ];
 
@@ -209,8 +210,9 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
  * 55 to 70 apart, then cramped: "this is pretty bad spacing and formatting" / "i thought we made this
  * stuff smaller"). Each is a one-line row: a run's last call, a subagent's start line and its "finished" line, the live "Thinking"
  * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to".
- * Activity rows sit flush on the 22 pitch; the live line takes the run gap below activity. Measured over gallery
- * variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt` by test/transcript-spacing-kinds.test.ts. */
+ * Activity rows sit flush on the 22 pitch; the live line keeps the footer's 32 slot below activity, the run gap
+ * over it. Measured over gallery variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt`
+ * by test/transcript-spacing-kinds.test.ts. */
 export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
   variant: "working-bottom" | "reply-received" | "notes-live" | "status-prompt";
 })[] = [
@@ -243,9 +245,10 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "waiting-to-live",
     variant: "working-bottom",
     between: '"1 message from 1 session" and the live "Thinking" line under it, the turn\'s last, centre to centre',
-    value: 38,
+    value: 43,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source:
+      "22 line + run gap 16 over the footer's 32 slot, its words centred: the line keeps the slot a reply gives it (cmux#24569; 32/16, Leo 2026-11-16)",
   },
   {
     id: "reply-footer-to-received",
@@ -267,18 +270,20 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "sent-to-live",
     variant: "reply-received",
     between: '"Sent to" and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: 43,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source:
+      "22 line + run gap 16 over the footer's 32 slot, its words centred: the line keeps the slot a reply gives it (cmux#24569; 32/16, Leo 2026-11-16)",
   },
   {
     id: "note-to-live",
     variant: "notes-live",
     between:
       'the last "Background task finished" note, after "Received 6 messages", and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: 43,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source:
+      "22 line + run gap 16 over the footer's 32 slot, its words centred: the line keeps the slot a reply gives it (cmux#24569; 32/16, Leo 2026-11-16)",
   },
   {
     id: "status-to-prompt",

@@ -2605,11 +2605,9 @@ pre.cv-math-source {
   height: var(--cv-footer-row);
   padding-top: 0;
 }
-/* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
-   its ⌃B hint on its line. */
-.acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
-  height: var(--cv-tool-row-height);
-}
+/* Right under a step row it keeps this slot, its ⌃B hint on its line, the run gap under the run (transcriptGrid.ts
+   MARK_LIVE_STEP). A box one tool row tall there moved the words each time the row over it changed between a run
+   and a reply (cmux#24569). */
 /* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
    only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room
    on hover alone: the times and tokens were squeezed over each other ("8s · 2m5 1.4K toke") and moved
@@ -7008,13 +7006,7 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
   min-height: var(--cv-footer-row);
 }
-/* Right under a step row it is one more line of the run instead (model.ts isLiveStep, #29965). */
-.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
-  height: var(--cv-tool-row-height);
-}
-.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
-  min-height: var(--cv-tool-row-height);
-}
+/* Right under a step row it keeps the slot too, as the Thinking line does (transcriptGrid.ts MARK_LIVE_STEP). */
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 /* A failed task keeps its red mark, open or closed. A click opens it in place (`.is-toggle`: the

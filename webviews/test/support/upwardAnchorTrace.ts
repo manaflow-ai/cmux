@@ -53,6 +53,7 @@ export async function traceUpwardAnchors({
     footerSlot: 7,
     worked: 9,
     card: 10,
+    liveStep: 12,
   } as const;
 
   function gridPx(name: string): number {
@@ -70,10 +71,12 @@ export async function traceUpwardAnchors({
     // under its rule is its own, so no gap follows it (transcriptGrid.ts MARK_WORKED, #37727).
     if (kind === "acpmux-worked" || (kind === "acpmux-working" && !row.classList.contains("acpmux-row--below")))
       return transcriptMark.worked;
-    // A live footer after work uses the run gap, even though it shares the compact step height.
+    // The live line right under a step or status row (model.ts isLiveStep, the after-step class): the footer's
+    // slot, the run gap under the run (transcriptGrid.ts MARK_LIVE_STEP, cmux#24569).
     if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine") {
+      if (row.classList.contains("acpmux-row--below"))
+        return row.classList.contains("acpmux-row--after-step") ? transcriptMark.liveStep : transcriptMark.footerSlot;
       if (row.classList.contains("acpmux-row--after-step")) return transcriptMark.indicator;
-      if (row.classList.contains("acpmux-row--below")) return transcriptMark.footerSlot;
       return kind === "acpmux-activityLine" ? transcriptMark.step : transcriptMark.indicator;
     }
     // An edited-files card (VirtualTranscript rowKind "editedFiles"; transcriptGrid.ts MARK_CARD): the
@@ -116,6 +119,7 @@ export async function traceUpwardAnchors({
   ): number {
     if (previous === null || next === null) return 0;
     const { footer, block, turn, run } = tokens;
+    if (next === transcriptMark.liveStep) return run;
     // transcriptGrid.ts transcriptGap: none after "Worked for" inside its turn; elsewhere a step row.
     if (previous === transcriptMark.worked && next !== transcriptMark.prompt) return 0;
     if (previous === transcriptMark.worked) previous = transcriptMark.step;

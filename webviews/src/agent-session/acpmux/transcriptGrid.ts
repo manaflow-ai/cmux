@@ -69,6 +69,13 @@ export const MARK_CARD = 10;
 /// 2026-11-12: "the exact same amount as if it were just a normal final message"); toward every
 /// other row it is any other row.
 export const MARK_PLAN_LINE = 11;
+/// The running turn's line as its last row right under a step or status row (model.ts `isLiveStep`). It keeps the
+/// footer's slot it has under a reply (MARK_FOOTER_SLOT's box), so what lands over it never changes its height or
+/// moves its words: a box one tool row tall there moved the words 5 px, and the line 10, each time the row over it
+/// changed between a run and a reply while the transcript followed the latest row (cmux#24569, a live CLS of 1.16
+/// in transcript-replay.bench.ts). Toward the row over it the gap is the run gap (16), as before: 32/16, Leo's pick on
+/// 2026-11-16 (cmux#43627). Under it, the slot's room (tailGap) whatever is over it.
+export const MARK_LIVE_STEP = 12;
 /// Added to a row's mark (a reply or a tool run) when it opens a turn the agent ran on its own that
 /// draws as its own turn, with no line of its own over it (model.ts `opensBackgroundTurn`): a task
 /// notification started it, not a prompt. It stands the turn gap from the row over it, as a prompt
@@ -153,6 +160,7 @@ export function transcriptGap(previous: number, next: number): number {
   // The live state is separate from completed activity. Leo, 2026-11-04: "the gap between tool
   // calls and thinking needs to be bigger". Use the same scaled run gap as activity to prose.
   if (line(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
+  if (next === MARK_LIVE_STEP) return TRANSCRIPT_RUN_GAP;
   // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
   if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
@@ -164,6 +172,7 @@ export function transcriptGap(previous: number, next: number): number {
 /// its hover controls in the gap) follows it; anything else takes the composer gap.
 export function tailGap(last: number, beforeLast: number, footerAfter = false): number {
   last = baseMark(last);
+  if (last === MARK_LIVE_STEP) last = MARK_FOOTER_SLOT;
   beforeLast = baseMark(beforeLast);
   if (footerAfter) return TRANSCRIPT_BLOCK_GAP;
   if (last === MARK_INDICATOR && beforeLast === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;

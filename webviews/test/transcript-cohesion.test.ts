@@ -100,6 +100,9 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                 if (!previous) throw new Error("The live state has no preceding activity row");
                 return {
                   gap: live.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
+                  // The line's box: under a step it is the footer's slot (transcriptGrid.ts MARK_LIVE_STEP), as under a
+                  // reply, so the row landing over it never changes it (cmux#24569).
+                  height: live.getBoundingClientRect().height,
                   // Read a resolved token rather than parsing a calc() or var() expression.
                   scale: Number.parseFloat(
                     getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"),
@@ -111,9 +114,11 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               console.log(
                 `transcript-live-gap ${phase} ${variant} ${label} ${density} ${interfaceScale}: ${JSON.stringify(measured)}`,
               );
-              if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1")
-                // The Codex transcript's run gap is 16px at scale 1 (transcriptGrid.ts TRANSCRIPT_RUN_GAP).
+              if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
+                // The run gap (16 at scale 1) over the footer's 32 slot: 32/16, Leo's pick on 2026-11-16 (cmux#43627).
                 expect(measured.gap).toBeCloseTo(16 * interfaceScale, 1);
+                expect(measured.height).toBeCloseTo(32 * interfaceScale, 1);
+              }
               expect(measured.wholeTurnFolds).toBe(0);
               if (process.env.FAST_CHECKS_OUT) {
                 await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });
