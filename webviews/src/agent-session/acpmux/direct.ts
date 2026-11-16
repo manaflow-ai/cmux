@@ -6119,6 +6119,13 @@ export class AcpmuxDirectClient {
     this.quietTimer = undefined;
   }
 
+  /// The quiet watch follows the chat's turn: armed while it works, stopped once it rests, so a turn that ended
+  /// leaves no timer to wake the pane for a check that would find nothing running.
+  private followQuietWatch(): void {
+    if (this.workingNow()) this.armQuietWatch();
+    else this.stopQuietWatch();
+  }
+
   /// The shown chat is working and nothing of it reached the page for `quietDelay`: the pane asks
   /// acpmux for the first transcript record after its last one (`checkStall`). A record it never
   /// got means the chat's stream stopped while the socket stayed open (Leo, 2026-11-08: replies sat
@@ -7737,8 +7744,8 @@ export class AcpmuxDirectClient {
       this.summary = { ...this.summary, ...session, loopEpisode: session.loopEpisode ?? null };
       // Built when sent, after the record it follows: it settles the turn the records folded.
       this.settleTurnWithHost();
-      // The chat may run now (a prompt sent elsewhere): its quiet is watched from here.
-      if (this.quietTimer === undefined) this.armQuietWatch();
+      // The chat may run now (a prompt sent elsewhere), or rest: its quiet is watched while it runs.
+      this.followQuietWatch();
       // A harness restart or a new conversation names a new native root without a rebuild: the
       // fold learns it now, or a record naming it as a parent would not repair its child. One
       // that records already folded named (a retired root, too) drew rows that are now wrong:
@@ -7892,8 +7899,8 @@ export class AcpmuxDirectClient {
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.streamGrew = false;
     this.reduce(event);
-    // A record that opened the turn arms the watch now that the chat works (`armQuietWatch`).
-    if (this.quietTimer === undefined) this.armQuietWatch();
+    // A record that opened the turn arms the watch; one that ended it stops it (`followQuietWatch`).
+    this.followQuietWatch();
     this.noticeRefusal(event);
     this.emitInFrame(event.kind, this.streamGrew);
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
