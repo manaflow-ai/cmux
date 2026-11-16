@@ -4,15 +4,14 @@ import CmuxNextActions
 import CmuxNextTestSupport
 import Testing
 
-/// Cmd-Shift-P finds an open workspace by a word of its title and ranks it as Cmd-P does
-/// (Lawrence 2026-11-09: "i searched for 'landing' in cmd shift p and didnt find it", the
-/// workspace "cmux-next landing"). The command page listed tabs from the plain tab list, so a tab
-/// that repeats its workspace's name took a second row under that workspace ("Landing audit…"
-/// twice), and every such pair pushed the wanted workspace further down: "land" put it 16th on
-/// Cmd-Shift-P and 10th on Cmd-P in the person's 824 workspaces.
+/// Cmd-P finds an open workspace by a word of its title among the first rows (Lawrence 2026-11-09: "i searched for
+/// 'landing' ... and didnt find it", the workspace "cmux-next landing"): a tab that repeats its workspace's name is that
+/// workspace's row, not a second row that pushes it down. Cmd-Shift-P lists commands only (Lawrence 2026-11-15, msg
+/// 34162: "cmd shift p should NOT show workspaces or tabs"), so the 2026-11-09 expectation that it ranks the workspace
+/// as Cmd-P does (16c783b3bd3d838) is inverted here: it lists no workspace (CmdShiftPListsCommandsOnlyTests).
 @MainActor
 @Suite(.paletteRanker, .closesItsWindows)
-struct CmdShiftPFindsWorkspacesTests {
+struct CmdPFindsWorkspacesTests {
     /// The App's three sources in one: the workspaces, every tab (the plain list) and the
     /// navigation entries, which leave out a lone tab (its workspace's row is it).
     @MainActor private final class Store: PaletteWorkspaceSource, PaletteTabSource, PaletteNavigationSource {
@@ -91,21 +90,20 @@ struct CmdShiftPFindsWorkspacesTests {
     @Test(arguments: ["landing", "land"])
     func noTabRowRepeatsItsWorkspace(query: String) async {
         let store = Store()
-        let ids = await Self.rows("commandPalette", query, store: store)
+        let ids = await Self.rows("goToWorkspace", query, store: store)
         let repeats = store.tabList.filter { $0.title == $0.workspace }.map { "tab:\($0.id)" }
         #expect(Set(ids).isDisjoint(with: repeats), "\(query): \(ids.prefix(20))")
     }
 
-    /// A word of the title finds the workspace, at the place Cmd-P puts it, among the first rows the panel shows.
+    /// A word of the title finds the workspace on Cmd-P among the first rows the panel shows; Cmd-Shift-P lists it nowhere.
     @Test(arguments: ["landing", "land", "landi", "next landing"])
-    func findsTheWorkspaceWhereCmdPDoes(query: String) async throws {
+    func cmdPFindsTheWorkspaceAndCmdShiftPDoesNot(query: String) async throws {
         let store = Store()
         let commands = await Self.rows("commandPalette", query, store: store)
         let goTo = await Self.rows("goToWorkspace", query, store: store)
-        let onCommands = try #require(commands.firstIndex(of: "workspace:next"), "\(query): \(commands.prefix(20))")
         let onGoTo = try #require(goTo.firstIndex(of: "workspace:next"), "\(query): \(goTo.prefix(20))")
-        #expect(onCommands <= onGoTo, "\(query): Cmd-Shift-P \(commands.prefix(20)), Cmd-P \(goTo.prefix(20))")
-        #expect(onCommands < 10, "\(query): \(commands.prefix(20))")
+        #expect(onGoTo < 10, "\(query): \(goTo.prefix(20))")
+        #expect(!commands.contains { $0.hasPrefix("workspace:") || $0.hasPrefix("tab:") }, "\(query): Cmd-Shift-P \(commands.prefix(20))")
     }
 
     /// Running the row switches to the workspace.
@@ -113,7 +111,7 @@ struct CmdShiftPFindsWorkspacesTests {
         let store = Store()
         let (palette, registry) = Self.palette(store)
         defer { palette.closeForTest() }
-        _ = registry.perform("commandPalette", invocation: ActionInvocation(arguments: [:], origin: .user))
+        _ = registry.perform("goToWorkspace", invocation: ActionInvocation(arguments: [:], origin: .user))
         await palette.model.settleDeferredLoads()
         palette.model.send(.setQuery("landing"))
         await palette.model.settle()
