@@ -146,9 +146,10 @@ async fn link_once_then(
         out_rx
     });
     let mut lists = Vec::new();
-    // Ready, and listed: a reconnect reads its list after it is ready.
-    let (mut took, mut listed) = (None, false);
-    while took.is_none() || !listed {
+    // Ready, and listed: a reconnect reads its list after it is ready. `took` runs until both,
+    // the handshake's round trips and the list's.
+    let (mut ready, mut listed) = (false, false);
+    while !ready || !listed {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(30), notices.recv())
             .await
             .expect("the link connects")
@@ -161,11 +162,11 @@ async fn link_once_then(
                     .collect(),
             ),
             PeerNotice::Listed => listed = true,
-            PeerNotice::Connected => took = Some(started.elapsed()),
+            PeerNotice::Connected => ready = true,
             _ => {}
         }
     }
-    let took = took.unwrap_or_default();
+    let took = started.elapsed();
     let received = match then {
         Some(rx) => Some(
             tokio::time::timeout(Duration::from_secs(30), rx.recv())
