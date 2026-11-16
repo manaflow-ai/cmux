@@ -13,7 +13,7 @@
 // like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
 // when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
 // mostly just meant the yellow circle thing. I thought that was cute").
-import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -39,11 +39,20 @@ import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
 import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
+import type { LiveLinePulse } from "./liveLinePulse";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
 /// of counting `ms` from the mount as if it had just moved.
-function useQuiet(key: string | undefined, ms: number, since?: number, now: () => number = Date.now): boolean {
+/// `pulse`, on the transcript's live line, moves the key on each chunk without a draw (liveLinePulse.ts):
+/// the line draws only when it turns quiet or a chunk ends its quiet.
+function useQuiet(
+  key: string | undefined,
+  ms: number,
+  since?: number,
+  now: () => number = Date.now,
+  pulse?: LiveLinePulse,
+): boolean {
   const age = () => (since === undefined ? 0 : Math.max(0, now() - since));
   const [quiet, setQuiet] = useState(() => key === undefined || age() >= ms);
   // The key the line mounted with: only that one is timed from `since`; a later key just moved.
@@ -56,18 +65,46 @@ function useQuiet(key: string | undefined, ms: number, since?: number, now: () =
       setQuiet(true);
       return;
     }
-    const left = key === mounted.current ? ms - age() : ms;
-    if (left <= 0) {
-      setQuiet(true);
-      return;
+    // When the window ends: `ms` after the key last moved. The timer looks again when it fires, so a
+    // chunk heard in between only moves this, never a timer.
+    let until = now() + (key === mounted.current ? ms - age() : ms);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      const left = until - now();
+      timer = left > 0 ? setTimeout(settle, left) : undefined;
+      if (left <= 0) setQuiet(true);
+    };
+    if (until <= now()) setQuiet(true);
+    else {
+      setQuiet(false);
+      timer = setTimeout(settle, until - now());
     }
-    setQuiet(false);
-    const timer = setTimeout(() => setQuiet(true), left);
-    return () => clearTimeout(timer);
+    let last = key;
+    const off = pulse?.subscribe(() => {
+      const moved = pulse.line()?.quietKey;
+      if (moved === undefined || moved === last) return;
+      last = moved;
+      until = now() + ms;
+      setQuiet(false);
+      timer ??= setTimeout(settle, ms);
+    });
+    return () => {
+      off?.();
+      if (timer !== undefined) clearTimeout(timer);
+    };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `since` only seeds the mounted key
-  }, [key, ms]);
+  }, [key, ms, pulse]);
   return quiet;
 }
+
+/// When the transcript's live line last heard anything, to the next whole second, for one heard
+/// without a draw (liveLinePulse.ts `heard`); undefined off the transcript. It draws the line at most
+/// once a second while events stream, as its clock does, and at once when a silent line hears one.
+function useHeardPulse(pulse: LiveLinePulse | undefined): number | undefined {
+  const heard = () => pulse?.heard();
+  return useSyncExternalStore(pulse?.subscribe ?? noSubscription, heard, heard);
+}
+const noSubscription = () => () => {};
 
 /// When `key` last changed while the line was mounted (on `now`'s clock), or undefined while it is
 /// still the key the line mounted with: the moment the line saw a new event or a new state, for
@@ -314,6 +351,7 @@ export function Thinking({
   below = false,
   command = false,
   retry,
+  pulse,
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -366,6 +404,8 @@ export function Thinking({
   /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that,
   /// never "Thinking" (`retryParts`).
   retry?: AcpmuxTurnRetry;
+  /// The transcript's live line hears its chunks and events here without a draw (liveLinePulse.ts).
+  pulse?: LiveLinePulse;
 } = {}) {
   const t = useT();
   const waiting = useContext(WaitingOnContext);
@@ -374,7 +414,7 @@ export function Thinking({
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
-  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
+  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now, pulse);
   // Once the reply has stopped, nothing the agent does is timed until its next step: the line says
   // "Thinking" with no clock or token count, which until the turn's end ticked on under the reply as if
   // the agent still worked (Leo, 2026-11-12: "the thinking timer is overstaying its welome after you
@@ -410,7 +450,8 @@ export function Thinking({
   // 2026-11-12: "the whatever ms gets stuck and becomes false really quickly.... or else gets
   // stale?"). It last heard at the rows' latest dated moment, or when a new event reached the line.
   const heardChanged = useChangedAt(heardKey, now);
-  const heard = heardAt === undefined ? undefined : Math.max(heardAt, heardChanged ?? heardAt);
+  const heardPulse = useHeardPulse(pulse);
+  const heard = heardAt === undefined ? undefined : Math.max(heardAt, heardChanged ?? heardAt, heardPulse ?? heardAt);
   const thinkingNow = doing === undefined && !waitsOnAgents && !writing && !compacting;
   const silent = thinkingNow && listening && heard !== undefined && time - heard >= SILENT_MS;
   // How long it has heard nothing: the one time on a waiting line, whichever clock the turn shows.
