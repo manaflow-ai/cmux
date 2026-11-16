@@ -23,7 +23,8 @@
 //! `cloud_folder_too_broad`, `cloud_vm_kind`, `cloud_login_fingerprint`;
 //! `cloud_agent_check`: whether the start's agent can run, before its lease;
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
-//! `cloud_sequence_*`: the start's one sequencer, its step order and times; and
+//! `cloud_sequence_*`: the start's one sequencer, its step order and times;
+//! `cloud_copy_login_*`: the harness login copy's steps and rules; and
 //! `cloud_harness_login_provider`, `cloud_guest_kind`, `cloud_guest_kind_probe`,
 //! kept for an app pinned before `cloud_harness_login` read them itself),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
@@ -75,6 +76,7 @@ pub mod close_selection;
 pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
+mod cloud_copy_login;
 mod cloud_handler;
 mod cloud_machine;
 mod cloud_move;
@@ -555,6 +557,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_handler::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
+            operation if cloud_copy_login::handles(operation) => {
+                cloud_copy_login::respond(operation, request)?
+            }
             operation if cloud_sequence::handles(operation) => {
                 cloud_sequence::respond(operation, request)?
             }
