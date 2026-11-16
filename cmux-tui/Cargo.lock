@@ -1925,7 +1925,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2143,6 +2143,14 @@ dependencies = [
  "regex",
  "syn 2.0.119",
  "toml",
+]
+
+[[package]]
+name = "cmux-tab-discard"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

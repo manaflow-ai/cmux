@@ -13,6 +13,8 @@ import CmuxNextDaemonService
 /// - `debug.toastPlayground` (DEV and NIGHTLY, `isDebugOnly`; Lawrence 2026-11-13): the Toast Playground
 ///   (``CmuxToastPlaygroundWindow``), every toast style with every kind of toast in light and dark, where
 ///   the person fires a style as real toasts and picks the style of every toast and prompt.
+/// - `debug.keycapPlayground` (DEV and NIGHTLY, `isDebugOnly`; Lawrence 2026-11-16): the Keycap Playground
+///   (``CmuxKeycapPlaygroundWindow``), every dialog keycap style on a real dialog card's buttons, light and dark.
 ///
 /// The app injects how Debug Settings opens and which window is active:
 ///
@@ -26,6 +28,7 @@ package struct ToastActions {
     private let window: @MainActor () -> NSWindow?
     private let center: CmuxToastCenter
     private let themeColors: @MainActor () -> [String: ThemeFileColors]
+    private let cards: [CmuxToastPlaygroundCard]
 
     /// - Parameter openTuning: Opens Debug Settings on its Toasts section; `focus` is the run's
     ///   `allowsViewChange`. Throws an ``ActionFailure`` when this build has no developer tools.
@@ -33,9 +36,12 @@ package struct ToastActions {
     /// - Parameter themeColors: Every theme file's colors by name (the app's theme catalog), for the
     ///   playground's light and dark sheets; read when it opens.
     /// - Parameter center: The toasts' center (the app's shared one).
+    /// - Parameter cards: Sidebar cards the playground shows for real (the one-time GitHub star ask).
     package init(openTuning: @escaping @MainActor (_ focus: Bool) throws -> Void,
                  window: @escaping @MainActor () -> NSWindow?,
-                 themeColors: @escaping @MainActor () -> [String: ThemeFileColors] = { [:] }, center: CmuxToastCenter = .shared) {
+                 themeColors: @escaping @MainActor () -> [String: ThemeFileColors] = { [:] }, center: CmuxToastCenter = .shared,
+                 cards: [CmuxToastPlaygroundCard] = []) {
+        self.cards = cards
         self.openTuning = openTuning
         self.window = window
         self.themeColors = themeColors
@@ -45,9 +51,14 @@ package struct ToastActions {
     /// Binds the actions in `registry`.
     package func bind(into registry: ActionRegistry) {
         let center = center, openTuning = openTuning, window = window, themeColors = themeColors
-        let playground = CmuxToastPlaygroundWindow(center: center, window: window)
+        let playground = CmuxToastPlaygroundWindow(center: center, window: window, cards: cards)
         registry.bindEffect("debug.toastPlayground", effect: { _ in
             playground.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
+            return .done
+        })
+        let keycaps = CmuxKeycapPlaygroundWindow()
+        registry.bindEffect("debug.keycapPlayground", effect: { _ in
+            keycaps.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
             return .done
         })
         registry.bindEffect("toasts.showHidden", effect: { _ in
