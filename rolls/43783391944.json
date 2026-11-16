@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43783391944",
+  "recorded_at": "2026-11-16T01:06:26Z",
+  "reason": "cmux-tui 1c7a99ecc274 changes the image's cmux-tui (pinned c50bce76fbe0)",
+  "dry_run": false,
+  "cmux_tui": "1c7a99ecc27455f2821e9b19998ea57a01cdd7af",
+  "fixes": [
+    {
+      "sha": "1c7a99ecc27455f2821e9b19998ea57a01cdd7af",
+      "mergedAt": "2026-11-15T16:38:13-08:00",
+      "subject": "refactor(acpmux): move the queue rebuild into hub/queue_restore.rs (#44004)"
+    },
+    {
+      "sha": "119f80f08f93fd129066dc85d2e2fe6153fe5b5a",
+      "mergedAt": "2026-11-15T16:37:46-08:00",
+      "subject": "perf(ghostty-vt): vt_write step breakdown and its side work (CMUX-571) (#43917)"
+    },
+    {
+      "sha": "031d7347e6344c52228f032e223c5c513da031be",
+      "mergedAt": "2026-11-15T16:36:16-08:00",
+      "subject": "customize library: keybindings stack per binding, exact off, a profile entry's own description (#44015)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T01:06:26Z",
+    "snapshot_id": "sh-a54bff9e05a449b9aa106c9f59985034",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43783391944): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6856e8facea21b37aca628bea564b0a5999c5043",
+    "image": "cloud-native-auto-1c7a99ec-43783391944-1",
+    "revision": "ci-43783391944-1",
+    "at": "2026-11-16T01:06:26Z"
+  },
+  "rolled_back": false
+}
