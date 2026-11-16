@@ -1048,6 +1048,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_activity::activity_loop(hub.clone()));
+    // A joined Linux machine is set up to be screen shared with no step on it: the pinned
+    // cmux-rd and its host unit (`linux_screen_host.rs`, hq remote-screen-share-zero-touch.md L1).
+    #[cfg(target_os = "linux")]
+    crate::linux_screen_host::spawn_set_up(&hub.scope, crate::config::home());
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
     #[cfg(any(target_os = "linux", target_os = "macos"))]

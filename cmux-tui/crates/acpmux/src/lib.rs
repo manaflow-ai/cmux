@@ -141,6 +141,8 @@ pub mod launch_policy;
 pub mod link_v2;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
+#[cfg(target_os = "linux")]
+pub mod linux_screen_host;
 pub mod list_bytes;
 pub mod listener_record;
 pub mod live_models;
