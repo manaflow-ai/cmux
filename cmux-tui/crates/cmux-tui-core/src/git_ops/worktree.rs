@@ -162,7 +162,10 @@ fn plan(
 
 /// Makes the attempt's worktree and records its base, unless a lost
 /// reply's run already made it in the repository whose git folder is
-/// `common_dir` ([`made`]).
+/// `common_dir` ([`made`]). A success of `git worktree add` is not enough:
+/// the folder is given only when this repository keeps it as its worktree
+/// ([`kept`]), else the create is refused with `git_failed` and the folder
+/// stays.
 fn create(
     repository: &Repository,
     git: &UserGit<'_>,
@@ -197,6 +200,11 @@ fn create(
         let run = git.run(&arguments).map_err(|failure| run_failed(OPERATION, &failure))?;
         if !run.success && !made(attempt, common_dir) {
             let message = "git worktree add failed";
+            return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+        }
+        if run.success && !kept(attempt, common_dir) {
+            let message = "git worktree add ended, and the folder is not a worktree that this \
+                           repository keeps";
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
     }
@@ -253,6 +261,14 @@ pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
     let admin = link.trim().strip_prefix("gitdir:")?.trim();
     let admin = root.join(admin);
     admin.is_dir().then_some(admin)
+}
+
+/// The repository whose git folder is `common_dir` keeps the attempt's folder
+/// as its worktree, by the check that the setup of the worktree has
+/// ([`worktree_setup::keeps`]).
+fn kept(attempt: &Attempt, common_dir: &Path) -> bool {
+    admin_dir(&attempt.root)
+        .is_some_and(|admin| worktree_setup::keeps(&admin, &attempt.root, common_dir))
 }
 
 /// The attempt's worktree exists on its branch and git finished making it:
