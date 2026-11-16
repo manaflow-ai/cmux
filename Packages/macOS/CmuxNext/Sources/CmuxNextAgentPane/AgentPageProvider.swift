@@ -55,7 +55,7 @@ public nonisolated struct AgentPageOps {
             // the model, never logged. Without it the page host's pages wrote no line of their own.
             AgentPageFlickerLog.method,
             // A chat's unsent prompts (``AgentPaneUnsentPrompts``): answered before the model, never logged.
-            "chat.unsentPrompt.put", "chat.unsentPrompt.remove", "chat.unsentPrompts.get",
+            "chat.unsentPrompt.put", "chat.unsentPrompt.remove", "chat.unsentPrompts.get", "chat.rows.open", "chat.rows.close", "chat.rows.page", "chat.rows.blob", "chat.rows.taken",
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
