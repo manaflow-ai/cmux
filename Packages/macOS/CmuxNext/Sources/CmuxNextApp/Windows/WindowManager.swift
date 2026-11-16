@@ -157,13 +157,19 @@ final class WindowManager {
     }
 
     /// The window actions without an explicit target act in: during an input event's dispatch the
-    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the
-    /// last active one.
+    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the frontmost
+    /// on screen by the registry's recency (every key change and `WindowActivation` order, also one in front
+    /// without the keys, which `lastActive` misses), else the last active one. A CLI run with no key window acts
+    /// in the window in front, never the first opened (Leo 2026-11-16: "idk why you guys opened a new window").
     var active: WindowController? {
         if let origin = eventOriginWindow { return origin }
         if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
-        return lastActive ?? controllers.first
+        let shown = controllers.filter { $0.window.map(isOnScreen) ?? false }.map(\.state.id)
+        return registry.value.mostRecent(of: shown).flatMap(controller(for:)) ?? lastActive ?? controllers.first
     }
+
+    /// Whether a window is on screen for ``active``; a test that never orders its windows in sets its own.
+    var isOnScreen: @MainActor (NSWindow) -> Bool = { $0.isVisible && !$0.isMiniaturized }
 
     /// The controller whose window is `window` or owns it: a sheet, a
     /// Chromium page window, the palette or another panel over it.

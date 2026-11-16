@@ -39,7 +39,7 @@ struct NativeNewTabSpareTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"tabs":{"nativeNewTabPage":true}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
@@ -98,7 +98,7 @@ struct NativeNewTabSpareTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"tabs":{"nativeNewTabPage":true}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
@@ -157,7 +157,7 @@ struct NativeNewTabSpareTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"tabs":{"nativeNewTabPage":true}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
