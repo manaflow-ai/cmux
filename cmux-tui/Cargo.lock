@@ -44,6 +44,7 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",

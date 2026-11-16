@@ -66,6 +66,7 @@ imbl.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
+cmux-process.workspace = true
 cmux-json.workspace = true
 cmux-netwatch.workspace = true
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.

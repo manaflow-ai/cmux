@@ -85,11 +85,9 @@ pub(super) fn local_step(repair: bool) -> Option<JoinStep> {
 
 #[cfg(unix)]
 fn run(script: &str, seconds: u64) -> Option<(bool, String)> {
+    use cmux_process::{Command, Stdio};
     use std::io::Read as _;
-    use std::os::unix::process::CommandExt as _;
-    use std::process::{Command, Stdio};
     use std::time::Duration;
-    use wait_timeout::ChildExt as _;
     let mut child = Command::new("sh")
         .args(["-c", script])
         .process_group(0)
@@ -117,8 +115,8 @@ fn run(script: &str, seconds: u64) -> Option<(bool, String)> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use cmux_process::Command;
     use std::os::unix::fs::PermissionsExt as _;
-    use std::process::Command;
 
     fn script(dir: &std::path::Path, name: &str, body: &str) {
         let path = dir.join(name);

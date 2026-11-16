@@ -17,9 +17,9 @@ use crate::cli::host_steps::{Step, StepResult, StepState};
 use crate::cli::hosts::{self, DAEMON_BIN, REMOTE_HOME, Remote};
 use anyhow::{Result, anyhow, bail};
 use cmux_json::JsonGet as _;
+use cmux_process::{Command, Stdio};
 use serde_json::{Map, Value, json};
 use std::io::Read;
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use super::host_join_doctor::JoinStep;
@@ -109,15 +109,17 @@ pub(crate) fn local_probe() -> Option<Found> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    command.process_group(0);
     let mut child = command.spawn().ok()?;
     let mut stdout = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = stdout.read_to_string(&mut text);
-        text
-    });
-    use wait_timeout::ChildExt as _;
+    let reader = std::thread::Builder::new()
+        .name("acpmux-agent-probe-reader".into())
+        .spawn(move || {
+            let mut text = String::new();
+            let _ = stdout.read_to_string(&mut text);
+            text
+        })
+        .ok()?;
     let status = match child.wait_timeout(Duration::from_secs(20)) {
         Ok(Some(status)) => status,
         Ok(None) | Err(_) => {
