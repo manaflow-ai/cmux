@@ -89,6 +89,8 @@ public final class SettingsController {
     @ObservationIgnored private var loadHooks: [@MainActor () -> Void] = []
     /// The launch's read (`readAtLaunch`), adopted by the first load.
     @ObservationIgnored private var launchRead: LaunchRead?
+    /// Writes `appearance.fontSmoothing` to the app's defaults on each load (the app's controller only).
+    @ObservationIgnored private let appliesFontSmoothing: Bool
     /// Writes `setSetting` validated and made, by dotted key (tests check
     /// that palette actions write through it).
     @ObservationIgnored var validatedWrites: [String: Int] = [:]
@@ -126,6 +128,7 @@ public final class SettingsController {
     ) {
         self.file = CmuxConfigFile(url: fileURL, writer: writer)
         self.launchRead = launch
+        self.appliesFontSmoothing = launch?.appliesFontSmoothing ?? false
         self.buildDefaults = buildDefaults ?? launch?.buildDefaults ?? .none
         self.applier = SettingsApplier(design: design, registry: registry)
         self.managedReader = managedReader
@@ -391,15 +394,24 @@ public final class SettingsController {
         let buildDefaults: SettingsBuildDefaults
         /// This launch made the settings file from nothing (`CmuxConfigFile.LaunchFile`): a fresh install.
         var createdEmptyFile = false
+        /// The app's own launch read: each load writes `appearance.fontSmoothing` to the app's defaults.
+        var appliesFontSmoothing = false
         public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
     }
 
     /// ``readAtLaunch(fileURL:managedReader:buildDefaults:)`` of the launch's file, remembering whether
     /// the launch made it from nothing, so ``start(announcingDiagnostics:rotatingFavoriteThemes:)``
     /// starts a fresh install's window on Glass.
+    ///
+    /// It also applies `appearance.fontSmoothing` to the app's defaults (``ProcessFontSmoothing/apply(_:to:)``):
+    /// the app calls this before its first window, and AppKit fixes its text weight at its first text draw.
+    /// A controller made with this read writes the setting again on each change, so the next launch
+    /// starts with it (part of the process reads the saved value before this runs).
     public static func readAtLaunch(file: CmuxConfigFile.LaunchFile, buildDefaults: SettingsBuildDefaults = .none) -> LaunchRead {
         var read = readAtLaunch(fileURL: file.url, buildDefaults: buildDefaults)
         read.createdEmptyFile = file.createdEmpty
+        read.appliesFontSmoothing = true
+        ProcessFontSmoothing.apply(read.snapshot.fontSmoothing, to: .standard)
         return read
     }
 
@@ -464,6 +476,8 @@ public final class SettingsController {
             previewingKey = nil
             previewSnapshot = nil
             diagnostics = applier.apply(loaded.snapshot)
+            // For the next launch: AppKit keeps this launch's text weight (ProcessFontSmoothing).
+            if appliesFontSmoothing { ProcessFontSmoothing.apply(loaded.snapshot.fontSmoothing, to: .standard) }
             let effective = loaded.effective
             snapshot = loaded.snapshot
             themeFile = loaded.themes.overlay

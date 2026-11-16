@@ -10,7 +10,9 @@
 //! was opened, also when its path names a different folder later.
 //!
 //! A system that is not Unix has no call that takes a name in an open
-//! folder. There each call is by the path of the folder.
+//! folder. There each call is by the real path of the folder, as the open
+//! read it: a link in the path that the folder was opened by has no effect
+//! after the open.
 
 use std::fs::File;
 use std::io::{self, Read as _, Write as _};
@@ -43,11 +45,14 @@ enum Open {
 }
 
 /// A git folder that cmux keeps files in (a setup's status, log and lock,
-/// the repository's ports).
+/// the repository's ports). The top folder of a new worktree is opened so
+/// too, for the read of its `.git` file
+/// ([`read_small`](super::read_small)): that file is git's, not cmux's.
 pub(super) struct OwnFolder {
     path: PathBuf,
-    /// The real path of the folder at its open; `None` with no open folder.
-    real: Option<PathBuf>,
+    /// The real path of the folder at its open, or why there is no open
+    /// folder: the kind of the error that the open kept.
+    real: Result<PathBuf, io::ErrorKind>,
     folder: system::Folder,
 }
 
@@ -62,6 +67,12 @@ impl OwnFolder {
     /// The path that the folder was opened by.
     pub(super) fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Why there is no open folder: the kind of the error that the open
+    /// kept. `None` for an open folder.
+    pub(super) fn not_opened(&self) -> Option<io::ErrorKind> {
+        self.real.as_ref().err().copied()
     }
 
     /// Whether this folder is the git folder that the repository whose git
@@ -79,7 +90,7 @@ impl OwnFolder {
     pub(super) fn is_of(&self, root: &Path, common_dir: &Path) -> bool {
         let real = |path: &Path| std::fs::canonicalize(path).ok();
         let (Some(own), Some(worktrees)) =
-            (self.real.as_deref(), real(&common_dir.join("worktrees")))
+            (self.real.as_deref().ok(), real(&common_dir.join("worktrees")))
         else {
             return false;
         };
@@ -98,7 +109,8 @@ impl OwnFolder {
         self.folder.has(name)
     }
 
-    /// Opens `name`. The file is cmux's own: a link in its place is not
+    /// Opens `name`. The file is cmux's own, or the `.git` file of a new
+    /// worktree ([`read_small`](super::read_small)): a link in its place is not
     /// followed, the open waits for nothing (a named pipe has no other end
     /// to wait for), and only a regular file is used (the open file is
     /// looked at, not its name). A thing at the name that is not a regular
@@ -229,15 +241,17 @@ mod system {
         /// The folder at `path`, with its real path. Its links are resolved
         /// one time, and each folder of the path that this gives is then
         /// opened through its parent and refuses a link: the real path is
-        /// the path of the folder that is open.
-        pub(super) fn open(path: &Path) -> (Option<PathBuf>, Self) {
+        /// the path of the folder that is open. With no open folder, the
+        /// kind is of the error that stopped this: of the read of the real
+        /// path, or of the open of a folder of that path.
+        pub(super) fn open(path: &Path) -> (Result<PathBuf, io::ErrorKind>, Self) {
             let real = match std::fs::canonicalize(path) {
                 Ok(real) => real,
-                Err(error) => return (None, Self(Err(error.kind()))),
+                Err(error) => return (Err(error.kind()), Self(Err(error.kind()))),
             };
-            match Tree::open(&real).map(Tree::into_top) {
-                Some(top) => (Some(real), Self(Ok(top))),
-                None => (None, Self(Err(io::ErrorKind::NotFound))),
+            match Tree::opened(&real) {
+                Ok(tree) => (Ok(real), Self(Ok(tree.into_top()))),
+                Err(error) => (Err(error.kind()), Self(Err(error.kind()))),
             }
         }
 
@@ -317,14 +331,20 @@ mod system {
 
     use super::{Access, Open};
 
-    /// The folder, as its path.
+    /// The folder, as its real path; as the path that it was opened by when
+    /// that has no real path.
     pub(super) struct Folder(PathBuf);
 
     impl Folder {
         /// The folder at `path`, with its real path at this time. Each
-        /// later call is by `path`.
-        pub(super) fn open(path: &Path) -> (Option<PathBuf>, Self) {
-            (fs::canonicalize(path).ok(), Self(path.to_path_buf()))
+        /// later call is by the real path, which the check of the folder
+        /// is of ([`OwnFolder::is_of`](super::OwnFolder::is_of)). With no
+        /// real path, each later call is by `path`.
+        pub(super) fn open(path: &Path) -> (Result<PathBuf, io::ErrorKind>, Self) {
+            match fs::canonicalize(path) {
+                Ok(real) => (Ok(real.clone()), Self(real)),
+                Err(error) => (Err(error.kind()), Self(path.to_path_buf())),
+            }
         }
 
         pub(super) fn open_file(&self, name: &str, open: Open) -> io::Result<File> {
