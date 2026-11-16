@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43814266099",
+  "recorded_at": "2026-11-16T06:16:05Z",
+  "reason": "cmux-tui dff77f46dea2 changes the image's cmux-tui (pinned 1404eabdde66)",
+  "dry_run": false,
+  "cmux_tui": "dff77f46dea2a3b6ee44537f6b099532a32d721d",
+  "fixes": [
+    {
+      "sha": "dff77f46dea2a3b6ee44537f6b099532a32d721d",
+      "mergedAt": "2026-11-15T21:47:28-08:00",
+      "subject": "apps: GitHub read gateway for extensions (private repos, ETag/304 replay) (#44101)"
+    },
+    {
+      "sha": "2084c046a135576188bc1aa4330f771391e16c72",
+      "mergedAt": "2026-11-16T05:46:11Z",
+      "subject": "acpmux: relay seam for pages naming another origin (8b PR 2) (#44100)"
+    },
+    {
+      "sha": "814e01b5ffff135fc924e296f85979aeb4ac4ffc",
+      "mergedAt": "2026-11-15T21:43:07-08:00",
+      "subject": "cmux-tui: the sidebar document decides a new workspace's place (#44226)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T06:16:05Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
