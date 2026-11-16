@@ -20,9 +20,9 @@ libc.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 toml_edit.workspace = true
-wait-timeout.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+wait-timeout.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]

@@ -42,7 +42,7 @@ struct Slot;
 impl Slot {
     fn take() -> Option<Slot> {
         let next = |n: usize| (n < MAX_OPEN).then_some(n + 1);
-        OPEN.fetch_update(Ordering::SeqCst, Ordering::SeqCst, next).ok().map(|_| Slot)
+        OPEN.try_update(Ordering::SeqCst, Ordering::SeqCst, next).ok().map(|_| Slot)
     }
 }
 

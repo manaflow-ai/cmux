@@ -135,7 +135,7 @@ mod calls {
             Err(error) => return send_resource_response(writer, id, operation, Err(error)),
         };
         if WORKERS
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 (n < MAX_WORKERS).then(|| n.saturating_add(1))
             })
             .is_err()

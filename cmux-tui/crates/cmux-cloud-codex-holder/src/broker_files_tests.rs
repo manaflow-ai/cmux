@@ -28,7 +28,7 @@ fn away(fake: &mut Fake, n: usize, only_after_first: bool) -> Arc<AtomicUsize> {
             if only_after_first && machine.commits.get() == 0 {
                 return Ok(());
             }
-            if left.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            if left.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
                 return Err(BrokerError::RemoteDeliveryFailed.into());
             }
             Ok(())

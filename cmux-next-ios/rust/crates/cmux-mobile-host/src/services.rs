@@ -1207,7 +1207,7 @@ async fn acpmux(
                     // prompt/retry methods; info, events and mode changes also
                     // keep a live channel's exposure alive.
                     for (_, session) in crate::acpmux_policy::request_targets(&text) {
-                        bound_sessions.insert(session.clone());
+                        bound_sessions.insert(session);
                     }
                     // An agent a phone drives stays in a mode that asks
                     // (`acpmux_policy`): a refused mode set is answered here.

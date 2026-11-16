@@ -66,7 +66,7 @@ impl PtyReplies {
         let len = bytes.len();
         let admitted = self
             .queued
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
                 (queued.saturating_add(len) <= MAX_QUEUED_REPLY_BYTES).then_some(queued + len)
             })
             .is_ok();

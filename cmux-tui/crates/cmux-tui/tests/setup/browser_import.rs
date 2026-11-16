@@ -87,7 +87,7 @@ impl FakeBrowserApp {
             Some(match (method, params["action"].as_str()) {
                 ("bookmark.list", _) => {
                     let loaded = loading
-                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                         .is_err();
                     if !loaded {
                         std::thread::sleep(std::time::Duration::from_millis(150));

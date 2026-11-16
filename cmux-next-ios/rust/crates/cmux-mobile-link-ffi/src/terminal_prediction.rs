@@ -184,7 +184,7 @@ mod tests {
     fn predicts_after_a_confirmed_echo_run() {
         let prediction = TerminalPrediction::new(true, true);
         let mut now = 0;
-        for byte in [b'l', b's'] {
+        for byte in *b"ls" {
             prediction.sent(vec![byte], now);
             now += 150 * MS;
             prediction.output(vec![byte], now);
