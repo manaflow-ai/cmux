@@ -46,6 +46,15 @@ pass "$CSS" "a capsule" '.find-strip { border-radius: 999px; }'
 pass "$CSS" "an element of a card is not the card" '.pr-card__ref { border-radius: 3px; }'
 pass "$CSS" "a reasoned exception" '.x-card { border-radius: 10px; /* concentric-allow: holds no buttons */ }'
 
+# Keycap chips inside buttons (Lawrence 2026-11-15: the quit dialog's "esc" and "↩" chips were square-ish).
+KEYCAP=Packages/macOS/CmuxNext/Sources/Fixture/FixtureKeycapView.swift
+fail "$KEYCAP" "a keycap with a corner of its own" "        layer?.cornerRadius = 3"
+pass "$KEYCAP" "a keycap rounded from its button" "        layer?.cornerRadius = CmuxDialogMetrics.keycap.childRadius(fitting: bounds.size)"
+pass "$KEYCAP" "a keycap nested in its button" "        layer?.cornerRadius = Metrics.buttonCornerRadius(nestedIn: outer, inset: 5)"
+fail "$CSS" "a literal keycap corner" '.acpmux-keycap { border-radius: 4px; }'
+fail "$CSS" "a kbd in a button with a literal corner" '.x-action kbd { border-radius: 4px; }'
+pass "$CSS" "a keycap concentric with its button" '.acpmux-keycap { border-radius: calc(var(--ds-radius-control, 8px) - var(--ds-space-1, 4px)); }'
+
 LINE="$CSS: .share-dialog { border-radius: 14px }"
 pass "$CSS" "a baseline site" '.share-dialog { border-radius: 14px; }' "$LINE"
 fail "$CSS" "a fixed baseline site left in the list" '.share-dialog { border-radius: calc(var(--ds-radius-control) + 24px); }' "$LINE"
