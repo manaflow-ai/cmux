@@ -225,6 +225,7 @@ import {
   FOLLOW_BOTTOM_DEADBAND_PX,
   SCROLL_ANCHOR_SETTLE_MS,
 } from "./virtualTranscriptModel";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// How soon after the box's last width a new one counts as the same live resize (a drag's frames come
 /// every 8 to 17 ms; a window's or a strip's one-off change never has a second within it), and how
@@ -4332,7 +4333,7 @@ function TranscriptView({
       if (!node) return;
       const mounted = [...node.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
       if (mounted) {
-        mounted.focus();
+        focusRoute(mounted, "system", "a transcript row mounted");
         pendingFocus.current = undefined;
         return;
       }
@@ -4358,7 +4359,7 @@ function TranscriptView({
     );
     if (target) {
       // focusRow already put the row in view; End's last row is in view at the end of its ride.
-      target.focus({ preventScroll: true });
+      focusRoute(target, "system", "the transcript's pending focus", { preventScroll: true });
       pendingFocus.current = undefined;
     }
   }, [range, effectiveActiveRowId]);
@@ -4388,7 +4389,7 @@ function TranscriptView({
           const mounted = [...(ref.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])].find(
             (row) => row.dataset.rowId === lastId,
           );
-          if (mounted) mounted.focus({ preventScroll: true });
+          if (mounted) focusRoute(mounted, "system", "the transcript's pending focus", { preventScroll: true });
           else pendingFocus.current = lastId;
         }
         jumpToLatestRef.current(false, "end-key");
@@ -6614,12 +6615,14 @@ function TranscriptView({
     olderAsking.current = true;
     const ask = ++olderAsk.current;
     const askedAt = performance.now();
+    window.__cmuxOlderTrace?.("ask", askedAt, ask);
     // A page that lands changes the key in the commit it brings, and the check after it asks for
     // the next. An ask that brought nothing (a read that failed, or one the client dropped) leaves
     // the key as it was: ask once more a moment later, as long as the view is still near the top.
     // At the very top no scroll event comes to ask for it, and a check on every render would ask
     // on every streamed chunk (Leo 2026-10-21: a 720-turn chat stopped paging for good).
     const settled = () => {
+      window.__cmuxOlderTrace?.("settled", performance.now(), ask);
       if (ask !== olderAsk.current) return;
       olderAsking.current = false;
       clearTimeout(olderRecheck.current);
