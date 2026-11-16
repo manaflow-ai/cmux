@@ -4,9 +4,9 @@
 /// synchronous pass wrote each model that its first frame reads. A task only follows changes after that; it is
 /// never the first writer.
 ///
-/// The owner of a model runs its pass in the turn that makes the sidebar, and in a debug build the window's order-in
-/// asserts `isComplete` (`SidebarSectionsPass.completeFirstFrame`). This type checks the band's items; the rows
-/// of the workspace list have their own pass.
+/// The owner of a model runs its pass in the turn that makes the sidebar, and the window's order-in logs a fault
+/// for each band item in `faults` (`SidebarSectionsPass.completeFirstFrame`; a log, not a trap). This type checks
+/// the band's items; the rows of the workspace list have their own pass.
 public nonisolated struct SidebarFirstFrame: Sendable {
     /// The states this check knows. It is not all that the sidebar can draw, and no view reads it: a band item with
     /// no value draws from `SidebarItemInfo.fallback(for:)`, which is not a case here.

@@ -7,12 +7,13 @@ import Foundation
 import Observation
 import Testing
 
-/// A new window's sidebar is complete in its first frame. The band above the list draws each item from the item's
-/// info (its title, its icon, whether it is hidden). The window is ordered in at the end of the turn that makes its
-/// sidebar, so each info has to be written in that turn: an info written by a task that starts later leaves a frame
-/// that draws each item from its fallback (`SidebarItemInfo.fallback(for:)`), where the pin of an open workspace with
-/// no stored name is not there and a built-in has no badge. These tests read the model with no suspension after the
-/// sidebar is made, so no task has run. A page item draws under the label stored with it: the app writes no info for it.
+/// A new window's band items have their infos in the model before the window is ordered in. The band above the list
+/// draws each item from the item's info (its title, its icon, whether it is hidden). The window is ordered in at the
+/// end of the turn that makes its sidebar, so each info has to be written in that turn: with an info written by a task
+/// that starts later, the model has no info for that hop, and an item with no info draws from its fallback
+/// (`SidebarItemInfo.fallback(for:)`), where the pin of an open workspace with no stored name is not there and a
+/// built-in has no badge. These tests read the model with no suspension after the sidebar is made, so no task has
+/// run. No test draws a frame. A page item draws under the label stored with it: the app writes no info for it.
 @MainActor @Suite(.serialized) struct NewWindowSidebarFirstFrameTests {
     static let session = "s-local"
     static let home = LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home))
@@ -148,7 +149,8 @@ import Testing
 
     /// After the first write the pass's task follows a change of the store: this test runs no pass itself. Its wait
     /// is the model's own change (Observation): one call reads the title and arms the wait, so a write between the two
-    /// is not lost. The time limit is the bound: a change that the task does not write ends the test red.
+    /// is not lost. The time limit is the bound: a change that the task does not write ends the test red, and the
+    /// cancel check ends the loop then (a cancelled wait returns at once).
     @Test(.timeLimit(.minutes(1))) func theTaskWritesALaterChangeOfTheStore() async throws {
         let bridge = try Self.sidebar()
         defer { bridge.teardown() }
@@ -158,6 +160,7 @@ import Testing
         #expect(model.itemInfo[Self.open.id]?.title == "Build", "the title changed in the turn of the store's change: the wait below proves nothing")
         var title: String?
         while title != "Ship" {
+            try Task.checkCancellation()
             let (changes, change) = AsyncStream<Void>.makeStream()
             title = withObservationTracking { model.itemInfo[Self.open.id]?.title } onChange: { change.yield(); change.finish() }
             if title != "Ship" { for await _ in changes { break } }
