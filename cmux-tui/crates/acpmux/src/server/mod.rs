@@ -1691,7 +1691,7 @@ async fn serve_connection_from(
     queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
 
-    let fan = fanout::start(hub.clone(), conn.clone());
+    let mut fan = fanout::start(hub.clone(), conn.clone());
     let request_slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
     let (notification_tx, notification_rx) =
         mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
@@ -1717,10 +1717,17 @@ async fn serve_connection_from(
     loop {
         // A reader past its byte bound is disconnected (`outbound.rs`): it reads again from its
         // cursor on a new connection, so nothing this one would still ask is answered. So is one
-        // whose output ended (its reader gone, the journal's writer ended).
+        // whose output ended (its reader gone, the journal's writer ended). So is one whose
+        // fan-out task ended (a panic, the hub's feed closed): it would answer requests and never
+        // push another record, so an attached client would wait on a chat that never moves. Its
+        // reader sees the connection end and attaches again from its cursor.
         let line = tokio::select! {
             biased;
             () = conn.out.closed() => None,
+            ended = &mut fan => {
+                fanout::ended(&conn, ended);
+                None
+            }
             line = inbound.recv() => line,
         };
         let Some(line) = line else { break };

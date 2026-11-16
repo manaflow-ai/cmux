@@ -83,6 +83,8 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                 Ok(ev) => {
                     // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
                     let _stream = durable_gate::stream_scope(&ev.record);
+                    #[cfg(test)]
+                    tests::panic_if_marked(&ev.session_id);
                     deliver(&hub, &conn, ev);
                 }
                 Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -107,5 +109,39 @@ fn send_presence(conn: &Conn, note: &serde_json::Value) {
         .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| !opts.remote));
     if attached {
         conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note.clone()));
+    }
+}
+
+/// The fan-out task of `conn` ended while its connection was still open: a panic in a delivery,
+/// or the hub's feed closed. The connection ends with it (`serve_connection_from`), never lives on answering
+/// requests with no pushes, which left an attached chat standing still with no close.
+pub(super) fn ended(conn: &Conn, ended: Result<(), tokio::task::JoinError>) {
+    match ended {
+        Err(error) if error.is_panic() => {
+            tracing::error!(conn = %conn.id, "the connection's fan-out task panicked: it is disconnected");
+        }
+        _ => {
+            tracing::warn!(conn = %conn.id, "the connection's fan-out task ended: it is disconnected")
+        }
+    }
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+
+    /// Chats whose next delivery panics the fan-out task (a test's own chat id, so parallel
+    /// tests never trip each other).
+    static PANIC_ON: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+    pub(in crate::server) fn mark_panic(session: &str) {
+        PANIC_ON.lock().unwrap().get_or_insert_with(HashSet::new).insert(session.to_owned());
+    }
+
+    pub(super) fn panic_if_marked(session: &str) {
+        if PANIC_ON.lock().unwrap().as_ref().is_some_and(|marked| marked.contains(session)) {
+            panic!("fan-out test panic for {session}");
+        }
     }
 }
