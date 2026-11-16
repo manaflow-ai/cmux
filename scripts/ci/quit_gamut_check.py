@@ -125,8 +125,10 @@ def quit_app(app: App, path: str) -> tuple[str | None, int | None]:
     asked = time.monotonic()
     if path == "dock":
         # NSRunningApplication.terminate sends the quit Apple event the Dock sends; it needs no Automation consent.
+        # (JXA calls an ObjC method with no arguments on property access, as in `$.NSString.alloc`; the round
+        # still fails below when the app does not end, so an event that was never sent cannot pass.)
         script = (f'ObjC.import("AppKit"); var a = $.NSRunningApplication.runningApplicationWithProcessIdentifier({process.pid}); '
-                  'a.isNil() ? "gone" : (a.terminate ? "sent" : "refused")')
+                  'if (a.isNil()) { "gone" } else { var sent = a.terminate; sent ? "sent" : "refused" }')
         done = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], capture_output=True, text=True, timeout=20)
         if "sent" not in done.stdout:
             return f"the quit Apple event was not sent: {(done.stdout + done.stderr).strip()[:200]}", None
@@ -149,11 +151,17 @@ def quit_app(app: App, path: str) -> tuple[str | None, int | None]:
     try:
         process.wait(timeout=20)
     except subprocess.TimeoutExpired:
+        # Asked and not ended is a failed quit, never a round that did not run.
         process.kill()
         process.wait(timeout=10)
-        return "the app did not end within 20 s", None
+        app.close_marks()
+        raise QuitFailed(f"the app did not end within 20 s of the {path} quit")
     app.close_marks()
     return None, round((time.monotonic() - asked) * 1000)
+
+
+class QuitFailed(Exception):
+    pass
 
 
 def press_cmd_q(app: App) -> str | None:
@@ -306,9 +314,13 @@ class Gamut:
                 st = chat_state(app, chat)
                 return not st.get("running") and not count(st.get("queued"))
             for t in range(self.args.long_turns):
-                send(app, chat, f"long turn {t} {filler}")
+                why = send(app, chat, f"long turn {t} {filler}")
+                if why:
+                    raise RuntimeError(f"long chat turn {t}: {why}")
                 wait_for(quiet, 30, 0.05)
-            wait_for(lambda: assistant_text(app, chat).count("long turn") >= self.args.long_turns, 60, 0.5)
+            if not wait_for(lambda: assistant_text(app, chat).count("long turn") >= self.args.long_turns, 60, 0.5):
+                raise RuntimeError(f"the long chat has {assistant_text(app, chat).count('long turn')} of "
+                                   f"{self.args.long_turns} answers")
             case["long_messages"] = len(chat_items(app, chat))
         if state in ("midturn", "queued", "tool", "many"):
             fifo = str(self.work / f"g{n}.fifo")
@@ -349,12 +361,19 @@ class Gamut:
         app, chat, failures = self.app, case["chat"], []
         if not wait_for(lambda: l5.chat_tab(app.inst.topology(), chat), 20):
             failures.append("the chat's tab is not back")
+        # The history before the quit is all there: the first turn's `whoami` answer (its pid) in every chat, and
+        # every answer in the long one, in order.
+        text = assistant_text(app, chat)
+        if case.get("agent_pid") and f"pid={case['agent_pid']}" not in text:
+            failures.append("the chat's history before the quit is gone (its first answer is missing)")
         before_items = case.get("long_messages")
         if before_items is not None:
             now = len(chat_items(app, chat))
             row["long_messages_after"] = now
-            if now < before_items:
-                failures.append(f"the long chat has {now} items, had {before_items}")
+            answers = [int(line.split()[2]) for line in text.splitlines() if line.startswith("long turn ")]
+            if now < before_items or answers[:self.args.long_turns] != list(range(self.args.long_turns)):
+                failures.append(f"the long chat lost history: {now} items (had {before_items}), "
+                                f"{len(answers)} of {self.args.long_turns} answers in order")
         in_flight = state in IN_FLIGHT
         row["agent_pid_before"] = case.get("agent_pid")
         row["agent_alive_after"] = alive(case.get("agent_pid"))
@@ -418,7 +437,11 @@ class Gamut:
         processes_before = set(smoke.own_pids(self.root))
         recorder = self.record_start(name)
         time.sleep(0.5 if recorder else 0)
-        why, quit_ms = quit_app(self.app, path)
+        try:
+            why, quit_ms = quit_app(self.app, path)
+        except QuitFailed as error:
+            why, quit_ms = None, None
+            failures.append(str(error))
         row["quit_ms"] = quit_ms
         if why:
             row["not_run"] = why
@@ -477,10 +500,16 @@ class Gamut:
             for state in self.args.states:
                 if path == "update":
                     if previous is None:
+                        row = {"path": path, "state": state, "not_run": "no older nightly to update from (--update-dmg)"}
+                        self.rounds.append(row)
+                        print("GAMUT-ROUND " + json.dumps(row), flush=True)
                         continue
                     # The round starts on the older build, so the reopen is a real version handoff.
                     if self.app.process.poll() is None:
-                        quit_app(self.app, "scripted")
+                        try:
+                            quit_app(self.app, "scripted")
+                        except QuitFailed as error:
+                            log(f"before the update round: {error}")
                     swap_bundle(self.app.bundle, previous)
                     self.app.start()
                     if not wait_for(self.app.answers, 60, 0.25):

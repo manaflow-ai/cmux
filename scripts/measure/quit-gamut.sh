@@ -48,7 +48,11 @@ print(max(below)[1] if below else "")' "$out/feed.xml" "$newest")"
 curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-quit-gamut/1 -o "$out/in.dmg" "$dmg" || { echo "GAMUT download failed"; exit 3; }
 if [[ -n "$older" ]]; then
   echo "GAMUT update-from $older"
-  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-quit-gamut/1 -o "$out/older.dmg" "$older" && extra+=(--update-dmg "$out/older.dmg")
+  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-quit-gamut/1 -o "$out/older.dmg" "$older" \
+    || { echo "GAMUT the older nightly's download failed: the update rounds cannot run"; exit 3; }
+  extra+=(--update-dmg "$out/older.dmg")
+else
+  echo "GAMUT no older nightly on the feed: the update rounds report not run"
 fi
 python3 scripts/ci/quit_gamut_check.py --dmg "$out/in.dmg" --out "$out/run" ${extra[@]+"${extra[@]}"} 2>&1 | tee "$out/run.log"
 rc=${PIPESTATUS[0]}
