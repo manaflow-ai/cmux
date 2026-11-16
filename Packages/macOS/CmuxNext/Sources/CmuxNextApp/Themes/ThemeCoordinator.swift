@@ -68,6 +68,7 @@ final class ThemeCoordinator {
         resolver.onChange = { [weak self] in
             self?.apply(forceSurfaces: true)
             self?.applyChromeTheme()
+            LaunchRecordWriter.current?.schedule()
         }
     }
 
