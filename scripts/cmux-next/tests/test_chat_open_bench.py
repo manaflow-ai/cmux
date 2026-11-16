@@ -305,12 +305,16 @@ class TableTests(unittest.TestCase):
         # Every subagent open was refused the prewarmed page ("touched by featureTips") and made a
         # cold one; the table said only that the open was slow.
         bench = load_bench("--conditions", "idle", "--cases", "subagent")
-        refused = {**open_(600, 300), "marks_ms": {"action": 0, "spare_refused": 250}, "note": "touched by featureTips"}
+        # As the app writes a trace: every mark is named, and one that did not run is null.
+        refused = {**open_(600, 300), "marks_ms": {"action": 0, "spare_adopted": None, "spare_refused": 250},
+                   "note": "touched by featureTips"}
         adopted = {**open_(200, 50), "marks_ms": {"action": 0, "spare_adopted": 5}}
         table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {},
                                 "raw": {"idle": {"subagent": [refused, refused, adopted]}}})
         self.assertIn("spare pool, subagent idle: adopted 1/3, refused 2/3 (touched by featureTips)", table)
         self.assertIsNone(cos.spare_pool([open_(100, 10)]))  # a case that never asks the pool says nothing
+        # A click case's marks are under `trace`.
+        self.assertEqual(cos.spare_pool([{"trace": {"marks_ms": {"spare_adopted": None, "spare_empty": 3}}}]), "empty 1/1")
 
 
 class ClickRowTests(unittest.TestCase):

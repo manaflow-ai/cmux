@@ -923,6 +923,15 @@ def measure_click(run, case, session, base, label, index=0):
     return record
 
 
+def found(record):
+    """For an open's log line (a failed step returns no artifact): its page engine and what it found in the
+    pool of prewarmed pages, the trace's `spare_*` mark that ran."""
+    trace = record.get("trace") or record
+    spare = next((mark for mark in trace.get("order") or [] if str(mark).startswith("spare_")), None)
+    before = f" spares_ready_before={record['spares_ready_before']}" if "spares_ready_before" in record else ""
+    return f" engine={trace.get('engine')} spare={spare}{before}"
+
+
 def measure_next(run, pair, base):
     """click_next: two chats never shown; the second is selected at the first content of the first."""
     rows = [background_row(run, session) for session in pair]
@@ -1026,7 +1035,9 @@ def main():
             run.launch()
             time.sleep(5)  # test script: let launch work end before the first measured open
             if run.spares is not None:
-                results.setdefault("spares", {})[condition] = run.rpc("debug.new_tab", {"action": "state"})
+                pool = results.setdefault("spares", {})[condition] = run.rpc("debug.new_tab", {"action": "state"}) or {}
+                say(f"chat-open: {condition} pool before the first open: capacity={pool.get('capacity')} "
+                    f"spares={json.dumps(pool.get('spares'))}")
             if under != "idle":
                 load.start(under)
                 time.sleep(opts.settle)  # test script: the load reaches steady state
@@ -1048,13 +1059,14 @@ def main():
                             f"final_frame_ms={record.get('final_frame_ms')} first_is_final={record.get('first_is_final')} "
                             f"between={record.get('between_frames')} blank={record.get('blank_frames')} "
                             f"transcript_ms={record.get('transcript_ms')} watch_started_ms={record.get('watch_started_ms')} "
-                            f"drift={json.dumps(record.get('drift'))}" + (f" error={str(record['error'])[:300]}" if record.get("error") else ""))
+                            f"drift={json.dumps(record.get('drift'))}{found(record)}"
+                            + (f" error={str(record['error'])[:300]}" if record.get("error") else ""))
                         continue
                     record = measure_case(run, case, sessions[condition], index, base)
                     record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
-                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
+                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{found(record)}{why(record)}")
                 if memory_before:
                     time.sleep(2)  # test script: the last round's page and the spare's refill settle
                     after = bm.sample(run.pid, APP, f"{condition}-{case}-after", 0)

@@ -97,8 +97,10 @@ def spare_pool(records):
     and no number but the open's own time said so."""
     counts, notes = {}, {}
     for record in records:
-        marks = record.get("marks_ms") or {}
-        mark = next((m for m in SPARE_MARKS if m in marks), None)
+        # A click case keeps its trace under `trace`. The app names every mark and gives null to one that did not
+        # run, so only a mark with a time counts: by its name alone every open read as adopted.
+        marks = (record.get("trace") or {}).get("marks_ms") or record.get("marks_ms") or {}
+        mark = next((m for m in SPARE_MARKS if marks.get(m) is not None), None)
         if mark is None:
             continue
         counts[mark] = counts.get(mark, 0) + 1
