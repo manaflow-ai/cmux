@@ -114,8 +114,12 @@ Today's targets:
   neither is Apple's separate High Performance connection type. Connection
   setup still requires an authorized connection. The adapter selects and checks
   the quality menu item, then requires a fresh source nonce in the selected window
-  before its window workload starts. VNC payload bytes, decoded FPS and session
-  time to first frame remain unavailable. The
+  before its window workload starts. kbps is the Screen Sharing.app process's
+  received bytes from `nettop` (all its sockets, as `gui-viewer.sh` counts a
+  third-party viewer), read at each one-second bucket's end; a failed read, or no bytes
+  in the whole window, keeps every row's bytes null with `bytes_unavailable`
+  rather than reporting zero. Decoded FPS and session time to first frame
+  remain unavailable. The
   target records sampled screenshot changes separately as `sampled_fps`; this
   is a normalized observation rate, not decoded transport FPS. The target
   selects Full Quality for `apple-high` and Adaptive Quality for
@@ -247,7 +251,9 @@ appear under `targets.petal` in the same schema.
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
-`eval.py`) and `summary.md`. For `rd`, each window's additive `extra.netem_metrics` records
+`eval.py`) and `summary.md`. With more than one target, `summary.md` starts, after the run line, with a "Side by side"
+table, one row per target: key and click glass-to-glass p50, kbps and fps in each window phase (a
+viewer without frame counts shows its sampled screenshot changes, marked `*`). For `rd`, each window's additive `extra.netem_metrics` records
 per-encode attempts, emitted frames, skips, IDRs, P frames, received video/FEC bytes and bitrate.
 Decoded FPS counts successful decoder output. On-time FPS counts frames decoded within 100 ms
 of the source's captured display-frame timestamp, joined to decoder completion by the exact

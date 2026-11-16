@@ -48,6 +48,10 @@
 //!   sets `ACPMUX_AGENT_TOOLS=0` (isolated sessions such as the Chief's
 //!   compactor), and Claude args with `--strict-mcp-config`.
 //!   `ACPMUX_AGENT_TOOLS=0` on the daemon turns all of it off.
+//! - A project's own MCP servers (`project_mcp.rs`): a Claude Code start on a checkout that
+//!   still fills (at its head) gets each `.mcp.json` stdio server Claude would start, under its
+//!   name, as `cmux repo mcp-lazy`, which waits for the whole checkout. Left-out sessions too,
+//!   except under `--strict-mcp-config` and for a remote origin.
 //! - Agent memory (`cmux-agent-memory`, cmux#21611): `optchat-chief
 //!   agent-memory mcp`, long-term memory the user's Codex and Claude Code
 //!   sessions share, only when cmux.json sets `agents.memory.enabled` to
@@ -72,6 +76,7 @@ use serde_json::{Map, Value, json};
 
 pub mod claude_plugin_dirs;
 mod cua_helper;
+pub mod project_mcp;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
 
@@ -284,6 +289,9 @@ pub struct AgentTools {
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then gives the
     /// computer use server its workspace's display, or leaves it out.
     pub displays: Option<PathBuf>,
+    /// Claude Code only: the project's own servers, wrapped for a start at a repository's head
+    /// ([`project_mcp`]). A name of cmux's own servers keeps cmux's.
+    pub project_servers: Map<String, Value>,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -581,8 +589,16 @@ pub fn claude_args_for(
     session_id: &str,
     cwd: &Path,
 ) -> Vec<String> {
-    if left_out(remote_origin, env, args) {
-        Vec::new()
+    // Under `--strict-mcp-config` Claude starts no project server; a remote origin's config
+    // stays empty (`left_out`).
+    let strict = args.iter().any(|a| a == "--strict-mcp-config");
+    let project_servers =
+        if remote_origin || strict { Map::new() } else { project_servers_at_head(env, cwd) };
+    let tools = if left_out(remote_origin, env, args) {
+        if project_servers.is_empty() {
+            return Vec::new();
+        }
+        AgentTools::default()
     } else {
         current()
             .scoped(env)
@@ -593,8 +609,23 @@ pub fn claude_args_for(
             .without_off(env)
             .fit_skills()
             .folded()
-            .claude_args(&mcp_config_path(&crate::config::home(), session_id))
+    };
+    AgentTools { project_servers, ..tools }
+        .claude_args(&mcp_config_path(&crate::config::home(), session_id))
+}
+
+/// The project's own servers wrapped to wait for the checkout ([`project_mcp`]), for a Claude
+/// Code start in `cwd` while that checkout still fills (a start at its head); none once it is in.
+fn project_servers_at_head(env: &BTreeMap<String, String>, cwd: &Path) -> Map<String, Value> {
+    // A linked chat folder probes as the folder it names, as `wrapped` walks it.
+    if !project_mcp::filling(&cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())) {
+        return Map::new();
     }
+    let Some(cmux) = project_mcp::cmux_program() else {
+        tracing::warn!("agent tools: no cmux-tui beside acpmux; project MCP servers start at once");
+        return Map::new();
+    };
+    project_mcp::wrapped(cwd, &project_mcp::Claude::of(env, cwd), &cmux, project_mcp::filling)
 }
 
 /// The session's Claude Code MCP config file: `<home>/run/mcp/<session>.json`.
@@ -838,7 +869,13 @@ fn resolve_with_cua_helper(
             }
         };
     let user_plugin_dir = user_plugin(&inputs.state_dir);
-    AgentTools { servers, plugin_dir, user_plugin_dir, displays: inputs.displays.clone() }
+    AgentTools {
+        servers,
+        plugin_dir,
+        user_plugin_dir,
+        displays: inputs.displays.clone(),
+        project_servers: Map::new(),
+    }
 }
 
 impl AgentTools {
@@ -1133,7 +1170,7 @@ impl AgentTools {
 
     /// The servers as one Claude Code MCP config, or `None` without servers.
     pub fn mcp_config(&self) -> Option<Value> {
-        if self.servers.is_empty() {
+        if self.servers.is_empty() && self.project_servers.is_empty() {
             return None;
         }
         let mut servers = Map::new();
@@ -1144,6 +1181,9 @@ impl AgentTools {
                 s.name.clone(),
                 json!({"type": "stdio", "command": s.command, "args": s.args, "env": env}),
             );
+        }
+        for (name, server) in &self.project_servers {
+            servers.entry(name.clone()).or_insert_with(|| server.clone());
         }
         Some(json!({"mcpServers": servers}))
     }
@@ -1158,7 +1198,7 @@ impl AgentTools {
         // Each launch starts the hook's turned-away calls afresh: one from a launch with other
         // servers is not a retry in this one.
         let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(config_file));
-        if self.servers.is_empty() {
+        if self.servers.is_empty() && self.project_servers.is_empty() {
             let _ = crate::home_fs::remove_file(config_file);
         }
         if let Some(config) = self.mcp_config() {

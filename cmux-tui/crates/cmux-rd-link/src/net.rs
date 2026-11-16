@@ -283,16 +283,53 @@ fn grow_udp_buffers(socket: &UdpSocket) {
     }
 }
 
+/// The keep-awake interval ([`crate::endpoint::KEEP_AWAKE_US`]);
+/// `CMUX_RD_KEEP_AWAKE_MS` overrides it for measurements, 0 turns it off.
+fn keep_awake_us() -> Option<u64> {
+    match std::env::var("CMUX_RD_KEEP_AWAKE_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()) {
+        Some(ms) => Some(ms.saturating_mul(1000)).filter(|us| *us > 0),
+        None => Some(crate::endpoint::KEEP_AWAKE_US),
+    }
+}
+
+/// Apple platforms: the socket's traffic is interactive video
+/// (`SO_NET_SERVICE_TYPE` = `NET_SERVICE_TYPE_VI`, the class video calls use),
+/// so Wi-Fi sends it in the video access category and the system treats the
+/// flow as latency sensitive. Best effort: a refusal changes nothing else.
+fn mark_interactive_video(socket: &UdpSocket) {
+    #[cfg(target_vendor = "apple")]
+    {
+        // <sys/socket.h>; the libc crate does not export them.
+        const SO_NET_SERVICE_TYPE: libc::c_int = 0x1116;
+        const NET_SERVICE_TYPE_VI: libc::c_int = 3;
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                SO_NET_SERVICE_TYPE,
+                (&NET_SERVICE_TYPE_VI as *const libc::c_int).cast(),
+                size_of_val(&NET_SERVICE_TYPE_VI) as libc::socklen_t,
+            );
+        }
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    let _ = socket;
+}
+
 impl Net {
     /// Binds the socket, starts the driver thread and begins gathering candidates.
     pub fn start(config: NetConfig) -> Result<Self, LinkError> {
         let socket = UdpSocket::bind(config.bind).map_err(|e| LinkError::Io(e.to_string()))?;
         grow_udp_buffers(&socket);
+        mark_interactive_video(&socket);
         socket.set_nonblocking(true).map_err(|e| LinkError::Io(e.to_string()))?;
         let local_addr = socket.local_addr().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut endpoint =
             Endpoint::new(config.role, &config.session, &config.local, config.expected_remote, 0)?;
         endpoint.set_local_networks(cmux_transport::local_networks());
+        endpoint.set_keep_awake(keep_awake_us());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
