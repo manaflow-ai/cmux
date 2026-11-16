@@ -52,15 +52,23 @@ test("Settings reports its first frame only once every sidebar icon it draws is 
   const root = document.createElement("div");
   document.body.append(root);
   let reported = false;
+  const sidebarDrawn = new Promise<void>((resolve) => {
+    const observer = new window.MutationObserver(() => {
+      if (root.querySelector(".section-symbol")) {
+        observer.disconnect();
+        resolve();
+      }
+    });
+    observer.observe(root, { childList: true, subtree: true });
+  });
   await act(async () => {
-    void mountSettingsPage(root, createMockClient().client).then((stop) => (unmount = stop));
+    unmount = await mountSettingsPage(root, createMockClient().client);
   });
   const gate = scope[PAINT_AFTER_NAME] as Promise<unknown> | undefined;
   expect(gate).toBeDefined();
   void gate!.then(() => (reported = true));
-  // Let the page's reads answer and React draw the sidebar.
-  for (let turn = 0; turn < 50 && document.querySelectorAll(".section-symbol").length === 0; turn++)
-    await act(async () => await new Promise((resolve) => setTimeout(resolve, 5)));
+  // Observe the sidebar commit after the page reads answer.
+  await sidebarDrawn;
   const icons = () => [...document.querySelectorAll<HTMLElement>(".section-symbol")];
   const drawn = icons().map((icon) => icon.dataset.symbol);
   expect(drawn.length).toBeGreaterThan(10);
@@ -71,7 +79,7 @@ test("Settings reports its first frame only once every sidebar icon it draws is 
       .filter((icon) => icon.style.maskImage !== "")
       .map((icon) => icon.dataset.symbol),
   ).toEqual([]);
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(pending.length).toBeGreaterThan(0);
   expect(reported).toBe(false);
   // The host answers every icon: the first frame comes, with each icon the sidebar draws.
   await act(async () => {
