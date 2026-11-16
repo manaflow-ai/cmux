@@ -68,6 +68,7 @@ pub fn prompt_identity(harness: Harness, bytes: &[u8]) -> Result<Option<PromptId
     match harness {
         Harness::V1 => Ok(None),
         Harness::Claude => claude::prompt_identity(bytes),
+        Harness::Codex => Ok(None),
     }
 }
 
