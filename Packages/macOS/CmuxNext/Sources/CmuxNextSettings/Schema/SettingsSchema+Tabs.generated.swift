@@ -20,6 +20,24 @@ extension NewTabAppSetting {
     public nonisolated static let configPath = ["tabs", "newTabApp"]
 }
 
+extension NewTabClockSetting {
+    /// `tabs.newTabClock.show`: The New Tab clock (webviews newtab/NewTabClock.tsx): a large stylized time over the composer, as the iOS 26 Lock Screen draws it, in the font, weight and color below (Leo 2026-11-16: an aesthetic time thing like the iOS home screen customizer). It never replaces or covers the composer. Off by default until Leo picks the default. Read by the web page only.
+    public nonisolated static let showPath = ["tabs", "newTabClock", "show"]
+    public nonisolated static let showDefault = false
+    /// `tabs.newTabClock.font`: The New Tab clock's typeface: the system's own families (screen.css .nt-clock[data-font]).
+    public nonisolated static let fontPath = ["tabs", "newTabClock", "font"]
+    public nonisolated static let fontDefault: NewTabClockFont = .rounded
+    /// `tabs.newTabClock.weight`: The New Tab clock's weight.
+    public nonisolated static let weightPath = ["tabs", "newTabClock", "weight"]
+    public nonisolated static let weightDefault: NewTabClockWeight = .bold
+    /// `tabs.newTabClock.color`: The New Tab clock's color, from the theme: its text, its accent, its muted text, or glass (the text at a translucent tint with a soft rim of light).
+    public nonisolated static let colorPath = ["tabs", "newTabClock", "color"]
+    public nonisolated static let colorDefault: NewTabClockColor = .text
+    /// `tabs.newTabClock.date`: The date line over the New Tab clock's time ("Monday, November 16").
+    public nonisolated static let datePath = ["tabs", "newTabClock", "date"]
+    public nonisolated static let dateDefault = true
+}
+
 extension NewTabPosition {
     /// `tabs.newTabPosition`: Where Cmd-T (tabs.newTabPosition) and the strip's + (tabs.newTabButtonPosition) put a new tab (cx-d0d.58). Cmd-T: right after the current tab by default (Lawrence 2026-10-20); the +: at the end, after the last tab, by default (Lucas 2026-11-07). New Tab After Current Tab, New Tab at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore both settings.
     public nonisolated static let configPath = ["tabs", "newTabPosition"]

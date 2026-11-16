@@ -211,7 +211,7 @@
           "symbol": "plus.square",
           "groups": [
             {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
-              "tabs.newTabTemplate", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
+              "tabs.newTabTemplate", "tabs.newTabClock.show", "tabs.newTabClock.font", "tabs.newTabClock.weight", "tabs.newTabClock.color", "tabs.newTabClock.date", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
             ]}
           ]
         }

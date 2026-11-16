@@ -12,6 +12,7 @@ import {
 import { type StringKey, type Translate, translate } from "./i18n";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
+import { readClockStyle, type NewTabClockStyle } from "./newtab/clockModel";
 import { isStartableProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { ageWithDate } from "./timeLabels";
@@ -87,6 +88,8 @@ export type NewTabHost = {
   /// The extension that draws in the slot over the composer (`tabs.newTabApp`: an app id with `cmux.newtab/1`,
   /// newtab/NewTabAppSlot.tsx); unset leaves the slot out. It never replaces the page.
   app?: string;
+  /// The New Tab clock over the composer (`tabs.newTabClock.*`, newtab/NewTabClock.tsx); unset draws none.
+  clock?: NewTabClockStyle;
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
   /// The agent last picked (decision Q3).
@@ -130,6 +133,8 @@ function readNewTabStart(value: unknown): NewTabStart | undefined {
 export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | undefined, adoptions: number) {
   return host && !host.history && host.app && goneAt !== adoptions ? host.app : undefined;
 }
+
+const withClock = (clock: NewTabClockStyle | undefined) => (clock ? { clock } : {});
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
@@ -175,6 +180,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     // `tabs.newTabApp`, which the app sends only when it is an app id by the manifest's own
     // pattern (Swift NewTabAppSetting.isValidID), so the page does not check the rule again.
     ...(typeof object.app === "string" && object.app ? { app: object.app } : {}),
+    ...withClock(readClockStyle(object.clock)),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
       ? { startedProject: object.startedProject as string }

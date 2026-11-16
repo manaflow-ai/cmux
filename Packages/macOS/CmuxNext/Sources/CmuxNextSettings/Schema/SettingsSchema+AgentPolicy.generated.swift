@@ -42,7 +42,8 @@ extension SettingsSchema {
         "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
         // Which New Tab page draws; a look switch, ends no work.
-        "tabs.nativeNewTabPage", "tabs.newTabApp",
+        "tabs.nativeNewTabPage", "tabs.newTabApp", "tabs.newTabClock.show", "tabs.newTabClock.font",
+        "tabs.newTabClock.weight", "tabs.newTabClock.color", "tabs.newTabClock.date",
         "tabs.newTabPosition",
         // Where the + puts a tab; looks only, ends no work.
         "tabs.newTabButtonPosition",

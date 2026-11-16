@@ -50,6 +50,68 @@ nonisolated enum TabSettingsSchema {
                 keywords: ["new tab", "extension", "app", "launcher", "start page", "custom page", "cmux.newtab"]
             ),
             SettingDescriptor(
+                NewTabClockSetting.showPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabClock.show", "Clock on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabClock.show.help", "A large clock over the New Tab composer."),
+                kind: .toggle,
+                default: .bool(NewTabClockSetting.showDefault),
+                keywords: ["new tab", "clock", "time", "date", "lock screen", "widget"]
+            ),
+            SettingDescriptor(
+                NewTabClockSetting.fontPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabClock.font", "Clock Font"),
+                kind: .choice([
+                    SettingChoice(NewTabClockFont.rounded.rawValue, SettingsText.keyed("settings.choice.newTabClockFontRounded", "Rounded")),
+                    SettingChoice(NewTabClockFont.system.rawValue, SettingsText.keyed("settings.choice.newTabClockFontSystem", "System")),
+                    SettingChoice(NewTabClockFont.serif.rawValue, SettingsText.keyed("settings.choice.newTabClockFontSerif", "Serif")),
+                    SettingChoice(NewTabClockFont.mono.rawValue, SettingsText.keyed("settings.choice.newTabClockFontMono", "Monospaced")),
+                    SettingChoice(NewTabClockFont.condensed.rawValue, SettingsText.keyed("settings.choice.newTabClockFontCondensed", "Condensed")),
+                ]),
+                default: .string(NewTabClockSetting.fontDefault.rawValue),
+                keywords: ["new tab", "clock", "font", "typeface"]
+            ),
+            SettingDescriptor(
+                NewTabClockSetting.weightPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabClock.weight", "Clock Weight"),
+                kind: .choice([
+                    SettingChoice(NewTabClockWeight.thin.rawValue, SettingsText.keyed("settings.choice.newTabClockWeightThin", "Thin")),
+                    SettingChoice(NewTabClockWeight.regular.rawValue, SettingsText.keyed("settings.choice.newTabClockWeightRegular", "Regular")),
+                    SettingChoice(NewTabClockWeight.bold.rawValue, SettingsText.keyed("settings.choice.newTabClockWeightBold", "Bold")),
+                    SettingChoice(NewTabClockWeight.heavy.rawValue, SettingsText.keyed("settings.choice.newTabClockWeightHeavy", "Heavy")),
+                ]),
+                default: .string(NewTabClockSetting.weightDefault.rawValue),
+                keywords: ["new tab", "clock", "weight", "bold", "thin"]
+            ),
+            SettingDescriptor(
+                NewTabClockSetting.colorPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabClock.color", "Clock Color"),
+                kind: .choice([
+                    SettingChoice(NewTabClockColor.text.rawValue, SettingsText.keyed("settings.choice.newTabClockColorText", "Theme Text")),
+                    SettingChoice(NewTabClockColor.accent.rawValue, SettingsText.keyed("settings.choice.newTabClockColorAccent", "Accent")),
+                    SettingChoice(NewTabClockColor.muted.rawValue, SettingsText.keyed("settings.choice.newTabClockColorMuted", "Muted")),
+                    SettingChoice(NewTabClockColor.glass.rawValue, SettingsText.keyed("settings.choice.newTabClockColorGlass", "Glass")),
+                ]),
+                default: .string(NewTabClockSetting.colorDefault.rawValue),
+                keywords: ["new tab", "clock", "color", "colour", "accent", "glass"]
+            ),
+            SettingDescriptor(
+                NewTabClockSetting.datePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabClock.date", "Date over Clock"),
+                kind: .toggle,
+                default: .bool(NewTabClockSetting.dateDefault),
+                keywords: ["new tab", "clock", "date", "day"]
+            ),
+            SettingDescriptor(
                 NewTabPosition.configPath,
                 section: .general,
                 group: group,
