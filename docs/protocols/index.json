@@ -1,0 +1,213 @@
+{
+  "about": "Every wire protocol two codebases must agree on: its owner, spec, version and the shared vectors each side's tests read. cmux-tui/crates/cmux-protocol-index checks this file against the tree and renders README.md from it (`UPDATE_PROTOCOL_INDEX=1 cargo test -p cmux-protocol-index` rewrites the README).",
+  "protocols": [
+    {
+      "name": "Overlay relay frame",
+      "owner": "cmux-tui/crates/cmux-transport",
+      "spec": "plans/cmux-next/transport.md",
+      "version": { "value": "1", "source": "cmux-tui/crates/cmux-transport/src/relay_frame.rs", "contains": "RELAY_FRAME_VERSION: u8 = 1" },
+      "vectors": ["cmux-tui/crates/cmux-transport/tests/vectors/relay-frames.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-transport/tests/relay_vectors.rs", "reads": "relay-frames.json", "run": "cargo test -p cmux-transport --test relay_vectors" },
+        { "lang": "typescript", "test": "backend/apps/api/test/host-relay.test.ts", "reads": "relay-frames.json", "run": "cd backend/apps/api && bun test test/host-relay.test.ts" }
+      ]
+    },
+    {
+      "name": "cmux.rd/1 control messages",
+      "owner": "cmux-tui/crates/cmux-rd-proto",
+      "spec": "cmux-tui/crates/cmux-rd-proto/src/control.rs",
+      "version": { "value": "cmux.rd/1", "source": "cmux-tui/crates/cmux-rd-proto/src/control.rs", "contains": "cmux.rd/1" },
+      "vectors": ["cmux-tui/crates/cmux-rd-proto/tests/vectors/control.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-rd-proto/tests/control.rs", "reads": "vectors/control.json", "run": "cargo test -p cmux-rd-proto --features serde --test control" },
+        { "lang": "swift", "test": "Packages/macOS/CmuxNext/Tests/CmuxNextRemoteViewTests/RemoteRdControlTests.swift", "reads": "tests/vectors/control.json", "run": "swift test --package-path Packages/macOS/CmuxNext --filter RemoteRdControlTests" }
+      ]
+    },
+    {
+      "name": "cmux rd serve/connect app lines",
+      "owner": "cmux-tui/crates/cmux-rd-proto",
+      "spec": "cmux-tui/crates/cmux-rd-proto/src/app_line.rs",
+      "version": { "value": "unversioned", "note": "JSON lines; a reader ignores fields it does not know" },
+      "vectors": ["cmux-tui/crates/cmux-rd-proto/tests/vectors/app_lines.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-rd-proto/tests/app_lines.rs", "reads": "app_lines.json", "run": "cargo test -p cmux-rd-proto --features serde --test app_lines" },
+        { "lang": "swift", "test": "Packages/macOS/CmuxNext/Tests/CmuxNextMacScreenTests/MacScreenRdLineTests.swift", "reads": "app_lines.json", "run": "swift test --package-path Packages/macOS/CmuxNext --filter MacScreenRdLineTests", "note": "through the Rust line reader (cmux-rd-ffi), so it checks the FFI, not a second decoder" }
+      ]
+    },
+    {
+      "name": "cmux.wire/1 Cloud ops",
+      "owner": "backend/packages/protocol",
+      "spec": "plans/cmux-next/cloud-client-contract.md",
+      "version": { "value": "cmux.wire/1", "source": "backend/catalog/cloud-vectors.json", "contains": "\"protocol\": \"cmux.wire/1\"" },
+      "vectors": ["backend/catalog/cloud-vectors.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-cloud-wire/tests/cloud_vectors.rs", "reads": "cloud-vectors.json", "run": "cargo test -p cmux-cloud-wire --test cloud_vectors" },
+        { "lang": "typescript", "test": "cmux-tui/bindings/typescript/code-mode/cloud-relay.test.mjs", "reads": "cloud-vectors.json", "run": "cd cmux-tui/bindings/typescript/code-mode && bun test cloud-relay.test.mjs" }
+      ]
+    },
+    {
+      "name": "cmux.wire/1 ownership mirror",
+      "owner": "backend/packages/ownership",
+      "spec": "cmux-tui/crates/cmux-cloud-wire/src/mirror.rs",
+      "version": { "value": "cmux.wire/1", "source": "schemas/ownership-mirror/vectors.json", "contains": "cmux.wire/1" },
+      "vectors": ["schemas/ownership-mirror/vectors.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-cloud-wire/tests/mirror_vectors.rs", "reads": "ownership-mirror/vectors.json", "run": "cargo test -p cmux-cloud-wire --test mirror_vectors" },
+        { "lang": "typescript", "test": "backend/packages/ownership/scripts/export-mirror-vectors.ts", "reads": "ownership-mirror/vectors.json", "run": "cd backend/packages/ownership && bun run mirror:check", "note": "the producer: --check regenerates the traces from the TypeScript client and fails on drift" }
+      ]
+    },
+    {
+      "name": "Cloud link keyset",
+      "owner": "backend/packages/protocol",
+      "spec": "schemas/link-token/native.json",
+      "version": { "value": "unversioned", "note": "the keyset carries its own content version (16 hex of sha256)" },
+      "vectors": ["schemas/link-token/keyset-vectors.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-link/src/keyset_tests.rs", "reads": "keyset-vectors.json", "run": "cargo test -p cmux-link keyset" },
+        { "lang": "typescript", "test": "backend/packages/protocol/scripts/export-keyset-vectors.ts", "reads": "keyset-vectors.json", "run": "cd backend/packages/protocol && bun run catalog:check", "note": "the producer: --check regenerates and fails on drift" }
+      ]
+    },
+    {
+      "name": "acpmux agent stream",
+      "owner": "cmux-tui/crates/acpmux",
+      "spec": "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+      "version": { "value": "1..3", "source": "cmux-tui/crates/acpmux/src/agent_host/mod.rs", "contains": "PROTOCOL_MAX: u16 = 3" },
+      "vectors": ["Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/acpmux/tests/v2_chat_recorded_stream.rs", "reads": "AgentChatStream", "run": "cargo test -p acpmux --test v2_chat_recorded_stream" },
+        { "lang": "typescript", "test": "webviews/src/agent-session/acpmux/chatFromStore.test.ts", "reads": "AgentChatStream", "run": "cd webviews && bun test src/agent-session/acpmux/chatFromStore.test.ts" },
+        { "lang": "swift", "test": "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/AcpmuxChatRowsBatchTests.swift", "reads": "AgentChatStream", "run": "swift test --package-path Packages/macOS/CmuxNext --filter AcpmuxChatRowsBatchTests" }
+      ]
+    },
+    {
+      "name": "Remote share approval",
+      "owner": "cmux-tui/crates/acpmux",
+      "spec": "cmux-tui/crates/acpmux/src/share_approval.rs",
+      "version": { "value": "cmux.share-approval.v1", "source": "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "contains": "cmux.share-approval.v1" },
+      "vectors": ["cmux-tui/crates/acpmux/src/share_approval_vectors.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/acpmux/src/share_approval_tests.rs", "reads": "share_approval_vectors.json", "run": "cargo test -p acpmux share_approval" },
+        { "lang": "swift", "test": "Packages/macOS/CmuxNext/Tests/CmuxNextMacScreenTests/CmuxRemoteShareApprovalTests.swift", "reads": "share_approval_vectors.json", "run": "swift test --package-path Packages/macOS/CmuxNext --filter CmuxRemoteShareApprovalTests" }
+      ]
+    },
+    {
+      "name": "Pane protocol",
+      "owner": "cmux-tui/crates/cmux-pane-protocol",
+      "spec": "cmux-tui/crates/cmux-pane-protocol/spec/pane-protocol.json",
+      "version": { "value": "0.1.0", "source": "cmux-tui/crates/cmux-pane-protocol/src/ir.rs", "contains": "IR_VERSION: &str = \"0.1.0\"" },
+      "vectors": ["cmux-tui/crates/cmux-pane-protocol/spec/pane-protocol-vectors.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-pane-protocol/tests/conformance.rs", "reads": "VECTORS_PATH", "run": "cargo test -p cmux-pane-protocol --test conformance" },
+        { "lang": "go", "test": "cmux-tui/bindings/go-pane/examples/hello/vectors_test.go", "reads": "pane-protocol-vectors.json", "run": "cd cmux-tui/bindings/go-pane && go test ./examples/hello" }
+      ]
+    },
+    {
+      "name": "iOS push seal",
+      "owner": "cmux-next-ios/rust/crates/cmux-mobile-host",
+      "spec": "cmux-next-ios/PROTOCOL.md",
+      "version": { "value": "v1", "source": "cmux-next-ios/PROTOCOL.md", "contains": "wire contract (v1)" },
+      "vectors": ["cmux-next-ios/rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-next-ios/rust/crates/cmux-mobile-host/src/seal.rs", "reads": "seal-vectors.json", "run": "cd cmux-next-ios/rust && cargo test -p cmux-mobile-host seal" },
+        { "lang": "swift", "test": "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileNotificationsTests/PushSealTests.swift", "reads": "seal-vectors.json", "run": "swift test --package-path cmux-next-ios/CmuxMobileKit --filter PushSealTests" }
+      ]
+    },
+    {
+      "name": "Classic irx control plane",
+      "owner": "workers/presence",
+      "spec": "schemas/control-plane/hello.schema.json",
+      "version": { "value": "1", "source": "schemas/control-plane/ack.schema.json", "contains": "control-plane protocol version, 1" },
+      "vectors": ["schemas/control-plane/fixtures"],
+      "sides": [
+        { "lang": "typescript", "test": "workers/presence/test/controlPlaneFixtures.test.ts", "reads": "control-plane/fixtures", "run": "cd workers/presence && bun test test/controlPlaneFixtures.test.ts" },
+        { "lang": "swift", "test": "Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxControlPlaneTests.swift", "reads": "control-plane", "run": "swift test --package-path Packages/Shared/CmuxIrxTransport --filter IrxControlPlane" }
+      ]
+    },
+    {
+      "name": "Classic iroh-v2 device signing",
+      "owner": "workers/iroh-v2",
+      "spec": "docs/iroh-v2/IMPLEMENTATION.md",
+      "version": { "value": "unversioned", "note": "canonical JSON signed with Ed25519" },
+      "vectors": ["Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/V2/Fixtures/signing.json"],
+      "sides": [
+        { "lang": "typescript", "test": "workers/iroh-v2/test/crypto.test.ts", "reads": "signing.json", "run": "cd workers/iroh-v2 && bun test test/crypto.test.ts" }
+      ],
+      "gap": "only the Worker reads the vectors; the Swift signer (V2WireSigningCodec) has no test that reads signing.json"
+    },
+    {
+      "name": "rd datagram, input and feedback",
+      "owner": "cmux-tui/crates/cmux-rd-proto",
+      "spec": "cmux-tui/crates/cmux-rd-proto/src/lib.rs",
+      "version": { "value": "1", "source": "cmux-tui/crates/cmux-rd-proto/src/datagram.rs", "contains": "pub const VERSION: u8 = 1;" },
+      "vectors": [],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-rd-proto/tests/wire.rs", "run": "cargo test -p cmux-rd-proto --test wire" }
+      ],
+      "gap": "no shared hex vectors; the Swift viewer's tests build their own byte arrays"
+    },
+    {
+      "name": "Daemon mux protocol (app and CLI to cmux-tui)",
+      "owner": "cmux-tui/crates/cmux-daemon-conn-core",
+      "spec": "cmux-tui/spec/commands.md",
+      "version": { "value": "12", "source": "cmux-tui/crates/cmux-daemon-conn-core/src/handshake.rs", "contains": "PROTOCOL_VERSION: i64 = 12" },
+      "vectors": ["cmux-tui/crates/cmux-daemon-conn-core/tests/vectors"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-daemon-conn-core/tests/golden.rs", "reads": "vectors", "run": "cargo test -p cmux-daemon-conn-core --test golden" }
+      ],
+      "gap": "the Swift app reaches it through the Rust FFI (CCmuxDaemonConnFFI); no Swift test reads the vectors"
+    },
+    {
+      "name": "Remote browser rb/1",
+      "owner": "cmux-tui/crates/cmux-remote-browser",
+      "spec": "schemas/remote-tab/messages.json",
+      "version": { "value": "cmux.rb/1", "source": "cmux-tui/crates/cmux-remote-browser/src/proto.rs", "contains": "cmux.rb/1" },
+      "vectors": ["schemas/remote-tab/messages.json"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-remote-browser/tests/vectors.rs", "reads": "messages.json", "run": "cargo test -p cmux-remote-browser --test vectors" }
+      ],
+      "gap": "the Swift client (RbClient) decodes through cmux-rd-ffi, so Rust is the only decoder"
+    },
+    {
+      "name": "Remote protocol (CMXR) and relay control",
+      "owner": "cmux-tui/crates/cmux-remote-protocol",
+      "spec": "cmux-tui/spec/remote-rpc.md",
+      "version": { "value": "5", "source": "cmux-tui/crates/cmux-remote-protocol/src/frame.rs", "contains": "REMOTE_PROTOCOL_VERSION: u8 = 5" },
+      "vectors": ["cmux-tui/crates/cmux-remote-protocol/tests/fixtures/relay-control-v1.jsonl"],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-relay/src/relay.rs", "reads": "relay-control-v1.jsonl", "run": "cargo test -p cmux-relay" }
+      ],
+      "gap": "every end is Rust (cmux-relay and the Durable Object relay in cmux-tui/relays/cloudflare-do); a second language needs vectors first"
+    },
+    {
+      "name": "Machine provider",
+      "owner": "cmux-tui/crates/cmux-tui-machine-protocol",
+      "spec": "cmux-tui/spec/machine-provider.md",
+      "version": { "value": "1", "source": "cmux-tui/crates/cmux-tui-machine-protocol/src/lib.rs", "contains": "PROTOCOL_VERSION: u16 = 1" },
+      "vectors": [],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/cmux-tui-machine-protocol/tests/machine_metadata_compat.rs", "run": "cargo test -p cmux-tui-machine-protocol" }
+      ],
+      "gap": "Rust on both ends today; a provider in another language would need vectors"
+    },
+    {
+      "name": "chatmux relay",
+      "owner": "cmux-tui/crates/chatmux-relay",
+      "spec": "cmux-tui/crates/chatmux-relay/README.md",
+      "version": { "value": "6", "source": "cmux-tui/crates/chatmux-relay/src/wire.rs", "contains": "ADVERTISED_PROTOCOL_VERSION: u64 = 6" },
+      "vectors": [],
+      "sides": [
+        { "lang": "rust", "test": "cmux-tui/crates/chatmux-relay/src/wire.rs", "run": "cargo test -p chatmux-relay" }
+      ],
+      "gap": "no shared vectors"
+    },
+    {
+      "name": "Device hub",
+      "owner": "workers/device-hub",
+      "spec": "docs/device-hub/PROTOCOL.md",
+      "version": { "value": "unversioned", "note": "see the spec" },
+      "vectors": [],
+      "sides": [],
+      "gap": "the Worker (TypeScript) and CmuxDeviceHub (Swift) share no vectors"
+    }
+  ]
+}
