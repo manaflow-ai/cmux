@@ -192,14 +192,15 @@ import Testing
             host.elapsed += .seconds(1)
         }
         Self.advance(HiddenChatPages<Host>.minimumHidden, planner, host)
-        let warm = Array(order.suffix(HiddenChatPages<Host>.warmHidden))
+        // The warm set's size, written out so this test also runs (and fails) on a planner without one.
+        let warm = Array(order.suffix(2))
         #expect(Set(host.pages.keys) == Set(warm), "hidden idle chats past the warm set kept their page: \(host.pages.keys.sorted())")
         #expect(host.released == Array(order.dropLast(warm.count)), "released out of least-recently-seen order: \(host.released)")
         #expect(planner.hasDeadline, "the warm set has no idle deadline")
 
         // A working chat keeps its page and takes no place in the warm set.
-        Self.hide("tab_busy", planner, host)
         host.busy = ["tab_busy"]
+        Self.hide("tab_busy", planner, host)
         Self.advance(HiddenChatPages<Host>.minimumHidden + 1, planner, host)
         #expect(host.pages["tab_busy"] != nil, "a working chat was let go")
         #expect(Set(host.pages.keys) == Set(warm + ["tab_busy"]), "a working chat pushed an idle chat out of the warm set")
