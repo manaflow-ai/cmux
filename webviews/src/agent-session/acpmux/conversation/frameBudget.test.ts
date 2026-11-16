@@ -97,13 +97,11 @@ test("the chat's mark: its gate moves nothing, the rest of the page moves on, th
   while (run(FRAME) > 0 && frames < 2000) frames += 1;
   expect(frames).toBeLessThan(IDLE_FRAMES);
   expect(queue.length).toBe(0);
-  expect(budget.minimal).toBe(true);
-  // No work for HEALTHY_FOR: the chat is healthy again, and the mark goes, on one timer.
-  expect(timers.filter((timer) => timer.at < Infinity).length).toBe(1);
-  now += HEALTHY_FOR;
-  for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
+  // It stopped on QUIET_FRAMES in budget: the chat drew its work in time, so the mark goes as the loop stops, and no
+  // timer wakes the chat at rest HEALTHY_FOR later to take it away (bench/chat-switch.bench.ts idle_wakeups).
   expect(budget.minimal).toBe(false);
   expect(chat.hasAttribute("data-chat-motion")).toBe(false);
+  expect(timers.length).toBe(0);
   // Idle: a poke followed by frames in budget reads QUIET_FRAMES of them past the first and stops.
   budget.poke();
   let idle = 0;
@@ -252,15 +250,14 @@ test("a chat that goes idle while its frames still miss stays minimal for its ne
     expect(chat.getAttribute("data-chat-motion")).toBe("minimal");
   }
   // The load ends: a record whose first frame misses once, then frames in budget. The loop stops on QUIET_FRAMES and
-  // the mark goes HEALTHY_FOR later, though that one frame is still in the window (review of #44367).
+  // the mark goes as it stops, though that one frame is still in the window (review of #44367), with no timer.
   budget.poke();
   run(FRAME);
   run(40);
   let settling = 0;
   while (run(FRAME) > 0 && settling < 200) settling += 1;
   expect(settling).toBeLessThan(IDLE_FRAMES);
-  now += HEALTHY_FOR;
-  for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
   expect(chat.hasAttribute("data-chat-motion")).toBe(false);
+  expect(timers.length).toBe(0);
   budget.dispose();
 });
