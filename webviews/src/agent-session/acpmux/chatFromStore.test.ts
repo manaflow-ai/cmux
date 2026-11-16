@@ -173,8 +173,8 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
 
 /// A daemon with the hold whose chat list never answers, and a host that answers `chat.rows.open`
 /// with `open`: the open's chat comes from its early attach alone (decision 289). With `list`, the
-/// list answers once it settles.
-async function listOut(open: (params: any) => Promise<unknown>, list?: Promise<void>) {
+/// list answers once it settles. With `restingRow`, the pane kept a place in the chat.
+async function listOut(open: (params: any) => Promise<unknown>, list?: Promise<void>, restingRow?: string) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const { mockSessions } = await import("./mockFixture");
@@ -203,7 +203,7 @@ async function listOut(open: (params: any) => Promise<unknown>, list?: Promise<v
   }
   let rows: Row[] = [];
   const connecting = AcpmuxDirectClient.connect(
-    { ...mockHost, sessionId: a },
+    { ...mockHost, sessionId: a, ...(restingRow ? { restingRow } : {}) },
     (snapshot) => {
       rows = snapshot.rows as Row[];
     },
@@ -310,6 +310,19 @@ test("with the list still out, a host that opens: the hold's reply gives the row
     // The chat's row came from the hold's reply: the list never answered.
     expect(client.sessions.map((row: { sessionId: string }) => row.sessionId)).toContain(run.a);
     expect(run.hostPosts().filter((post) => post.method === "chat.rows.open")).toHaveLength(1);
+  } finally {
+    client.close?.();
+    resetChatRowsReceiver();
+  }
+});
+
+test("a cold open with a kept place asks the store's sub around that row, not at the end", async () => {
+  const run = await listOut(async (params) => ({ sid: params.sid }), undefined, "row-7");
+  const client = await run.connecting;
+  try {
+    await settle(() => run.hostPosts().some((post) => post.method === "chat.rows.open"));
+    const open = run.hostPosts().find((post) => post.method === "chat.rows.open")!;
+    expect(open.params.anchor).toEqual({ rowId: 7, side: "around" });
   } finally {
     client.close?.();
     resetChatRowsReceiver();

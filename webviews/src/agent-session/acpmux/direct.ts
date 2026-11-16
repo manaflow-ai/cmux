@@ -263,6 +263,9 @@ export type AcpmuxHostConfig = {
   endpoint?: string;
   token?: string;
   sessionId?: string;
+  /// Where the pane last rested in `sessionId` (its kept scroll anchor's row id), read before the
+  /// client opens: a chat on the store opens its first sub around that row (`restAt`).
+  restingRow?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
   /** A tab's recorded session (`sessionId`) must exist. When the daemon has no such session, or it
@@ -3872,6 +3875,8 @@ export class AcpmuxDirectClient {
     carried?: CarriedChat,
   ): Promise<AcpmuxDirectClient> {
     const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire);
+    // The kept place reaches the client before its open, which may ask the store's sub at once.
+    if (host.sessionId && host.restingRow) client.restAt(host.sessionId, host.restingRow);
     if (carried) client.resumeCarried(carried);
     try {
       await client.open();
@@ -6975,7 +6980,7 @@ export class AcpmuxDirectClient {
   private sendAttachAfterSwitch(sessionId: string, generation: number): SentAttach {
     const sent: SentAttach = { attaching: Promise.resolve(), reads: this.startAttachReads(sessionId) };
     sent.attaching = this.chatRows
-      .choose(sessionId, this.capabilities)
+      .choose(sessionId, this.capabilities, this.restingRows.get(sessionId))
       .catch(() => false)
       .then(() => {
         const shown = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
