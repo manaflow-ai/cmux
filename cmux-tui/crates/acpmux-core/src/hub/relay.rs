@@ -260,11 +260,14 @@ impl Hub {
         // the same way, and its client ends the connection on that.
         let room = max.saturating_sub(plan.used);
         let least = 8192 + request.sid.len();
-        let mut growth = Vec::with_capacity(origins.len());
-        for (origin, count) in &origins {
-            growth.push(name_growth(origin)?.saturating_mul(*count));
+        let mut grown = Vec::with_capacity(origins.len());
+        for (origin, count) in origins {
+            let grows = name_growth(&origin)?.saturating_mul(count);
+            grown.push((origin, grows));
         }
-        let fits = |asked: usize| growth[..asked].iter().all(|grows| room / asked > least + grows);
+        let fits =
+            |asked: usize| grown.iter().take(asked).all(|(_, grows)| room / asked > least + grows);
+        let origins = grown;
         let asked = (1..=origins.len()).rev().find(|asked| fits(*asked)).unwrap_or(0);
         if asked == 0
             && !origins.is_empty()
@@ -275,9 +278,9 @@ impl Hub {
             return Err(HubError::InvalidPage);
         }
         let mut budgets: Vec<(String, usize)> = Vec::new();
-        for (n, (origin, _)) in origins.into_iter().enumerate() {
+        for (n, (origin, grows)) in origins.into_iter().enumerate() {
             if n < asked {
-                let peer_max = room / asked - growth[n];
+                let peer_max = room / asked - grows;
                 budgets.push((origin, peer_max.min(crate::wire::MAX_PAGE_BYTES)));
             } else {
                 for entry in &mut plan.entries {
