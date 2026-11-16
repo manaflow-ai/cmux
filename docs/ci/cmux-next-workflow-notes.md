@@ -3661,27 +3661,6 @@ pick every tier. A feat-cmux-next push runs the Mac compiles but not swift
 test (see the jobs comment below); a red push run names the pull requests in
 its range.
 
-## note-390
-
-Above `jobs:` in `.github/workflows/cmux-next.yml`.
-
-The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml:
-Trusted runs (a same-repository pull request, a push or a dispatch) stay on
-vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while owned pools
-are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback.
-Manual reruns stay minis-first. The rescue re-admits a queued run after the
-five-minute queue alarm: placement first uses a free owned GUI/session Mac,
-then the workflow's Blacksmith macOS route. macos-placement records idle
-side runners with the main picker's idle_placement() and publishes free role
-labels for the bot retry, so a job does not keep a shared concurrency slot
-on a busy Blacksmith label indefinitely. When a job takes the side label, macos-placement uploads the
-owned-pool-watch marker:
-ci-owned-pool-rescue.yml's sweeper on main adopts the run
-(owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves
-queued or refuses. Bot attempt 2 and later drop the stale placement output
-and re-admits it through the same fast-checks/owned-Mac/Blacksmith order; a
-person's re-run stays on the side label.
-
 ## note-391
 
 Above the `failed` push comparison (`EVENT_NAME == push && BEFORE`) in the checks job's red-checks step in `.github/workflows/cmux-next.yml`.
