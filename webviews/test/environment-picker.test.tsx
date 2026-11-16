@@ -135,9 +135,20 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
   refreshes = 0;
   const props = {
     environments,
-    summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
+    summary: {
+      sessionId: "",
+      harness: "claude",
+      host: "This Mac",
+      hostKind: "local",
+    },
     sessions: [
-      { sessionId: "a", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box", updatedAt: 0 },
+      {
+        sessionId: "a",
+        cwd: "/home/dev/model",
+        host: "gpu-box",
+        peer: "gpu-box",
+        updatedAt: 0,
+      },
       {
         sessionId: "b",
         cwd: "/home/you/cache",
@@ -201,7 +212,12 @@ async function openPicker(init: { altKey?: boolean } = {}) {
 async function openMachines() {
   await act(async () =>
     computerButton()!.dispatchEvent(
-      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+      new dom.window.MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+      }),
     ),
   );
   const item = [...doc().querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
@@ -237,7 +253,13 @@ async function typeKeys(text: string) {
   for (const data of text) {
     await act(async () => {
       setValue.call(field, field.value + data);
-      field.dispatchEvent(new dom.window.InputEvent("input", { bubbles: true, inputType: "insertText", data }));
+      field.dispatchEvent(
+        new dom.window.InputEvent("input", {
+          bubbles: true,
+          inputType: "insertText",
+          data,
+        }),
+      );
     });
   }
   return field;
@@ -245,7 +267,13 @@ async function typeKeys(text: string) {
 
 async function press(target: Element, init: KeyboardEventInit) {
   await act(async () => {
-    target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+    target.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      }),
+    );
   });
 }
 
@@ -254,10 +282,15 @@ const choiceLabel = (button: Element) => button.querySelector(".acpmux-menu-labe
 
 test("a peer's transport reads the same from the relayed reply and the daemon's own", async () => {
   const { peerKindsFromStatus } = await import("../src/agent-session/acpmux/environments");
-  const kinds: Record<string, "ssh" | "cloud"> = { "gpu-box": "ssh", "cloud-1": "cloud" };
+  const kinds: Record<string, "ssh" | "cloud"> = {
+    "gpu-box": "ssh",
+    "cloud-1": "cloud",
+  };
   expect(peerKindsFromStatus(relayedStatus)).toEqual(kinds);
   expect(peerKindsFromStatus(status)).toEqual(kinds);
-  expect(peerKindsFromStatus({ peers: [{ name: "bare" }] })).toEqual({ bare: "cloud" });
+  expect(peerKindsFromStatus({ peers: [{ name: "bare" }] })).toEqual({
+    bare: "cloud",
+  });
 });
 
 test("a peer's connected flag reads the same from the relayed reply and the daemon's own", async () => {
@@ -270,7 +303,11 @@ test("a peer's connected flag reads the same from the relayed reply and the daem
     }),
   ).toEqual(connected);
   // An older acpmux or relay that sends no flag (or not a boolean) says nothing about the machine.
-  expect(peerConnectedFromStatus({ peers: [{ name: "bare" }, { name: "odd", connected: 1 }] })).toEqual({});
+  expect(
+    peerConnectedFromStatus({
+      peers: [{ name: "bare" }, { name: "odd", connected: 1 }],
+    }),
+  ).toEqual({});
 });
 
 test("each remote machine shows whether it is connected, read again as the list opens; this Mac shows none", async () => {
@@ -368,7 +405,11 @@ for (const started of [false, true]) {
       sessions: [],
       peers: [],
       cloudMachines: [],
-      summary: { sessionId: started ? "local-chat" : "", harness: "claude", hostKind: "local" },
+      summary: {
+        sessionId: started ? "local-chat" : "",
+        harness: "claude",
+        hostKind: "local",
+      },
     });
     await openPicker();
     const actions = () => [...doc().querySelectorAll<HTMLButtonElement>(".acpmux-location-choose")];
@@ -438,7 +479,12 @@ test("Machines…: every machine, This Mac first, numbered ⌥⌘1–9, defaulti
 // with it, and this Mac (cosmic-gray) was listed nowhere. This Mac is always this Mac's own name.
 test("a Cloud machine is never This Mac's row, and This Mac keeps this Mac's name", async () => {
   const { thisMacName } = await import("../src/agent-session/acpmux/environments");
-  const cloudChat = { sessionId: "", harness: "claude", host: "kind-aqua-sandpiper", hostKind: "cloud" };
+  const cloudChat = {
+    sessionId: "",
+    harness: "claude",
+    host: "kind-aqua-sandpiper",
+    hostKind: "cloud",
+  };
   for (const [host, localMachineName, tooltip] of [
     ["current", "cosmic-gray", "cosmic-gray"],
     // A host that predates `localMachineName` sends the chat's machine as `machineName`.
@@ -447,7 +493,15 @@ test("a Cloud machine is never This Mac's row, and This Mac keeps this Mac's nam
     act(() => root?.unmount());
     await mount(true, {
       summary: cloudChat,
-      sessions: [{ sessionId: "c", cwd: "/root/work", host: "kind-aqua-sandpiper", hostKind: "cloud", updatedAt: 0 }],
+      sessions: [
+        {
+          sessionId: "c",
+          cwd: "/root/work",
+          host: "kind-aqua-sandpiper",
+          hostKind: "cloud",
+          updatedAt: 0,
+        },
+      ],
       localName: thisMacName(localMachineName, "kind-aqua-sandpiper", cloudChat),
     });
     await openPicker();
@@ -462,26 +516,52 @@ test("a Cloud machine is never This Mac's row, and This Mac keeps this Mac's nam
     expect(sandpiper.querySelector(".acpmux-env-row")!.getAttribute("data-kind"), host).toBe("cloud");
     expect(machineRows().indexOf(sandpiper), host).toBeGreaterThan(0);
     expect(sandpiper.querySelector(".acpmux-env-row")!.hasAttribute("data-current"), host).toBe(true);
-    await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+    await press(doc().querySelector(".acpmux-env-popover input")!, {
+      key: "Escape",
+    });
   }
 });
 
 test("This Mac's name is the host's own name, never the machine a seeded chat runs on", async () => {
   const { thisMacName } = await import("../src/agent-session/acpmux/environments");
-  expect(thisMacName("cosmic-gray", "kind-aqua-sandpiper", { peer: "kind-aqua-sandpiper" })).toBe("cosmic-gray");
-  // An older host: `machineName` is the chat's peer or Cloud host, so it is not this Mac's.
-  expect(thisMacName(undefined, "kind-aqua-sandpiper", { peer: "kind-aqua-sandpiper" })).toBeUndefined();
   expect(
-    thisMacName(undefined, "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
+    thisMacName("cosmic-gray", "kind-aqua-sandpiper", {
+      peer: "kind-aqua-sandpiper",
+    }),
+  ).toBe("cosmic-gray");
+  // An older host: `machineName` is the chat's peer or Cloud host, so it is not this Mac's.
+  expect(
+    thisMacName(undefined, "kind-aqua-sandpiper", {
+      peer: "kind-aqua-sandpiper",
+    }),
+  ).toBeUndefined();
+  expect(
+    thisMacName(undefined, "kind-aqua-sandpiper", {
+      hostKind: "cloud",
+      host: "kind-aqua-sandpiper",
+    }),
   ).toBeUndefined();
   // An older host with a chat on this Mac: its `machineName` is this Mac's.
-  expect(thisMacName(undefined, "cosmic-gray", { hostKind: "local", host: "cosmic-gray" })).toBe("cosmic-gray");
+  expect(
+    thisMacName(undefined, "cosmic-gray", {
+      hostKind: "local",
+      host: "cosmic-gray",
+    }),
+  ).toBe("cosmic-gray");
   expect(thisMacName(undefined, undefined)).toBeUndefined();
 });
 
 test("Cloud opens the host's New Cloud Machine flow", async () => {
   const calls = await mount(true, {
-    sessions: [{ sessionId: "a", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box", updatedAt: 0 }],
+    sessions: [
+      {
+        sessionId: "a",
+        cwd: "/home/dev/model",
+        host: "gpu-box",
+        peer: "gpu-box",
+        updatedAt: 0,
+      },
+    ],
     peers: ["gpu-box"],
     peerKinds: { "gpu-box": "ssh" },
   });
@@ -498,7 +578,11 @@ test("Cloud opens the host's New Cloud Machine flow", async () => {
 const boxes = ["atlas", "birch", "cedar", "dune", "elm", "fern"];
 const longList = {
   peers: [...status.peers.map((peer) => peer.name), ...boxes],
-  peerKinds: { "gpu-box": "ssh", "cloud-1": "cloud", ...Object.fromEntries(boxes.map((name) => [name, "ssh"])) },
+  peerKinds: {
+    "gpu-box": "ssh",
+    "cloud-1": "cloud",
+    ...Object.fromEntries(boxes.map((name) => [name, "ssh"])),
+  },
 };
 
 test("a long list's search field filters by name and section, keeping each machine's shortcut", async () => {
@@ -516,14 +600,24 @@ test("⌥⌘2 in the composer picks the second environment and its folder there"
   const prompt = host.querySelector("textarea")!;
   prompt.focus();
   // Option changes `key` on a Mac; the physical digit is `code`.
-  await press(prompt, { key: "™", code: "Digit2", altKey: true, metaKey: true });
+  await press(prompt, {
+    key: "™",
+    code: "Digit2",
+    altKey: true,
+    metaKey: true,
+  });
   expect(calls).toEqual([["project", "/home/dev/model", "gpu-box"]]);
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: gpu-box`);
 });
 
 test("⌥⌘ digits do nothing while focus is outside the composer", async () => {
   const calls = await mount(true);
-  await press(doc().body, { key: "™", code: "Digit2", altKey: true, metaKey: true });
+  await press(doc().body, {
+    key: "™",
+    code: "Digit2",
+    altKey: true,
+    metaKey: true,
+  });
   expect(calls).toEqual([]);
 });
 
@@ -696,7 +790,12 @@ test("Move to…: a chat that started on a Cloud machine gets the row with no ot
     offloads: [],
     moveTargets: [
       { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
-      { id: "vm-old", label: "old-box", kind: "cloud", reason: "Update this machine first" },
+      {
+        id: "vm-old",
+        label: "old-box",
+        kind: "cloud",
+        reason: "Update this machine first",
+      },
     ],
     onMoveTo: (id: string) => moved.push(id),
   });
@@ -717,7 +816,15 @@ test("a started Cloud chat's picker keeps its machine's load warning", async () 
   await mount(true, {
     ...startedOn("cloud"),
     onOffload: () => {},
-    peerResources: { "build-cloud": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false } },
+    peerResources: {
+      "build-cloud": {
+        ramFreeGB: 8,
+        coresBusy: 14,
+        cores: 10,
+        busy: true,
+        lowMemory: false,
+      },
+    },
   });
   await openPicker();
   expect(machineRows()).toHaveLength(1);
@@ -834,7 +941,10 @@ const newWorktreeFromMenu = async () => {
 
 test("previews on: New Worktree is in the folder menu, not a control beside the folder", async () => {
   const worktrees: string[] = [];
-  await mount(true, { ...inFolder, onNewWorktree: (cwd: string) => worktrees.push(cwd) });
+  await mount(true, {
+    ...inFolder,
+    onNewWorktree: (cwd: string) => worktrees.push(cwd),
+  });
   expect(worktreeButton(), "a New Worktree control beside the folder").toBeUndefined();
   await newWorktreeFromMenu();
   expect(worktrees).toEqual(["/Users/you/src/cmux"]);
@@ -844,7 +954,12 @@ test("previews on: no New Worktree on another machine", async () => {
   await mount(true, { ...inFolder, onNewWorktree: () => undefined });
   const prompt = host.querySelector("textarea")!;
   prompt.focus();
-  await press(prompt, { key: "™", code: "Digit2", altKey: true, metaKey: true });
+  await press(prompt, {
+    key: "™",
+    code: "Digit2",
+    altKey: true,
+    metaKey: true,
+  });
   expect(worktreeButton()).toBeUndefined();
 });
 
@@ -949,7 +1064,12 @@ test("without Labs, or once the chat started, there is no Sandboxed", async () =
   expect(host.textContent).not.toContain(t("composer.sandboxed"));
   act(() => root?.unmount());
   root = undefined;
-  await mount(true, { runMode, started: true, onOffload: () => undefined, offloads: ["move"] });
+  await mount(true, {
+    runMode,
+    started: true,
+    onOffload: () => undefined,
+    offloads: ["move"],
+  });
   await openPicker();
   await press(doc().body, { key: "Alt", altKey: true });
   expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
@@ -1030,7 +1150,11 @@ test("the daemon's host list maps to sections, connected first, in number order,
 
 test("a peer's link state reads the same from the relayed reply and the daemon's own; an older daemon's none", async () => {
   const { peerStatesFromStatus, environmentReady } = await import("../src/agent-session/acpmux/environments");
-  expect(peerStatesFromStatus({ peers: [{ name: "a", url: "ssh://a", state: "reconnecting" }] })).toEqual({
+  expect(
+    peerStatesFromStatus({
+      peers: [{ name: "a", url: "ssh://a", state: "reconnecting" }],
+    }),
+  ).toEqual({
     a: "reconnecting",
   });
   expect(
@@ -1061,7 +1185,7 @@ const daemonProps = async (extra: Record<string, unknown> = {}) => {
   };
 };
 
-test("previews on: every machine the daemon lists, grouped; the ones not connected greyed with their state", async () => {
+test("previews on: every machine the daemon lists, grouped; offline machines stay selectable", async () => {
   const { computers, props } = await daemonProps();
   await mount(true, props);
   await openMachines();
@@ -1095,7 +1219,7 @@ test("previews on: 20+ machines stay searchable by name and section", async () =
   expect(mine.join(" ")).toBe("build-mini-2 desk-mac home-linux gpu-box");
 });
 
-test("previews off: the plain Computer menu lists the same machines, in the same sections, greyed the same way", async () => {
+test("previews off: the plain Computer menu keeps offline machines selectable in the same sections", async () => {
   const { computers, props } = await daemonProps();
   await mount(false, props);
   await openPicker();
@@ -1110,19 +1234,53 @@ test("previews off: the plain Computer menu lists the same machines, in the same
     items.map((item) => item.querySelector(".acpmux-location-name")!.getAttribute("data-section")).filter(Boolean),
   ).toEqual([t("composer.thisMac"), t("composer.envMine"), t("composer.envFleet")]);
   const offline = items[4]!;
-  expect(offline.querySelector(".acpmux-location-name")!.getAttribute("data-ready")).toBe("false");
-  expect(offline.querySelector(".acpmux-menu-description")?.textContent).toBe(t("composer.envNotConnected"));
+  expect(offline.querySelector(".acpmux-location-name")!.getAttribute("data-ready")).toBeNull();
+  expect(offline.querySelector(".acpmux-menu-description")?.textContent).toBe(t("environment.offlineQueued"));
   await act(async () => offline.click());
-  expect(computers).toEqual([]);
-  expect(doc().querySelector(".acpmux-location-menu")).not.toBeNull();
-  await act(async () => items[2]!.click());
-  expect(computers).toEqual(["desk-mac"]);
+  expect(computers).toEqual(["gpu-box"]);
+  expect(doc().querySelector(".acpmux-location-menu")).toBeNull();
+  await openPicker();
+  const ready = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "desk-mac",
+  )!;
+  await act(async () => ready.click());
+  expect(computers).toEqual(["gpu-box", "desk-mac"]);
 });
+
+for (const environments of [false, true])
+  for (const state of ["authFailed", "updateRequired"])
+    test(`a ${state} machine still needs its action before a pick (previews ${environments})`, async () => {
+      const picked: string[] = [];
+      await mount(environments, {
+        sessions: [],
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerStates: { "gpu-box": state },
+        peerConnected: { "gpu-box": false },
+        onComputer: (machine: string) => picked.push(machine),
+      });
+      if (environments) {
+        await openMachines();
+        await openUnavailable();
+      } else await openPicker();
+      const target = [...doc().querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
+        (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+      )!;
+      expect(target.querySelector('[data-ready="false"]')).not.toBeNull();
+      await act(async () => target.click());
+      expect(picked).toEqual([]);
+    });
 
 test("the plain Computer menu warns when a remote machine reaches its CPU budget", async () => {
   await mount(false, {
     peerResources: {
-      "gpu-box": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false },
+      "gpu-box": {
+        ramFreeGB: 8,
+        coresBusy: 14,
+        cores: 10,
+        busy: true,
+        lowMemory: false,
+      },
     },
   });
   await openPicker();
@@ -1138,7 +1296,13 @@ test("the plain Computer menu warns when a remote machine reaches its CPU budget
 test("the plain Computer menu warns with free memory when CPU is fine", async () => {
   await mount(false, {
     peerResources: {
-      "gpu-box": { ramFreeGB: 1.2, coresBusy: 2, cores: 10, busy: false, lowMemory: true },
+      "gpu-box": {
+        ramFreeGB: 1.2,
+        coresBusy: 2,
+        cores: 10,
+        busy: false,
+        lowMemory: true,
+      },
     },
   });
   await openPicker();
@@ -1154,7 +1318,13 @@ test("the plain Computer menu warns with free memory when CPU is fine", async ()
 test("a healthy machine stays quiet and the warning setting can hide a warning", async () => {
   await mount(false, {
     peerResources: {
-      "gpu-box": { ramFreeGB: 8, coresBusy: 2, cores: 10, busy: false, lowMemory: false },
+      "gpu-box": {
+        ramFreeGB: 8,
+        coresBusy: 2,
+        cores: 10,
+        busy: false,
+        lowMemory: false,
+      },
     },
   });
   await openPicker();
@@ -1170,7 +1340,13 @@ test("a healthy machine stays quiet and the warning setting can hide a warning",
   await mount(false, {
     showMachineLoadWarnings: false,
     peerResources: {
-      "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+      "gpu-box": {
+        ramFreeGB: 1.2,
+        coresBusy: 14,
+        cores: 10,
+        busy: true,
+        lowMemory: true,
+      },
     },
   });
   await openPicker();
@@ -1185,7 +1361,13 @@ test("a warning is withheld while a machine is not ready", async () => {
   await mount(false, {
     peerConnected: { "gpu-box": false },
     peerResources: {
-      "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+      "gpu-box": {
+        ramFreeGB: 1.2,
+        coresBusy: 14,
+        cores: 10,
+        busy: true,
+        lowMemory: true,
+      },
     },
   });
   await openPicker();
@@ -1193,7 +1375,7 @@ test("a warning is withheld while a machine is not ready", async () => {
     (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
   )!;
   expect(row.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBeNull();
-  expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(t("composer.envNotConnected"));
+  expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(t("environment.offlineQueued"));
 });
 
 test("turning the warning setting off updates an already-open menu", async () => {
@@ -1201,7 +1383,13 @@ test("turning the warning setting off updates an already-open menu", async () =>
   setComposerSettings(DEFAULT_COMPOSER);
   await mount(false, {
     peerResources: {
-      "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+      "gpu-box": {
+        ramFreeGB: 1.2,
+        coresBusy: 14,
+        cores: 10,
+        busy: true,
+        lowMemory: true,
+      },
     },
   });
   await openPicker();
@@ -1221,7 +1409,13 @@ test("the environment picker warns on a ready machine at its CPU budget, as the 
   setComposerSettings(DEFAULT_COMPOSER);
   await mount(true, {
     peerResources: {
-      "gpu-box": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false },
+      "gpu-box": {
+        ramFreeGB: 8,
+        coresBusy: 14,
+        cores: 10,
+        busy: true,
+        lowMemory: false,
+      },
     },
   });
   await openMachines();
@@ -1240,7 +1434,13 @@ test("the environment picker withholds a warning while a machine is not ready", 
   await mount(true, {
     peerConnected: { "gpu-box": false },
     peerResources: {
-      "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+      "gpu-box": {
+        ramFreeGB: 1.2,
+        coresBusy: 14,
+        cores: 10,
+        busy: true,
+        lowMemory: true,
+      },
     },
   });
   await openMachines();
@@ -1277,7 +1477,9 @@ test("an open machine list reads the machines again until it closes", async () =
       for (const tick of timers.values()) tick();
     });
     expect(refreshes).toBe(2);
-    await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+    await press(doc().querySelector(".acpmux-env-popover input")!, {
+      key: "Escape",
+    });
     expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
     expect(timers.size).toBe(0);
   } finally {
@@ -1329,7 +1531,10 @@ test("a chat's machine the daemon no longer lists is shown not connected, and is
 
 test("Labs: Sandboxed is Cloud's other face, shown while ⌥ is held or searched, never a row of its own", async () => {
   const calls: unknown[][] = [];
-  const runMode = { mode: "persistent", onMode: (mode: string) => calls.push(["mode", mode]) };
+  const runMode = {
+    mode: "persistent",
+    onMode: (mode: string) => calls.push(["mode", mode]),
+  };
   await mount(true, { runMode });
   await openPicker();
   const before = rows().length;
@@ -1347,13 +1552,18 @@ test("Labs: Sandboxed is Cloud's other face, shown while ⌥ is held or searched
 
 test("Labs: with Sandboxed picked the control names it, no machine is checked, and a machine pick goes back to Persistent", async () => {
   const calls: unknown[][] = [];
-  const runMode = { mode: "sandboxed", onMode: (mode: string) => calls.push(["mode", mode]) };
+  const runMode = {
+    mode: "sandboxed",
+    onMode: (mode: string) => calls.push(["mode", mode]),
+  };
   const picks = await mount(true, { runMode });
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.sandboxed")}`);
   await openPicker();
   expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"][data-current]')).toBeTruthy();
   expect(machineRows().some((row) => row.querySelector("[data-current]"))).toBe(false);
-  await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+  await press(doc().querySelector(".acpmux-env-popover input")!, {
+    key: "Escape",
+  });
   await openMachines();
   expect(machineRows().some((row) => row.querySelector("[data-current]"))).toBe(false);
   await act(async () => machineRows()[1]!.click());
@@ -1425,7 +1635,10 @@ test("Leo's menu: Cloud picks a new machine for the new chat, never one of the l
   const modes: unknown[][] = [];
   const calls = await mount(true, {
     ...shipped,
-    runMode: { mode: "persistent", onMode: (mode: string) => modes.push(["mode", mode]) },
+    runMode: {
+      mode: "persistent",
+      onMode: (mode: string) => modes.push(["mode", mode]),
+    },
   });
   await openPicker();
   const cloud = rows().find((row) => row.querySelector('.acpmux-env-row[data-mode="cloud"]'))!;
@@ -1466,7 +1679,10 @@ test("Leo's menu: Remote picks the first ready machine and opens the machine chi
 });
 
 test("Leo's menu: no section headers, no second lines, and no setup rows", async () => {
-  await mount(true, { ...shipped, runMode: { mode: "persistent", onMode: () => undefined } });
+  await mount(true, {
+    ...shipped,
+    runMode: { mode: "persistent", onMode: () => undefined },
+  });
   await openPicker();
   const popover = doc().querySelector<HTMLElement>(".acpmux-env-popover")!;
   expect(popover.querySelectorAll("[data-section], [data-first-section]")).toHaveLength(0);
@@ -1503,7 +1719,11 @@ test("Leo's menu: the Where list never searches; Machines… searches only from 
   expect(labels()).toHaveLength(4);
   act(() => root?.unmount());
   const many = Array.from({ length: 8 }, (_, index) => `box-${index + 1}`);
-  await mount(true, { ...shipped, peers: many, peerKinds: Object.fromEntries(many.map((name) => [name, "ssh"])) });
+  await mount(true, {
+    ...shipped,
+    peers: many,
+    peerKinds: Object.fromEntries(many.map((name) => [name, "ssh"])),
+  });
   await openPicker();
   expect(popover().classList.contains("acpmux-env-searchless")).toBe(true);
   await press(popover().querySelector("input")!, { key: "Escape" });
@@ -1520,7 +1740,12 @@ test("Leo's menu: the setup actions are the Where control's right-click menu, ea
   const rightClick = async () =>
     act(async () =>
       computerButton()!.dispatchEvent(
-        new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+        new dom.window.MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 10,
+          clientY: 10,
+        }),
       ),
     );
   await rightClick();
@@ -1635,7 +1860,10 @@ test("three chips: Cloud picked shows no machine chip and no New machine anywher
   // Picking Cloud starts no setup flow: no New Cloud Machine…, no create, nothing to the host.
   expect(calls).toEqual([]);
   act(() => root?.unmount());
-  await mount(true, { ...shipped, runMode: { mode: "cloud", onMode: (mode: string) => modes.push(mode) } });
+  await mount(true, {
+    ...shipped,
+    runMode: { mode: "cloud", onMode: (mode: string) => modes.push(mode) },
+  });
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.cloud")}`);
   const strip = host.querySelector(".acpmux-location-leading")!;
   expect(
@@ -1656,11 +1884,21 @@ test("three chips: ⌥⌘2 picks the second machine once, and the machine chip n
   const calls = await mount(true, shipped);
   const prompt = host.querySelector("textarea")!;
   prompt.focus();
-  await press(prompt, { key: "™", code: "Digit2", altKey: true, metaKey: true });
+  await press(prompt, {
+    key: "™",
+    code: "Digit2",
+    altKey: true,
+    metaKey: true,
+  });
   expect(calls).toEqual([["project", "/home/dev/model", "gpu-box"]]);
   expect(machineButton()?.getAttribute("aria-label")).toBe(`${t("composer.machine")}: gpu-box`);
   // The machine chip owns no digits of its own: the same key again changes nothing.
-  await press(prompt, { key: "™", code: "Digit2", altKey: true, metaKey: true });
+  await press(prompt, {
+    key: "™",
+    code: "Digit2",
+    altKey: true,
+    metaKey: true,
+  });
   expect(calls).toHaveLength(1);
 });
 
@@ -1678,10 +1916,16 @@ test("strip arms: the machine chip always shown, and ChatGPT's cloud toggle", as
   expect(machineButton()?.getAttribute("aria-label")).toBe(`${t("composer.machine")}: cosmic-gray`);
   expect(machineButton()!.querySelector(".acpmux-env-live")!.getAttribute("data-connected")).toBe("true");
   act(() => root?.unmount());
-  await mount(true, { stripLayout: "where-machine-always", runMode: { mode: "cloud", onMode: () => undefined } });
+  await mount(true, {
+    stripLayout: "where-machine-always",
+    runMode: { mode: "cloud", onMode: () => undefined },
+  });
   expect(machineButton()).toBeUndefined();
   act(() => root?.unmount());
-  await mount(true, { stripLayout: "cloud-toggle", runMode: { mode: "persistent", onMode: () => undefined } });
+  await mount(true, {
+    stripLayout: "cloud-toggle",
+    runMode: { mode: "persistent", onMode: () => undefined },
+  });
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: cosmic-gray`);
   const toggle = chipButton(t("composer.whereRun"))!;
   expect(toggle.getAttribute("aria-label")).toBe(`${t("composer.whereRun")}: ${t("composer.thisMac")}`);
@@ -1696,7 +1940,10 @@ test("strip arms: the machine chip always shown, and ChatGPT's cloud toggle", as
   // Cloud picked: the machine chip says Cloud, never New machine (Leo, 2026-11-04: "after you pick Cloud,
   // like, you shouldn't be seeing the new machine situation").
   act(() => root?.unmount());
-  await mount(true, { stripLayout: "cloud-toggle", runMode: { mode: "cloud", onMode: () => undefined } });
+  await mount(true, {
+    stripLayout: "cloud-toggle",
+    runMode: { mode: "cloud", onMode: () => undefined },
+  });
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.cloud")}`);
   expect(host.querySelector(".acpmux-location-leading")?.textContent ?? "").not.toContain(t("composer.newMachine"));
 });
@@ -1738,11 +1985,32 @@ test("one machine is one row: a chat's old peer on a listed machine's host is to
 const sshSaved = {
   saved: {
     environments: [
-      { id: "s1", name: "Projects", kind: "ssh", host: "gpu-box", folder: "/home/dev/Projects", updatedAt: 2 },
-      { id: "s2", name: "gpu-box model", kind: "ssh", host: "gpu-box", folder: "/home/dev/model", updatedAt: 1 },
+      {
+        id: "s1",
+        name: "Projects",
+        kind: "ssh",
+        host: "gpu-box",
+        folder: "/home/dev/Projects",
+        updatedAt: 2,
+      },
+      {
+        id: "s2",
+        name: "gpu-box model",
+        kind: "ssh",
+        host: "gpu-box",
+        folder: "/home/dev/model",
+        updatedAt: 1,
+      },
       // Named after the machine, as Claude's second "cmux16" row: its folder, or that it is saved,
       // tells it from the machine's own row.
-      { id: "s3", name: "gpu-box", kind: "ssh", host: "gpu-box", folder: "/home/dev/train", updatedAt: 1 },
+      {
+        id: "s3",
+        name: "gpu-box",
+        kind: "ssh",
+        host: "gpu-box",
+        folder: "/home/dev/train",
+        updatedAt: 1,
+      },
       { id: "s4", name: "GPU-BOX", kind: "ssh", host: "gpu-box", updatedAt: 1 },
     ],
     onPick: () => undefined,
@@ -1778,7 +2046,15 @@ test("a folder pick that is a saved folder-only environment still picks the fold
   const picks: string[] = [];
   const calls = await mount(true, {
     saved: {
-      environments: [{ id: "f1", name: "cmux", kind: "local", folder: "/Users/you/src/cmux", updatedAt: 1 }],
+      environments: [
+        {
+          id: "f1",
+          name: "cmux",
+          kind: "local",
+          folder: "/Users/you/src/cmux",
+          updatedAt: 1,
+        },
+      ],
       onPick: (id: string) => picks.push(id),
       onClear: () => undefined,
       onCreate: () => undefined,
@@ -1797,7 +2073,15 @@ test("a folder pick that is a saved folder-only environment still picks the fold
 
 test("a saved folder-only environment picked after another machine shows This Mac, where it starts", async () => {
   const folderOnly = {
-    environments: [{ id: "f1", name: "cmux", kind: "local", folder: "/Users/you/src/cmux", updatedAt: 1 }],
+    environments: [
+      {
+        id: "f1",
+        name: "cmux",
+        kind: "local",
+        folder: "/Users/you/src/cmux",
+        updatedAt: 1,
+      },
+    ],
     onPick: () => undefined,
     onClear: () => undefined,
     onCreate: () => undefined,
@@ -1823,8 +2107,21 @@ test("a saved folder-only environment picked after another machine shows This Ma
 test("three chips: the machine chip lists machines only, never a saved environment, and a folder-only pick is This Mac", async () => {
   const savedBoth = {
     environments: [
-      { id: "f1", name: "cmux", kind: "local", folder: "/Users/you/src/cmux", updatedAt: 1 },
-      { id: "s1", name: "Projects", kind: "ssh", host: "gpu-box", folder: "/home/dev/Projects", updatedAt: 2 },
+      {
+        id: "f1",
+        name: "cmux",
+        kind: "local",
+        folder: "/Users/you/src/cmux",
+        updatedAt: 1,
+      },
+      {
+        id: "s1",
+        name: "Projects",
+        kind: "ssh",
+        host: "gpu-box",
+        folder: "/home/dev/Projects",
+        updatedAt: 2,
+      },
     ],
     onPick: () => undefined,
     onClear: () => undefined,
@@ -1936,7 +2233,13 @@ test("a search lists an unavailable machine in place, so a machine is always fou
   ]);
   // The current pick is never hidden: it keeps its place.
   expect(
-    groupUnavailableRows({ ...base, kept: "b", searching: false, group: "collapsed", expanded: true }).rows,
+    groupUnavailableRows({
+      ...base,
+      kept: "b",
+      searching: false,
+      group: "collapsed",
+      expanded: true,
+    }).rows,
   ).toEqual(["local", "a", "b", "toggle", "c", "add"]);
   expect(groupUnavailableRows({ ...base, searching: false, group: "after-add" }).rows).toEqual([
     "local",
@@ -1957,7 +2260,12 @@ test("a search lists an unavailable machine in place, so a machine is always fou
 test("a machine is unavailable once acpmux has not reached it for a while; one on its way up, asleep or this Mac never", async () => {
   const { environmentUnavailable, UNAVAILABLE_AFTER_MS } = await import("../src/agent-session/acpmux/environments");
   const now = 10 * UNAVAILABLE_AFTER_MS;
-  const machine = (extra: Record<string, unknown>) => ({ id: "m", label: "m", kind: "ssh" as const, ...extra });
+  const machine = (extra: Record<string, unknown>) => ({
+    id: "m",
+    label: "m",
+    kind: "ssh" as const,
+    ...extra,
+  });
   expect(environmentUnavailable(machine({ state: "reconnecting", downSince: now - UNAVAILABLE_AFTER_MS }), now)).toBe(
     true,
   );
@@ -1989,7 +2297,9 @@ test("a machine that crosses the unavailable time while the list is closed is gr
     });
     await openMachines();
     expect(unavailableRow()).toBeNull();
-    await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+    await press(doc().querySelector(".acpmux-env-popover input")!, {
+      key: "Escape",
+    });
     now = start + UNAVAILABLE_AFTER_MS;
     await openMachines();
     // Grouped at once: no gpu-box row drawn and then shrunk away.

@@ -28,7 +28,12 @@ export type PeerLink = {
   progress?: PeerReconnect;
 };
 
-type Shown = { link: LinkState; reconnecting?: true; why?: LinkWhy; stuck?: true } | null;
+type Shown = {
+  link: LinkState;
+  reconnecting?: true;
+  why?: LinkWhy;
+  stuck?: true;
+} | null;
 
 /// Every acpmux link state in the row's terms: a link that has not finished its handshake again is on
 /// its way (`restarting`, `reconnecting`); degraded is still connected. A refused token or an old build is down and waits
@@ -87,7 +92,9 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
   // One line per cause (Leo, 2026-11-14): a link the peer copy banner or the missing chat's state
   // already says is down is not said again here, on any machine. A step a person must take stays.
   const toldAbove = banner || snapshot.unavailable?.reason === "offline";
-  if (!known.stuck && known.link !== "connected" && toldAbove) return null;
+  // A delayed ping cannot prove that an offline copy has recovered. Keep that banner as the
+  // single status until the daemon reports the peer connected again.
+  if (!known.stuck && (known.link !== "connected" || said === "degraded") && toldAbove) return null;
   const why: LinkWhy | undefined =
     known.why ?? (known.link !== "connected" && detail?.cause === LOCAL ? LOCAL : undefined);
   const progress = !why ? peerReconnect(peer, detail, said) : undefined;

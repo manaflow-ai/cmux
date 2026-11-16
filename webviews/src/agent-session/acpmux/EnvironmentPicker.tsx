@@ -371,7 +371,12 @@ export function EnvironmentPicker({
       }))
     : [];
   const move: Action | undefined = opensMoves
-    ? { value: MOVE_MENU, text: t("composer.moveToMenu"), kind: "cloud", run: () => undefined }
+    ? {
+        value: MOVE_MENU,
+        text: t("composer.moveToMenu"),
+        kind: "cloud",
+        run: () => undefined,
+      }
     : offload && onOffload
       ? {
           value: ACTION + offload,
@@ -400,7 +405,12 @@ export function EnvironmentPicker({
   const cloud: Action | undefined =
     onConnect && runMode === undefined
       ? cloudSignedIn !== false
-        ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
+        ? {
+            value: ACTION + "cloud",
+            text: t("composer.cloud"),
+            kind: "cloud",
+            run: () => onConnect("cloud"),
+          }
         : {
             value: ACTION + "cloud",
             text: t("composer.cloudSignIn"),
@@ -413,7 +423,12 @@ export function EnvironmentPicker({
   // Where: Remote, whose pick is the machine control's. Which machine: Add Machine… last.
   const another: Action | undefined =
     listRows === "where" && onAnother
-      ? { value: ANOTHER, text: t("composer.anotherMachine"), kind: "local", run: onAnother }
+      ? {
+          value: ANOTHER,
+          text: t("composer.anotherMachine"),
+          kind: "local",
+          run: onAnother,
+        }
       : undefined;
   const addMachine: Action | undefined =
     listRows === "machines" && onConnect
@@ -448,7 +463,11 @@ export function EnvironmentPicker({
       });
     if (onConnect) {
       if (cloudSignedIn !== true)
-        items.push({ id: "cloudSignIn", label: t("composer.cloudSignIn"), onSelect: () => onConnect("cloudSignIn") });
+        items.push({
+          id: "cloudSignIn",
+          label: t("composer.cloudSignIn"),
+          onSelect: () => onConnect("cloudSignIn"),
+        });
       for (const [kind, key] of [
         ["cloud", "composer.newCloudMachine"],
         ["cloudPage", "composer.openCloud"],
@@ -456,13 +475,25 @@ export function EnvironmentPicker({
         ["addMachine", "composer.addMachine"],
         ["phone", "composer.connectPhone"],
       ] as const) {
-        items.push({ id: kind, label: t(key), onSelect: () => onConnect(kind) });
+        items.push({
+          id: kind,
+          label: t(key),
+          onSelect: () => onConnect(kind),
+        });
       }
     }
     if (saved) {
-      items.push({ id: "create", label: t("environment.create"), onSelect: saved.onCreate });
+      items.push({
+        id: "create",
+        label: t("environment.create"),
+        onSelect: saved.onCreate,
+      });
       if (editing !== undefined)
-        items.push({ id: "edit", label: t("environment.edit"), onSelect: () => saved.onEdit(editing) });
+        items.push({
+          id: "edit",
+          label: t("environment.edit"),
+          onSelect: () => saved.onEdit(editing),
+        });
     }
     return items;
   })();
@@ -820,11 +851,7 @@ export function EnvironmentPicker({
         </span>
         {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-        {!ready && (
-          <span className="acpmux-env-state">
-            {environmentQueuesStart(environment) ? t("environment.offlineQueued") : environmentStateLabel(environment)}
-          </span>
-        )}
+        {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
         {ready && environment.loadWarning && (
           <span className="acpmux-env-state" data-warning="true">
             {environment.loadWarning}

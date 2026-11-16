@@ -6,7 +6,11 @@ import { PeerStateEvents } from "./peerStateEvents";
 
 test("an outage says the machine and elapsed seconds from its first failure, across retries", () => {
   for (const link of ["reconnecting", "restarting", "offline"] as const) {
-    const progress = peerReconnect("work-box", { link, since: 4000, downSince: 1000 });
+    const progress = peerReconnect("work-box", {
+      link,
+      since: 4000,
+      downSince: 1000,
+    });
     expect(peerReconnectText(progress!, 4500, translate)).toBe("Reconnecting to work-box · 3 s");
   }
 });
@@ -32,9 +36,12 @@ test("the parser drops invalid outage times and state events deliver an updated 
     link: "offline",
   });
   const events = new PeerStateEvents();
-  events.configure({ _meta: { acpmux: { origin: "local", features: ["peerStateEvents"] } } });
-  expect(events.changed({ peer: "box", state: "reconnecting", downSince: 1000, at: 2000 })).toBe(true);
-  expect(events.changed({ peer: "box", state: "reconnecting", downSince: 1000, at: 3000 })).toBe(false);
-  expect(events.changed({ peer: "box", state: "reconnecting", downSince: 4000, at: 5000 })).toBe(true);
+  events.configure({
+    _meta: { acpmux: { origin: "local", features: ["peerStateEvents"] } },
+  });
+  const note = { peer: "box", state: "reconnecting", link: "reconnecting" };
+  expect(events.changed({ ...note, downSince: 1000, at: 2000 })).toBe(true);
+  expect(events.changed({ ...note, downSince: 1000, at: 3000 })).toBe(false);
+  expect(events.changed({ ...note, downSince: 4000, at: 5000 })).toBe(true);
   expect([...events.entries()][0]![1].detail?.downSince).toBe(4000);
 });

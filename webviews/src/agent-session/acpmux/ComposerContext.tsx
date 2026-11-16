@@ -34,6 +34,7 @@ import {
 } from "./cloudMachines";
 import {
   environmentReady,
+  environmentQueuesStart,
   environmentSections,
   knownMachines,
   orderEnvironments,
@@ -409,8 +410,13 @@ export function ComposerContext({
       const warning = machineLoadWarning(resources, loadWarnings);
       if (!warning) return undefined;
       return warning.kind === "load"
-        ? t("composer.machineHighLoad", { busy: warning.busy, cores: warning.cores })
-        : t("composer.machineLowMemory", { free: formatFreeMemory(warning.freeGB) });
+        ? t("composer.machineHighLoad", {
+            busy: warning.busy,
+            cores: warning.cores,
+          })
+        : t("composer.machineLowMemory", {
+            free: formatFreeMemory(warning.freeGB),
+          });
     },
     [loadWarnings, t],
   );
@@ -435,7 +441,7 @@ export function ComposerContext({
         ...(ready
           ? {}
           : {
-              ...(isCloudMachineRow(computer) ? {} : { disabled: true }),
+              ...(isCloudMachineRow(computer) || environmentQueuesStart(computer) ? {} : { disabled: true }),
               detail: environmentStateLabel(computer),
             }),
         ...(ready && warning ? { warning: true, detail: warning } : {}),
@@ -448,7 +454,9 @@ export function ComposerContext({
   // wrong computer and no folder for one frame on a local/peer switch). Each change clears the pick,
   // so a pick on one new chat never carries into the next.
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
-  const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
+  const [picked, setPicked] = useState<{ key: string; computer?: string }>({
+    key: pickKey,
+  });
   const [browseError, setBrowseError] = useState<string>();
   // The browse that failed, so Retry runs the same one.
   const browseRetry = useRef<() => void>(undefined);
@@ -763,7 +771,11 @@ export function ComposerContext({
           folders: extraShown,
           onAdd: (path) => {
             const next = addExtraFolder(extraShown, path, currentFolder);
-            if (next !== extraShown) extraFolders.onChange({ machine: selectedComputer, folders: next });
+            if (next !== extraShown)
+              extraFolders.onChange({
+                machine: selectedComputer,
+                folders: next,
+              });
           },
           onRemove: (path) => {
             const next = removeExtraFolder(extraShown, path);
@@ -1190,7 +1202,11 @@ export function ComposerContext({
                               },
                             ]
                           : []),
-                        { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
+                        {
+                          id: "ssh",
+                          label: t(CONTEXT_LABELS.connectSSH),
+                          onSelect: () => onConnect("ssh"),
+                        },
                         {
                           id: "cloud",
                           label: t(CONTEXT_LABELS.newCloudMachine),

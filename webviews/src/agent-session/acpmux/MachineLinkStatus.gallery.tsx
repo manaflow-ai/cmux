@@ -32,14 +32,25 @@ type Props = {
 const MACHINE = "walk-remote";
 const connected: PeerLink = { machine: MACHINE, link: "connected" };
 const connecting: PeerLink = { machine: MACHINE, link: "connecting" };
-const reconnecting: PeerLink = { machine: MACHINE, link: "connecting", reconnecting: true };
+const reconnecting: PeerLink = {
+  machine: MACHINE,
+  link: "connecting",
+  reconnecting: true,
+};
 const offline: PeerLink = { machine: MACHINE, link: "offline" };
-const longName: PeerLink = { machine: "gcp-codex-lane-12-us-central1-a", link: "offline" };
+const longName: PeerLink = {
+  machine: "gcp-codex-lane-12-us-central1-a",
+  link: "offline",
+};
 
 function Row({ link, look, before = false, quietMs = 0, now }: Props) {
   return (
-    <div className="acpmux-shell" data-machine-link-fixture style={{ padding: 16 }}>
-      <form className="acpmux-composer">
+    <div
+      className="acpmux-shell"
+      data-machine-link-fixture
+      style={{ padding: 16, width: "100%", boxSizing: "border-box" }}
+    >
+      <form className="acpmux-composer" style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
         <div className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
           <span className="acpmux-chips">
             <span className="acpmux-access">
@@ -70,7 +81,10 @@ const variants: Record<string, { note: string; props: Props }> = {
     note: 'Before: 40 s into a dropped link, the only change is the model chip\'s "Unavailable", which reads as the model.',
     props: { link: null, before: true },
   },
-  local: { note: "A chat on this Mac: no link, the row as before.", props: { link: null } },
+  local: {
+    note: "A chat on this Mac: no link, the row as before.",
+    props: { link: null },
+  },
 };
 for (const look of looks)
   for (const [state, link] of Object.entries(states))
@@ -91,10 +105,17 @@ for (const seconds of [1, 3, 10, 120])
       now: 1000 + seconds * 1000,
     },
   };
+variants["baseline-1s"] = {
+  note: "Current baseline: a reconnecting link before elapsed status is available, as the old row renders it.",
+  props: { link: reconnecting, quietMs: 120_000 },
+};
 variants["outage-long-name"] = {
   note: "A long machine name at narrow width, with the same quiet elapsed status.",
   props: {
-    link: { ...reconnecting, progress: { machine: longName.machine, since: 1000 } },
+    link: {
+      ...reconnecting,
+      progress: { machine: longName.machine, since: 1000 },
+    },
     now: 4000,
   },
 };
@@ -102,7 +123,11 @@ variants["outage-long-name"] = {
 // Under LINK_DOWN_SAID_MS (afterDelay.ts) a link acpmux brings back on its own is not said (Leo,
 // 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): the plain dot, no spinner,
 // no words, in every state that heals by itself.
-for (const [state, link] of Object.entries({ connecting, reconnecting, offline }))
+for (const [state, link] of Object.entries({
+  connecting,
+  reconnecting,
+  offline,
+}))
   variants[`quiet-${state}`] = {
     note: `${state}, down for less than 10 s: the plain dot; nothing is said yet.`,
     props: { link, quietMs: 3_600_000 },
