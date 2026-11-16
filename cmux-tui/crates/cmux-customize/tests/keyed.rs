@@ -117,7 +117,7 @@ fn an_agent_may_not_apply_or_switch_commands() {
     let customize = home.customize();
     match customize.preview_profile(&deploy_pack(), "mcp", 10) {
         Err(Error::Profile(why)) => {
-            assert!(why.contains("actions.deploy") && why.contains("only you can apply"), "{why}")
+            assert!(why.contains("actions.deploy") && why.contains("only you can apply"), "{why}");
         }
         other => panic!("{other:?}"),
     }
@@ -133,7 +133,7 @@ fn an_agent_may_not_apply_or_switch_commands() {
     let deploy = customize.apply(None, "cli", 31).unwrap().library.expect("an entry");
     match customize.library_set_on(&deploy, false, "mcp", 40) {
         Err(Error::Protected(keys)) => {
-            assert!(keys.contains(&"actions.deploy".to_owned()), "{keys:?}")
+            assert!(keys.contains(&"actions.deploy".to_owned()), "{keys:?}");
         }
         other => panic!("{other:?}"),
     }
