@@ -187,6 +187,78 @@ import Testing
         #expect(view.statusText == "Reconnecting to the shell…")
     }
 
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". "Disconnected" over the
+    /// last frame (a daemon restart, a hidden pane's drop, quiet re-attaches that ran out) waits the same 10 s
+    /// as "Reconnecting…": it showed after 1.5 s on every pane a daemon restart dropped.
+    @Test func aDisconnectThatHealsWithinTenSecondsShowsNothing() async throws {
+        let clock = ManualClock()
+        let view = TerminalHostView(clock: clock)
+        view.showStatus(.connected)
+        view.showStatus(.disconnected(.connectionLost, reconnecting: false))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(9_900))
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(view.statusText == nil, "a drop under 10 s shows no Disconnected")
+        #expect(view.statusLabelWaits)
+        view.showStatus(.connected)
+        #expect(view.statusText == nil)
+        #expect(!view.statusLabelWaits)
+
+        // One that lasts says its words (not the mark), once.
+        view.showStatus(.disconnected(.streamEnded, reconnecting: false))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(9_900))
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(view.statusText == nil)
+        clock.advance(by: .milliseconds(100))
+        try await Self.until { view.statusText != nil }
+        #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
+        #expect(view.statusLabel.banner?.showsMark == false)
+    }
+
+    /// Quiet re-attaches that run out turn "Reconnecting…" into "Disconnected" mid-wait: the label still
+    /// shows only 10 s after the drop began, never a fresh or shorter wait from the change.
+    @Test func aDisconnectAfterReconnectingWaitsFromTheDrop() async throws {
+        let clock = ManualClock()
+        let view = TerminalHostView(clock: clock)
+        view.showStatus(.connected)
+        view.showStatus(.disconnected(.connectionLost, reconnecting: true))
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(5))
+        view.showStatus(.disconnected(.connectionLost, reconnecting: false))
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(view.statusText == nil, "the change to Disconnected does not cut the wait short")
+        clock.advance(by: .milliseconds(4_900))
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(view.statusText == nil)
+        clock.advance(by: .milliseconds(100))
+        try await Self.until { view.statusText != nil }
+        #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
+    }
+
+    /// A state the app knows is final waits for nothing: the session ended (its shell exited, its host was
+    /// lost, the session shut down) or an administrator turned the link off.
+    @Test func aFinalStateShowsAtOnce() {
+        let view = TerminalHostView(clock: ManualClock())
+        view.showStatus(.connected)
+        view.showStatus(.exited)
+        #expect(view.statusText == "Process exited")
+        #expect(!view.statusLabelWaits)
+
+        let lost = TerminalHostView(clock: ManualClock())
+        lost.showStatus(.connected)
+        lost.showHostLoss(.sessionShutdown, cause: nil)
+        lost.showStatus(.exited)
+        #expect(lost.statusText == "Terminal lost: the session shut down")
+        #expect(!lost.statusLabelWaits)
+
+        let off = TerminalHostView(clock: ManualClock())
+        off.showStatus(.connected)
+        off.showStatus(.disconnected(.turnedOffByOrganization, reconnecting: false))
+        #expect(off.statusText == "Turned off by your organization")
+        #expect(!off.statusLabelWaits)
+    }
+
     /// "Restoring…" turning into a reconnecting stall keeps the longer wait from the same start: the label
     /// shows when the clock reaches the start plus the longer delay, not that delay after the change.
     @Test func aLongerWaitKeepsItsStart() async throws {
