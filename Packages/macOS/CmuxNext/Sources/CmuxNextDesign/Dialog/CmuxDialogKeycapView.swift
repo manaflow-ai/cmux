@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesignTokens
 
 /// The key that presses a dialog button, on a small rounded plate at the button's trailing end ("Not Now esc",
 /// "Turn On ↩"; Lawrence 2026-11-09). The plate sits with one inset on its top, bottom and end, and its corners
@@ -32,9 +33,17 @@ final class CmuxDialogKeycapView: NSView {
         label.textColor = glyph
     }
 
+    // The button sets the plate's frame in its own layout, after the plate's layout pass: the corner follows the
+    // size here too, so it never keeps the corner of an earlier size.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        layer?.cornerRadius = CmuxDialogMetrics.keycapCornerRadius(fitting: newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
-        layer?.cornerRadius = Metrics.buttonCornerRadius(nestedIn: CmuxDialogMetrics.keycapButtonCornerRadius, inset: CmuxDialogMetrics.keycapInset)
+        layer?.cornerRadius = CmuxDialogMetrics.keycapCornerRadius(fitting: bounds.size)
         let size = label.naturalSize
         label.frame = NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,
                              width: size.width, height: size.height)
