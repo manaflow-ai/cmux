@@ -215,14 +215,15 @@ export const agentKeyStatus = (deps: Pick<AgentKeyDeps, "state" | "rows" | "team
 
 /**
  * The key itself, for the model route only (TeamDO RPC, never a client read). With `user`, only
- * while that person is still a member of the team: a member removed mid-session stops spending the
- * team's key on the very next request.
+ * while that person still holds the team.resources grant (the same check as every other Cloud
+ * use of the team): a member removed mid-session, or demoted to guest or billing, stops spending
+ * the team's key on the very next request, though their machine token still names them.
  */
 export const agentKeyOpen = async (deps: Pick<AgentKeyDeps, "state" | "rows" | "team" | "sql" | "env" | "http">, agent: TeamAgent, user?: string): Promise<TeamSharedKey | null> => {
   if (!TEAM_AGENTS.includes(agent)) return null
   const state = deps.state()
   if (teamGone(state)) return null
-  if (user !== undefined && !memberOf(state, deps.rows, user)) return null
+  if (user !== undefined && !can(state, deps.rows, user, "team.resources")) return null
   const row = rowOf(deps.sql, agent)
   if (!row?.sealed || (row.kind !== "api_key" && row.kind !== "oauth")) return null
   const secret = await openSecretText(deps.env, deps.http, addressOf(deps.team, agent, row.generation), row.sealed)
@@ -231,7 +232,7 @@ export const agentKeyOpen = async (deps: Pick<AgentKeyDeps, "state" | "rows" | "
 
 /**
  * Contract C4: the team's shared key for `agent`, or null when it has none (or `options.user` is
- * not a current member). For the Worker's model route (contract C2); never answer a client with it.
+ * not a current member holding team.resources). For the Worker's model route (contract C2); never answer a client with it.
  * cmux-platform reaches the same answer through its TEAM_DO binding: `TeamDO.agentKeyResolve(team, agent, user?)`.
  */
 export const resolveTeamSharedKey = async (env: Pick<Env, "TEAM_DO">, teamId: string, agent: TeamAgent, options: { readonly user?: string } = {}): Promise<TeamSharedKey | null> => {

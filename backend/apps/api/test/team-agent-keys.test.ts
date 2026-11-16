@@ -92,6 +92,28 @@ describe("team shared agent keys (C4)", { timeout: 60_000 }, () => {
     expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: t.creator.user })).toEqual({ kind: "api_key", secret: KEY })
   })
 
+  it("only a member with team.resources resolves the team's key: a guest, a billing member and a member demoted to guest do not", async () => {
+    const t = await rolesTeam()
+    const member = await t.join("Member", STACK_MEMBER)
+    const guest = await t.join("Guest", [...STACK_MEMBER, "cmux:guest"])
+    const billing = await t.join("Billing", ["cmux:billing"])
+    const later = await t.join("Later", STACK_MEMBER)
+    expect((await op(t.creator.token, "team.agent_key.set", { agent: "claude", kind: "api_key", secret: KEY }, t.team)).body.ok).toBe(true)
+    const store = new ModelKeys(createExecutionContext(), testEnv as never)
+    expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: member.user })).toEqual({ kind: "api_key", secret: KEY })
+    expect(await store.resolveTeamSharedKey(t.team, "claude", member.user)).toEqual({ kind: "api_key", secret: KEY })
+    for (const who of [guest, billing]) {
+      expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: who.user })).toBeNull()
+      expect(await store.resolveTeamSharedKey(t.team, "claude", who.user)).toBeNull()
+    }
+    // Demoted in Stack: their machine token still names them, and the key stops at the next sync.
+    expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: later.user })).toEqual({ kind: "api_key", secret: KEY })
+    t.w.perms.set(`${t.stackTeam}:${later.stackUser}`, ["cmux:guest"])
+    expect((await deliver("team_permission.created", { id: "cmux:guest", team_id: t.stackTeam, user_id: later.stackUser })).status).toBe(200)
+    expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: later.user })).toBeNull()
+    expect(await store.resolveTeamSharedKey(t.team, "claude", later.user)).toBeNull()
+  })
+
   it("a retried set is answered from its first write; bad keys are refused before sealing", async () => {
     const t = await rolesTeam()
     const key = crypto.randomUUID()

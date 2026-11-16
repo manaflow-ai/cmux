@@ -3,7 +3,8 @@ import type { ServerNetworkReservation } from "@cmux/protocol"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { cloudMachineReader, publishOwnershipRefusal, type CloudMachineRead } from "./team-cloud-session-machine.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
 import { can, firstOwner, homeCoMembersOf, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
@@ -763,6 +764,11 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** An op (an invite accepted, a member added or removed) answers once the members' team indexes follow it, as a Stack delivery does. */
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    // A first Cloud session publish needs the machine's creator (CloudDO's record; team-cloud-session-machine.ts).
+    if (frame.op === "team.cloud.session.publish" && this.isBound(entity)) {
+      const refused = await publishOwnershipRefusal({ stream: `team:${entity}`, rows: this.rows, read: this.cloudMachineRead ?? cloudMachineReader(this.env.CLOUD_DO) }, entity, principal, frame)
+      if (refused) return { frames: refused }
+    }
     const r = await super.submit(entity, principal, frame)
     await this.indexesDelivered()
     return r
@@ -785,4 +791,16 @@ export class TeamDO extends OwnerDO<TeamState> {
   private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env), lowPace: () => this.stackLowPace?.() ?? stackLowReadPace(this.env), carryTo: this.carryTo ?? (async (personalTeam, fromTeam, vmPlan) => { const r = await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(personalTeam)).receiveCarriedVmPlan(personalTeam, fromTeam, vmPlan); if (!r.ok) throw new Error(`carried grant refused: ${r.code}`) }) }))
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean { return can(state, this.rows, principal.user, "team.resources") }
+
+  /** Tests only: replaces CloudDO's machine read for the first-publish check (team-cloud-session-machine.ts). */
+  cloudMachineRead: CloudMachineRead | undefined = undefined
+
+  /** The first-publish machine check awaits CloudDO, which the socket's synchronous op path cannot: that op goes through POST /v1/ops. */
+  protected override routeFrame(ws: WebSocket, _a: Attachment, frame: { readonly t?: string; readonly op?: unknown } & Record<string, unknown>): boolean {
+    if (frame.t !== "op" || frame.op !== "team.cloud.session.publish") return false
+    try {
+      ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: "team.cloud.session.publish goes through POST /v1/ops", retryable: false, replayed: false }))
+    } catch {}
+    return true
+  }
 }

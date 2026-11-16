@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { codeOf, op, read, rolesTeam, STACK_MEMBER } from "./team-roles-support.ts"
+import { codeOf, op, read, rolesTeam as baseRolesTeam, STACK_MEMBER } from "./team-roles-support.ts"
+import { inDO } from "./team-ssh-support.ts"
+import { teamStub } from "./team-stack-support.ts"
 
 /**
  * Team-visible Cloud sessions (cloud multiplayer lane D): every member lists the team's Cloud workspaces
@@ -19,6 +21,25 @@ const chat = (session: string, extra: Record<string, unknown> = {}) => ({
   last_activity_at: 1_000,
   ...extra
 })
+/**
+ * CloudDO's machine records as TeamDO's first-publish check reads them (cloud.machine.get): machine id to its
+ * creator. CloudDO is cmux-platform's and has no binding here, so each test team gets this fake.
+ */
+const machines = (team: string, creators: Record<string, string>, unreachable = false) =>
+  inDO(teamStub(team), async (instance) => {
+    instance.cloudMachineRead = async (_team: string, _p: unknown, machine: string) =>
+      unreachable
+        ? Promise.reject(new Error("CloudDO unreachable"))
+        : creators[machine]
+          ? { ok: true, value: { id: machine, team, creator: creators[machine] }, revision: "1" }
+          : { ok: false, code: "cloud.machine.not_found", message: "no such machine" }
+  })
+/** A roles team whose creator made VM. */
+const rolesTeam = async () => {
+  const t = await baseRolesTeam()
+  await machines(t.team, { [VM]: t.creator.user })
+  return t
+}
 // An op answers `{ok: true, value}`; a read answers `{op, value, stream, revision}`. Either way a
 // success has a value and no error code.
 const ok = (r: { body: any }) => {
@@ -50,6 +71,30 @@ describe("team Cloud sessions", { timeout: 120_000 }, () => {
     // A member cannot publish over someone else's session; a missing one is cloud_session.not_found.
     expect(codeOf(await op(member.token, "team.cloud.session.publish", chat("s1", { title: "hijack" }), t.team))).toBe("cloud_session.not_yours")
     expect(codeOf(await read(member.token, "team.cloud.session.get", { vm: VM, session: "nope" }, t.team))).toBe("selector.not_found")
+  })
+
+  it("a first publish needs the machine's creator: another member's machine, an unknown one and an unreachable record are refused", async () => {
+    const t = await baseRolesTeam()
+    const alice = await t.join("Alice", STACK_MEMBER)
+    const bob = await t.join("Bob", STACK_MEMBER)
+    const OTHER = "vm_fedcba9876543210fedc"
+    await machines(t.team, { [VM]: alice.user })
+    // Bob publishes Alice's machine first: refused, and nothing is recorded, so Alice still owns it.
+    expect(codeOf(await op(bob.token, "team.cloud.session.publish", chat("s1", { title: "hijack" }), t.team))).toBe("cloud_session.not_yours")
+    expect(codeOf(await read(alice.token, "team.cloud.session.get", { vm: VM, session: "s1" }, t.team))).toBe("selector.not_found")
+    // A team owner is not the machine's creator either; a machine CloudDO does not know is refused.
+    expect(codeOf(await op(t.creator.token, "team.cloud.session.publish", chat("s1"), t.team))).toBe("cloud_session.not_yours")
+    expect(codeOf(await op(alice.token, "team.cloud.session.publish", { ...chat("s1"), vm: OTHER }, t.team))).toBe("cloud_session.not_yours")
+    // The creator's first publish and every re-publish succeed.
+    expect(ok(await op(alice.token, "team.cloud.session.publish", chat("s1"), t.team))).toMatchObject({ owner: alice.user, assignee: alice.user })
+    expect(ok(await op(alice.token, "team.cloud.session.publish", chat("s1", { title: "Renamed", last_activity_at: 2_000 }), t.team))).toMatchObject({ owner: alice.user, title: "Renamed" })
+    // Bob over the existing record: the reducer's owner-or-assignee check.
+    expect(codeOf(await op(bob.token, "team.cloud.session.publish", chat("s1", { title: "hijack" }), t.team))).toBe("cloud_session.not_yours")
+    // The record exists, so a re-publish never needs CloudDO; a new session on it does, retryably.
+    await machines(t.team, {}, true)
+    ok(await op(alice.token, "team.cloud.session.publish", chat("s1", { last_activity_at: 3_000 }), t.team))
+    const down = await op(alice.token, "team.cloud.session.publish", chat("s2"), t.team)
+    expect(codeOf(down)).toBe("owner.unreachable")
   })
 
   it("a publish never moves last activity back, never touches the assignee, and a same publish changes nothing", async () => {
@@ -87,6 +132,7 @@ describe("team Cloud sessions", { timeout: 120_000 }, () => {
     const c = await t.join("Carol", STACK_MEMBER)
     const admin = await t.join("Admin", [...STACK_MEMBER, "cmux:admin"])
     const guest = await t.join("Guest", [...STACK_MEMBER, "cmux:guest"])
+    await machines(t.team, { [VM]: a.user })
     ok(await op(a.token, "team.cloud.session.publish", chat("s1"), t.team))
     ok(await op(c.token, "team.cloud.session.follow", { vm: VM, session: "s1", follow: true }, t.team))
     ok(await op(b.token, "team.cloud.session.follow", { vm: VM, session: "s1", follow: true }, t.team))
