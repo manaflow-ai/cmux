@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43788251289",
+  "recorded_at": "2026-11-16T01:58:13Z",
+  "reason": "cmux-tui 270938c48595 changes the image's cmux-tui (pinned b03e9cb66633)",
+  "dry_run": false,
+  "cmux_tui": "270938c485950d47070b6e024661a70b63a730ca",
+  "fixes": [
+    {
+      "sha": "270938c485950d47070b6e024661a70b63a730ca",
+      "mergedAt": "2026-11-16T01:30:16Z",
+      "subject": "Cloud: a folder past the copy limits starts at once from a first pass, never a refusal (#44070)"
+    },
+    {
+      "sha": "4dde96d6e69984da49d1d193372fac4d1cbe11eb",
+      "mergedAt": "2026-11-15T17:25:37-08:00",
+      "subject": "acpmux: this Mac's admin turns Control on with sudo, no app or screen (#44027)"
+    },
+    {
+      "sha": "754278aec54369f6bad6165884cd17b2a5b19ac3",
+      "mergedAt": "2026-11-15T17:21:14-08:00",
+      "subject": "cmux-tui-core: a retried worktree create takes only a worktree of its repository (#43945)"
+    },
+    {
+      "sha": "74cfd05f837fd0d13aea1d47de3e5b39ca50cf2f",
+      "mergedAt": "2026-11-15T17:03:34-08:00",
+      "subject": "refactor(acpmux-core): move hub.rs's inline tests to hub/tests.rs (#44005)"
+    },
+    {
+      "sha": "c81369ebebcb222585dc6f15ceca1225479082ee",
+      "mergedAt": "2026-11-15T17:03:28-08:00",
+      "subject": "cmux CLI: scope help lists catalog app verbs; remote-host without cmux Remote (#43948)"
+    },
+    {
+      "sha": "735ceceb1476a15a3123fcfbbc7d6c0c96d0b23c",
+      "mergedAt": "2026-11-15T16:51:12-08:00",
+      "subject": "Sign-in join: the Mac joins the team its Cloud machines are in, and moves there (#43972)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T01:58:13Z",
+    "snapshot_id": "sh-00d9c8c5465f4822b6222e42a24057bf",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43788251289): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "315b40eb5c24d19f239daa205364cab54deb9ff7",
+    "image": "cloud-native-auto-270938c4-43788251289-1",
+    "revision": "ci-43788251289-1",
+    "at": "2026-11-16T01:58:13Z"
+  },
+  "rolled_back": false
+}
