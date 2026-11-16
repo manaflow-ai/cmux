@@ -488,6 +488,15 @@ fn standard_never_refines_and_carries_its_profile() {
 }
 
 #[test]
+fn ultra_engine_target_is_the_full_wire_budget_for_pacing() {
+    let mut e =
+        MediaEngine::new(EngineConfig { max_bps: 150_000_000, ..EngineConfig::default() }, 0);
+    e.set_profile(EncodeProfile::Ultra);
+    let req = e.start(0).expect("first frame");
+    assert!(e.target_bps() > u64::from(req.target_kbps) * 1_000, "pacer gets the full wire budget");
+}
+
+#[test]
 fn ultra_refines_a_still_screen_within_two_frames() {
     let mut e = engine();
     e.set_profile(EncodeProfile::Ultra);

@@ -471,7 +471,10 @@ impl MediaEngine {
 
     /// The controller's target now (all display streams together).
     pub fn target_bps(&self) -> u64 {
-        self.cc.target_bps()
+        // The host passes this value to the pacer. Ultra's encoder target is
+        // media-only (`EncodeRequest.target_kbps`); pacing must reserve the
+        // same held budget for media, FEC, repair, and probes.
+        self.cc.wire_budget_bps()
     }
 
     /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
