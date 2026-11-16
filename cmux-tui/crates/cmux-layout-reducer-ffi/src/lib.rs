@@ -11,6 +11,8 @@
 //! workspace lands),
 //! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
 //! and when to look again),
+//! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
+//! are discarded or are kept),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -88,6 +90,7 @@ pub mod shown_resize;
 pub mod sidebar_caps;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
+mod tab_discard;
 pub mod tab_drag;
 pub mod typed;
 pub mod window_close_selection;
@@ -562,6 +565,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
+            }
+            operation if tab_discard::handles(operation) => {
+                tab_discard::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?

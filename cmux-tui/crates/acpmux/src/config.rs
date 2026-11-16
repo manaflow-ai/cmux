@@ -65,6 +65,14 @@ pub fn home() -> PathBuf {
     default_home()
 }
 
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
+/// a panic in a request task ends only that task and used to leave just
+/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
+/// app sends new lines to Sentry.
+pub fn panic_log_path() -> std::path::PathBuf {
+    home().join("panics.jsonl")
+}
+
 /// The default state directory, with no ACPMUX_HOME and no override: the
 /// person's own daemon home (a hand, which runs its own daemon, protects it).
 pub fn default_home() -> PathBuf {
@@ -1611,13 +1619,13 @@ pub struct Config {
     /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub send_relay: Option<crate::cli::send_relay::SendRelay>,
+    pub send_relay: Option<SendRelay>,
     /// `meshRelay`: `{"url", "tokenCommand", "controlFrom", "teamMessaging"}`, the team hub this
     /// daemon heartbeats its sessions to, takes messages for them from, and sends a message to a
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
     /// default): no relay. `teamMessaging` (team addresses and inboxes) is on unless `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh_relay: Option<crate::mesh_http::MeshRelayConfig>,
+    pub mesh_relay: Option<crate::mesh_relay_config::MeshRelayConfig>,
     /// `artifacts`: the agent tools that save to and search the person's cmux artifacts
     /// (`acpmux_mcp_artifacts.rs`). On whenever `meshRelay` holds a cmux sign-in;
     /// `{"enabled": false}` turns them off, `baseUrl` names another cmux-platform deployment.
@@ -1711,6 +1719,17 @@ impl WriteJournalConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
+}
+
+/// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
+/// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc of
+/// `cli/send_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SendRelay {
+    pub argv: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ls_argv: Option<Vec<String>>,
 }
 
 mod config_impl;

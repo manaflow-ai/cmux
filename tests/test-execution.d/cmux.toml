@@ -70,6 +70,10 @@ path = "tests/test_cmux_next_base_autofix_finishes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_base_merge_carry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_base_tier.py"
 lane = "linux-guard"
 
