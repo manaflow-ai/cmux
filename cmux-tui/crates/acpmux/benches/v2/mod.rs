@@ -534,7 +534,12 @@ mod tests {
     #[test]
     fn a_pr_that_writes_a_row_has_no_placeholder_left() {
         let names = names_in_sources();
-        let written = |row: &GateRow| names.iter().any(|(name, _)| spells(name, row.name));
+        // The page group's rows are written by its entry script, not by a Rust source.
+        let page = page_gates();
+        let written = |row: &GateRow| {
+            names.iter().any(|(name, _)| spells(name, row.name))
+                || page.iter().any(|name| name == row.name)
+        };
         for row in GATE_ROWS {
             if written(row) {
                 continue;
