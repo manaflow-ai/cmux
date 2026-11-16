@@ -1,5 +1,6 @@
 import { sessionInfoGridScenes } from "./sessionInfoGridScenes";
 import type { GridLine, GridMetric, GridPoint, GridScene } from "./gridLines";
+import { MODEL_PICKER, PLUS_PICKER } from "../../src/agent-session/acpmux/composerSelectors";
 
 // Roles identify ink targets; selectors remain available while surfaces migrate.
 const selectorRoles: Record<string, string> = {
@@ -67,7 +68,7 @@ const scene = (surface: string, entry: string, variant: string, root: string, li
   rootRole: ["composer.box", "composer.foot", "stack.strip", "stack.trust"].includes(surface) ? surface : undefined,
   lines,
 });
-const plus = ".acpmux-composer-plus .acpmux-picker-button";
+const plus = PLUS_PICKER;
 
 const placeholder = ".acpmux-md-placeholder";
 const composer = (variant: string, text = placeholder, entry = "agent-pane.composer-row") => {
@@ -207,7 +208,7 @@ export const gridScenes: GridScene[] = [
     // --acpmux-ring-gap), so the row ends on the model button's effort.
     from(
       "ring: before the model",
-      ".acpmux-model .acpmux-picker-button",
+      MODEL_PICKER,
       "left",
       point(".acpmux-context-ring", "right"),
       "calc(var(--grid-base) / 2)",
@@ -230,7 +231,7 @@ export const gridScenes: GridScene[] = [
     // --acpmux-ring-gap), so the row ends on the model button's effort.
     from(
       "ring: before the model",
-      ".acpmux-model .acpmux-picker-button",
+      MODEL_PICKER,
       "left",
       point(".acpmux-context-ring", "right"),
       "calc(var(--grid-base) / 2)",

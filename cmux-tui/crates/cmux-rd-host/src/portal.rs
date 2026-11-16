@@ -6,10 +6,10 @@
 //! [`PortalCapture::start`] is the one constructor. It returns a capturer with the same
 //! surface as `capture::Capturer` on X11: `width`/`height`, [`PortalCapture::fd`] (readable
 //! when damage waits), [`PortalCapture::drain`] (damage as `capture::DamageEvent`) and
-//! [`PortalCapture::grab`] (a rectangle as BGRX rows of stride `w * 4`). [`PortalDesktop`]
-//! wraps it as a `desktop::Desktop` with the session's encoder, so the capture-backend seam
-//! (`--capture portal|x11`, chosen by the session in serve/host) only has to call
-//! `PortalDesktop::open(cfg, PortalOpts::default())` where it now calls `X11Desktop::open`.
+//! [`PortalCapture::frames`] (a reader of the newest picture for the encode thread, a
+//! rectangle as BGRX rows of stride `w * 4`). [`open_desktop`] wraps it as the session's
+//! `desktop::Desktop` and `desktop::FrameSource` halves with the session's encoder, chosen by
+//! the capture-backend seam (`--capture portal|x11`) in desktop.rs.
 //!
 //! # Handshake
 //! CreateSession, SelectSources (one monitor, cursor embedded where offered, else as
@@ -517,9 +517,9 @@ impl PortalCapture {
         self.stream.drain(out)
     }
 
-    /// Copies `r` of the newest picture out as BGRX rows with stride `r.w * 4`.
-    pub fn grab(&mut self, r: Rect) -> Res<&[u8]> {
-        self.stream.grab(r)
+    /// A reader of the newest picture for the session's encode thread.
+    pub fn frames(&self) -> crate::pipewire_capture::PwFrames {
+        self.stream.frames()
     }
 }
 
@@ -529,40 +529,51 @@ impl Drop for PortalCapture {
     }
 }
 
-/// [`PortalCapture`] as a session's `Desktop`: the same I420 conversion and encoder as the
-/// X11 desktop, and no input (view-only: events are dropped).
+/// [`PortalCapture`] as a session's `Desktop`: damage, and no input (view-only: events are
+/// dropped).
 pub struct PortalDesktop {
     cap: PortalCapture,
-    enc: Box<dyn crate::encoder::H264Encoder>,
-    pic: cmux_encode::I420,
     damage: Vec<DamageEvent>,
     warned_input: bool,
 }
 
-impl PortalDesktop {
-    pub fn open(cfg: &crate::stream::SessionCfg, opts: PortalOpts) -> Res<Self> {
-        let cap = PortalCapture::start(opts)?;
-        let (w, h) = (cap.width & !1, cap.height & !1);
-        let enc = crate::encoder::open(&crate::encoder::EncCfg {
-            width: w,
-            height: h,
-            fps: cfg.max_fps,
-            kbps: cfg.start_kbps,
-            threads: cfg.threads,
-            codec: &cfg.codec,
-            screen_content: cfg.content != "camera",
-            preset: &cfg.preset,
-            profile: &cfg.profile,
-            openh264_lib: cfg.openh264_lib.as_deref(),
-        })?;
-        Ok(Self {
-            pic: cmux_encode::I420::new(w as usize, h as usize),
-            damage: Vec::new(),
-            cap,
-            enc,
-            warned_input: false,
-        })
-    }
+/// The portal's encode-thread half: the same I420 conversion and encoder as the X11 desktop.
+pub struct PortalFrames {
+    frames: crate::pipewire_capture::PwFrames,
+    width: u32,
+    height: u32,
+    enc: Box<dyn crate::encoder::H264Encoder>,
+    pic: cmux_encode::I420,
+}
+
+/// Runs the portal handshake and opens both halves of the session's desktop.
+pub fn open_desktop(
+    cfg: &crate::stream::SessionCfg,
+    opts: PortalOpts,
+) -> Res<crate::desktop::Halves> {
+    let cap = PortalCapture::start(opts)?;
+    let (w, h) = (cap.width & !1, cap.height & !1);
+    let enc = crate::encoder::open(&crate::encoder::EncCfg {
+        width: w,
+        height: h,
+        fps: cfg.max_fps,
+        kbps: cfg.start_kbps,
+        threads: cfg.threads,
+        codec: &cfg.codec,
+        screen_content: cfg.content != "camera",
+        preset: &cfg.preset,
+        profile: &cfg.profile,
+        openh264_lib: cfg.openh264_lib.as_deref(),
+    })?;
+    let frames = PortalFrames {
+        frames: cap.frames(),
+        width: w,
+        height: h,
+        pic: cmux_encode::I420::new(w as usize, h as usize),
+        enc,
+    };
+    let desktop = PortalDesktop { cap, damage: Vec::new(), warned_input: false };
+    Ok((Box::new(desktop), Box::new(frames)))
 }
 
 impl crate::desktop::Desktop for PortalDesktop {
@@ -586,12 +597,25 @@ impl crate::desktop::Desktop for PortalDesktop {
         Ok(())
     }
 
+    fn inject(&mut self, _event: &cmux_rd_proto::InputEvent) -> Res<()> {
+        if !self.warned_input {
+            self.warned_input = true;
+            eprintln!("cmux-rd: portal capture is view-only; viewer input is ignored on Wayland");
+        }
+        Ok(())
+    }
+
+    fn release_all(&mut self) -> Res<()> {
+        Ok(())
+    }
+}
+
+impl crate::desktop::FrameSource for PortalFrames {
     fn capture(&mut self, damage: cmux_rd_core::flow::Rect) -> Res<()> {
-        let (w, h) = self.size();
-        let r =
-            Rect { x: damage.x, y: damage.y, w: damage.width, h: damage.height }.align_even(w, h);
+        let r = Rect { x: damage.x, y: damage.y, w: damage.width, h: damage.height }
+            .align_even(self.width, self.height);
         if r.w > 0 && r.h > 0 {
-            let px = self.cap.grab(r)?;
+            let px = self.frames.grab(r)?;
             cmux_encode::bgrx_rect_to_i420(
                 px,
                 &mut self.pic,
@@ -619,18 +643,6 @@ impl crate::desktop::Desktop for PortalDesktop {
 
     fn encoder_name(&self) -> String {
         self.enc.name()
-    }
-
-    fn inject(&mut self, _event: &cmux_rd_proto::InputEvent) -> Res<()> {
-        if !self.warned_input {
-            self.warned_input = true;
-            eprintln!("cmux-rd: portal capture is view-only; viewer input is ignored on Wayland");
-        }
-        Ok(())
-    }
-
-    fn release_all(&mut self) -> Res<()> {
-        Ok(())
     }
 }
 
