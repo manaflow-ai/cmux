@@ -644,3 +644,85 @@ fn an_older_frame_arrival_cannot_replace_a_newer_delay_sample() {
     assert_eq!(cc.target_bps(), before, "a reordered old shard is not a new path sample");
     assert_ne!(cc.usage(), Usage::Overuse);
 }
+
+mod scale_governor {
+    use cmux_rd_core::ladder::{MIN_MOTION_BITS_PER_PIXEL, STILL_US, ScaleGovernor, UP_HOLD_US};
+
+    /// 4K at 60 fps: the floor needs about 24.9 Mbps at full size.
+    const PIXELS: u64 = 3840 * 2160;
+    const FPS: u32 = 60;
+    const FRAME_US: u64 = 16_667;
+
+    fn full_size_floor_bps() -> u64 {
+        (MIN_MOTION_BITS_PER_PIXEL * PIXELS as f64 * f64::from(FPS)).ceil() as u64
+    }
+
+    #[test]
+    fn motion_under_the_floor_steps_down_at_once_to_the_largest_size_that_clears_it() {
+        let mut g = ScaleGovernor::new();
+        // 15 Mbps clears the floor at 0.75 (14 Mbps needed), not at full size.
+        assert_eq!(g.on_frame(0, 15_000_000, FPS, PIXELS, 1.0), 0.75);
+        // 1 Mbps clears it nowhere: the smallest size.
+        let mut g = ScaleGovernor::new();
+        assert_eq!(g.on_frame(0, 1_000_000, FPS, PIXELS, 1.0), 0.5);
+    }
+
+    #[test]
+    fn small_changes_stay_full_size_at_any_rate() {
+        let mut g = ScaleGovernor::new();
+        assert_eq!(g.on_frame(0, 500_000, FPS, PIXELS, 0.02), 1.0);
+        assert_eq!(g.on_frame(FRAME_US, 500_000, FPS, PIXELS, 0.1), 1.0);
+    }
+
+    #[test]
+    fn the_stream_steps_back_up_only_after_the_hold() {
+        let mut g = ScaleGovernor::new();
+        assert_eq!(g.on_frame(0, 1_000_000, FPS, PIXELS, 1.0), 0.5);
+        // The rate recovers: full size clears the floor with margin.
+        let rich = full_size_floor_bps() * 2;
+        let mut now = FRAME_US;
+        assert_eq!(g.on_frame(now, rich, FPS, PIXELS, 1.0), 0.5, "no step before the hold");
+        while now < FRAME_US + UP_HOLD_US {
+            now += FRAME_US;
+            g.on_frame(now, rich, FPS, PIXELS, 1.0);
+        }
+        assert_eq!(g.scale(), 0.75, "one step up after the hold");
+        let step_at = now;
+        while now < step_at + FRAME_US + UP_HOLD_US {
+            now += FRAME_US;
+            g.on_frame(now, rich, FPS, PIXELS, 1.0);
+        }
+        assert_eq!(g.scale(), 1.0, "and another after the next hold");
+    }
+
+    #[test]
+    fn a_dip_during_the_hold_restarts_it() {
+        let mut g = ScaleGovernor::new();
+        g.on_frame(0, 1_000_000, FPS, PIXELS, 1.0);
+        let rich = full_size_floor_bps() * 2;
+        let mut now = 0;
+        for _ in 0..60 {
+            now += FRAME_US;
+            g.on_frame(now, rich, FPS, PIXELS, 1.0);
+        }
+        // Room at 0.75 is gone for one frame (still above the floor at 0.5).
+        now += FRAME_US;
+        g.on_frame(now, 8_000_000, FPS, PIXELS, 1.0);
+        let restart = now;
+        while now < restart + UP_HOLD_US - FRAME_US {
+            now += FRAME_US;
+            g.on_frame(now, rich, FPS, PIXELS, 1.0);
+        }
+        assert_eq!(g.scale(), 0.5, "the hold restarted at the dip");
+    }
+
+    #[test]
+    fn when_motion_stops_the_next_frame_refines_at_full_size() {
+        let mut g = ScaleGovernor::new();
+        assert_eq!(g.on_frame(0, 1_000_000, FPS, PIXELS, 1.0), 0.5);
+        // A still gap, then a small change (a caret, a status line): full size again.
+        assert_eq!(g.on_frame(STILL_US, 1_000_000, FPS, PIXELS, 0.01), 1.0);
+        // Motion resumes at the same low rate: down again at once.
+        assert_eq!(g.on_frame(STILL_US + FRAME_US, 1_000_000, FPS, PIXELS, 1.0), 0.5);
+    }
+}

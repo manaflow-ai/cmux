@@ -334,18 +334,26 @@ fn videotoolbox_motion_frames_keep_their_detail_at_a_low_target() {
     };
     let mut pic = I420::new(W, H);
     let mut au = Vec::new();
+    assert!(enc.max_qp().is_some(), "the encoder took no QP ceiling: {}", enc.name());
     let mut p_bytes = Vec::new();
+    let mut dropped = 0;
     for i in 0..12i64 {
         noise(&mut pic);
         let idr = enc.encode(&pic, i == 0, i * 33_333, &mut au).expect("encode");
-        if !idr && !au.is_empty() && i >= 2 {
-            p_bytes.push(au.len());
+        if i >= 2 {
+            if au.is_empty() {
+                dropped += 1;
+            } else if !idr {
+                p_bytes.push(au.len());
+            }
         }
     }
+    // The ceiling must not be paid for with dropped frames (a frozen picture under motion).
+    assert!(dropped <= 2, "{dropped} of 10 motion frames dropped: {p_bytes:?}");
     assert!(!p_bytes.is_empty(), "no P-frames came out");
     let mean = p_bytes.iter().sum::<usize>() / p_bytes.len();
     let budget = (KBPS as usize * 1000 / 8) / 30;
-    eprintln!("motion P-frames {p_bytes:?}, mean {mean} B, per-frame budget {budget} B");
+    eprintln!("motion P-frames {p_bytes:?} ({dropped} dropped), mean {mean} B, budget {budget} B");
     // QP 34 on full-frame noise needs tens of KB; capped at the budget it would be QP 51 mush.
     assert!(mean > budget * 20, "mean P-frame {mean} B is near the {budget} B budget: QP ran away");
 }

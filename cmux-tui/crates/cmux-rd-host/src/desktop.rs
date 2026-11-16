@@ -115,11 +115,20 @@ mod tests {
     }
 }
 
+/// Whether this OS's desktop encodes a smaller picture when the rate is too low for the full
+/// one (cap `scale`, cmux-rd-core `ladder::ScaleGovernor`): macOS, where VideoToolbox scales
+/// the captured surface on the GPU.
+pub fn scales_down() -> bool {
+    cfg!(target_os = "macos")
+}
+
 /// The desktop of this OS. `cursor_metadata`: the viewer draws the cursor (cap `cursor`), so
-/// a desktop that [`reports_cursor`] leaves it out of its pictures.
-pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+/// a desktop that [`reports_cursor`] leaves it out of its pictures. `scale_ladder`: the viewer
+/// takes a smaller picture mid-stream (cap `scale`), so a desktop that [`scales_down`] steps
+/// down the resolution ladder instead of blurring.
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool, scale_ladder: bool) -> Res<Halves> {
     #[cfg(not(target_os = "macos"))]
-    let _ = cursor_metadata;
+    let _ = (cursor_metadata, scale_ladder);
     #[cfg(target_os = "linux")]
     return match cfg.capture {
         crate::capture_backend::CaptureBackend::X11 => crate::x11::open(cfg),
@@ -144,7 +153,7 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         },
     };
     #[cfg(target_os = "macos")]
-    return crate::mac::open(cfg, cursor_metadata);
+    return crate::mac::open(cfg, cursor_metadata, scale_ladder);
 }
 
 /// The frame rate cap when neither `--max-fps` nor the viewer names one: macOS, the captured

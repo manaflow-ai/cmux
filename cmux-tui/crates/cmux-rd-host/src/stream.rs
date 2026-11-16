@@ -170,6 +170,13 @@ fn wants_cursor(negotiated_caps: &[String]) -> bool {
         && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
 }
 
+/// Whether the session steps down the resolution ladder: the viewer takes a smaller picture
+/// mid-stream (cap `scale`) and this OS's desktop can encode one.
+fn wants_scale_ladder(negotiated_caps: &[String]) -> bool {
+    crate::desktop::scales_down()
+        && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::SCALE)
+}
+
 fn now_us() -> u64 {
     now_ns() / 1000
 }
@@ -199,7 +206,11 @@ impl MediaSession {
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
         let open_us = now_us();
-        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
+        let (desktop, frames) = crate::desktop::open(
+            cfg,
+            wants_cursor(negotiated_caps),
+            wants_scale_ladder(negotiated_caps),
+        )?;
         let ready_us = now_us();
         let mut session =
             Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;

@@ -437,6 +437,11 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // The resolution ladder where this desktop scales: a viewer that offers it gets a
+    // smaller picture instead of a blurred one when the rate is low.
+    if crate::desktop::scales_down() {
+        host_caps.push(cmux_rd_core::service::caps::SCALE);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {

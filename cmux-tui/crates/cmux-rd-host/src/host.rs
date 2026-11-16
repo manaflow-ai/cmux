@@ -504,6 +504,10 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // The resolution ladder where this desktop scales (cap `scale`).
+    if crate::desktop::scales_down() {
+        host_caps.push(caps::SCALE);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {

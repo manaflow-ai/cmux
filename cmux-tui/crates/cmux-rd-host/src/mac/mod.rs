@@ -21,6 +21,7 @@ use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
 };
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::ladder::ScaleGovernor;
 use cmux_rd_proto::InputEvent;
 use input::Injector;
 use std::os::fd::RawFd;
@@ -55,6 +56,10 @@ pub struct MacFrames {
     /// The picked frame's display and arrival times (measurement only).
     picked_times: Option<(u64, u64)>,
     encoder: VideoToolbox,
+    /// The encoder's frame rate (the ladder's bits per frame).
+    fps: u32,
+    /// The resolution ladder, when the viewer takes a smaller picture (cap `scale`).
+    ladder: Option<ScaleGovernor>,
     name: String,
     #[cfg(feature = "bench")]
     quality: Option<crate::eval::Quality>,
@@ -62,7 +67,7 @@ pub struct MacFrames {
 
 /// Starts the display's capture and opens both halves of the session's desktop.
 /// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
-pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool, scale_ladder: bool) -> Res<Halves> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -75,13 +80,8 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     let (width, height) = capture.size();
-    let encoder = VideoToolbox::new(
-        width,
-        height,
-        encoder_fps(width, height, cfg.max_fps),
-        cfg.start_kbps,
-        cfg.profile == "baseline",
-    )?;
+    let fps = encoder_fps(width, height, cfg.max_fps);
+    let encoder = VideoToolbox::new(width, height, fps, cfg.start_kbps, cfg.profile == "baseline")?;
     let name =
         format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
     let injector = Injector::new(capture.bounds(), (width, height))?;
@@ -91,6 +91,8 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         picked: None,
         picked_times: None,
         encoder,
+        fps,
+        ladder: scale_ladder.then(ScaleGovernor::new),
         name,
         #[cfg(feature = "bench")]
         quality: crate::eval::Quality::from_env(),
@@ -153,6 +155,15 @@ impl FrameSource for MacFrames {
         };
         let hint =
             SurfaceRect { x: damage.x, y: damage.y, width: damage.width, height: damage.height };
+        if let Some(ladder) = self.ladder.as_mut() {
+            let full = u64::from(width) * u64::from(height);
+            let changed = u64::from(damage.width) * u64::from(damage.height);
+            let share = changed as f64 / full.max(1) as f64;
+            let target_bps = u64::from(SurfaceEncoder::kbps(&self.encoder)) * 1000;
+            let now_us = crate::clock::now_ns() / 1000;
+            let scale = ladder.on_frame(now_us, target_bps, self.fps, full, share);
+            self.encoder.set_output_scale(scale);
+        }
         let idr = self.encoder.encode_surface(&picture, hint, force_idr, pts_us, out)?;
         #[cfg(feature = "bench")]
         if let Some(quality) = self.quality.as_mut() {

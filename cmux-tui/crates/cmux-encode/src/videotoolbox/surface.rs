@@ -123,7 +123,8 @@ impl SurfaceEncoder for VideoToolbox {
             )
             .into());
         }
-        let resized = self.ensure_session(width, height)?;
+        let (out_w, out_h) = super::scaled_size(width, height, self.out_scale);
+        let resized = self.ensure_session(out_w, out_h)?;
         self.apply_color(frame.color);
         let mut pixel_buffer: CVPixelBufferRef = null_mut();
         // SAFETY: wraps the live surface in a new pixel buffer (no copy); released below.
@@ -214,6 +215,21 @@ mod tests {
             // SAFETY: releasing the buffer we created.
             unsafe { CFRelease(self.0 as CFTypeRef) };
         }
+    }
+
+    #[test]
+    fn a_scaled_encode_takes_the_full_surface_and_starts_with_an_idr() {
+        let mut enc = VideoToolbox::new(512, 256, 30, 2_000, false).expect("hardware encoder");
+        let surface = TestSurface::new(512, 256, PIXEL_BGRA);
+        let frame = surface.frame(SurfaceFormat::Bgra, 512, 256, ColorTag::Srgb);
+        let mut out = Vec::new();
+        assert!(enc.encode_surface(&frame, SurfaceRect::default(), true, 0, &mut out).is_ok());
+        enc.set_output_scale(0.5);
+        let idr = enc
+            .encode_surface(&frame, SurfaceRect::default(), false, 33_333, &mut out)
+            .expect("VideoToolbox scales a full-size surface into a half-size session");
+        assert!(idr && !out.is_empty(), "a new size starts with an IDR");
+        assert_eq!(enc.session_size, (256, 128));
     }
 
     #[test]

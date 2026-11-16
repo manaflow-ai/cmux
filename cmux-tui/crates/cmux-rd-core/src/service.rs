@@ -35,9 +35,15 @@ pub mod caps {
     /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
     /// the picture.
     pub const CURSOR: &str = "cursor";
+    /// The resolution ladder (design D5, `ladder::ScaleGovernor`): the host may encode the
+    /// stream smaller than its `welcome` size when the rate is too low for the full picture,
+    /// changing size only at an IDR with new parameter sets. A viewer that offers it decodes
+    /// a size change mid-stream, shows every picture at the `welcome` size, and keeps
+    /// sending pointer positions in the `welcome` size's pixels.
+    pub const SCALE: &str = "scale";
     /// Every named cap.
-    pub const ALL: [&str; 8] =
-        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR];
+    pub const ALL: [&str; 9] =
+        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR, SCALE];
 }
 
 /// Why a hello is refused.

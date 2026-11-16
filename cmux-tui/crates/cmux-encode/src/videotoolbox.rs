@@ -162,9 +162,11 @@ crate::framework! {
 /// video) gets about bitrate/fps bytes, so VideoToolbox raises its QP into the 40s and the
 /// picture smears until later frames refine it. At 34 small UI text stays legible in a
 /// motion frame; 30 is crisper but costs about 1.6x the bytes per motion frame, and 38 and
-/// up blurs 11-13 px text. The frame overshoots its share of the target instead; congestion
-/// control and pacing absorb that, and an oversized frame still takes the engine's
-/// drop-and-halve path. `CMUX_RD_VT_MAX_QP` overrides it for measurement (0 turns it off).
+/// up blurs 11-13 px text. Under the ceiling a frame may overshoot its share of the target;
+/// the resolution ladder (cmux-rd-core `ScaleGovernor`, a bits-per-pixel floor) keeps that
+/// rare by shrinking the picture when the rate is too low for it, and [`QP_LIFT_BYTES`]
+/// lifts the ceiling for content too busy for it. `CMUX_RD_VT_MAX_QP` overrides it for
+/// measurement (0 turns it off).
 const MAX_FRAME_QP: i32 = 34;
 
 /// Whether the session prefers encode speed over quality per bit. Off: the media engine
@@ -212,6 +214,12 @@ pub struct VideoToolbox {
     session: VTCompressionSessionRef,
     /// The size the session encodes (a surface of another size recreates it).
     session_size: (usize, usize),
+    /// The QP ceiling the encoder took (MAX_FRAME_QP), `None` without one.
+    max_qp: Option<i32>,
+    /// The ceiling is lifted after an oversized frame ([`QP_LIFT_BYTES`]).
+    qp_lifted: bool,
+    /// The share of each side surfaces are encoded at (the resolution ladder).
+    out_scale: f64,
     /// The I420 path's pixel buffer, at `width` x `height`.
     pixel_buffer: CVPixelBufferRef,
     out: Box<Mutex<Output>>,
@@ -414,15 +422,43 @@ fn create_session(
             set(vt_speed_sys::kVTCompressionPropertyKey_MaxFrameDelayCount(), no_delay);
             CFRelease(no_delay);
         }
-        // The quality cap (MAX_FRAME_QP): optional and silent like the speed keys.
-        let qp = max_frame_qp(std::env::var("CMUX_RD_VT_MAX_QP").ok().as_deref());
-        if let (Ok(()), Some(qp)) = (vt_qp_sys::available(), qp) {
-            let qp = number_i32(qp);
-            set(vt_qp_sys::kVTCompressionPropertyKey_MaxAllowedFrameQP(), qp);
-            CFRelease(qp);
-        }
     }
     Ok(session)
+}
+
+/// Sets the session's QP ceiling (MAX_FRAME_QP). Optional like the speed keys: false when
+/// this macOS lacks the key or the encoder refuses it (then frames have no ceiling).
+fn apply_max_qp(session: VTCompressionSessionRef, qp: i32) -> bool {
+    if vt_qp_sys::available().is_err() {
+        return false;
+    }
+    let value = number_i32(qp);
+    // SAFETY: our live session; the number is released after use.
+    unsafe {
+        let status = VTSessionSetProperty(
+            session,
+            vt_qp_sys::kVTCompressionPropertyKey_MaxAllowedFrameQP(),
+            value,
+        );
+        CFRelease(value);
+        status == 0
+    }
+}
+
+/// A frame this large with the QP ceiling on lifts the ceiling (to H.264's 51) until a frame
+/// comes in under a quarter of it: content too busy for the ceiling (a noisy video at full
+/// size) must not loop on the engine's drop-and-halve path (about 4.6 MB), since halving the
+/// rate does not shrink a frame whose QP cannot rise.
+const QP_LIFT_BYTES: usize = 2 << 20;
+
+/// The size the session encodes for a `width` x `height` source at `scale` of each side:
+/// even (4:2:0), at least 16, never larger than the source.
+fn scaled_size(width: usize, height: usize, scale: f64) -> (usize, usize) {
+    let side = |n: usize| {
+        let s = ((n as f64 * scale.clamp(0.0, 1.0)) as usize).max(16).min(n);
+        s & !1
+    };
+    (side(width), side(height))
 }
 
 impl VideoToolbox {
@@ -456,9 +492,14 @@ impl VideoToolbox {
             }
             return Err(format!("CVPixelBufferCreate failed: {pb_status}").into());
         }
+        let max_qp = max_frame_qp(std::env::var("CMUX_RD_VT_MAX_QP").ok().as_deref())
+            .filter(|&qp| apply_max_qp(session, qp));
         let mut this = Self {
             session,
             session_size: (width as usize, height as usize),
+            max_qp,
+            qp_lifted: false,
+            out_scale: 1.0,
             pixel_buffer,
             out,
             width: width as usize,
@@ -468,8 +509,9 @@ impl VideoToolbox {
             kbps: kbps.max(100),
             color: None,
             name: format!(
-                "videotoolbox h264 {} low-latency-rc realtime no-reordering gop=inf",
-                if baseline { "constrained-baseline" } else { "high" }
+                "videotoolbox h264 {} low-latency-rc realtime no-reordering gop=inf{}",
+                if baseline { "constrained-baseline" } else { "high" },
+                max_qp.map(|qp| format!(" max-qp={qp}")).unwrap_or_default()
             ),
         };
         this.apply_bitrate(this.kbps);
@@ -491,8 +533,35 @@ impl VideoToolbox {
         self.session = session;
         self.session_size = (width, height);
         self.color = None;
+        self.qp_lifted = false;
+        if let Some(qp) = self.max_qp {
+            apply_max_qp(session, qp);
+        }
         self.apply_bitrate(self.kbps);
         Ok(true)
+    }
+
+    /// Encodes surfaces at `scale` of each side from the next frame on (the resolution
+    /// ladder, cmux-rd-core `ScaleGovernor`); VideoToolbox scales the captured surface on
+    /// the GPU. A new scale recreates the session, so its first frame is an IDR.
+    pub fn set_output_scale(&mut self, scale: f64) {
+        self.out_scale = scale.clamp(0.25, 1.0);
+    }
+
+    /// The QP ceiling this session applies, if the encoder took it.
+    pub fn max_qp(&self) -> Option<i32> {
+        self.max_qp
+    }
+
+    /// Lifts the QP ceiling after an oversized frame and restores it after a small one
+    /// ([`QP_LIFT_BYTES`]).
+    fn track_frame_size(&mut self, len: usize) {
+        let Some(qp) = self.max_qp else { return };
+        if !self.qp_lifted && len > QP_LIFT_BYTES {
+            self.qp_lifted = apply_max_qp(self.session, 51);
+        } else if self.qp_lifted && len < QP_LIFT_BYTES / 4 {
+            self.qp_lifted = !apply_max_qp(self.session, qp);
+        }
     }
 
     /// Tags the session's output with `color` (primaries, transfer, matrix).
@@ -665,7 +734,10 @@ impl VideoToolbox {
         }
         out.clear();
         out.extend_from_slice(&result.annexb);
-        Ok(result.keyframe && !out.is_empty())
+        let keyframe = result.keyframe && !out.is_empty();
+        drop(result);
+        self.track_frame_size(out.len());
+        Ok(keyframe)
     }
 }
 
@@ -711,5 +783,15 @@ mod tests {
         assert!(!prioritize_speed(None));
         assert!(prioritize_speed(Some("1")));
         assert!(!prioritize_speed(Some("0")));
+    }
+
+    #[test]
+    fn a_scaled_session_is_even_and_never_larger_than_its_source() {
+        assert_eq!(scaled_size(3840, 2160, 1.0), (3840, 2160));
+        assert_eq!(scaled_size(3840, 2160, 0.75), (2880, 1620));
+        assert_eq!(scaled_size(3342, 2160, 0.75), (2506, 1620));
+        assert_eq!(scaled_size(101, 51, 0.5), (50, 24));
+        assert_eq!(scaled_size(20, 20, 0.1), (16, 16), "at least 16");
+        assert_eq!(scaled_size(3840, 2160, 2.0), (3840, 2160), "never larger");
     }
 }
