@@ -18,6 +18,8 @@ import { toolKind } from "../toolNames";
 import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { commandSaid } from "./commandActions";
+import { ReadLabel } from "./ReadLabel";
+import { readFullPath, readPath } from "./readPath";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
@@ -156,7 +158,10 @@ export const ToolRow = memo(function ToolRow({
   const [clipped, setClipped] = useState(false);
   // A call that returned or wrote images opens to them (`ToolImages`), as the Codex app's does.
   const images = useMemo(() => toolImages(tool), [tool]);
-  const expandable = hasDetails || clipped || images.length > 0;
+  // A read of one file says its name alone, its full path on hover, and does not open (ReadLabel.tsx),
+  // whatever tool read it, as the Codex app's reads.
+  const read = write || asRun ? undefined : readPath(tool);
+  const expandable = !read && (hasDetails || clipped || images.length > 0);
   // Label-only rows disclose only actual overflow, not a guessed character count. While open,
   // retain the closed measurement so wrapping does not remove the reader's collapse control.
   useLayoutEffect(() => {
@@ -176,7 +181,13 @@ export const ToolRow = memo(function ToolRow({
     () => (fold.present && opensToFields(tool, failure) ? inputFields(tool.inputSummary) : undefined),
     [fold.present, tool, failure],
   );
-  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
+  const words = write ? (
+    <WriteLabel tool={tool} write={write} t={t} />
+  ) : read ? (
+    <ReadLabel path={read} full={readFullPath(read, tool, cwd)} t={t} />
+  ) : (
+    <ToolLabel text={label} />
+  );
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(toolKind(tool))}</span>

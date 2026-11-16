@@ -177,7 +177,8 @@ for (const [kind, toolKind] of GROUP_KINDS)
     }
   });
 
-for (const [kind, toolKind] of GROUP_KINDS)
+// Reads stay flat rows since the 2026-11-14 change, so they form no group to stream into.
+for (const [kind, toolKind] of GROUP_KINDS.filter(([kind]) => kind !== "reads"))
   test(`a nested subagent's ${kind} stream keeps its completed item snapshots and skips their renders`, async () => {
     const fold = new SubagentFold();
     const nestedId = `nested-${kind}`;

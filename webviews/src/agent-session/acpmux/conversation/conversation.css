@@ -4254,12 +4254,12 @@ button.cv-video-frames__frame:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The command after "Ran" in the row's own font and size, as the Codex app draws it (Lucas,
+   2026-11-14: "the commands from a terminal command 'Ran' should be the same font"). The opened Shell
+   block keeps the code font. */
 .cv-command__line {
+  font: inherit;
   font-style: normal;
-  font-weight: 400;
-  font-size: calc(var(--cv-font-size) * 12.5 / 14);
-  line-height: calc(var(--cv-font-size) * 20 / 14);
-  font-family: var(--cv-mono);
 }
 .cv-command__meta {
   display: flex;
@@ -8053,4 +8053,15 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   width: max-content;
   min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
   justify-content: flex-start;
+}
+
+/* A read's file name (ReadLabel.tsx): underlined under the pointer, as the Codex app's is; its full
+   path shows as the pane's tooltip. */
+.cv-tool__file {
+  text-decoration-line: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+}
+.cv-tool__file:hover {
+  text-decoration-color: currentColor;
 }
