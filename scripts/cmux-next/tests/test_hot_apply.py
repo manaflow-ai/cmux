@@ -1052,6 +1052,29 @@ class PinCompatibility(unittest.TestCase):
         after = self.hot.ffi_digest(self.repo, self.base, {path: "b" * 40}, [path])
         self.assertNotEqual(before, after)
 
+    def test_an_unrelated_daemon_edit_requires_the_repin_to_apply(self):
+        import app_ffi_pin
+        self.pin.write_text(app_ffi_pin.render("c" * 40, "d" * 64))
+        daemon = self.repo / "cmux-tui/crates/cmux-wg/src/lib.rs"
+        daemon.parent.mkdir(parents=True)
+        daemon.write_text("// daemon change\n")
+        target = self.commit()
+        with mock.patch.object(self.hot, "tree_key", side_effect=lambda _repo, sha: sha), \
+                mock.patch.object(self.hot, "published", return_value=False), \
+                mock.patch.object(self.hot.ffi_part, "pin_plan", side_effect=self.hot.ffi_part.Left("not additive")):
+            for branch in (False, True):
+                with self.subTest(branch=branch):
+                    plan = self.hot._plan(self.repo, self.repo / "unused.app", target, branch, self.added)
+                    self.assertNotIn("rust", plan["parts"])
+                    self.assertNotIn("ffi", plan["parts"])
+                    self.assertIn(self.hot.ffi_part.PIN_FILE, plan["left"]["Rust the app links (FFI)"])
+        with mock.patch.object(self.hot, "tree_key", side_effect=lambda _repo, sha: sha), \
+                mock.patch.object(self.hot, "published", return_value=False), \
+                mock.patch.object(self.hot.ffi_part, "additive", return_value=[]):
+            plan = self.hot._plan(self.repo, self.repo / "unused.app", target, False, self.added)
+            self.assertIn("ffi", plan["parts"])
+            self.assertIn("rust", plan["parts"])
+
 
 class WebCache(unittest.TestCase):
     """web_bundles(): a web key's bundles fetched once, checked on each use, bounded."""
@@ -1560,11 +1583,13 @@ class HotApplyFFI(unittest.TestCase):
         self.assertIn("rust", plan["parts"])
         self.assertNotIn("Rust the app links (FFI)", plan["left"])
 
-    def test_a_branch_s_ffi_is_left(self):
+    def test_a_branch_source_only_edit_keeps_the_pinned_ffi(self):
         self.carry_dylib()
         code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app), "--branch")
+        self.assertEqual(code, 0, err)
         self.assertNotIn("ffi", plan["parts"], err)
-        self.assertTrue(any("branch" in note for note in plan["notes"]), plan["notes"])
+        self.assertIn("rust", plan["parts"])
+        self.assertNotIn("Rust the app links (FFI)", plan["left"])
 
     def test_fetch_checks_the_published_library(self):
         digest = self.publish()

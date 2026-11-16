@@ -792,9 +792,9 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
                     raise ffi_part.Left("the Swift build reads " + ", ".join(swift_read[:3]))
                 if pinned_ffi_source(repo, base) is None or pinned_ffi_source(repo, sha) is None:
                     raise ffi_part.Left("no app FFI pin to establish the linked release: it needs a new app")
-                if branch:
-                    raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
                 if pinned_ffi_source(repo, base) != pinned_ffi_source(repo, sha):
+                    if branch:
+                        raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
                     moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
                     if moved:
                         out["ffi"] = {**moved, "files": linked}
@@ -821,6 +821,13 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
                 out["parts"].append("ffi")
         except ffi_part.Left as why:
             out["notes"].append(f"ffi: {why}")
+    if pinned_ffi_source(repo, base) != pinned_ffi_source(repo, sha) and "ffi" not in out["parts"]:
+        # A repin ties even an unrelated daemon edit to the new library. A refused library swap must
+        # hold that daemon back, just as the signed live_from floor does.
+        if "rust" in out["parts"]:
+            out["parts"].remove("rust")
+        if rust:
+            out["left"].setdefault("Rust the app links (FFI)", [ffi_part.PIN_FILE])
     if "ffi" in out["parts"]:
         # Moving the pin is the ffi part's own change, not a Swift one.
         packaging = ffi_part.pin_packaging(repo, since, sha)
