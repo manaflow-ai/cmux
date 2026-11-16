@@ -10,9 +10,11 @@
 //! bytes through ghostty-vt and compares each scripted screen, cell by cell, with what
 //! [`claude::render`] draws from the acpmux records of the same moment. The measured gap (see
 //! that test) is why nothing on the phone uses this yet: a lookalike that differs is worse than
-//! the stream.
+//! the stream. [`hybrid`] adds what the records lack: the Mac sends only the cells that differ
+//! from the drawn screen, and `tests/parity.rs` measures its parity and bytes against the PTY.
 
 pub mod claude;
+pub mod hybrid;
 
 /// A cell color as the CLI authored it, before a theme resolves it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

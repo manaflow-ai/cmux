@@ -252,8 +252,6 @@ public final class SidebarModel {
     public var rowBadgeStyle: SidebarRowBadgeStyle?
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
-    /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
-    public var minimal = false
     /// `sidebar.style`: the standard sidebar or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public var style: SidebarLayoutStyle = .standard
     /// The rail's full sidebar is open over the content (`SidebarRailPeek`); window view state.
@@ -262,7 +260,7 @@ public final class SidebarModel {
     /// rested on the window's sidebar edge). Window view state, never saved: the content keeps
     /// its place (``contentInset`` stays 0), and showing the sidebar ends it.
     public var isFloating = false
-    /// Expanded rows (`sidebar.density`), unless minimal.
+    /// Expanded rows (`sidebar.density`).
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
     public var detailedStatus = false
@@ -748,7 +746,7 @@ public final class SidebarModel {
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
         workspaceRow = preferences.workspaceRow
-        (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
+        expanded = preferences.density == .expanded
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
@@ -770,7 +768,7 @@ public final class SidebarModel {
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }
         o.revealedWorkspaces = revealedMembers
         o.workspaceRow = workspaceRow
-        (o.minimal, o.expanded) = (minimal, expanded)
+        o.expanded = expanded
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
         (o.showsColors, o.colorIndicator) = (showsColors, colorIndicator)
