@@ -1090,9 +1090,9 @@ def main():
                    "(`cmux-rd serve --source synthetic-*`), input bumps the marker; no rig, "
                    "marker app or Screen Recording/Accessibility grant (cmux leg only)")
     r.add_argument("--synthetic-size", help="WxH of the synthetic picture (default 1920x1080)")
-    r.add_argument("--synthetic-scene", choices=["bars", "text", "noise"],
+    r.add_argument("--synthetic-scene", choices=["bars", "text", "noise", "churn"],
                    help="what the synthetic picture shows under the marker (default bars; text "
-                   "and noise make the encoder spend)")
+                   "and noise translate; churn is new content every frame)")
     r.add_argument("--trials", type=int, default=10)
     r.add_argument("--warmup", type=int, default=1, help="uncounted key attempts first")
     r.add_argument("--fps-trials", type=int, default=3)
