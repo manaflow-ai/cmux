@@ -47,11 +47,12 @@ extension SidebarViewComponents {
     }
 
     /// The height the list takes from the sidebar's bottom chrome now (``SidebarFooterCollapseMotion``): in
-    /// Minimal Mode (or Show Sidebar Controls Only on Hover) with the pointer away, the footer section when it
-    /// and the spaces strip (which may share its row) are faded out, and the footer row of `footerRowHeight` too
-    /// when no accessory (a status view) shows in it. 0 by default, and with `sidebar.spacesVisibility` Always:
-    /// what still shows keeps its room.
+    /// Minimal Mode with the pointer away, the footer section when it and the spaces strip (which may share its
+    /// row) are faded out, and the footer row of `footerRowHeight` too when no accessory (a status view) shows in
+    /// it. 0 by default, with `sidebar.spacesVisibility` Always (what still shows keeps its room), and under the
+    /// older Show Sidebar Controls Only on Hover alone, whose controls fade in place with nothing moving.
     func footerCollapseTarget(footerRowHeight: CGFloat, hasAccessories: Bool) -> CGFloat {
+        guard design.sidebarSections.minimal else { return 0 }
         let reveal = appliedChromeReveal ?? chromeReveal(revealed: isChromeRevealed)
         guard reveal.footer == 0, reveal.spaces == 0 else { return 0 }
         return footerRegion.layoutResult.height + (hasAccessories ? 0 : footerRowHeight)
