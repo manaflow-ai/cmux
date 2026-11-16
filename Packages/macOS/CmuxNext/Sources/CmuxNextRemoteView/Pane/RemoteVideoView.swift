@@ -9,7 +9,7 @@ package final class RemoteVideoView: NSView {
     private let cursorLayer = CALayer()
     private var cursor: RemoteCursorState?
     /// Draws the remote cursor (view mode only; control mode shows the local one).
-    var showsRemoteCursor = false {
+    package var showsRemoteCursor = false {
         didSet { if showsRemoteCursor != oldValue { needsLayout = true } }
     }
     /// How the frame maps onto the pane (`.fit` for compatibility sources).
@@ -60,7 +60,7 @@ package final class RemoteVideoView: NSView {
         needsLayout = true
     }
 
-    func setRemoteCursor(_ cursor: RemoteCursorState?) {
+    package func setRemoteCursor(_ cursor: RemoteCursorState?) {
         self.cursor = cursor
         needsLayout = true
     }

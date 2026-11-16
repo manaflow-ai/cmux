@@ -394,7 +394,8 @@ fn serve_session(
         interactive: true,
     };
     let sink = crate::upstream::session_sink(None, 0);
-    let host_caps = crate::upstream::offered_caps(&*sink);
+    let mut host_caps = crate::upstream::offered_caps(&*sink);
+    host_caps.extend_from_slice(crate::desktop::offered_caps());
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {

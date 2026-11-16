@@ -472,7 +472,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     }
     let display = opts.str_or("display", "main");
     let fps = super::capture::refresh_fps(&display);
-    let capture = Capture::start(&display, fps, None)?;
+    let capture = Capture::start(&display, fps, None, true)?;
     let (width, height) = capture.size();
     let fits = origin.0.checked_add(cell * 20).is_some_and(|x| x <= width as usize)
         && origin.1.checked_add(cell).is_some_and(|y| y <= height as usize)

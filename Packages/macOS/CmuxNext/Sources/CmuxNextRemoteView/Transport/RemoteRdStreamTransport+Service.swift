@@ -91,6 +91,10 @@ extension RemoteRdStreamTransport {
 
     /// The rd cap that allows service input events (rd change C2).
     public static let inputServiceCap = "input.service"
+    /// The rd cap that has the host leave the pointer out of the picture and
+    /// send `CursorPos` datagrams: the pane shows one pointer, never a second,
+    /// late one in the video.
+    public static let cursorCap = "cursor"
     /// The remote browser tab service (`cmux.rb/1`, remote-tab-protocol.md).
     public static let remoteBrowserService = "rb/1"
 

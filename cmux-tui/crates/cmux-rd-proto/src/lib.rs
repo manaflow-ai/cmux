@@ -13,6 +13,7 @@ mod bulk;
 mod clock;
 #[cfg(feature = "serde")]
 pub mod control;
+mod cursor;
 mod datagram;
 mod error;
 mod feedback;
@@ -22,6 +23,7 @@ mod stream;
 
 pub use bulk::{BULK_PREFIX_LEN, BulkFrame, MAX_BULK_CHUNK};
 pub use clock::{ClockEstimate, ClockPing, ClockPong};
+pub use cursor::CursorPos;
 pub use datagram::{
     DatagramHeader, DatagramKind, HEADER_LEN, MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
 };

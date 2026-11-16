@@ -30,8 +30,12 @@ pub mod caps {
     /// A UDP media link (cmux-rd-link) next to a stream carrier: `link_offer`,
     /// `link_answer`, `link_candidate` and `link_state` on the control stream.
     pub const LINK_UDP: &str = "link.udp";
+    /// The viewer draws the pointer: the host leaves it out of the picture and
+    /// sends `CursorPos` datagrams instead.
+    pub const CURSOR: &str = "cursor";
     /// Every named cap.
-    pub const ALL: [&str; 7] = [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP];
+    pub const ALL: [&str; 8] =
+        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR];
 }
 
 /// Why a hello is refused.

@@ -13,8 +13,10 @@ use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
 use cmux_rd_core::policy::Principal;
+use cmux_rd_core::service::caps;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_proto::CursorPos;
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -75,6 +77,9 @@ pub struct MediaSession {
     settle_ns: u64,
     /// Per-frame times for the screen stream eval, when `CMUX_RD_TIMING_LOG` names a file.
     timing: Option<Timing>,
+    cursor: CursorSender,
+    /// How often the pointer is read while the viewer draws it (one frame interval).
+    cursor_poll_ns: Option<u64>,
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -133,6 +138,31 @@ fn viewer_silent_too_long(silent_us: u64) -> bool {
     silent_us > REATTACH_GRACE_NS / 1000
 }
 
+/// An unmoved pointer is sent again this often, so a lost `CursorPos` heals.
+const CURSOR_REFRESH_US: u64 = 250_000;
+
+/// The pointer the viewer draws (cap `cursor`): a `CursorPos` when it moves or
+/// shows or hides, and again every [`CURSOR_REFRESH_US`].
+#[derive(Default)]
+struct CursorSender {
+    seq: u32,
+    last: Option<(u32, u32, bool)>,
+    sent_at_us: u64,
+}
+
+impl CursorSender {
+    fn due(&mut self, cursor: (u32, u32, bool), now_us: u64) -> Option<CursorPos> {
+        if self.last == Some(cursor) && now_us.saturating_sub(self.sent_at_us) < CURSOR_REFRESH_US {
+            return None;
+        }
+        self.seq = self.seq.wrapping_add(1);
+        self.last = Some(cursor);
+        self.sent_at_us = now_us;
+        let (x, y, visible) = cursor;
+        Some(CursorPos { seq: self.seq, x, y, visible })
+    }
+}
+
 fn now_us() -> u64 {
     now_ns() / 1000
 }
@@ -161,7 +191,10 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
-        let desktop = crate::desktop::open(cfg)?;
+        let viewer_cursor = negotiated_caps.iter().any(|c| c == caps::CURSOR);
+        let desktop = crate::desktop::open(cfg, viewer_cursor)?;
+        let cursor_poll_ns = (viewer_cursor && desktop.cursor().is_some())
+            .then(|| 1_000_000_000 / u64::from(cfg.max_fps.max(1)));
         let (w, h) = desktop.size();
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
         let engine = MediaEngine::new(
@@ -192,6 +225,8 @@ impl MediaSession {
             cpu_last: (process_cpu_s(), now_ns()),
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
+            cursor: CursorSender::default(),
+            cursor_poll_ns,
         })
     }
 
@@ -255,6 +290,8 @@ impl MediaSession {
             };
             let timeout = wake
                 .map_or(timeout, |d| timeout.min(u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)));
+            // A pointer the picture leaves out moves without damage: read it every frame interval.
+            let timeout = self.cursor_poll_ns.map_or(timeout, |poll| timeout.min(poll));
             let timeout = Some(timeout.max(1_000_000));
             let mut fds = carrier.fds();
             fds.push(self.desktop.fd());
@@ -321,6 +358,7 @@ impl MediaSession {
             }
             let out = self.engine.tick(may_inject, now_us());
             self.apply(carrier, out, table, session, viewer);
+            self.send_cursor(carrier);
             // Acks, NACKs and arrivals for the viewer's upstream senders.
             while let Some(datagram) = self.engine.upstream_feedback(now_us()) {
                 let _ = carrier.send_datagram(&datagram);
@@ -403,6 +441,18 @@ impl MediaSession {
         }
     }
 
+    /// The pointer, when the viewer draws it and it moved (or is due again).
+    fn send_cursor(&mut self, carrier: &mut dyn Carrier) {
+        if self.cursor_poll_ns.is_none() {
+            return;
+        }
+        let Some(cursor) = self.desktop.cursor() else { return };
+        if let Some(pos) = self.cursor.due(cursor, now_us()) {
+            let datagram = self.engine.cursor_pos(0, &pos);
+            let _ = carrier.send_datagram(&datagram);
+        }
+    }
+
     fn on_datagram(
         &mut self,
         carrier: &mut dyn Carrier,
@@ -479,7 +529,21 @@ impl MediaSession {
 
 #[cfg(test)]
 mod tests {
-    use super::viewer_silent_too_long;
+    use super::{viewer_silent_too_long, CursorSender, CURSOR_REFRESH_US};
+
+    #[test]
+    fn cursor_is_sent_on_a_move_and_again_after_the_refresh() {
+        let mut sender = CursorSender::default();
+        let first = sender.due((10, 20, true), 0).expect("first position");
+        assert_eq!((first.seq, first.x, first.y, first.visible), (1, 10, 20, true));
+        assert!(sender.due((10, 20, true), CURSOR_REFRESH_US - 1).is_none());
+        let moved = sender.due((11, 20, true), CURSOR_REFRESH_US - 1).expect("a move");
+        assert_eq!((moved.seq, moved.x), (2, 11));
+        let hidden = sender.due((11, 20, false), CURSOR_REFRESH_US).expect("off the display");
+        assert!(!hidden.visible);
+        let again = sender.due((11, 20, false), 2 * CURSOR_REFRESH_US).expect("refresh");
+        assert_eq!(again.seq, 4);
+    }
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {

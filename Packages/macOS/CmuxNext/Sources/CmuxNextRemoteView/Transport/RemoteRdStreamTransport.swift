@@ -58,6 +58,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var upstream: RemoteUpstreamConsent?
         /// Why the path closed (the carrier's reason, or rejected bytes); nil until it did.
         var endReason: String?
+        /// The newest `CursorPos` seq applied (cap `cursor`).
+        var cursorSeq: UInt32?
         /// The carrier's latest progress text while the path opens; cleared once it is ready.
         var connectingReason: String?
 
@@ -284,8 +286,16 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                 engine.handshake.receive(control)
                 handleUpstream(control)
             case let .datagram(datagram):
-                // Upstream feedback goes to its sender; InputAck datagrams to
-                // the input channel; any other datagram is refused without a state change.
+                // Cursor positions go to the pane; upstream feedback to its sender; InputAck
+                // datagrams to the input channel; any other datagram is refused without a state change.
+                if let cursor = RemoteRdCursorDatagram(datagram) {
+                    // The pointer the host leaves out of the picture (cap `cursor`), latest wins.
+                    if cursor.isNewer(than: engine.cursorSeq) {
+                        engine.cursorSeq = cursor.seq
+                        _ = state.withLock { $0.cursors?.yield(cursor.state) }
+                    }
+                    continue
+                }
                 let senders = engine.upstream?.activeSenders ?? []
                 if senders.contains(where: { (try? $0.receive(datagram: datagram, nowMicros: now)) == true }) { continue }
                 try? engine.input.acknowledge(datagram: datagram)

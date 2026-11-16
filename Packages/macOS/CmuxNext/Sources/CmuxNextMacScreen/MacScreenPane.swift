@@ -82,6 +82,7 @@ public final class MacScreenPane {
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
     /// The decoder of the current transport (one per session).
     private var decodeTask: Task<Void, Never>?
+    private var cursorTask: Task<Void, Never>?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
@@ -186,6 +187,13 @@ public final class MacScreenPane {
         let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver)
         // task-owner: this transport's decoder; ends with its stream or the next session's
         decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
+        cursorTask?.cancel()
+        view.video.setRemoteCursor(nil)
+        let cursors = transport.cursorUpdates()
+        // task-owner: this transport's host pointer; ends with its stream or the next session's
+        cursorTask = Task { [weak self] in
+            for await cursor in cursors { self?.view.video.setRemoteCursor(cursor) }
+        }
     }
 
     private func framesShown(_ counter: MacScreenFrameCounter) {
@@ -262,6 +270,7 @@ public final class MacScreenPane {
     public func close() {
         hideTimer.cancel()
         decodeTask?.cancel()
+        cursorTask?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
             // The hub hears why first, then the stream closes.
@@ -380,6 +389,9 @@ public final class MacScreenPaneView: NSView {
         let live = Self.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
         input.controlMode = live
         input.acceptsPointer = live
+        // The host leaves its pointer out of the picture (rd cap `cursor`): a View Only screen
+        // draws it; a live one shows only this Mac's pointer, never a second, late one.
+        video.showsRemoteCursor = !live
         let captures = input.hasKeyboard
         if model.capturesKeyboard != captures { model.capturesKeyboard = captures }
         onInputGateChange?()

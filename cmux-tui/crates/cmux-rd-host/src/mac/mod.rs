@@ -46,12 +46,14 @@ pub struct MacDesktop {
     encoder: VideoToolbox,
     injector: Injector,
     name: String,
+    /// The viewer draws the pointer: the picture leaves it out (cap `cursor`).
+    viewer_cursor: bool,
     #[cfg(feature = "bench")]
     quality: Option<crate::eval::Quality>,
 }
 
 impl MacDesktop {
-    pub fn open(cfg: &SessionCfg) -> Res<Self> {
+    pub fn open(cfg: &SessionCfg, viewer_cursor: bool) -> Res<Self> {
         if cfg.codec != "videotoolbox" {
             return Err(format!(
                 "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -59,7 +61,7 @@ impl MacDesktop {
             )
             .into());
         }
-        let capture = Capture::start(&cfg.display, cfg.max_fps, cfg.max_width)?;
+        let capture = Capture::start(&cfg.display, cfg.max_fps, cfg.max_width, !viewer_cursor)?;
         capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
         let (width, height) = capture.size();
         let encoder = VideoToolbox::new(
@@ -79,6 +81,7 @@ impl MacDesktop {
             encoder,
             injector,
             name,
+            viewer_cursor,
             #[cfg(feature = "bench")]
             quality: crate::eval::Quality::from_env(),
         })
@@ -154,5 +157,54 @@ impl Desktop for MacDesktop {
     fn release_all(&mut self) -> Res<()> {
         self.injector.release_all();
         Ok(())
+    }
+
+    fn cursor(&self) -> Option<(u32, u32, bool)> {
+        if !self.viewer_cursor {
+            return None;
+        }
+        // SAFETY: a null source makes an event that only carries the current pointer location;
+        // it is released below.
+        let point = unsafe {
+            let event = sys::cg::CGEventCreate(std::ptr::null_mut());
+            if event.is_null() {
+                return None;
+            }
+            let point = sys::cg::CGEventGetLocation(event);
+            sys::cf::CFRelease(event.cast_const());
+            point
+        };
+        Some(cursor_pixel(self.capture.bounds(), self.capture.size(), point))
+    }
+}
+
+/// A global display point as stream pixels on the captured display, and whether it is on it
+/// (the edge pixels hold a point just outside).
+fn cursor_pixel(
+    bounds: capture::Bounds,
+    size: (u32, u32),
+    point: sys::CGPoint,
+) -> (u32, u32, bool) {
+    let fx = (point.x - bounds.x) / bounds.width.max(1.0);
+    let fy = (point.y - bounds.y) / bounds.height.max(1.0);
+    let on = (0.0..1.0).contains(&fx) && (0.0..1.0).contains(&fy);
+    let px = |f: f64, n: u32| {
+        (f.clamp(0.0, 1.0) * f64::from(n)).min(f64::from(n.saturating_sub(1))) as u32
+    };
+    (px(fx, size.0), px(fy, size.1), on)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{capture::Bounds, cursor_pixel, sys::CGPoint};
+
+    #[test]
+    fn cursor_maps_points_to_stream_pixels_on_a_secondary_display() {
+        let bounds = Bounds { x: 1440.0, y: -200.0, width: 1920.0, height: 1080.0 };
+        let size = (3840, 2160);
+        assert_eq!(cursor_pixel(bounds, size, CGPoint::new(1440.0, -200.0)), (0, 0, true));
+        assert_eq!(cursor_pixel(bounds, size, CGPoint::new(2400.5, 340.0)), (1921, 1080, true));
+        assert_eq!(cursor_pixel(bounds, size, CGPoint::new(100.0, 0.0)), (0, 400, false));
+        assert_eq!(cursor_pixel(bounds, size, CGPoint::new(9000.0, 9000.0)), (3839, 2159, false));
     }
 }

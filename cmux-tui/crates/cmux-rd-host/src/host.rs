@@ -496,6 +496,7 @@ fn serve_viewer<S: ViewerStream>(
         cfg.upstream_record_max_bytes,
     );
     let mut host_caps = crate::upstream::offered_caps(&*sink);
+    host_caps.extend_from_slice(crate::desktop::offered_caps());
     // A UDP media link next to a stream carrier (the systemd socket), in a build with the link.
     if cfg!(feature = "link") && link.is_some() && udp.is_none() {
         host_caps.push(caps::LINK_UDP);

@@ -33,6 +33,11 @@ pub trait Desktop {
     fn inject(&mut self, event: &InputEvent) -> Res<()>;
     /// Releases every key and button the viewer holds.
     fn release_all(&mut self) -> Res<()>;
+    /// Where the pointer is, in stream pixels, and whether it is on the streamed display;
+    /// `None` when the picture shows the pointer itself (no cap `cursor`) or this OS cannot say.
+    fn cursor(&self) -> Option<(u32, u32, bool)> {
+        None
+    }
     /// Timed input work (Linux: a press waiting behind the agent's held button, removing
     /// the person master once idle). Returns when the session loop should call again.
     fn pump(&mut self) -> Res<Option<std::time::Duration>> {
@@ -85,8 +90,20 @@ mod tests {
     }
 }
 
-/// The desktop of this OS.
-pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
+/// The caps this OS's desktop adds to the welcome offer: macOS leaves the pointer out of the
+/// picture for a viewer that draws it (`cursor`).
+pub fn offered_caps() -> &'static [&'static str] {
+    #[cfg(target_os = "macos")]
+    return &[cmux_rd_core::service::caps::CURSOR];
+    #[cfg(not(target_os = "macos"))]
+    return &[];
+}
+
+/// The desktop of this OS. `viewer_cursor`: the viewer draws the pointer (cap `cursor`), so the
+/// picture leaves it out and [`Desktop::cursor`] reports it.
+pub fn open(cfg: &SessionCfg, viewer_cursor: bool) -> Res<Box<dyn Desktop>> {
+    #[cfg(not(target_os = "macos"))]
+    let _ = viewer_cursor;
     #[cfg(target_os = "linux")]
     return match cfg.capture {
         crate::capture_backend::CaptureBackend::X11 => {
@@ -113,7 +130,7 @@ pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
         },
     };
     #[cfg(target_os = "macos")]
-    return Ok(Box::new(crate::mac::MacDesktop::open(cfg)?));
+    return Ok(Box::new(crate::mac::MacDesktop::open(cfg, viewer_cursor)?));
 }
 
 /// The frame rate cap when neither `--max-fps` nor the viewer names one: macOS, the captured

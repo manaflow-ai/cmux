@@ -18,9 +18,9 @@ use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
-    Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
-    Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC,
-    REF_NONE, flags,
+    Arrival, ClockEstimate, ClockPing, ClockPong, CursorPos, DatagramHeader, DatagramKind,
+    FRAME_PREFIX_LEN, Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS,
+    MAX_DATAGRAM_VPC, REF_NONE, flags,
 };
 
 pub use cmux_rd_core::loss::LossMeter;
@@ -841,6 +841,25 @@ impl MediaEngine {
         let mut d = Vec::with_capacity(HEADER_LEN + 4);
         header.encode_into(&mut d);
         d.extend_from_slice(&self.applier.applied().to_le_bytes());
+        d
+    }
+
+    /// A `CursorPos` datagram for `stream` (cap `cursor`; the host sends it when the
+    /// pointer moves and again now and then, since a datagram may be lost).
+    pub fn cursor_pos(&mut self, stream: u16, pos: &CursorPos) -> Vec<u8> {
+        let header = DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::CursorPos,
+            stream,
+            frame: 0,
+            index: 0,
+            count: 0,
+            fec_count: 0,
+            transport_seq: self.packetizer.reserve_transport_seq(1),
+        };
+        let mut d = Vec::with_capacity(HEADER_LEN + CursorPos::LEN);
+        header.encode_into(&mut d);
+        d.extend_from_slice(&pos.encode());
         d
     }
 }
