@@ -105,6 +105,10 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The daemon takes `replay_history_rows` (it listed
     /// `attach-replay-history-rows-v1`, and its lane did not refuse it).
     private var tailReplay = false
+    /// The `agent-cli-frame` stream and the newest frame this mirror drew
+    /// (`agent-cli-hybrid-v1`): a reattach names them, so the Mac sends what changed
+    /// since that frame instead of the whole screen.
+    private var hybridResume: (stream: String, frame: Int)?
     /// History rows the next attach asks for above the screen (nil: all of
     /// them). Grows by ``historyChunkRows`` with each ``loadOlderHistory()``,
     /// and a reattach keeps it, so a reader keeps the rows they had.
@@ -676,7 +680,7 @@ public final class DaemonTerminalSession: TerminalSession {
             sizeClaimed = false
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
-            info["capabilities"] = Self.clientCapabilities
+            info["capabilities"] = Self.capabilities(agentCLIHybrid: Self.agentCLIHybridEnabled())
             let setup = await client.requests(
                 [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )
@@ -693,6 +697,17 @@ public final class DaemonTerminalSession: TerminalSession {
                 // Each request gets its own literal: a dictionary sent to the
                 // client actor is never touched again here (Swift 6 regions).
                 func send(historyRows: Int?) async throws -> Data {
+                    // Settings → Transport → Agent CLI Screen Changes: a reattach resumes
+                    // the hybrid stream from the frame this mirror drew.
+                    if Self.agentCLIHybridEnabled(), let resume = hybridResume {
+                        var params: [String: Any] = ["surface": surface, "hybrid_stream": resume.stream, "hybrid_frame": resume.frame]
+                        if let size {
+                            params["cols"] = size.columns
+                            params["rows"] = size.rows
+                        }
+                        if let historyRows { params["replay_history_rows"] = historyRows }
+                        return try await client.request("attach-surface", params: params)
+                    }
                     switch (size, historyRows) {
                     case let (size?, rows?):
                         return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows, "replay_history_rows": rows])
@@ -767,8 +782,17 @@ public final class DaemonTerminalSession: TerminalSession {
             // blank for ~170 ms, then half drawn).
             // Hidden and holding the Mac's grid, the reset and the replay
             // after it are held too: what was held before is superseded.
-            reclaimHold.restart(alternate: isAlternateScreen)
-            show(.output(TerminalReclaimHold.reset))
+            // A resumed agent CLI stream (`agent-cli-hybrid-v1`) applies its first frame on
+            // the screen this mirror holds: no reset, or the frame would draw on a blank one.
+            let resumesHybrid = heldEvents?.contains { event in
+                if case .hybridFrame(_, _, resumed: true) = event { return true }
+                return false
+            } ?? false
+            if !resumesHybrid {
+                hybridResume = nil
+                reclaimHold.restart(alternate: isAlternateScreen)
+                show(.output(TerminalReclaimHold.reset))
+            }
             let held = heldEvents ?? []
             heldEvents = nil
             for event in held { apply(event) }
@@ -913,6 +937,8 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case .historyRowsOmitted(let rows):
             historyRowsOmitted = rows
+        case let .hybridFrame(stream, frame, _):
+            hybridResume = (stream, frame)
         case .resetMirror(let alternate):
             // A `resized` replay holds the whole history.
             historyRowsOmitted = 0
@@ -1403,6 +1429,22 @@ public final class DaemonTerminalSession: TerminalSession {
     static let replayHistoryRowsCapability = "attach-replay-history-rows-v1"
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
+
+    /// The Mac's daemon sends an agent CLI's terminal (Claude Code, Codex, opencode) as the
+    /// cells that changed instead of its PTY bytes (`agent-cli-frame` events).
+    nonisolated static let agentCLIHybridCapability = "agent-cli-hybrid-v1"
+    /// Settings → Transport → Agent CLI Screen Changes (off by default), the
+    /// `CmuxMobilePreferences.Key.agentCLIHybrid` key; read at each attach.
+    nonisolated static let agentCLIHybridDefaultsKey = "cmuxMobile.settings.agentCLIHybrid"
+
+    nonisolated static func agentCLIHybridEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: agentCLIHybridDefaultsKey)
+    }
+
+    /// What `set-client-info` declares: the hybrid stream only with the setting on.
+    static func capabilities(agentCLIHybrid: Bool) -> [String] {
+        agentCLIHybrid ? clientCapabilities + [agentCLIHybridCapability] : clientCapabilities
+    }
 
     /// While the size is claimed and the daemon leases it: the same size
     /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews

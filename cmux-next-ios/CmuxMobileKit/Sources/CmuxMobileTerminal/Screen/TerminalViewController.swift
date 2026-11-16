@@ -2161,7 +2161,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
         #if DEBUG
-        TerminalBenchProbe.shared?.presented()
+        if let probe = TerminalBenchProbe.shared {
+            probe.presented()
+            if probe.readScreen == nil {
+                probe.readScreen = { [weak self] in self?.surface.screenRows()?.rows }
+            }
+        }
         devProbe?.presented()
         #endif
         // A TUI's screen has no scroll: the held frame goes once the replay drew.
