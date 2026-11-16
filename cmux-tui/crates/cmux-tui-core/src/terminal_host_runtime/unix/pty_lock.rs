@@ -57,14 +57,78 @@ impl PtyFenceWait {
         Self { state: Arc::new(Mutex::new(state)) }
     }
 
-    /// End the wait that is in progress and each later one: no replacement
-    /// host starts through this handle again. The lock is a leaf (its holder
-    /// waits for no other lock).
+    /// End the wait that is in progress and start no later one. The lock is
+    /// a leaf (its holder waits for no other lock).
     pub fn cancel(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.cancelled = true;
         if let Some(waiter) = &state.waiter {
             let _ = waiter.send(FenceEvent::Cancelled);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cancelled_for_test(&self) -> bool {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).cancelled
+    }
+
+    /// Wait until no process holds the fence of `terminal_id`/`incarnation`.
+    /// `true`: the fence is free (or has no file), and this call left no
+    /// lock on it. `false`: the handle was cancelled. A free fence starts no
+    /// wait and no thread.
+    ///
+    /// The wait is one blocking exclusive lock on the fence file, on its own
+    /// short thread: the kernel wakes it when the last holder lets go, and it
+    /// lets go again at once. A cancelled wait leaves that thread in the lock
+    /// call until the holder ends.
+    pub(super) fn wait_released(
+        &self,
+        record_path: &Path,
+        terminal_id: &str,
+        incarnation: &str,
+    ) -> anyhow::Result<bool> {
+        use cmux_file_lock::{FileLock, Kind};
+        let path = lock_path(record_path, terminal_id, incarnation);
+        let file = match open_lock_file(&path, false) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std_io::ErrorKind::NotFound => return Ok(true),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("open PTY ownership lock {}", path.display()));
+            }
+        };
+        if !FileLock::held_elsewhere(&file, Kind::Exclusive)? {
+            return Ok(true);
+        }
+        let (sender, events) = mpsc::channel();
+        let held = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.cancelled {
+                return Ok(false);
+            }
+            state.waiter = Some(sender.clone());
+            state.held.clone()
+        };
+        if let Some(held) = held {
+            held();
+        }
+        let spawned = thread::Builder::new().name("pty-fence-wait".into()).spawn(move || {
+            // The blocking lock and its release that the wait for a host's
+            // exit uses on the liveness lease.
+            let _ = sender.send(FenceEvent::Released(sys::wait_lease_exclusive(&file)));
+        });
+        let event = match spawned {
+            // The state keeps a sender, so this returns only with an event.
+            Ok(_) => events.recv().ok(),
+            Err(error) => Some(FenceEvent::Released(Err(error))),
+        };
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).waiter = None;
+        match event {
+            Some(FenceEvent::Released(Ok(()))) => Ok(true),
+            Some(FenceEvent::Released(Err(error))) => Err(error)
+                .with_context(|| format!("wait for PTY ownership lock {}", path.display())),
+            Some(FenceEvent::Cancelled) => Ok(false),
+            None => anyhow::bail!("the wait for PTY ownership lock {} had no end", path.display()),
         }
     }
 }
@@ -202,6 +266,60 @@ pub(crate) fn sweep_released_pty_locks(root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Start a wait on the held fence `t`/`i` beside `record`, run `act`
+    /// when the wait says that it found the fence held, and give the wait's
+    /// result.
+    fn wait_and(record: &Path, act: impl FnOnce(&PtyFenceWait)) -> bool {
+        let (seen, events) = mpsc::channel();
+        let held = seen.clone();
+        let wait = PtyFenceWait::observed(move || {
+            let _ = held.send(None);
+        });
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                let _ = seen.send(Some(wait.wait_released(record, "t", "i")));
+            });
+            let first = events.recv().unwrap();
+            assert!(first.is_none(), "the wait ended before it found the fence held: {first:?}");
+            act(&wait);
+            events.recv().unwrap().expect("the wait found the fence held 2 times").unwrap()
+        })
+    }
+
+    #[test]
+    fn a_fence_wait_ends_at_the_release_and_at_the_cancel() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-pty-lock-wait-{}-{}",
+            std::process::id(),
+            RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let record = dir.join("t.json");
+        // A fence with no file and a fence that no host holds: no wait.
+        assert!(PtyFenceWait::default().wait_released(&record, "t", "i").unwrap());
+        drop(PtyOwnershipLock::acquire(&record, "t", "i").unwrap());
+        assert!(PtyFenceWait::default().wait_released(&record, "t", "i").unwrap());
+
+        // The holder lets go: the wait ends and leaves the fence free for
+        // the one try of a host.
+        let held = PtyOwnershipLock::acquire(&record, "t", "i").unwrap();
+        assert!(wait_and(&record, |_| drop(held)), "a released fence read as a cancel");
+        let held = PtyOwnershipLock::acquire(&record, "t", "i").unwrap();
+
+        // The cancel ends the wait while the holder keeps the fence, and
+        // the handle starts no later wait.
+        let mut handle = None;
+        let released = wait_and(&record, |wait| {
+            wait.cancel();
+            handle = Some(wait.clone());
+        });
+        assert!(!released, "a cancelled wait read as a released fence");
+        assert!(!handle.unwrap().wait_released(&record, "t", "i").unwrap());
+        // The thread of the cancelled wait ends here.
+        drop(held);
+        let _ = fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn pty_lock_is_exclusive_and_removed_only_when_released() {
