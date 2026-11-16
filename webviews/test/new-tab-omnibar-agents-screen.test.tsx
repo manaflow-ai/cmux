@@ -1,7 +1,7 @@
 // The New Tab field's agent rows in the rendered screen (launchRows.ts): "codex cmux" lists Codex in
-// the cmux folders under a header-free lead, Return starts Codex there with no prompt, a chat row
+// the cmux folders, Return starts Codex there with no prompt, a chat row
 // opens its chat, a typed path asks the host for its folder once the field stays still and Tab
-// fills the folder in, and the sections carry their headers.
+// fills the folder in.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -89,7 +89,12 @@ async function render(
       <NewTabScreen
         template="default"
         snapshot={noChat(SESSIONS)}
-        omnibar={{ ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "cmux-scratch" }] }}
+        omnibar={{
+          ...EMPTY_OMNIBAR,
+          workspaces: [{ id: "ws", name: "cmux-scratch" }],
+          tabs: [{ id: "docs", kind: "browser", title: "Omnibar docs", detail: "docs.example.com" }],
+          actions: [{ id: "split.right", title: "Split Right", detail: "Panes", keywords: ["panes", "omnibar"] }],
+        }}
         home="/Users/me"
         lastAgent="claude"
         projects={[
@@ -124,7 +129,6 @@ async function type(text: string) {
 
 const options = () => [...window.document.querySelectorAll<HTMLElement>('.nt-rows [role="option"]')];
 const label = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
-const headers = () => [...window.document.querySelectorAll<HTMLElement>(".nt-section")].map((h) => h.textContent);
 const key = (field: Element, name: string) =>
   act(async () => {
     field.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
@@ -146,15 +150,46 @@ test('"codex cmux" leads with Codex in the cmux folder, and Return starts it the
   expect(calls[0]!.slice(0, 4)).toEqual(["ask", "codex", "", "/Users/me/fun/cmux"]);
 });
 
-test("a chat's title finds it under the Chats header, and a press opens it", async () => {
+test("a chat's title finds its suggestion, and a press opens it", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   await type("omnibar");
-  expect(headers()).toContain("Chats");
   const chat = options().find((row) => label(row) === "Omnibar ranking")!;
   expect(chat).toBeDefined();
   await act(async () => chat.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   expect(calls).toEqual([["session", "s1"]]);
+});
+
+test("commands omit their group while Ask keeps its model, chats their agent and pages their host", async () => {
+  await render([]);
+  await type("omnibar");
+  const row = (type: string) => options().find((option) => option.dataset.type === type)!;
+  expect(row("action").querySelector(".nt-row-title")?.textContent).toBe("Split Right");
+  expect(row("action").querySelector(".nt-row-detail")).toBeNull();
+  expect(row("ask").querySelector(".nt-row-detail")?.textContent).toBe("Opus 5.5");
+  expect(row("chat").querySelector(".nt-row-detail")?.textContent).toBe("Claude Code");
+  expect(row("tab").querySelector(".nt-row-detail")?.textContent).toBe("docs.example.com");
+});
+
+test.each([
+  ["omnibar", "Omnibar ranking", "Claude Code"],
+  ["release", "Release notes", "Codex"],
+  ["cmux", "Omnibar ranking", "Claude Code"],
+  ["notes", "Release notes", "Codex"],
+])('chat suggestions for "%s" show only their agent as the detail', async (query, title, agent) => {
+  await render([]);
+  await type(query);
+  const chat = options().find((row) => row.dataset.type === "chat" && label(row) === title)!;
+  expect(chat).toBeDefined();
+  expect(chat.querySelector(".nt-row-detail")?.textContent).toBe(agent);
+});
+
+test("commands still match their group keyword without displaying it", async () => {
+  await render([]);
+  await type("panes");
+  const command = options().find((row) => row.dataset.type === "action")!;
+  expect(label(command)).toBe("Split Right");
+  expect(command.querySelector(".nt-row-detail")).toBeNull();
 });
 
 test("a typed path lists its folder's subfolders once the host answers, and Tab fills the folder", async () => {

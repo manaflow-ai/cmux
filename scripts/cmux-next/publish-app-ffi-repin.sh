@@ -208,8 +208,12 @@ tip="$(git rev-parse HEAD)"
 # the pin fell 359 min behind (goal fix-running-ffi-pin, bound 120). So an open
 # PR whose head is younger than REPIN_HOLD_MIN and has no failed check keeps
 # its head and lands first; its merge changes app-ffi-pin.json, and
-# app-ffi-repin.yml then re-pins the newest release at once. A failed check, an
-# older head or any failed read moves the head as before.
+# app-ffi-repin.yml then re-pins the newest release at once. A failed check of
+# its own or an older head moves the head (held_pr returns 1). A failed read
+# leaves the branch alone (returns 2), and the next re-pin run decides: a move
+# costs the head its whole CI, a wait costs nothing while the PR stays open. On
+# 2026-11-16 the open-PR read hit the App's rate limit and moved #44074 from
+# 8f7f9e7d to 1b93c4a6 (run 43937628010).
 hold_min="${REPIN_HOLD_MIN:-90}"
 # The head's commit, check runs and statuses are read with the job's
 # GITHUB_TOKEN (contents, checks and statuses: read): the pull-request token
@@ -217,33 +221,54 @@ hold_min="${REPIN_HOLD_MIN:-90}"
 read_api() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" gh api "$@"; }
 held_pr() {
   local number state head age failed status
-  number="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 1
+  number="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 2
   [[ "$number" =~ ^[0-9]+$ ]] || return 1
-  read -r state head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 1
+  read -r state head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 2
   [[ "$state" == open && "$head" == "$previous" ]] || return 1
-  age="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 1
-  [[ "$age" =~ ^[0-9]+$ ]] || return 1
+  age="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 2
+  [[ "$age" =~ ^[0-9]+$ ]] || return 2
   if (( age >= hold_min )); then
     echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min): moving it" >&2
     return 1
   fi
-  # One bounded page: a head with more check runs than it holds is moved.
-  failed="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs?per_page=100" \
-    --jq 'if .total_count > (.check_runs | length) then "unread" else [.check_runs[] | select(.conclusion as $c
-      | ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"] | index($c))] | length end')" ||
-    return 1
-  [[ "$failed" =~ ^[0-9]+$ ]] || return 1
-  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 1
-  [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 1
+  # Every page of check runs, at the head and at the base commit it was staged on: a check that fails the same way
+  # on the base is not the head's own, so it does not move the head. One page, any failure counted: #44074
+  # (2026-11-16) had about 200 check runs and the cmux-next checks job red on base reds, so every publish moved it
+  # (6f1d36c1, fe47e481, a30893db, c5a8aa57) and no head finished its CI. A failed base read counts every failure.
+  # One bounded page per call (scripts/ci/gh_pages.py): the gh quota wrapper refuses an unbounded paginating call.
+  failed_names() {
+    local runs
+    runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
+      python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs")" || return 1
+    jq -r '.[] | select(.conclusion as $c
+      | ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
+  }
+  local head_failed base_failed="" staged_on
+  head_failed="$(failed_names "$previous")" || return 2
+  if staged_on="$(git merge-base "$previous" "$tip" 2>/dev/null)" && [[ "$staged_on" =~ ^[0-9a-f]{40}$ ]]; then
+    base_failed="$(failed_names "$staged_on")" || base_failed=""
+  fi
+  failed="$(comm -23 <(sed '/^$/d' <<<"$head_failed" | sort -u) <(sed '/^$/d' <<<"$base_failed" | sort -u) | wc -l)"
+  failed="${failed//[[:space:]]/}"
+  [[ "$failed" =~ ^[0-9]+$ ]] || return 2
+  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 2
+  [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 2
   [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
   if (( failed > 0 )); then
-    echo "#$number's head ${previous:0:12} has $failed failed check(s): moving it" >&2
+    echo "#$number's head ${previous:0:12} has $failed failed check(s) of its own: moving it" >&2
     return 1
   fi
   echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
 }
-if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]] && held_pr; then
-  exit 0
+if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]]; then
+  held=0
+  held_pr || held=$?
+  if (( held == 0 )); then
+    exit 0
+  elif (( held == 2 )); then
+    echo "::warning title=Re-pin::could not read the re-pin pull request's state at ${previous:0:12}; left $branch alone, and the next re-pin run decides"
+    exit 0
+  fi
 fi
 # Resetting the stable head to the unpinned base auto-closes its PR. Only this
 # run's staging ref may hold that base while the contents API signs the pin.
