@@ -10151,6 +10151,30 @@ class OwnedWaitBound(unittest.TestCase):
                          ["cancel:2", "rerun-failed:3"])
         self.assertIn("past the owned wait bound", text)
 
+    def test_the_bound_is_the_longest_planned_owned_queue(self):
+        self.assertEqual(rescue.OWNED_WAIT_BOUND_SECONDS, WAIT_BOUND)
+        self.assertEqual(rescue.OWNED_WAIT_BOUND_SECONDS,
+                         rescue.MAX_QUEUE_ROUNDS * rescue.QUEUE_ROUND_SECONDS)
+        self.assertEqual(rescue.OWNED_WAIT_BOUND_SECONDS,
+                         rescue.STALL_QUEUE_SECONDS + rescue.STALL_SCAN_TICKS * rescue.SWEEP_TICK_SECONDS)
+
+    def test_a_sweeper_past_its_move_cap_still_moves_a_job_past_the_bound(self):
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            if attempt == 2:
+                return [stall_job("cmux-next daemon tests", job_id=21)]
+            return [stall_job("cmux-next daemon tests", job_id=31, label=BLACKSMITH, created=seconds)]
+        full = [(START - dt.timedelta(hours=1), 1)] * rescue.STALL_MOVES_PER_SWEEP
+        for scan_at, moved in ((rescue.STALL_QUEUE_SECONDS + 60, 0), (WAIT_BOUND + 60, 1)):
+            with self.subTest(scan_at=scan_at):
+                api, logs = StallAPI(clock, jobs, attempt=2), []
+                clock.advance(scan_at - clock.seconds)
+                self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append,
+                                                   moved=set(), moves=list(full), start=lambda *args: None), moved)
+                if not moved:
+                    self.assertIn("made its", "\n".join(logs))
+
     def test_a_running_sibling_still_keeps_a_run_past_the_bound(self):
         clock = Clock()
 
@@ -10179,7 +10203,7 @@ class OwnedWaitBound(unittest.TestCase):
         self.assertEqual(code, 0, summary)
         self.assertIn("rerun-failed", api.calls, summary)
         self.assertGreaterEqual(api.first_cancel, WAIT_BOUND)
-        self.assertLess(api.first_cancel, WAIT_BOUND + rescue.STALL_RECHECK_SECONDS + 60)
+        self.assertLess(api.first_cancel, WAIT_BOUND + 2 * rescue.STALL_RECHECK_SECONDS)
 
     def test_a_delivery_run_keeps_its_hold_past_the_bound(self):
         # A DEV daily is no pull request's check: it stays held off a stalled label (NIGHTLY/DEV rules decide).
