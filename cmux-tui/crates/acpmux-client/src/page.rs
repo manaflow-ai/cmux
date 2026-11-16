@@ -113,6 +113,9 @@ pub enum ListEvent {
         origin: String,
         state: String,
     },
+    On {
+        sid: String,
+    },
     Off {
         sid: Option<String>,
         code: String,
@@ -154,11 +157,13 @@ enum Direction {
 #[derive(Clone, Debug)]
 struct Question {
     sid: String,
+    kind: PageKind,
     request: crate::wire::Page,
     direction: Direction,
     in_flight: bool,
     complete: bool,
     failed: bool,
+    rows: usize,
     created: u64,
 }
 
@@ -167,6 +172,7 @@ struct Head {
     slot: String,
     before_key: Option<ListKey>,
     edition: u32,
+    rows: Vec<RowRef>,
 }
 
 struct HeldBatch {
@@ -184,6 +190,7 @@ pub struct ListDriver {
     members: HashMap<String, HashSet<RowRef>>,
     deferred: VecDeque<QueuedChange<Value>>,
     latest: HashMap<RowRef, u64>,
+    row_values: HashMap<RowRef, Value>,
     held: Option<HeldBatch>,
     next_batch: u64,
     next_question: u64,
@@ -208,6 +215,7 @@ impl ListDriver {
             members: HashMap::new(),
             deferred: VecDeque::new(),
             latest: HashMap::new(),
+            row_values: HashMap::new(),
             held: None,
             next_batch: 1,
             next_question: 1,
@@ -241,6 +249,7 @@ impl ListDriver {
         for (id, question) in self.questions.iter_mut() {
             if question.in_flight {
                 question.in_flight = false;
+                question.failed = true;
                 self.synthetic.push_back(ListEvent::Error {
                     sid: Some(question.sid.clone()),
                     id: Some(id.clone()),
@@ -300,7 +309,8 @@ impl ListDriver {
         };
         result.map_err(|error| DriverError::Invalid(error.to_string()))?;
         self.slots.insert(sid.clone(), slot.clone());
-        self.heads.insert(sid.clone(), Head { slot, before_key: None, edition: 0 });
+        self.heads
+            .insert(sid.clone(), Head { slot, before_key: None, edition: 0, rows: Vec::new() });
         Ok(sid)
     }
 
@@ -343,10 +353,31 @@ impl ListDriver {
 
     /// Starts one bounded question. The returned id is opaque and is safe to expose to a page.
     pub fn page(&mut self, request: PageRequest) -> Result<String, DriverError> {
+        if !self.slots.contains_key(&request.sid) {
+            return Err(DriverError::Invalid("list.sid".into()));
+        }
+        match request.kind {
+            PageKind::Older => {
+                if self.heads.get(&request.sid).and_then(|head| head.before_key.as_ref()).is_none()
+                {
+                    return Err(DriverError::Invalid("list.page".into()));
+                }
+            }
+            PageKind::Family | PageKind::Forks => {
+                if request.key.is_none() {
+                    return Err(DriverError::Invalid("list.request".into()));
+                }
+            }
+            PageKind::Folder => {
+                if request.folder.is_none() {
+                    return Err(DriverError::Invalid("list.request".into()));
+                }
+            }
+        }
         if self.questions.values().filter(|question| !question.complete && !question.failed).count()
             >= MAX_QUESTIONS
         {
-            return Err(DriverError::Limit("list.busy"));
+            return Err(DriverError::Busy);
         }
         if self.questions.len() >= MAX_QUESTIONS {
             if let Some(id) = self
@@ -358,11 +389,8 @@ impl ListDriver {
             {
                 self.questions.remove(&id);
             } else {
-                return Err(DriverError::Limit("list.busy"));
+                return Err(DriverError::Busy);
             }
-        }
-        if !self.slots.contains_key(&request.sid) {
-            return Err(DriverError::Invalid("list.sid".into()));
         }
         if self.questions.values().any(|question| question.sid == request.sid && question.in_flight)
         {
@@ -402,11 +430,7 @@ impl ListDriver {
             before,
             after: None,
             keys: None,
-            view: Some(if matches!(request.kind, PageKind::Folder) {
-                ListView::All
-            } else {
-                ListView::All
-            }),
+            view: Some(ListView::All),
             max_bytes: MAX_REPLY_BYTES as u32,
             filter: filter.map(|mut value| {
                 value.cold = request.cold;
@@ -424,11 +448,13 @@ impl ListDriver {
             id.clone(),
             Question {
                 sid,
+                kind: request.kind,
                 request: wire,
                 direction,
                 in_flight: true,
                 complete: false,
                 failed: false,
+                rows: 0,
                 created,
             },
         );
@@ -446,13 +472,13 @@ impl ListDriver {
             if question.complete || question.failed || question.in_flight {
                 return Err(DriverError::Busy);
             }
+            if question.rows >= MAX_ROWS {
+                return Err(DriverError::Limit("list.limit"));
+            }
             question.request.clone()
         };
         self.client.page(request).map_err(|error| DriverError::Invalid(error.to_string()))?;
         let question = self.questions.get_mut(id).ok_or(DriverError::MissingQuestion)?;
-        if question.complete || question.in_flight {
-            return Err(DriverError::Busy);
-        }
         question.in_flight = true;
         Ok(())
     }
@@ -546,31 +572,45 @@ impl ListDriver {
                 let sid = window.sid.clone();
                 let slot = self.slots.get(&sid).cloned().unwrap_or_else(|| "all".into());
                 let mut remove = Vec::new();
+                let new_rows: Vec<RowRef> = window.rows.iter().filter_map(row_ref).collect();
+                let new_keys: HashSet<RowRef> = new_rows.iter().cloned().collect();
                 if let Some(old) = self.members.remove(&sid) {
                     for key in old {
-                        if !self.members.values().any(|members| members.contains(&key)) {
-                            self.latest.remove(&key);
+                        if !new_keys.contains(&key) {
+                            remove.push(key.clone());
                         }
-                        remove.push(key);
+                        if !new_keys.contains(&key)
+                            && !self.members.values().any(|members| members.contains(&key))
+                        {
+                            self.latest.remove(&key);
+                            self.row_values.remove(&key);
+                        }
                     }
                 }
                 let members = self.members.entry(sid.clone()).or_default();
                 for row in &window.rows {
                     if let Some(key) = row_ref(row) {
                         members.insert(key);
+                        self.row_values.insert(key, row.clone());
                     }
                 }
                 if let Some(head) = self.heads.get_mut(&sid) {
                     head.before_key = window.before_key.clone();
                     head.edition = window.edition;
+                    head.rows = new_rows;
                 }
-                ListEvent::Rows {
+                let event_sid = sid.clone();
+                let event = ListEvent::Rows {
                     sid,
                     slot,
                     upserts: window.rows,
                     remove,
                     complete: !window.has_before && !window.has_after,
+                };
+                if self.resuming.remove(&event_sid) {
+                    self.synthetic.push_back(ListEvent::On { sid: event_sid });
                 }
+                event
             }
             Change::Page(page) => {
                 if page.rows.len() > MAX_ROWS {
@@ -584,6 +624,16 @@ impl ListDriver {
                     return Ok(None);
                 };
                 question.in_flight = false;
+                if question.rows.saturating_add(page.rows.len()) > MAX_ROWS {
+                    question.failed = true;
+                    return Ok(Some(ListEvent::Error {
+                        sid: Some(page.sid),
+                        id: Some(id.clone()),
+                        code: "list.limit".into(),
+                    }));
+                }
+                question.rows = question.rows.saturating_add(page.rows.len());
+                let kind = question.kind;
                 let continuation = match question.direction {
                     Direction::Before => page.before_key.clone().map(|key| crate::wire::Page {
                         sid: page.sid.clone(),
@@ -617,17 +667,59 @@ impl ListDriver {
                 if let Some(next) = continuation {
                     question.request = next;
                 }
-                ListEvent::Page {
+                let complete = question.complete;
+                let page_sid = page.sid.clone();
+                let page_event = ListEvent::Page {
                     sid: page.sid,
                     id: id.clone(),
-                    rows: page.rows,
+                    rows: if matches!(kind, PageKind::Older) {
+                        Vec::new()
+                    } else {
+                        page.rows.clone()
+                    },
                     has_before: page.has_before,
                     has_after: page.has_after,
-                    complete: question.complete,
+                    complete,
                     cold_unread: page.cold_unread,
                     deeper: page.deeper.into_iter().map(row_ref_key).collect(),
                     missing: page.missing.into_iter().map(row_ref_key).collect(),
                     unknown: page.unknown.into_iter().map(row_ref_key).collect(),
+                };
+                if matches!(kind, PageKind::Older) {
+                    let sid = page_sid;
+                    let rows = page.rows;
+                    let slot = self
+                        .heads
+                        .get(&sid)
+                        .map(|head| head.slot.clone())
+                        .unwrap_or_else(|| "all".into());
+                    let mut remove = Vec::new();
+                    if let Some(head) = self.heads.get_mut(&sid) {
+                        head.before_key = page.before_key;
+                        for row in &rows {
+                            if let Some(key) = row_ref(row) {
+                                self.row_values.insert(key.clone(), row.clone());
+                                if !head.rows.contains(&key) {
+                                    head.rows.push(key.clone());
+                                    self.members.entry(sid.clone()).or_default().insert(key);
+                                }
+                            }
+                        }
+                        if head.rows.len() > MAX_ROWS {
+                            head.rows.sort_by(|a, b| {
+                                row_order(self.row_values.get(b))
+                                    .cmp(&row_order(self.row_values.get(a)))
+                            });
+                            remove = head.rows.split_off(MAX_ROWS);
+                        }
+                    }
+                    for key in &remove {
+                        self.remove_member(&sid, key);
+                    }
+                    self.synthetic.push_back(page_event);
+                    ListEvent::Rows { sid, slot, upserts: rows, remove, complete }
+                } else {
+                    page_event
                 }
             }
             Change::Summary { sid, seq, summary, .. } => {
@@ -657,33 +749,27 @@ impl ListDriver {
                 origin: origin.id,
                 state: format!("{:?}", origin.state).to_lowercase(),
             },
-            Change::Whole { sid, .. } => ListEvent::Rows {
-                sid,
-                slot: self
-                    .heads
-                    .get(&sid)
-                    .map(|head| head.slot.clone())
-                    .unwrap_or_else(|| "all".into()),
-                upserts: Vec::new(),
-                remove: Vec::new(),
-                complete: false,
-            },
+            Change::Whole { .. } => return Ok(None),
             Change::Fallback(_) => ListEvent::Off { sid: None, code: "unsupported".into() },
             Change::Error { method, sid, code, .. } if method == "sub" && code == "surface_off" => {
                 ListEvent::Off { sid, code: "unsupported".into() }
             }
-            Change::Error { sid, id, code, .. } => {
-                if let Some(id) = id.as_ref() {
-                    if let Some(question) = self.questions.get_mut(id) {
-                        question.in_flight = false;
-                        question.failed = true;
-                    }
-                }
-                ListEvent::Error { sid, id, code }
+            Change::Error { sid, code, .. } => {
+                let question_id = sid.as_ref().and_then(|sid| {
+                    self.questions
+                        .iter_mut()
+                        .find(|(_, question)| question.sid == sid.as_str() && question.in_flight)
+                        .map(|(id, question)| {
+                            question.in_flight = false;
+                            question.failed = true;
+                            id.clone()
+                        })
+                });
+                ListEvent::Error { sid, id: question_id, code }
             }
             Change::ResumeEnd { sid, .. } => {
                 if self.resuming.remove(&sid) {
-                    ListEvent::Origin { sid, origin: "local".into(), state: "on".into() }
+                    ListEvent::On { sid }
                 } else {
                     return Ok(None);
                 }
@@ -692,7 +778,6 @@ impl ListDriver {
             | Change::Unconfirmed { .. }
             | Change::Queue { .. }
             | Change::Folder { .. }
-            | Change::FolderGone { .. }
             | Change::FolderWindow(_)
             | Change::FolderPage(_)
             | Change::Chat(_) => return Ok(None),
@@ -709,6 +794,7 @@ impl ListDriver {
     ) -> Option<ListEvent> {
         let row = row_ref(&summary);
         if let Some(row) = row.as_ref() {
+            self.row_values.insert(row.clone(), summary.clone());
             if remove {
                 self.remove_member(&sid, row);
             } else {
@@ -719,11 +805,42 @@ impl ListDriver {
                 }
                 members.insert(row.clone());
                 self.latest.insert(row.clone(), seq);
+                let trimmed_head = if let Some(head) = self.heads.get_mut(&sid) {
+                    if !head.rows.contains(row) {
+                        head.rows.push(row.clone());
+                    }
+                    if head.rows.len() > MAX_ROWS {
+                        head.rows.sort_by(|a, b| {
+                            row_order(self.row_values.get(b))
+                                .cmp(&row_order(self.row_values.get(a)))
+                        });
+                        let trimmed = head.rows.split_off(MAX_ROWS);
+                        Some((head.slot.clone(), trimmed))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if let Some((slot, trimmed)) = trimmed_head {
+                    for key in &trimmed {
+                        self.remove_member(sid.as_str(), key);
+                    }
+                    return Some(ListEvent::Rows {
+                        sid,
+                        slot,
+                        upserts: vec![summary],
+                        remove: trimmed,
+                        complete: false,
+                    });
+                }
             }
         }
+        let slot =
+            self.heads.get(&sid).map(|head| head.slot.clone()).unwrap_or_else(|| "all".into());
         Some(ListEvent::Rows {
             sid,
-            slot: "live".into(),
+            slot,
             upserts: (!remove).then_some(vec![summary]).unwrap_or_default(),
             remove: remove.then_some(row.into_iter().collect()).unwrap_or_default(),
             complete: false,
@@ -731,6 +848,9 @@ impl ListDriver {
     }
 
     fn remove_member(&mut self, sid: &str, key: &RowRef) {
+        if let Some(head) = self.heads.get_mut(sid) {
+            head.rows.retain(|held| held != key);
+        }
         let empty = self.members.get_mut(sid).map(|members| {
             members.remove(key);
             members.is_empty()
@@ -740,6 +860,7 @@ impl ListDriver {
         }
         if !self.members.values().any(|members| members.contains(key)) {
             self.latest.remove(key);
+            self.row_values.remove(key);
         }
     }
 }
@@ -753,6 +874,23 @@ fn row_ref(value: &Value) -> Option<RowRef> {
 
 fn row_ref_key(key: crate::wire::ListKey) -> RowRef {
     RowRef { origin: key.origin, chat_id: key.chat_id }
+}
+
+fn row_order(value: Option<&Value>) -> (u64, String, String) {
+    let value = value.cloned().unwrap_or(Value::Null);
+    let activity = value
+        .get("updatedMs")
+        .or_else(|| value.get("lastActivity"))
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let chat_id = value
+        .get("chatId")
+        .or_else(|| value.get("sessionId"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let origin = value.get("origin").and_then(Value::as_str).unwrap_or("local").to_owned();
+    (activity, origin, chat_id)
 }
 
 #[cfg(test)]
@@ -784,6 +922,7 @@ mod tests {
                         past: false,
                     }),
                     edition: 0,
+                    rows: Vec::new(),
                 },
             );
         }
@@ -804,7 +943,7 @@ mod tests {
             folder: None,
             cold: false,
         };
-        assert_eq!(driver.page(request), Err(DriverError::Limit("list.busy")));
+        assert_eq!(driver.page(request), Err(DriverError::Busy));
     }
 
     #[test]
@@ -821,7 +960,10 @@ mod tests {
     fn windows_and_whole_report_walk_completion_and_slot_membership() {
         let mut driver = ListDriver::new();
         driver.slots.insert("s".into(), "all".into());
-        driver.heads.insert("s".into(), Head { slot: "all".into(), before_key: None, edition: 0 });
+        driver.heads.insert(
+            "s".into(),
+            Head { slot: "all".into(), before_key: None, edition: 0, rows: Vec::new() },
+        );
         let window = crate::wire::Window {
             sid: "s".into(),
             cursor: 1,
@@ -834,13 +976,25 @@ mod tests {
             after_key: None,
         };
         let event = driver.project(Change::Window(window)).unwrap().unwrap();
-        assert!(matches!(event, ListEvent::Rows { complete: false, slot, .. } if slot == "all"));
+        assert!(matches!(&event, ListEvent::Rows { complete: false, slot, .. } if slot == "all"));
         let whole = driver
             .project(Change::Whole { sid: "s".into(), cursor: crate::wire::Cursor(2) })
             .unwrap()
             .unwrap();
-        assert!(matches!(whole, ListEvent::Rows { complete: false, slot, .. } if slot == "all"));
-        let json = serde_json::to_string(&event).unwrap();
+        assert!(whole.is_none());
+        let json = serde_json::to_string(&ListEvent::Page {
+            sid: "s".into(),
+            id: "q".into(),
+            rows: Vec::new(),
+            has_before: true,
+            has_after: false,
+            complete: false,
+            cold_unread: false,
+            deeper: Vec::new(),
+            missing: Vec::new(),
+            unknown: Vec::new(),
+        })
+        .unwrap();
         assert!(json.contains("hasBefore"));
         assert!(!json.contains("has_before"));
     }
@@ -852,11 +1006,13 @@ mod tests {
             "q".into(),
             Question {
                 sid: "s".into(),
+                kind: PageKind::Family,
                 request: Page::new("s", "list", crate::wire::PageSide::Before, 1),
                 direction: Direction::Before,
                 in_flight: true,
                 complete: false,
                 failed: false,
+                rows: 0,
                 created: 1,
             },
         );

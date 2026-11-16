@@ -374,7 +374,7 @@ pub unsafe extern "C" fn acpmux_client_subscribe(
         };
         let sub = match serde_json::from_slice::<Sub>(bytes) {
             Ok(sub) => sub,
-            Err(error) => return page_error(error),
+            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
         let client = match handle_mut(handle) {
             Ok(client) => client,
@@ -382,7 +382,7 @@ pub unsafe extern "C" fn acpmux_client_subscribe(
         };
         match client.subscribe(sub) {
             Ok(sid) => output(out, serde_json::to_vec(&json!({"sid":sid})).unwrap_or_default()),
-            Err(error) => page_error(error),
+            Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
     })
 }
