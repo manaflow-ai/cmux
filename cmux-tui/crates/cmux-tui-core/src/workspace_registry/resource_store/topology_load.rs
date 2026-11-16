@@ -10,6 +10,13 @@ impl WorkspaceRegistry {
         FULL_TOPOLOGY_READS.with(Cell::get)
     }
 
+    /// Side table rows that loads on this thread read for a screen they did
+    /// not load (test hook).
+    #[cfg(test)]
+    pub(crate) fn other_screen_side_rows_read_for_test() -> u64 {
+        screen_rows::other_screen_side_rows_read_for_test()
+    }
+
     /// The stored subtrees of `workspaces` only; see
     /// [`load_resource_topology_scoped`].
     pub(crate) fn resource_topology_scoped(

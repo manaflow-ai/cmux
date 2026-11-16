@@ -219,6 +219,8 @@ fn overlay_lone_docks(
         .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;
     for (screen_id, column_json) in records {
+        #[cfg(test)]
+        count_other_screen_side_row(screens, &screen_id);
         let Some(screen) = screens.iter_mut().find(|screen| screen.public_id.as_str() == screen_id)
         else {
             continue;
@@ -240,6 +242,27 @@ fn overlay_lone_docks(
             RegistryViewport { base_width: Some(column.width), columns: vec![column] };
     }
     Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static OTHER_SCREEN_SIDE_ROWS_READ: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Counts a side table row that a load read for a screen it does not load
+/// (test hook).
+#[cfg(test)]
+fn count_other_screen_side_row(screens: &[RegistryScreen], screen_id: &str) {
+    if !screens.iter().any(|screen| screen.public_id.as_str() == screen_id) {
+        OTHER_SCREEN_SIDE_ROWS_READ.with(|rows| rows.set(rows.get() + 1));
+    }
+}
+
+/// Side table rows that loads on this thread read for a screen they did not
+/// load (test hook).
+#[cfg(test)]
+pub(super) fn other_screen_side_rows_read_for_test() -> u64 {
+    OTHER_SCREEN_SIDE_ROWS_READ.with(Cell::get)
 }
 
 /// `((screen id, column id), [(row id, height)])` as read from the table.
@@ -267,6 +290,8 @@ pub(super) fn with_side_tables(
         .collect::<Result<Vec<_>, _>>()?;
     let mut columns: Vec<StoredColumnRows> = Vec::new();
     for (screen, column, row, height) in records {
+        #[cfg(test)]
+        count_other_screen_side_row(&screens, &screen);
         match columns.last_mut() {
             Some((key, rows)) if key.0 == screen && key.1 == column => rows.push((row, height)),
             _ => columns.push(((screen, column), vec![(row, height)])),
@@ -404,6 +429,8 @@ fn with_column_docks(
         })?
         .collect::<Result<Vec<_>, _>>()?;
     for (screen_id, column_id, edge, mode) in rows {
+        #[cfg(test)]
+        count_other_screen_side_row(&screens, &screen_id);
         let (Some(edge), Some(mode)) = (DockEdge::parse(&edge), DockMode::parse(&mode)) else {
             continue;
         };
