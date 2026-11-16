@@ -527,8 +527,8 @@ class SeedCacheTests(unittest.TestCase):
     def peer_chats(self):
         return self.last_peer.chats
 
-    def run_seed(self, *flags):
-        bench = load_bench("--conditions", "idle", "--cases", "big", "--runs", "1", "--turns", "5", "--small-turns", "3", *flags)
+    def run_seed(self, *flags, cases="big,subagent"):
+        bench = load_bench("--conditions", "idle", "--cases", cases, "--runs", "1", "--turns", "5", "--small-turns", "3", *flags)
         bench.icl = self.fake_icl()
         real = self.Peer.__init__
         test = self
@@ -605,6 +605,19 @@ class SeedCacheTests(unittest.TestCase):
         events = "".join(json.dumps(line) + "\n" for line in subagent_turn(sid, 6, drop=3)).encode()
         self.assertIn("before its spawn", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
         self.assertIn("spawned 5 of 6", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
+
+    def test_relaunched_alone_seeds_no_subagent_chat(self):
+        # 2026-11-16: the seed agent spawned 0 of 5 subagents, and a `--cases=relaunched` A/B, which opens no
+        # subagent chat, stopped as "seed invalid" on both arms. A seed agent whose subagent turns are all bad
+        # must not stop a run that never opens one.
+        self.Peer.bad = 99
+        _home, per, seeded = self.run_seed("--no-seed-cache", cases="relaunched")
+        self.assertNotIn("subagent", seeded["seed_cache"])
+        self.assertNotIn("subagent", seeded["template_bytes"])
+        self.assertEqual(seeded["subagent_template"], "ok")
+        self.assertEqual(self.Peer.bad, 99)  # no subagents turn was ever sent
+        self.assertEqual(len(per["idle"]["relaunched"]), 1)
+        self.assertEqual(per["idle"]["subagent"], [])
 
     def test_a_new_turn_count_seeds_only_the_big_chat(self):
         self.run_seed()
