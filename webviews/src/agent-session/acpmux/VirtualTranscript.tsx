@@ -87,8 +87,9 @@ import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { useCountedRender } from "./perfRender";
-import { drewStreamingRow, useStreamingRow } from "./streamingRow";
-import { rowsWithLiveOutput, useLiveToolRow } from "./liveToolOutput";
+import { drewStreamingRow, useStreamingRowFor } from "./streamingRow";
+import { useLiveToolRow } from "./liveToolOutput";
+import { drewThoughts, rowsDrawnNow, useLiveThoughtRow } from "./liveThought";
 import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
@@ -395,8 +396,9 @@ export const RowContent = React.memo(
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    // A running command's output that moved on without the pane: this row alone draws it.
-    const row = useLiveToolRow(props.row, liveTools);
+    // What moved on without the pane (a running command's output, a thought, the streaming reply's
+    // text and the live line under it): this row alone draws it.
+    const row = useStreamingRowFor(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
     return <Component {...props} row={row} />;
   },
   (previous, next) => {
@@ -1800,34 +1802,15 @@ function TranscriptView({
   // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`); tests
   // count them per key and per line (test/composer-smooth-grow.test.ts).
   useCountedRender("transcript");
-  // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
-  // row only, in place, with its version moved on by the chunks it is ahead.
-  const live = useStreamingRow(streams);
-  const rows = useMemo(() => {
-    if (!streams || !live) return paneRows;
-    for (let index = paneRows.length - 1; index >= 0; index -= 1) {
-      const row = paneRows[index]!;
-      if (row.id !== live.row.id) continue;
-      if (row.text !== live.drawnText) return paneRows;
-      const next = paneRows.slice();
-      const version = row.version + live.ahead;
-      next[index] = { ...row, text: live.row.text, version };
-      // The live line under the reply stays quiet while the reply's text moves (turns.ts
-      // `quietKey` names the reply's id and version): it moves with the newer version here.
-      const stale = `${row.id}:${row.version}`;
-      for (let below = index + 1; below < next.length; below += 1) {
-        const line = next[below]!;
-        if (line.kind === THINKING && line.quietKey === stale)
-          next[below] = { ...line, quietKey: `${row.id}:${version}`, version: line.version + live.ahead };
-      }
-      return next;
-    }
-    return paneRows;
-  }, [paneRows, live, streams]);
-  // What this transcript drew of the pane's streaming reply: the pane takes the fast path only
-  // while that row is drawn as the client holds it.
+  // The streaming reply's newer text, a thought's and a running command's newer output reach their
+  // own rows (RowContent: streamingRow.ts, liveThought.ts, liveToolOutput.ts), never these rows: a
+  // chunk renders its row, not this transcript, and nothing copies the rows per chunk.
+  const rows = paneRows;
+  // What this transcript drew of the pane's streaming reply and the running turn's thoughts: the pane
+  // takes their fast paths only while those are drawn as the client holds them.
   useLayoutEffect(() => {
     if (!streams) return;
+    drewThoughts(paneRows);
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
       const row = paneRows[index]!;
       if (row.kind === "assistant" && row.streaming) {
@@ -4364,8 +4347,9 @@ function TranscriptView({
   }, [range, effectiveActiveRowId]);
   const copyRows = useCallback(
     async (rowIds: string[]) => {
-      // A running command's output since the pane last drew is in liveToolOutput.ts, not `rows`.
-      const text = transcriptRangeText(rowsWithLiveOutput(rows), rowIds);
+      // What streamed since the pane last drew (a reply's text, a thought, a running command's
+      // output) is in the rows' own stores, not `rows`.
+      const text = transcriptRangeText(rowsDrawnNow(rows), rowIds);
       if (text && !(await copyTextResult(text))) throw new Error("copy.failed");
     },
     [rows],

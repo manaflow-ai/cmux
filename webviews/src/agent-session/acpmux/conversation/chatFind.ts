@@ -30,7 +30,7 @@ import { toolResult } from "./toolResult";
 import { withoutLinks } from "./webSourceList";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
-import { rowsWithLiveOutput } from "../liveToolOutput";
+import { rowsDrawnNow } from "../liveThought";
 import { clearAdaptiveFind, paintAdaptiveFind, type FindColors } from "../../../ui/findPaint";
 
 export { foldFind };
@@ -311,7 +311,7 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
     if (!open) return NO_MATCHES;
     // While Find is open the pane draws every output update (ChatFindScope.tsx); a running
     // command's output from before it opened is in liveToolOutput.ts, not `rows`.
-    const result = findMatchesIncremental(rowsWithLiveOutput(rows), query, matchesCache.current, attachmentView);
+    const result = findMatchesIncremental(rowsDrawnNow(rows), query, matchesCache.current, attachmentView);
     matchesCache.current = result.cache;
     return result.matches;
   }, [open, rows, query, attachmentView]);

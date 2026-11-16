@@ -1,4 +1,5 @@
 import "./harnessStatus.css";
+import { useLiveSummary } from "./liveSummary";
 import { useEffect, useRef, useState } from "react";
 import { copyTextResult } from "./conversation/clipboard";
 import { Icon } from "./icons/Icon";
@@ -51,7 +52,14 @@ function display(value: unknown, t: Translate): string {
 }
 
 /** The shared `/status` card. Values are normalized to labels and never render credential values. */
-export function HarnessStatusCard({ summary, onDismiss }: { summary: AcpmuxSnapshot["summary"]; onDismiss(): void }) {
+export function HarnessStatusCard({
+  summary: drawnSummary,
+  onDismiss,
+}: {
+  summary: AcpmuxSnapshot["summary"];
+  onDismiss(): void;
+}) {
+  const summary = useLiveSummary(drawnSummary);
   const t = useT();
   const locale = usePaneLanguage();
   // This card can be open while the composer owns focus. Capture an otherwise-unclaimed Escape

@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { useLiveSummary } from "./liveSummary";
 import { useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
 import React, {
@@ -753,11 +754,9 @@ function ComposerFrame({
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
   const look = useComposerLook();
   const quietActions = plainFooter && look !== "codex";
-  const usage = compactingUsage(
-    snapshot.summary?.usage,
-    snapshot.summary?.usageStats,
-    snapshot.summary?.contextBreakdown,
-  );
+  // A usage update reaches the ring without the pane (liveSummary.ts).
+  const usageSummary = useLiveSummary(snapshot.summary);
+  const usage = compactingUsage(usageSummary?.usage, usageSummary?.usageStats, usageSummary?.contextBreakdown);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   const resumeInFlight = useRef<{ sessionId?: string } | undefined>(undefined);
@@ -3050,7 +3049,7 @@ function ComposerFrame({
                 size={usage?.size}
                 setup={usage?.setup}
                 cacheExpiresAt={usage?.cacheExpiresAt}
-                breakdown={snapshot.summary?.contextBreakdown}
+                breakdown={usageSummary?.contextBreakdown}
                 onOpenDetails={onOpenContext}
                 {...(composerRing === "planUsage"
                   ? {
