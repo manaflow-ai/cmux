@@ -32,6 +32,11 @@ pub struct PoolConfig {
     /// A spare nobody takes exits after this many minutes (at least the
     /// pool's `idleMinutes`); the next session of its harness starts it again.
     pub spare_idle_minutes: u64,
+    /// Staging only, off by default: on a Cloud machine, a login install that names a cmux account
+    /// (`~/.config/cmux/agent-auth/claude.login`, the warm's copy ahead of a chat) starts a Claude
+    /// spare in the home folder (`hub/pool/spare.rs`). Also on with `ACPMUX_LOGIN_SPARE=1` in the
+    /// daemon's environment. Needs spares on.
+    pub login_spare: bool,
 }
 
 impl Default for PoolConfig {
@@ -45,6 +50,7 @@ impl Default for PoolConfig {
             hinted_per_harness: 1,
             spare: true,
             spare_idle_minutes: 60,
+            login_spare: false,
         }
     }
 }
@@ -68,6 +74,22 @@ impl PoolConfig {
     pub fn spare_enabled(&self) -> bool {
         self.spare && spare_env_allows(std::env::var(SPARE_ENV).ok().as_deref())
     }
+
+    /// Whether a login install starts a Claude spare: spares on, and `loginSpare` or
+    /// `ACPMUX_LOGIN_SPARE` set to 1, true, on or yes.
+    pub fn login_spare_enabled(&self) -> bool {
+        self.spare_enabled()
+            && (self.login_spare || env_on(std::env::var(LOGIN_SPARE_ENV).ok().as_deref()))
+    }
+}
+
+/// The staging switch for the login spare in the daemon's environment.
+pub const LOGIN_SPARE_ENV: &str = "ACPMUX_LOGIN_SPARE";
+
+fn env_on(value: Option<&str>) -> bool {
+    value.is_some_and(|v| {
+        matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
+    })
 }
 
 /// The kill switch for spares in the daemon's environment.
@@ -92,6 +114,14 @@ mod spare_tests {
         for off in ["0", "false", "OFF", " no "] {
             assert!(!spare_env_allows(Some(off)), "{off}");
         }
+    }
+
+    #[test]
+    fn the_login_spare_is_off_by_default() {
+        assert!(!PoolConfig::default().login_spare);
+        assert!(!env_on(None));
+        assert!(env_on(Some(" ON ")));
+        assert!(!env_on(Some("0")));
     }
 
     #[test]
