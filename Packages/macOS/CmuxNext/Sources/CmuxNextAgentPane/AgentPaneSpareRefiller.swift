@@ -60,7 +60,9 @@ public final class AgentPaneSpareRefiller {
     }
 
     /// The make tasks' counts since launch.
-    public private(set) var counts = Counts()
+    public private(set) var counts = Counts() { didSet { onCounts?(counts) } }
+    /// Runs at each change of ``counts`` (tests await a make or a hold by it; nothing else reads it).
+    public var onCounts: (@MainActor (Counts) -> Void)?
 
     private let queue: FrameBatchQueue
     private let timer: DemandTimer
