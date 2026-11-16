@@ -467,3 +467,39 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
     e.on_datagram(&feedback(&Feedback::default()), false, 660_000);
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
 }
+
+/// A recovery request that lands while the source is still encoding a P-frame
+/// (asked for before it) keeps the keyframe owed: answering the older request
+/// does not clear it, and the next request forces the IDR. When the frame gate
+/// held the recovery encode, the older P-frame used to clear the force, and the
+/// rate limit held the viewer's next ask for 250 ms (a WireGuard fallback after
+/// a dead media session waited past the redial for its keyframe).
+#[test]
+fn a_recovery_during_an_older_encode_still_forces_the_next_frame() {
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 500, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        300_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let older = e.damage(0, small, 300_000).expect("a P-frame request");
+    assert!(!older.force_idr);
+    // The viewer asks for recovery while the source works on `older`, inside
+    // the fps cap: the gate holds the recovery encode.
+    let ask = feedback(&Feedback {
+        acked_frame: first.frame,
+        need_recovery: true,
+        ..Feedback::default()
+    });
+    let held = e.on_datagram(&ask, true, 305_000).encode;
+    // The source answers the request it was working on.
+    send(&mut e, &older, false, 500, 306_000);
+    let next = held
+        .or_else(|| e.poll(330_000))
+        .or_else(|| e.damage(0, small, 330_000))
+        .expect("the next request");
+    assert!(next.force_idr, "the keyframe the viewer asked for was dropped: {next:?}");
+}
