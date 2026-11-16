@@ -18,6 +18,8 @@ import tarfile
 import tempfile
 import textwrap
 import unittest
+from contextlib import redirect_stderr
+from unittest import mock
 import zlib
 from pathlib import Path
 
@@ -283,6 +285,42 @@ class Comment(unittest.TestCase):
             self.assertEqual(len(calls), 1)
         finally:
             hv.gh = original
+
+
+    def test_a_call_out_of_quota_waits_for_the_reset_then_retries(self) -> None:
+        # Run 43790108433 (cmux#44086, 2026-11-16): the look passed, then "post the look" died on
+        # "API rate limit exceeded for installation" and the finished look was never posted.
+        limited = subprocess.CompletedProcess([], 1, "", "gh: API rate limit exceeded for installation. If you ...")
+        answers, calls, slept = [], [], []
+
+        def run(argv, **kw):
+            calls.append(argv)
+            if argv[1:3] == ["api", "rate_limit"]:
+                return subprocess.CompletedProcess(argv, 0, "0 1000300\n", "")
+            return answers.pop(0)
+
+        with mock.patch.object(hv.subprocess, "run", side_effect=run), \
+                mock.patch.object(hv.time, "time", return_value=1000000.0), \
+                mock.patch.object(hv.time, "sleep", side_effect=slept.append), redirect_stderr(io.StringIO()):
+            answers[:] = [limited, subprocess.CompletedProcess([], 0, "ok\n", "")]
+            self.assertEqual(hv.gh("api", "repos/manaflow-ai/cmux/pulls/7"), "ok\n")
+            self.assertEqual(slept, [305.0])  # the core reset, 300 s on, plus 5
+            self.assertEqual([c[1:3] for c in calls], [["api", "repos/manaflow-ai/cmux/pulls/7"],
+                                                       ["api", "rate_limit"],
+                                                       ["api", "repos/manaflow-ai/cmux/pulls/7"]])
+            # Past QUOTA_WAIT_SECONDS in all, it stops waiting and says why.
+            slept.clear()
+            answers[:] = [limited] * 20
+            with self.assertRaises(hv.Refused) as refused:
+                hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
+            self.assertLessEqual(sum(slept), hv.QUOTA_WAIT_SECONDS)
+            self.assertIn("rate limit", str(refused.exception))
+            # Any other failure is not retried.
+            slept.clear()
+            answers[:] = [subprocess.CompletedProcess([], 1, "", "HTTP 404: Not Found")]
+            with self.assertRaises(hv.Refused):
+                hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
+            self.assertEqual(slept, [])
 
 
 class Workflow(unittest.TestCase):

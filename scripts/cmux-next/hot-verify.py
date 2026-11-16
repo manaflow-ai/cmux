@@ -407,10 +407,22 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     return out
 
 
+FFI_PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
+
+
 def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
     """The Rust the app links through FFI that changed between the app's commit and the change's fork
     (hot-apply's pins_daemon over that range): a daemon built at the head speaks those changes and the app does
-    not."""
+    not.
+
+    None when both commits pin the same app FFI release (app-ffi-pin.json, the same blob): an app links the
+    release its commit pins, not the FFI sources at its commit, so an app built at the fork would link the very
+    library this app has, beside a daemon built from the fork's sources. A look then shows what a NIGHTLY at the
+    fork plus the change would; 3 of the first 38 automatic looks (2026-11-16) were refused on FFI sources that
+    the pin had not taken yet. With no pin file at either end, the sources decide, as before."""
+    pins = [git(repo, "rev-parse", "--verify", "--quiet", f"{c}:{FFI_PIN_FILE}", check=False) for c in (base, fork)]
+    if all(SHA.fullmatch(p or "") for p in pins) and pins[0] == pins[1]:
+        return []
     files = h.live_apply.classify_range(str(repo), base, fork)["files"]
     # As pins_daemon: since #43797 classify puts cmux-tui's own C, Objective-C and Zig in "daemon" too.
     return h.linked_rust(repo, sorted(set(files.get("daemon", []))))
