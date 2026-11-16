@@ -2607,7 +2607,8 @@ FAST_TIER_REPORT_CLAUSE = (
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && "
-    "((vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' || github.run_attempt < 2) "
+    "((vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' && "
+    "inputs.same_tree_origin != 'pull_request' || github.run_attempt < 2) "
     "&& vars.CI_BLACKSMITH_MACOS != 'on' && "
     "vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || "
 )
