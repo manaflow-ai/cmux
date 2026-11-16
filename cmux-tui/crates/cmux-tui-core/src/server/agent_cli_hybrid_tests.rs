@@ -420,5 +420,54 @@ fn other_programs_and_viewers_without_the_lines_keep_the_byte_stream() {
     }
 }
 
+/// The output events' bytes among the next events until `lean` frames stop for 300 ms.
+fn output_bytes(viewer: &Viewer) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut quiet = Instant::now();
+    while quiet.elapsed() < Duration::from_millis(300) {
+        let Some(message) = viewer.outbound.try_pop() else {
+            std::thread::sleep(Duration::from_millis(2));
+            continue;
+        };
+        quiet = Instant::now();
+        let value: Value = serde_json::from_str(&message).expect("outbound JSON");
+        if value["event"] == "output" {
+            bytes.extend(
+                base64::engine::general_purpose::STANDARD
+                    .decode(value["data"].as_str().unwrap())
+                    .unwrap(),
+            );
+        }
+    }
+    bytes
+}
+
+/// A lines viewer's keys and pastes follow the program's input modes (bracketed paste,
+/// cursor keys), which frames do not carry: the modes the screen has when it attaches, and
+/// each set and reset after, reach it as bytes, for a shell and for an agent CLI.
+#[test]
+fn a_lines_viewer_gets_the_input_modes_frames_do_not_carry() {
+    let (mux, shell) = shell_terminal("hybrid-shell-modes");
+    shell.inject_output_for_test(b"\x1b[?2004h$ ");
+    let viewer = declaring(&mux, SHELL_LINES);
+    viewer.attach(&mux, &shell, json!({}));
+    let mut skipped = Vec::new();
+    viewer.next("agent-cli-lean", &mut skipped);
+    assert_eq!(output_bytes(&viewer), b"\x1b[?2004h", "the modes at attach");
+    shell.inject_output_for_test(
+        b"ls\r\n\x1b[?2004l\x1b[1;32mok\x1b[0m\r\n\x1b[?2004h\x1b[?1h\x1b=$ ",
+    );
+    assert_eq!(output_bytes(&viewer), b"\x1b[?2004l\x1b[?2004h\x1b[?1h\x1b=", "the modes after");
+    disconnect_client(&mux, viewer.client, false);
+
+    let (mux, claude) = terminal("hybrid-agent-modes", Some("claude"));
+    let viewer = declaring(&mux, SHELL_LINES);
+    viewer.attach(&mux, &claude, json!({}));
+    viewer.next("agent-cli-lean", &mut skipped);
+    claude.inject_output_for_test(b"\x1b[?2004h> ");
+    assert_eq!(output_bytes(&viewer), b"\x1b[?2004h", "an agent's modes");
+    disconnect_client(&mux, viewer.client, false);
+}
+
 #[path = "phone_link_bench_tests.rs"]
 mod phone_link_bench;

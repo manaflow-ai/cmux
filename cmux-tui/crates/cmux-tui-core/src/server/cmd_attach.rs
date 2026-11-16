@@ -60,6 +60,7 @@ use crate::sizing_policy::detach_reason;
 use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::AttachFrame;
 use crate::surface::AttachLifecycle;
+use base64::Engine as _;
 use cmux_agent_cli_render::adapter::Adapter;
 use serde_json::Value;
 use serde_json::json;
@@ -571,6 +572,7 @@ pub(super) fn attach_surface(
             hybrid_resume,
             hybrid_lean,
             shell_viewer,
+            shell_lines,
         );
         let (viewer, first) = match started {
             Ok(started) => started,
@@ -580,8 +582,7 @@ pub(super) fn attach_surface(
                 return Err(error);
             }
         };
-        hybrid_viewer = Some(viewer);
-        match first {
+        let sent = match first {
             Some(first) => {
                 // What `vt-state` would carry beside the screen: the terminal's colors.
                 let mut colors = initial.colors;
@@ -589,13 +590,28 @@ pub(super) fn attach_surface(
                     fields.insert("event".into(), json!("colors-changed"));
                     fields.insert("surface".into(), json!(surface_id));
                 }
+                // The input modes the screen has set (bracketed paste, cursor keys): a lines
+                // viewer's keys and pastes follow them, and frames do not carry them.
+                let modes = viewer.input_modes().map(|modes| {
+                    json!({
+                        "event": "output",
+                        "surface": surface_id,
+                        "data": base64::engine::general_purpose::STANDARD.encode(modes),
+                    })
+                });
                 writer
                     .send_initial(&colors, &outbound_stream)
                     .and_then(|()| writer.send_initial(&first, &outbound_stream))
+                    .and_then(|()| match &modes {
+                        Some(modes) => writer.send_initial(modes, &outbound_stream),
+                        None => Ok(()),
+                    })
             }
             // A shell running a full-screen program: its bytes, as a byte viewer gets them.
             None => writer.send_initial_vt_state(&initial, &outbound_stream),
-        }
+        };
+        hybrid_viewer = Some(viewer);
+        sent
     } else {
         writer.send_initial_vt_state(&initial, &outbound_stream)
     };

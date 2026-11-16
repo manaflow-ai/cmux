@@ -101,7 +101,6 @@ fn full_screen(term: &ghostty_vt::Terminal) -> bool {
 
 /// A shell viewer's phase: its lines as frames, or a full-screen program's PTY bytes.
 struct Shell {
-    scan: FullScreenScan,
     pty: bool,
 }
 
@@ -140,6 +139,9 @@ pub(super) struct HybridViewer {
     lean: Option<LeanEncoder>,
     /// A plain shell's terminal ([`TERMINAL_SHELL_LINES_CAPABILITY`]).
     shell: Option<Shell>,
+    /// A connection that declared [`TERMINAL_SHELL_LINES_CAPABILITY`]: its writes' input modes
+    /// (and, for a shell, the start of a full-screen program).
+    scan: Option<FullScreenScan>,
 }
 
 impl HybridViewer {
@@ -155,6 +157,7 @@ impl HybridViewer {
         resume: Option<(String, u64)>,
         lean: bool,
         shell: bool,
+        lines: bool,
     ) -> anyhow::Result<(HybridViewer, Option<Value>)> {
         let term = shadow(cols, rows, replay)?;
         let render = ghostty_vt::RenderState::new()?;
@@ -180,7 +183,8 @@ impl HybridViewer {
             pacer: FramePacer::default(),
             started: Instant::now(),
             lean: lean.then(LeanEncoder::new),
-            shell: shell.then(|| Shell { scan: FullScreenScan::new(), pty: false }),
+            shell: shell.then_some(Shell { pty: false }),
+            scan: (lines || shell).then(FullScreenScan::new),
         };
         if let Some(shell) = viewer.shell.as_mut()
             && full_screen(&viewer.term)
@@ -198,6 +202,23 @@ impl HybridViewer {
         Ok((viewer, Some(event)))
     }
 
+    /// Whether the viewer gets PTY bytes now (a shell running a full-screen program).
+    pub(super) fn sends_bytes(&self) -> bool {
+        self.shell.as_ref().is_some_and(|shell| shell.pty)
+    }
+
+    /// The input modes the terminal's screen has set, as bytes for the viewer's terminal: what
+    /// a lines viewer needs before its first frame (`None` for any other viewer).
+    pub(super) fn input_modes(&self) -> Option<Vec<u8>> {
+        self.scan.as_ref()?;
+        let modes: String = cmux_agent_cli_render::adapter::INPUT_MODES
+            .iter()
+            .filter(|mode| self.term.mode(**mode, false))
+            .map(|mode| format!("\x1b[?{mode}h"))
+            .collect();
+        (!modes.is_empty()).then(|| modes.into_bytes())
+    }
+
     /// The terminal wrote `bytes` at `now`: a shell's viewer may switch phase within them.
     fn write(
         &mut self,
@@ -205,17 +226,25 @@ impl HybridViewer {
         now: Instant,
         out: &mut Vec<HybridOut>,
     ) -> anyhow::Result<()> {
-        let Some(shell) = self.shell.as_mut() else {
-            self.output(bytes, now);
-            return Ok(());
-        };
-        if shell.pty {
+        if self.sends_bytes() {
             self.term.vt_write(bytes);
             out.push(HybridOut::Attach(AttachFrame::Output(bytes.to_vec())));
             return self.leave_full_screen(now);
         }
-        let Some(start) = shell.scan.scan(bytes) else {
+        let Some(scan) = self.scan.as_mut() else {
             self.output(bytes, now);
+            return Ok(());
+        };
+        // The keys and pastes the viewer sends follow the program's input modes (bracketed
+        // paste, cursor keys), which frames do not carry: their sets and resets go as bytes
+        // (they draw nothing). Only a shell's full-screen program switches to bytes.
+        let found = scan.scan(bytes).filter(|_| self.shell.is_some());
+        let modes = scan.take_modes();
+        let Some(start) = found else {
+            self.output(bytes, now);
+            if !modes.is_empty() {
+                out.push(HybridOut::Attach(AttachFrame::Output(modes)));
+            }
             return Ok(());
         };
         // What came before the program reaches the viewer as a last frame, then its bytes.
@@ -225,6 +254,9 @@ impl HybridViewer {
         }
         if let Some(event) = self.frame_now(now)? {
             out.push(HybridOut::Event(event));
+        }
+        if !modes.is_empty() {
+            out.push(HybridOut::Attach(AttachFrame::Output(modes)));
         }
         self.bytes_from_now();
         self.term.vt_write(rest);
@@ -250,8 +282,8 @@ impl HybridViewer {
         }
         if let Some(shell) = self.shell.as_mut() {
             shell.pty = false;
-            shell.scan = FullScreenScan::new();
         }
+        self.scan = Some(FullScreenScan::new());
         let (real, _) = self.screen()?;
         let at_ms = u64::try_from(now.duration_since(self.started).as_millis()).unwrap_or(u64::MAX);
         self.stream.update(&real, at_ms);
@@ -483,7 +515,7 @@ mod tests {
     #[test]
     fn a_left_stream_resumes_from_its_frame_and_another_size_starts_over() {
         let (mut viewer, first) =
-            HybridViewer::start(7, 20, 4, b"hello", None, false, false).unwrap();
+            HybridViewer::start(7, 20, 4, b"hello", None, false, false, false).unwrap();
         let first = first.unwrap();
         assert_eq!(first["base"], Value::Null);
         let id = first["stream"].as_str().unwrap().to_owned();
@@ -502,6 +534,7 @@ mod tests {
             Some((id.clone(), applied)),
             false,
             false,
+            false,
         )
         .unwrap();
         let resumed = resumed.unwrap();
@@ -509,7 +542,8 @@ mod tests {
         assert_eq!(resumed["base"].as_u64(), Some(applied));
         drop(_viewer);
         let (_viewer, other) =
-            HybridViewer::start(7, 30, 4, b"hello", Some((id, applied)), false, false).unwrap();
+            HybridViewer::start(7, 30, 4, b"hello", Some((id, applied)), false, false, false)
+                .unwrap();
         assert_eq!(other.unwrap()["base"], Value::Null);
     }
 }

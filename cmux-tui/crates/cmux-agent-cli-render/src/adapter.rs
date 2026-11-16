@@ -46,6 +46,11 @@ impl Adapter {
 /// screen (47, 1047, 1049) and mouse tracking (1000, 1002, 1003).
 pub const FULL_SCREEN_MODES: &[u16] = &[47, 1047, 1049, 1000, 1002, 1003];
 
+/// DEC private modes that change what the viewer's keys and pastes send, which a shell's lean
+/// frames do not carry: cursor keys (1), focus events (1004), bracketed paste (2004) and mouse
+/// encodings (1005, 1006, 1015). [`FullScreenScan::take_modes`] hands their sets and resets on.
+pub const INPUT_MODES: &[u16] = &[1, 1004, 2004, 1005, 1006, 1015];
+
 /// Longest control sequence the scan keeps across writes; a longer one is not a mode set.
 const MAX_HELD: usize = 64;
 
@@ -71,6 +76,10 @@ pub struct FullScreenScan {
     held: Vec<u8>,
     param: u32,
     hit: bool,
+    /// Every parameter so far is one of [`INPUT_MODES`].
+    input: bool,
+    /// Input mode sets and resets (and keypad `ESC =`, `ESC >`) seen, for the viewer.
+    modes: Vec<u8>,
 }
 
 /// Where in a write a full-screen program starts.
@@ -107,11 +116,17 @@ impl FullScreenScan {
             match self.state {
                 State::Ground => continue,
                 State::Escape => {
+                    if matches!(byte, b'=' | b'>') {
+                        self.modes.extend([0x1b, byte]);
+                    }
                     self.state = if byte == b'[' { State::CsiStart } else { State::Ground };
                 }
                 State::CsiStart => {
                     self.state = match byte {
-                        b'?' => State::Private,
+                        b'?' => {
+                            self.input = true;
+                            State::Private
+                        }
                         0x40..=0x7e => State::Ground,
                         _ => State::Other,
                     };
@@ -122,9 +137,13 @@ impl FullScreenScan {
                             self.param.saturating_mul(10).saturating_add(u32::from(byte - b'0'));
                     }
                     b';' => self.end_param(),
-                    b'h' => {
+                    b'h' | b'l' => {
                         self.end_param();
-                        if self.hit {
+                        if self.input && !self.hit {
+                            self.modes.extend_from_slice(&self.held);
+                            self.modes.push(byte);
+                        }
+                        if self.hit && byte == b'h' {
                             let carried = if started_here {
                                 Vec::new()
                             } else {
@@ -156,9 +175,18 @@ impl FullScreenScan {
         None
     }
 
+    /// The input mode changes read since the last call, as bytes for the viewer's terminal.
+    pub fn take_modes(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.modes)
+    }
+
     fn end_param(&mut self) {
-        if u16::try_from(self.param).is_ok_and(|mode| FULL_SCREEN_MODES.contains(&mode)) {
+        let mode = u16::try_from(self.param).ok();
+        if mode.is_some_and(|mode| FULL_SCREEN_MODES.contains(&mode)) {
             self.hit = true;
+        }
+        if !mode.is_some_and(|mode| INPUT_MODES.contains(&mode)) {
+            self.input = false;
         }
         self.param = 0;
     }
@@ -168,6 +196,7 @@ impl FullScreenScan {
         self.held.clear();
         self.param = 0;
         self.hit = false;
+        self.input = false;
     }
 }
 
@@ -197,6 +226,21 @@ mod tests {
         assert_eq!(scan.scan(b"\x1b[?12;1002hx").unwrap().at, 0);
         // A reset is not a set.
         assert_eq!(scan.scan(b"\x1b[?1049l\x1b[?1000l"), None);
+    }
+
+    #[test]
+    fn input_modes_are_handed_on_and_drawing_is_not() {
+        let mut scan = FullScreenScan::new();
+        assert_eq!(scan.scan(b"\x1b[?2004h$ \x1b[1mls\x1b[0m\x1b[?1h\x1b=\x1b[?25l\x1b[?20"), None);
+        assert_eq!(scan.scan(b"04l\x1b[?2004;1004h"), None);
+        assert_eq!(
+            scan.take_modes(),
+            b"\x1b[?2004h\x1b[?1h\x1b=\x1b[?2004l\x1b[?2004;1004h".to_vec()
+        );
+        assert!(scan.take_modes().is_empty());
+        // A sequence that also sets something else is not handed on.
+        assert_eq!(scan.scan(b"\x1b[?2004;25h"), None);
+        assert!(scan.take_modes().is_empty());
     }
 
     #[test]

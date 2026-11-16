@@ -9213,7 +9213,12 @@ program the shell runs (the alternate screen, or mouse tracking 1000, 1002 or
 1003) goes as `output` PTY bytes from the byte that starts it, after a last
 frame of what came before; when it ends, frames go on from the screen the
 viewer then shows, with no keyframe (the next frame names its `frame` and
-`base`). A shell that is full-screen when it attaches starts with `vt-state`,
+`base`). The input modes frames do not carry (cursor keys 1, focus 1004,
+bracketed paste 2004, mouse encodings 1005/1006/1015, keypad `ESC =`/`ESC >`)
+reach every viewer that declared `terminal-shell-lines-v1`, agent CLI or shell,
+as `output` bytes: the ones the screen has set right after the first frame,
+then each set and reset as it is written, so the viewer's keys and pastes
+encode the way the program expects. A shell that is full-screen when it attaches starts with `vt-state`,
 and a `resized` while full-screen (or leaving it) passes as `resized`. A
 terminal whose own program is neither a shell nor an agent CLI keeps the byte
 stream.
