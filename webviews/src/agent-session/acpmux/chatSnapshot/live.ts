@@ -284,8 +284,13 @@ export function watchChatSnapshot(
       Math.max(0, due),
     );
   };
+  // A change moves the armed timer to its new due time, so the page wakes once when it has been quiet, never to
+  // find it changed and arm again (that re-arm woke a chat at rest after a switch, bench/chat-switch.bench.ts
+  // idle_wakeups). One MutationObserver callback per batch of changes: a clear and a set, no wakeup.
   const changed = () => {
     changedAt = performance.now();
+    if (timer !== undefined) view.clearTimeout(timer);
+    timer = undefined;
     schedule();
   };
   const observer = new view.MutationObserver(changed);
