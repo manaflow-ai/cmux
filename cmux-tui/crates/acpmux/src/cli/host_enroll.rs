@@ -18,6 +18,8 @@ use std::sync::Arc;
 
 #[path = "host_enroll_daemon.rs"]
 mod daemon_step;
+#[path = "host_enroll_install.rs"]
+mod install_step;
 #[path = "host_enroll_update.rs"]
 mod update_step;
 use daemon_step::daemon;
@@ -765,8 +767,12 @@ fn same_platform(uname: &str, os: &str, arch: &str) -> bool {
     kernel == os && machine == arch
 }
 
-/// A stale peer on another platform needs a target-specific update bundle or a
-/// rebuild there; plain `host update` cannot use this machine's binary.
+/// Whether this caller's binary cannot run on the probed host.
+fn foreign_platform(uname: &str) -> bool {
+    !uname.is_empty() && !same_platform(uname, std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// An unsupported platform needs a target-specific update bundle or rebuild.
 pub(super) fn platform_skew(
     step: Step,
     host: &str,
@@ -855,6 +861,15 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             "Give --remote-binary as ~/… or an absolute path.",
         );
     }
+    // Enrollment checks usability; the host's updater owns its build. A live
+    // daemon on another platform must reach the peer handshake unchanged.
+    if foreign_platform(&probed.uname) && probed.running.is_some() {
+        return StepResult::new(
+            Step::Install,
+            StepState::Ok,
+            format!("{host} already runs acpmux for {}", probed.uname),
+        );
+    }
     let found = match installed(r, bin) {
         Ok(found) => found,
         Err(e) => return fail(Step::Install, format!("{e:#}"), "Check again."),
@@ -883,6 +898,17 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     };
     if current(&found) {
         return StepResult::new(Step::Install, StepState::Ok, format!("{bin} is build {want}"));
+    }
+    if foreign_platform(&probed.uname) && found.0.is_some() && found.1.is_some() {
+        return StepResult::new(
+            Step::Install,
+            StepState::Ok,
+            format!(
+                "{bin} is installed for {} (build {})",
+                probed.uname,
+                found.0.as_deref().unwrap_or("?")
+            ),
+        );
     }
     let why = describe(&found);
     if !fix {
@@ -923,8 +949,13 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     // safe remote-only operation even when this invoking binary is for a
     // different platform. Any binary push must stop on platform skew.
     let link_only = bin != DAEMON_BIN && found.0.as_deref() == Some(want);
-    if !link_only && let Some(step) = platform_skew(Step::Install, host, name, &uname, true) {
-        return step;
+    if !link_only && foreign_platform(&uname) {
+        if let Some(target) = crate::cli::peer_status::target_from_uname(&uname) {
+            return install_step::bootstrap(r, bin, target);
+        }
+        if let Some(step) = platform_skew(Step::Install, host, name, &uname, true) {
+            return step;
+        }
     }
     // Every change below holds the host's update lock, so neither another
     // update nor the host's self-update timer finds its binary replaced under it.
