@@ -34,6 +34,10 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
+# The workflow runs this script with -I, which leaves its own directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 # A pixel differs when some channel moves by more than this (of 255): the
 # simulator's text antialiasing moves edge pixels by a few levels between two
 # walks of the same build. A screen is "changed" when more than CHANGED_RATIO
@@ -52,6 +56,10 @@ RUNS_TO_SCAN = 15
 # Pixel comparison stops this many seconds in; the rest compare by bytes. A pure
 # Python decode of a 1179x2556 still takes about 1.2 s (no Pillow on the runner).
 TIME_BUDGET_S = 330
+# Every family's artifact download together ends by this; the workflow's timeout is 420 s.
+DOWNLOAD_BUDGET_S = 150
+# Listing the runs and their artifacts, together.
+LISTING_BUDGET_S = 90
 
 UUID_SUFFIX = re.compile(
     r"^(?P<name>.+?)_\d+_[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
@@ -389,14 +397,18 @@ class Baseline:
     problem: str = ""
 
 
-def _api(url: str, token: str) -> bytes:
+def _api(url: str, token: str, deadline: "deadline_http.Deadline | None" = None) -> bytes:
     request = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "cmux-ios-gate-screen-diff"})
     # Unredirected: the artifact zip redirects to blob storage, which refuses a GitHub token.
     request.add_unredirected_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return response.read()
+    # A call ends by its deadline as a whole (deadline_http), a trickled artifact included:
+    # LISTING_BUDGET_S for the listings and DOWNLOAD_BUDGET_S for the artifact zips, each
+    # shared by every call of its kind.
+    _, body, _ = deadline_http.request(request, None if deadline else 60, deadline=deadline,
+                                       max_bytes=1 << 30, raise_errors=True)
+    return body
 
 
 def _extract_family(blob: bytes, family: str, dest: Path) -> Path | None:
@@ -425,10 +437,11 @@ def fetch_baselines(repo: str, lane: str, families: list[str], dest: Path, token
     artifact, the newest completed run that kept it is used and named as such.
     """
     result = {family: Baseline(family, None) for family in families}
+    listings = deadline_http.Deadline(LISTING_BUDGET_S)
     query = urllib.parse.urlencode({"branch": BASE_BRANCH, "event": "push", "status": "completed",
                                     "per_page": RUNS_TO_SCAN})
     try:
-        runs = json.loads(_api(f"{api}/repos/{repo}/actions/workflows/{WORKFLOW_FILE}/runs?{query}", token))
+        runs = json.loads(_api(f"{api}/repos/{repo}/actions/workflows/{WORKFLOW_FILE}/runs?{query}", token, listings))
     except Exception as error:  # noqa: BLE001 - warn only
         for baseline in result.values():
             baseline.problem = f"listing {BASE_BRANCH} push runs failed: {error}"
@@ -438,7 +451,8 @@ def fetch_baselines(repo: str, lane: str, families: list[str], dest: Path, token
         if str(run.get("id")) == str(exclude_run):
             continue
         try:
-            listing = json.loads(_api(f"{api}/repos/{repo}/actions/runs/{run['id']}/artifacts?per_page=100", token))
+            url = f"{api}/repos/{repo}/actions/runs/{run['id']}/artifacts?per_page=100"
+            listing = json.loads(_api(url, token, listings))
         except Exception:  # noqa: BLE001 - skip that run
             continue
         names = {a.get("name"): a for a in listing.get("artifacts") or [] if not a.get("expired")}
@@ -448,6 +462,7 @@ def fetch_baselines(repo: str, lane: str, families: list[str], dest: Path, token
                 candidates[family].append((run, artifact))
         if all(any(r.get("conclusion") == "success" for r, _ in candidates[f]) for f in families):
             break
+    downloads = deadline_http.Deadline(DOWNLOAD_BUDGET_S)
     for family in families:
         options = candidates[family]
         if not options:
@@ -461,7 +476,7 @@ def fetch_baselines(repo: str, lane: str, families: list[str], dest: Path, token
         baseline.sha = (run.get("head_sha") or "")[:8]
         baseline.conclusion = run.get("conclusion") or ""
         try:
-            blob = _api(f"{api}/repos/{repo}/actions/artifacts/{artifact['id']}/zip", token)
+            blob = _api(f"{api}/repos/{repo}/actions/artifacts/{artifact['id']}/zip", token, downloads)
             baseline.directory = _extract_family(blob, family, dest / family)
             if baseline.directory is None:
                 baseline.problem = f"run {baseline.run_id}'s artifact has no screens/{family}"
