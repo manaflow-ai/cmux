@@ -122,6 +122,7 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
+ "cmux-update-prewarm-core",
 ]
 
 [[package]]
@@ -364,6 +365,14 @@ name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "cmux-update-prewarm-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
