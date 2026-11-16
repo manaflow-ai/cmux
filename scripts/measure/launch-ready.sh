@@ -42,8 +42,11 @@ main() {
   cp scripts/measure/launch-ready-profile.py "$out/profile.py"
   local sides=(head)
   if [[ "$dmg" == build ]]; then
-    # nightly-fresh-launch.sh's build_dmg, without running its main.
-    source <(sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh)
+    # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
+    # from a process substitution.
+    sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
+    source "$out/nightly-fresh-launch-lib.sh"
+    declare -F build_dmg >/dev/null || { echo "LR build_dmg missing from nightly-fresh-launch.sh"; exit 3; }
     local here; here="$(git rev-parse HEAD)"
     local head="${headsha:-$here}" want
     for want in $base $head; do
@@ -111,7 +114,8 @@ PY
 # probe OUT SIDE LABEL SETTLE_S PROFILE: one launch of SIDE's copy with SIDE's home, in the console session; with
 # PROFILE 1 under an all-processes Time Profiler recording.
 probe() {
-  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line recorder="" trace="$out/$side-$label.trace"
+  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line recorder="" trace
+  trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
   if [[ "$profile" == 1 ]]; then
