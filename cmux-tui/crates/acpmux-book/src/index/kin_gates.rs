@@ -259,12 +259,19 @@ fn cold_continuation_gate() {
 #[test]
 #[ignore = "release gate"]
 fn kin_table_write_gate() {
+    use super::snapshot::KinWriteStats;
+    use std::io::Read;
+
+    const ROWS: usize = 11_000;
+    const ENTRIES: u64 = (ROWS - 1) as u64;
+    const WRITE_SAMPLES: usize = 20;
+
     fn fixture() -> SummaryIndex {
         let mut root = row("kin-root", 1);
         root.state = "closed".to_owned();
         let root_key = root.key();
         let mut index = SummaryIndex::new().apply(1, root);
-        for n in 0..10_999 {
+        for n in 0..ROWS - 1 {
             let mut child = row(format!("kin-child-{n:05}"), 2 + n as u64);
             child.state = "closed".to_owned();
             child.parent = Some(root_key.clone());
@@ -273,12 +280,12 @@ fn kin_table_write_gate() {
         index
     }
 
-    fn write_once(index: &SummaryIndex, with_table: bool) -> (u128, u64, u64) {
+    fn write_once(index: &SummaryIndex, with_table: bool) -> (u128, KinWriteStats) {
         let directory = tempfile::tempdir().unwrap();
         let snapshot = directory.path().join("index.snap");
         let table = directory.path().join("index.snap.kin");
         let start = Instant::now();
-        if with_table {
+        let stats = if with_table {
             SortedSnapshot::write_stream_generation_with_table(
                 &snapshot,
                 index.seq(),
@@ -289,7 +296,7 @@ fn kin_table_write_gate() {
                 index.merged_rows(),
                 Some(&table),
             )
-            .unwrap();
+            .unwrap()
         } else {
             SortedSnapshot::write_stream_generation(
                 &snapshot,
@@ -301,38 +308,58 @@ fn kin_table_write_gate() {
                 index.merged_rows(),
             )
             .unwrap();
-        }
+            KinWriteStats::default()
+        };
         let elapsed = start.elapsed().as_nanos();
-        let entries = index.len().saturating_sub(1) as u64;
-        let bytes = if with_table {
+        let written = DiskSnapshot::open(&snapshot).unwrap().unwrap();
+        assert_eq!(written.len(), ROWS as u64, "snapshot row count");
+        if with_table {
+            let mut header = [0u8; 4096];
+            std::fs::File::open(&table).unwrap().read_exact(&mut header).unwrap();
+            let entries = u64::from_le_bytes(header[40..48].try_into().unwrap());
+            assert_eq!(entries, ENTRIES, "sidecar closure count");
             let bytes = std::fs::metadata(&table).unwrap().len();
             assert!(bytes <= entries * 64 + 3 * 4096);
-            let header = std::fs::read(&table).unwrap();
-            let actual_entries = u64::from_le_bytes(header[40..48].try_into().unwrap());
-            assert_eq!(actual_entries, entries, "sidecar closure count");
-            bytes
-        } else {
-            0
-        };
-        (elapsed, entries, bytes)
+        }
+        (elapsed, stats)
     }
 
     let index = fixture();
+    assert_eq!(index.len(), ROWS);
     let mut small = Vec::new();
     let mut god = Vec::new();
-    for round in 0..5 {
+    for round in 0..ROUNDS {
         let (first, second) = if round % 2 == 0 { (false, true) } else { (true, false) };
-        let (first_ns, _, _) = write_once(&index, first);
-        let (second_ns, entries, bytes) = write_once(&index, second);
-        if first {
-            god.push(vec![first_ns]);
-            small.push(vec![second_ns]);
-        } else {
-            small.push(vec![first_ns]);
-            god.push(vec![second_ns]);
+        let mut baseline_samples = Vec::with_capacity(WRITE_SAMPLES);
+        let mut table_samples = Vec::with_capacity(WRITE_SAMPLES);
+        let mut stream_samples = Vec::with_capacity(WRITE_SAMPLES);
+        let mut closure_samples = Vec::with_capacity(WRITE_SAMPLES);
+        let mut pages_samples = Vec::with_capacity(WRITE_SAMPLES);
+        for _ in 0..WRITE_SAMPLES {
+            let (first_ns, first_stats) = write_once(&index, first);
+            let (second_ns, second_stats) = write_once(&index, second);
+            let stats = if first {
+                table_samples.push(first_ns);
+                baseline_samples.push(second_ns);
+                first_stats
+            } else {
+                baseline_samples.push(first_ns);
+                table_samples.push(second_ns);
+                second_stats
+            };
+            stream_samples.push(stats.stream_ns);
+            closure_samples.push(stats.closure_ns);
+            pages_samples.push(stats.pages_ns);
         }
-        assert_eq!(entries, index.len().saturating_sub(1) as u64);
-        assert!(bytes <= entries * 64 + 3 * 4096);
+        eprintln!(
+            "GATE_WRITE_PHASE row=v2.pr05i.table_write round={} stream_p95={} closure_p95={} pages_p95={} unit=ns",
+            round + 1,
+            gate_rounds::p95(&stream_samples),
+            gate_rounds::p95(&closure_samples),
+            gate_rounds::p95(&pages_samples),
+        );
+        small.push(baseline_samples);
+        god.push(table_samples);
     }
     let small_p95 = best_p95(&small);
     let god_p95 = best_p95(&god);

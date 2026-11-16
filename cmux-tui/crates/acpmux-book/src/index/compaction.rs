@@ -151,15 +151,16 @@ impl Compaction {
             PathBuf::from(path)
         };
         fs::rename(stage, &self.snapshot_path)?;
-        // Commit the snapshot first. The old sidecar is now necessarily
-        // mismatched, so remove it only after the snapshot rename succeeded.
-        let _ = fs::remove_file(&table_path);
-        if table_stage.exists() {
-            // The sidecar is an accelerator. A storage error here must not
-            // discard an otherwise valid snapshot; the next compaction retries.
-            if fs::rename(&table_stage, &table_path).is_err() {
-                let _ = fs::remove_file(&table_stage);
-            }
+        // A stale sidecar is ignored by its binding. Never unlink it by name:
+        // a reader may already hold its old inode, and rename replaces it atomically.
+        if snapshot.has_kin_table()
+            && let Err(error) = fs::rename(&table_stage, &table_path)
+        {
+            // The staged handle remains safe, but this generation installs
+            // without the optional accelerator when its rename fails.
+            snapshot.disable_kin_table(&error);
+            super::snapshot::record_kin_write_failure(&error);
+            let _ = fs::remove_file(&table_stage);
         }
         let mut cleanup_errors = 0;
         if File::open(&self.directory).and_then(|directory| directory.sync_all()).is_err() {
@@ -217,7 +218,9 @@ impl StageFiles {
         let paths = [stage.clone(), sidefile(".new"), sidefile(".directory.new"), sidefile(".kin")];
         // There is one compactor per directory. Known abandoned files were
         // removed before reservation; do not overwrite unexpected entries.
-        for path in &paths {
+        // Optional leftovers must not prevent the authoritative snapshot.
+        // create_new and binding checks keep an unreclaimed table out of use.
+        for path in &paths[..3] {
             match fs::symlink_metadata(path) {
                 Ok(_) => {
                     return Err(io::Error::new(
@@ -274,15 +277,26 @@ pub(super) fn cleanup_stages(directory: &Path) -> io::Result<bool> {
         let Some(name) = name.to_str() else { continue };
         let Some(suffix) = name.strip_prefix("index.snap.stage.") else { continue };
         let (number, suffix) = suffix.split_once('.').unwrap_or((suffix, ""));
+        if number.parse::<u64>().is_ok() && suffix == "kin.work" && entry.file_type()?.is_dir() {
+            // Only the sole compactor creates this reserved numeric-stage
+            // namespace; spill runs from a process crash are safe to reclaim.
+            match fs::remove_dir_all(entry.path()) {
+                Ok(()) => cleaned = true,
+                Err(error) => super::snapshot::record_kin_write_failure(&error),
+            }
+            continue;
+        }
+        if number.parse::<u64>().is_ok() && suffix == "kin" && entry.file_type()?.is_file() {
+            match fs::remove_file(entry.path()) {
+                Ok(()) => cleaned = true,
+                Err(error) => super::snapshot::record_kin_write_failure(&error),
+            }
+            continue;
+        }
         if number.parse::<u64>().is_ok()
             && matches!(
                 suffix,
-                "" | "new"
-                    | "directory.new"
-                    | "kin"
-                    | "stage"
-                    | "stage.new"
-                    | "stage.directory.new"
+                "" | "new" | "directory.new" | "stage" | "stage.new" | "stage.directory.new"
             )
             && entry.file_type()?.is_file()
         {

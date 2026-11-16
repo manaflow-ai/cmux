@@ -29,8 +29,10 @@ fn a_sidecar_bound_to_another_snapshot_is_set_aside() {
 
     let snapshot = DiskSnapshot::open(&path).unwrap().unwrap();
     assert!(!snapshot.has_kin_table());
-    assert!(!path.with_extension("snap.kin").exists());
-    assert!(path.with_extension("snap.kin.bad").is_file());
+    // Set aside only for this snapshot handle: do not rename by pathname,
+    // which may already refer to the next generation's valid accelerator.
+    assert!(path.with_extension("snap.kin").is_file());
+    assert!(!path.with_extension("snap.kin.bad").exists());
 }
 
 fn damage_frame(path: &std::path::Path, ordinal: usize) {

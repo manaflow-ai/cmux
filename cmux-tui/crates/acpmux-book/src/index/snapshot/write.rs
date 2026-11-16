@@ -1,7 +1,7 @@
 use super::{
     CHECKPOINT_BYTES, Checkpoint, DiskSnapshot, FIRST_ROWS, HEADER_BYTES, Head, MAGIC,
     MAX_ORIGINS_BYTES, PAGE_BYTES, SEEK_BYTES, SnapshotMeta, TRAILER_BYTES,
-    kin_table::Builder as KinTableBuilder,
+    kin_table::{self, Builder as KinTableBuilder},
 };
 use crate::index::{IndexRecord, SortKey, Summary, SummaryIndex, codec, is_corrupt_snapshot_row};
 use std::fs::{self, File};
@@ -10,6 +10,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 pub struct SortedSnapshot;
+
+#[derive(Default)]
+#[cfg_attr(not(test), allow(dead_code))] // Phase diagnostics are consumed by the gate.
+pub(in crate::index) struct KinWriteStats {
+    pub stream_ns: u128,
+    pub closure_ns: u128,
+    pub pages_ns: u128,
+}
 
 impl SortedSnapshot {
     pub const VERSION: u32 = 3;
@@ -77,6 +85,7 @@ impl SortedSnapshot {
             rows,
             None,
         )
+        .map(|_| ())
     }
 
     pub(in crate::index) fn write_stream_generation_with_table(
@@ -88,7 +97,9 @@ impl SortedSnapshot {
         meta: impl Into<SnapshotMeta>,
         rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
         table_path: Option<&Path>,
-    ) -> io::Result<()> {
+    ) -> io::Result<KinWriteStats> {
+        let started = std::time::Instant::now();
+        let mut stats = KinWriteStats::default();
         let path = path.as_ref();
         let SnapshotMeta { origins, marks } = meta.into();
         if marks.len() > 256 {
@@ -141,7 +152,23 @@ impl SortedSnapshot {
         let mut last_len = 0;
         let mut previous = None;
         let mut first_lengths = Vec::new();
-        let mut table = table_path.map(|_| KinTableBuilder::new());
+        let workspace = table_path.and_then(|path| match kin_table::WorkDirectory::new(path) {
+            Ok(workspace) => Some(workspace),
+            Err(error) => {
+                kin_table::write_failure(&error);
+                None
+            }
+        });
+        let mut table =
+            workspace.as_ref().and_then(|workspace| {
+                match KinTableBuilder::in_directory(workspace.path()) {
+                    Ok(builder) => Some(builder),
+                    Err(error) => {
+                        kin_table::write_failure(&error);
+                        None
+                    }
+                }
+            });
         for row in rows {
             let row = match row {
                 Ok(row) => row,
@@ -162,10 +189,9 @@ impl SortedSnapshot {
             let bytes = codec::encode(&record)?;
             let len = bytes.len() + TRAILER_BYTES;
             if let Some(builder) = table.as_mut()
-                && builder.push(&row, offset, len).is_err()
+                && let Err(error) = builder.push(&row, offset, len)
             {
-                // The sidecar is optional. Keep writing the authoritative
-                // snapshot when its auxiliary metadata cannot be represented.
+                kin_table::write_failure(&error);
                 table = None;
             }
             last_len = len;
@@ -239,21 +265,25 @@ impl SortedSnapshot {
         writer.write_all(&header)?;
         writer.flush()?;
         writer.get_ref().sync_all()?;
+        stats.stream_ns = started.elapsed().as_nanos();
         if let (Some(table), Some(table_path)) = (table, table_path) {
-            // The snapshot remains authoritative if the optional accelerator
-            // cannot be written.  The next compaction will retry it.
             let head_crc = u32::from_le_bytes(
                 header[HEADER_BYTES - 4..]
                     .try_into()
                     .map_err(|_| codec::invalid("snapshot head crc"))?,
             );
-            if table.write(table_path, head_crc, seq, count, origins_offset).is_err() {
-                let _ = fs::remove_file(table_path);
+            let binding = kin_table::Binding { head_crc, seq, count, data_end: origins_offset };
+            match kin_table::finish_table(table, table_path, binding) {
+                Ok((closure_ns, pages_ns)) => {
+                    stats.closure_ns = closure_ns;
+                    stats.pages_ns = pages_ns;
+                }
+                Err(error) => kin_table::write_failure(&error),
             }
         }
         fs::rename(&temp, path)?;
         File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()?;
-        Ok(())
+        Ok(stats)
     }
 
     /// Explicit full materialization for tools/tests, never used by the opener.
