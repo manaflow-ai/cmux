@@ -35,6 +35,13 @@ export function holdAttach(
   return { sessionId, hold: true, eventStream: true, kinds: [...kinds], visible };
 }
 
+/// Whether the cmux host refused the hold as malformed: a host whose params rule does not take
+/// `hold` (AcpmuxPaneMethods+Params.swift, cmux-agent-pane-policy policy.json) answers
+/// `transport.intent_invalid`. Asking the hold again gets the same answer; the chat opens on v1.
+export function holdAttachRefused(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === "transport.intent_invalid";
+}
+
 /// What of a record streamed on a hold the page reads: a `subsession` record only as its `limits`.
 export function holdReads(event: { kind?: unknown; msg?: { event?: unknown } }): boolean {
   return event.kind !== "subsession" || event.msg?.event === "limits";
