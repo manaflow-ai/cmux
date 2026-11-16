@@ -37,7 +37,7 @@ Fleet (an owned mini with a console; the step builds the app):
 Local, on a built app (never on a laptop that is in use):
   perf-budgets.py --tag T --app "<...>/cmux DEV T.app" --out DIR --json DIR/report.json
 """
-import argparse, importlib.util, json, os, platform, re, statistics, subprocess, sys, time
+import argparse, importlib.util, json, math, os, platform, re, statistics, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
@@ -51,7 +51,15 @@ OPT_IN_BENCHES = ["terminal_burst"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 # Stage rows: where a judged row's time goes (the chat composer's typing: key to page, key to edit and render done).
 # Stored and shown, never gated, budgeted or written to a baseline: measurement only (no new CI gates).
-STAGE_ROW_RE = re.compile(r"^acp\.[^.@]+\.typing\.(to_listener|to_work)(@|$)")
+# The page's own frame cadence (acp.<mode>.frame_interval), key to frame counted in those frames
+# (typing.to_frame_frames), and the render-rate arms (acp.<mode>-capped / -full, and the chromium-nolimit mode with
+# Chromium's frame-rate limit off) are measurement too: they say whether a page draws at the display's refresh.
+STAGE_ROW_RE = re.compile(r"^acp\.([^.@]+-(capped|full|nolimit)\.[^@]+"
+                          r"|[^.@]+\.(typing\.(to_listener|to_work|to_frame_frames)|frame_interval))(@|$)")
+# A page that draws this much slower than the display's refresh measured a slower display than the row says: its key
+# to frame rows are refused (incomplete, REFRESH-MISMATCH), never reported as that display's numbers.
+REFRESH_MISMATCH = 1.25
+FRAME_ROWS = ("to_frame", "to_paint")
 
 
 # ---------- pure helpers (tests/test_perf_budgets.py) ----------
@@ -284,6 +292,59 @@ def rows_acp(rep):
                 stats = None
             if stats is not None:
                 out[f"acp.{mode}.typing.{stage}"] = p50_p95(stats)
+        cadence = summ.get("frame_interval")
+        if isinstance(cadence, dict) and finite(cadence.get("p50_ms")) and cadence["p50_ms"] > 0:
+            out[f"acp.{mode}.frame_interval"] = p50_p95(cadence)
+            frame = out[f"acp.{mode}.typing.to_frame"]
+            if frame is not None and all(finite(v) for v in frame):
+                # Key to frame in frames of the page's own cadence (goal typing-latency: at most 2).
+                out[f"acp.{mode}.typing.to_frame_frames"] = tuple(round(v / cadence["p50_ms"], 2) for v in frame)
+        for arm, a in (summ.get("rate_arms") or {}).items():
+            if not isinstance(a, dict):
+                continue
+            for stage in ("to_frame", "to_work"):
+                if a.get(f"typing_{stage}") is not None:
+                    out[f"acp.{mode}-{arm}.typing.{stage}"] = p50_p95(a.get(f"typing_{stage}"))
+            if isinstance(a.get("frame_interval"), dict):
+                out[f"acp.{mode}-{arm}.frame_interval"] = p50_p95(a["frame_interval"])
+    return out
+
+
+def finite(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def display_refresh_ms(out_dir):
+    """The measure display's refresh, from split-spring.sh's display.txt in the bench's --out (`ready ID MS ...`, the
+    virtual display's measured interval); None for the real display or no file."""
+    try:
+        with open(os.path.join(out_dir, "display.txt")) as f:
+            words = f.read().split()
+    except OSError:
+        return None
+    try:
+        ms = float(words[2]) if len(words) > 2 and words[0] == "ready" else None
+    except ValueError:
+        return None
+    return ms if ms and math.isfinite(ms) and ms > 0 else None
+
+
+def refresh_mismatches(values, refresh_ms):
+    """The judged acp modes whose page drew slower than REFRESH_MISMATCH x the display's refresh: their key to frame
+    and paint rows are refused (goal typing-latency: "fail any run whose page draws slower than the display"). The rows
+    that do not depend on the refresh (to_listener, to_work) stay. Returns the incomplete entries; edits `values`."""
+    if not refresh_ms:
+        return []
+    out = []
+    for name, stat in sorted(values.items()):
+        m = re.fullmatch(r"acp\.([^.@-]+)\.frame_interval(@[^@]*)?", name)
+        if not m or not stat or not finite(stat[0]) or stat[0] <= REFRESH_MISMATCH * refresh_ms:
+            continue
+        mode, suffix = m.group(1), m.group(2) or ""
+        for row in FRAME_ROWS + ("to_frame_frames",):
+            values.pop(f"acp.{mode}.typing.{row}{suffix}", None)
+        why = f"REFRESH-MISMATCH: the {mode} page drew every {stat[0]} ms on a {refresh_ms} ms display"
+        out.extend({"name": f"acp.{mode}.typing.{row}{suffix}", "reason": why} for row in FRAME_ROWS)
     return out
 
 
@@ -460,6 +521,8 @@ def main():
     ap.add_argument("--sidebar-scenarios", default="ticks,scroll,scroll_ticking,switch,switch_matrix,drag")
     ap.add_argument("--acp-rows", type=int, default=5000, help="seeded rows for native transcript scroll measurements")
     ap.add_argument("--acp-fling-seconds", type=float, default=3, help="duration of the native transcript traversal")
+    ap.add_argument("--acp-modes", default="own,chromium", help="agent-engine-bench modes (chromium-nolimit: Chromium with its frame-rate limit off)")
+    ap.add_argument("--acp-rate-arms", action="store_true", help="also type at the WebKit page's capped and full render rates")
     ap.add_argument("--scroll-target-hz", type=float, help="target refresh rate for transcript and sidebar dropped slots")
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
@@ -501,7 +564,8 @@ def main():
                      *([] if opts.profile else ["--no-trace"]), "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
                     lambda r: rows_sidebar(r, opts.sidebar_size)),
         "home": ([py, S("home-perf.py"), *common, "--out", o("home.json")], "home.json", rows_home),
-        "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", "own,chromium", "--chats", "2", "--flings", "1",
+        "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", opts.acp_modes,
+                 *(["--rate-arms"] if opts.acp_rate_arms else []), "--chats", "2", "--flings", "1",
                  "--rows", str(opts.acp_rows), "--fling-seconds", str(opts.acp_fling_seconds),
                  *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                  "--out", o("acp"), "--json", o("acp.json")], "acp.json", rows_acp),
@@ -578,6 +642,8 @@ def run_phase(phase, only, plan, opts, runs, values):
 def finish(opts, budgets, only, runs, values):
     profile_split = profile_splits(opts.out) if opts.profile else None
 
+    # A page that drew slower than the display: its key to frame rows are refused before the rows are made.
+    mismatched = refresh_mismatches(values, display_refresh_ms(opts.out))
     rows = []
     for name, (p50, p95) in sorted(values.items()):
         spec = {} if STAGE_ROW_RE.match(name) else budget_for(name, budgets)
@@ -593,6 +659,7 @@ def finish(opts, budgets, only, runs, values):
     incomplete = []
     if opts.gate and not baseline:
         incomplete.append({"name": "baseline", "reason": "missing baseline p95 rows"})
+    incomplete.extend(mismatched)
     incomplete.extend(incomplete_rows(rows, baseline, budgets.get("expected", {}), only))
     counts = completeness_counts(rows, baseline, budgets.get("expected", {}), only, incomplete, regressed)
 

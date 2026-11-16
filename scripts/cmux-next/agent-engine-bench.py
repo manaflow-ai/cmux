@@ -47,6 +47,10 @@ parser.add_argument("--open", action="store_true",
                     help="launch through LaunchServices (`open -n`), for a shell outside the console's GUI session (ssh)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
+parser.add_argument("--rate-arms", action="store_true",
+                    help="also type, and read the page's frame cadence, at the WebKit page's capped and full render rates")
+parser.add_argument("--nolimit-switches", default="disable-frame-rate-limit:disable-gpu-vsync",
+                    help="Chromium switches (colon-separated) the chromium-nolimit mode launches with")
 parser.add_argument("--shots", help="a folder: light and dark screen captures of the open session in each mode, with the window glass on")
 opts = parser.parse_args()
 if opts.activate:
@@ -60,7 +64,9 @@ BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-TUNABLES = {"own": {"agent.chromium": False}, "page": {"agent.pageHost": True, "agent.chromium": False}, "chromium": {"agent.chromium": True}}
+TUNABLES = {"own": {"agent.chromium": False}, "page": {"agent.pageHost": True, "agent.chromium": False}, "chromium": {"agent.chromium": True},
+            "chromium-nolimit": {"agent.chromium": True}}
+CADENCE_SECONDS = 1.5
 app = None
 
 
@@ -271,6 +277,38 @@ def typing():
             "composer_text_length": pane("readiness").get("composer_text_length"), **pane("typing_stats")}
 
 
+def cadence():
+    """The page's own frame cadence at rest: tick_watch's requestAnimationFrame loop for CADENCE_SECONDS with no input,
+    its intervals' p50/p95 (frames.p50_ms is the interval the page draws at: 8.3 ms at 120 Hz, 16.7 ms at 60 Hz)."""
+    started = pane("tick_watch")
+    if not started.get("started"):
+        return {"error": started.get("error") or "tick_watch did not start"}
+    time.sleep(CADENCE_SECONDS)  # test harness: the watch counts the page's frames
+    stopped = pane("tick_watch", stop=True)
+    frames = stopped.get("frames") if isinstance(stopped.get("frames"), dict) else None
+    return {"frames": frames} if frames else {"error": stopped.get("error") or "no frames"}
+
+
+def rate_arms(mode):
+    """Typing and cadence at the WebKit page's capped render rate (PreferPageRenderingUpdatesNear60FPSEnabled on) and at
+    its full rate (off), through `debug.agent_pane full_rate`; the page's starting rate is put back after. A Chromium
+    page has no WebKit rate: none."""
+    if pane("engine").get("engine") == "cef":
+        return {}
+    start = pane("full_rate").get("full_rate")
+    arms = {}
+    for arm, enabled in (("capped", False), ("full", True)):
+        set_to = pane("full_rate", enabled=enabled).get("full_rate")
+        time.sleep(1.5)  # test harness: WebKit applies the rate when the page is shown again (reshow under a snapshot)
+        arms[arm] = {"full_rate": set_to, "cadence": cadence(), "typing": typing()}
+        print(mode, arm, json.dumps({"full_rate": set_to, "cadence": arms[arm]["cadence"],
+                                      **{k: arms[arm]["typing"].get(k) for k in ("to_work", "to_frame")}}), flush=True)
+    if isinstance(start, bool):
+        pane("full_rate", enabled=start)
+        time.sleep(1.5)  # test harness: the starting rate is shown again before the flings
+    return arms
+
+
 def screen_shots(mode):
     """The screen with the chat's session open, light then dark: the screen, not the app's own snapshot,
     since only the window server composites a Chromium page window over the glass under it."""
@@ -331,6 +369,8 @@ def launch(mode, scratch):
            "CMUX_NEXT_AGENT_PANE_MOCK": "1", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables,
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"),
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
+    if mode == "chromium-nolimit":
+        env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = opts.nolimit_switches  # read by DEBUG builds only (CEFSwitches)
     if not opts.activate:
         env["CMUX_NEXT_NO_ACTIVATE"] = "1"
     log_path = os.path.join(opts.out, f"app-{TAG}-{mode}.log")
@@ -393,8 +433,12 @@ def run_mode(mode):
     result["session"] = open_session()
     result["focus"] = focus_probe()
     result["shots"] = screen_shots(mode)
+    result["cadence"] = cadence()
     result["typing"] = typing()
     print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "to_listener", "to_work", "to_frame", "to_paint", "native_posts")}), flush=True)
+    print(mode, "cadence", json.dumps(result["cadence"]), flush=True)
+    if opts.rate_arms:
+        result["rate_arms"] = rate_arms(mode)
     result["seed"] = pane("seed_rows", count=opts.rows, timeout=60)
     time.sleep(3)  # test harness: the seeded transcript lays out
     pane("fling", seconds=3, wait=True, timeout=60)  # warms the transcript's layout, not reported
@@ -420,6 +464,10 @@ def run_mode(mode):
         "typing_to_listener": result["typing"].get("to_listener"), "typing_to_work": result["typing"].get("to_work"),
         "session_composer_ms": result["session"].get("composer_ms"),
         "typing_keys": result["typing"].get("keys"), "focus": result["focus"],
+        "frame_interval": (result.get("cadence") or {}).get("frames"),
+        "rate_arms": {arm: {"full_rate": a.get("full_rate"), "frame_interval": (a.get("cadence") or {}).get("frames"),
+                            "typing_to_frame": a["typing"].get("to_frame"), "typing_to_work": a["typing"].get("to_work")}
+                      for arm, a in (result.get("rate_arms") or {}).items()},
         "fling_dropped_frames": [f.get("dropped_frames") for f in result["flings"]],
         "fling_p95_ms": [f.get("p95_ms") for f in result["flings"]],
         "ticks": [{"rows": t["rows"], **{kind: {key: (t.get(kind) or {}).get(key) for key in

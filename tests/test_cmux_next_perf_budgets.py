@@ -136,6 +136,46 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(pb.rows_panes(None), {})
         self.assertEqual(pb.rows_sidebar(None, 400)["sidebar.400.scroll.frame"], (None, None))
 
+    def test_a_page_slower_than_the_display_refuses_its_key_to_frame_rows(self):
+        """CMUX-571 typing-latency (interim-coord, 2026-11-16: "fail any run whose page draws slower than the display"):
+        the page's own cadence is a row, key to frame is also counted in its frames, the render-rate arms are rows, and a
+        page drawing at 60 Hz on the 120 Hz virtual display keeps its to_work row but not its to_frame or to_paint."""
+        stat = lambda p50, p95: {"p50_ms": p50, "p95_ms": p95, "max_ms": p95 + 1}  # noqa: E731
+        rep = {"modes": {
+            "own": {"summary": {"typing_to_frame": stat(10, 17), "typing_to_paint": stat(11, 18),
+                                "typing_to_work": stat(4.5, 9), "frame_interval": stat(17, 18),
+                                "rate_arms": {"capped": {"frame_interval": stat(17, 18), "typing_to_frame": stat(10, 17),
+                                                         "typing_to_work": stat(4, 8)},
+                                              "full": {"frame_interval": stat(8.33, 9), "typing_to_frame": stat(7, 9),
+                                                       "typing_to_work": stat(4, 8)}}}},
+            "chromium": {"summary": {"typing_to_frame": stat(5, 8), "typing_to_paint": stat(6, 9),
+                                     "frame_interval": stat(8.33, 8.5)}}}}
+        rows = pb.rows_acp(rep)
+        self.assertEqual(rows["acp.own.frame_interval"], (17, 18))
+        self.assertEqual(rows["acp.own.typing.to_frame_frames"], (0.59, 1.0))
+        self.assertEqual(rows["acp.own-full.frame_interval"], (8.33, 9))
+        self.assertEqual(rows["acp.own-capped.typing.to_frame"], (10, 17))
+        for name in ("acp.own.frame_interval", "acp.own.typing.to_frame_frames", "acp.own-full.typing.to_frame",
+                     "acp.chromium-nolimit.typing.to_frame"):
+            self.assertTrue(pb.STAGE_ROW_RE.match(name), name)
+        self.assertFalse(pb.STAGE_ROW_RE.match("acp.own.typing.to_frame"))
+        with tempfile.TemporaryDirectory() as out:
+            self.assertIsNone(pb.display_refresh_ms(out))
+            with open(os.path.join(out, "display.txt"), "w") as f:
+                f.write("ready 89 8.33 main=89 size=1920x1200 visible=1920x1092\n")
+            refresh = pb.display_refresh_ms(out)
+        self.assertEqual(refresh, 8.33)
+        values = dict(rows)
+        refused = pb.refresh_mismatches(values, refresh)
+        self.assertEqual({r["name"] for r in refused}, {"acp.own.typing.to_frame", "acp.own.typing.to_paint"})
+        self.assertIn("REFRESH-MISMATCH", refused[0]["reason"])
+        for gone in ("acp.own.typing.to_frame", "acp.own.typing.to_paint", "acp.own.typing.to_frame_frames"):
+            self.assertNotIn(gone, values)
+        self.assertEqual(values["acp.own.typing.to_work"], (4.5, 9))  # independent of the refresh: kept
+        self.assertEqual(values["acp.chromium.typing.to_frame"], (5, 8))  # drew at the display's refresh: kept
+        self.assertEqual(values["acp.own-capped.typing.to_frame"], (10, 17))  # an arm is the experiment: kept
+        self.assertEqual(pb.refresh_mismatches(dict(rows), None), [])  # the real display: no check
+
     def test_typing_stages_become_rows_that_are_never_judged(self):
         """CMUX-571 typing-latency: the chat composer's typing stages (key to page, key to edit and render done) are
         stored beside to_frame and to_paint, with no budget, no regression check and no baseline entry."""
