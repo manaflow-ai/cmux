@@ -36,31 +36,39 @@ pub(super) fn asked_to_report(params: &Value) -> bool {
 /// Keep the report on the starter's daemon: a refused tool in the child must not
 /// also prevent it from reporting the refusal. The existing durable watch/outbox
 /// owns delivery, including reconnects and daemon restarts.
-pub(super) fn report_remote_created(
+pub(super) fn remote_report_target(
     hub: &Arc<Hub>,
     conn: &Conn,
     params: &Value,
-    peer: &str,
-    id: &str,
-) -> Result<(), RpcError> {
-    use crate::hub::watches::{Watch, resolve};
+) -> Result<Option<String>, RpcError> {
     // A forwarded caller cannot borrow this daemon's sender authority.
     if conn.origin != super::Origin::Local {
-        return Ok(());
+        return Ok(None);
     }
     let explicit = super::mux_meta(params)
         .and_then(|m| m.get(crate::hub::lineage::successor::REPORT_TO_FIELD))
         .and_then(Value::as_str)
         .filter(|to| !to.is_empty());
     let parent = lane_parent(hub, conn, params);
-    let Some(to) = explicit.or(parent.as_deref()) else { return Ok(()) };
-    let to = resolve(hub, to)?;
+    explicit.or(parent.as_deref()).map(|to| crate::hub::watches::resolve(hub, to)).transpose()
+}
+
+pub(super) fn report_remote_created(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    to: Option<String>,
+    peer: &str,
+    id: &str,
+) -> Result<(), RpcError> {
+    use crate::hub::watches::Watch;
+    let Some(to) = to else { return Ok(()) };
     let key = format!("{peer}/{id}");
     hub.watches.add(Watch {
         id: format!("remote-start-{id}"),
         to,
         sessions: vec![key.clone()],
-        until: vec!["ready".into(), "permission".into(), "closed".into(), "blocked".into()],
+        // Normal turns and permission prompts must not consume the failure report.
+        until: vec!["closed".into(), "blocked".into()],
         match_text: None,
         once: true,
         caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),

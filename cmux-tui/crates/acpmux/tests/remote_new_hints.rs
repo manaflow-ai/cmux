@@ -458,6 +458,7 @@ async fn a_remote_start_keeps_its_report_to_watch_on_the_starters_daemon() {
     let watches = watches["result"]["watches"].as_array().unwrap();
     assert_eq!(watches.len(), 1);
     assert_eq!(watches[0]["to"], parent);
+    assert_eq!(watches[0]["until"], json!(["closed", "blocked"]));
     assert_eq!(watches[0]["sessions"], json!([format!("b/{child}")]));
     assert_eq!(watches[0]["active"], true, "a newborn idle chat has not reported a turn");
 }

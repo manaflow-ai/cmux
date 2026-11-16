@@ -1584,6 +1584,7 @@ async fn dispatch_request_with_identity(
                 mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
                 && !peer_name.is_empty()
             {
+                let report_to = super::lane_parent::remote_report_target(hub, conn, &params)?;
                 let peer = hub
                     .peer_by_name(peer_name)
                     .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
@@ -1642,7 +1643,9 @@ async fn dispatch_request_with_identity(
                     hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
                 }
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
-                    super::lane_parent::report_remote_created(hub, conn, &params, &peer.name, id)?;
+                    super::lane_parent::report_remote_created(
+                        hub, conn, report_to, &peer.name, id,
+                    )?;
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);
                 }
