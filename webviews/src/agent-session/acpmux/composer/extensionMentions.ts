@@ -77,6 +77,7 @@ export class ExtensionMentionProviders {
   private snapshot: readonly string[] = NO_PREFIXES;
   private readonly listeners = new Set<() => void>();
   private reading = 0;
+  private run = 0;
   private active = false;
   private stopWatch?: () => void;
 
@@ -93,10 +94,13 @@ export class ExtensionMentionProviders {
   start(): void {
     if (this.active || !this.client) return;
     this.active = true;
+    // A stop and a new start before this subscription answers (React StrictMode runs an effect
+    // twice) makes it stale: it is dropped, so one watch is left, not two.
+    const run = ++this.run;
     void this.client
       .subscribe("cmux.apps.panels.changed", () => void this.refresh())
       .then((stop) => {
-        if (!this.active) stop();
+        if (!this.active || run !== this.run) stop();
         else {
           this.stopWatch = stop;
           void this.refresh();
@@ -108,6 +112,7 @@ export class ExtensionMentionProviders {
 
   stop(): void {
     this.active = false;
+    ++this.run;
     ++this.reading;
     this.stopWatch?.();
     this.stopWatch = undefined;
@@ -144,26 +149,34 @@ export function useExtensionMentionPrefixes(injectedClient?: PageClient | null):
   return useSyncExternalStore(owner.subscribe, owner.getSnapshot, owner.getSnapshot);
 }
 
-/// The extension items for the `@word` being typed (undefined: no menu), the newest answer only.
+/// The key of what an `@word` asks: an answer counts only for the ask it was made for.
+function askKey(ask: { query: string; prefix?: string }): string {
+  return `${ask.prefix ?? ""}\u0000${ask.query}`;
+}
+
+/// The extension items for the `@word` being typed (undefined: no menu): only the answer to this
+/// very word, so a row from an earlier word is never shown or picked (`@pr:441` then a quick
+/// `@pr:450⏎` cannot insert #441).
 export function useExtensionMentions(
   word: string | undefined,
   prefixes: readonly string[],
   injectedClient?: PageClient | null,
 ): readonly ExtensionMention[] {
   const client = mentionClient(injectedClient);
-  const [found, setFound] = useState<{ items: readonly ExtensionMention[] }>({ items: NONE });
+  const [found, setFound] = useState<{ key: string; items: readonly ExtensionMention[] }>({ key: "", items: NONE });
+  const key = word === undefined || !prefixes.length ? undefined : askKey(mentionAsk(word.trim(), prefixes));
   useEffect(() => {
     if (word === undefined || !prefixes.length || !client) return;
     let current = true;
     const ask = mentionAsk(word.trim(), prefixes);
+    const asked = askKey(ask);
     client.call("cmux.apps.panels.mentions", ask).then(
-      (reply) => current && setFound({ items: extensionMentionsFrom(reply) }),
-      () => current && setFound({ items: NONE }),
+      (reply) => current && setFound({ key: asked, items: extensionMentionsFrom(reply) }),
+      () => current && setFound({ key: asked, items: NONE }),
     );
     return () => {
       current = false;
     };
   }, [client, word, prefixes]);
-  // The last answer stays while the next one is on its way, so the rows do not blink per key.
-  return word !== undefined && prefixes.length ? found.items : NONE;
+  return key !== undefined && found.key === key ? found.items : NONE;
 }
