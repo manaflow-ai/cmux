@@ -1395,6 +1395,12 @@ export const HELD_RECORDS = 2 * HELD_KEPT;
 /// (`shedOlderHeld`): the try walks the newest `HELD_KEPT` records, so a refused one costs O(1) a record.
 const HELD_RETRY = HELD_KEPT / 4;
 
+/// A row a shed kept across its cut (direct.ts `splits`): a tool call's row (`callId`, `earlier` once its oldest
+/// output lines went), or a streaming reply's. `aside`: the records older than the held ones that draw it again.
+type HeldSplit =
+  | { kind: "tool"; callId: string; aside: EventRecord[]; earlier: boolean }
+  | { kind: "reply"; aside: EventRecord[] };
+
 /// The index of the first record in `events` (oldest first) at or after `seq`: a binary search, so
 /// a read of the newest records costs O(log held), not a walk over every one.
 export function firstHeldFrom(events: readonly EventRecord[], seq: number): number {
@@ -1716,6 +1722,8 @@ export function mergeToolItem(
       ...(before?.background ? { background: before.background } : {}),
       // An approval stays on its call as the call's result comes in.
       ...(before?.approved ? { approved: true as const } : {}),
+      // A call whose oldest output went with its records stays marked as later output comes in.
+      ...(before?.earlierOutput ? { earlierOutput: true as const } : {}),
       // What a background task's end left on it (`attachReaction`) stays as later updates come in.
       ...(before?.reaction ? { reaction: before.reaction } : {}),
       locations,
@@ -2526,6 +2534,17 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (order < seq) from = Math.min(from, order);
     }
     return from;
+  }
+
+  /// The rows `spanningFrom` finds, each with its place: a shed that keeps some of them across its cut (direct.ts
+  /// `shedOlderHeld`) moves the cut back only for the others. O(changes from `seq` on).
+  spanningRows(seq: number): Map<string, number> {
+    const rows = new Map<string, number>();
+    for (let index = this.changeSeqs.length - 1; index >= 0 && this.changeSeqs[index]! >= seq; index -= 1) {
+      const order = this.changeOrders[index]!;
+      if (order < seq) rows.set(this.changeIds[index]!, order);
+    }
+    return rows;
   }
 
   /// A full rebuild folds every record again from the start, noting each change again.
@@ -3569,6 +3588,15 @@ export class AcpmuxDirectClient {
   /// Each running call's first held record and newest held text-only update after it, by call id:
   /// their seqs (`holdLive`).
   private streamedOutputs = new Map<string, { first: number; last?: number }>();
+  /// The rows a shed kept across its cut (`shedOlderHeld`), by row id: a call that ran the whole turn, or the reply
+  /// streaming beside it, whose oldest records went while the row stays. `aside` holds the records older than the held
+  /// ones a fold of the held records needs to draw the row again (`rebuild`), as `turnOpener` holds the turn's prompt:
+  /// the call's opening record (and its newest whole output, when no held record carries it), or the reply's first
+  /// chunk carrying all the text before the cut. A call's `earlier`: its oldest output lines went with their records,
+  /// and an older page brings them back (`foldOlder`).
+  private splits = new Map<string, HeldSplit>();
+  /// The opening records of calls whose oldest output went (`HeldSplit.earlier`): a fold of one marks its call.
+  private earlierOutputOpeners = new WeakSet<EventRecord>();
   /// The reaction on each call a background task's end went onto (`attachReaction`), and the call
   /// each background turn's went onto.
   private reactions = new Map<string, { reaction: AcpmuxBackgroundReaction; row?: string }>();
@@ -3741,6 +3769,7 @@ export class AcpmuxDirectClient {
     this.copyLive = undefined;
     this.events = [];
     this.streamedOutputs.clear();
+    this.splits.clear();
     this.queue = [];
     this.drewKeptTail = false;
     this.rebuild();
@@ -4454,6 +4483,7 @@ export class AcpmuxDirectClient {
               this.copyLive = undefined;
               this.events = [];
               this.streamedOutputs.clear();
+              this.splits.clear();
               this.queue = [];
               // Those rows are off screen again, so the frame the host shows is the failure, not a
               // chat: it fades in as any first draw of a chat does.
@@ -4550,6 +4580,7 @@ export class AcpmuxDirectClient {
     this.stoppingEnded();
     this.events = [];
     this.streamedOutputs.clear();
+    this.splits.clear();
     this.turnOpener = undefined;
     this.turnPrompt = undefined;
     this.historyExhausted = false;
@@ -5150,6 +5181,7 @@ export class AcpmuxDirectClient {
     this.earlyTail = undefined;
     this.events = [];
     this.streamedOutputs.clear();
+    this.splits.clear();
     this.queue = [];
     this.copyLive = undefined;
     this.drewKeptTail = false;
@@ -7417,6 +7449,7 @@ export class AcpmuxDirectClient {
     if (replaced || (keptThrough > 0 && oldest > keptThrough + 1)) {
       if (!replaced) this.events = this.events.filter((event) => event.seq >= oldest);
       this.turnOpener = undefined;
+      this.splits.clear();
       this.historyExhausted = false;
       // The prompt index was read for the held history that just went: read it again.
       this.promptIndex?.cancel?.();
@@ -7922,57 +7955,218 @@ export class AcpmuxDirectClient {
     let openSince = Infinity;
     for (const agent of this.subagents.all())
       if (agent.state === "running" && agent.startedAt >= oldestKept) openSince = Math.min(openSince, agent.startedAt);
+    let pick = this.pickShedCut(openSince);
+    // A turn that is one long call (a build, a test run, a watcher) changes that call's row with every record, and
+    // the reply streaming beside it changes its own, so each spans every cut and the cut went back to the turn's
+    // start: the chat shed once in 20,000 records and held every one after (29,216 under the typing bench's heavy
+    // load). Such a row is kept across the cut instead (`planSplits`): a call's oldest output lines go with their
+    // records, a reply keeps its text, and either is drawn again from the records left and the few held aside.
+    let plans: Map<string, HeldSplit> | undefined;
+    if (this.events.length - pick.cut > HELD_RECORDS) {
+      const known = new Map<string, boolean>();
+      const splittable = (id: string) => {
+        let can = known.get(id);
+        if (can === undefined) known.set(id, (can = this.splittable(id)));
+        return can;
+      };
+      const split = this.pickShedCut(openSince, splittable);
+      if (split.cut > pick.cut) {
+        plans = this.planSplits(split.cut, splittable);
+        if (plans) pick = split;
+      }
+    }
+    const { cut, opener } = pick;
+    if (cut <= 0) return;
+    this.shedRetryAt = 0;
+    const kept = plans ?? new Map<string, HeldSplit>();
+    // A kept call's output is still tracked as it streams on (`holdLive`), though its first record left.
+    const keys = new Set<string | undefined>();
+    for (const split of kept.values()) if (split.kind === "tool") keys.add(streamedCallKey(split.aside[0]!));
+    const outputs = [...this.streamedOutputs].filter(([key]) => keys.has(key));
+    // The opener's own rows stay: a page that starts inside its turn draws them first.
+    const openerSeq = opener?.seq;
+    this.dropHeldRun(
+      0,
+      cut,
+      (row) => kept.has(row.id) || (openerSeq !== undefined && this.rows.orderOf(row.id) === openerSeq),
+    );
+    for (const [key, output] of outputs) if (!this.streamedOutputs.has(key)) this.streamedOutputs.set(key, output);
+    this.keepSplits(kept);
+    this.historyExhausted = false;
+    this.turnOpener = opener;
+    // An older page in flight, or read ahead, was read for the held history that just went.
+    this.historyEpoch += 1;
+    this.cancelOlderPaging();
+  }
+
+  /// Where a shed cuts (`shedOlderHeld`) and the prompt the rows kept open under: at a turn start within the budget
+  /// (`rebuildCut`), else inside the newest turn (`midTurnCut`), moved back until no row and no subagent is drawn
+  /// from records on both sides of it (a call that runs on, a compaction whose end comes later, a subagent that goes
+  /// on), so the rows kept are what a fold of the records kept draws, and none is folded again. `split`: the rows
+  /// kept across the cut instead (`planSplits`), which move it back no further.
+  private pickShedCut(openSince: number, split?: (id: string) => boolean): { cut: number; opener?: EventRecord } {
+    const spanningFrom = (seq: number) => {
+      if (!split) return this.rows.spanningFrom(seq);
+      let from = Infinity;
+      for (const [id, order] of this.rows.spanningRows(seq)) if (!split(id)) from = Math.min(from, order);
+      return from;
+    };
     let cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
     // No turn start to cut at within the budget (a turn that never ends): cut inside the newest turn, under its
     // prompt, as a page that starts inside a turn is drawn (`turnOpener`).
     // A turn start cut stays when no cut inside the turn is found (a row or a subagent spans the whole budget).
     let opener: EventRecord | undefined;
     if (this.events.length - cut > HELD_RECORDS) {
-      const inside = midTurnCut(this.events, HELD_KEPT, openSince, (seq) => this.rows.spanningFrom(seq));
+      const inside = midTurnCut(this.events, HELD_KEPT, openSince, spanningFrom);
       if (inside > cut) {
         cut = inside;
-        opener = this.turnOpener;
-        for (let index = cut - 1; index >= 0; index -= 1)
-          if (startsTurn(this.events[index]!)) {
-            opener = this.events[index];
-            break;
-          }
+        opener = this.openerBefore(cut);
       }
     }
-    // No row and no subagent is drawn from records on both sides of the cut (a call that runs on, a compaction whose
-    // end comes later, a subagent that goes on): the cut goes back to where it began, until none does, so the rows
-    // kept are what a fold of the records kept draws, and none is folded again.
     const chosen = cut;
     while (cut > 0) {
       const { seq } = this.events[cut]!;
-      let from = this.rows.spanningFrom(seq);
+      let from = spanningFrom(seq);
       for (const [id, first] of this.subagentFirstSeen)
         if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
       if (from >= seq) break;
       cut = firstHeldFrom(this.events, from);
     }
-    if (cut <= 0) return;
     // Moved, the cut starts a turn the one before it ended, or the kept rows open under their turn's prompt.
-    if (cut !== chosen) {
-      opener = undefined;
-      if (!(startsTurn(this.events[cut]!) && endsTurnBefore(this.events, cut))) {
-        opener = this.turnOpener;
-        for (let index = cut - 1; index >= 0; index -= 1)
-          if (startsTurn(this.events[index]!)) {
-            opener = this.events[index];
-            break;
-          }
+    if (cut > 0 && cut !== chosen)
+      opener = startsTurn(this.events[cut]!) && endsTurnBefore(this.events, cut) ? undefined : this.openerBefore(cut);
+    return { cut, opener };
+  }
+
+  /// The prompt the held records before `cut` open under: the newest turn start before it, else the held opener.
+  private openerBefore(cut: number): EventRecord | undefined {
+    for (let index = cut - 1; index >= 0; index -= 1) if (startsTurn(this.events[index]!)) return this.events[index];
+    return this.turnOpener;
+  }
+
+  /// The record at `seq` that made row `id`: a held one, or one a shed held aside for it (`splits`).
+  private madeBy(id: string, seq: number): EventRecord | undefined {
+    const held = this.events[firstHeldFrom(this.events, seq)];
+    if (held?.seq === seq) return held;
+    return this.splits.get(id)?.aside.find((event) => event.seq === seq);
+  }
+
+  /// Whether a shed can keep row `id` across its cut (`planSplits`): a tool call's own row, made by the call's opening
+  /// record, or the reply streaming now. Either is drawn again from that one record and the records after the cut.
+  private splittable(id: string): boolean {
+    const row = this.rows.get(id);
+    if (!row) return false;
+    const made = this.madeBy(id, this.rows.orderOf(id));
+    if (!made) return false;
+    if (row.kind === "assistant") return id === this.streamingAssistant && made.kind === "agent_message_chunk";
+    const tool = row.kind === "activity" && row.items?.length === 1 ? row.items[0]!.tool : undefined;
+    return (
+      tool !== undefined &&
+      made.kind === "tool_call" &&
+      sessionUpdate(made)?.toolCallId === tool.id &&
+      this.toolRows.get(tool.id) === id
+    );
+  }
+
+  /// How a shed at `cut` keeps each row it spans (`splittable`), or undefined when one cannot be kept. A call keeps its
+  /// opening record aside, and its newest whole output when that is older than the cut (acpmux sends a call's whole
+  /// output with each update); its output lines streamed one record each (`_meta.terminal_output`) go with their
+  /// records (`earlier`). A reply keeps its first chunk aside, carrying all its text before the cut. O(held), once a
+  /// shed.
+  private planSplits(cut: number, splittable: (id: string) => boolean): Map<string, HeldSplit> | undefined {
+    const cutSeq = this.events[cut]!.seq;
+    const plans = new Map<string, HeldSplit>();
+    for (const id of this.rows.spanningRows(cutSeq).keys()) {
+      if (!splittable(id)) return undefined;
+      const row = this.rows.get(id)!;
+      const made = this.madeBy(id, this.rows.orderOf(id))!;
+      const prior = this.splits.get(id);
+      if (row.kind === "assistant") {
+        // The text the records after the cut wrote; the rest is what the first chunk aside carries.
+        const messageId = this.streamingAssistantMessageId;
+        let after = 0;
+        for (let index = cut; index < this.events.length; index += 1) {
+          const event = this.events[index]!;
+          const update = event.kind === "agent_message_chunk" ? sessionUpdate(event) : undefined;
+          if (!update || (messageId !== undefined && update.messageId !== undefined && update.messageId !== messageId))
+            continue;
+          after += textFromContent(update.content).length;
+        }
+        const text = row.text ?? "";
+        if (after > text.length) return undefined;
+        const params = made.msg.params;
+        const first: EventRecord = {
+          ...made,
+          msg: {
+            ...made.msg,
+            params: {
+              ...params,
+              update: { ...params.update, content: { type: "text", text: text.slice(0, text.length - after) } },
+            },
+          },
+        };
+        plans.set(id, { kind: "reply", aside: [first] });
+        continue;
       }
+      const callId = row.items![0]!.tool!.id;
+      const key = streamedCallKey(made);
+      let earlier = prior?.kind === "tool" && prior.earlier;
+      for (let index = 0; index < cut && !earlier; index += 1) {
+        const event = this.events[index]!;
+        if (
+          event !== made &&
+          streamedCallKey(event) === key &&
+          typeof sessionUpdate(event)?._meta?.terminal_output?.data === "string"
+        )
+          earlier = true;
+      }
+      // The call's newest whole output, when no record after the cut carries it.
+      let whole: EventRecord | undefined;
+      for (let index = this.events.length - 1; index >= 0 && !whole; index -= 1) {
+        const event = this.events[index]!;
+        if (streamedCallKey(event) === key && sessionUpdate(event)?.content !== undefined) whole = event;
+      }
+      whole ??= prior?.aside.find((event) => event !== made && sessionUpdate(event)?.content !== undefined);
+      const aside = [made];
+      if (whole && whole !== made && whole.seq < cutSeq) aside.push(whole);
+      plans.set(id, { kind: "tool", callId, aside, earlier });
     }
-    this.shedRetryAt = 0;
-    // The opener's own rows stay: a page that starts inside its turn draws them first.
-    const openerSeq = opener?.seq;
-    this.dropHeldRun(0, cut, openerSeq === undefined ? undefined : (row) => this.rows.orderOf(row.id) === openerSeq);
-    this.historyExhausted = false;
-    this.turnOpener = opener;
-    // An older page in flight, or read ahead, was read for the held history that just went.
-    this.historyEpoch += 1;
-    this.cancelOlderPaging();
+    return plans;
+  }
+
+  /// The rows a shed kept across its cut (`planSplits`) become the held splits, and a call whose oldest output lines
+  /// went draws what a fold of the records left draws: its records aside, then its held ones, marked as cut
+  /// (`earlierOutput`, the Shell block's "…").
+  private keepSplits(kept: Map<string, HeldSplit>): void {
+    this.splits = kept;
+    const current = this.rows.current;
+    // Not a record's write: no record is being reduced.
+    this.rows.current = undefined;
+    try {
+      for (const [id, split] of kept) {
+        if (split.kind !== "tool" || !split.earlier) continue;
+        const opening = split.aside[0]!;
+        this.earlierOutputOpeners.add(opening);
+        const row = this.rows.get(id);
+        const item = row?.items?.[0];
+        if (!row || !item?.tool) continue;
+        const key = streamedCallKey(opening);
+        let folded: AcpmuxActivity | undefined;
+        for (const event of [...split.aside, ...this.events.filter((held) => streamedCallKey(held) === key)]) {
+          const update = sessionUpdate(event);
+          folded = mergeToolItem(folded, update, split.callId, textFromContent(update?.content), event.at);
+        }
+        const output = folded?.tool?.output;
+        if (output === item.tool.output && item.tool.earlierOutput) continue;
+        this.rows.set(id, {
+          ...row,
+          version: row.version + 1,
+          items: [{ ...item, tool: { ...item.tool, output, earlierOutput: true } }],
+        });
+      }
+    } finally {
+      this.rows.current = current;
+    }
   }
 
   /// Lets go of the held records `events[start, end)`, a run at one end of the held window (`start` 0 for the oldest,
@@ -8517,6 +8711,16 @@ export class AcpmuxDirectClient {
       if (opener && (events[0]?.seq ?? Number.POSITIVE_INFINITY) <= opener.seq) this.turnOpener = undefined;
       // Drawn first, but neither firstSeq nor lastSeq moves: older pages still load from the held history.
       else if (opener && opener.seq <= through) this.reduce(opener);
+      // Then the records a shed held aside for the rows it kept across its cut (`splits`), as it does the opener; one
+      // the held records reach again (an older page brought it) is theirs now.
+      const heldFrom = events[0]?.seq ?? Number.POSITIVE_INFINITY;
+      const aside: EventRecord[] = [];
+      for (const [id, split] of this.splits) {
+        split.aside = split.aside.filter((event) => event.seq < heldFrom);
+        if (split.aside.length === 0) this.splits.delete(id);
+        else aside.push(...split.aside);
+      }
+      for (const event of aside.sort((a, b) => a.seq - b.seq)) if (event.seq <= through) this.reduce(event);
     }
     for (const event of events) {
       this.lastSeq = Math.max(this.lastSeq, event.seq);
@@ -10271,10 +10475,15 @@ export class AcpmuxDirectClient {
       );
       const awaiting =
         itemIndex < 0 ? callUnseen : items[itemIndex].tool?.awaitingCall === true && showsNothing(update);
-      const item: AcpmuxActivity =
+      const awaited: AcpmuxActivity =
         merged.tool && (merged.tool.awaitingCall === true) !== awaiting
           ? { ...merged, tool: withAwaitingCall(merged.tool, awaiting) }
           : merged;
+      // The opening record a shed held aside for a call whose oldest output went (`keepSplits`): its fold is cut.
+      const item: AcpmuxActivity =
+        awaited.tool && !awaited.tool.earlierOutput && this.earlierOutputOpeners.has(event)
+          ? { ...awaited, tool: { ...awaited.tool, earlierOutput: true } }
+          : awaited;
       const priorTool = itemIndex >= 0 ? items[itemIndex].tool : undefined;
       // Streaming output alone leaves the summary unchanged; metadata is visible immediately.
       const summaryChanged = (
@@ -15601,6 +15810,92 @@ export class AcpmuxDirectClient {
     this.emit("history");
   }
 
+  /// Before an older page folds (`foldOlder`): each call a shed kept across its cut (`splits`) gets a row of its own
+  /// for the page, under the call's id, so the page's records of the call (its opening one too, when the page reaches
+  /// it) fold there, oldest first, and never into the held row, whose output they come before. The rows' ids, by the
+  /// held row's.
+  private beginSplitFill(): Map<string, string> {
+    const fills = new Map<string, string>();
+    const current = this.rows.current;
+    this.rows.current = undefined;
+    try {
+      for (const [id, split] of this.splits) {
+        const row = split.kind === "tool" ? this.rows.get(id) : undefined;
+        const item = row?.items?.[0];
+        if (!row || split.kind !== "tool" || !item?.tool) continue;
+        const { output: _held, earlierOutput: _cut, ...tool } = item.tool;
+        const fill = `${id}\u0000earlier`;
+        this.rows.set(fill, { ...row, id: fill, version: 1, items: [{ ...item, tool }] });
+        this.toolRows.set(split.callId, fill);
+        fills.set(id, fill);
+      }
+    } finally {
+      this.rows.current = current;
+    }
+    return fills;
+  }
+
+  /// After an older page folded (`foldOlder`), the rows a shed kept across its cut take back what it brought: a call's
+  /// oldest output lines go before the held ones (`beginSplitFill`), and the reply the page left streaming
+  /// (`pageReply`), the start of the held reply whose text that reply already holds, goes. Each stays as it was held
+  /// otherwise (a page reaching its first record folded into it). A row whose aside records the page reached is drawn
+  /// from held records again (`splits`), and a call's output is whole once the page holds its opening record.
+  private endSplitFill(
+    fills: Map<string, string>,
+    held: ReadonlyMap<string, AcpmuxRow>,
+    pageFrom: number,
+    pageReply: string | undefined,
+  ): void {
+    const current = this.rows.current;
+    this.rows.current = undefined;
+    try {
+      for (const [id, split] of [...this.splits]) {
+        const row = held.get(id);
+        if (split.kind === "tool") {
+          const fill = fills.get(id);
+          const earlier = fill === undefined ? undefined : this.rows.get(fill)?.items?.[0]?.tool?.output;
+          if (fill !== undefined) {
+            this.rows.delete(fill);
+            this.toolRowScopes.delete(fill);
+            if (this.toolRows.get(split.callId) === fill) this.toolRows.delete(split.callId);
+          }
+          const item = row?.items?.[0];
+          const opened = pageFrom <= split.aside[0]!.seq;
+          if (row && item?.tool && split.earlier) {
+            const { earlierOutput: _cut, ...whole } = item.tool;
+            const output = `${earlier ?? ""}${item.tool.output ?? ""}`;
+            this.rows.set(id, {
+              ...row,
+              version: Math.max(row.version, this.rows.get(id)?.version ?? 0) + 1,
+              items: [{ ...item, tool: { ...(opened ? whole : item.tool), output } }],
+            });
+            if (opened) split.earlier = false;
+          } else if (row && this.rows.get(id) !== row) this.rows.set(id, row);
+        } else {
+          const continues =
+            pageReply !== undefined &&
+            pageReply !== id &&
+            !held.has(pageReply) &&
+            this.rows.get(pageReply)?.kind === "assistant";
+          if (continues) {
+            this.rows.delete(pageReply);
+            for (const [messageId, rowIds] of this.messageRows)
+              if (rowIds.includes(pageReply)) {
+                const kept = rowIds.filter((rowId) => rowId !== pageReply);
+                if (kept.length > 0) this.messageRows.set(messageId, kept);
+                else this.messageRows.delete(messageId);
+              }
+          }
+          if (row && this.rows.get(id) !== row) this.rows.set(id, row);
+        }
+        split.aside = split.aside.filter((event) => event.seq < pageFrom);
+        if (split.aside.length === 0) this.splits.delete(id);
+      }
+    } finally {
+      this.rows.current = current;
+    }
+  }
+
   /// Folds whole turns older than every held event into rows above them, without folding the held
   /// events again: the cost of a page stays the page's however much history is loaded. The fold
   /// starts from a clean turn and leaves the live state (an open turn, its stream and typing row,
@@ -15697,9 +15992,13 @@ export class AcpmuxDirectClient {
     this.presetApprovalRemoved.clear();
     const below = this.foldingBelow;
     let pageMade: readonly string[] | undefined;
+    // The page's records of a call a shed kept across its cut fold into a row of their own (`beginSplitFill`).
+    const fills = this.beginSplitFill();
+    let pageFrom = Infinity;
     this.rows.beginPrepend(below);
     try {
       for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
+        pageFrom = Math.min(pageFrom, event.seq);
         this.firstSeq = Math.min(this.firstSeq ?? event.seq, event.seq);
         this.reduce(event);
       }
@@ -15710,6 +16009,7 @@ export class AcpmuxDirectClient {
       this.foldingBelow = undefined;
       this.heldPromptRowKeys = undefined;
     }
+    this.endSplitFill(fills, held, pageFrom, this.streamingAssistant);
     // A page can split a tool call: its completed update may have been held first, then the
     // older page brings the call opener. Keep the held row as the authoritative later state and
     // remove the page's duplicate item, while retaining page-only calls in the incremental fold.

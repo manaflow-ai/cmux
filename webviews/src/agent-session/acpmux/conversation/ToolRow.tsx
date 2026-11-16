@@ -288,6 +288,7 @@ export const ToolRow = memo(function ToolRow({
               id={detailsId}
               command={tool.command}
               output={failure?.output?.replace(/\n$/, "") ?? body}
+              cut={tool.earlierOutput}
               exitCode={failure?.exitCode ?? tool.exitCode}
               reveal={reveal}
               live={running}
