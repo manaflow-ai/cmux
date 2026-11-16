@@ -50,7 +50,6 @@
 
 use std::cell::{Cell, RefCell};
 use std::fs::File;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
