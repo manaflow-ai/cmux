@@ -3433,6 +3433,7 @@
     "pages.settings-menus#customized": [],
     "pages.settings-menus#generated": [],
     "pages.settings-menus#terminal": [],
+    "pages.settings-motion#appearance-undo-bar": [],
     "pages.settings-motion#backdrops-workspace": [],
     "pages.settings-motion#play-changed-only": [],
     "pages.settings-motion#play-override-reset": [],
@@ -3538,7 +3539,6 @@
     "pages.settings#appearance-presets": [
       "menu-fit:\"Solid✓FrostedGlassClear\""
     ],
-    "pages.settings#appearance-undo-bar": [],
     "pages.settings#art-browser": [],
     "pages.settings#backdrops": [],
     "pages.settings#backdrops-empty": [],
