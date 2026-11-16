@@ -6,6 +6,7 @@
 
 use crate::carrier::{Carrier, Incoming};
 use crate::clock::now_ns;
+use crate::cursor::CursorChannel;
 use crate::desktop::{Desktop, FrameSource};
 use crate::encode_thread::{Done, EncodeThread};
 use crate::fdwait::wait_readable;
@@ -79,6 +80,9 @@ pub struct MediaSession {
     settle_ns: u64,
     /// Per-frame times for the screen stream eval, when `CMUX_RD_TIMING_LOG` names a file.
     timing: Option<Timing>,
+    /// The cursor as metadata, when the viewer draws it (cap `cursor`) and the desktop
+    /// reports it: the pictures leave it out.
+    cursor: Option<CursorChannel>,
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -137,6 +141,13 @@ fn viewer_silent_too_long(silent_us: u64) -> bool {
     silent_us > REATTACH_GRACE_NS / 1000
 }
 
+/// Whether the session sends the cursor as metadata: the viewer draws it (cap `cursor`) and
+/// this OS's desktop can report it.
+fn wants_cursor(negotiated_caps: &[String]) -> bool {
+    crate::desktop::reports_cursor()
+        && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
+}
+
 fn now_us() -> u64 {
     now_ns() / 1000
 }
@@ -165,7 +176,7 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
-        let (desktop, frames) = crate::desktop::open(cfg)?;
+        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
         Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)
     }
 
@@ -208,6 +219,7 @@ impl MediaSession {
             cpu_last: (process_cpu_s(), now_ns()),
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
+            cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
         })
     }
 
@@ -252,6 +264,10 @@ impl MediaSession {
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
             // The engine's deadline covers held frames and input held behind a gap.
             let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(REATTACH_GRACE_NS);
+            // The next cursor reading (fast while it moves, slow when still).
+            let timeout = self.cursor.as_ref().map_or(timeout, |c| {
+                timeout.min(c.next_deadline_us().saturating_sub(now_us()).saturating_mul(1000))
+            });
             // Timed input work: a press waiting behind the agent's held button, the person
             // master going idle.
             let wake = if table.may_inject_input(session, viewer) {
@@ -344,10 +360,36 @@ impl MediaSession {
             while let Some(datagram) = self.engine.upstream_feedback(now_us()) {
                 let _ = carrier.send_datagram(&datagram);
             }
+            if let Err(e) = self.send_cursor(carrier) {
+                return format!("control write failed: {e}");
+            }
             if now_ns() >= self.next_stats_ns {
                 self.send_stats(carrier);
             }
         }
+    }
+
+    /// Reads the cursor when its channel is due and sends what changed: a new shape on the
+    /// control stream, then the position as a datagram.
+    fn send_cursor(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
+        let Some(channel) = self.cursor.as_mut() else { return Ok(()) };
+        let now = now_us();
+        if !channel.due(now) {
+            return Ok(());
+        }
+        let Some(sample) = self.desktop.cursor() else {
+            channel.missed(now);
+            return Ok(());
+        };
+        let out = channel.on_sample(&sample, now);
+        if let Some(shape) = out.shape {
+            carrier.send_control(&shape)?;
+        }
+        if let Some(datagram) = out.datagram {
+            // Latest wins: a lost position is replaced by the next one.
+            let _ = carrier.send_datagram(&datagram);
+        }
+        Ok(())
     }
 
     /// Drains damage, then keeps draining while more arrives within `settle_ns` (at most

@@ -54,6 +54,7 @@ import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 /// `none`: the baseline, the composer with nothing attached.
 type Way = "paste" | "drop" | "menu" | "none";
@@ -177,7 +178,7 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   /// slowest key, so a real freeze fails either way.
   const TYPED = "hello while loading! every key lands while the file attaches";
   // The editor itself, not an attachment atom placed in it (contenteditable="false").
-  const PROMPT = '.acpmux-composer-prompt [contenteditable="true"]';
+  const PROMPT = COMPOSER_EDITOR;
   setDefaultTimeout(900_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -754,7 +755,7 @@ os.replace(path + ".part", path)
   /// Pastes, drops or chooses the case's file (or text); returns the gesture's time on the page.
   async function gesture(page: Page, c: Case): Promise<number> {
     if (c.way === "menu") {
-      await page.locator(".acpmux-composer-plus .acpmux-picker-button").click();
+      await page.locator(PLUS_PICKER).click();
       const chooser = page.waitForEvent("filechooser", { timeout: 5_000 });
       await page.locator('[role="menu"] [role="menuitem"][data-value="add.files"]').click();
       await (await chooser).setFiles(path.join(dir, c.file!.name));
