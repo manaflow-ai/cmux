@@ -7479,5 +7479,250 @@
         ]
       }
     }
+  },
+  "settingsWindow.machineLoad.chat": {
+    "source": "1 chat",
+    "identityLocales": {
+      "da": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "1 chat"
+        ]
+      },
+      "es": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "1 chat"
+        ]
+      },
+      "fr": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "1 chat"
+        ]
+      },
+      "it": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "1 chat"
+        ]
+      },
+      "nb": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "1 chat"
+        ]
+      },
+      "pt-BR": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "1 chat"
+        ]
+      }
+    }
+  },
+  "settingsWindow.machineLoad.chats": {
+    "source": "%@ chats",
+    "identityLocales": {
+      "da": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "%@ chats"
+        ]
+      },
+      "es": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "%@ chats"
+        ]
+      },
+      "fr": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "%@ chats"
+        ]
+      },
+      "pt-BR": {
+        "reason": "chat is the loanword this locale uses for an AI chat, as elsewhere in the app.",
+        "values": [
+          "%@ chats"
+        ]
+      }
+    }
+  },
+  "settingsWindow.machineLoad.offline": {
+    "source": "offline",
+    "identityLocales": {
+      "bs": {
+        "reason": "offline is the loanword this locale uses for a machine that is not connected.",
+        "values": [
+          "offline"
+        ]
+      },
+      "da": {
+        "reason": "offline is the loanword this locale uses for a machine that is not connected.",
+        "values": [
+          "offline"
+        ]
+      },
+      "de": {
+        "reason": "offline is the loanword this locale uses for a machine that is not connected.",
+        "values": [
+          "offline"
+        ]
+      },
+      "it": {
+        "reason": "offline is the loanword this locale uses for a machine that is not connected.",
+        "values": [
+          "offline"
+        ]
+      },
+      "pl": {
+        "reason": "offline is the loanword this locale uses for a machine that is not connected.",
+        "values": [
+          "offline"
+        ]
+      },
+      "pt-BR": {
+        "reason": "offline is the loanword this locale uses for a machine that is not connected.",
+        "values": [
+          "offline"
+        ]
+      }
+    }
+  },
+  "settingsWindow.machineLoad.offlineFor": {
+    "source": "offline %@",
+    "identityLocales": {
+      "bs": {
+        "reason": "offline is the loanword this locale uses for a machine that is not connected.",
+        "values": [
+          "offline %@"
+        ]
+      }
+    }
+  },
+  "settingsWindow.machineLoad.minutes": {
+    "source": "%@ min",
+    "identityLocales": {
+      "bs": {
+        "reason": "min is the standard abbreviation for minutes in this locale.",
+        "values": [
+          "%@ min"
+        ]
+      },
+      "da": {
+        "reason": "min is the standard abbreviation for minutes in this locale.",
+        "values": [
+          "%@ min"
+        ]
+      },
+      "es": {
+        "reason": "min is the standard abbreviation for minutes in this locale.",
+        "values": [
+          "%@ min"
+        ]
+      },
+      "fr": {
+        "reason": "min is the standard abbreviation for minutes in this locale.",
+        "values": [
+          "%@ min"
+        ]
+      },
+      "it": {
+        "reason": "min is the standard abbreviation for minutes in this locale.",
+        "values": [
+          "%@ min"
+        ]
+      },
+      "nb": {
+        "reason": "min is the standard abbreviation for minutes in this locale.",
+        "values": [
+          "%@ min"
+        ]
+      },
+      "pl": {
+        "reason": "min is the standard abbreviation for minutes in this locale.",
+        "values": [
+          "%@ min"
+        ]
+      },
+      "pt-BR": {
+        "reason": "min is the standard abbreviation for minutes in this locale.",
+        "values": [
+          "%@ min"
+        ]
+      }
+    }
+  },
+  "settingsWindow.machineLoad.hours": {
+    "source": "%@ h",
+    "identityLocales": {
+      "bs": {
+        "reason": "h is the standard symbol for hours in this locale.",
+        "values": [
+          "%@ h"
+        ]
+      },
+      "es": {
+        "reason": "h is the standard symbol for hours in this locale.",
+        "values": [
+          "%@ h"
+        ]
+      },
+      "fr": {
+        "reason": "h is the standard symbol for hours in this locale.",
+        "values": [
+          "%@ h"
+        ]
+      },
+      "it": {
+        "reason": "h is the standard symbol for hours in this locale.",
+        "values": [
+          "%@ h"
+        ]
+      },
+      "pt-BR": {
+        "reason": "h is the standard symbol for hours in this locale.",
+        "values": [
+          "%@ h"
+        ]
+      }
+    }
+  },
+  "settingsWindow.machineLoad.days": {
+    "source": "%@ d",
+    "identityLocales": {
+      "bs": {
+        "reason": "d is the standard symbol for days in this locale.",
+        "values": [
+          "%@ d"
+        ]
+      },
+      "da": {
+        "reason": "d is the standard symbol for days in this locale.",
+        "values": [
+          "%@ d"
+        ]
+      },
+      "es": {
+        "reason": "d is the standard symbol for days in this locale.",
+        "values": [
+          "%@ d"
+        ]
+      },
+      "nb": {
+        "reason": "d is the standard symbol for days in this locale.",
+        "values": [
+          "%@ d"
+        ]
+      },
+      "pt-BR": {
+        "reason": "d is the standard symbol for days in this locale.",
+        "values": [
+          "%@ d"
+        ]
+      }
+    }
   }
 }
