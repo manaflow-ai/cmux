@@ -227,7 +227,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             for (const wrap of [true, false, true, false]) {
               const previous = await measure(page, layout.newTab);
               await editor.press("Control+End");
-              await page.evaluate(({ newTab, gap }) => {
+              await page.evaluate((newTab) => {
                 const samples: { first: number; scroll: number; editorScroll: number; height: number }[] = [];
                 const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
                 const field = box.querySelector<HTMLElement>(".acpmux-md-field")!;

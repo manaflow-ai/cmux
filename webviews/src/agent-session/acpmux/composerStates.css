@@ -116,7 +116,8 @@
    through the window's tint (the New Tab box's fill; the chat card is clearer still, below), and the
    light rim above. The prompt is primary text, which the window's tint floor already keeps at 4.5:1
    over the art. Reduce Transparency keeps it solid. */
-:root[data-cmux-see-through] :is(.acpmux-shell, .ui-positioner:has(> .nt-popover)) {
+:root[data-cmux-see-through] .acpmux-shell,
+:root[data-cmux-see-through] :where(.ui-positioner:has(> .nt-popover)) {
   --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
 }
 /* All cards in the bottom stack use the input's material. Extra text washes on individual
