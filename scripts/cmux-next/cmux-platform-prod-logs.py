@@ -44,7 +44,12 @@ _spec = importlib.util.spec_from_file_location(
 base = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(base)
 
-SERVICES = ("cmux-platform-production", "cmux-platform-staging")
+# cmux-vm's Workers (workers/cmux-vm, the VM API in front of the VM provider) live in the same account: the platform
+# binds cmux-vm-staging by script name. cmux-platform#1442: the platform logged `cloud provider call failed` in bursts
+# and only cmux-vm's own lines say which provider operation failed with which status. Its lines name no machine or
+# team, so a cmux-vm service reads only `window`.
+VM_SERVICES = ("cmux-vm-production", "cmux-vm-staging")
+SERVICES = ("cmux-platform-production", "cmux-platform-staging") + VM_SERVICES
 PAGES = base.PAGES
 MAX_ROWS = base.MAX_ROWS
 ID_INPUT = re.compile(r"^(vm|team)_[A-Za-z0-9_-]{1,64}$")
@@ -308,6 +313,78 @@ def public_log(j):
     return out, None
 
 
+# cmux-vm logs through Effect's default logger, one text line per call (workers/cmux-vm src/upstream/live.ts):
+#   timestamp=2026-11-16T13:55:01.000Z level=WARN fiber=#12 message="cmux-vm upstream call failed" operation=startVm status=503
+# VM_MSGS are its exact `Effect.logWarning("...")` literals in workers/cmux-vm/src. A kept line keeps only its msg,
+# level, operation (a code-defined camelCase name), status (an HTTP status, or `none`: no answer, a timeout or a
+# dropped connection) and code; every other key, a cause included, is dropped.
+VM_MSGS = frozenset({
+    "cmux-vm dependency unavailable",
+    "cmux-vm store query failed",
+    "cmux-vm upstream call failed",
+    "cmux-vm upstream response unreadable",
+})
+VM_LEVELS = frozenset({"DEBUG", "INFO", "WARN", "ERROR", "FATAL"})
+VM_OPERATION = re.compile(r"^[A-Za-z][A-Za-z0-9_.]{0,47}$")
+VM_STATUS = re.compile(r"^[1-5][0-9]{2}$")
+LOGFMT_PAIR = re.compile(r'(?:^|\s)([A-Za-z][A-Za-z0-9_]{0,31})=("(?:[^"\\]|\\.)*"|[^\s"=]*)')
+# Fixed route words of cmux-vm's paths (workers/cmux-vm/openapi.json) that base.ROUTE_SEGMENTS lacks, so
+# `/v1/vms/*/pause` counts as that route and not as `/v1/vms/*/*`. Any other segment still prints hashed.
+VM_ROUTE_SEGMENTS = frozenset({
+    "acl", "address", "agent-keys", "api-keys", "cancel", "client-sessions", "device-enrollments", "device-intents",
+    "enrollment-codes", "fork", "healthz", "https-proxies", "mesh-creations", "overlay-server-enrollments", "pause",
+    "peers", "public-egress", "receiver-policy", "resize", "resume", "revoke", "rotate-key", "snapshot-creations",
+    "snapshots", "stop", "terminal", "terminals", "tunnel", "tunnels", "vm-images",
+})
+
+
+def public_path(url):
+    """base.public_path, with VM_ROUTE_SEGMENTS printed as route words too."""
+    p = base.public_path(url)
+    if p is None:
+        return None
+    raw = re.match(r"^[a-z]+://[^/?#]+(/[^?#]*)", url) if isinstance(url, str) else None
+    raw_segs = (raw.group(1) if raw else url.split("?")[0].split("#")[0]).split("/")[1:][:12]
+    segs = p.split("/")[1:]
+    return "/" + "/".join(r if r in VM_ROUTE_SEGMENTS else s for s, r in zip(segs, raw_segs))
+
+
+def vm_text_line(e):
+    """The event's Effect text line (`... message=...`), if it has one."""
+    for cand in (base.dig(e, "$metadata", "message"), base.dig(e, "message"), base.dig(e, "source", "message"),
+                 base.dig(e, "source")):
+        if isinstance(cand, str) and " message=" in cand:
+            return cand
+    return None
+
+
+def vm_log(text):
+    """(fields, why) for a cmux-vm Effect text line: fields only for a VM_MSGS msg, else None and the drop reason."""
+    pairs = {}
+    for key, value in LOGFMT_PAIR.findall(text):
+        if key in pairs:
+            return None, "ambiguous"
+        pairs[key] = re.sub(r"\\(.)", r"\1", value[1:-1]) if value.startswith('"') else value
+    msg = pairs.get("message")
+    if msg not in VM_MSGS:
+        return None, "unlisted"
+    out = {"msg": msg}
+    if pairs.get("level") in VM_LEVELS:
+        out["level"] = pairs["level"].lower()
+    operation = pairs.get("operation")
+    if operation is not None and VM_OPERATION.match(operation) and not base.ID_LIKE.search(operation):
+        out["operation"] = operation
+    status = pairs.get("status")
+    if status == "none":
+        out["status"] = "none"
+    elif status is not None and VM_STATUS.match(status):
+        out["status"] = int(status)
+    code = base.typed(TOKEN, pairs.get("code"))
+    if code is not None:
+        out["code"] = code
+    return out, None
+
+
 def line(e, counts=None):
     """One private row for an event: only typed, allowlisted values; never raw event text."""
     counts = counts if counts is not None else {}
@@ -326,15 +403,16 @@ def line(e, counts=None):
     if isinstance(req, dict):
         if req.get("method") in base.METHODS:
             rec["method"] = req["method"]
-        p = base.public_path(req.get("url"))
+        p = public_path(req.get("url"))
         if p:
             rec["path"] = p
     status = base.typed(INT, dig(ev, "response", "status"))
     if status is not None:
         rec["status"] = status
     j = base.console_line(e)
-    if j is not None:
-        log, why = public_log(j)
+    text = vm_text_line(e) if j is None else None
+    if j is not None or text is not None:
+        log, why = public_log(j) if j is not None else vm_log(text)
         if log is not None:
             rec["log"] = log
         else:
@@ -469,6 +547,8 @@ def main():
         sys.exit("service: one of " + ", ".join(SERVICES))
     ident = given(args.ident, "id")
     kind = WINDOW if ident == WINDOW else id_kind(ident)
+    if service in VM_SERVICES and kind != WINDOW:
+        sys.exit("id: cmux-vm's lines name no machine or team; read it with `window`")
     if kind is None:
         sys.exit("id: an exact vm_ or team_ id, or `window`, is required")
     needles = [n.strip() for n in given(args.needles, "needles").split(",") if n.strip()]
