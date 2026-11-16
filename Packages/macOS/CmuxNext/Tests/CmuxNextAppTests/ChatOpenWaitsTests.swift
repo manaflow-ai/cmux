@@ -8,8 +8,9 @@ import Testing
 /// 1 at most on a connected page, whatever the chat's length. A page made for the tab runs every
 /// wait in a row, which is what a person sees as a pane with no content.
 ///
-/// These tests play the page's part by its reports to the host; no page loads. They pin what the
-/// host counts. The count of a real page is the bench's (`open_waits` in `debug.chat_open_trace`).
+/// These tests play the page's part by its reports to the host; no page loads. They pin the count
+/// the host gives each report (its model of the waits; it observes none of them). The count of a
+/// real page's open is the bench's (`open_waits` in `debug.agent_pane readiness`).
 @MainActor @Suite(.serialized)
 struct ChatOpenWaitsTests {
     /// The page's part of an open, by its reports: a page that never asked for its handshake asks;
