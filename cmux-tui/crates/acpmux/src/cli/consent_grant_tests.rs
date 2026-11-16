@@ -528,6 +528,57 @@ fn an_account_grant_from_a_pinned_key_turns_on_a_never_granted_machine() {
     assert_eq!(apply(&authority, &ahead, &target(), None, NOW).unwrap_err().reason, EXPIRED);
 }
 
+/// The sign-in's automatic account grant (both surfaces `default`) turns a machine on only where no
+/// account policy is kept yet: a newer automatic On from a Mac that signed in never undoes the Off
+/// the person set from another Mac (review of #5296).
+#[test]
+fn the_sign_ins_default_on_never_undoes_an_account_off() {
+    let (a, b) = (key(), key());
+    let default = |k: &EcdsaKeyPair, issued: u64| {
+        account_grant(k, issued, |g| {
+            g["control"] = json!("default");
+            g["screen"] = json!("default");
+        })
+    };
+    // A machine with no policy yet: the default turns both surfaces on, and reads as On.
+    let (_fresh_dir, fresh) = fixture();
+    pin(&fresh, &b, ACCOUNT_ID);
+    apply(&fresh, &default(&b, NOW), &target(), None, NOW).unwrap();
+    let on = status(&fresh, Some(ACCOUNT_ID));
+    assert_eq!(consent_of(&on, "control"), "granted");
+    assert_eq!(consent_of(&on, "screen"), "granted");
+    assert_eq!(source(&on, "control"), "account");
+    let fields = status_fields(&fresh, Some(ACCOUNT_ID), None);
+    assert_eq!(fields["accountPolicy"]["control"], "on");
+    // A later explicit Off from another Mac still wins over the default.
+    pin(&fresh, &a, ACCOUNT_ID);
+    let off = account_grant(&a, NOW + 1, |g| {
+        g["control"] = json!("off");
+        g["screen"] = json!("off");
+    });
+    apply(&fresh, &off, &target(), None, NOW + 1).unwrap();
+    assert_eq!(consent_of(&status(&fresh, Some(ACCOUNT_ID)), "control"), "none");
+    // The person turned the account Off from Mac A; Mac B signs in later and sends its default.
+    let (_dir, authority) = fixture();
+    pin(&authority, &a, ACCOUNT_ID);
+    pin(&authority, &b, ACCOUNT_ID);
+    apply(&authority, &off, &target(), None, NOW).unwrap();
+    apply(&authority, &default(&b, NOW + 60_000), &target(), None, NOW + 60_000).unwrap();
+    let kept = status(&authority, Some(ACCOUNT_ID));
+    assert_eq!(consent_of(&kept, "control"), "none", "the default never undoes the Off");
+    assert_eq!(consent_of(&kept, "screen"), "none");
+    let fields = status_fields(&authority, Some(ACCOUNT_ID), None);
+    assert_eq!(fields["accountPolicy"]["grantor"], json!(grantor_id(&public(&a))));
+    assert_eq!(fields["accountPolicy"]["control"], "off");
+    assert!(log(&authority).iter().any(|l| l["event"] == "stale"));
+    // Only both surfaces default make an account default; one alone is malformed.
+    let half = account_grant(&b, NOW + 70_000, |g| g["control"] = json!("default"));
+    assert_eq!(
+        apply(&authority, &half, &target(), None, NOW + 70_000).unwrap_err().reason,
+        MALFORMED
+    );
+}
+
 #[test]
 fn a_local_off_beats_a_newer_account_on_and_clearing_it_restores_the_account() {
     let (_dir, authority) = fixture();
