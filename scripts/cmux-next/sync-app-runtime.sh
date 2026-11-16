@@ -9,6 +9,8 @@
 #     they are installed for everyone and hideable)
 #   samples/apps/<name>/{cmux-app.v2.json,dist/,assets/,catalog/} -> store/<name>/ (apps with a STORE
 #     marker: the App Store examples, handed to the daemon as CMUX_APPS_DIRS)
+#   first-party-apps/<name>/{manifest v2,dist/,assets/,catalog/,screenshots/} -> store/<name>/ (a STORE
+#     marker and no BUNDLED one: first-party store apps such as the widgets, listed, never installed by default)
 #   samples/apps/<name>/{cmux-app.json,assets/}              -> samples/<name>/ (demo transport and
 #     store icons; a sample with a NOT_BUNDLED file stays out)
 # The app supervisor in the daemon runs apps and validates manifests (step 3),
@@ -57,6 +59,26 @@ if [[ -d "$samples" ]]; then
     [[ -f "$app/STORE" && -f "$app/cmux-app.v2.json" ]] || continue
     copy "$app/cmux-app.v2.json" "store/$name/cmux-app.v2.json"
     for part in dist assets catalog; do
+      [[ -d "$app/$part" ]] && copy "$app/$part" "store/$name/$part"
+    done
+  done
+fi
+# First-party store apps (first-party-apps/<name> with a STORE marker and no BUNDLED one, such as the
+# widgets): listed in the App Store and installed with one click, never by default. Their manifest
+# v2 is cmux-app.v2.json, else a cmux-app.json with manifestVersion 2 (what `cmux ext dev` reads).
+if [[ -d "$first_party" ]]; then
+  for app in "$first_party"/*/; do
+    name="$(basename "$app")"
+    [[ -f "$app/STORE" && ! -f "$app/BUNDLED" ]] || continue
+    if [[ -f "$app/cmux-app.v2.json" ]]; then
+      copy "$app/cmux-app.v2.json" "store/$name/cmux-app.v2.json"
+    elif grep -q '"manifestVersion": 2' "$app/cmux-app.json" 2>/dev/null; then
+      copy "$app/cmux-app.json" "store/$name/cmux-app.v2.json"
+    else
+      echo "sync-app-runtime: $app has a STORE marker but no manifest v2" >&2
+      exit 1
+    fi
+    for part in dist assets catalog screenshots; do
       [[ -d "$app/$part" ]] && copy "$app/$part" "store/$name/$part"
     done
   done

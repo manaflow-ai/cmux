@@ -1,0 +1,90 @@
+process.env.TZ = "America/Los_Angeles"
+import { describe, expect, test } from "bun:test"
+import { cities, city, dateLine, handAngles, localeIsTwelveHour, timeParts, twelveHour, untilNextMinute, wall, zonesFrom, type ZoneOf } from "../src/clock.ts"
+
+// Monday, November 16, 2026, 9:41 AM in Los Angeles (PST, UTC-8).
+const AT = Date.UTC(2026, 10, 16, 17, 41, 12)
+const OFFSETS: Record<string, number> = {
+  "America/Los_Angeles": -480,
+  "America/New_York": -300,
+  "Europe/London": 0,
+  "Asia/Tokyo": 540,
+  "Australia/Sydney": 660,
+  "Asia/Kolkata": 330
+}
+const zoneOf: ZoneOf = (zone) => {
+  if (!(zone in OFFSETS)) throw { code: "zone.unknown" }
+  return { offsetMinutes: OFFSETS[zone]!, abbreviation: "" }
+}
+
+describe("time and date", () => {
+  test("12 and 24 hour times", () => {
+    const here = wall(AT, -480)
+    expect(timeParts(here, true)).toEqual({ time: "9:41", period: "AM" })
+    expect(timeParts(here, false)).toEqual({ time: "09:41", period: "" })
+    expect(timeParts(wall(Date.UTC(2026, 10, 16, 8, 5), 0), true)).toEqual({ time: "8:05", period: "AM" })
+    expect(timeParts(wall(Date.UTC(2026, 10, 16, 0, 5), 0), true)).toEqual({ time: "12:05", period: "AM" })
+    expect(timeParts(wall(Date.UTC(2026, 10, 16, 12, 0), 0), true)).toEqual({ time: "12:00", period: "PM" })
+  })
+
+  test("the Lock Screen date line", () => {
+    expect(dateLine(wall(AT, -480))).toBe("Monday, November 16")
+  })
+
+  test("the hour cycle follows the setting, else the locale", () => {
+    expect(twelveHour({ hourCycle: "24h" }, "en-US")).toBe(false)
+    expect(twelveHour({ hourCycle: "12h" }, "de-DE")).toBe(true)
+    expect(twelveHour({}, "en-US")).toBe(true)
+    expect(twelveHour({ hourCycle: "system" }, "en-GB")).toBe(false)
+    expect(twelveHour({}, "fr-FR")).toBe(false)
+  })
+
+  test("without Intl the locale's region decides", () => {
+    const intl = globalThis.Intl
+    try {
+      // @ts-expect-error the sandbox has no Intl
+      delete globalThis.Intl
+      expect(localeIsTwelveHour("en-US")).toBe(true)
+      expect(localeIsTwelveHour("en_AU")).toBe(true)
+      expect(localeIsTwelveHour("en-GB")).toBe(false)
+      expect(localeIsTwelveHour("ja-JP")).toBe(false)
+      expect(localeIsTwelveHour("en")).toBe(true)
+      expect(localeIsTwelveHour("de")).toBe(false)
+    } finally {
+      globalThis.Intl = intl
+    }
+  })
+
+  test("analog hands", () => {
+    expect(handAngles(wall(Date.UTC(2026, 0, 1, 3, 0), 0))).toEqual({ hourAngle: 90, minuteAngle: 0 })
+    expect(handAngles(wall(Date.UTC(2026, 0, 1, 21, 30), 0))).toEqual({ hourAngle: 285, minuteAngle: 180 })
+  })
+
+  test("the next tick lands just after the minute starts", () => {
+    const wait = untilNextMinute(AT)
+    expect(new Date(AT + wait).getUTCSeconds()).toBe(0)
+    expect(wait).toBeLessThanOrEqual(60_025)
+  })
+})
+
+describe("cities", () => {
+  test("a city knows its time, its distance from you and its day", () => {
+    expect(city("Asia/Tokyo", AT, true, zoneOf)).toMatchObject({ name: "Tokyo", time: "2:41", period: "AM", offset: "+17h", day: "Tomorrow" })
+    expect(city("America/New_York", AT, false, zoneOf)).toMatchObject({ name: "New York", time: "12:41", offset: "+3h", day: "Today" })
+    expect(city("Asia/Kolkata", AT, false, zoneOf)).toMatchObject({ offset: "+13:30h" })
+  })
+
+  test("an unknown zone shows itself as one, without breaking the rest", () => {
+    expect(city("Mars/Olympus_Mons", AT, true, zoneOf)).toMatchObject({ name: "Olympus Mons", problem: true, day: "Unknown zone" })
+  })
+
+  test("zero setup: the defaults skip your own time", () => {
+    const shown = cities("", AT, true, zoneOf, 4).map((c) => c.name)
+    expect(shown).toEqual(["New York", "London", "Tokyo", "Sydney"])
+  })
+
+  test("a list you wrote is shown as written, without repeats", () => {
+    expect(zonesFrom("Asia/Tokyo, Europe/London,\nAsia/Tokyo")).toEqual(["Asia/Tokyo", "Europe/London"])
+    expect(cities("America/Los_Angeles, Asia/Tokyo", AT, true, zoneOf, 4).map((c) => c.name)).toEqual(["Los Angeles", "Tokyo"])
+  })
+})
