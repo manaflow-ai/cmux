@@ -7,7 +7,8 @@ public nonisolated enum LaunchRecordEncoding {
     public static func write(_ value: LaunchRecordSnapshot, to url: URL) -> Bool {
         guard !url.path.utf8.contains(0), !value.sessionSocketPath.utf8.contains(0) else { return false }
         let arena = LaunchRecordStrings()
-        let windows = value.windows.map { window in
+        let windows = value.windows.compactMap { window -> CmuxLaunchWindowInput? in
+            guard let tabCount = UInt(exactly: window.tabIDs.count) else { return nil }
             var input = CmuxLaunchWindowInput()
             input.frame_x = window.frame.origin.x; input.frame_y = window.frame.origin.y
             input.frame_width = window.frame.width; input.frame_height = window.frame.height
@@ -16,21 +17,23 @@ public nonisolated enum LaunchRecordEncoding {
             input.image_pixel_width = window.imagePixelSize.width; input.image_pixel_height = window.imagePixelSize.height
             input.window_id = arena.put(window.id); input.image_path = arena.put(window.imagePath)
             input.visible_workspace_id = arena.put(window.workspaceID)
-            input.visible_tab_ids = arena.put(window.tabIDs); input.visible_tab_count = UInt(window.tabIDs.count)
+            input.visible_tab_ids = arena.put(window.tabIDs); input.visible_tab_count = tabCount
             return input
         }
         let sidebars = value.sidebarRows.map { row in
             CmuxLaunchSidebarInput(id: arena.put(row.id), title: arena.put(row.title), icon_key: arena.put(row.iconKey))
         }
-        guard arena.valid else { return false }
+        guard windows.count == value.windows.count, arena.valid,
+              let windowCount = UInt(exactly: windows.count),
+              let sidebarCount = UInt(exactly: sidebars.count) else { return false }
         // withExtendedLifetime keeps every C string and pointer array alive through Rust's borrow.
         return withExtendedLifetime(arena) {
             url.path.withCString { path in
                 value.sessionSocketPath.withCString { socket in
                     windows.withUnsafeBufferPointer { windows in
                         sidebars.withUnsafeBufferPointer { sidebars in
-                            cmux_launch_record_write(path, windows.baseAddress, UInt(windows.count),
-                                                     sidebars.baseAddress, UInt(sidebars.count), socket)
+                            cmux_launch_record_write(path, windows.baseAddress, windowCount,
+                                                     sidebars.baseAddress, sidebarCount, socket)
                         }
                     }
                 }

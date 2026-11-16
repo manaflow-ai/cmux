@@ -13,14 +13,14 @@ struct LaunchRecordImage: Sendable {
 /// or daemon connection is started while taking a snapshot.
 @MainActor
 final class AppLaunchRecord {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private var images: [String: LaunchRecordImage] = [:]
     private lazy var writer: LaunchRecordWriter? = {
-        guard let bundleID = services.environment.launch.bundleID else { return nil }
+        guard let services, let bundleID = services.environment.launch.bundleID else { return nil }
         let url = LaunchTimesFile.supportDirectory(bundleID: bundleID)
             .appending(path: "launch-record.bin", directoryHint: .notDirectory)
         return LaunchRecordWriter(url: url, work: services.work) { [weak self] in
-            guard let self else { return nil }
+            guard let self, let services = self.services else { return nil }
             // Read an already-connected endpoint; endpoint() could wait for a daemon to start.
             let socket = await services.daemon.connection?.endpoint?.socketPath ?? ""
             return snapshot(socket: socket)
@@ -35,15 +35,16 @@ final class AppLaunchRecord {
     }
 
     func schedule() {
-        guard services.windows.restored else { return }
+        guard let services, services.windows.restored else { return }
         writer?.schedule()
     }
     func flush() async {
-        guard services.windows.restored else { return }
+        guard let services, services.windows.restored else { return }
         await writer?.flush()
     }
 
     private func snapshot(socket: String) -> LaunchRecordSnapshot {
+        guard let services else { return LaunchRecordSnapshot() }
         let manager = services.windows
         let front = manager.active
         let controllers = manager.controllers.filter { !manager.isIncognito(window: $0.state.id) }
