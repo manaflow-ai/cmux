@@ -26,21 +26,34 @@ const pump = createDocumentPump<SessionListBatch, SessionListChange, SessionList
     if (post) void post("list.taken", { batch: batch.batch }).catch(() => {});
   },
 });
+const visibilityHosts = new Set<SessionListHost>();
+let stopVisibility: (() => void) | undefined;
 
 export function addSessionListHost(host: SessionListHost, post: SessionListPost): void {
   pump.add(host, post);
+  visibilityHosts.add(host);
 }
 
 export function removeSessionListHost(host: SessionListHost): void {
   pump.remove(host);
+  visibilityHosts.delete(host);
 }
 
 export function listenForSessionList(lanes?: Lanes): void {
   pump.listen(lanes);
+  if (stopVisibility || typeof document === "undefined") return;
+  const onVisibility = () => {
+    for (const host of visibilityHosts) void host.visible(!document.hidden);
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  stopVisibility = () => document.removeEventListener("visibilitychange", onVisibility);
 }
 
 export function resetSessionListReceiver(): void {
   pump.reset();
+  visibilityHosts.clear();
+  stopVisibility?.();
+  stopVisibility = undefined;
 }
 
 export function receiveSessionList(event: SessionListBatch, lanes?: Lanes): void {

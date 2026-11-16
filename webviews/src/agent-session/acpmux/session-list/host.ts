@@ -47,6 +47,7 @@ export class SessionListHost {
   readonly store: SessionListStore;
   private readonly post: SessionListPost;
   private readonly name: () => string;
+  private readonly openSids = new Set<string>();
   answerMs = SESSION_LIST_OPEN_MS;
 
   constructor(post: SessionListPost, store = new SessionListStore(), name = sessionListNamer()) {
@@ -73,6 +74,7 @@ export class SessionListHost {
         this.close(sid);
         return { fallen: SESSION_LIST_OFF };
       }
+      this.openSids.add(sid);
       return { sid };
     } catch (error) {
       this.store.close(sid);
@@ -83,6 +85,7 @@ export class SessionListHost {
   }
 
   close(sid: string): void {
+    this.openSids.delete(sid);
     this.store.close(sid);
     void this.post("list.close", { sid }).catch(() => {});
   }
@@ -110,9 +113,8 @@ export class SessionListHost {
   /** Starts a page operation; wire continuation and question ids never enter this request. */
   page(sid: string, request: Record<string, unknown>, kind = "all"): Promise<string | null> {
     const requestedKind = typeof request.kind === "string" ? request.kind : kind;
-    const allowedKind = ["older", "family", "forks", "folder"].includes(requestedKind)
-      ? (requestedKind as SessionListPageRequest["kind"])
-      : "older";
+    if (!["older", "family", "forks", "folder"].includes(requestedKind)) return Promise.resolve(null);
+    const allowedKind = requestedKind as SessionListPageRequest["kind"];
     const id = this.name();
     try {
       this.store.questionAsked(sid, id, allowedKind);
@@ -147,6 +149,7 @@ export class SessionListHost {
   }
 
   dispose(): void {
+    for (const sid of [...this.openSids]) this.close(sid);
     removeSessionListHost(this);
   }
 }
