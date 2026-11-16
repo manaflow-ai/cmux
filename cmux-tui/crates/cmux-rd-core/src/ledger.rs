@@ -270,7 +270,10 @@ pub fn percentiles(xs: &mut [f64]) -> Option<Percentiles> {
         return None;
     }
     xs.sort_by(f64::total_cmp);
-    let rank = |p: f64| xs[((p * xs.len() as f64).ceil() as usize).clamp(1, xs.len()) - 1];
+    let rank = |p: f64| {
+        let i = ((p * xs.len() as f64).ceil() as usize).saturating_sub(1);
+        xs.get(i).or(xs.last()).copied().unwrap_or(f64::NAN)
+    };
     Some(Percentiles { n: xs.len(), p50_ms: rank(0.5), p95_ms: rank(0.95) })
 }
 
