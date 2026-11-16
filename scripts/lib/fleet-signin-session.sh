@@ -49,7 +49,12 @@ print("\n".join(values))
     CMUX_FLEET_SIGNIN_ERROR="the sign-in session file is not an agent session (profile, email, project, refresh_token)"
     return 1
   fi
-  { IFS= read -r CMUX_FLEET_SIGNIN_EMAIL; IFS= read -r CMUX_FLEET_SIGNIN_PROJECT; IFS= read -r _cmux_fleet_signin_token; } <<<"$fields"
+  # Split in the shell itself: a here-string would put the token in a temp file.
+  CMUX_FLEET_SIGNIN_EMAIL="${fields%%$'\n'*}"
+  fields="${fields#*$'\n'}"
+  CMUX_FLEET_SIGNIN_PROJECT="${fields%%$'\n'*}"
+  _cmux_fleet_signin_token="${fields#*$'\n'}"
+  fields=""
   return 0
 }
 
