@@ -386,10 +386,10 @@ public final class CEFEngine: BrowserEngine {
 
     /// Quit ordering for a live CEF: closes every browser, waits (async, the
     /// run loop keeps pumping) until the fork reports no Chromium windows or
-    /// `timeout` passes, commits the cookie stores, runs `beforeEngineStop`
+    /// `timeout` passes, commits the cookie stores, awaits `beforeEngineStop`
     /// right before the main thread blocks in CefShutdown, then calls it. The
     /// App awaits this from `applicationShouldTerminate`. No-op when CEF never started.
-    public func shutdown(timeout: Duration = .seconds(3), beforeEngineStop: @MainActor () -> Void = {}) async {
+    public func shutdown(timeout: Duration = .seconds(3), beforeEngineStop: @MainActor () async -> Void) async {
         await CEFRuntime.shared.shutdown(timeout: timeout, beforeEngineStop: beforeEngineStop)
     }
 }

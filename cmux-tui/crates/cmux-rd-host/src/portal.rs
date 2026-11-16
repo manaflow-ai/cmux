@@ -453,12 +453,19 @@ pub fn grant_with(
 
 /// [`grant_with`] on the session bus's portal and the default stores; `control` asks for
 /// RemoteDesktop where the portal can persist it.
-pub fn grant(control: bool, on_state: &mut dyn FnMut(PortalState)) -> Result<Granted, PortalError> {
+/// `on_versions` hears the ScreenCast and RemoteDesktop versions before any dialog shows.
+pub fn grant(
+    control: bool,
+    on_versions: &mut dyn FnMut(u32, u32),
+    on_state: &mut dyn FnMut(PortalState),
+) -> Result<Granted, PortalError> {
     let stores = TokenStores::default_stores()
         .ok_or_else(|| PortalError::Failed("neither XDG_CONFIG_HOME nor HOME is set".into()))?;
     on_state(PortalState::Connecting);
     let mut portal = ZbusPortal::connect()?;
-    let kind = grant_kind(control, portal.remote_desktop_version());
+    let remote_desktop = portal.remote_desktop_version();
+    on_versions(portal.screen_cast_version(), remote_desktop);
+    let kind = grant_kind(control, remote_desktop);
     grant_with(&mut portal, kind, &stores, on_state)
 }
 
@@ -613,6 +620,11 @@ fn failed(e: impl std::fmt::Display) -> PortalError {
 }
 
 impl ZbusPortal {
+    /// The ScreenCast interface version (it keeps restore tokens from version 4).
+    pub fn screen_cast_version(&self) -> u32 {
+        self.screen_cast.get_property::<u32>("version").unwrap_or(0)
+    }
+
     pub fn connect() -> Result<Self, PortalError> {
         let conn = zbus::blocking::Connection::session()
             .map_err(|e| PortalError::Unavailable(e.to_string()))?;
@@ -1034,7 +1046,7 @@ impl crate::desktop::FrameSource for PortalFrames {
                 r.y as usize,
                 r.w as usize,
                 r.h as usize,
-                2,
+                cmux_encode::convert_threads(),
             );
         }
         Ok(())
