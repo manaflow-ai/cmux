@@ -105,16 +105,17 @@ describe("cloud journey", () => {
       preclaimClaimRecord({ claim: 0, leaseHit: true, answer: { claim: { behind: false }, spare_skips: { image: 1 } }, ...ok }),
       preclaimClaimRecord({ claim: 1, leaseHit: true, answer: { claim: { behind: true } }, ...ok }),
       preclaimClaimRecord({ claim: 2, leaseHit: true, answer: { claim: { behind: true }, spare_skips: { image: 3, disconnected: 1 } }, postBindLogin: "receipt", firstChatMs: 5, firstReplyMs: null }),
+      // Claim 2 got no reply but its login arrived: the reply is never judged, so it is not a held failure.
       preclaimClaimRecord({ claim: 3, leaseHit: false, answer: { spare_fallback: "image", spare_skips: { image: 2 } }, postBindLogin: "post-bind", firstReplyMs: 40 }),
     ];
     const failures = [preclaimFailureRecord(4, new Error("reply wait exit 1"), [], true), preclaimFailureRecord(5, new Error("create refused"))];
     expect(failures[0].claimed_behind).toBe(true);
     expect(failures[1].claimed_behind).toBeNull();
     const summary = preclaimSummary(rows, failures);
-    expect(summary).toMatchObject({ claims: 4, lease_hits: 3, lease_misses: 1, cold_creates: 1, held_claims: 3, held_failures: 2, image_skips: 6, claims_with_image_skip: 3 });
+    expect(summary).toMatchObject({ claims: 4, lease_hits: 3, lease_misses: 1, cold_creates: 1, held_claims: 3, held_failures: 1, image_skips: 6, claims_with_image_skip: 3 });
     const md = preclaimSummaryMarkdown(rows, failures);
     expect(md).toContain("- held claims (one image roll behind): 3");
-    expect(md).toContain("- held claim failures: 2");
+    expect(md).toContain("- held claim failures: 1");
     expect(md).toContain("- cold creates: 1");
     expect(md).toContain("| held |");
     expect(md).not.toContain("reply wait exit 1");
@@ -2341,15 +2342,31 @@ describe("claudeTranscriptModelsProgram", () => {
     }
   });
 
-  test("a preclaim reply wait that fails names the turn's error, not only its exit code", async () => {
-    // run 43817240410 recorded only "reply wait exit 1"; the turn_error in `acp tail` says why.
-    const replies = ["@@exit 0", "@@exit 0", "@@wait 1\n", '{"kind":"turn_error","error":"Authentication required"}\n'];
-    const run = runPreclaimChat(async () => {
+  test("a preclaim reply the model refuses is not judged, names the turn's error, and does not fail the claim", async () => {
+    // run 43817240410 recorded only "reply wait exit 1"; run 43860687099's turn hit the account's weekly limit after the
+    // claim, spare and login all worked. The reply is measured, never gated.
+    const replies = ["@@exit 0", "@@exit 0", "@@wait 1\n", '{"kind":"turn_error","error":"You\'ve hit your weekly limit · resets Nov 18, 3am (UTC)"}\n'];
+    const result = await runPreclaimChat(async () => {
       const stdout = replies.shift();
       if (stdout === undefined) throw new Error("unexpected extra command");
       return { code: 0, stdout, stderr: "" };
     }, "fixture-session", "Reply once", 1000);
-    await expect(run).rejects.toThrow("preclaim fixture-session: reply wait exit 1: Authentication required");
+    expect(result.replyMs).toBeNull();
+    expect(result.replyNotJudged).toBe("reply wait exit 1: You've hit your weekly limit · resets Nov 18, 3am (UTC)");
+    // The agent not starting is a claim-path fact and still fails the claim.
+    const refused = runPreclaimChat(async () => ({ code: 0, stdout: "@@exit 1", stderr: "" }), "fixture-session", "Reply once", 1000);
+    await expect(refused).rejects.toThrow("preclaim fixture-session: agent start refused");
+  });
+
+  test("the burst's gate reads claim-path fields only: a held claim with no reply but its login is not a failure", () => {
+    const held = preclaimClaimRecord({ claim: 0, machine: "vm_a", answer: { claim: { behind: true } }, leaseHit: true, postBindLogin: "receipt", firstChatMs: 900, firstReplyMs: null, replyNotJudged: "reply wait exit 1: You've hit your weekly limit" });
+    expect(held.reply_not_judged).toBe("reply wait exit 1: You've hit your weekly limit");
+    expect(preclaimSummary([held])).toMatchObject({ held_claims: 1, held_failures: 0, replies: 0, replies_not_judged: 1 });
+    expect(preclaimRunComplete([held], [], 1)).toBe(true);
+    expect(preclaimSummaryMarkdown([held])).toContain("- replies not judged: 1");
+    expect(preclaimSummaryMarkdown([held])).not.toContain("weekly limit");
+    const noLogin = preclaimClaimRecord({ claim: 1, machine: "vm_b", answer: { claim: { behind: true } }, postBindLogin: "missing", firstReplyMs: 2000 });
+    expect(preclaimSummary([noLogin])).toMatchObject({ held_failures: 1 });
   });
 
   test("a failed claim keeps the claimed machine's facts, scrubbed, in its private row", async () => {
