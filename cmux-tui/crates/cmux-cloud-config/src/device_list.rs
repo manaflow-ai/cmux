@@ -96,12 +96,10 @@ pub fn key(id: &str, name: &str, platform: Option<&str>) -> String {
 /// uses ("lawrence's MacBook Pro (2)" listed beside the same Mac's older record, 2026-11-16): the
 /// Mac the OS renamed is still one device.
 fn without_conflict_suffix(name: &str) -> &str {
-    let trimmed = name.trim_end();
-    let Some(inner) = trimmed.strip_suffix(')') else { return name };
-    let Some(at) = inner.rfind(" (") else { return name };
-    let digits = &inner[at + 2..];
-    if at > 0 && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
-        &inner[..at]
+    let Some(inner) = name.trim_end().strip_suffix(')') else { return name };
+    let Some((base, digits)) = inner.rsplit_once(" (") else { return name };
+    if !base.is_empty() && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
+        base
     } else {
         name
     }

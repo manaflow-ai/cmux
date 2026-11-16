@@ -353,7 +353,7 @@ import Testing
         viewer.ended(reason: "failed")
         viewer.droppedReason("host_stopped")
         #expect(viewer.shareStatus == status)
-        #expect(ScreenSharingEndCopy.shareStatusMessage(viewer.shareStatus, host: "Studio") == "\(sentence)")
+        #expect(viewer.shareStatus?.message == sentence, "the card shows the Mac's own sentence, word for word")
 
         // Retry asks again, with no stale reason.
         viewer.request(.full)
