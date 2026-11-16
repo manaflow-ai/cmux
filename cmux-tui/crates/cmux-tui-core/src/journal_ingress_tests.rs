@@ -301,6 +301,7 @@ fn shutdown_has_a_deadline_when_the_journal_stays_locked() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let database_path = std::fs::read_dir(&root)
         .unwrap()
         .filter_map(Result::ok)
@@ -319,7 +320,7 @@ fn shutdown_has_a_deadline_when_the_journal_stays_locked() {
     mux.shutdown();
 
     assert!(
-        started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+        started.elapsed() < JOURNAL_DEADLINE_TEST_WAIT + Duration::from_secs(2),
         "a locked journal must not prevent shutdown forever"
     );
     assert!(
@@ -346,6 +347,7 @@ fn producer_receipt_and_sqlite_retries_share_one_deadline() {
     let mux =
         Mux::open_persistent("journal-producer-locked", crate::SurfaceOptions::default(), &root)
             .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let database_path = std::fs::read_dir(&root)
         .unwrap()
         .filter_map(Result::ok)
@@ -377,7 +379,7 @@ fn producer_receipt_and_sqlite_retries_share_one_deadline() {
 
     assert!(error.to_string().contains("timed out"));
     assert!(
-        started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+        started.elapsed() < JOURNAL_DEADLINE_TEST_WAIT + Duration::from_secs(2),
         "a producer receipt must not wait without a limit"
     );
     assert!(failed_receiver.recv_timeout(Duration::from_millis(200)).is_err());
@@ -404,6 +406,7 @@ fn producer_deadline_includes_registry_connection_admission() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let locked_mux = mux.clone();
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
@@ -434,7 +437,7 @@ fn producer_deadline_includes_registry_connection_admission() {
 
     assert!(error.to_string().contains("timed out"));
     assert!(
-        started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+        started.elapsed() < JOURNAL_DEADLINE_TEST_WAIT + Duration::from_secs(2),
         "registry connection admission must not outlive the producer deadline"
     );
     assert!(failed_receiver.recv_timeout(Duration::from_millis(200)).is_err());
@@ -465,6 +468,7 @@ fn producer_deadline_prevents_a_late_transaction_commit() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
     mux.install_journal_before_commit_for_test(entered, release_receiver);
@@ -497,7 +501,7 @@ fn producer_deadline_prevents_a_late_transaction_commit() {
     entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
     let error = result_receiver
-        .recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_secs(1))
+        .recv_timeout(JOURNAL_DEADLINE_TEST_WAIT + Duration::from_secs(1))
         .expect("producer must return at its fixed deadline")
         .unwrap_err();
     assert!(error.to_string().contains("timed out"));
@@ -529,6 +533,7 @@ fn producer_waits_for_an_admitted_commit_past_its_deadline() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
     mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
@@ -559,7 +564,9 @@ fn producer_waits_for_an_admitted_commit_past_its_deadline() {
     entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
     assert!(
-        result_receiver.recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_millis(100)).is_err(),
+        result_receiver
+            .recv_timeout(JOURNAL_DEADLINE_TEST_WAIT + Duration::from_millis(100))
+            .is_err(),
         "an admitted commit must not report a timeout while its result is unknown"
     );
     release.send(()).unwrap();
@@ -589,6 +596,7 @@ fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
     mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
@@ -621,7 +629,7 @@ fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
     let started = Instant::now();
     let error = result_receiver
         .recv_timeout(
-            JOURNAL_DURABLE_WAIT
+            JOURNAL_DEADLINE_TEST_WAIT
                 .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
                 .saturating_add(Duration::from_secs(1)),
         )
@@ -630,7 +638,7 @@ fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
     assert!(error.to_string().contains("outcome is indeterminate"));
     assert!(
         started.elapsed()
-            < JOURNAL_DURABLE_WAIT
+            < JOURNAL_DEADLINE_TEST_WAIT
                 .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
                 .saturating_add(Duration::from_secs(1)),
         "an admitted commit result must remain bounded"
@@ -667,6 +675,7 @@ fn shutdown_returns_when_an_admitted_commit_stays_blocked() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
     mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
@@ -1069,8 +1078,12 @@ fn terminal_output_survives_a_short_nonretryable_writer_failure() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// A record nobody waits on that the store rejects every time is dropped alone (JOURNAL STALL
+/// DESIGN (iii)/(iv)): the barrier behind it commits, the daemon keeps running, later records are
+/// admitted, and the terminal's next record comes after a `journal_commit_failed` gap marker that
+/// stands for the dropped one. Before, the writer stopped for good ("failed permanently").
 #[test]
-fn permanent_terminal_writer_failure_releases_the_final_barrier() {
+fn a_permanently_rejected_terminal_record_is_dropped_alone_and_owes_a_marker() {
     let root = std::env::temp_dir().join(format!(
         "cmux-terminal-journal-writer-terminal-failure-{}-{}",
         std::process::id(),
@@ -1099,34 +1112,43 @@ fn permanent_terminal_writer_failure_releases_the_final_barrier() {
                  END;",
         )
         .unwrap();
-    mux.journal_terminal_output(
-        Arc::new(public_id("term", 14, TerminalPublicId::parse)),
-        Arc::from("permanent-writer-failure-generation"),
-        b"cannot commit".to_vec(),
-    );
+    let terminal = Arc::new(public_id("term", 14, TerminalPublicId::parse));
+    let generation: Arc<str> = Arc::from("permanent-writer-failure-generation");
+    mux.journal_terminal_output(terminal.clone(), generation.clone(), b"cannot commit".to_vec());
 
     let started = Instant::now();
-    let error = mux.flush_terminal_journal().unwrap_err();
+    let flushed = mux.flush_terminal_journal();
 
+    assert!(flushed.is_ok(), "the barrier behind the dropped record failed: {:?}", flushed.err());
     assert!(started.elapsed() < Duration::from_secs(3));
-    assert!(error.to_string().contains("injected permanent terminal journal failure"));
     assert!(
         !mux.daemon_shutdown_requested(),
         "a permanent output gap must not stop live terminal hosts"
     );
     assert!(
-        mux.try_journal_terminal_output(
-            Arc::new(public_id("term", 14, TerminalPublicId::parse)),
-            Arc::from("permanent-writer-failure-generation"),
-            42,
-            b"must not be accepted".to_vec(),
-        )
-        .is_err(),
-        "later output must observe the terminal writer failure"
+        mux.try_journal_terminal_output(terminal.clone(), generation.clone(), 42, b"x".to_vec())
+            .is_ok(),
+        "later output is admitted after a dropped record"
     );
-    assert!(
-        mux.flush_terminal_journal().unwrap_err().to_string().contains("failed permanently"),
-        "later barriers must observe the writer terminal state"
+    injector.execute_batch("DROP TRIGGER reject_permanent_test_terminal_output;").unwrap();
+    mux.journal_terminal_resize(terminal.clone(), generation, 90, 30, 8, 16);
+    mux.flush_terminal_journal().unwrap();
+    let records = mux.session_journal_after(0, 1024).unwrap().records;
+    let kinds = records
+        .iter()
+        .filter(|record| record.subjects.iter().any(|subject| subject.id == terminal.as_str()))
+        .filter(|record| record.kind != "terminal.output")
+        .map(|record| {
+            (record.kind.clone(), record.payload["reason"].as_str().unwrap_or("").to_string())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [
+            ("terminal.output.gap".to_string(), "journal_commit_failed".to_string()),
+            ("terminal.resized".to_string(), String::new()),
+        ],
+        "the dropped record's marker comes before the terminal's next record"
     );
     drop(injector);
     drop(mux);
@@ -1726,4 +1748,151 @@ fn agent_hook_ingress_throughput_probe() {
     }
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+fn stall_probe_ingress(key: &str) -> crate::JournalIngress {
+    crate::agent_hook_journal_ingress(
+        "codex",
+        "SubagentStop",
+        None,
+        serde_json::json!({
+            "session_id":"stall-root",
+            "root_session_id":"stall-root",
+            "parent_session_id":"stall-root",
+            "child_agent_id":"stall-child",
+            "message":key,
+        }),
+    )
+    .unwrap()
+}
+
+/// JOURNAL STALL: a statement runs until the deadline's own SQLite interrupt ("Error code 9")
+/// stops it, under an append that waits. The waiter gets its timeout; the writer stays alive.
+#[test]
+fn a_real_deadline_interrupt_under_a_waiter_keeps_the_writer() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-journal-interrupt-waiter-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let mux =
+        Mux::open_persistent("journal-interrupt-waiter", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+    let (failed, failed_receiver) = sync_channel(1);
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
+    mux.install_journal_failure_notifier_for_test(failed);
+    mux.install_journal_statement_until_deadline_for_test();
+    let first =
+        mux.append_journal_ingress(&stall_probe_ingress("first"), "client_i", "interrupt_1");
+    let first = first.map(|_| ()).map_err(|error| format!("{error:#}"));
+    assert!(
+        first.as_ref().is_err_and(|error| error.contains("interrupted")),
+        "the waiter gets the deadline's interrupt as its timeout: {first:?}"
+    );
+    let stored = failed_receiver.try_recv();
+    let second =
+        mux.append_journal_ingress(&stall_probe_ingress("second"), "client_i", "interrupt_2");
+    assert!(stored.is_err(), "the interrupt stored a writer failure: {stored:?}");
+    assert!(second.is_ok(), "the append after the interrupt failed: {:?}", second.err());
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn stall_test_root(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "cmux-{name}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ))
+}
+
+fn stall_test_database(root: &std::path::Path) -> std::path::PathBuf {
+    std::fs::read_dir(root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+        .find(|path| path.is_file())
+        .expect("persistent journal database")
+}
+
+/// JOURNAL STALL (ii): a commit slower than its deadline once, which then ends in an error that
+/// is not contention (a store error, not the deadline's interrupt). The writer must not stop for
+/// good: the output nobody waits on is kept and commits on the next try, no failure is stored,
+/// and later appends are durable.
+#[test]
+fn a_store_error_after_a_late_commit_keeps_the_writer() {
+    let root = stall_test_root("journal-stall-store-error");
+    let mux =
+        Mux::open_persistent("journal-stall-store-error", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+    let terminal = Arc::new(public_id("term", 31, TerminalPublicId::parse));
+    let (failed, failed_receiver) = sync_channel(1);
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
+    mux.install_journal_failure_notifier_for_test(failed);
+    let (entered, entered_receiver) = sync_channel(1);
+    let (release, release_receiver) = sync_channel(1);
+    mux.install_journal_before_commit_for_test(entered, release_receiver);
+    mux.install_journal_failing_statement_after_hold_for_test();
+    mux.try_journal_terminal_output(terminal, Arc::from("stall-generation"), 1, b"kept".to_vec())
+        .unwrap();
+    entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+    // Hold the commit until its deadline has passed (the writer may not fail meanwhile).
+    let early =
+        failed_receiver.recv_timeout(JOURNAL_DEADLINE_TEST_WAIT + Duration::from_millis(500));
+    assert!(early.is_err(), "the writer failed while its commit was held: {early:?}");
+    release.send(()).unwrap();
+
+    let after =
+        mux.append_journal_ingress(&stall_probe_ingress("after"), "client_s", "after_store");
+    let stored = failed_receiver.try_recv();
+    assert!(stored.is_err(), "one late commit stopped the writer for good: {stored:?}");
+    assert!(after.is_ok(), "the append after the late commit failed: {:?}", after.err());
+    mux.flush_terminal_journal().unwrap();
+    let records = mux.session_journal_after(0, 1024).unwrap().records;
+    let output = records.iter().position(|record| {
+        record.kind == "terminal.output"
+            && record.terminal_output.as_deref() == Some(b"kept".as_slice())
+    });
+    let append =
+        records.iter().position(|record| record.correlation_id.as_deref() == Some("after_store"));
+    assert!(output.is_some(), "the held output was kept and committed");
+    assert!(append.is_some(), "the append after the late commit is in the journal");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// JOURNAL STALL (iii), c-persist's case: the only queued record is a geometry change nobody
+/// waits on, and the store rejects it every time, so the writer drops it. Nothing else is queued.
+/// A later durable append must still commit: a drop must not leave admission shut.
+#[test]
+fn a_dropped_last_resize_does_not_shut_admission() {
+    let root = stall_test_root("journal-stall-dropped-resize");
+    let mux = Mux::open_persistent(
+        "journal-stall-dropped-resize",
+        crate::SurfaceOptions::default(),
+        &root,
+    )
+    .unwrap();
+    let injector = rusqlite::Connection::open(stall_test_database(&root)).unwrap();
+    injector
+        .execute_batch(
+            "CREATE TRIGGER reject_test_terminal_resize
+                 BEFORE INSERT ON session_journal
+                 WHEN NEW.kind = 'terminal.resized'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'injected terminal resize failure');
+                 END;",
+        )
+        .unwrap();
+    let terminal = Arc::new(public_id("term", 32, TerminalPublicId::parse));
+    mux.journal_terminal_resize(terminal, Arc::from("dropped-generation"), 100, 30, 8, 16);
+    // The barrier is answered once the resize is dropped (it is queued behind it).
+    let flushed = mux.flush_terminal_journal();
+    let after =
+        mux.append_journal_ingress(&stall_probe_ingress("after-drop"), "client_d", "after_drop");
+    assert!(flushed.is_ok(), "the barrier behind a dropped resize failed: {:?}", flushed.err());
+    assert!(after.is_ok(), "a dropped resize shut journal admission: {:?}", after.err());
+    drop(injector);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
 }

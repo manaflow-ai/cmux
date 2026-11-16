@@ -1,8 +1,10 @@
-//! `git.diff`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
+//! `git.diff`, `git.fingerprint`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
 //! git reads of the repository a path or a terminal's working directory is in. The session host answers them
 //! without store state; a connection's request runs git on the daemon's git lane
 //! (`server/git_lane.rs`), never on the connection's reader thread,
-//! bounded by a deadline and output limits. `git.checkpoint.*` captures
+//! bounded by a deadline and output limits. `git.status` reads the refs only
+//! (`cmux_git::head`), not the work tree. `git.fingerprint` says if a diff is
+//! still current without making it (`fingerprint`). `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the
 //! user's environment (`user_run`), keyed in the mutation ledger
@@ -25,12 +27,14 @@ mod diff;
 mod diff_comments;
 mod diff_pages;
 mod files;
+mod fingerprint;
 mod journal;
 mod list;
 mod mutation;
 mod push;
 mod target;
 mod user_run;
+mod work_tree_entry;
 mod worktree;
 mod worktree_apply;
 mod worktree_include;
@@ -41,6 +45,7 @@ mod worktree_setup;
 use std::path::Path;
 use std::sync::Arc;
 
+use cmux_git::head::Checkout;
 use cmux_git::run::GitFailure;
 use cmux_git::{OpenError, Repository, parse, refs, run, write_run};
 use serde_json::{Value, json};
@@ -64,9 +69,15 @@ pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
 /// Advertised in identify: the session host answers `git.files.list`.
 pub(crate) const FILES_LIST_CAPABILITY: &str = "git-files-list-v1";
 
+/// Advertised in identify: the session host answers `git.fingerprint`.
+pub(crate) const FINGERPRINT_CAPABILITY: &str = "git-fingerprint-v1";
+
 /// Advertised in identify: the session host owns `diff.comments.list`,
 /// `save` and `delete`.
 pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
+
+/// Advertised in identify: the session host answers `diff.comments.send`.
+pub(crate) const DIFF_COMMENTS_SEND_CAPABILITY: &str = diff_comments::SEND_CAPABILITY;
 
 /// Advertised in identify: the session host answers `git.branches`.
 pub(crate) const BRANCHES_CAPABILITY: &str = "git-branches-v1";
@@ -98,6 +109,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitBranches
             | ResourceOperation::GitFilesSearch
             | ResourceOperation::GitFilesList
+            | ResourceOperation::GitFingerprint
             | ResourceOperation::GitCommit
             | ResourceOperation::GitPush
             | ResourceOperation::GitWorktreeCreate
@@ -134,43 +146,51 @@ pub(crate) fn dispatch(
         ResourceOperation::GitBranches => "git.branches",
         ResourceOperation::GitFilesSearch => "git.files.search",
         ResourceOperation::GitFilesList => "git.files.list",
+        ResourceOperation::GitFingerprint => "git.fingerprint",
         other => unreachable!("git_ops does not handle {other:?}"),
     };
     let directory = target::directory(mux, &request, operation)?;
+    if operation == "git.status" {
+        let github = request.fields.get("github").and_then(Value::as_bool).unwrap_or(false);
+        return status(&directory, github);
+    }
+    if operation == "git.fingerprint" {
+        return fingerprint::read(&directory, &request.fields);
+    }
     let repository = open_repository(&directory, operation)?;
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
         "git.branches" => branches(&repository, &request.fields),
         "git.files.search" => files::search(&repository, &directory, &request.fields),
-        "git.files.list" => list::list(&repository, &directory, &request.fields),
-        _ => status(&repository),
+        _ => list::list(&repository, &directory, &request.fields),
     }
 }
 
 /// The repository `directory` is in, as `operation`'s errors.
 fn open_repository(directory: &Path, operation: &'static str) -> Result<Repository, ResourceError> {
-    Repository::open(directory).map_err(|error| match error {
-        OpenError::NotARepository => not_a_repository(operation, directory),
-        OpenError::Git(failure) => git_failed(operation, &failure),
-    })
+    Repository::open(directory).map_err(|error| open_failed(operation, directory, error))
 }
 
-fn status(repository: &Repository) -> Result<Value, ResourceError> {
-    let arguments = [
-        "status",
-        "--porcelain=v2",
-        "--branch",
-        "-z",
-        "--untracked-files=no",
-        "--ignore-submodules=all",
-    ];
-    let output = repository
-        .run(&arguments, MAX_STATUS_BYTES)
-        .map_err(|failure| git_failed("git.status", &failure))?;
-    // The branch headers come first, so a cut listing still has them.
-    let headers = parse::branch_headers(&output.stdout);
+fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> ResourceError {
+    match error {
+        OpenError::NotARepository => not_a_repository(operation, directory),
+        OpenError::Git(failure) => git_failed(operation, &failure),
+    }
+}
+
+/// What HEAD of the checkout `directory` is in is on. A view that shows a
+/// branch asks this often and a person waits for it, so it comes from the
+/// refs (`cmux_git::head`): no run looks at the work tree's files, whose
+/// count would set the cost. `github` adds `github_repo`, the `owner/name`
+/// of the upstream's remote (else `origin`) on github.com: one more git run,
+/// so only a caller that asks pays it.
+fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
+    const OPERATION: &str = "git.status";
+    let repository =
+        Checkout::open(directory).map_err(|error| open_failed(OPERATION, directory, error))?;
+    let headers = repository.head().map_err(|failure| git_failed(OPERATION, &failure))?;
     let mut value = json!({
-        "root":repository.root.to_string_lossy(),
+        "root":repository.root().to_string_lossy(),
         "detached":headers.branch.is_none(),
         "ahead":clamp(headers.ahead),
         "behind":clamp(headers.behind),
@@ -180,6 +200,16 @@ fn status(repository: &Repository) -> Result<Value, ResourceError> {
     }
     if let Some(head) = headers.head {
         value.set("head", json!(head));
+    }
+    if github {
+        let remote = headers
+            .upstream
+            .as_deref()
+            .and_then(|upstream| upstream.split_once('/'))
+            .map_or("origin", |(remote, _)| remote);
+        if let Some(repo) = repository.github_repo(remote) {
+            value.set("github_repo", json!(repo));
+        }
     }
     if let Some(upstream) = headers.upstream {
         value.set("upstream", json!(upstream));

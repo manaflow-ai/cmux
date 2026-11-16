@@ -454,7 +454,9 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
-        backgroundLayer.cornerCurve = Metrics.tabCornerCurve
+        // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
+        // squircle `tabs.cornerCurve` leaves no halo of shade at its top corners.
+        backgroundLayer.cornerCurve = runsIntoCard ? .circular : Metrics.tabCornerCurve
         // The flush corner: the selected tab runs down into the card, rounded only on top (no foot, no point).
         backgroundLayer.maskedCorners = runsIntoCard ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
@@ -531,8 +533,10 @@ final class TabCell {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
             closeBackgroundLayer.frame = closeRect
-            closeBackgroundLayer.cornerRadius = m.nestedCornerRadius(closeRect, in: bounds)
-            let inset = (closeRect.width - m.closeGlyphSize) / 2
+            // Helium's own corner on its x square (not nested in the pill), and its stroke, at every density.
+            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
+            closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
+            let inset = (closeRect.width - m.closeGlyphInk) / 2 + m.closeGlyphPathInset
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
             closeGlyphLayer.frame = glyph
@@ -589,7 +593,14 @@ final class TabCell {
                 fadeWidth: m.titleFadeWidth,
                 restWidth: restWidth
             )
-            let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
+            // A density's `tabTitleDrop` (Chrome's 1 pt: it centers the title over the shape and the toolbar's 1 pt
+            // overlap, so its baseline sits 19 pt under a 28 pt shape's top, Helium's 18).
+            let drop = Metrics.densityToken("tabTitleDrop") ?? 0
+            // The capitals center on the pill's middle, the icon's center, at every density (Lucas 2026-11-15: "vertically
+            // aligned with the icon always"): the baseline half a cap height under it, on the pixel grid, and the layer
+            // draws it one pixel-rounded ascender under its top.
+            let baseline = pixel(midY + titleFont.capHeight / 2 + drop)
+            let frame = CGRect(x: pixel(titleX), y: baseline - pixel(titleFont.ascender), width: span, height: lineHeight)
             if onPath {
                 pathTitle = TitleFade.Sample(geometry: geometry, frame: frame)
             } else {

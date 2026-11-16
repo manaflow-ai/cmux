@@ -15,7 +15,7 @@
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips .acpmux-access .acpmux-picker-button {
   height: var(--acpmux-permission-pill-height);
   padding-inline: var(--acpmux-permission-pill-inset);
-  border-radius: var(--acpmux-permission-pill-radius);
+  border-radius: var(--acpmux-permission-pill-radius); /* radius-allow: the model and access chips are capsules (Lucas 2026-11-14) */
 }
 
 .acpmux-context-ring {

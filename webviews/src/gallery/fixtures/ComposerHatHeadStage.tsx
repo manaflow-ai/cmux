@@ -15,7 +15,14 @@ const shown = { current: "gallery-hat" as string | undefined };
 
 export type ComposerHatHeadState = "running" | "done" | "two" | "joined-command";
 
-export function ComposerHatHeadStage({ start = "running" }: { start?: ComposerHatHeadState }) {
+export function ComposerHatHeadStage({
+  start = "running",
+  tuck = false,
+}: {
+  start?: ComposerHatHeadState;
+  /// The hat can tuck away: its tuck control shows at its top middle (hatTuck.experiment.ts).
+  tuck?: boolean;
+}) {
   const [clock] = useState(() => Date.now());
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(start === "done");
@@ -92,6 +99,7 @@ export function ComposerHatHeadStage({ start = "running" }: { start?: ComposerHa
             waiting={NO_WAITING}
             onOpen={() => undefined}
             shown={shown}
+            onTuck={tuck ? () => undefined : undefined}
           />
           <div className="acpmux-composer">
             <div

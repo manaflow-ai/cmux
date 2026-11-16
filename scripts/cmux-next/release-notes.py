@@ -576,11 +576,12 @@ def late_pictures(head, skip, deadline, fixture):
     no clip line, whose newest appearance in the published notes was not pictured (one of the last
     LATE_PICTURE_DAYS), or did not show a recorded clip that is published now (one with a spec, of the last
     CLIP_REANNOUNCE_DAYS: a clip recorded after the highlight shipped with its gallery stills, or with none,
-    replaces them; late_clip). A feed read that fails gives none."""
+    replaces them; late_clip). An Improved one with a clip line and a spec counts too, for its recorded
+    before alone. A feed read that fails gives none."""
     head_time = int(git("show", "-s", "--format=%ct", head).strip())
     days = max(LATE_PICTURE_DAYS, CLIP_REANNOUNCE_DAYS)
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(head_time - days * 86400))
-    wanted, recent, specs, born = {}, set(), set(), head_time
+    wanted, metas, recent, specs, born = {}, {}, set(), set(), head_time
     for line in git("log", "--diff-filter=A", "--name-only", "--format=time %ct", f"--since={since}", head,
                     "--", HIGHLIGHTS).splitlines():
         if line.startswith("time "):
@@ -590,17 +591,22 @@ def late_pictures(head, skip, deadline, fixture):
         if not path.endswith(".md") or path in skip or path in wanted.values():
             continue
         try:
-            highlight = parse_highlight(path, git("show", f"{head}:{path}"))
+            text = git("show", f"{head}:{path}")
+            highlight = parse_highlight(path, text)
         except (subprocess.CalledProcessError, SystemExit):
             continue
-        if highlight["media"] or highlight.get("category", "new") not in {"new", "improved"}:
+        category = highlight.get("category", "new")
+        # A clip line is the after; an Improved one's before is still recorded from its spec (late_clip).
+        clip_line = bool(highlight["media"])
+        if category not in {"new", "improved"} or (clip_line and category != "improved"):
             continue
         has_spec = subprocess.run(["git", "cat-file", "-e", f"{head}:{CLIPS}/{highlight['id']}.json"],
                                   capture_output=True).returncode == 0
-        is_recent = head_time - born <= LATE_PICTURE_DAYS * 86400
+        is_recent = head_time - born <= LATE_PICTURE_DAYS * 86400 and not clip_line
         if not (is_recent or has_spec):
             continue
         wanted[highlight["id"]] = path
+        metas[highlight["id"]] = front_matter(text)[0]
         if is_recent:
             recent.add(highlight["id"])
         if has_spec:
@@ -624,16 +630,17 @@ def late_pictures(head, skip, deadline, fixture):
             continue
         before = shown[highlight_id]
         if (highlight_id in recent and not pictured(before)) or (
-                highlight_id in specs and late_clip(highlight_id, before, deadline, fixture)):
+                highlight_id in specs and late_clip(highlight_id, before, deadline, fixture, metas[highlight_id])):
             out[path] = bool(before.get("media"))
     return out
 
 
-def late_clip(highlight_id, shown, deadline, fixture):
+def late_clip(highlight_id, shown, deadline, fixture, meta=None):
     """Whether a role of the highlight has a recorded clip published (clip_auto_url) that its appearance
-    `shown` (the published notes' copy) did not show."""
+    `shown` (the published notes' copy) did not show. META is the highlight's front matter: with a `clip:`
+    line only an Improved one's before is looked for."""
     urls = {m.get("role") or "after": m.get("url") for m in shown.get("media") or [] if isinstance(m, dict)}
-    for role, url in clip_auto_urls({}, highlight_id, shown.get("category", "new")).items():
+    for role, url in clip_auto_urls(meta or {}, highlight_id, shown.get("category", "new")).items():
         if urls.get(role) == url or time.monotonic() > deadline:
             continue
         try:
@@ -699,27 +706,35 @@ def clip_auto_url(highlight_id, role):
 
 def clip_auto_urls(meta, highlight_id, category):
     """{role: url} of a highlight's recorded clips: a New or Improved one with no `clip:` line, and for an
-    Improved one its before."""
-    if "clip" in meta or category not in {"new", "improved"}:
+    Improved one its before. An Improved one's `clip:` line is its after, so it looks for its before alone
+    (whats-new-clips.py plan records only that)."""
+    if category not in {"new", "improved"} or ("clip" in meta and category != "improved"):
         return {}
-    return {role: clip_auto_url(highlight_id, role) for role in GALLERY_ROLES[:2 if category == "improved" else 1]}
+    roles = GALLERY_ROLES[:2 if category == "improved" else 1]
+    return {role: clip_auto_url(highlight_id, role) for role in roles if not ("clip" in meta and role == "after")}
 
 
 def add_gallery_media(highlight, text, deadline):
     """Gives `highlight` its published clip or gallery pictures: the state first, then its before, each with a
     role when both are there; a recorded clip wins over a gallery picture, role by role. True when it got the
-    first. A missing or unreadable one only leaves it out."""
+    first. A missing or unreadable one only leaves it out. A highlight with a `clip:` line (parse_highlight
+    made it its media) keeps it as its after, and an Improved one takes its recorded before beside it."""
     meta = front_matter(text)[0]
     category = highlight.get("category", "new")
     clips = clip_auto_urls(meta, highlight["id"], category)
     pictures = gallery_urls(meta, highlight["id"], category)
     candidates = {role: [url for url in (clips.get(role), pictures.get(role)) if url] for role in GALLERY_ROLES}
-    if not any(candidates.values()):
+    clip_line = highlight["media"][:1] if "clip" in meta else []
+    if clip_line:
+        candidates["after"] = []
+    elif not any(candidates.values()):
         return False
     fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
     fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
-    media = []
+    media = [{**clip_line[0], "role": "after"}] if clip_line else []
     for role in GALLERY_ROLES:
+        if clip_line and role == "after":
+            continue
         url = data = None
         for url in candidates[role]:
             if time.monotonic() > deadline:
@@ -1103,6 +1118,8 @@ def build(args):
         highlight = parse_highlight(path, text)
         if highlight["media"]:
             clip_caption(highlight, args.head)
+            if args.pr_media and highlight.get("category") == "improved":
+                add_gallery_media(highlight, text, deadline)  # its recorded before, beside the clip line
         elif args.pr_media and highlight.get("category", "new") in {"new", "improved"}:
             if not add_gallery_media(highlight, text, deadline):
                 add_pr_media(highlight, path, args.head, deadline)
@@ -1114,6 +1131,8 @@ def build(args):
         for path in sorted(surviving_highlights(args.head, set(late))):
             text = git("show", f"{args.head}:{path}")
             highlight = parse_highlight(path, text)
+            if highlight["media"]:  # an Improved one's clip line, waiting for its recorded before
+                clip_caption(highlight, args.head)
             # It rides along when it shows more than it did: its pictures, or a picture at all for an
             # improvement whose before can't be rendered (its gallery state is new), once.
             if add_gallery_media(highlight, text, deadline) and (pictured(highlight) or not late[path]):

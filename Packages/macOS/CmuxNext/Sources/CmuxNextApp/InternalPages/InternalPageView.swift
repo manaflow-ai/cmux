@@ -112,7 +112,7 @@ final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
     }
 }
 
-extension InternalPageView: ToolbarEdgeHosting {}
+extension InternalPageView: ToolbarEdgeHosting { var showsToolbarRow: Bool { topBar.map { !$0.isHidden } ?? false } }
 
 /// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
 extension InternalPageView: PageHistoryHosting {}

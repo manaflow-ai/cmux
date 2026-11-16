@@ -67,7 +67,8 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
     // index carries its own instructions.
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
-    assert!(listed["result"]["tools"][0]["description"].as_str().unwrap().contains("cua (4)"));
+    let families = exec_families(&listed["result"]["tools"][0]);
+    assert!(families.iter().any(|family| family == "cua"), "{families:?}");
     // Listed directly (every tool), each carries its server's rules.
     let all = server.list();
     let look = all.iter().find(|t| t["name"] == "cua_look").expect("cua_look is listed");
@@ -691,4 +692,112 @@ fn uuid_like() -> String {
     let nanos =
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     format!("{}-{nanos}", std::process::id())
+}
+
+/// Whether `pid` has exited: not in the process table, or there only as a zombie or exiting
+/// (`ps` state `Z`, `X`, macOS `E`), so a probe never counts an unreaped child as running
+/// (the same reading as acpmux's `durable_agents.rs`).
+#[cfg(unix)]
+fn process_gone(pid: u32) -> bool {
+    let Ok(out) =
+        std::process::Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
+    else {
+        return false;
+    };
+    let stat = String::from_utf8_lossy(&out.stdout);
+    let stat = stat.trim();
+    stat.is_empty()
+        || stat.starts_with('Z')
+        || stat.starts_with('X')
+        || (cfg!(target_os = "macos") && stat.contains('E'))
+}
+
+/// Whether `pid` exits within `within`.
+#[cfg(unix)]
+fn gone_within(pid: u32, within: Duration) -> bool {
+    let deadline = Instant::now() + within;
+    while !process_gone(pid) {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    true
+}
+
+/// A harness keeps an idle chat's `cmux mcp serve` running for days, and that kept its
+/// computer use proxy running too: 15 `cmux-cua mcp` proxies on Leo's Mac (2026-11-14), each
+/// under a live serve no one called. A server with no call for `IDLE_STOP` ends now; its tools
+/// stay listed, and the next call starts it again.
+#[cfg(unix)]
+#[test]
+fn an_idle_servers_process_ends_and_the_next_call_starts_it_again() {
+    const IDLE: Duration = Duration::from_millis(300);
+    let mut servers: Vec<_> = (0..3).map(|_| upstream_server("cmux-cua")).collect();
+    for server in &mut servers {
+        assert_eq!(server.descriptors(&BTreeSet::new()).len(), 4, "listing starts it");
+    }
+    let pids: Vec<u32> = servers.iter().map(|s| s.pid().expect("started")).collect();
+    let running = |pids: &[u32]| pids.iter().filter(|pid| !process_gone(**pid)).count();
+    let before = running(&pids);
+    assert_eq!(before, 3);
+    let servers: Vec<_> =
+        servers.into_iter().map(|s| std::sync::Arc::new(std::sync::Mutex::new(s))).collect();
+    let watcher =
+        upstream::stop_idle(servers.iter().map(std::sync::Arc::downgrade).collect(), IDLE).unwrap();
+    for pid in &pids {
+        assert!(gone_within(*pid, Duration::from_secs(10)), "idle server {pid} still runs");
+    }
+    let after = running(&pids);
+    eprintln!("idle proxies running: before {before}, after {after}");
+    assert_eq!(after, 0);
+    // Still listed, and a call starts a new process.
+    let mut first = servers[0].lock().unwrap();
+    assert!(!first.started());
+    assert_eq!(first.descriptors(&BTreeSet::new()).len(), 4, "its tools stay listed");
+    assert!(!first.started(), "listing an idle server starts nothing");
+    let result = first.call("look", json!({"at": 2}), None, None).unwrap();
+    assert_eq!(result["content"][0]["text"], "saw {\"at\": 2}");
+    let restarted = first.pid().unwrap();
+    assert!(!pids.contains(&restarted));
+    drop(first);
+    // The watcher ends once every server is gone, and takes the restarted one's process along
+    // when that is idle again.
+    assert!(
+        gone_within(restarted, Duration::from_secs(10)),
+        "the restarted server never idled out"
+    );
+    drop(servers);
+    let start = Instant::now();
+    while !watcher.is_finished() {
+        assert!(start.elapsed() < Duration::from_secs(10), "the idle watcher outlived its servers");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A server a call holds is never ended for idling, however long the call takes.
+#[cfg(unix)]
+#[test]
+fn a_server_in_a_call_is_never_ended_as_idle() {
+    let dir = tempfile::tempdir().unwrap();
+    let gate = dir.path().join("go");
+    let mut server = upstream_server("cmux-cua");
+    server.descriptors(&BTreeSet::new());
+    let pid = server.pid().unwrap();
+    let server = std::sync::Arc::new(std::sync::Mutex::new(server));
+    let _watcher =
+        upstream::stop_idle(vec![std::sync::Arc::downgrade(&server)], Duration::from_millis(100))
+            .unwrap();
+    let held = std::thread::spawn({
+        let (server, gate) = (server.clone(), gate.clone());
+        move || server.lock().unwrap().call("hold", json!({"path": gate}), None, None)
+    });
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(!process_gone(pid), "a server in a call was ended as idle");
+    std::fs::write(&gate, b"").unwrap();
+    let result = held.join().unwrap().unwrap();
+    assert_eq!(result["content"][0]["text"], "held");
+    assert!(gone_within(pid, Duration::from_secs(10)), "idle after its call, it still runs");
+    // Ended for idling, not by the server's drop: this test still holds it.
+    assert!(!server.lock().unwrap().started());
 }

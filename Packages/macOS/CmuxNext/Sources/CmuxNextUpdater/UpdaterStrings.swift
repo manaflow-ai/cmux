@@ -132,6 +132,10 @@ nonisolated enum UpdaterStrings {
     // The tips card (BOTTOM-LEFT-CARDS K1)
     static var tipEyebrow: String { text("updater.tip.eyebrow", "Did you know?") }
     static var tipDismiss: String { text("updater.tip.dismiss", "Hide This Tip") }
+    // The one-time GitHub star ask (``StarPromptCenter``)
+    static var starTitle: String { text("updater.star.title", "Star cmux on GitHub") }
+    static var starDetail: String { text("updater.star.detail", "A star helps other developers find it.") }
+    static var starOpen: String { text("updater.star.open", "Open GitHub") }
 
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {
@@ -162,11 +166,11 @@ nonisolated enum UpdaterStrings {
     static var preparingDetail: String { text("updater.notice.preparingDetail", "Verifying and unpacking the update.") }
     static var installingUpdate: String { text("updater.notice.installingTitle", "Installing Update") }
     static var relaunchingDetail: String {
-        text("updater.notice.relaunchingDetail", "cmux relaunches in a moment. Your terminals and agents keep running.")
+        text("updater.notice.relaunchingDetail", "cmux relaunches in a moment.")
     }
     static func checkingNewVersion(seconds: Int) -> String {
         format("updater.notice.checkingNewVersion",
-               "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running.",
+               "The installer checks the new version (%lld s).",
                seconds)
     }
     static var installStalled: String { text("updater.notice.stalledTitle", "Update Did Not Relaunch") }

@@ -5,6 +5,11 @@ use super::*;
 #[path = "send_expect_foreground.rs"]
 mod send_expect_foreground;
 
+// Cmd-K with adjacent prompts; declared here for the same reason.
+#[cfg(unix)]
+#[path = "history_clear_prompts.rs"]
+mod history_clear_prompts;
+
 #[cfg(unix)]
 #[test]
 fn host_terminal_disconnect_exits_frontend_without_stopping_server() {

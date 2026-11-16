@@ -9,7 +9,8 @@
 //! `timing-ratio` judges PATH (default: CMUX_CHECKOUT/cmux-tui/crates). Exit 0: no finding; 1:
 //! findings, one line each; 2: a usage error, a directory or file the check could not read (it
 //! names the path; a missing acpmux `src` too), or (timing-ratio) a missing checkout or scan
-//! root, a root with no `.rs` file, or a nextest.toml that does not parse.
+//! root, a root with no `.rs` file, a nextest.toml that does not parse, or a source file that
+//! does not parse (named: a file judged no further is no clean scan).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -56,12 +57,15 @@ fn main() -> ExitCode {
                 }
             };
             for file in &scan.unparsed {
-                eprintln!("not judged (does not parse): {file}");
+                eprintln!("error: not judged (does not parse): {file}");
             }
             for finding in &scan.found {
                 println!("{finding}");
             }
             eprintln!("{} files scanned", scan.files);
+            if !scan.unparsed.is_empty() {
+                return ExitCode::from(2);
+            }
             if scan.found.is_empty() {
                 return ExitCode::SUCCESS;
             }

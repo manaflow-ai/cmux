@@ -36,7 +36,7 @@ final class DiffPageService: InternalPageProvider {
         var source: DiffOpenSource
         /// The chat turn its Last turn scope shows (D2), from the chat that opened it.
         var turn: DiffTurn?
-        /// The chat on this Mac that opened it last: Send to agent's (``DiffTabChat``).
+        /// The chat that opened it last: Send to agent's (``DiffTabChat``).
         var chat: DiffTabChat?
         /// The chat's session host. A remote tab must retain this link for every page read.
         var gitLink: AgentPaneGitLink?
@@ -75,7 +75,7 @@ final class DiffPageService: InternalPageProvider {
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
     private var tabs: [String: Tab] = [:]
-    /// Send to agent's prompts (``DiffTabChat``), through this Mac's acpmux.
+    /// Send to agent's prompts (``DiffTabChat``) for a host without `diff.comments.send`.
     private let replies = AcpmuxReplySender()
     /// The diff tabs' open timeline (the instant-surfaces bench's `diff_right`).
     let timeline = DiffOpenTimeline()
@@ -144,13 +144,12 @@ final class DiffPageService: InternalPageProvider {
             }
             guard let repository else { throw .notRepository }
             return open(repository: repository, source: source, turn: turn, gitLink: link, runtime: runtime(for: link),
-                        in: pane, focus: focus, on: machine, created: created, failed: failed)
+                        in: pane, focus: focus, on: machine, chat: DiffTabChat.of(session: pane.selectedTab?.agentSession?.session, on: link, replies: replies, environment: QuitAgents.environment(services)), created: created, failed: failed)
         }
         guard let link = gitLink(for: pane.selectedTab) else { throw .notRepository }
         let tabRuntime = runtime(for: link)
         guard let repository = await tabRuntime.repository(at: folder) else { throw .notRepository }
-        let chat = DiffTabChat.local(session: pane.selectedTab?.agentSession?.session, isLocal: link.isLocal, replies: replies,
-                                     environment: QuitAgents.environment(services))
+        let chat = DiffTabChat.of(session: pane.selectedTab?.agentSession?.session, on: link, replies: replies, environment: QuitAgents.environment(services))
         return open(repository: repository, source: source, turn: turn, gitLink: link, runtime: tabRuntime,
                     in: pane, focus: focus, chat: chat, created: created, failed: failed)
     }

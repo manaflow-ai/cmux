@@ -79,7 +79,7 @@ impl Hub {
             return;
         }
         let mut steer: Option<EventRecord> = None;
-        let scanned = self.store.scan_kinds(&session.id, STEER_KINDS, &mut |e: EventRecord| {
+        let scanned = self.scan_for_rebuild(session, STEER_KINDS, &mut |e: EventRecord| {
             if e.dir == "mux" && e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) {
                 // Queued, run, read, taken back, returned or refused since: settled.
                 steer = (e.kind == "user_message"

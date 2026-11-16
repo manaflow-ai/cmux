@@ -16,6 +16,8 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
     case hoverClose
     /// A tab's hover card: its width and how it first shows (Leo 2026-11-07).
     case hoverCard
+    /// The flush corner's tab row under One Color and Subtle Tone: every corner (Leo 2026-11-12).
+    case folderCorners
 
     var title: String {
         switch self {
@@ -26,6 +28,7 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
         case .cornerRadius: String(localized: "tabs.playground.section.cornerRadius", defaultValue: "Corner Radius", bundle: .module)
         case .hoverClose: String(localized: "tabs.playground.section.hoverClose", defaultValue: "Hover Close", bundle: .module)
         case .hoverCard: String(localized: "tabs.playground.section.hoverCard", defaultValue: "Hover Card", bundle: .module)
+        case .folderCorners: String(localized: "tabs.playground.section.folderCorners", defaultValue: "Folder Corners", bundle: .module)
         }
     }
 
@@ -38,6 +41,7 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
         case .cornerRadius: ConcentricCornerPlaygroundVariants().all
         case .hoverClose: HoverClosePlaygroundVariants().all
         case .hoverCard: HoverCardEntrancePlaygroundVariants().all
+        case .folderCorners: FolderCornerPlaygroundVariants().all
         }
     }
 }

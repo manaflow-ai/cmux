@@ -6,7 +6,7 @@
       "materials": [
         "real-glass"
       ],
-      "for": "the shared glass itself (Glass, GlassPanelView, OverlaySurface, the role table) and the shared native hosts built on it (tooltip, hover card, find pill, chips)"
+      "for": "the shared glass itself (Glass, GlassPanelView, OverlaySurface, the role table) and the shared native hosts built on it (tooltip, hover card, find pill, chips, GlassMenu: an NSMenu drawn on the menu glass, the account menu)"
     },
     "window-chrome": {
       "render": "native",
@@ -81,7 +81,6 @@
     "CmuxNextAgentPane/AgentPaneSessionInfoPanel.swift": "web-host",
     "CmuxNextAgentPane/AgentPaneView+HostGlass.swift": "web-host",
     "CmuxNextAgentPermissions/UI/PermissionRequestPanel.swift": "native-overlay",
-    "CmuxNextApp/Crash/RestartNoticePanel.swift": "native-overlay",
     "CmuxNextApp/Handlers/BrowserDownloadsPopup.swift": "native-overlay",
     "CmuxNextApp/HostPressure/HostPressurePopover.swift": "native-overlay",
     "CmuxNextApp/IconPicker/IconPickerPanel.swift": "web-host",
@@ -91,17 +90,18 @@
     "CmuxNextBridge/TabDrag/TabDragGhostPanel.swift": "native-overlay",
     "CmuxNextBrowser/PageInfo/UI/PageInfoPanel.swift": "native-overlay",
     "CmuxNextBrowser/UI/BrowserCookieImportCard.swift": "native-overlay",
-    "CmuxNextBrowser/UI/BrowserNoticeView.swift": "native-overlay",
     "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuCardView.swift": "native-overlay",
     "CmuxNextBrowser/UI/FindBarView.swift": "native-overlay",
     "CmuxNextBrowser/UI/LinkStatusBubbleView.swift": "native-overlay",
     "CmuxNextBrowser/UI/OmnibarViews.swift": "window-chrome",
     "CmuxNextBrowser/UI/PageUnresponsiveView.swift": "native-overlay",
     "CmuxNextBrowser/UI/PromptBarView.swift": "native-overlay",
+    "CmuxNextBrowser/UI/VerificationSuggestionPanel.swift": "native-overlay",
     "CmuxNextCookieImport/CookieImportConsentPanel.swift": "native-overlay",
     "CmuxNextDesign/Dialog/CmuxDialogCardSurface.swift": "native-overlay",
     "CmuxNextDesign/FindPill/FindPillView.swift": "material-source",
     "CmuxNextDesign/Glass.swift": "material-source",
+    "CmuxNextDesign/GlassMenu/GlassMenu.swift": "material-source",
     "CmuxNextDesign/GlassPanelView.swift": "material-source",
     "CmuxNextDesign/HoverCards/HoverCardPanel.swift": "material-source",
     "CmuxNextDesign/HoverCards/HoverCardRow.swift": "material-source",
@@ -121,6 +121,7 @@
     "CmuxNextHome/Conversations/HomeGroupInfoSheet.swift": "native-overlay",
     "CmuxNextHome/Conversations/HomeSheetController.swift": "native-overlay",
     "CmuxNextHome/NativeTranscript/HomeAgentPillCard.swift": "native-overlay",
+    "CmuxNextHome/NativeTranscript/HomeNativeTranscriptView+Find.swift": "native-overlay",
     "CmuxNextHome/NewMessage/HomeRecipientSuggestionsView.swift": "native-overlay",
     "CmuxNextHome/Sidebar/HomeSidebarView.swift": "window-chrome",
     "CmuxNextHomeEngine/HomeChiefSettingsPopover.swift": "native-overlay",
@@ -139,6 +140,7 @@
     "CmuxNextRemoteView/Pane/RemoteLatencyBanner.swift": "native-overlay",
     "CmuxNextRemoteView/Pane/RemoteStateCard.swift": "native-overlay",
     "CmuxNextRemoteView/Pane/RemoteUpstreamIndicator.swift": "native-overlay",
+    "CmuxNextRemoteView/Tab/RemoteViewUnavailableView.swift": "native-overlay",
     "CmuxNextServer/AddDevice/AddDeviceCardPanel.swift": "native-overlay",
     "CmuxNextServer/AddDevice/JoinConsentAskPanel.swift": "native-overlay",
     "CmuxNextSidebar/Views/DragLiftView.swift": "native-overlay",

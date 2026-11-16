@@ -104,8 +104,9 @@ const RESPAWN_REASONS: &[&str] = &[
     "died_without_exit_status",
     "missing_record",
     "incarnation_mismatch",
-    // A signal that ended the shell while the owner shut down (logout, a
-    // daemon stop): the next owner's start sweep respawns it.
+    // A signal or an exit status that ended the shell while the owner shut
+    // down (logout, a restart, a daemon stop): the next owner's start sweep
+    // respawns it.
     "session_shutdown",
     // A host that ended its shell because no owner served it for the orphan
     // grace, or a SIGTERM reached it while orphaned (cx-3ryj): a host that
@@ -544,16 +545,16 @@ impl Mux {
             }
             Err(error) => {
                 eprintln!("cmux-tui: terminal {terminal_id} was not respawned: {error:#}");
-                let lost = TerminalEnd::host_lost(format!(
-                    "{}: {error:#}",
-                    crate::terminal_end::RESPAWN_FAILED_DETAIL
-                ));
                 // No free PTY (a respawn of every terminal after a reboot or a
                 // kill of everything, more than `kern.tty.ptmx_max`): park the
                 // tabs, recorded before the end commit, as PTY reclaim parks
                 // idle shells, so the app starts each one when its workspace
-                // is shown instead of leaving it dead.
+                // is shown instead of leaving it dead. The end names that
+                // cause, so a client can say what the person can do.
                 let no_pty = pty_reclaim::is_pty_exhaustion(&error);
+                let lost = TerminalEnd::host_lost(crate::terminal_end::respawn_failed_detail(
+                    &error, no_pty,
+                ));
                 if no_pty {
                     self.note_pty_exhausted();
                     if !user_restart {

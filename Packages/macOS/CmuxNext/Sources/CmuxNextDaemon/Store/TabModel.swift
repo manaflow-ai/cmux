@@ -344,7 +344,8 @@ public final class TabModel: Identifiable {
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
         if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
-            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue,
+                                             terminalResourceID: s.terminalResourceID?.rawValue)
         }
         #endif
     }
@@ -385,6 +386,14 @@ public final class TabModel: Identifiable {
         if remote != s.remote { remote = s.remote }
         if conversation != s.conversation { conversation = s.conversation }
         if app != s.app { app = s.app }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A provisional tab is patched in place when the daemon's real surface
+        // and resource id arrive. Keep the trace's identity aliases current.
+        if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue,
+                                             terminalResourceID: s.terminalResourceID?.rawValue)
+        }
+        #endif
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.

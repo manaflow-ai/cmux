@@ -29,6 +29,7 @@ import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextKeepAwake
+import CmuxNextKeys
 import CmuxNextLiveCode
 import CmuxNextPalette
 import CmuxNextAccounts
@@ -164,6 +165,8 @@ final class AppServices {
         #endif
         return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
     }).following(account: { [weak self] in self?.cloud.auth.accountKey })
+    /// Signing in enrolls this Mac on the hub; signing out leaves only that join (acpmux does both).
+    private(set) lazy var signInEnroll = CloudSignInEnroll.overAcpmux(auth: cloud.auth, identity: cloud.installIdentity, buildTag: environment.tag, windows: chatsFeed?.windows) { [weak self] in self.flatMap(QuitAgents.environment) }
     /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
@@ -174,7 +177,6 @@ final class AppServices {
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
     let machineHealth = MachineHealthStore()
-    let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// The process's one guard of the Keychain UI switch: every store of cmux's own Keychain items gets this one.
     let loginKeychain = LoginKeychain()
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -229,6 +231,8 @@ final class AppServices {
         palette.hiddenActionIDs = {
             AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"]
         }
+        // Restart to Update while a downloaded update waits, in place of Check for Updates… (Lawrence 2026-11-16).
+        RestartToUpdatePaletteRows(staged: { [weak self] in self?.updater.restartableUpdate.map { ($0.title, $0.version) } }).install(into: palette, registry: registry)
         return palette
     }()  // first read in init (no IUO)
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache, pages: pages)  // first read in init (no IUO)
@@ -239,6 +243,9 @@ final class AppServices {
     let surfaceInvariant = SurfaceInvariantMonitor()
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
     let input = InputVerificationService()
+    /// Every keyboard focus change with its cause, while `tunable.diagnostics.focusLog` is on (``FocusLog``).
+    private(set) lazy var focusLog = FocusLog(writer: FocusLogWriter(directory: FocusLogWriter.folder(tag: environment.tag), symbolicate: { StackSymbolicator().frames(for: $0).map(\.description) }),
+        context: .init(classify: { r, w in (w.windowController as? WindowController).map { "\(FocusResponderClassifier.classify(r, in: $0))" } }, windowName: { ($0.windowController as? WindowController)?.state.id }, currentInput: { "\(FocusEvent.Source.current)" }))
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
@@ -375,8 +382,8 @@ final class AppServices {
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The New Tab bar's palette actions, read as background work after the page shows (``NewTabPage/fillPaletteActions(_:)``).
     private(set) lazy var newTabActions = AgentPaneNewTabActions(on: mainWork, measure: { BenchSpans.measure("newTab.paletteActions", $0) }) { [palette = self.palette] in palette.commandListing() }
-    /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
+    /// The spare React page hosts for Settings, History and Cloud; its spare uses Settings' options, whatever the default engine.
+    private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure, options: PageFactory.settingsEngineOptions)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
     /// The sidebar's workspace group editor: one warm page in a glass panel (GroupEditorService).
@@ -388,15 +395,16 @@ final class AppServices {
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
     let notifications = NotificationCenterService()
-    /// Email verification AutoFill (`browser.verificationAutofill.enabled`, off by default): a code
-    /// or link from Mail.app offered in the prompt bar of a page of the sender's own site
-    /// (plans/cmux-next/email-verification-autofill/DESIGN.md). Built on the first page that waits,
-    /// so the Public Suffix List is read only then. Turning the setting off withdraws offers at
-    /// the next read (within `pollInterval`).
-    private(set) lazy var verificationAutofill = VerificationAutofillCoordinator(
-        inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: PublicSuffixList.bundled() ?? PublicSuffixList(listText: ""))),
-        source: MailAppVerificationSource(),
-        isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false }
+    /// Agents' `cmux keys request`s waiting for the person in Settings > Keys, each behind one banner (CmuxNextKeys).
+    private(set) lazy var keyRequests = KeyRequests().postBanners(on: notifications.desktop)
+    /// Email verification AutoFill (`browser.verificationAutofill.enabled` and `.accounts`, off and empty by
+    /// default): a code from an opted-in mailbox (Gmail signed in to cmux's browser, Mail.app), offered at the
+    /// code field of a page of the sender's own site (plans/cmux-next/email-verification-autofill/DESIGN.md).
+    /// Built on the first page that waits, so the Public Suffix List is read only then. Turning the setting
+    /// off withdraws offers at the next read (within `pollInterval`).
+    private(set) lazy var verificationAutofill = VerificationAutofillCoordinator.standard(
+        isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false },
+        accounts: { [weak self] in Set(self?.settings.map { BrowserVerificationAutofillSetting.current($0).accounts } ?? []) }
     )
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
@@ -461,7 +469,7 @@ final class AppServices {
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Every harness's icon (user 12922) for the tab strip and sidebar, and their drawings.
-    private(set) lazy var harnessIcons = HarnessIconBook(environment: { [weak self] in self.flatMap(QuitAgents.environment) })
+    private(set) lazy var harnessIcons = HarnessIconBook(work: work, build: environment.build, mock: environment.showcase)
     let harnessIconArtwork = HarnessIconArtwork()
     /// The drawn harness icons the tab strip and sidebar mappings take.
     var harnessIconLookup: HarnessIconLookup { harnessIconArtwork.lookup(for: harnessIcons.icons) }
@@ -576,7 +584,7 @@ final class AppServices {
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
-        (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
+        (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain, appearance: ThemeScope.app), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
         self.agentPaneStateFiles = agentPaneStateFiles
         agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
@@ -881,10 +889,11 @@ final class AppServices {
     /// optimistic split's echo gives its record the daemon's handle in place before the window's handle map follows,
     /// and a Cmd-D in that step found no controller, so it split with no focus and no key hold (smoke step 23).
     func paneController(for pane: PaneModel) -> PaneController? {
-        for controller in windows.controllers {
+        let controllers = windows.controllersActingFirst // two windows can show one pane (a shared space): the person's
+        for controller in controllers {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
-        return windows.controllers.lazy.compactMap { $0.content?.controller(for: pane) }.first // keyed by the pane's public id: O(windows)
+        return controllers.lazy.compactMap { $0.content?.controller(for: pane) }.first // keyed by the pane's public id: O(windows)
     }
 
     /// A quit deadline's end: it names and records the state files still saving (a paired-phones save is

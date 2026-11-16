@@ -28,6 +28,9 @@ export function RevealedMarkdown({
   return (
     <MessageBoundary source={text}>
       <Revealed
+        // A recreated reply gets a fresh reveal loop; unmount cancels the old queued frame.
+        // Keep this key separate from artifactIdentity, which must remain the original row ID.
+        key={`${artifactIdentity ?? ""}:${messageAt ?? ""}`}
         text={text}
         streaming={streaming}
         githubRepository={githubRepository}

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 864,
-    "mcp": 780
+    "verbs": 869,
+    "mcp": 785
   },
   "nouns": [
     {
@@ -528,6 +528,13 @@
           "id": "app.command.run",
           "mcp": true,
           "mcpTool": "app_run_command"
+        },
+        {
+          "command": "cmux app run-menu-item",
+          "title": "Run App Menu Item",
+          "id": "app.menu.run",
+          "mcp": true,
+          "mcpTool": "app_run_menu_item"
         },
         {
           "command": "cmux app settings",
@@ -1588,6 +1595,13 @@
           "id": "cloudSetNetworkAccess",
           "mcp": true,
           "mcpTool": "app_cloud_set_network_access"
+        },
+        {
+          "command": "cmux cloud setup-desktop",
+          "title": "Start Desktop…",
+          "id": "cloudSetupDesktop",
+          "mcp": true,
+          "mcpTool": "app_cloud_setup_desktop"
         },
         {
           "command": "cmux cloud setup-github",
@@ -5039,6 +5053,13 @@
           "mcpTool": "app_tab_stash_to_right"
         },
         {
+          "command": "cmux tab stop-mac-screen-viewing",
+          "title": "Stop Viewing Shared Screen",
+          "id": "macScreen.stopViewing",
+          "mcp": true,
+          "mcpTool": "app_tab_stop_mac_screen_viewing"
+        },
+        {
           "command": "cmux tab toggle-chat-notifications",
           "title": "Mute/Unmute Chat Notifications",
           "id": "agentChat.toggleNotificationMute",
@@ -5278,6 +5299,13 @@
           "mcpTool": "app_terminal_clear_theme"
         },
         {
+          "command": "cmux terminal fix-last-command",
+          "title": "Fix Last Command with Agent",
+          "id": "terminal.fixLastCommand",
+          "mcp": true,
+          "mcpTool": "app_terminal_fix_last_command"
+        },
+        {
           "command": "cmux terminal keep",
           "title": "Keep Terminal Running After Close",
           "id": "terminal.keep",
@@ -5311,6 +5339,13 @@
           "id": "terminal.runLastCommandAgain",
           "mcp": true,
           "mcpTool": "app_terminal_run_last_command_again"
+        },
+        {
+          "command": "cmux terminal send-last-output-to-chat",
+          "title": "Send Last Output to Chat",
+          "id": "terminal.sendLastOutputToChat",
+          "mcp": true,
+          "mcpTool": "app_terminal_send_last_output_to_chat"
         },
         {
           "command": "cmux terminal send-text",

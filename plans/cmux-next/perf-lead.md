@@ -322,3 +322,58 @@ refusal is a stored known failure (`operation.failed`, `extra.terminal_retained:
   `--machine`). Only an older daemon's refusal of the unknown parameter (`validation.invalid`,
   before the request is keyed) makes it send the plain close; any other failure leaves the
   terminal to the reaper. The CLI does not call `identify` for this.
+
+## Notice to PL-daemon: terminal children say TERM_PROGRAM=cmux (2026-11-12)
+
+User ask: `echo $TERM_PROGRAM` in a cmux terminal said `ghostty`; make it say `cmux`.
+
+- `cmux_pty::UNSET_IN_TERMINAL_CHILDREN` is gone. `cmux_pty::TERMINAL_IDENTITY`
+  (`TERM_PROGRAM=cmux`, `TERM_PROGRAM_VERSION=<workspace version>`) and
+  `PtyCommand::terminal_identity()` replace it. Every terminal child path sets it after the
+  launch's own env: `surface/construct.rs`, `surface/holder_spawn.rs` (spelled-out map),
+  `terminal_host_runtime.rs` (Unix and Windows), `cmux-remote` `workspace/process.rs`.
+  `shell_integration::keys_to_unset_in_child` now returns only the incognito markers.
+- `cmux-pty` takes the workspace version (was 0.1.0), so the version is cmux's.
+- `TERM`, `COLORTERM=truecolor`, `GHOSTTY_RESOURCES_DIR` and the XTVERSION reply are unchanged.
+- cmux#22585 still holds: the `claude`/`codex` wrappers (`cmux-tui/src/agent_terminal_identity.rs`)
+  start those agents with `TERM_PROGRAM=ghostty` and no version.
+- Cloud: `cmux-host::daemon_spec` and `cmux-devbox-boot` start the session daemon with
+  `TERM_PROGRAM=cmux` and no version; cmux-host no longer reads `/etc/cmux/ghostty-version`.
+- A new terminal-child path must call `terminal_identity()` (or insert `TERMINAL_IDENTITY`).
+
+## Notice to PL-motion-cef: toasts take the pointer over catchers and pages (2026-11-16)
+
+Landed 81e95262773d591fbb1ca0a642e44b1b8b899f0a..3ede87f8221983b89f4d4028cbe3d16cac650043
+(red fe0c1420461a, fix 3ede87f8221). It changes code you own:
+
+- `DividerMousePanel` is now `UnderOverlayWindow`. `WindowOverlayHost.reassertOrder` ranks the
+  children: page windows 0, `UnderOverlayWindow` (the catchers) 1, the overlay panel 2, app panels
+  at its level 3. It re-adds only the lowest rank that sits under a higher rank and the ranks above
+  it, in an `autoreleasepool`. Before, every reorder re-added every catcher above the overlay
+  panel, so a catcher over a page took the pointer from a toast (resize cursor, drag resized panes).
+- `WindowOverlayHost.overlayTakesMouse(in:atWindowPoint:)` gates the pointer followers:
+  `ScreenDividerPointer`, `LayoutPaneContentProvider.hoverReaches` (perf-hot `window-resize-step`:
+  one early return), `PointerHover.isTopmost`, `DividerHandleView.cursorUpdate`, and the catcher
+  view's `cursorUpdate` / `mouseEntered`.
+- Follow-up in the same series ("Toasts take presses and scrolls"): `ShellWindow.sendEvent` first
+  calls `WindowOverlayHost.takeEventFromBelow`. A right, middle or left press (with its drags and
+  release) or a scroll that reaches the parent window, a page or a catcher where an overlay takes
+  the mouse goes to the overlay panel. Other events return after one type check.
+
+Numbers (fleet, `WindowResizeWorkPerStepTests`, light 3 / large 60 workspaces, layout calls per
+step): 81e9526 on cmux10s-Mac-mini 27.4 / 28.1; 3ede87f on cmuxs-Mac-mini-4 27.4 / 28.1 (same);
+3ede87f on aws-m4pro-8 (macOS 26) 23.4 / 24.1 (fewer `_NSCoreHostingView<ThemeWidgetView>` passes
+on that OS). The `real` arm did not run: `CMUX_TEST_SESSION_SIZES` is not on the cmux-ci env
+allowlist. Corner drag 1100x720 to 860x560 on cmux-lawrence-2 with a toast shown, median of 5,
+`debug.frames` main_total_ms: 81e9526 1111 and 1057, 3ede87f 1096, press fix 1141 and 1096
+(noise); missed frames 61-63 in every build.
+
+Closed (2026-11-16): on aws-m4pro-8 (macOS 26) `ParkedPageCatcherPanelsTests`,
+`DividerCatcherHoldsPressTests` and `OverlayTakesThePointerTests` left `DividerMousePanel` windows
+open (0 on screen) at the suite's window-leak check; the macOS 27 minis passed. The leak predates
+this change: 81e9526 and 4d53203 leak the same panels there. Cause: a catcher panel was never
+closed, only ordered out, so it stayed open while anything held the closed parent window, and
+macOS 26 keeps a closed window alive past the test. Fix (`DividerMouseCatchers.remove`): a panel
+that leaves for good closes, so `WindowController.teardown` -> `WindowOverlayLayer.teardown`
+closes every panel with its window. The three suites now tear their window down the same way
+before they close it. Test: `DividerCatcherPanelsCloseTests` red/green (cmux-ci).

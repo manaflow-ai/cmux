@@ -46,29 +46,22 @@ pub enum Refused {
     Unavailable(String),
 }
 
+/// The pass lock as held: a `FileLock` on unix, whose drop unlocks before it closes (a child
+/// the daemon forked meanwhile keeps no lock), and the plain file elsewhere, which takes none.
+#[cfg(unix)]
+type Held = cmux_file_lock::FileLock;
+#[cfg(not(unix))]
+type Held = File;
+
 /// The machine's pass, held until dropped or finished.
 #[derive(Debug)]
 pub struct Claim {
-    _lock: File,
+    _lock: Held,
     stamp: Option<PathBuf>,
     started_ms: u64,
     /// The start's stamp could not be written (a full disk): the caller's
     /// own spacing is all that holds the next pass back.
     stamp_error: Option<String>,
-}
-
-impl Drop for Claim {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        {
-            use std::os::fd::AsRawFd;
-            // SAFETY: the descriptor belongs to this claim and remains open
-            // until this drop implementation returns. Explicitly releasing
-            // it makes the lock handoff deterministic before a caller's next
-            // claim, rather than relying on close-time unlock semantics.
-            unsafe { libc::flock(self._lock.as_raw_fd(), libc::LOCK_UN) };
-        }
-    }
 }
 
 impl Claim {
@@ -104,16 +97,27 @@ pub fn claim(
     std::fs::create_dir_all(dir)
         .map_err(|e| Refused::Unavailable(format!("{}: {e}", dir.display())))?;
     let lock_path = dir.join(LOCK);
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
+    let lock = open_lock(&lock_path)
         .map_err(|e| Refused::Unavailable(format!("{}: {e}", lock_path.display())))?;
-    if !try_lock(&lock) {
+    claim_on(lock, dir, now_ms, spacing, record)
+}
+
+fn open_lock(path: &Path) -> std::io::Result<File> {
+    std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)
+}
+
+/// [`claim`] on the pass lock opened as `lock`.
+fn claim_on(
+    lock: File,
+    dir: &Path,
+    now_ms: u64,
+    spacing: Option<u64>,
+    record: bool,
+) -> Result<Claim, Refused> {
+    // A pass that is not due drops `lock` below, unlocked before it closes.
+    let Some(lock) = try_lock(lock) else {
         return Err(Refused::Busy);
-    }
+    };
     if let Some(spacing) = spacing
         && let Some(stamp) = last(dir)
         // A stamp from the future (the clock was ahead) does not hold
@@ -137,16 +141,15 @@ fn write_stamp(path: &Path, stamp: Stamp) -> Result<(), String> {
     std::fs::rename(&temporary, path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// The same exclusive flock, one try; busy or failed is `None`.
 #[cfg(unix)]
-fn try_lock(file: &File) -> bool {
-    use std::os::fd::AsRawFd;
-    // SAFETY: flock on a descriptor the caller owns for the call.
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
+fn try_lock(file: File) -> Option<Held> {
+    cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).ok()
 }
 
 #[cfg(not(unix))]
-fn try_lock(_file: &File) -> bool {
-    true
+fn try_lock(file: File) -> Option<Held> {
+    Some(file)
 }
 
 #[cfg(test)]
@@ -216,5 +219,23 @@ mod tests {
         assert_eq!(last(&dir), Some(Stamp { started_ms: 0, finished_ms: Some(5) }));
         claim(&dir, 8, None, true).expect("clean up now").finish(9).unwrap();
         assert_eq!(last(&dir), Some(Stamp { started_ms: 8, finished_ms: Some(9) }));
+    }
+
+    /// A pass that is not due lets go of the pass lock, also while a child the daemon forked
+    /// meanwhile has the descriptor: else a pass someone asks for next fails with "a worktree
+    /// cleanup pass or report is already running".
+    #[cfg(unix)]
+    #[test]
+    fn a_pass_not_due_leaves_the_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = folder("forked");
+        claim(&dir, 0, Some(HOUR), true).expect("first pass").finish(0).unwrap();
+        let lock = open_lock(&dir.join(LOCK)).unwrap();
+        let keeper = crate::test_fork::Keeper::fork();
+        let not_due = claim_on(lock, &dir, 1, Some(HOUR), true);
+        let asked = claim(&dir, 1, None, false);
+        drop(keeper);
+        assert_eq!(not_due.unwrap_err(), Refused::NotDue);
+        assert!(asked.is_ok(), "a pass that was not due left the pass lock held");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

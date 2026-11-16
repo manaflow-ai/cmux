@@ -8,7 +8,7 @@ extension HangReportsSetting {
 }
 
 extension HangReportsSettingsSchema {
-    /// `diagnostics.usagePatterns`: Whether the daemons on this machine count how cmux is used: commands and operations by name, split directions, connections, agent chats per harness, prompts, tokens, distinct paired machines, by day and hour. Counts and identifiers only, never prompts, terminal text, addresses, file paths or names. Stored locally; `cmux usage-patterns` and the Agent Stats page show them. Agents may not change it (privacy).
+    /// `diagnostics.usagePatterns`: Whether the daemons on this machine count how cmux is used: commands and operations by name, split directions, connections, agent chats per harness, prompts, tokens, distinct paired machines, by day and hour, and the registry names of packages agents' shell calls install (acpmux hub/tool_installs.rs; the Cloud image's package list is chosen from them). Counts and identifiers only, never prompts, terminal text, addresses, file paths or names. Stored locally; `cmux usage-patterns` and the Agent Stats page show them. Agents may not change it (privacy).
     nonisolated static let usagePatternsPath = ["diagnostics", "usagePatterns"]
     nonisolated static let usagePatternsDefault = false
 }
@@ -42,7 +42,7 @@ nonisolated enum HangReportsSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.diagnostics.usagePatterns", "Record Usage Patterns"),
-                help: SettingsText.keyed("settings.diagnostics.usagePatterns.help", "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page."),
+                help: SettingsText.keyed("settings.diagnostics.usagePatterns.help", "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name."),
                 summary: SettingsText.keyed("settings.diagnostics.usagePatterns.summary", "Stays on this computer. Counts only, no text."),
                 kind: .toggle,
                 default: .bool(HangReportsSettingsSchema.usagePatternsDefault),

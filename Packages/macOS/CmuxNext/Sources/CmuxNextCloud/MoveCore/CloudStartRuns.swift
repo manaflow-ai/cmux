@@ -72,6 +72,12 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
         creations[Creation(name: name, account: account)] != nil
     }
 
+    /// The names `account`'s creations are making now, one waiting on the person's Start included: `cloud list-machines`
+    /// lists them under `creating`, so a sandboxed Run's cleanup never takes a machine still to come for gone (#39022 F2).
+    public func creatingNames(account: [String?]) -> [String] {
+        creations.keys.filter { $0.account == account }.map(\.name).sorted()
+    }
+
     public func creating(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> Machine) async throws -> Machine {
         let key = Creation(name: name, account: account)
         let asked = forgets

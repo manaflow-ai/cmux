@@ -5,6 +5,12 @@
 notify-unpublished-tree's hand-off until they reached attempts 15 to 17, each
 re-run spending the installation's API and attestation quota that was already
 blocking every tree publish.
+
+2026-11-13: the hand-off of run 43346255778 read "API rate limit exceeded for
+installation" on its first call and ended as a warning in a green job. The run
+that had deferred to it was never re-run, no run built the tree, and the
+nightly that waited for it gave up. A rate-limited hand-off moves to its spare
+token, and one that could not run fails its job.
 """
 from __future__ import annotations
 
@@ -23,23 +29,31 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/cmux_tui_tree_handoff.py"
 WORKFLOW = ROOT / ".github/workflows/cmux-tui-artifacts.yml"
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 spec = importlib.util.spec_from_file_location("handoff", SCRIPT)
 handoff = importlib.util.module_from_spec(spec)
 sys.modules["handoff"] = handoff
 spec.loader.exec_module(handoff)
 KEY = "d65ec728a5e4d6e819e95e46cdd94bb8a7fe00fb"
 
-# A fake gh: answers from $FAKE_STATE (a JSON file) and logs every call to $FAKE_LOG.
+# A fake gh: answers from $FAKE_STATE (a JSON file) and logs every call to $FAKE_LOG, and the token of every
+# call it answers to $FAKE_LOG.tokens. A token in the state's rate_limited list is refused like GitHub refuses it.
 FAKE_GH = r"""#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_STATE"]))
 args = sys.argv[1:]
+if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
+    print("gh: API rate limit exceeded for installation ID 1. (HTTP 403)", file=sys.stderr); sys.exit(1)
 open(os.environ["FAKE_LOG"], "a").write(json.dumps(args) + "\n")
+open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "") + "\n")
 if args[:2] == ["run", "rerun"]:
     sys.exit(0 if args[2] not in state.get("rerun_fails", []) else 1)
 path = next(a for a in args[1:] if a.startswith("repos/"))
 if "-X" in args:
-    sys.exit(1 if state.get("delete_fails") else 0)
+    if state.get("delete_fails"):
+        print(state["delete_fails"], file=sys.stderr); sys.exit(1)
+    sys.exit(0)
 if path.endswith("/logs"):
     job = path.split("/")[-2]
     if job in state.get("log_errors", []):
@@ -136,20 +150,22 @@ class CandidateTests(unittest.TestCase):
 class CommandTests(unittest.TestCase):
     """Runs the script with a fake gh on PATH."""
 
-    def run_handoff(self, state, token="t"):
+    def run_handoff(self, state, token="t", spare="", extra=()):
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
             gh.write_text(FAKE_GH)
             gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
             Path(tmp, "state.json").write_text(json.dumps(state))
-            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "GH_TOKEN": token,
+            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "GH_TOKEN": token, "GH_TOKEN_SPARE": spare,
                    "FAKE_STATE": str(Path(tmp, "state.json")), "FAKE_LOG": str(Path(tmp, "log"))}
             if not token:
                 env.pop("GH_TOKEN")
-            result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY],
+            result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY, *extra],
                                     capture_output=True, text=True, env=env)
-            log_path = Path(tmp, "log")
+            log_path, tokens_path = Path(tmp, "log"), Path(tmp, "log.tokens")
             calls = [json.loads(line) for line in log_path.read_text().splitlines()] if log_path.exists() else []
+            # The token of each answered call, in order (the refused calls are in neither list).
+            self.tokens = tokens_path.read_text().splitlines() if tokens_path.exists() else []
             return result, calls
 
     def test_reruns_the_newest_feat_run_under_the_cap_and_deletes_its_marker(self):
@@ -177,24 +193,103 @@ class CommandTests(unittest.TestCase):
         self.assertIn("tree hand-off skipped", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
 
+    # 2026-11-13: f8a39fdd's run 43425734678 deferred tree 77865e8e to its owner at attempt 3, built nothing,
+    # and the owner published only its own commit's manifest: f8a39fdd answered 404. A published tree
+    # re-runs every run that deferred to it (not one), past the build hand-off's cap, so each writes its
+    # own commit manifest; a live run keeps its marker.
+    def test_published_reruns_every_deferred_run_and_keeps_a_live_ones_marker(self):
+        state = {"artifacts": [marker(31, 12), marker(32, 13), marker(33, 10, "lane/x"), marker(34, 14)],
+                 "runs": {"13": {"status": "completed", "run_attempt": 3},
+                          "12": {"status": "completed", "run_attempt": 1},
+                          "10": {"status": "completed", "run_attempt": 2},
+                          "14": {"status": "in_progress", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        reruns = [c[2] for c in calls if c[:2] == ["run", "rerun"]]
+        self.assertEqual(sorted(reruns), ["10", "12", "13"])
+        deletes = [c[-1] for c in calls if "-X" in c]
+        self.assertEqual(sorted(deletes), [f"repos/o/r/actions/artifacts/{a}" for a in (31, 32, 33)])
+        self.assertIn("Not re-running run 14", result.stdout)
+        # The published hand-off does not read the owner's jobs: it re-runs whether or not the owner failed.
+        self.assertFalse(any("/jobs?" in c[-1] for c in calls if c[0] == "api"))
+
+    def test_published_rerun_failure_fails_the_step(self):
+        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
+                 "rerun_fails": ["12"]}
+        result, _ = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=deferred runs not re-run::", result.stdout)
+
+    def test_published_cap_is_a_backstop(self):
+        self.assertTrue(handoff.may_rerun({"status": "completed", "run_attempt": 3}, handoff.PUBLISHED_MAX_ATTEMPT)[0])
+        self.assertFalse(handoff.may_rerun({"status": "completed", "run_attempt": 5}, handoff.PUBLISHED_MAX_ATTEMPT)[0])
+
     def test_every_candidate_capped_warns(self):
         state = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]],
                  "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 17}}}
         result, _ = self.run_handoff(state)
         self.assertIn("::warning::no run that deferred tree", result.stdout)
 
-    def test_api_failure_warns_instead_of_failing_silently(self):
+    def test_api_failure_is_an_error_that_fails_the_step(self):
         result, _ = self.run_handoff({"jobs_error": True, "jobs_pages": []})
         self.assertEqual(result.returncode, 1)
-        self.assertIn(f"::warning::tree {KEY} was not handed off", result.stdout)
+        self.assertIn(f"::error title=tree not handed off::tree {KEY} was not handed off", result.stdout)
+        self.assertIn("cmux-tui-tree-request.yml", result.stdout)
 
-    def test_delete_failure_warns_and_fails_the_step(self):
-        state = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]], "delete_fails": True,
+    # The owner of 2026-11-13: a failed build, a feat-cmux-next run that deferred to it.
+    DEFERRED = {"jobs_pages": [[job(1, "build / build aarch64-apple-darwin", "cancelled")]],
+                "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+
+    def test_rate_limited_token_moves_to_the_spare_token_and_hands_the_key_on(self):
+        result, calls = self.run_handoff({**self.DEFERRED, "rate_limited": ["t"]}, spare="s")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::notice title=tree hand-off token::", result.stdout)
+        self.assertIn("Re-ran run 12", result.stdout)
+        self.assertIn(["run", "rerun", "12", "--repo", "o/r"], calls)
+        self.assertIn(["api", "-X", "DELETE", "repos/o/r/actions/artifacts/31"], calls)
+        self.assertEqual(set(self.tokens), {"s"}, "every answered call used the spare token")
+        self.assertEqual(result.stdout.count("hand-off token"), 1, "the hand-off moves to the spare token once")
+
+    def test_spare_token_is_unused_while_the_first_token_answers(self):
+        result, _ = self.run_handoff(self.DEFERRED, spare="s")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Re-ran run 12", result.stdout)
+        self.assertEqual(set(self.tokens), {"t"})
+
+    def test_rate_limit_without_a_spare_token_fails_the_step_and_reruns_nothing(self):
+        for spare, limited in (("", ["t"]), ("t", ["t"]), ("s", ["t", "s"])):
+            with self.subTest(spare=spare, limited=limited):
+                result, calls = self.run_handoff({**self.DEFERRED, "rate_limited": limited}, spare=spare)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(f"::error title=tree not handed off::tree {KEY} was not handed off", result.stdout)
+                self.assertIn("rate limit exceeded", result.stdout)
+                self.assertEqual(calls, [], "no call was answered, so nothing was re-run")
+
+    def test_other_refusals_do_not_spend_the_spare_token(self):
+        # HTTP 403 without a rate limit (the fake's jobs_error) is not a quota refusal.
+        result, _ = self.run_handoff({"jobs_error": True, "jobs_pages": []}, spare="s")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("hand-off token", result.stdout)
+        self.assertEqual(set(self.tokens), {"t"})
+
+    def test_delete_failure_warns_and_passes_the_step_since_the_key_was_handed_on(self):
+        state = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]], "delete_fails": "HTTP 502",
                  "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
         result, _ = self.run_handoff(state)
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Re-ran run 12", result.stdout)
         self.assertIn("::warning::could not delete deferred marker 31", result.stdout)
+        self.assertNotIn("::error", result.stdout)
+
+    def test_a_marker_the_rerun_already_took_away_is_no_warning(self):
+        # Run 43364473890 (2026-11-13): it re-ran its deferred run, and the marker's delete answered 404.
+        state = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]], "delete_fails": "gh: Not Found (HTTP 404)",
+                 "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(["run", "rerun", "12", "--repo", "o/r"], calls)
+        self.assertIn("Deferred marker 31 of run 12 was already gone.", result.stdout)
+        self.assertNotIn("::warning", result.stdout)
 
     def test_unreadable_log_run_and_rerun_failures_warn(self):
         state = {"jobs_pages": [[job(2, "publish to R2", "failure", "Upload to R2")]], "log_errors": ["2"],
@@ -221,12 +316,34 @@ class WorkflowTests(unittest.TestCase):
         notify = workflow["jobs"]["notify-unpublished-tree"]
         step = next(s for s in notify["steps"] if s.get("name") == "Hand the key to a run that deferred to this one")
         self.assertIn("scripts/ci/cmux_tui_tree_handoff.py", step["run"])
-        self.assertTrue(step.get("continue-on-error"))
         self.assertEqual(notify["permissions"].get("actions"), "write")
         checkout = next(s for s in notify["steps"] if "actions/checkout" in str(s.get("uses", "")))
         self.assertIn("scripts/ci", checkout["with"]["sparse-checkout"])
         # No step of the workflow re-runs a run around the cap.
         self.assertNotIn("gh run rerun", WORKFLOW.read_text())
+
+    def test_a_hand_off_that_could_not_run_fails_the_job_and_has_a_spare_token(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        notify = workflow["jobs"]["notify-unpublished-tree"]
+        steps = notify["steps"]
+        step = next(s for s in steps if s.get("name") == "Hand the key to a run that deferred to this one")
+        self.assertNotIn("continue-on-error", step, "a hand-off that could not run is the job's red, not a warning")
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(step["env"]["GH_TOKEN_SPARE"], "${{ steps.cmux-bot-token.outputs.token }}")
+        mint = next(s for s in steps if s.get("id") == "cmux-bot-token")
+        self.assertLess(steps.index(mint), steps.index(step))
+        self.assertEqual(mint["uses"], "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")
+        # A mint that fails leaves the hand-off on the workflow token.
+        self.assertTrue(mint["continue-on-error"])
+        self.assertIn("vars.CMUX_BOT_APP_ID != ''", mint["if"])
+        # Only the trunk pushes the nightly reads get the App's token; a branch push keeps the workflow token.
+        self.assertIn("github.event_name == 'push' && (github.ref == 'refs/heads/feat-cmux-next' || "
+                      "github.ref == 'refs/heads/main')", mint["if"])
+        self.assertEqual(mint["with"], {"app-id": "${{ vars.CMUX_BOT_APP_ID }}",
+                                        "private-key": "${{ secrets.CMUX_BOT_APP_KEY }}",
+                                        "permission-actions": "write"})
+        self.assertEqual(workflow_jobs.resolve(notify, "notify-unpublished-tree").environment,
+                         {"name": "ci-routing-agent", "deployment": False})
 
 
 if __name__ == "__main__":

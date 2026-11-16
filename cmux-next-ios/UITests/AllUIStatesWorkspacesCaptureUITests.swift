@@ -33,7 +33,10 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
                 C.steps([
                     { C.scrollDown(app, times: 2) },
                     { C.tap(C.any(app, "workspaces.fold.mbp"), "offline Mac fold") },
+                    // The opened rows start under the tab bar: bring them up before the tap.
+                    { C.scrollDown(app, times: 2) },
                     { C.tap(app.buttons["workspace.row.ws-zed"], "ws-zed row") },
+                    { app.alerts.firstMatch.waitForExistence(timeout: 5) ? nil : "no offline alert" },
                 ])
             },
             Scene(group: g, id: "filter-menu", args: Self.list) { app in C.tap(C.any(app, "workspaces.filter"), "filter menu") },

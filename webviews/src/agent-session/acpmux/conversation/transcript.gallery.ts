@@ -12,13 +12,14 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
 import { openEndedStretch } from "./endedStretchPlay";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
-import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
+import { FRESH_REPLY_MINUTES, GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
   BUILD_TIMES_PNG,
   LOGIN_SCREENSHOT_PNG,
   LOGIN_TESTS_MP4,
 } from "../../../gallery/fixtures/toolImages";
+import { JUMP_LATEST_SHOWN } from "../transcriptSelectors";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -314,7 +315,7 @@ const clickHoldsLine = async (ctx: PlayContext, selector: string, expanded: bool
   if (Math.abs(moved) > 1) throw new Error(`the clicked line moved ${moved.toFixed(1)}px`);
 };
 
-/// A turn that wrote one file whole: its Edited card opens to the file's diff (EditedFilesCard.tsx).
+/// A turn that wrote one file whole, used by the raw edit-tool diff fixtures.
 const editedRows = (id: string, path: string, text: string) => [
   user(`Write ${path}`, 3, { id: `${id}-user` }),
   activity(
@@ -329,7 +330,14 @@ const editedRows = (id: string, path: string, text: string) => [
 ];
 
 const openEditedDiff = async (ctx: PlayContext) => {
-  await ctx.click({ selector: ".acpmux-edited-toggle" });
+  // Exercise the edit tool's diff; the summary card opens the native changes pane instead.
+  (ctx.document.defaultView as unknown as { cmuxAcpmuxEditedFiles(value: unknown): void }).cmuxAcpmuxEditedFiles({
+    show: "never",
+  });
+  await openEndedStretch(ctx);
+  const toggle = "button.cv-tool.is-toggle[data-tool-id], button.cv-tool.is-toggle[data-tool-group]";
+  await ctx.waitFor(() => ctx.document.querySelector(toggle));
+  if (ctx.find({ selector: toggle }).getAttribute("aria-expanded") !== "true") await ctx.click({ selector: toggle });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-edit-diff")));
 };
 
@@ -757,6 +765,74 @@ const BUILD_CHART = [
   "",
   "Splitting the app target's type check (41% of its time) is the biggest win.",
 ].join("\n");
+
+// A ```chart fence (chartSpec.ts): the same kinds of answer in the small JSON an agent writes without
+// Vega-Lite, one per chart type.
+const chartReply = (lead: string, chart: unknown, tail: string) =>
+  [lead, "", "```chart", JSON.stringify(chart, null, 2), "```", "", tail].join("\n");
+const CHART_FENCE = {
+  bar: chartReply(
+    "Per-target build time from the last 20 CI runs on main, in seconds:",
+    {
+      type: "bar",
+      title: "Build time by target",
+      data: [
+        { target: "app", p50: 312, p90: 371 },
+        { target: "api", p50: 204, p90: 229 },
+        { target: "worker", p50: 171, p90: 190 },
+        { target: "ui-kit", p50: 122, p90: 140 },
+        { target: "docs", p50: 88, p90: 97 },
+      ],
+      x: "target",
+      y: ["p50", "p90"],
+    },
+    "The app target is most of it.",
+  ),
+  line: chartReply(
+    "Cold start over the last week, by build:",
+    {
+      type: "line",
+      labels: ["Nov 8", "Nov 9", "Nov 10", "Nov 11", "Nov 12", "Nov 13", "Nov 14"],
+      series: [
+        { name: "nightly", values: [910, 880, 870, 640, 610, 600, 590] },
+        { name: "release", values: [940, 940, 930, 930, 925, 930, 920] },
+      ],
+      yTitle: "ms",
+    },
+    "The nightly dropped by a third after the cache landed on Nov 11.",
+  ),
+  pie: chartReply(
+    "Where this week's CI minutes went:",
+    {
+      type: "pie",
+      data: [
+        { job: "macOS build", minutes: 2400 },
+        { job: "Linux tests", minutes: 900 },
+        { job: "Web checks", minutes: 600 },
+        { job: "Other", minutes: 200 },
+      ],
+    },
+    "The macOS build is more than half.",
+  ),
+  scatter: chartReply(
+    "Chat length against memory, one point per open chat:",
+    {
+      type: "scatter",
+      data: [
+        { messages: 40, mb: 61 },
+        { messages: 120, mb: 66 },
+        { messages: 300, mb: 70 },
+        { messages: 800, mb: 74 },
+        { messages: 1500, mb: 79 },
+        { messages: 2600, mb: 82 },
+        { messages: 4000, mb: 86 },
+      ],
+      xTitle: "messages",
+      yTitle: "MB",
+    },
+    "Memory grows slowly with length.",
+  ),
+};
 
 const MARKDOWN_MIX = [
   "## What changed",
@@ -2260,10 +2336,10 @@ export default agentPaneEntry({
     "working-tokens": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "A live Claude turn says its tokens so far after its time, on its one live line at the bottom: Thinking 5m 54s · ↓ 12.4K out ↑ 2.1M in. Output comes first, as Anthropic counts a turn, and is only what the model generated (never folded into one total with the context); then all it read (fresh input, cache reads and writes, named on hover). The time and the tokens are in the line's quieter color, in tabular numerals. No blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      note: "A live Claude turn with reported usage shows Thinking and elapsed time only. Nonzero output and input usage must not add a token count or tooltip. Play: the line holds still.",
       snapshot: chat(
         [
-          user(prompt, 5.9),
+          user(prompt, 0.6),
           activity(
             [
               thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
@@ -2272,9 +2348,11 @@ export default agentPaneEntry({
               }),
               tool("Search for parseError", "search", "completed"),
             ],
-            5.85,
+            0.55,
           ),
-          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+          // Past WRITING_MS and inside SILENT_MS (thinkingModel.ts): the line reads "Thinking"; a reply
+          // silent for longer reads "Waiting" (reconvene/live-line.gallery.ts `after-reply-silent`).
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", FRESH_REPLY_MINUTES),
         ],
         {
           isWorking: true,
@@ -2287,19 +2365,19 @@ export default agentPaneEntry({
     "working-tokens-total": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
+      note: "A live turn with output usage only still shows Thinking and elapsed time, without token counts.",
       snapshot: chat(
         [
-          user(prompt, 5.9),
-          activity([tool("Search for parseError", "search", "completed")], 5.85),
-          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+          user(prompt, 0.6),
+          activity([tool("Search for parseError", "search", "completed")], 0.55),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", FRESH_REPLY_MINUTES),
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
       play: runningLineStill(/^Thinking/, true),
     },
     "worked-tokens": {
-      note: "A finished Claude turn whose result named its tokens: its Worked for line says its time alone, Worked for 1m 18s, as Codex does (Codex parity). The tokens show on the running line only.",
+      note: "A finished Claude turn whose result named its tokens: its Worked for line says its time alone, Worked for 1m 18s, as Codex does (Codex parity). Token counts stay hidden on both running and completed lines.",
       snapshot: chat([
         user(prompt, 5.9),
         activity(
@@ -3386,6 +3464,30 @@ export default agentPaneEntry({
       height: 520,
       snapshot: chat([user("Which build targets are slowest?", 3), assistant(BUILD_CHART, 2.9), summary(2.9)]),
     },
+    "chart-fence-bar": {
+      note: "A ```chart fence (small JSON): two y fields draw as grouped bars, one color per field.",
+      height: 560,
+      snapshot: chat([user("Which build targets are slowest?", 3), assistant(CHART_FENCE.bar, 2.9), summary(2.9)]),
+    },
+    "chart-fence-line": {
+      note: "A ```chart fence in the labels-and-series shape: a line per series, labels in order.",
+      height: 560,
+      snapshot: chat([user("How did cold start move this week?", 3), assistant(CHART_FENCE.line, 2.9), summary(2.9)]),
+    },
+    "chart-fence-pie": {
+      note: "A ```chart pie: one slice per row, colored by category in the order given.",
+      height: 520,
+      snapshot: chat([user("Where do our CI minutes go?", 3), assistant(CHART_FENCE.pie, 2.9), summary(2.9)]),
+    },
+    "chart-fence-scatter": {
+      note: "A ```chart scatter: numeric x and y, axis titles from xTitle and yTitle.",
+      height: 560,
+      snapshot: chat([
+        user("Does memory grow with chat length?", 3),
+        assistant(CHART_FENCE.scatter, 2.9),
+        summary(2.9),
+      ]),
+    },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",
       height: 720,
@@ -3528,7 +3630,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     "jump-latest-working": {
@@ -3537,7 +3639,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows, { isWorking: true }),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     selection: {
@@ -3638,13 +3740,13 @@ export default agentPaneEntry({
       },
     },
     "edit-long-line-code": {
-      note: "An Edited card's diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
+      note: "An edit tool's inline diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code", "src/net/retryPolicy.ts", EDIT_LONG_CODE)),
       play: openEditedDiff,
     },
     "edit-long-line-prose": {
-      note: "An Edited card's diff for a Markdown file: long lines wrap, each hanging under its start; it scrolls in an eight-line box whose bottom edge fades, with no Show all row under it.",
+      note: "An edit tool's inline diff for a Markdown file: long lines wrap, each hanging under its start; it scrolls in an eight-line box whose bottom edge fades, with no Show all row under it.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-prose", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: openEditedDiff,
@@ -3694,7 +3796,7 @@ export default agentPaneEntry({
       },
     },
     "edit-long-line-code-cut": {
-      note: "An Edited card's diff for code past eight lines, lines whole: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      note: "An edit tool's inline diff for code past eight lines, lines whole: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code-cut", "src/net/uploadRoutes.ts", EDIT_LONG_CODE_CUT)),
       play: openEditedDiff,

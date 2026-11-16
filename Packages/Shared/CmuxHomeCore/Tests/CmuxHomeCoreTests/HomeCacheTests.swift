@@ -51,6 +51,28 @@ import CmuxHomeCoreTestSupport
         #expect(texts(store, Self.austin) == transcript, "the conversation shows at once")
     }
 
+    /// CMUX-571: the Chief Home showed last comes back with the cache, before the owner answers,
+    /// with its conversation in the cached inbox, so Home's page draws it at the first frame.
+    @Test func aRelaunchKnowsTheLastChiefBeforeTheOwnerAnswers() async {
+        let cache = Self.cache()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), cache: cache, cacheWriteDelay: .zero)
+        store.start()
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        store.rememberChief(Self.austin)
+        store.stop()
+        await store.flushCache()
+        var offline = MockHomeSource.Options.immediate
+        offline.startsOnline = false
+        let relaunched = HomeStore(source: MockHomeSource(options: offline), cache: cache, cacheWriteDelay: .zero)
+        #expect(relaunched.launchChief == nil, "nothing before the cache is read")
+        relaunched.primeFromCache()  // what the Home list does before its first frame
+        #expect(relaunched.launchChief == Self.austin, "drawn before the owner answers")
+        #expect(!relaunched.isOnline)
+        relaunched.rememberChief(nil)
+        #expect(relaunched.launchChief == nil, "the live Chief decides once this launch names it")
+        #expect(relaunched.cachedChief == Self.austin, "no Chief named keeps the last one for the next launch")
+    }
+
     @Test func theOwnerOverwritesTheCacheWhenItAnswers() async throws {
         let cache = Self.cache()
         _ = await lastLaunch(cache)

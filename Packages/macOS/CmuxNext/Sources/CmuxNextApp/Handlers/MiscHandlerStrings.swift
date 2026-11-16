@@ -26,6 +26,11 @@ enum MiscHandlerStrings {
     }
     static var noDefaultBrowser: String { String(localized: "handlers.misc.noDefaultBrowser", defaultValue: "No app opens this link", table: "MiscHandlers", bundle: .module) }
     static var terminalChatNoSession: String { String(localized: "handlers.misc.failed.terminalChatNoSession", defaultValue: "The focused terminal runs no agent session to open as a chat.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatNotAgentTab: String { String(localized: "handlers.misc.failed.terminalChatNotAgentTab", defaultValue: "The focused tab is neither a terminal nor an agent chat.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatNoTerminal: String { String(localized: "handlers.misc.failed.terminalChatNoTerminal", defaultValue: "No open terminal runs this chat's session.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatBusy: String { String(localized: "handlers.misc.failed.terminalChatBusy", defaultValue: "This chat is still working. Switch when its turn ends.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatStopFailed: String { String(localized: "handlers.misc.failed.terminalChatStopFailed", defaultValue: "The chat could not stop, so no terminal resumes its session.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatNoPane: String { String(localized: "handlers.misc.failed.terminalChatNoPane", defaultValue: "The chat stopped, but its workspace has no pane for the terminal.", table: "MiscHandlers", bundle: .module) }
     static var terminalChatHarness: String { String(localized: "handlers.misc.failed.terminalChatHarness", defaultValue: "Only Claude Code and Codex sessions can open as a chat.", table: "MiscHandlers", bundle: .module) }
     /// A Simulator shortcut (Home, Rotate, Appearance, Software Keyboard) with no phone tab focused.
     static var noPhoneTab: String { String(localized: "handlers.misc.failed.noPhoneTab", defaultValue: "No phone tab is focused.", table: "MiscHandlers", bundle: .module) }

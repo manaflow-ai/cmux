@@ -85,6 +85,11 @@ pub fn marked(name: &str, value: &str) -> Vec<Started> {
 
 /// SIGKILL each of `procs` that still runs as the same process.
 pub fn kill_still_running(procs: &[Started]) {
+    signal_still_running(procs, libc::SIGKILL);
+}
+
+/// Send `signal` to each of `procs` that still runs as the same process (pid and start time).
+pub fn signal_still_running(procs: &[Started], signal: libc::c_int) {
     if procs.is_empty() {
         return;
     }
@@ -94,8 +99,8 @@ pub fn kill_still_running(procs: &[Started]) {
             continue;
         }
         let Ok(pid) = i32::try_from(p.pid) else { continue };
-        // SAFETY: the pid runs with the start time it had under the host.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
+        // SAFETY: the pid runs with the start time it had when `procs` was read.
+        unsafe { libc::kill(pid, signal) };
     }
 }
 
@@ -382,12 +387,31 @@ fn cmdline_argv(data: &[u8]) -> Option<Vec<String>> {
 /// group even after its parent exited (a group member reparented to init). Zombies are skipped:
 /// they run nothing. `None` when `ps` fails, prints a line it cannot read or bytes that are not
 /// UTF-8, or lists no `leader`:
-/// a census that is not whole never says nothing runs.
+/// a census that is not whole never says nothing runs. Always from a fresh reading, which later
+/// [`under_shared`] calls reuse.
 pub fn under(leader: u32) -> Option<Vec<Under>> {
+    shared().fresh(leader, own_group(), std::time::Instant::now(), read_table)
+}
+
+/// [`under`] from a reading shared with the censuses that asked at about the same time: one that
+/// began after this call did, so it sees what a fresh one would. The idle pass's censuses run
+/// together and share each reading, each costing O(its subtree) on it (`proc_table.rs`).
+pub fn under_shared(leader: u32) -> Option<Vec<Under>> {
+    let asked = std::time::Instant::now();
+    shared().under(leader, own_group(), asked, std::time::Instant::now, read_table)
+}
+
+fn shared() -> &'static super::proc_table::Shared {
+    static SHARED: std::sync::OnceLock<super::proc_table::Shared> = std::sync::OnceLock::new();
+    SHARED.get_or_init(Default::default)
+}
+
+/// A fresh reading of the whole table, from `ps`.
+fn read_table() -> Option<super::proc_table::Table> {
     let (ok, out) = ps("pid=,ppid=,pgid=,stat=,args=")?;
     // Output that is not text is not read as a whole census either.
     let out = String::from_utf8(out).ok().filter(|_| ok)?;
-    under_in(&out, leader, own_group())
+    super::proc_table::Table::parse(&out)
 }
 
 fn own_group() -> u32 {
@@ -396,33 +420,9 @@ fn own_group() -> u32 {
 }
 
 /// [`under`] over `ps` output `table`; `own` is this process's group, never taken as the harness's.
+#[cfg(test)]
 pub fn under_in(table: &str, leader: u32, own: u32) -> Option<Vec<Under>> {
-    let mut rows = Vec::new();
-    for line in table.lines().filter(|l| !l.trim().is_empty()) {
-        let mut f = line.split_whitespace();
-        let mut num = || f.next()?.parse::<u32>().ok();
-        let (pid, ppid, pgid) = (num()?, num()?, num()?);
-        let stat = f.next()?;
-        let args = f.collect::<Vec<_>>().join(" ");
-        rows.push((pid, ppid, pgid, stat.starts_with('Z'), args));
-    }
-    let group = rows.iter().find(|r| r.0 == leader && !r.3)?.2;
-    let mut tree = vec![leader];
-    let mut found: Vec<Under> = Vec::new();
-    let mut grew = true;
-    while grew {
-        grew = false;
-        for (pid, ppid, pgid, zombie, args) in &rows {
-            let taken = *pid == leader || *zombie || found.iter().any(|u| u.pid == *pid);
-            let in_group = *pgid == group && group > 1 && group != own;
-            if !taken && (tree.contains(ppid) || in_group) {
-                found.push(Under { pid: *pid, ppid: *ppid, args: args.clone() });
-                tree.push(*pid);
-                grew = true;
-            }
-        }
-    }
-    Some(found)
+    super::proc_table::Table::parse(table)?.under(leader, own)
 }
 
 #[cfg(test)]

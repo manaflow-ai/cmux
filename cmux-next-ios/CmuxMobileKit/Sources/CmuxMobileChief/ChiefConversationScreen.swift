@@ -43,11 +43,15 @@ public struct ChiefConversationScreen: View {
     let session: ChiefSession
     let compose: ChiefComposer?
     let focusesComposer: Bool
+    /// A Chief's look (header menu, "Message Chief"), or a conversation with people's.
+    let options: ConversationPresentationOptions
     @Environment(\.dismiss) private var dismiss
     @State private var showsInfo = false
     @State private var link = ChiefScreenLink()
 
-    public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false) {
+    public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false,
+                options: ConversationPresentationOptions = .chief) {
+        self.options = options
         #if DEBUG
         if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-outbox-demo") {
             self.session = Self.outboxDemo
@@ -84,7 +88,7 @@ public struct ChiefConversationScreen: View {
     #endif
 
     public var body: some View {
-        ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, link: link,
+        ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, options: options, link: link,
                                     back: { dismiss() }, openInfo: { showsInfo = true })
             // The conversation draws one store; a new backend (Try Again, a new link) makes a
             // new store, so the open screen is rebuilt on it instead of waiting on the old one.
@@ -116,6 +120,12 @@ public struct ChiefConversationScreen: View {
 /// Chief's service line in the transcript's start header, replacing
 /// Messages' "iMessage / Encrypted".
 extension ConversationPresentationOptions {
+    /// A conversation with people (New Message's DM or group): the Messages placeholder, no Chief header menu.
+    /// No start line: the header already names the person, and naming the service says nothing new.
+    public static func people(_ title: String) -> ConversationPresentationOptions {
+        ConversationPresentationOptions(placeholder: String(localized: "Message"), serviceTitle: "", serviceSubtitle: "")
+    }
+
     public static var chief: ConversationPresentationOptions {
         ConversationPresentationOptions(
             placeholder: String(localized: "Message Chief"),
@@ -137,12 +147,13 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     let session: ChiefSession
     let compose: ChiefComposer?
     let focusesComposer: Bool
+    let options: ConversationPresentationOptions
     let link: ChiefScreenLink
     let back: () -> Void
     let openInfo: () -> Void
 
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
-        let conversation = ConversationViewController(store: session.store, options: .chief,
+        let conversation = ConversationViewController(store: session.store, options: options,
                                                       keyboard: context.environment.mobileKeyboardFrameTracker)
         // A screen rebuilt in place (a new store) takes over the old one's
         // composer now, before either appears or disappears: SwiftUI may show

@@ -29,6 +29,7 @@ use super::{
 };
 use crate::Actor;
 use crate::mux::TabSplit;
+use crate::mux::tab_strip::tab_place::{CreateRequest, TabPlaceRequest};
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
     AGENT_SESSION_TABS_CAPABILITY, CLOSED_CONVERSATION_TABS_CAPABILITY, CONVERSATION_KIND,
@@ -77,6 +78,12 @@ pub(super) struct NewConversationTabParams {
     /// (`conversation-tab-split-v1`).
     #[serde(default)]
     split: Option<ConversationTabSplitParams>,
+    /// `tab-create-place-v1`: where the tab goes in the strip of `pane`.
+    /// `transaction` then also names this creation for a later request of
+    /// the connection (`place.after_creation`). Refused with `workspace` or
+    /// `split`.
+    #[serde(default)]
+    place: Option<TabPlaceRequest>,
 }
 
 impl NewConversationTabParams {
@@ -361,8 +368,13 @@ pub(super) fn create(
         rows,
         transaction,
         split,
+        place,
     } = params;
     super::validate_client_transaction(transaction.as_deref())?;
+    anyhow::ensure!(
+        place.is_none() || (workspace.is_none() && split.is_none()),
+        "bad request: place goes with pane, not with workspace or split"
+    );
     let target = match (pane, workspace, split) {
         (_, None, Some(split)) => ConversationTabTarget::Split(split.tab_split(pane)?),
         (_, None, None) => ConversationTabTarget::Pane(pane),
@@ -378,6 +390,11 @@ pub(super) fn create(
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(mux, conversation, owner, agent_session, page, route)?;
+    // Not carried: the `tab-added` of a conversation tab gets `transaction`
+    // from the field of its own capability (`conversation-tab-transaction-v1`).
+    let request =
+        CreateRequest { client, pane, place: place.as_ref(), transaction: transaction.as_deref() };
+    let placing = mux.place_tab_creation(request, None, false)?;
     // The creation's own `tab-added` carries `transaction`: one delta per
     // tab. A replay emits nothing and echoes it in the result only.
     let outcome = mux.new_conversation_tab_as(
@@ -388,6 +405,8 @@ pub(super) fn create(
         size,
         transaction.as_deref(),
     )?;
+    // A replay made no tab: its creation names the tab that was there.
+    placing.made(outcome.surface.id);
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
@@ -492,6 +511,56 @@ impl NegotiatedTabs {
     }
 }
 
+/// What one connection reads of the tab kinds: the capabilities it had negotiated at one moment.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TabProjection {
+    downgrade: Option<ConversationTabDowngrade>,
+    closed: bool,
+}
+
+impl TabProjection {
+    /// The projection of a connection that negotiated each tab capability.
+    #[cfg(test)]
+    pub(crate) fn canonical() -> Self {
+        Self { downgrade: None, closed: true }
+    }
+
+    /// Whether this is the projection of a connection that negotiated each tab capability: it
+    /// changes nothing.
+    pub(crate) fn is_canonical(self) -> bool {
+        self.downgrade.is_none() && self.closed
+    }
+
+    /// Rewrites `value`, a whole control message, as this connection reads it. Returns whether
+    /// anything changed.
+    pub(crate) fn project(self, value: &mut Value) -> bool {
+        let mut changed = false;
+        if let Some(downgrade) = self.downgrade
+            && conversation_tabs_present()
+        {
+            changed |= downgrade_conversation_tabs(value, downgrade);
+        }
+        if !self.closed {
+            changed |= downgrade_closed_tabs(value);
+        }
+        changed
+    }
+
+    /// [`Self::project`] of the raw reply `{"data": data, ..}`, for a caller that holds only its
+    /// `data`: the reply's other fields (`id`, `ok`) are not tab values. `data` goes into that
+    /// envelope and comes back, so the rewrite is the one of the whole message, with no copy.
+    pub(crate) fn project_data(self, data: &mut Value) -> bool {
+        // The envelope is a map made by hand. `json!` serializes an expression into a new
+        // value, which is a deep copy of `data`.
+        let mut envelope = serde_json::Map::new();
+        envelope.insert("data".to_owned(), data.take());
+        let mut reply = Value::Object(envelope);
+        let changed = self.project(&mut reply);
+        *data = reply.get_mut("data").map(Value::take).unwrap_or_default();
+        changed
+    }
+}
+
 /// The conversation tab capabilities a client may declare.
 pub(super) fn negotiable(capability: &str) -> bool {
     capability == CONVERSATION_TABS_CAPABILITY
@@ -529,9 +598,7 @@ impl MessageWriter {
         &self,
         text: Arc<BudgetedText>,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        if self.conversation_tabs.downgrade().is_none()
-            && self.conversation_tabs.closed.load(Ordering::Acquire)
-        {
+        if self.tab_projection().is_canonical() {
             return Ok(text);
         }
         if !text.contains("\"conversation") {
@@ -540,6 +607,8 @@ impl MessageWriter {
         if !may_hold_a_conversation_kind(&text) {
             return Ok(text);
         }
+        #[cfg(test)]
+        REPLY_PARSES.with(|parses| parses.set(parses.get().saturating_add(1)));
         let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return Ok(text) };
         if !self.project_tab_kinds(&mut value) {
             return Ok(text);
@@ -556,17 +625,27 @@ impl MessageWriter {
     }
 
     fn project_tab_kinds(&self, value: &mut Value) -> bool {
-        let mut changed = false;
-        if let Some(downgrade) = self.conversation_tabs.downgrade()
-            && conversation_tabs_present()
-        {
-            changed |= downgrade_conversation_tabs(value, downgrade);
-        }
-        if !self.conversation_tabs.closed.load(Ordering::Acquire) {
-            changed |= downgrade_closed_tabs(value);
-        }
-        changed
+        self.tab_projection().project(value)
     }
+
+    /// What this connection reads of the tab kinds now.
+    pub(super) fn tab_projection(&self) -> TabProjection {
+        TabProjection {
+            downgrade: self.conversation_tabs.downgrade(),
+            closed: self.conversation_tabs.closed.load(Ordering::Acquire),
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static REPLY_PARSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Test seam: the messages that the outbound projection parsed from their text on this thread.
+#[cfg(test)]
+pub(super) fn message_parses_on_this_thread() -> u64 {
+    REPLY_PARSES.with(std::cell::Cell::get)
 }
 
 /// Whether `text`, a JSON message, may hold a value that the outbound projection rewrites. The
@@ -585,11 +664,18 @@ impl MessageWriter {
 /// before), so a message with no such text (a `tab.list` reply of terminals) costs that one scan
 /// and nothing more. Here one scan for the prefix that both tokens share reads only the few bytes
 /// after each hit.
+///
+/// The text after a hit is taken with `str::get`: the bounds and boundary check that an index
+/// makes, with no panic path, no allocation and no second scan. That check cannot fail (a hit ends
+/// where the next character starts, at most at the end of `text`); if it did, the answer is the
+/// safe one, a parse.
 #[inline]
 pub(super) fn may_hold_a_conversation_kind(text: &str) -> bool {
     const PREFIX: &str = "\"conversation";
     text.match_indices(PREFIX).any(|(at, _)| {
-        let rest = &text[at + PREFIX.len()..];
+        let Some(rest) = text.get(at + PREFIX.len()..) else {
+            return true;
+        };
         let Some(after) = rest.strip_prefix('"').or_else(|| rest.strip_prefix("_tab\"")) else {
             return false;
         };

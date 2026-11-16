@@ -11,6 +11,7 @@ import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?
 import { assistant, chat, row, summary, user } from "../../gallery/fixtures/acpmux";
 import { SINCE_DIVIDER } from "./model";
 import { jumpUpButton } from "./jumpUp.experiment";
+import { JUMP_LATEST_SHOWN } from "./transcriptSelectors";
 
 const MARK = "gallery-unread:41";
 
@@ -72,7 +73,7 @@ const atLatest =
 const midChat: Play = async (ctx) => {
   await settle(ctx);
   await ctx.scroll({ selector: ".acpmux-scroll" }, 1_400);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+  await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
 };
 
 const jumpedUp: Play = async (ctx) => {

@@ -26,4 +26,7 @@ export class WorkflowEntrypoint<Env = unknown> extends WorkerEntrypoint<Env> {}
 /** The module-level env of Workers; the server fills it at start (unused by the chat owners). */
 export const env: Record<string, unknown> = {}
 
+/** Workers' request-scoped waitUntil: a long-lived server never cancels a promise after a response, so this only lets it run. */
+export const waitUntil = (promise: Promise<unknown>): void => void promise.catch(() => undefined)
+
 type DurableObjectStateLike = object

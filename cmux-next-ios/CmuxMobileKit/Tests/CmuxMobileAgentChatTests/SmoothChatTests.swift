@@ -346,6 +346,32 @@ import UIKit
     }
 }
 
+/// An older page landing above the rows shown, while its turns wait for their native rows'
+/// layout (held, #41982), takes the chat's `session-start` row with it: that row is the first
+/// turn's, so it was shown, changed and left out of the new snapshot together. Reconfiguring it
+/// trapped (`NSDiffableDataSourceSnapshot` refuses an id it does not hold); the list now
+/// reconfigures only rows in both snapshots. Found by `chat_scroll_fill_ui`.
+@MainActor
+@Suite struct HeldOlderPageTests {
+    @Test func anOlderPageHeldForLayoutTakesSessionStartWithoutATrap() {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.earlierHistory(true))
+        store.apply(.batch((30..<40).flatMap { SmoothChatTests.turn($0) }))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        list.boundsMayHaveChanged()
+        list.collectionView.layoutIfNeeded()
+        #expect(list.layout.items.first?.id == "session-start")
+        // The page's rows have no off-main layout yet: its turns are held, `session-start` with them.
+        store.apply(.earlierPage((0..<30).flatMap { SmoothChatTests.turn($0) }, hasEarlier: true))
+        list.reload()
+        list.collectionView.layoutIfNeeded()
+        #expect(store.turns.first?.id == "t0")
+        #expect(!list.layout.items.isEmpty)
+    }
+}
+
 /// A closed chat's transcript lets go of its store and surface: the list's pending
 /// observation (registered with both) holds them only weakly.
 @MainActor

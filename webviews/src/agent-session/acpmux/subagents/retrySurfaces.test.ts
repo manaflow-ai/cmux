@@ -70,8 +70,7 @@ test("a change to any retry field redraws the line (its cache key)", () => {
 });
 
 test("the line's strings are in the catalog", () => {
-  for (const key of ["retry.action", "retry.askParent", "retry.menu"] as const) expect(translate(key)).not.toBe(key);
+  for (const key of ["retry.action", "retry.menu"] as const) expect(translate(key)).not.toBe(key);
   expect(translate("retry.retriedOut", { of: 4 })).toBe("gave up after 4 tries");
   expect(translate("retry.action")).toBe("Retry");
-  expect(translate("retry.askParent")).toBe("Ask parent to retry");
 });

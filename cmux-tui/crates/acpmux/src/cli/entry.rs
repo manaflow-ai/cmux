@@ -33,6 +33,35 @@ impl Default for Invocation {
     }
 }
 
+/// The whole `main` of a binary that is acpmux: the `acpmux` binary of this
+/// package (the tests' and a local build's) and `acpmux-standalone`, the one
+/// the packages ship, which has this crate without its `build-id` feature and
+/// installs the build id itself first.
+///
+/// # Safety
+///
+/// Call it first in `main`, while no other thread runs: it removes variables
+/// from the process environment.
+pub unsafe fn process_main() -> Result<()> {
+    // A terminal's launch credential names that one terminal: this process
+    // and everything it starts serve many, so it is dropped before any thread
+    // exists (plans/cmux-next/identity.md section 2).
+    // SAFETY: the caller's contract: no other thread runs yet.
+    unsafe { std::env::remove_var(crate::config::LAUNCH_CREDENTIAL_ENV) };
+    // Nor does any of it act as the Chief whose host started it.
+    for key in crate::config::CHIEF_CREDENTIAL_ENV {
+        // SAFETY: as above, before any thread exists.
+        unsafe { std::env::remove_var(key) };
+    }
+    crate::heap_profile::start();
+    // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
+    // SAFETY: as above, before any thread exists.
+    unsafe {
+        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+    }
+    main(std::env::args_os().skip(1).collect(), Invocation::default())
+}
+
 /// Run the acpmux command line. `args` excludes the program name.
 pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // A launcher can hand us a blocked signal mask (an app thread that
@@ -295,20 +324,26 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             if let Some(p) = crate::oom_rank::protect_daemon() {
                 tracing::info!("{}", crate::oom_rank::describe(p));
             }
-            let result = crate::daemon::run(DaemonOptions {
-                ws_listen: listen,
-                ws_token: token,
-                insecure_network_listen,
-                memory,
-                ready_fd,
-                person_key_fd,
-                dev_origins: allow_dev_origin,
-                dev,
-                take_over,
-            })
+            // Handoff writers retain the home lock until drained or process exit. This scope
+            // outlives daemon::run's deadline and the final log flush below.
+            let exit_tasks = cmux_scope::Scope::new("daemon-exit");
+            let result = crate::daemon::run(
+                DaemonOptions {
+                    ws_listen: listen,
+                    ws_token: token,
+                    insecure_network_listen,
+                    memory,
+                    ready_fd,
+                    person_key_fd,
+                    dev_origins: allow_dev_origin,
+                    dev,
+                    take_over,
+                },
+                &exit_tasks,
+            )
             .await;
             // The lines logged so far reach the log before the process ends.
-            crate::log_sink::flush(LOG_FLUSH_BUDGET);
+            crate::log_sink::flush(crate::daemon::shutdown_time_left().unwrap_or(LOG_FLUSH_BUDGET));
             if let Err(error) = result {
                 // A systemd start can race the daemon that is handing over
                 // this home. Keep its lock refusal a distinct, prevented
@@ -470,7 +505,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
         Some(Command::GithubMcp) => crate::github_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
-        Some(Command::ToolsMcp) => crate::tools_mcp::run().await,
+        Some(Command::ToolsMcp) => crate::cli::tools_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());

@@ -16,15 +16,15 @@
   --row-focus: var(--cmux-row-focus, var(--accent-soft));
   --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
-  --column: 720px;
+  --column: var(--page-size-720);
   /* The one width of a row's popup (menus, the theme pickers, the accent), so a popup's left edge
      lines up with the rows around it and its selected label never resizes it. */
-  --row-popup-width: 200px;
+  --row-popup-width: var(--page-size-200);
   --row-pad-y: var(--grid-base);
   --row-pad-x: var(--grid-cards-padding);
   --row-min: var(--grid-row);
   --card-radius: var(--ds-radius-xl);
-  --sidebar-width: 208px;
+  --sidebar-width: var(--page-size-208);
   /* Motion: the one motion scale (--cmux-motion-*, pages/shared/desktop.css): hover, focus and
      anything leaving quick, anything arriving micro, easing out. Only opacity, transform and a
      collapsing row's own height animate, so nothing else on the page moves. */
@@ -62,7 +62,7 @@
 .search-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .search-bar .search {
@@ -90,6 +90,7 @@
 
 .section-icon {
   display: inline-flex;
+  flex: none;
   color: var(--muted-text);
 }
 
@@ -147,7 +148,6 @@
   margin: 0 0 var(--ds-space-5);
   padding: var(--jump-bar-inset);
   overflow-x: auto;
-  scrollbar-width: none;
   border-radius: var(--jump-bar-radius);
   background: var(--surface-glass);
   backdrop-filter: var(--surface-blur);
@@ -280,10 +280,6 @@
   );
 }
 
-.jump-bar::-webkit-scrollbar {
-  display: none;
-}
-
 .jump-bar .jump-link {
   flex: none;
   min-height: calc(var(--ds-control-primary) - var(--jump-bar-inset) * 2);
@@ -353,7 +349,7 @@
    their own outline and keep the hairlines between them, under one hairline below the header. */
 .group.ui-glass {
   border-radius: var(--card-radius);
-  padding-top: 10px;
+  padding-top: var(--page-size-10);
 }
 
 .group.ui-glass > :not(.rows) {
@@ -371,12 +367,12 @@
 }
 
 .group.ui-glass > :last-child:not(.rows) {
-  margin-bottom: 12px;
+  margin-bottom: var(--ds-space-3);
 }
 
 /* Look's characters keep clear of the Bubble Style row's hairline. */
 .group.chief-pet.ui-glass > :not(.rows):has(+ .rows) {
-  margin-bottom: 16px;
+  margin-bottom: var(--ds-space-4);
 }
 
 /* A Chief row lays out across (picture, name and role, backend, Locked): `.row` above stacks a
@@ -466,7 +462,7 @@
 .button:not(.ui-btn) {
   border-color: var(--border);
   background: var(--input-bg);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   padding: var(--ds-space-1) var(--ds-space-3);
 }
 
@@ -488,7 +484,7 @@
 
 /* A card's intro is a sentence or two: it wraps instead of clipping, with room before the card. */
 .group > .row-help {
-  margin-bottom: 8px;
+  margin-bottom: var(--ds-space-2);
   white-space: normal;
 }
 
@@ -537,11 +533,11 @@
 
 /* P3: the Theme section. */
 .theme-studio {
-  margin-bottom: 4px;
+  margin-bottom: var(--ds-space-1);
 }
 
 .theme-hero {
-  margin: 0 0 24px;
+  margin: 0 0 var(--ds-space-5);
 }
 
 .theme-preview {
@@ -563,8 +559,8 @@
 
 .theme-tokens {
   display: grid;
-  gap: 6px;
-  margin-top: 14px;
+  gap: var(--page-size-6);
+  margin-top: var(--page-size-14);
   color: var(--muted-text);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -574,24 +570,24 @@
 .theme-tokens-named {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
 }
 
 .theme-tokens-named {
   flex-wrap: wrap;
-  gap: 6px 18px;
-  margin-top: 4px;
+  gap: var(--page-size-6) var(--page-size-18);
+  margin-top: var(--ds-space-1);
 }
 
 .theme-tokens-label {
-  width: 52px;
+  width: var(--page-size-52);
   flex: none;
 }
 
 .theme-tokens-pair {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
 }
 
 .theme-tokens-hex,
@@ -606,12 +602,12 @@
 
 .theme-token {
   position: relative;
-  width: 26px;
-  height: 26px;
+  width: var(--page-size-26);
+  height: var(--page-size-26);
   flex: none;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--page-size-6);
 }
 
 .theme-token:not(:disabled) {
@@ -626,8 +622,8 @@
 .theme-token[data-edited]::after {
   content: "";
   position: absolute;
-  top: -3px;
-  right: -3px;
+  top: var(--page-size-negative-3);
+  right: var(--page-size-negative-3);
   width: 0;
   height: 0;
   border: 3.5px solid var(--text);
@@ -637,20 +633,20 @@
 
 .token-tuner-body {
   display: grid;
-  gap: 10px;
-  width: 248px;
-  padding: 10px;
+  gap: var(--page-size-10);
+  width: var(--page-size-248);
+  padding: var(--page-size-10);
 }
 
 .token-tuner-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .token-tuner-swatch {
-  width: 22px;
-  height: 22px;
+  width: var(--page-size-22);
+  height: var(--page-size-22);
   flex: none;
   border: 1px solid var(--border);
   border-radius: 50%;
@@ -663,27 +659,27 @@
 }
 
 .token-tuner-hex {
-  width: 78px;
+  width: var(--page-size-78);
 }
 
 .token-tuner-slider {
   display: grid;
-  gap: 4px;
+  gap: var(--ds-space-1);
   color: var(--muted-text);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .token-tuner-slider input {
-  height: 10px;
+  height: var(--page-size-10);
   margin: 0;
-  border-radius: 5px;
+  border-radius: var(--page-size-5);
   appearance: none;
 }
 
 .token-tuner-slider input::-webkit-slider-thumb {
-  width: 14px;
-  height: 14px;
+  width: var(--page-size-14);
+  height: var(--page-size-14);
   border: 2px solid var(--cmux-surface-solid, Canvas);
   border-radius: 50%;
   background: var(--accent);
@@ -693,12 +689,12 @@
 .token-tuner-snaps {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: var(--page-size-5);
 }
 
 .token-tuner-snap {
-  width: 18px;
-  height: 18px;
+  width: var(--page-size-18);
+  height: var(--page-size-18);
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 50%;
@@ -709,7 +705,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--ds-space-2);
   color: var(--muted-text);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -722,7 +718,7 @@
 .token-tuner-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--page-size-6);
 }
 
 .theme-caption {
@@ -730,8 +726,8 @@
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 10px;
+  gap: var(--ds-space-3);
+  margin-top: var(--page-size-10);
   font-size: var(--text-detail);
   color: var(--muted-text);
 }
@@ -746,20 +742,20 @@
 .theme-files {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
+  gap: var(--page-size-6);
+  margin-top: var(--page-size-10);
 }
 
 .theme-files-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
   font-size: var(--text-sm);
 }
 
 .theme-files-row .field {
-  flex: 1 1 180px;
+  flex: 1 1 var(--page-size-180);
   min-width: 0;
 }
 
@@ -769,9 +765,9 @@
 .theme-overrides {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 16px;
-  padding: 8px 12px;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-4);
+  padding: var(--ds-space-2) var(--ds-space-3);
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
   font-size: var(--text-sm);
@@ -779,7 +775,7 @@
 
 .theme-overrides > svg {
   flex: none;
-  margin-top: 2px;
+  margin-top: var(--page-size-2);
   color: var(--warning);
 }
 
@@ -790,15 +786,15 @@
   flex: 1;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: var(--ds-space-2) var(--ds-space-3);
   min-width: 0;
 }
 
 .theme-overrides-text {
   display: flex;
-  flex: 1 1 280px;
+  flex: 1 1 var(--page-size-280);
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
   min-width: 0;
   color: var(--warning);
 }
@@ -817,7 +813,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 /* The Theme section's help explains a choice; it wraps instead of truncating. */
@@ -828,7 +824,7 @@
 .theme-caption-contrast {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
   font-variant-numeric: tabular-nums;
 }
 
@@ -866,8 +862,8 @@
 
 .theme-ball {
   flex-shrink: 0;
-  width: 16px;
-  height: 16px;
+  width: var(--ds-space-4);
+  height: var(--ds-space-4);
 }
 
 .theme-ball-empty {
@@ -878,17 +874,17 @@
 }
 
 .theme-popover {
-  width: 320px;
-  padding: 6px;
+  width: var(--page-size-320);
+  padding: var(--page-size-6);
 }
 
 .theme-popover .theme-search {
   width: 100%;
-  margin-bottom: 4px;
+  margin-bottom: var(--ds-space-1);
 }
 
 .theme-list {
-  max-height: 320px;
+  max-height: var(--page-size-320);
   margin: 0;
   padding: 0;
   overflow-y: auto;
@@ -896,8 +892,8 @@
 }
 
 .theme-option {
-  padding: 3px 6px;
-  border-radius: 5px;
+  padding: var(--page-size-3) var(--page-size-6);
+  border-radius: var(--page-size-5);
 }
 
 .theme-option[data-highlighted] {
@@ -915,7 +911,7 @@
 .theme-option-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .theme-option-name {
@@ -934,13 +930,13 @@
  * row's highlight; the pointer passes through it. */
 .theme-option:has(> [data-group-start]) {
   position: relative;
-  margin-top: 20px;
+  margin-top: var(--page-size-20);
 }
 
 .theme-group-heading {
   position: absolute;
-  top: -18px;
-  left: 6px;
+  top: var(--page-size-negative-18);
+  left: var(--page-size-6);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
   color: var(--muted-text);
@@ -953,12 +949,12 @@
   display: inline-grid;
   flex: none;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  margin: -2px -3px -2px 0;
+  width: var(--page-size-20);
+  height: var(--page-size-20);
+  margin: var(--page-size-negative-2) var(--page-size-negative-3) var(--page-size-negative-2) 0;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-space-1);
   background: transparent;
   color: var(--muted-text);
   visibility: hidden;
@@ -985,17 +981,17 @@
 }
 
 .theme-empty {
-  padding: 6px;
+  padding: var(--page-size-6);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .theme-count {
   font-variant-numeric: tabular-nums;
-  padding: 6px 6px 2px;
+  padding: var(--page-size-6) var(--page-size-6) var(--page-size-2);
   border-top: 1px solid var(--border);
-  margin-top: 4px;
-  font-size: 11px;
+  margin-top: var(--ds-space-1);
+  font-size: var(--text-caption);
   color: var(--muted-text);
 }
 
@@ -1019,6 +1015,13 @@
 .host-form,
 .domain-panel {
   animation: settings-enter var(--motion-in) var(--motion-ease) backwards;
+}
+
+/* The category the page opens on only fades (SettingsApp `data-section-switched`): no 4 px slide,
+   so its rows draw where they settle from the first frame (settings-open-frames), and the fade
+   still covers the rows that land as the page's data arrives (gallery health's layout shift). */
+.settings:not([data-section-switched]) .section {
+  animation-name: settings-pop;
 }
 
 /* Inline override notes, MDM locks and section badges arrive, not appear. */
@@ -1081,7 +1084,7 @@
 
   .sidebar {
     max-height: none;
-    gap: 8px;
+    gap: var(--ds-space-2);
     padding: var(--ds-space-3) var(--ds-space-3) var(--ds-space-2);
     overflow: visible;
     border-right: 0;
@@ -1102,13 +1105,13 @@
     flex: none;
     width: auto;
     white-space: nowrap;
-    padding: 4px 8px;
+    padding: var(--ds-space-1) var(--ds-space-2);
   }
 
   .content {
     --content-pad-end: var(--ds-space-40);
     padding: var(--ds-space-4) var(--page-edge) var(--content-pad-end);
-    --content-fade-top: 12px;
+    --content-fade-top: var(--ds-space-3);
   }
 }
 
@@ -1117,8 +1120,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin: 0 2px 12px;
+  gap: var(--ds-space-4);
+  margin: 0 var(--page-size-2) var(--ds-space-3);
 }
 
 .chief-pet-lede {
@@ -1133,9 +1136,9 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 160px;
-  margin-bottom: 26px;
+  gap: var(--ds-space-2);
+  height: var(--page-size-160);
+  margin-bottom: var(--page-size-26);
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
 }
@@ -1151,23 +1154,23 @@
 }
 
 .chief-pet-art {
-  width: 88px;
-  height: 80px;
+  width: var(--page-size-88);
+  height: var(--page-size-80);
 }
 
 .chief-pet-rail {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  height: 32px;
-  padding: 0 14px;
+  gap: var(--ds-space-3);
+  height: var(--ds-space-6);
+  padding: 0 var(--page-size-14);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   color: var(--text);
 }
 
 .chief-pet-rail i {
-  height: 14px;
+  height: var(--page-size-14);
   border-left: 1px solid var(--border-strong);
 }
 
@@ -1178,16 +1181,16 @@
 
 .chief-pet-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-176), 1fr));
+  gap: var(--ds-space-3);
 }
 
 .chief-pet-choice {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 18px 14px 16px;
+  gap: var(--page-size-6);
+  padding: var(--page-size-18) var(--page-size-14) var(--ds-space-4);
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
   background: transparent;
@@ -1211,8 +1214,8 @@
 .chief-pet-choice[aria-pressed="true"]::after {
   content: "✓";
   position: absolute;
-  top: 8px;
-  right: 10px;
+  top: var(--ds-space-2);
+  right: var(--page-size-10);
   color: var(--text);
   font-size: var(--text-body);
   font-weight: 600;
@@ -1223,12 +1226,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 76px;
+  height: var(--page-size-76);
 }
 
 .chief-pet-choice-art img {
-  width: 72px;
-  height: 66px;
+  width: var(--page-size-72);
+  height: var(--page-size-66);
 }
 
 .chief-pet-choice strong {
@@ -1249,9 +1252,9 @@
 .accent-swatch {
   flex-shrink: 0;
   box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  margin: 1px;
+  width: var(--page-size-14);
+  height: var(--page-size-14);
+  margin: var(--page-size-1);
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
 }

@@ -82,6 +82,7 @@ import {
 import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinimapModel";
 import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
+import { focusRoute } from "../../../ui/focusRoute";
 
 /// The rail menu's filter items (model.ts `RailFilter`).
 const RAIL_FILTER_LABEL = {
@@ -1084,7 +1085,11 @@ export function ThreadMinimap({
   useLayoutEffect(() => {
     if (reveal === undefined) return;
     setReveal(undefined);
-    list.current?.querySelector<HTMLButtonElement>(`[data-tick="${reveal}"]`)?.focus();
+    focusRoute(
+      list.current?.querySelector<HTMLButtonElement>(`[data-tick="${reveal}"]`),
+      "system",
+      "the minimap revealed a tick",
+    );
   }, [reveal]);
 
   // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
@@ -1139,7 +1144,7 @@ export function ThreadMinimap({
         const row = target instanceof Element ? target.closest<HTMLElement>("[data-tick]") : null;
         if (row && row.ownerDocument.activeElement !== row) {
           pressing.current = true;
-          row.focus({ preventScroll: true });
+          focusRoute(row, "system", "the minimap's row", { preventScroll: true });
           pressing.current = false;
         }
         // The bookmark dot's spot past the tick (the row's right end) toggles the mark.
@@ -1275,7 +1280,11 @@ export function ThreadMinimap({
       // The scroller's mask reads the side from here, its own child (conversation.css): a `:has()`
       // that looked deeper would be checked again for every node a streamed chunk inserts.
       data-side={side}
-      style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}
+      style={
+        {
+          "--acpmux-rail-left": `${placement.left}px`,
+        } as React.CSSProperties
+      }
     >
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
       <ContextMenu items={menu}>

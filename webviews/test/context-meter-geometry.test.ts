@@ -5,6 +5,7 @@ import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { designTokenValue } from "./support/gridTokens";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("context-meter-geometry.test.ts", async () => {
@@ -106,7 +107,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
         console.log(`context-meter-geometry ${item.name} ${JSON.stringify(geometry)}`);
         if (baseline) {
           expect(geometry.spans).toHaveLength(5);
-          expect(geometry.gap).toBe("2px");
+          expect(geometry.gap).toBe(designTokenValue("--grid-half-step"));
           expect(geometry.usedEnd - geometry.expectedUsedEnd).toBeGreaterThan(7);
         } else {
           expect(geometry.spans).toHaveLength(5);

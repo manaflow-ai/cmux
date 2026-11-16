@@ -341,7 +341,7 @@ struct RapidWorkspaceCreateTests {
         // `top` named explicitly (the default is afterCurrent; Lawrence asked for the top).
         let url = launched.root.appendingPathComponent("cmux.json")
         try Data(#"{"workspaces":{"newPlacement":"top"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings

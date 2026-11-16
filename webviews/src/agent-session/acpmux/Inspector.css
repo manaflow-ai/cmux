@@ -72,7 +72,7 @@
 
 .acpmux-inspector-tools button {
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--ds-radius-control);
   padding: 4px 10px;
   background: var(--agent-control);
   color: var(--agent-text);

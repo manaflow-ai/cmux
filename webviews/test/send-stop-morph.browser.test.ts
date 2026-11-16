@@ -16,6 +16,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("send-stop-morph.browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -161,7 +162,7 @@ await requireBrowserLane("send-stop-morph.browser.test.ts", async () => {
 
   test("Claude's look: Return's ↵ morphs into the turn's Stop, and a letter typed mid-turn into ↵", async () => {
     const page = await open({ look: "claude", working: false });
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await page.keyboard.type("Ship it");
     await page.waitForSelector(".acpmux-composer-bar .acpmux-send.acpmux-send-ready", { state: "attached" });
     // Return clears the draft at once; acpmux's turn opens a moment later (its round trip).
@@ -178,7 +179,7 @@ await requireBrowserLane("send-stop-morph.browser.test.ts", async () => {
       "stop",
     );
     expect(sent.at(-1)?.kind).toBe("stop");
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").focus();
+    await page.locator(COMPOSER_EDITOR).focus();
     await page.keyboard.type("n");
     const frames = await trace(page, null, 320);
     // The letter landed before the trace began; the morph is still running at its first frame.

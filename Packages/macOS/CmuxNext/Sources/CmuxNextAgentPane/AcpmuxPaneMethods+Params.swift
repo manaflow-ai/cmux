@@ -28,7 +28,8 @@ nonisolated extension AcpmuxPaneMethods {
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
-        "_acpmux/watch": (["enabled", "limit"], []),
+        // `afterSeq`, `listEpoch`: a reconnect follows the list from the cursor it last read (#41889).
+        "_acpmux/watch": (["enabled", "limit", "afterSeq", "listEpoch"], []),
         // `usage`: each chat's usage read first (SessionSummary.usageStats), for Session Info's Usage.
         "_acpmux/sessions": (["limit", "cursor", "usage"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
@@ -58,12 +59,15 @@ nonisolated extension AcpmuxPaneMethods {
         // `cancelFork`: Fork Conversation's Cancel takes back a fork nobody used, with the transcript
         // copy its agent made (direct.ts `takeBackFork`, acpmux hub/fork_cancel.rs); with
         // `cancelToken`, it stops the fork that token names while it is still being made.
-        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken"], []),
+        // `ifIdle`: Move to Terminal stops the chat only while no turn, prompt or tool call is open
+        // (direct.ts `releaseToTerminal`, acpmux hub/stop_if_idle.rs); it only narrows a stop.
+        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
         // a kill names its chat, which must be the pane's, and acpmux stops only that chat's process.
-        "_acpmux/process/list": (["sessionId"], []),
+        // A list is read page by page (`limit`, then each page's `nextCursor` as `cursor`).
+        "_acpmux/process/list": (["sessionId", "limit", "cursor"], []),
         "_acpmux/process/tail": (["processId", "maxBytes"], []),
         "_acpmux/process/kill": (["sessionId", "processId"], []),
         "_acpmux/process/background": (["sessionId", "toolCallId"], []),

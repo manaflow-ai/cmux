@@ -61,7 +61,7 @@ The macOS sources are under `Packages/macOS/CmuxNext/Sources`.
 | Rename | `title.set` | Yes | Chief's info: Edit > Name |
 | Avatar | Written to `optchat/profile.json` on the Mac | No | A local file on the Mac, with no daemon command. The phone shows Chief's avatar. |
 | Memory inspector, traces | Local browser tab, Finder | No | Owner-only on the Mac. `chief-inspect` stays refused. Settings says so. |
-| New Message to Chief / agents | `conversation-create` (`agent_mux`) | Partly | New Message routes to the Chief conversation or to an agent chat. The phone does not create new owner conversations: `conversation-create` is refused. |
+| New Message (Chiefs, team, agents) | Cloud `dm.open` / `conversation.create`; Chief and agent conversations open as they are | Works | Home's compose opens the Mac's New Message (#41777): the Chiefs and the team under To:, a Chief's conversation shown under To:, Cloud DMs and groups made with the phone's own account. |
 | Subagent links `cmux://chief/…` | Opens the subagent's tab | No | The phone has no Chief-home acpmux route yet. |
 | "Organizing N/M" notice | Watches `state/settle.json` | No | A local file on the Mac |
 | Streaming draft | `conversation-draft` via `conversation.events` (v2 stream) | No | Not on the raw `subscribe` stream. The typing indicator shows instead. |

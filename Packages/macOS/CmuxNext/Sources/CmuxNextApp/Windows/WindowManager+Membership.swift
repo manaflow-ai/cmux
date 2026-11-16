@@ -24,6 +24,7 @@ extension WindowManager {
         let live = order ?? services.machines.daemons.flatMap { daemon in registry.orderBuild { Self.orderedIDs(of: daemon, machines: self.services.machines, doc: self.services.sidebarDoc) } }
         let changes = registry.apply { registry in
             let changes = body(&registry)
+            shareSpaces(&registry) // the guests follow the owners in the same registry write (`WindowManager+SharedSpaces`)
             registry.order(like: live)
             return changes
         }
@@ -72,24 +73,26 @@ extension WindowManager {
         for window in registry.repairs(only: only) {
             let state = state(for: window.id)
             let room = state.profileID
+            // Read again after each space the window enters: entering a space sets its guests (`spaceDidChange`).
+            func members() -> [String] { registry.value.window(window.id)?.workspaceIDs ?? window.workspaceIDs }
             // Its room was deleted (here or by another client); cached rooms can lag.
             if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
-                state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
+                state.enterProfile(WindowProfiles.fallback(for: state, members: members(), machines: machines) ?? .defaultProfile)
             }
-            var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
+            var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines)
             // A window waiting for the workspace it just created in a new
             // or empty room keeps that room (asked only when the room shows nothing).
             if visible.isEmpty, !claims.pending.values.contains(window.id),
-               let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
+               let fallback = WindowProfiles.fallback(for: state, members: members(), machines: machines) {
                 state.enterProfile(fallback)
-                visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
+                visible = WindowProfiles.shown(members(), profile: fallback, machines: machines)
             }
-            // A room change shows the workspace last shown in that room.
-            var wanted = preferred[window.id] ?? []
+            // A room change shows the workspace last shown in that room. A top page over a workspace that left stays up (a chat Bring Back took).
+            var wanted = preferred[window.id] ?? [], gone = state.workspaceID.map { !visible.contains($0) } ?? false
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
-            let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
+            let prior = WindowProfiles.visible(previous[window.id] ?? members(), profile: state.profileID, machines: machines)
             registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, pressed: pressed, claimed: { claims.pending[$0] != nil }, orders:
-                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true) }
+                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true, keepsPage: gone && !wanted.contains($0 ?? "")) }
         }
     }
 
@@ -108,11 +111,11 @@ extension WindowManager {
         noteInvariantViolations(problems)
     }
 
-    /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:)`.
-    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false) {
+    /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:keepsPage:)`.
+    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false, keepsPage: Bool = false) {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
-        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state))
+        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state), keepsPage: keepsPage)
         recordSaver.stateDidChange(state)
     }
 
@@ -131,7 +134,7 @@ extension WindowManager {
         if DebugWorkspaceSwitch.timer.isRecording, let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
             DebugWorkspaceSwitch.began(timed)
         }
-        if origin == .anywhere, let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
+        if origin == .anywhere, !value.isGuest(workspaceID, in: state.id), let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
             select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
@@ -143,7 +146,7 @@ extension WindowManager {
         let openBefore = Set(value.openWindows.map(\.id))
         claim(workspaceID: workspaceID, in: state)
         // An unowned ephemeral workspace went to its own incognito window: that window shows it.
-        if let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
+        if !registry.value.isGuest(workspaceID, in: state.id), let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
             target.showWorkspace(requested: target.state.workspaceID)
             if origin.raisesOwner(ownerWasOpen: openBefore.contains(owner)) { bringToFront(target) }
             return
@@ -178,7 +181,7 @@ extension WindowManager {
     func reveal(workspaceID: String) -> WindowController? {
         let value = registry.value
         let shows = ActionRunScope.viewChangeAllowed()
-        if let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
+        if let owner = actingWindow(for: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
             if shows { select(workspaceID, in: target.state) }
             return target
         }
@@ -214,7 +217,8 @@ extension WindowManager {
         // Not reported yet: it lands when the daemon reports it, shown only
         // when asked (reconcileMembership).
         if !shows, claims.pending[workspaceID] != nil { claims.quiet.insert(workspaceID) }
-        if registry.value.owner(of: workspaceID) == state.id {
+        // Listed here, as its own or as a view of another window's (a shared space): selected, never taken.
+        if registry.value.lists(workspaceID, in: state.id) {
             if shows { select(workspaceID, in: state) }
             return
         }
@@ -440,7 +444,7 @@ extension WindowManager {
             for await _ in ObservationStream({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
-                    + [Self.profileTags(of: machines.local)] + PhoneIncognitoHiding.ephemeralIDs(machines.local).sorted()
+                    + [Self.profileTags(of: machines.local)] + EphemeralWorkspaces.ephemeralIDs(machines.local).sorted()
             }) {
                 self?.reconcileMembership()
                 self?.recordIncognitoWorkspaces()

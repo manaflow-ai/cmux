@@ -24,6 +24,7 @@ import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { Popover } from "../../../ui/Popover";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -130,6 +131,42 @@ async function openMachines(button: HTMLElement) {
 function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
+
+test("New Tab suggestions keep the composer's page glass", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await typePrompt("fix the flaky test");
+  const popover = document.querySelector(".nt-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.hasAttribute("data-host-glass")).toBe(false);
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(false);
+});
+
+test("other popovers keep native popup glass", async () => {
+  await act(async () => {
+    root!.render(
+      <Popover open onOpenChange={() => {}} anchor={container} label="Details" initialFocus={false}>
+        Details
+      </Popover>,
+    );
+  });
+  const popover = document.querySelector(".ui-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.getAttribute("data-host-glass")).toBe("popover");
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(true);
+});
 
 test("New Tab exposes the chat composer attachment menu", async () => {
   await act(async () => {
@@ -1732,7 +1769,7 @@ test("New project: the name follows the prompt until edited; the send makes that
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
-test("New project refused: the reason shows above the card, no chat starts and the prompt stays", async () => {
+test("New project refused: plain words show above the card, no chat starts and the prompt stays", async () => {
   const asks: unknown[][] = [];
   const names: string[] = [];
   const reason = "a folder named habit-tracker can't be made";
@@ -1747,9 +1784,8 @@ test("New project refused: the reason shows above the card, no chat starts and t
 
   expect(names).toEqual(["habit-tracker"]);
   expect(asks).toHaveLength(0);
-  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-    translate("project.new.failedBecause", { reason }),
-  );
+  // acpmux's own words go to the log, never the notice.
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(translate("project.new.failed"));
   expect(promptValue()).toBe("a habit tracker web app");
   // Still New project, so a second send tries again.
   expect(projectNameField()?.value).toBe("habit-tracker");

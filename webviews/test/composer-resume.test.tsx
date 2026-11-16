@@ -6,6 +6,7 @@ import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { noChat, summary, user } from "../src/gallery/fixtures/acpmux";
 import { canResumeFromComposer } from "../src/agent-session/acpmux/composer/resumeControl";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -55,7 +56,8 @@ afterEach(() => {
   sent.length = 0;
   stoppedCount = 0;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

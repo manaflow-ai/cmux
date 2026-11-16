@@ -22801,127 +22801,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't restart %1$@: %2$@"
+            "value": "Couldn't restart %@. Try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت إعادة تشغيل %1$@: %2$@"
+            "value": "تعذّرت إعادة تشغيل %@. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije moguće ponovo pokrenuti %1$@: %2$@"
+            "value": "Nije moguće ponovo pokrenuti %@. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ kunne ikke genstartes: %2$@"
+            "value": "%@ kunne ikke genstartes. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ konnte nicht neu gestartet werden: %2$@"
+            "value": "%@ konnte nicht neu gestartet werden. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo reiniciar %1$@: %2$@"
+            "value": "No se pudo reiniciar %@. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de redémarrer %1$@ : %2$@"
+            "value": "Impossible de redémarrer %@. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile riavviare %1$@: %2$@"
+            "value": "Impossibile riavviare %@. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ を再起動できませんでした：%2$@"
+            "value": "%@ を再起動できませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចចាប់ផ្ដើម %1$@ ឡើងវិញបានទេ៖ %2$@"
+            "value": "មិនអាចចាប់ផ្ដើម %@ ឡើងវិញបានទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@을(를) 재시작할 수 없습니다: %2$@"
+            "value": "%@을(를) 재시작할 수 없습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke starte %1$@ på nytt: %2$@"
+            "value": "Kunne ikke starte %@ på nytt. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie można ponownie uruchomić %1$@: %2$@"
+            "value": "Nie można ponownie uruchomić %@. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível reiniciar o %1$@: %2$@"
+            "value": "Não foi possível reiniciar o %@. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось перезапустить %1$@: %2$@"
+            "value": "Не удалось перезапустить %@. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เริ่ม %1$@ ใหม่ไม่ได้: %2$@"
+            "value": "เริ่ม %@ ใหม่ไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ yeniden başlatılamadı: %2$@"
+            "value": "%@ yeniden başlatılamadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося перезапустити %1$@: %2$@"
+            "value": "Не вдалося перезапустити %@. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể khởi động lại %1$@: %2$@"
+            "value": "Không thể khởi động lại %@. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法重新启动 %1$@：%2$@"
+            "value": "无法重新启动 %@。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法重新啟動 %1$@：%2$@"
+            "value": "無法重新啟動 %@。請再試一次。"
           }
         }
       }
@@ -23718,127 +23718,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux relaunches in a moment. Your terminals and agents keep running."
+            "value": "cmux relaunches in a moment."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux はまもなく再起動します。ターミナルとエージェントは実行を続けます。"
+            "state": "needs_review",
+            "value": "cmux はまもなく再起動します。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ستتم إعادة تشغيل cmux بعد لحظات. تستمر الطرفيات والوكلاء في العمل."
+            "state": "needs_review",
+            "value": "ستتم إعادة تشغيل cmux بعد لحظات."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux se uskoro ponovo pokreće. Vaši terminali i agenti nastavljaju raditi."
+            "state": "needs_review",
+            "value": "cmux se uskoro ponovo pokreće."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux genstarter om et øjeblik. Dine terminaler og agenter kører videre."
+            "state": "needs_review",
+            "value": "cmux genstarter om et øjeblik."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux startet gleich neu. Deine Terminals und Agenten laufen weiter."
+            "state": "needs_review",
+            "value": "cmux startet gleich neu."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux se reiniciará en un momento. Tus terminales y agentes siguen funcionando."
+            "state": "needs_review",
+            "value": "cmux se reiniciará en un momento."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux redémarre dans un instant. Vos terminaux et agents continuent de tourner."
+            "state": "needs_review",
+            "value": "cmux redémarre dans un instant."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux si riavvia tra un momento. I terminali e gli agenti continuano a funzionare."
+            "state": "needs_review",
+            "value": "cmux si riavvia tra un momento."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux នឹងបើកឡើងវិញក្នុងពេលបន្តិចទៀត។ ទែមីណល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
+            "state": "needs_review",
+            "value": "cmux នឹងបើកឡើងវិញក្នុងពេលបន្តិចទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux가 곧 다시 시작됩니다. 터미널과 에이전트는 계속 실행됩니다."
+            "state": "needs_review",
+            "value": "cmux가 곧 다시 시작됩니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux starter på nytt om et øyeblikk. Terminalene og agentene dine fortsetter å kjøre."
+            "state": "needs_review",
+            "value": "cmux starter på nytt om et øyeblikk."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux za chwilę uruchomi się ponownie. Terminale i agenci nadal działają."
+            "state": "needs_review",
+            "value": "cmux za chwilę uruchomi się ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O cmux será reiniciado em instantes. Seus terminais e agentes continuam rodando."
+            "state": "needs_review",
+            "value": "O cmux será reiniciado em instantes."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux сейчас перезапустится. Терминалы и агенты продолжат работу."
+            "state": "needs_review",
+            "value": "cmux сейчас перезапустится."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux จะเปิดใหม่ในอีกสักครู่ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux birazdan yeniden başlıyor. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
+            "state": "needs_review",
+            "value": "cmux birazdan yeniden başlıyor."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux зараз перезапуститься. Термінали й агенти продовжать працювати."
+            "state": "needs_review",
+            "value": "cmux зараз перезапуститься."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux sẽ khởi động lại trong giây lát. Terminal và agent của bạn vẫn tiếp tục chạy."
+            "state": "needs_review",
+            "value": "cmux sẽ khởi động lại trong giây lát."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 即将重新启动。你的终端和代理会继续运行。"
+            "state": "needs_review",
+            "value": "cmux 即将重新启动。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 即將重新啟動。你的終端機和代理會繼續執行。"
+            "state": "needs_review",
+            "value": "cmux 即將重新啟動。"
           }
         }
       }
@@ -23849,127 +23849,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running."
+            "value": "The installer checks the new version (%lld s)."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "インストーラが新しいバージョンを確認しています（%lld 秒）。完了すると cmux が再起動します。ターミナルとエージェントは実行を続けます。"
+            "state": "needs_review",
+            "value": "インストーラが新しいバージョンを確認しています（%lld 秒）。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يتحقق المثبّت من الإصدار الجديد (%lld ث). ستتم إعادة تشغيل cmux عند الانتهاء. تستمر الطرفيات والوكلاء في العمل."
+            "state": "needs_review",
+            "value": "يتحقق المثبّت من الإصدار الجديد (%lld ث)."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instaler provjerava novu verziju (%lld s). cmux se ponovo pokreće kada završi. Vaši terminali i agenti nastavljaju raditi."
+            "state": "needs_review",
+            "value": "Instaler provjerava novu verziju (%lld s)."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installationsprogrammet tjekker den nye version (%lld s). cmux genstarter, når det er færdigt. Dine terminaler og agenter kører videre."
+            "state": "needs_review",
+            "value": "Installationsprogrammet tjekker den nye version (%lld s)."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Das Installationsprogramm prüft die neue Version (%lld s). cmux startet neu, sobald es fertig ist. Deine Terminals und Agenten laufen weiter."
+            "state": "needs_review",
+            "value": "Das Installationsprogramm prüft die neue Version (%lld s)."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "El instalador comprueba la nueva versión (%lld s). cmux se reinicia cuando termina. Tus terminales y agentes siguen funcionando."
+            "state": "needs_review",
+            "value": "El instalador comprueba la nueva versión (%lld s)."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Le programme d’installation vérifie la nouvelle version (%lld s). cmux se relance une fois terminé. Vos terminaux et agents continuent de tourner."
+            "state": "needs_review",
+            "value": "Le programme d’installation vérifie la nouvelle version (%lld s)."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Il programma di installazione controlla la nuova versione (%lld s). cmux si riavvia al termine. Terminali e agenti continuano a funzionare."
+            "state": "needs_review",
+            "value": "Il programma di installazione controlla la nuova versione (%lld s)."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កម្មវិធីដំឡើងកំពុងពិនិត្យកំណែថ្មី (%lld វិនាទី)។ cmux នឹងបើកឡើងវិញពេលរួចរាល់។ ទែមីណាល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
+            "state": "needs_review",
+            "value": "កម្មវិធីដំឡើងកំពុងពិនិត្យកំណែថ្មី (%lld វិនាទី)។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "설치 프로그램이 새 버전을 확인하는 중입니다(%lld초). 완료되면 cmux가 다시 실행됩니다. 터미널과 에이전트는 계속 실행됩니다."
+            "state": "needs_review",
+            "value": "설치 프로그램이 새 버전을 확인하는 중입니다(%lld초)."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installasjonsprogrammet sjekker den nye versjonen (%lld s). cmux starter på nytt når det er ferdig. Terminalene og agentene dine fortsetter å kjøre."
+            "state": "needs_review",
+            "value": "Installasjonsprogrammet sjekker den nye versjonen (%lld s)."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instalator sprawdza nową wersję (%lld s). cmux uruchomi się ponownie po zakończeniu. Terminale i agenci nadal działają."
+            "state": "needs_review",
+            "value": "Instalator sprawdza nową wersję (%lld s)."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O instalador verifica a nova versão (%lld s). O cmux reabre quando terminar. Seus terminais e agentes continuam em execução."
+            "state": "needs_review",
+            "value": "O instalador verifica a nova versão (%lld s)."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Установщик проверяет новую версию (%lld с). cmux перезапустится, когда проверка завершится. Терминалы и агенты продолжают работать."
+            "state": "needs_review",
+            "value": "Установщик проверяет новую версию (%lld с)."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ตัวติดตั้งกำลังตรวจสอบเวอร์ชันใหม่ (%lld วินาที) cmux จะเปิดใหม่เมื่อเสร็จ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Yükleyici yeni sürümü denetliyor (%lld sn). Bittiğinde cmux yeniden başlar. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
+            "state": "needs_review",
+            "value": "Yükleyici yeni sürümü denetliyor (%lld sn)."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Інсталятор перевіряє нову версію (%lld с). cmux перезапуститься, коли перевірку завершено. Термінали й агенти продовжують працювати."
+            "state": "needs_review",
+            "value": "Інсталятор перевіряє нову версію (%lld с)."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Trình cài đặt đang kiểm tra phiên bản mới (%lld giây). cmux khởi chạy lại khi xong. Terminal và agent của bạn vẫn tiếp tục chạy."
+            "state": "needs_review",
+            "value": "Trình cài đặt đang kiểm tra phiên bản mới (%lld giây)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "安装器正在检查新版本（%lld 秒）。完成后 cmux 将重新启动。你的终端和代理会继续运行。"
+            "state": "needs_review",
+            "value": "安装器正在检查新版本（%lld 秒）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "安裝程式正在檢查新版本（%lld 秒）。完成後 cmux 會重新啟動。你的終端機和代理程式會繼續執行。"
+            "state": "needs_review",
+            "value": "安裝程式正在檢查新版本（%lld 秒）。"
           }
         }
       }
@@ -32616,6 +32616,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法移動 cmux"
+          }
+        }
+      }
+    },
+    "updater.star.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A star helps other developers find it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スターは他の開発者がcmuxを見つける助けになります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تساعد النجمة مطورين آخرين في العثور عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvjezdica pomaže drugim programerima da ga pronađu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En stjerne hjælper andre udviklere med at finde det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Stern hilft anderen Entwicklern, es zu finden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una estrella ayuda a otros desarrolladores a encontrarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une étoile aide d’autres développeurs à le découvrir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una stella aiuta altri sviluppatori a trovarlo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្កាយជួយអ្នកអភិវឌ្ឍន៍ផ្សេងទៀតឱ្យរកឃើញវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "별은 다른 개발자가 cmux를 찾는 데 도움이 됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En stjerne hjelper andre utviklere med å finne det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gwiazdka pomaga innym programistom go znaleźć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma estrela ajuda outros desenvolvedores a encontrá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звезда помогает другим разработчикам его найти."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดาวช่วยให้นักพัฒนาคนอื่นค้นพบมัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir yıldız, diğer geliştiricilerin onu bulmasına yardımcı olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зірка допомагає іншим розробникам його знайти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ngôi sao giúp các nhà phát triển khác tìm thấy nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "点星能帮助其他开发者发现它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "加星能幫助其他開發者發現它。"
+          }
+        }
+      }
+    },
+    "updater.star.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHubを開く"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori GitHub"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn GitHub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri GitHub"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne GitHub"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir o GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิด GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub'ı aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开 GitHub"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開 GitHub"
+          }
+        }
+      }
+    },
+    "updater.star.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Star cmux on GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHubでcmuxにスターを付ける"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضع نجمة لـ cmux على GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodijelite zvjezdicu cmuxu na GitHubu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giv cmux en stjerne på GitHub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux auf GitHub einen Stern geben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dale una estrella a cmux en GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettez une étoile à cmux sur GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi una stella a cmux su GitHub"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ផ្កាយឱ្យ cmux នៅលើ GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub에서 cmux에 별 주기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi cmux en stjerne på GitHub"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daj cmux gwiazdkę na GitHubie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dê uma estrela ao cmux no GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставьте cmux звезду на GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กดดาวให้ cmux บน GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub'da cmux'a yıldız verin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставте cmux зірку на GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gắn sao cho cmux trên GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 GitHub 上为 cmux 点星"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 GitHub 上為 cmux 加星"
           }
         }
       }

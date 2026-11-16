@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { RowShimmer, ShimmerEnabledContext, ShimmerText } from "../src/agent-session/acpmux/conversation/ShimmerText";
 import { startShimmerCadence } from "../src/agent-session/acpmux/conversation/shimmerCadence";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM;
 let root: Root | undefined;
@@ -72,6 +73,7 @@ afterEach(async () => {
   root = undefined;
   cleanup?.();
   cleanup = undefined;
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

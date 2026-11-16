@@ -5,6 +5,8 @@
 //! loaded after its pinned SHA-256 matches (Cisco pays the H.264 patent royalties for that
 //! binary); compiled from source in bench builds only. x264 (`x264` feature, opt-in) waits
 //! for Lawrence's legal decision on H.264 patent royalties: dev and test builds only.
+//! On Linux, `--codec auto` (opt-in until measured on GPUs, hq#12040) uses the GPU through VAAPI (cmux-encode `vaapi`, libva
+//! loaded at run time) when a render node encodes H.264, else OpenH264, and logs which and why.
 
 use crate::Res;
 #[cfg(feature = "openh264")]
@@ -19,9 +21,16 @@ pub use cmux_encode::H264Encoder;
 /// Encoder settings.
 // A build with no encoder feature (and no VideoToolbox) reads none of them.
 #[cfg_attr(
-    not(any(feature = "openh264", feature = "bench", feature = "x264", target_os = "macos")),
+    not(any(
+        feature = "openh264",
+        feature = "bench",
+        feature = "x264",
+        target_os = "macos",
+        target_os = "linux"
+    )),
     allow(dead_code)
 )]
+#[derive(Clone, Copy)]
 pub struct EncCfg<'a> {
     pub width: u32,
     pub height: u32,
@@ -29,22 +38,26 @@ pub struct EncCfg<'a> {
     pub kbps: u32,
     /// Software encoders only.
     #[cfg_attr(
-        not(any(feature = "openh264", feature = "bench", feature = "x264")),
+        not(any(feature = "openh264", feature = "bench", feature = "x264", target_os = "linux")),
         allow(dead_code)
     )]
     pub threads: u16,
-    /// `openh264` (default) or `x264` (needs the `x264` feature).
+    /// `auto` (Linux: VAAPI on a GPU, else openh264), `vaapi` (Linux), `openh264`
+    /// or `x264` (needs the `x264` feature).
     pub codec: &'a str,
     /// openh264 usage: screen content (default; codes scrolling text with motion search
     /// at a small fraction of the camera mode's bitrate, but turns large changes into
     /// IDRs) or camera.
-    #[cfg_attr(not(any(feature = "openh264", feature = "bench")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(feature = "openh264", feature = "bench", target_os = "linux")),
+        allow(dead_code)
+    )]
     pub screen_content: bool,
     /// x264 only.
     #[cfg_attr(not(feature = "x264"), allow(dead_code))]
     pub preset: &'a str,
-    /// x264 only (`high` for hardware decoders, `baseline` for the Linux bench).
-    #[cfg_attr(not(feature = "x264"), allow(dead_code))]
+    /// x264 and VAAPI (`high` for hardware decoders, `baseline` for the Linux bench).
+    #[cfg_attr(not(any(feature = "x264", target_os = "linux")), allow(dead_code))]
     pub profile: &'a str,
     /// Cisco's OpenH264 library (`--openh264-lib`), checked against its pinned SHA-256.
     #[cfg_attr(not(any(feature = "openh264", feature = "bench")), allow(dead_code))]
@@ -113,8 +126,83 @@ fn openh264_api(lib: Option<&str>) -> Res<OpenH264Api> {
     Err("openh264 is not installed: run `cmux-rd openh264-install` (downloads Cisco's library from Cisco)".into())
 }
 
+/// The software encoder's threads (and OpenH264's slices) for this machine:
+/// [`threads_for_cores`] of the cores this process may run on.
+pub fn default_threads() -> u16 {
+    threads_for_cores(std::thread::available_parallelism().map_or(1, |n| n.get()))
+}
+
+/// Two below 8 cores, four from 8. Measured with Cisco's OpenH264 at 1080p
+/// (`scripts/encode-matrix.sh`, cmux#44552): one thread is slower than two even on a 2-vCPU
+/// VM; four gain 5-10% from 8 cores and lose at 4, where they compete with capture and the
+/// session's loop thread.
+pub fn threads_for_cores(cores: usize) -> u16 {
+    if cores >= 8 {
+        4
+    } else {
+        2
+    }
+}
+
+/// [`open`], with OpenH264 coded under the bench's `key=value` settings when given
+/// (`cmux-rd encode-selftest --openh264-options`; cmux-encode `OpenH264Options::parse`).
+pub fn open_with(cfg: &EncCfg<'_>, openh264_options: Option<&str>) -> Res<Box<dyn H264Encoder>> {
+    #[cfg(any(feature = "openh264", feature = "bench"))]
+    if let (Some(options), "openh264") = (openh264_options, cfg.codec) {
+        let enc_cfg = cmux_encode::EncCfg {
+            width: cfg.width,
+            height: cfg.height,
+            fps: cfg.fps,
+            kbps: cfg.kbps,
+            threads: cfg.threads,
+            screen_content: cfg.screen_content,
+        };
+        let options = cmux_encode::openh264::OpenH264Options::parse(options)?;
+        let api = openh264_api(cfg.openh264_lib)?;
+        return Ok(Box::new(OpenH264::with_options(&enc_cfg, api, &options)?));
+    }
+    if openh264_options.is_some() && cfg.codec != "openh264" {
+        return Err("--openh264-options needs --codec openh264".into());
+    }
+    open(cfg)
+}
+
+/// The encoder `--codec auto` (the Linux default) picks: the GPU's through VAAPI when a
+/// render node's driver encodes H.264, else OpenH264. The log line says which and why.
+#[cfg(target_os = "linux")]
+fn open_auto(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
+    match open_vaapi(cfg) {
+        Ok(enc) => {
+            eprintln!("cmux-rd: encoder: {} (hardware: VAAPI probe passed)", enc.name());
+            Ok(enc)
+        }
+        Err(why) => {
+            let enc = open(&EncCfg { codec: "openh264", ..*cfg })?;
+            eprintln!("cmux-rd: encoder: {} (software: VAAPI unavailable: {why})", enc.name());
+            Ok(enc)
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn open_vaapi(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
+    let enc_cfg = cmux_encode::EncCfg {
+        width: cfg.width,
+        height: cfg.height,
+        fps: cfg.fps,
+        kbps: cfg.kbps,
+        threads: cfg.threads,
+        screen_content: cfg.screen_content,
+    };
+    Ok(Box::new(cmux_encode::vaapi::Vaapi::new(&enc_cfg, cfg.profile == "baseline")?))
+}
+
 pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
     match cfg.codec {
+        #[cfg(target_os = "linux")]
+        "auto" => open_auto(cfg),
+        #[cfg(target_os = "linux")]
+        "vaapi" => open_vaapi(cfg),
         #[cfg(any(feature = "openh264", feature = "bench"))]
         "openh264" => {
             let enc_cfg = cmux_encode::EncCfg {
@@ -145,6 +233,29 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
             cfg.kbps,
             cfg.profile == "baseline",
         )?)),
+        #[cfg(any(feature = "vp9", feature = "av1"))]
+        "vp9" | "av1" => {
+            let codec = cmux_encode::Codec::parse(cfg.codec).ok_or("codec")?;
+            let enc_cfg = cmux_encode::EncCfg {
+                width: cfg.width,
+                height: cfg.height,
+                fps: cfg.fps,
+                kbps: cfg.kbps,
+                threads: cfg.threads,
+                screen_content: cfg.screen_content,
+            };
+            cmux_codecs::open_encoder(codec, &enc_cfg)?
+                .ok_or_else(|| format!("codec {} not available in this build", cfg.codec).into())
+        }
         other => Err(format!("codec {other} not available in this build").into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn eight_cores_encode_on_four_threads_and_fewer_on_two() {
+        let threads: Vec<u16> = [1, 2, 4, 6, 8, 16].map(super::threads_for_cores).to_vec();
+        assert_eq!(threads, [2, 2, 2, 2, 4, 4]);
     }
 }

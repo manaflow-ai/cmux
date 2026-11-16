@@ -305,13 +305,12 @@ public struct DaemonLauncher: Sendable {
     /// classic never removes NEXT's workspaces (``StateFolderMove`` moved what
     /// older builds kept there).
     public static func nextSupport(_ applicationSupport: URL = applicationSupportDirectory()) -> URL {
-        applicationSupport.appendingPathComponent("cmux-next", isDirectory: true)
+        NextSupport(applicationSupport: applicationSupport).folder
     }
 
     /// The user's `~/Library/Application Support`.
     public static func applicationSupportDirectory() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        NextSupport.applicationSupportDirectory()
     }
 
     // MARK: - Ensure
@@ -382,10 +381,10 @@ public struct DaemonLauncher: Sendable {
                 clock: clock
             )
             let ensured = try Self.parseEnsure(result)
-            health?.note(.ready(pid: ensured.pid))
+            note?.end(.ready(pid: ensured.pid))
             return ensured
         } catch {
-            health?.note(.exited)
+            note?.end(.exited)
             throw error
         }
     }

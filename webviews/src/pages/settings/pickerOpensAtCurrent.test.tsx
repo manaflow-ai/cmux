@@ -95,7 +95,7 @@ test("typing in the search is not undone by a later jump to the selected theme",
 });
 
 test("the font picker opens on the font in use", async () => {
-  page = await renderPage({ path: "/settings/appearance", mock: { values: { "terminal.fontFamily": "SF Mono" } } });
+  page = await renderPage({ path: "/settings/terminal", mock: { values: { "terminal.fontFamily": "SF Mono" } } });
   await click(rowElement(page.container, "terminal.fontFamily").querySelector("[data-font-picker]")!);
   const list = document.querySelector<HTMLElement>(".font-picker-panel .ui-combobox-list")!;
   const current = list.querySelector('[aria-current="true"]')!;

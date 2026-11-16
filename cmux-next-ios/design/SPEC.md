@@ -817,8 +817,8 @@ When the agent requests permission (ACP `session/request_permission`):
 
 ### 6.6 Questions (AskUserQuestion / ACP elicitation)
 
-- `QuestionCard`: `surface` radius 20, padding 16; header `questionmark.bubble` + question text
-  (`headline`); optional `rowSubtitle` context.
+- `QuestionCard`: `surface` radius 20, padding 16; header row: the item's header (caption, uppercased) and "1 of N",
+  no icon; then the question text (`headline`); optional `rowSubtitle` context.
 - Single choice: options as 48 h rows inside the card, radius 14, `fill`; selected:
   `fillSelected` + trailing `checkmark` (`label`). Multi-select: trailing `circle` /
   `checkmark.circle.fill`. Last row "Other..." expands an inline text field.
@@ -1209,8 +1209,11 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
   is opened until it has newer activity. Copy says "is waiting": the Mac does not say
   whether it is a permission or a question.
 - Tap: a needs-you workspace opens on its waiting tab, which shows the pending permission or
-  question card; otherwise the last tab used on this device, else the Mac's active tab
-  (`Workspace.activeTabID`), else the first. Offline: no push; an alert "<Mac> is offline"
+  question card; otherwise the tab left on screen there in this launch (back to the list and
+  in again lands where you were; Leo 2026-11-14), else the active tab of the layout's
+  top-left pane, else the Mac's active tab (`Workspace.activeTabID`), else the first
+  (`WorkspaceOpeningTab`). An open that names a tab (a notification, link, Feed card, row
+  menu or search result) opens that tab. Offline: no push; an alert "<Mac> is offline"
   with last seen.
 - Hold a row: a menu headed "<Mac> · <branch or directory>" ("· Offline"): one item per tab
   (opens that tab; an agent tab is titled with its task, as on the row, with the agent as

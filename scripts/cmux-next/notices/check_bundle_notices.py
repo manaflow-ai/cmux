@@ -22,6 +22,12 @@ an entry of the map, and every requirement of each matching entry must hold:
                    COPYRIGHT-library.html is bundled unchanged under
                    Contents/Resources/toolchain-licenses (toolchain_notices.py)
   zig-std          every reviewed Zig LICENSE is bundled unchanged there
+An entry with `copy_of: <path>` covers binaries that may be a copy of the
+Mach-O at <app>/<path> (a helper app that runs its host's own executable). A
+binary is a copy when its LC_UUIDs are those of <path>: codesign and strip keep
+them, so a copy signed under its own identifier still matches. A copy needs the
+notices of <path>'s entries as well as its own; a binary that is no copy needs
+its own. When either has no LC_UUID that cannot be told, which fails.
 `resources` entries name non-Mach-O third-party data (a path relative to the
 .app); when the bundle has that path, its notices must hold too. A bundle that
 has a path in REQUIRED_RESOURCES needs a `resources` entry for it.
@@ -98,6 +104,60 @@ def is_macho(path: Path) -> bool:
     return magic in FAT_MAGICS and 0 < count < 45
 
 
+LC_UUID = 0x1B
+
+
+def _thin_uuid(data: bytes, offset: int) -> bytes | None:
+    """The LC_UUID of the thin Mach-O at <offset>, None when it has none."""
+    order = "<" if struct.unpack_from("<I", data, offset)[0] in (0xFEEDFACE, 0xFEEDFACF) else ">"
+    magic = struct.unpack_from(order + "I", data, offset)[0]
+    if magic not in (0xFEEDFACE, 0xFEEDFACF):
+        return None
+    is_64 = magic == 0xFEEDFACF
+    ncmds = struct.unpack_from(order + "I", data, offset + 16)[0]
+    cursor = offset + (32 if is_64 else 28)
+    for _ in range(ncmds):
+        if cursor + 8 > len(data):
+            return None
+        cmd, size = struct.unpack_from(order + "II", data, cursor)
+        if cmd == LC_UUID and size >= 24 and cursor + 24 <= len(data):
+            return data[cursor + 8:cursor + 24]
+        if size < 8:
+            return None
+        cursor += size
+    return None
+
+
+def macho_uuids(path: Path) -> frozenset[bytes]:
+    """The LC_UUID of every slice (empty when a slice has none or the file is
+    not a readable Mach-O)."""
+    data = path.read_bytes()
+    if len(data) < 8:
+        return frozenset()
+    magic, count = struct.unpack_from(">II", data, 0)
+    offsets = [0]
+    if magic in FAT_MAGICS:
+        width = 32 if magic == 0xCAFEBABF else 20
+        offsets = []
+        for index in range(count):
+            at = 8 + index * width
+            if at + width > len(data):
+                return frozenset()
+            if magic == 0xCAFEBABF:
+                offsets.append(struct.unpack_from(">Q", data, at + 8)[0])
+            else:
+                offsets.append(struct.unpack_from(">I", data, at + 8)[0])
+    uuids = []
+    for offset in offsets:
+        if offset + 32 > len(data):
+            return frozenset()
+        uuid = _thin_uuid(data, offset)
+        if uuid is None:
+            return frozenset()
+        uuids.append(uuid)
+    return frozenset(uuids)
+
+
 def macho_files(app: Path) -> list[str]:
     found = []
     for path in sorted((app / "Contents").rglob("*")):
@@ -170,19 +230,48 @@ def check(
             for need in entry["notices"]:
                 if not requirement_holds(need, entry["path"]):
                     errors.append(missing(entry["path"], need))
+
+    def is_copy_of(rel: str, source: str) -> bool | str:
+        """True when <rel> is a copy of <source>, False when it is not (or
+        the bundle has no <source>), an error when that cannot be told."""
+        if not (app / source).is_file():
+            return False
+        ours, theirs = macho_uuids(app / rel), macho_uuids(app / source)
+        if not ours or not theirs:
+            missing_uuid = rel if not ours else source
+            return (f"{rel}: cannot tell whether it is a copy of {source} "
+                    f"({missing_uuid} has no LC_UUID in some slice), so which notices it needs is unknown")
+        return ours == theirs
+
     for rel in macho_files(app):
         entries = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rel, e["path"])]
         if not entries:
             errors.append(f"{rel}: Mach-O that no bundle-map entry covers")
             continue
+        needs: list[tuple[str, str]] = []
         for entry in entries:
-            for need in entry["notices"]:
-                if not requirement_holds(need, entry["path"], rel):
-                    errors.append(missing(rel, need))
+            needs += [(entry["path"], need) for need in entry["notices"]]
+            source = entry.get("copy_of")
+            if source is None:
+                continue
+            copy = is_copy_of(rel, source)
+            if isinstance(copy, str):
+                errors.append(copy)
+            elif copy:
+                needs += [(e["path"], need) for e in bundle_map["entries"]
+                          if fnmatch.fnmatchcase(source, e["path"]) for need in e["notices"]]
+        seen = set()
+        for owner, need in needs:
+            if need in seen:
+                continue
+            seen.add(need)
+            if not requirement_holds(need, owner, rel):
+                errors.append(missing(rel, need))
         # Rust code can land in a binary that the map does not expect (Xcode
-        # merges Iroh.framework's static code into Contents/MacOS/cmux in
-        # Release), so every Mach-O is scanned for rustc's std paths.
-        if not any("rust-std" in entry["notices"] for entry in entries):
+        # merges a framework's static code, as it once did Iroh.framework's,
+        # into Contents/MacOS/cmux in Release), so every Mach-O is scanned
+        # for rustc's std paths.
+        if "rust-std" not in seen:
             module, _ = toolchain_manifest()
             commits = module.rustc_commits(app / rel)
             if commits:

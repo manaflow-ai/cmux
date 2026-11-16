@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { canImport, ImportHistoryStore, OPS, type ImportReport } from "./model";
+import { userMessage } from "../shared/userMessage";
+
+/** What a failure without its own sentence says (the owner's text stays in the error). */
+const GENERIC = userMessage(undefined);
 
 const report = (added = 3, written?: number): ImportReport => ({
   plan: { total: 3, new: added, duplicate: 3 - added, secrets: 0 },
@@ -263,7 +267,7 @@ describe("Bring your history", () => {
     expect(store.getSnapshot().phase).toBe("error");
     expect(store.getSnapshot().canUndo).toBe(true);
     expect(store.getSnapshot().rows.find((row) => row.id === "claude-code")?.phase).toBe("done");
-    expect(store.getSnapshot().rows.find((row) => row.id === "codex")?.error).toBe("cannot read source");
+    expect(store.getSnapshot().rows.find((row) => row.id === "codex")?.error).toBe(GENERIC);
   });
   test("retry and a zero-new rerun retain the batch and Undo for earlier successful sources", async () => {
     let failCodex = true;

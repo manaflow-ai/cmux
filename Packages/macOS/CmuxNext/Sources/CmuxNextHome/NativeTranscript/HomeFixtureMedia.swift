@@ -23,6 +23,25 @@ nonisolated enum HomeFixtureMedia {
     }
 
     static func writePNG(width: Int, height: Int, to url: URL, hue: CGFloat) throws {
+        let image = try photo(width: width, height: height, hue: hue)
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
+        else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(dest, image, nil)
+        guard CGImageDestinationFinalize(dest) else { throw CocoaError(.fileWriteUnknown) }
+    }
+
+    /// The same photo as PNG bytes, with no file.
+    static func pngData(width: Int, height: Int, hue: CGFloat) throws -> Data {
+        let image = try photo(width: width, height: height, hue: hue)
+        let bytes = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(bytes as CFMutableData, UTType.png.identifier as CFString, 1, nil)
+        else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(dest, image, nil)
+        guard CGImageDestinationFinalize(dest) else { throw CocoaError(.fileWriteUnknown) }
+        return bytes as Data
+    }
+
+    private static func photo(width: Int, height: Int, hue: CGFloat) throws -> CGImage {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw CocoaError(.fileWriteUnknown) }
@@ -34,11 +53,8 @@ nonisolated enum HomeFixtureMedia {
         ctx.fillEllipse(in: CGRect(x: CGFloat(width) * 0.6, y: CGFloat(height) * 0.45, width: CGFloat(width) * 0.16, height: CGFloat(width) * 0.16))
         ctx.setFillColor(CGColor(srgbRed: 0.08, green: 0.1, blue: 0.18, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height) * 0.3))
-        guard let image = ctx.makeImage(),
-              let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
-        else { throw CocoaError(.fileWriteUnknown) }
-        CGImageDestinationAddImage(dest, image, nil)
-        guard CGImageDestinationFinalize(dest) else { throw CocoaError(.fileWriteUnknown) }
+        guard let image = ctx.makeImage() else { throw CocoaError(.fileWriteUnknown) }
+        return image
     }
 
     static func writePDF(to url: URL) throws {

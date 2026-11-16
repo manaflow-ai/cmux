@@ -270,20 +270,12 @@ fn move_pane_in_state(
             let public_id = ScreenPublicId::random()?;
             let index = state.workspace_index(workspace).context("workspace disappeared")?;
             let item = state.workspaces.get_mut(index).context("workspace disappeared")?;
-            item.screens.push(Screen {
-                id: mux.next_id(),
-                public_id: public_id.clone(),
+            item.screens.push(Screen::with_one_pane(
+                mux.next_id(),
+                public_id.clone(),
                 name,
-                root: Node::Leaf(source),
-                active_pane: source,
-                zoomed_pane: None,
-                creation_order_auto_layout: Some(vec![source]),
-                viewport_splits: Default::default(),
-                viewport_base_width: None,
-                layout_columns: Vec::new(),
-                layout_revision: 0,
-                layout_undo: Default::default(),
-            });
+                source,
+            ));
             // A workspace whose only screen this is shows it.
             if item.screens.len() == 1 {
                 item.active_screen = 0;
@@ -542,7 +534,7 @@ impl Mux {
                     }
                 }
                 let mut projection =
-                    mux.resource_effect_projection_locked(registry, &mut projected, result)?;
+                    mux.changed_state_projection_locked(registry, state, &mut projected, result)?;
                 if source_key != target_key {
                     for terminal in &terminals {
                         retarget_terminal_workspace(&mut projection.patch, terminal, &target_key);
@@ -555,7 +547,8 @@ impl Mux {
                     projection.changes,
                     projected,
                 )
-                .projected(projection.restates_all))
+                .projected(projection.restates_all)
+                .restating(projection.restated))
             },
         )?;
         if !commit.replayed

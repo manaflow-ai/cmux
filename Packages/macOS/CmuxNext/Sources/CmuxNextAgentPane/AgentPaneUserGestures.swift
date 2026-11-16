@@ -108,6 +108,13 @@ import CmuxNextCompat
         return now() - lastScope <= Self.lifetime
     }
 
+    /// An upload credit alone, for files another app sent to the chat (``AgentPaneDroppedPaths/Kind/external``):
+    /// the person's act there (the service, Open With, a Dock drop) is the gesture, and it grants
+    /// nothing else.
+    public func recordUpload() {
+        lastUpload = now()
+    }
+
     /// Uses the gesture's upload credit (one batch of the person's files, ``AgentPaneUpload``): true
     /// once per recorded gesture within ``lifetime``; the grant and scope-add credits stay.
     public func consumeUpload() -> Bool {

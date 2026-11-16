@@ -98,6 +98,7 @@ class ExclusionAllowlistTests(unittest.TestCase):
         for path in (
             "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/CloudSessions.xcstrings",
             "plans/cmux-next/action-surfaces.json",
+            "plans/cmux-next/action-catalog.json",
             "schemas/settings/settings-schema.json",
             "web/data/next-docs/cli-reference.generated.json",
             "cmux-tui/Cargo.lock",

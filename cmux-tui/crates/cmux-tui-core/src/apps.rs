@@ -18,16 +18,26 @@
 #[cfg(unix)]
 mod actions;
 #[cfg(unix)]
+mod activation;
+#[cfg(unix)]
+mod budget;
+#[cfg(unix)]
 mod calls;
 #[cfg(unix)]
 mod cancel;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
+mod chat_widgets;
+#[cfg(unix)]
+mod composer;
+#[cfg(unix)]
 mod deploy;
 #[cfg(unix)]
 mod egress;
 pub(crate) mod envelope;
+#[cfg(unix)]
+mod github_gateway;
 #[cfg(unix)]
 mod grants;
 #[cfg(unix)]
@@ -44,6 +54,15 @@ mod local_reload;
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
+#[cfg(unix)]
+mod openers;
+#[cfg(unix)]
+// The `render: web` page bridge: `page_calls` runs each page's calls through it
+// (`allowed_ops` and the rate-limited count are read only by tests).
+#[cfg_attr(not(test), allow(dead_code))]
+mod page_bridge;
+#[cfg(unix)]
+mod page_calls;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
@@ -173,6 +192,10 @@ impl AppsSlot {
                     Box::new(routing::MuxRouter::new(mux)),
                     Box::new(egress::HttpFetcher),
                 );
+                // Apps' GitHub reads run as the person's own gh sign-in.
+                supervisor.set_github_gateway(github_gateway::GitHubGateway::new(Arc::new(
+                    crate::feed_client::ProcessGh,
+                )));
                 // A page relay calls the store through the v2 page router,
                 // which makes it no apps client: it hears `apps-changed`
                 // from `subscribe` (page-router.json `events`), so the open

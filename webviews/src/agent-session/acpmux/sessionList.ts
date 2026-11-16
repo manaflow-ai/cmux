@@ -108,6 +108,9 @@ export type AcpmuxSessionEntry = {
   unsent?: boolean;
   /** Its last turn completed: its harness profile runs here (signed in, routed). */
   worked?: boolean;
+  /** When its last turn ended stopped (`lastTurn.status` `cancelled`): acpmux can carry it on from
+   *  there (subagents/resumeState.ts ``subsessionResumeRow``). */
+  stoppedAt?: number;
   /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
   lifecycleReceipt?: LifecycleReceipt;
   /** The folder of a sub-session this chat's agent wants to start but cannot until the person trusts
@@ -367,6 +370,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
       session.status !== "running" &&
       session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
+    ...(session.lastTurn?.status === "cancelled" && { stoppedAt: time(session.lastTurn.endedAt) ?? 0 }),
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),
     retry: readRetry(session.retry) ?? undefined,

@@ -1,10 +1,10 @@
 //! NEXT Cloud's API calls, one library for the cmux daemon's `cloud.*` ops (cmux-tui-core
 //! `server/cloud_api.rs`) and the cmux CLI (`cmux cloud api`, which sends its request to the
-//! daemon): a machine's SCP route, domains, publications, sandboxed Runs, the person's hand-offs
-//! and acpmux routes, previews and a machine's files and exec. The macOS app sent these
-//! from Swift (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the retry
-//! of a lost Run create, the long-poll to a Run's receipt, the hand-off paging and every refusal's
-//! reading live here.
+//! daemon): a machine's SCP route, domains, publications, the person's hand-offs and acpmux
+//! routes, previews and a machine's files and exec. The macOS app sent these from Swift
+//! (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
+//! and every refusal's reading live here. Sandboxed Runs are the daemon's own ([`sandbox`]): a
+//! Cloud chat on a machine made for the task, never classic Cloud's Run API.
 //!
 //! A call is a [`Request`]: its name (`call`, one of [`CALLS`]), the API's base URL, the auth
 //! (`stack|owner|worker`), the caller's `credential` (and classic's `refresh`), the `team`, the
@@ -35,7 +35,8 @@
 //! `plan_required` (`message`, `upgrade_url`, `plan`) or `decoding` (`message`): the app's
 //! `CloudAPIError` cases one for one.
 //!
-//! Auth: `stack` is classic cmux.com's sandboxed Runs (`/api/runs`): the Stack access token as the
+//! Auth: `stack` is classic cmux.com's (only [`classic_runs`]' drain of a Run made before the
+//! daemon ran Runs sends it): the Stack access token as the
 //! bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
 //! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
 //! invocation log records every other header and the URL, so nothing else may carry a key).
@@ -47,13 +48,14 @@
 #![cfg(unix)]
 
 mod chat;
+pub mod classic_runs;
 mod http;
 mod machine;
 pub mod machine_io;
 mod network;
 mod owner;
 mod previews;
-mod runs;
+pub mod sandbox;
 pub mod session;
 mod turns;
 
@@ -94,10 +96,17 @@ pub struct Request {
 pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
     let mut parts = input.splitn(2, |&b| b == b'\n');
     let (head, tail) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
-    let mut request: Request = serde_json::from_slice(head)
+    let mut head: Map<String, Value> = serde_json::from_slice(head)
+        .map_err(|_| "the request is not a cloud api request".to_owned())?;
+    // The app's classic Cloud session, when it has one (`classic`), or the word that it could not
+    // read it (`classic_unread`): [`classic_runs::attach`] decides which call takes it.
+    let classic = head.remove("classic");
+    let unread = head.remove("classic_unread").as_ref().and_then(Value::as_bool).unwrap_or(false);
+    let mut request: Request = serde_json::from_value(Value::Object(head))
         .map_err(|_| "the request is not a cloud api request".to_owned())?;
     request.credential = request.credential.trim().to_owned();
     request.api = request.api.trim().to_owned();
+    classic_runs::attach(&mut request, classic.as_ref(), unread);
     Ok((request, Zeroizing::new(tail.to_vec())))
 }
 
@@ -123,11 +132,10 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
             previews::publications(request, call, args).await
         }
         call if NOT_ON_THIS_CLOUD.contains(&call) => Err(not_on_this_cloud(call)),
-        "runs.create" => runs::create(&http, args).await,
-        "runs.start" => runs::start(&http, args).await,
-        "runs.wait" => runs::wait(&http, args).await,
-        "runs.cancel" => runs::cancel(&http, args).await,
-        "runs.sandbox" => runs::sandbox(&http, args).await,
+        // The daemon's own Runs ([`sandbox::Engine`]): never an HTTP call.
+        call if call.starts_with("runs.") => Err(Failure::Transport(format!(
+            "{call} is the cmux daemon's own sandboxed Run; send it to the daemon"
+        ))),
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
         "owner.turn_checkpoint" | "owner.turn_rewind" | "owner.turns" => {
             turns::run(&http, request.call.as_str(), args).await
@@ -223,9 +231,9 @@ pub fn longest(request: &Request) -> std::time::Duration {
         u64::try_from(optional_int(&request.args, name).unwrap_or(default)).unwrap_or(0)
     };
     let call_ms = match request.call.as_str() {
-        "runs.sandbox" => ms("timeoutMs", runs::DEFAULT_TIMEOUT_MS)
-            .saturating_add(ms("teardownMs", runs::DEFAULT_TEARDOWN_MS))
-            .saturating_add(ms("callsMarginMs", runs::DEFAULT_CALLS_MARGIN_MS)),
+        "runs.sandbox" => ms("timeoutMs", sandbox::DEFAULT_TIMEOUT_MS)
+            .saturating_add(ms("teardownMs", sandbox::DEFAULT_TEARDOWN_MS))
+            .saturating_add(ms("callsMarginMs", sandbox::DEFAULT_CALLS_MARGIN_MS)),
         "machine.io" => ms("timeout_ms", 0).saturating_add(5_000),
         _ => 0,
     };

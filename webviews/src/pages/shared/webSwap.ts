@@ -60,7 +60,7 @@ function unkeptFieldHold(doc: Document, edited = false): string | null {
 
 /** Edits a chat's wake state does not carry: registered unsaved state (sends, drafts not yet saved,
  * composition) and any edited field outside the kept composer, such as a queued message being edited.
- * A release that `agents.hiddenChats.discard` alone makes keeps such a page (`holdsEdits`). */
+ * Every hidden-chat release keeps such a page (`holdsEdits`): nothing typed is lost. */
 export function pageEditHold(doc: Document = document): string | null {
   return registeredPageHold(doc) || unkeptFieldHold(doc, true);
 }

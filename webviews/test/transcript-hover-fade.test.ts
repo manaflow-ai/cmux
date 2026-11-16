@@ -1,7 +1,8 @@
 // A control the transcript shows only on hover fades in and out, never blinks (Leo 2026-10-28:
 // "there should be, like, a fast fade-in fade-out. Right now they're just appearing and
 // disappearing. Like they're just blinking in and out of existence, and it's a bit jarring").
-// Every one takes the message hover row's dwell ramp (conversation.css --cv-actions-*, aliases of
+// User-message actions appear instantly (Lucas, 2026-11-13). Other controls take the dwell ramp
+// (conversation.css --cv-actions-*, aliases of
 // pages/shared/desktop.css --cmux-hover-reveal-*; Leo, 2026-11-07: "it should be, like, having its
 // limit based off of how long you've had your cursor actually on it"): out on its ease-in at rest,
 // in on its ramp under the pointer with no delay, so a brush past reaches only a faint level.
@@ -104,11 +105,12 @@ type Control = {
   leavesOnRowStep: boolean;
 };
 
-// The running subagent Stop is an intentional immediate reveal. Its per-row control is kept
+// User-message actions and the running subagent Stop are intentional immediate reveals.
+// The Stop control is kept
 // transparent at rest so a tray does not repeat a lit Stop on every line; subagent-stop-hover.test.tsx
 // pins that contract. It is the settled exception in the chat-transcript action rules, not a blink
 // in the fade-enabled message and tool controls covered here.
-const IMMEDIATE_REVEALS = new Set(["cv-subagent__stop"]);
+const IMMEDIATE_REVEALS = new Set(["cv-subagent__stop", "cv-user__actions"]);
 
 /// A list row's own hover parts: shown at once, gone on the quick step (conversation.css HOVER
 /// FOLLOWS THE POINTER), never on the message dwell.

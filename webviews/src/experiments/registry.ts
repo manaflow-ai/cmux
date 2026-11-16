@@ -12,7 +12,6 @@ import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlac
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
-import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
@@ -58,6 +57,7 @@ import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.exp
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
+import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -133,7 +133,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   toolErrorLook,
   tableActionsPlace,
   expandRowLook,
-  selectionReplyWrap,
   backgroundReactionLook,
   backgroundTurnLook,
   cloudStartLook,
@@ -154,6 +153,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerHatLook,
   hatQuestionsLook,
   hatChevronLook,
+  hatTuckLook,
   goalHatPlace,
   hatDoneLook,
   hatDoneCheckPlace,

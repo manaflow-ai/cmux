@@ -126,11 +126,10 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
     return measured;
   };
 
-  /// The column `--cv-column: clamp(min(720px, cap), 100%, cap)` draws in a pane of `pane` px: its insets
-  /// are on whole pixels (`--cv-inset`).
+  /// The column `--cv-column: clamp(min(720px, cap), 100%, cap)` draws in a pane of `pane` px.
   const column = (pane: number, cap: number) => {
     const span = Math.min(cap, Math.max(Math.min(720, cap), pane));
-    return pane - 2 * Math.max(16, Math.round((pane - span) / 2));
+    return pane - 2 * Math.max(16, (pane - span) / 2);
   };
 
   const widths = { standard: 800, narrow: 640, wide: 960 } as const;

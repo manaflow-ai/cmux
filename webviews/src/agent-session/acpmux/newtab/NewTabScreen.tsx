@@ -25,10 +25,10 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
+import { firstProject, homePath, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
 import {
   awaitProjectPreview,
   forgetProjectPreview,
@@ -40,7 +40,7 @@ import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
 import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
-import { errorMessage, isStartCancelled } from "../transportErrors";
+import { errorMessage, isStartCancelled, knownRefusalText } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -72,6 +72,8 @@ import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
+import { listingWanted, omnibarChats, omnibarFolders } from "./launchRows";
+import { type CompleteFolder, useChatSearch, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
 import { rememberedStartedProject } from "./startedProject";
@@ -85,37 +87,29 @@ import {
   profileRows,
   recentChatCards,
   screenRows,
-  inStrip,
+  searchWords,
   shellEntry,
   shortHost,
-  type CreateKind,
   type ScreenRow,
-  searchWords,
-  arrowStep,
-  stripStep,
 } from "./screenModel";
-import { RowGlyph } from "./RowGlyph";
-import { fitCreateStrip } from "./createStripFit";
+import { SuggestionGlyph } from "./RowGlyph";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { FirstRunStarters, showsFirstRunStarters, type FirstRunStarterLook } from "./FirstRunStarters";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
-import { type Translate, useT } from "../i18n";
+import { useT } from "../i18n";
 import { sendsHeldForHost } from "../sendWhenReady";
 import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
-import { PromptFocus } from "../promptFocus";
+import { suggestionsAnchor } from "./suggestionsAnchor";
+import { PromptFocusProvider } from "../promptFocus";
 import { tabsToComposer } from "../composerFocus";
-import { useEscapingPopup } from "../../../ui/popupHost";
-import { usePopupHost } from "../../../ui/UiProvider";
-import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChromeModel";
 import { useComposerSettings } from "../composerSettings";
-import { useComposerLook } from "../composerLook";
 import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
 import { useInlineAttachments } from "../composer/inlineAttachments";
 import { ComposerFoot } from "../ComposerFoot";
@@ -127,6 +121,7 @@ import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
+  insertsText,
   returnPicks,
   shownName,
   slashMatches,
@@ -203,6 +198,8 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onViewChat?(key: string): void;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
+  /// The host's `folder.complete`: an absolute folder's subfolders, for a path typed in the field.
+  completeFolder?: CompleteFolder;
   onShowAll(): void;
   /// The + menu's Search chats and Search pages: runs that app action (PLUS_SEARCH_ACTIONS); it
   /// rejects when the app refused it, and the page says so. Without it the + menu leaves both rows out.
@@ -397,7 +394,7 @@ export function NewTabScreen(props: Props) {
   // New Project is the choice: the send makes the folder first (askInNewProject). `name` is the one
   // the person typed; until then it is the prompt's (projectNameFrom).
   const [newProject, setNewProject] = useState<{ name?: string }>();
-  const [newProjectError, setNewProjectError] = useState<string>();
+  const [newProjectError, setNewProjectError] = useState<{ reason?: string }>();
   const newProjectPending = useRef(false);
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
@@ -621,8 +618,6 @@ export function NewTabScreen(props: Props) {
     else openHarnessesPage();
   };
   const wholeSelection = useRef(false);
-  /// The create strip action last selected (by ←, →, Tab or the arrows): ↓ and ↑ enter the strip there.
-  const stripKind = useRef<CreateKind | undefined>(undefined);
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
@@ -956,7 +951,7 @@ export function NewTabScreen(props: Props) {
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
     if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
-    if (field.current?.insertCommand(shownName(command))) {
+    if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
       requestAnimationFrame(() => field.current?.focus());
       return;
     }
@@ -1003,15 +998,34 @@ export function NewTabScreen(props: Props) {
         : undefined,
     [typed, shell, machine, environment, props.runMode?.mode, attachments.length],
   );
-  // The create actions the buttons under the field offer, at the end of the rows too.
-  const creates = useMemo(
-    (): CreateKind[] => [
-      ...(props.onCreate ? (["terminal", "browser"] as const) : []),
-      ...(harness ? (["chat"] as const) : []),
-    ],
-    [props.onCreate, harness],
-  );
   const profiles = props.onOpenInProfile && props.onOpenInNewProfile ? omnibar.profiles : undefined;
+  // The omnibar's agent sources (launchRows.ts): the chats it searches, the folders and agents it
+  // starts. The device index's search and a typed path's folder listing answer later
+  // (omnibarReads.ts), never in the keystroke's turn.
+  const barText = touched && !shell && !commandTyping && !profilePick ? typed : "";
+  const pushed = useDeviceChats();
+  const barSearched = useChatSearch(barText, props.loadChatsPage);
+  const barChats = useMemo(
+    () => omnibarChats(snapshot.sessions, barSearched, pushed),
+    [snapshot.sessions, barSearched, pushed],
+  );
+  const barFolders = useMemo(
+    () => omnibarFolders(props.projects, snapshot.sessions),
+    [props.projects, snapshot.sessions],
+  );
+  const barAgents = useMemo(
+    () =>
+      // A saved environment or New project picks where the chat starts (askChat), so a start in
+      // another folder would not start there: no start rows then.
+      offMachine || remoteTarget || environment || newProject
+        ? []
+        : agents.map((agent) => ({ id: agent.id, name: agentName(agent.id, agent.name) })),
+    [agents, offMachine, remoteTarget, environment, newProject],
+  );
+  const barListing = useFolderListing(
+    barText ? listingWanted(barText, barAgents, home, harness) : undefined,
+    props.completeFolder,
+  );
   const suggested = useMemo(
     () =>
       profilePick
@@ -1021,13 +1035,12 @@ export function NewTabScreen(props: Props) {
               screenRows(typed, {
                 omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
                 home,
-                create: creates,
                 ...(ask ? { ask } : {}),
-                createNames: {
-                  terminal: nt("create.terminal"),
-                  browser: nt("create.browser"),
-                  chat: nt("create.chat"),
-                },
+                chats: barChats,
+                folders: barFolders,
+                agents: barAgents,
+                ...(harness ? { defaultAgent: harness } : {}),
+                ...(barListing ? { listing: barListing } : {}),
                 ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
               }),
               (words) => withoutInlineTokens(words),
@@ -1042,20 +1055,16 @@ export function NewTabScreen(props: Props) {
       omnibar,
       home,
       ask,
-      creates,
       commandTyping,
       props.suggestionOrder,
-      nt,
+      barChats,
+      barFolders,
+      barAgents,
+      harness,
+      barListing,
     ],
   );
-  const rows = text !== dismissed ? suggested : [];
-  // The strip's labels are measured again when their words change (another language): a new ref.
-  const stripTitles = rows
-    .filter(inStrip)
-    .map((row) => rowTitle(nt, row))
-    .join("\n");
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- the titles are the measured input; fitCreateStrip reads the DOM
-  const stripRef = useCallback((node: HTMLDivElement | null) => fitCreateStrip(node), [stripTitles]);
+  const rows = text !== dismissed ? suggested : NO_ROWS;
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
@@ -1074,19 +1083,15 @@ export function NewTabScreen(props: Props) {
   const { plainFooter, spellChecking, attachmentView } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // Every template with chips draws the chat composer's box, split as Claude's in both looks: the
-  // mode, model and effort in the quiet row under it (composerLook.ts; Leo 2026-11-01: "we already
-  // have a good version"). Codex's look keeps only its tray over the box.
-  const look = useComposerLook();
+  // Every template keeps Claude's composer and its quiet footer.
   const chatBox = props.chips !== undefined;
   const split = chatBox;
   const trailingGap = newTabComposerTrailingGapArm();
   const iconColumn = newTabIconColumnArm();
   // Footer look and template can change while this screen stays mounted.
-  useRowFit(foot, `${split}:${plainFooter}:${look}`);
+  useRowFit(foot, `${split}:${plainFooter}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
-  const pushed = useDeviceChats();
   // Before the daemon lists the chats, the device chats wait with them (at most RESERVE_MS): a cold
   // page fills its list once, not the device chats first and the chats above them after.
   const [chatsReserveOver, setChatsReserveOver] = useState(false);
@@ -1175,18 +1180,16 @@ export function NewTabScreen(props: Props) {
     });
   };
   const list = useRef<HTMLDivElement>(null);
-  // With no room under the box for every row, the rows go past the window's edge (cx-6k6cg); the
-  // field keeps the keyboard and the list its highlight.
-  const host = usePopupHost();
-  const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  // The rows stay in the page (they never go to the native popup host): it draws text rows only, so a list with no
+  // room under the composer lost its glyphs, its Return hint and the create strip (2026-11-16). Short of room, the
+  // list scrolls in the room it has (screen.css --available-height).
   const listEdges = useScrollEdges();
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
       listEdges(node);
-      if (host) setShown(node);
     },
-    [host, listEdges],
+    [listEdges],
   );
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
@@ -1198,16 +1201,10 @@ export function NewTabScreen(props: Props) {
   // At the page's foot (the stage layout) the app's toasts lift above the composer card and never
   // cover it (toastAvoidance.ts). Elsewhere it sits at the top or the middle, clear of them.
   useEffect(() => (stage && composer ? reportToastAvoidance(composer, elementBox) : undefined), [stage, composer]);
-  const anchor = split ? (composer ?? box) : box;
-  useEscapingPopup(host, shown, () => anchor, {
-    // At the foot of the page (the stage layout) the rows open over the composer.
-    side: stage ? "top" : "bottom",
-    align: "start",
-    gap: UI_ANCHOR_GAP,
-    kind: "list",
-    shell: "parent",
-    onDismiss: () => setDismissed(textRef.current),
-  });
+  const anchor = useMemo(
+    () => (split && composer && box ? suggestionsAnchor(composer, box) : split ? (composer ?? box) : box),
+    [split, composer, box],
+  );
   const suggesting = rows.length > 0;
   useEffect(() => {
     if (!suggesting || !box) return;
@@ -1235,8 +1232,10 @@ export function NewTabScreen(props: Props) {
     if (!box || !row) return;
     const inner = box.getBoundingClientRect();
     const at = row.getBoundingClientRect();
-    if (at.top < inner.top) box.scrollTop -= inner.top - at.top;
-    else if (at.bottom > inner.bottom) box.scrollTop += at.bottom - inner.bottom;
+    // The rects include the composer's density zoom; scrollTop is in the list's own CSS pixels.
+    const zoom = box.offsetHeight > 0 ? inner.height / box.offsetHeight : 1;
+    if (at.top < inner.top) box.scrollTop -= (inner.top - at.top) / zoom;
+    else if (at.bottom > inner.bottom) box.scrollTop += (at.bottom - inner.bottom) / zoom;
   }, []);
 
   // MarkdownField owns the contenteditable's sizing and scroll position. The wrapper follows the
@@ -1307,8 +1306,6 @@ export function NewTabScreen(props: Props) {
         return props.onJump("workspace", row.id);
       case "ask":
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
-      case "create":
-        return row.kind === "chat" ? startChat() : create(row.kind);
       case "action":
         return props.onAction?.(row.id);
       case "inProfile":
@@ -1317,6 +1314,10 @@ export function NewTabScreen(props: Props) {
         return props.onOpenInProfile?.(row.url, row.id, how);
       case "newProfile":
         return props.onOpenInNewProfile?.(row.url, row.name);
+      case "chat":
+        return openChatRow(row.id, row.key);
+      case "launch":
+        return launch(row.harness, row.folder);
     }
   };
   /// Open in Profile…: the field empties to search the profiles; the rows list them all.
@@ -1401,8 +1402,7 @@ export function NewTabScreen(props: Props) {
     const opensTop = !rows.length || (current < 0 && isAddress(typed.trim(), home));
     const row = opensTop ? list[defaultSelection(list)] : rows[current];
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
-    const keeps =
-      !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
+    const keeps = !row || attachments.length === 0 || row.type === "ask";
     // With no harness, a default text suggestion would search before setup can open. A row
     // explicitly selected with the keyboard, and navigation matches, keep their own actions.
     if (!harness && prompt && !isAddress(prompt, home) && row?.type === "search" && selected === undefined) {
@@ -1487,6 +1487,38 @@ export function NewTabScreen(props: Props) {
     );
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
+  };
+  /// A chat row (launchRows.ts): a device chat opens through the host's Open Chat path, a live
+  /// session in this page, as its card does.
+  const openChatRow = (id: string, key?: string) => {
+    touch();
+    if (!key || !props.onOpenChat) return openCard(id);
+    const failed = (error: unknown) =>
+      setStartError({
+        error: errorMessage(error) || t("switch.unknownError"),
+        local: true,
+        retry: () => (setStartError(undefined), openChatRow(id, key)),
+      });
+    try {
+      void Promise.resolve(props.onOpenChat(key)).catch(failed);
+    } catch (error) {
+      failed(error);
+    }
+  };
+  /// A launch row ("Codex in ~/fun/cmux"): that agent's chat starts in that folder with no prompt,
+  /// as New chat does there; the host asks about a folder the person has not trusted yet.
+  const launch = (agent: string, folder: string) => {
+    touch();
+    if (created.current) return;
+    created.current = true;
+    // An empty chat in that folder, as New chat starts one: never through askChat, whose staged
+    // files and picked place (a local machine's folder) are the prompt's, not this start's. The
+    // files stay in the field.
+    if (authBlocksSend(targetAuth)) {
+      created.current = false;
+      return;
+    }
+    requestChat(agent, "", folder, agent === harness ? chipModel : undefined);
   };
   continueAfterSetup.current = (agent, model) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
@@ -1658,14 +1690,6 @@ export function NewTabScreen(props: Props) {
     wholeSelection.current =
       state.value !== "" && state.selectionStart === 0 && state.selectionEnd === state.value.length;
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
-    // On a create strip action (one line under the rows), ← and → step along the strip.
-    const sideways = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : undefined;
-    const along = plain && sideways ? stripStep(rows, current, sideways) : undefined;
-    if (along !== undefined) {
-      event.preventDefault();
-      pick(along);
-      return;
-    }
     const completion =
       plain && state.selectionStart === state.value.length && state.selectionEnd === state.value.length
         ? inlineCompletion(typed, rows)
@@ -1682,6 +1706,23 @@ export function NewTabScreen(props: Props) {
       pick(-1);
       return;
     }
+    // A launch row's folder completes as a shell completes one (Tab, as → and End do): the field
+    // takes the folder and a slash, and its subfolders list next (launchRows.ts `fill`).
+    // Only the row typing lit fills: on a row Tab or the arrows stepped to, Tab steps on.
+    const fillRow = kept < 0 ? rows[current >= 0 ? current : defaultSelection(rows)] : undefined;
+    const fill = fillRow?.type === "launch" ? fillRow.fill : undefined;
+    if (
+      event.key === "Tab" &&
+      plain &&
+      fill &&
+      fill !== typed &&
+      state.selectionStart === state.value.length &&
+      state.selectionEnd === state.value.length
+    ) {
+      event.preventDefault();
+      input.writeText(fill, fill.length, fill.length);
+      return;
+    }
     if (event.key === "Tab" && plain && rows.length && current < rows.length - 1) {
       // Tab steps the open suggestions, as in Chrome's omnibox; Enter still performs the action.
       // From the last row, with none open, and Shift-Tab always, focus moves on, so the keyboard
@@ -1693,15 +1734,11 @@ export function NewTabScreen(props: Props) {
     // Until the arrows pick a row (the top row typing lights is not a pick), a prompt of several
     // lines, wrapped ones too, keeps ↑ and ↓ for the caret, as in the chat's composer: the rows
     // take them from the caret's first (↑) or last (↓) line. Once a row is picked, the arrows step
-    // the rows, and the create strip as one line under them (arrowStep).
+    // the suggestion rows.
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
-      const leaving = rows[current];
-      if (leaving?.type === "create" && inStrip(leaving)) stripKind.current = leaving.kind;
-      const strip = rows.filter(inStrip);
-      const column = strip.findIndex((row) => row.type === "create" && row.kind === stripKind.current);
-      pick(arrowStep(rows, current, step, Math.max(0, column)));
+      pick(stepSelection(current, step, rows.length));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
@@ -1805,7 +1842,9 @@ export function NewTabScreen(props: Props) {
     () => snapshot.sessions.filter((session) => session.peer || session.hostKind !== "cloud"),
     [snapshot.sessions],
   );
-  const [worktreeError, setWorktreeError] = useState<string>();
+  /// A New Worktree that failed; `retry`, when the same ask can go again from the notice (a saved
+  /// environment's send goes again from the field, where its prompt stays).
+  const [worktreeError, setWorktreeError] = useState<{ retry?: () => void }>();
   // A saved environment's chat: on its machine, in its folder there, or on this computer in a new
   // worktree of its folder (the host makes it first; its refusal shows above the card and the
   // prompt stays in the field).
@@ -1840,7 +1879,8 @@ export function NewTabScreen(props: Props) {
       },
       (error: unknown) => {
         unstarted();
-        setWorktreeError((error instanceof Error && error.message) || String(error));
+        console.warn("agent pane: New Worktree failed", error);
+        setWorktreeError({});
       },
     );
   }
@@ -1873,13 +1913,15 @@ export function NewTabScreen(props: Props) {
       (error: unknown) => {
         newProjectPending.current = false;
         created.current = false;
-        if (current()) setNewProjectError((error instanceof Error && error.message) || String(error));
+        console.warn("agent pane: New Project failed", error);
+        const reason = error instanceof NewProjectUnsupported ? error.message : knownRefusalText(error);
+        if (current()) setNewProjectError(reason ? { reason } : {});
       },
     );
   }
   const newWorktreeHere =
     props.environments && props.onNewWorktree
-      ? (cwd: string) => {
+      ? function newWorktreeHere(cwd: string) {
           setWorktreeError(undefined);
           const choice = ++projectChoice.current;
           void props.onNewWorktree!(cwd).then(
@@ -1887,8 +1929,8 @@ export function NewTabScreen(props: Props) {
               if (folder && choice === projectChoice.current) pickProject(folder);
             },
             (error: unknown) => {
-              if (choice === projectChoice.current)
-                setWorktreeError((error instanceof Error && error.message) || String(error));
+              console.warn("agent pane: New Worktree failed", error);
+              if (choice === projectChoice.current) setWorktreeError({ retry: () => newWorktreeHere(cwd) });
             },
           );
         }
@@ -2187,7 +2229,7 @@ export function NewTabScreen(props: Props) {
   const focusField = () => field.current?.focus();
   const placed = new Set(field.current?.inlineIds() ?? inlineTokenIds(text));
   const composerCard = (
-    <PromptFocus value={focusField}>
+    <PromptFocusProvider focus={focusField}>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
@@ -2196,7 +2238,6 @@ export function NewTabScreen(props: Props) {
         ref={setComposer}
         className="nt-composer"
         data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
-        data-composer-look={look === "codex" ? "codex" : undefined}
         data-trailing-gap={trailingGap}
         data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
@@ -2229,9 +2270,17 @@ export function NewTabScreen(props: Props) {
             onDismiss={() => setStartError(undefined)}
           />
         )}
-        {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {worktreeError && (
+          <WorktreeFailure
+            {...(worktreeError.retry ? { onRetry: worktreeError.retry } : {})}
+            onDismiss={() => setWorktreeError(undefined)}
+          />
+        )}
         {newProjectError && (
-          <NewProjectFailure error={newProjectError} onDismiss={() => setNewProjectError(undefined)} />
+          <NewProjectFailure
+            {...(newProjectError.reason ? { reason: newProjectError.reason } : {})}
+            onDismiss={() => setNewProjectError(undefined)}
+          />
         )}
         {browseError && browseProject && (
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
@@ -2259,7 +2308,11 @@ export function NewTabScreen(props: Props) {
           <CloudChatHint onUse={() => runMode.onMode("cloud")} onClose={props.cloudHint.onClose} />
         )}
         {!pill && <div className="nt-above">{folderStrip}</div>}
-        <div ref={setBox} className="ui-glass ui-glass-floats nt-box" inert={props.cloudStarting === true}>
+        <div
+          ref={setBox}
+          className="ui-glass ui-glass-floats nt-composer-surface nt-box"
+          inert={props.cloudStarting === true}
+        >
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
           {commandsOpen && (
             <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
@@ -2364,10 +2417,10 @@ export function NewTabScreen(props: Props) {
             {split && pickers}
           </div>
           {fixFromLink && props.onFixFromLink && (
-            <div className="nt-create-strip">
+            <div className="nt-fix-actions">
               <button
                 type="button"
-                className="nt-create-strip-item nt-fix-chip"
+                className="nt-fix-chip"
                 disabled={fixing}
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={() => {
@@ -2439,7 +2492,7 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
       </div>
-    </PromptFocus>
+    </PromptFocusProvider>
   );
   // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
   // pick fills the composer and sends nothing; the first chat takes them away for good.
@@ -2516,51 +2569,45 @@ export function NewTabScreen(props: Props) {
                 where it always sat (screen.css .nt-composer-room). */}
           {minimal && <div className="nt-composer-room" />}
           {composerCard}
+          {/* Every layout, All Chats too: the suggestions no longer list New terminal and New browser tab. */}
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+          <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
+            {props.onCreate && (
+              <>
+                <button
+                  type="button"
+                  className="nt-tool ui-ghost"
+                  data-create="terminal"
+                  onClick={() => create("terminal")}
+                >
+                  <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                    <Icon name="terminal" size={14} />
+                  </span>
+                  <span>{nt("create.terminal")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="nt-tool ui-ghost"
+                  data-create="browser"
+                  onClick={() => create("browser")}
+                >
+                  <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                    <Icon name="browser" size={14} />
+                  </span>
+                  <span>{nt("create.browser")}</span>
+                </button>
+              </>
+            )}
+            <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
+              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                <Icon name="agent.chat" size={14} />
+              </span>
+              <span>{nt("create.chat")}</span>
+            </button>
+          </div>
           {starters}
           {props.notice}
           {environmentPanel}
-          {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
-                browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
-                Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
-          {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
-                New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
-          {!allChats && !minimal && template !== "cards" && (
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-            <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
-              {props.onCreate && (
-                <>
-                  <button
-                    type="button"
-                    className="nt-tool ui-ghost"
-                    data-create="terminal"
-                    onClick={() => create("terminal")}
-                  >
-                    <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                      <Icon name="terminal" size={14} />
-                    </span>
-                    <span>{nt("create.terminal")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="nt-tool ui-ghost"
-                    data-create="browser"
-                    onClick={() => create("browser")}
-                  >
-                    <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                      <Icon name="browser" size={14} />
-                    </span>
-                    <span>{nt("create.browser")}</span>
-                  </button>
-                </>
-              )}
-              <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
-                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                  <Icon name="agent.chat" size={14} />
-                </span>
-                <span>{nt("create.chat")}</span>
-              </button>
-            </div>
-          )}
           {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
           {lists}
         </>
@@ -2574,7 +2621,8 @@ export function NewTabScreen(props: Props) {
           anchor={anchor}
           side={stage ? "top" : "bottom"}
           label={nt("suggestions")}
-          className="nt-popover"
+          className="nt-composer-surface nt-popover"
+          hostGlass={false}
           initialFocus={false}
           finalFocus={false}
         >
@@ -2586,77 +2634,38 @@ export function NewTabScreen(props: Props) {
             role="listbox"
             aria-label={nt("suggestions")}
           >
-            {rows.map((row, index) =>
-              inStrip(row) ? null : (
-                <div
-                  key={rowKey(row)}
-                  id={`nt-row-${index}`}
-                  ref={index === current ? keepInView : undefined}
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === current}
-                  data-type={row.type}
-                  className={index === current ? "nt-row is-selected" : "nt-row"}
-                  // The pointer only lights the row it rests on (screen.css :hover); Return stays
-                  // the prompt's, or the row the keyboard picked. A hovered row that took Return
-                  // left "helo" unsent (Leo 2026-10-31: "i cant even press enter on that hello
-                  // anymore it doesnt send it to claude"). A press still runs the row it presses.
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    // Option- or Cmd-click: a page row opens as a new tab, as in Chrome's omnibox.
-                    activate(row, event.altKey || event.metaKey);
-                  }}
-                >
-                  {rowFavicon(row) ? (
-                    <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
-                  ) : (
-                    <RowGlyph kind={rowGlyph(row)} />
-                  )}
-                  <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
-                  {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-                  <span className="nt-row-action" data-popup-skip>
-                    {/* An Ask row Return does not take shows Cmd-Return's keycap in its action's place
-                      (always asks), no wider than the word it replaces, so a narrow pane never overflows. */}
-                    {index === current || row.type !== "ask" ? rowAction(t, nt, row) : <kbd>⌘↵</kbd>}
-                    {index === current && <kbd>↵</kbd>}
+            {rows.map((row, index) => (
+              <div
+                key={rowKey(row)}
+                id={`nt-row-${index}`}
+                ref={index === current ? keepInView : undefined}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="option"
+                tabIndex={-1}
+                aria-selected={index === current}
+                data-type={row.type}
+                className={index === current ? "nt-row is-selected" : "nt-row"}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  activate(row, event.altKey || event.metaKey);
+                }}
+              >
+                {rowFavicon(row) ? (
+                  <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
+                ) : (
+                  <SuggestionGlyph row={row} />
+                )}
+                <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
+                {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
+                {row.type === "action" && !!row.keycaps?.length && (
+                  <span className="nt-row-shortcut" data-popup-skip>
+                    {row.keycaps.map((cap, index) => (
+                      <kbd key={index}>{cap}</kbd>
+                    ))}
                   </span>
-                </div>
-              ),
-            )}
-            {rows.some(inStrip) && (
-              // The create actions the rows don't list (screenModel.ts): options still, so the arrow
-              // keys (↓ to the line, ← and → along it) and the native popup reach them, drawn as one quiet line.
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              <div ref={stripRef} className="nt-create-strip" role="group" aria-label={nt("create.label")}>
-                {rows.map((row, index) =>
-                  inStrip(row) ? (
-                    <div
-                      key={rowKey(row)}
-                      id={`nt-row-${index}`}
-                      ref={index === current ? keepInView : undefined}
-                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                      role="option"
-                      tabIndex={-1}
-                      aria-selected={index === current}
-                      aria-label={rowTitle(nt, row)}
-                      // tooltip-allow: a strip too narrow for its labels goes icon-only (createStripFit.ts data-icons-only); the tooltip names each action
-                      title={rowTitle(nt, row)}
-                      data-type={row.type}
-                      className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
-                      // As the rows: hover lights it, only the keyboard makes it Return's.
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        activate(row);
-                      }}
-                    >
-                      <RowGlyph kind={rowGlyph(row)} />
-                      <span className="nt-row-title">{rowTitle(nt, row)}</span>
-                    </div>
-                  ) : null,
                 )}
               </div>
-            )}
+            ))}
           </div>
         </Popover>
       )}
@@ -2715,6 +2724,9 @@ function ownsKeys(element: Element): boolean {
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
 }
 
+/// The rows of closed suggestions: one list, so what reads `rows` sees no change.
+const NO_ROWS: ScreenRow[] = [];
+
 /// A selection that matches no row's key.
 const NO_ROW = "";
 
@@ -2728,21 +2740,17 @@ function rowKey(row: ScreenRow): string {
       return `open:${row.url}`;
     case "workspace":
       return `workspace:${row.id}`;
-    case "create":
-      return `create:${row.kind}`;
     case "action":
       return `action:${row.id}`;
     case "profile":
       return `profile:${row.id}`;
+    case "chat":
+      return `chat:${row.key ?? row.id}`;
+    case "launch":
+      return `launch:${row.harness}:${row.folder}`;
     default:
       return row.type;
   }
-}
-
-/// A create row draws its button's icon; the others their type's.
-function rowGlyph(row: ScreenRow) {
-  if (row.type !== "create") return row.type;
-  return row.kind === "chat" ? "agent" : row.kind;
 }
 
 /// A tab's or visited page's favicon (cx-d0d.8): it takes the glyph's place when the host sent one.
@@ -2764,14 +2772,16 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
     case "workspace":
     case "action":
       return row.title;
-    case "create":
-      return nt(`create.${row.kind}`);
     case "inProfile":
       return nt("row.openInProfile");
     case "newProfile":
       return row.name ? nt("row.openInNamedProfile", { name: row.name }) : nt("row.openInNewProfile");
     case "profile":
       return nt("row.openInThisProfile", { name: row.name });
+    case "chat":
+      return row.title;
+    case "launch":
+      return nt("row.launch", { agent: row.agent, folder: homePath(row.folder) });
   }
 }
 
@@ -2783,7 +2793,6 @@ function rowDetail(row: ScreenRow): string | undefined {
       return row.title ? shortHost(row.url) : undefined;
     case "tab":
     case "workspace":
-    case "action":
       return row.detail;
     case "ask":
       return row.model;
@@ -2791,32 +2800,9 @@ function rowDetail(row: ScreenRow): string | undefined {
     case "newProfile":
     case "profile":
       return shortHost(row.url);
+    case "chat":
+      return row.harness ? agentName(row.harness) : undefined;
     default:
       return undefined;
-  }
-}
-
-function rowAction(t: Translate, nt: NewTabTranslate, row: ScreenRow): string {
-  switch (row.type) {
-    case "search":
-    case "open":
-      return t("newTabPage.row.open");
-    case "ask":
-      return t("composer.send");
-    case "workspace":
-      return nt("row.workspace");
-    case "tab":
-      return t("newTabPage.row.tab");
-    case "history":
-      return t("newTabPage.row.history");
-    case "create":
-      return t("newTabPage.row.open");
-    case "action":
-      return row.keycaps?.join("") ?? nt("row.run");
-    case "inProfile":
-      return nt("row.chooseProfile");
-    case "newProfile":
-    case "profile":
-      return t("newTabPage.row.open");
   }
 }

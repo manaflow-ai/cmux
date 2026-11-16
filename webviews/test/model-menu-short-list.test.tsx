@@ -364,17 +364,15 @@ for (const harnessFixed of [false, true]) {
     await open();
     const top = choices.slice(0, 6).map((choice) => choice.name);
     if (!harnessFixed) {
-      // A rail's menu is the columns menu: the top models, then the harness's other models under
-      // the "Legacy models" caption in the same column.
+      // A rail's menu is the columns menu: the top models, then the harness's other models in the
+      // same column, with no caption between them (#41212).
       const list = [...doc().querySelector('.acpmux-cols [role="listbox"]')!.children];
-      const caption = list.findIndex((item) => item.textContent === "Legacy models");
-      const names = (items: Element[]) =>
-        items
-          .filter((item) => item.getAttribute("role") === "option")
-          .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
-      expect(caption, list.map((item) => item.textContent).join(", ")).toBeGreaterThan(0);
-      expect(names(list.slice(0, caption))).toEqual(top);
-      expect(names(list.slice(caption + 1)).sort()).toEqual(["Choice 6", "Choice 7"]);
+      expect(list.some((item) => item.textContent === "Legacy models")).toBe(false);
+      const names = list
+        .filter((item) => item.getAttribute("role") === "option")
+        .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
+      expect(names.slice(0, top.length)).toEqual(top);
+      expect(names.slice(top.length).sort()).toEqual(["Choice 6", "Choice 7"]);
       return;
     }
     expect(modelRows().map(label)).toEqual(top);

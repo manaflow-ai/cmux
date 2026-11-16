@@ -140,6 +140,8 @@ SIGNING_MATERIAL_UNPICKED = {
     "promote-nightly-next": "a main dispatch the signer refuses; its own route ends on the nightly slot "
                             "(test_nightly_trusted_routing.test_no_signing_job_reads_an_owned_runner_variable)",
     "promote-nightly-next-acked": "retired (if: false) twin of promote-nightly-next, same route",
+    "nightly-next-one": "builds and signs in one job on cmux15's signer label, a literal with no pick "
+                        "(tests/test_nightly_next_one_job.py)",
 }
 
 

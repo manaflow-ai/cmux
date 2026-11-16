@@ -237,7 +237,7 @@ final class HomeService {
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
-        chief.start()
+        DebugTimings.markLaunch("home.chief_owner_start"); chief.start()
         let local = services.machines.local
         let auth = services.cloud.auth
         let chief = chief
@@ -272,7 +272,7 @@ final class HomeService {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection, chiefHome: chief.home)
                 homeInbox.connectionChanged(connection)
-                guard let connection else { continue }
+                guard let connection else { continue }; DebugTimings.markLaunch("home.chief_owner_connected")
                 reloadList(connection)
                 // Home opened before the owner answered, or the owner came back
                 // after a stop: start the host now if it does not run.

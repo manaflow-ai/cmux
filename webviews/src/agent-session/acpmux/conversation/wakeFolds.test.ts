@@ -1,7 +1,7 @@
 // A hidden chat's page let go (agents.hiddenChats.discard) keeps its open folds and says whether its
 // composer holds a draft, through the wake state the host keeps (AgentPaneWakeState.swift).
 import { expect, test } from "bun:test";
-import { composerHoldsDraft, readWakeFolds, WAKE_FOLD_LIMIT, wakeFolds, type PaneFolds } from "./wakeFolds";
+import { readWakeFolds, WAKE_FOLD_LIMIT, wakeFolds, type PaneFolds } from "./wakeFolds";
 
 /// The host keeps the answer as JSON (Codable) and hands it back with the next page's handshake.
 const throughHost = (value: unknown): unknown => JSON.parse(JSON.stringify({ folds: value })).folds;
@@ -47,11 +47,4 @@ test("a long chat keeps only its newest folds", () => {
   expect(folds?.expanded?.at(-1)).toBe(`tool-r${WAKE_FOLD_LIMIT + 49}`);
   // A longer list from the host is bounded on the way back too.
   expect(readWakeFolds({ session: "s-1", expanded: many }, "s-1")?.expanded.size).toBe(WAKE_FOLD_LIMIT);
-});
-
-test("a composer with typed text or chips holds a draft; blank text does not", () => {
-  expect(composerHoldsDraft("fix the build", [])).toBe(true);
-  expect(composerHoldsDraft("", [{ id: "chip" }])).toBe(true);
-  expect(composerHoldsDraft("  \n", [])).toBe(false);
-  expect(composerHoldsDraft("", [])).toBe(false);
 });

@@ -41,10 +41,11 @@ REGULAR_MODES = {"100644", "100755"}
 MIN_GIT = (2, 46)
 
 # Every git call pins the settings that change what a merge produces or what
-# runs during it. Hooks are off: this tree may be untrusted, and the
-# generators already did what the pbxproj pre-commit hook would. The
-# .xcstrings and .pbxproj merge drivers are replaced by `false` so git leaves
-# those files unmerged for the trusted merges below; a clone configured by
+# runs during it. The clone's own hooks run: scripts/install-git-hooks.sh
+# installs trusted copies outside the tree, and the lane git guard refuses a
+# hooksPath override or --no-verify as a hook bypass. The .xcstrings and
+# .pbxproj merge drivers are replaced by `false` so git leaves those files
+# unmerged for the trusted merges below; a clone configured by
 # scripts/install-git-hooks.sh would otherwise run the driver from the tree
 # being merged, which on a fork head is untrusted code.
 # The generated web bundle driver is pinned the same way: it keeps one side
@@ -52,7 +53,6 @@ MIN_GIT = (2, 46)
 # the authority on what still needs resolving.
 GIT = [
     "git",
-    "-c", "core.hooksPath=/dev/null",
     "-c", "merge.conflictStyle=diff3",
     "-c", "merge.xcstrings.driver=false",
     "-c", "merge.xcstrings-v2.driver=false",
@@ -703,7 +703,7 @@ def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, s
         lines += ["", "Resolved conflicts:"]
         lines += [f"- {item['path']}: {item['method']}" for item in result.resolved]
     lines += ["", f"Merge-main-previous-head: {result.head_before}", f"Merge-main-base: {result.base}"]
-    repo.run("commit", "--no-verify", "-F", "-", input_bytes=("\n".join(lines) + "\n").encode())
+    repo.run("commit", "-F", "-", input_bytes=("\n".join(lines) + "\n").encode())
     result.head_after = repo.text("rev-parse", "HEAD")
     result.status = "merged"
     result.message = f"merged {base_ref} with {len(result.resolved)} conflicted file(s) resolved"

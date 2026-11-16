@@ -131,7 +131,7 @@ struct AgentIncomingCard: View {
             } label: {
                 headerLine(chevron: allOpen).contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityHint(allOpen ? "Closes every message" : "Opens every message")
         } else {
             headerLine(chevron: nil)
@@ -200,7 +200,7 @@ struct AgentIncomingCard: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityHint(isOpen ? "Closes the message" : "Opens the message")
             if isOpen {
                 MarkdownView(markdown: message.text, margin: 0)

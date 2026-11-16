@@ -13,7 +13,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 import yaml
-from nightly_workflow_text import nightly_text
+from nightly_workflow_text import nightly_text, write_out_step_aliases
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/nightly_next_ring.py"
@@ -443,7 +443,7 @@ class WorkflowTests(unittest.TestCase):
     def test_the_next_feed_keeps_its_newest_nightly_item_before_it_goes_live(self):
         # 2026-10-27: the /next/ feed held only the newest build, on cmux-next-dev, so a
         # Nightly-ring app was offered nothing for hours while no verdict was written.
-        text = nightly_text()
+        text = write_out_step_aliases(nightly_text())
         job = text[text.index("\n  publish-nightly:"):text.index("\n  publish-nightly-next-github:")]
         keep = job.index("- name: Keep the live feed's newest Nightly item beside the new build")
         step = job[keep:job.index("\n      - ", keep + 1)]

@@ -13,6 +13,7 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
     private let saveButton = UIButton(type: .system)
     private let original: String
     private var heightConstraint: NSLayoutConstraint?
+    // motion: allow static blur, a paused animator that only holds the blur amount and never runs
     private var blurAnimator: UIViewPropertyAnimator?
     var onSave: ((String) -> Void)?
     var onCancel: (() -> Void)?
@@ -118,6 +119,7 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
         cancelButton.alpha = 0
         saveButton.alpha = 0
         // The long-press menu's partial blur: the transcript stays faintly legible.
+        // motion: allow static blur, a paused animator that only holds the blur amount and never runs
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) {
             self.blur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
         }
@@ -125,6 +127,7 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
         animator.fractionComplete = 0.28
         blurAnimator = animator
         blur.alpha = 0
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut]) {
             self.blur.alpha = 1
             self.field.alpha = 1
@@ -138,6 +141,7 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
 
     func dismiss(completion: @escaping () -> Void) {
         textView.resignFirstResponder()
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseIn]) {
             self.blur.alpha = 0
             self.field.alpha = 0

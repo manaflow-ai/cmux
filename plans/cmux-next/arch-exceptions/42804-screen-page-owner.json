@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-14",
+  "row": "app_lines",
+  "allow": 14,
+  "why": "#42804: the screen action composition adapter verifies the provider against InternalPageTabStore\u2019s private owning DaemonStore and MachineRegistry, and resolves App-only tab panes without weakening daemon-tab ambiguity checks. These are App-owned types; moving this adapter into CmuxNextMacScreen would introduce a dependency from that domain back to the App. The accessor exposes only a checked key, not the owner map.",
+  "author": "Codex",
+  "owner": "screen-sharing action wiring owner (#42804)",
+  "receipt": "Review (handler_guard_review): SHIP at 34b6817060f1953ed793d5f640a8a38b61cb18d7",
+  "expiry": "2026-12-14"
+}

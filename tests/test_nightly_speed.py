@@ -7,13 +7,16 @@ sign run 43189297315, 2026-11-12): 85.97 min merge to feed, cmux15's "Set up run
 Run: python3 -I tests/test_nightly_speed.py (also runs in nightly-speed.yml)."""
 from __future__ import annotations
 
+import base64
 import copy
 import importlib.util
 import json
 import os
+import random
 import subprocess
 import tempfile
 import unittest
+import zlib
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 FIX = os.path.join(ROOT, "tests", "fixtures", "nightly-speed")
@@ -137,6 +140,30 @@ class Record(unittest.TestCase):
         self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 1)
         self.assertEqual(len(st2["records"]), 1)
 
+    def test_a_job_of_one_name_in_both_runs_keeps_both_walls(self):
+        r = fixture_record()
+        self.assertEqual(r["stages"]["job:build-nightly-app"], 15.65, "the push run's keeps the plain key")
+        self.assertEqual(r["stages"]["job:build-nightly-app (sign run)"], 4.7)
+        self.assertEqual(r["stages"]["job:decide (sign run)"], 0.53)
+        self.assertNotIn("job:find-nightly-next-recovery (sign run)", r["stages"], "a name only the sign run has")
+        self.assertIn("job:find-nightly-next-recovery", r["stages"])
+        # The diff table shows the sign run's copy when it moved.
+        then = synthetic(1, 20.0, {"job:build-nightly-app (sign run)": 4.7})
+        now = synthetic(2, 40.0, {"job:build-nightly-app (sign run)": 9.7})
+        text = ns.render_verdict(ns.check([then, now], ".", run=FakeGh()))
+        self.assertIn("| job:build-nightly-app (sign run) | 9.7 | 4.7 | +5.0 |", text)
+
+    def test_a_name_repeated_in_one_run_is_numbered_by_start(self):
+        def job(start, end):
+            return {"name": "verify", "conclusion": "success", "created_at": f"2026-11-12T09:{start}Z",
+                    "started_at": f"2026-11-12T09:{start}Z", "completed_at": f"2026-11-12T09:{end}Z"}
+        sign = SIGN_JOBS + [job("50:00", "53:00"), job("49:00", "50:00"),
+                            {**job("49:30", "59:00"), "conclusion": "skipped"}]
+        rec, why = ns.build_record(BY_ID[43189297315], BY_ID[43185474901], sign, PUSH_JOBS, LANDED)
+        self.assertIsNone(why)
+        self.assertEqual((rec["stages"]["job:verify"], rec["stages"]["job:verify #2"]), (1.0, 3.0))
+        self.assertNotIn("job:verify #3", rec["stages"], "a skipped job is no stage")
+
     def test_unreadable_history_and_list_say_why(self):
         st = ns.record("o/r", "o/hq", 8, ".", "x", None, None, run=FakeGh())
         self.assertIn("no cmuxterm-hq token", st["history_why"])
@@ -228,6 +255,83 @@ class OneJob(unittest.TestCase):
         st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
         self.assertEqual(st2["new"], ["4318547490101"])
         self.assertNotIn(43185474901, [u["sign_run"] for u in st2["unpublished"]])
+
+    def test_a_rerun_of_an_unpublished_sign_run_that_publishes_is_recorded(self):
+        failed = [{**r, "conclusion": "failure"} if r["id"] == 43189297315 else r for r in RUNS]
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": failed}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        line = next(u for u in st["unpublished"] if u["sign_run"] == 43189297315)
+        self.assertEqual((line["conclusion"], line["attempt"]), ("failure", 1))
+        body = ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
+        rerun = [{**r, "run_attempt": 2} if r["id"] == 43189297315 else r for r in RUNS]
+        gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                     api={"workflows/nightly.yml/runs": {"workflow_runs": rerun},
+                          "runs/43189297315/attempts/2/jobs": {"jobs": SIGN_JOBS},
+                          "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
+        st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
+        self.assertEqual(st2["new"], ["4318547490101"])
+        self.assertEqual(st2["records"][0]["sign_attempt"], 2)
+        self.assertNotIn(43189297315, [u["sign_run"] for u in st2["unpublished"]])
+        # Written over the issue that still has the failed line: the line is gone there too.
+        ns.write_issue(st2, "o/hq", "t", ".", run=gh2)
+        self.assertNotIn(43189297315, [u["sign_run"] for u in ns.parse_history(gh2.written)["unpublished"]])
+
+    def test_a_rerun_of_a_run_older_than_the_oldest_record_is_read(self):
+        # The only record (the one-job build of 11-13) is newer than the sign run that failed on 11-12. A rerun keeps
+        # that run's created_at; its run_started_at is the rerun's.
+        def api(runs, **more):
+            return {"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()] + runs}, **more}
+        failed = [{**r, "conclusion": "failure"} if r["id"] == 43189297315 else r for r in RUNS]
+        gh = FakeGh(api=api(failed, **{"runs/43300000001/attempts/1/jobs": {"jobs": one_job_jobs()}}))
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual(st["new"], ["4330000000101"])
+        self.assertIn(43189297315, [u["sign_run"] for u in st["unpublished"]])
+        body = ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
+        rerun = [{**r, "run_attempt": 2, "run_started_at": "2026-11-13T02:00:00Z"} if r["id"] == 43189297315 else r
+                 for r in RUNS]
+        gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                     api=api(rerun, **{"runs/43189297315/attempts/2/jobs": {"jobs": SIGN_JOBS},
+                                       "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}}))
+        st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
+        self.assertEqual(st2["new"], ["4318547490101"], "the rerun is read though its run was created before the history")
+        rec = next(r for r in st2["records"] if r["sign_run"] == 43189297315)
+        self.assertEqual((rec["sign_attempt"], rec["sign_started"]), (2, "2026-11-13T02:00:00Z"))
+        # The rerun's record does not move the history's start back to its run's created_at: nothing older is re-read.
+        body = ns.issue_body(st2["records"], st2["unpublished"], ".", run=gh2)
+        gh3 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}], api=api(rerun))
+        st3 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh3)
+        self.assertEqual((st3["new"], st3["new_unpublished"]), ([], []))
+        self.assertEqual(len([c for c in gh3.calls if c[0][:2] == ["gh", "api"]]), 1)
+
+    def test_a_rerun_that_publishes_nothing_again_is_read_once_per_attempt(self):
+        def record(attempt, body=None):
+            runs = [{**one_job_run(), "run_attempt": attempt}]
+            gh = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}] if body else [],
+                        api={"workflows/nightly.yml/runs": {"workflow_runs": runs},
+                             f"runs/43300000001/attempts/{attempt}/jobs": {"jobs": one_job_jobs(feed=False)}})
+            st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+            reads = len([c for c in gh.calls if c[0][:2] == ["gh", "api"]])
+            return st, reads, ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
+
+        st, reads, body = record(1)
+        self.assertEqual((st["new_unpublished"], reads), ([43300000001], 2))
+        st, reads, body = record(2, body)
+        self.assertEqual((st["new_unpublished"], reads), ([43300000001], 2), "the rerun's jobs are read")
+        self.assertEqual([(u["sign_run"], u["attempt"]) for u in st["unpublished"]], [(43300000001, 2)])
+        st, reads, _ = record(2, body)
+        self.assertEqual((st["new_unpublished"], reads), ([], 1), "the same attempt is not read again")
+
+    def test_an_unpublished_line_without_an_attempt_is_attempt_one(self):
+        line = ns.unpublished_line(one_job_run(), "success, no feed upload")
+        line.pop("attempt", None)
+        body = ns.issue_body([], [line], ".", run=FakeGh())
+        for attempt, reads in ((1, 1), (2, 2)):
+            runs = [{**one_job_run(), "run_attempt": attempt}]
+            gh = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                        api={"workflows/nightly.yml/runs": {"workflow_runs": runs},
+                             f"runs/43300000001/attempts/{attempt}/jobs": {"jobs": one_job_jobs(feed=False)}})
+            ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+            self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), reads, f"attempt {attempt}")
 
     def test_only_a_push_run_that_succeeded_is_read(self):
         runs = [one_job_run(1, "failure"), one_job_run(2, "cancelled"), one_job_run(3, None, "in_progress"),
@@ -367,20 +471,116 @@ class Issue(unittest.TestCase):
         self.assertIn("nothing new", ns.write_issue({"records": [], "new": []}, "o/hq", "t", ".", run=gh))
         self.assertFalse(any(c[0][:3] == ["gh", "issue", "edit"] for c in gh.calls))
 
-    def test_body_stays_under_the_limit_and_the_comment_cannot_close_early(self):
-        rec = fixture_record()
-        recs = []
-        for i in range(ns.HISTORY_KEEP):
+    @staticmethod
+    def records(n, pad=0):
+        """n copies of the fixture record, each wall and wait varied as real nightlies are (and `pad` characters of
+        noise per record), so the compressed history is not n identical records."""
+        rnd, rec, out = random.Random(7), fixture_record(), []
+        for i in range(n):
             r = copy.deepcopy(rec)
-            r.update(sign_run=i, build=f"b{i}", feed_at=f"2026-11-{10 + i // 24:02d}T{i % 24:02d}:00:00Z")
+            r.update(sign_run=1 + i, build=f"b{i}", feed_at=f"2026-11-{10 + i // 24:02d}T{i % 24:02d}:00:00Z",
+                     sha="%040x" % rnd.getrandbits(160), merge_to_feed=round(rnd.uniform(20, 150), 2))
+            r["stages"] = {k: round(v * rnd.uniform(0.7, 1.4), 2) for k, v in r["stages"].items()}
+            r["jobs"] = [[name, host, round((q or 0) * rnd.uniform(0.5, 2), 2),
+                          round((h or 0) * rnd.uniform(0.5, 2), 2)] for name, host, q, h in r["jobs"]]
+            if pad:
+                r["noise"] = "%x" % rnd.getrandbits(4 * pad)
+            out.append(r)
+        return out
+
+    def test_body_keeps_every_record_and_the_comment_cannot_close_early(self):
+        recs = self.records(ns.HISTORY_KEEP)
+        for r in recs:
             r["jobs"][0][0] = "a --> b"
-            recs.append(r)
         body = ns.issue_body(recs, [], ".", run=FakeGh())
         self.assertLessEqual(len(body), ns.BODY_LIMIT)
         self.assertEqual(body.count("-->"), body.count("<!--"))
         back = ns.parse_history(body)["records"]
+        self.assertEqual(len(back), ns.HISTORY_KEEP, "the whole history fits")
+        self.assertEqual([("jobs" in r) for r in back], [False] * (ns.HISTORY_KEEP - 6) + [True] * 6)
         self.assertEqual(back[-1]["jobs"][0][0], "a --> b")
-        self.assertNotIn("jobs", back[0], "only the newest records keep per-job detail")
+        self.assertEqual(back, ns.parse_history(body)["records"])
+        self.assertEqual(back[-1]["stages"], recs[-1]["stages"])
+
+    def test_a_body_in_the_plain_form_still_parses(self):
+        recs = self.records(3)
+        body = ns.issue_body(recs, [], ".", run=FakeGh())
+        self.assertNotIn("<!-- nightly-speed-history: {", body, "written compressed")
+        plain = f"{ns.ISSUE_MARK}\nreport\n<!-- nightly-speed-history: {json.dumps({'records': recs})} -->\n"
+        self.assertEqual([r["build"] for r in ns.parse_history(plain)["records"]], ["b0", "b1", "b2"])
+
+    def test_a_corrupt_compressed_history_is_an_empty_history(self):
+        plain = f"<!-- nightly-speed-history: {json.dumps({'records': self.records(1)})} -->"
+        bomb = base64.b64encode(zlib.compress(b" " * (ns.INFLATE_CAP + 10), 9)).decode()
+        cut = ns.history_comment(self.records(2), [])[:-30] + " -->"
+        for z in ("not base64!", "AAAA", base64.b64encode(b"not zlib").decode(), bomb,
+                  base64.b64encode(zlib.compress(b"[1, 2]")).decode()):
+            body = f"{ns.ISSUE_MARK}\n<!-- nightly-speed-history-z: {z} -->\n{plain}\n"
+            self.assertEqual(ns.parse_history(body), {"records": [], "unpublished": []}, z[:20])
+        self.assertEqual(ns.parse_history(cut), {"records": [], "unpublished": []})
+
+    @staticmethod
+    def packed(doc):
+        z = base64.b64encode(zlib.compress(json.dumps(doc).encode("utf-8"), 9)).decode("ascii")
+        return f"{ns.ISSUE_MARK}\n<!-- nightly-speed-history-z: {z} -->\n"
+
+    def test_valid_json_of_another_shape_is_no_history(self):
+        empty = {"records": [], "unpublished": []}
+        for doc in ({"records": 1}, {"records": "abc"}, {"records": {"a": 1}}, {"records": [1, "a", None, [2]]},
+                    {"unpublished": 7}, {"records": None, "unpublished": {"sign_run": 1}}, 5, "text", None):
+            self.assertEqual(ns.parse_history(self.packed(doc)), empty, doc)
+        deep = base64.b64encode(zlib.compress(b"[" * 200000, 9)).decode("ascii")
+        self.assertEqual(ns.parse_history(f"<!-- nightly-speed-history-z: {deep} -->"), empty, "nested past the parser")
+        # record goes on with an empty history instead of raising.
+        gh = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": self.packed({"records": 1})}],
+                    api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS},
+                         "runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS},
+                         "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual(st["new"], ["4318547490101"])
+
+    def test_a_stored_record_of_another_shape_is_no_record(self):
+        good = fixture_record()
+        self.assertTrue(ns.sound_record(json.loads(json.dumps(good))), "what build_record writes is sound")
+        changes = ({"stages": 1}, {"stages": {"c_build": "9"}}, {"merge_to_feed": "85"}, {"merge_to_feed": 10 ** 400},
+                   {"merge_to_feed": float("nan")}, {"merge_to_feed": True}, {"sha": "--output=/tmp/x"}, {"sha": 5},
+                   {"feed_at": 7}, {"build": None}, {"hosts": {"cmux15": [1, 2]}}, {"hosts": {"cmux15": [1, 2, "3", 4]}},
+                   {"jobs": [["a"]]}, {"jobs": {"a": 1}}, {"runners": []}, {"sign_created": 3}, {"sign_run": "1"},
+                   {"sign_run": True}, {"sign_run": 0})
+        bad = [{**good, "sign_run": 2 + i, **change} for i, change in enumerate(changes)]
+        unp = [{"sign_run": 5, "held_min": "x"}, {"sign_run": 6, "created_at": 3}, {"sign_run": 7, "attempt": "2"},
+               {"sign_run": [8]}, {"sign_run": 9}]
+        hist = ns.parse_history(self.packed({"records": bad + [good], "unpublished": unp}))
+        self.assertEqual([r["sign_run"] for r in hist["records"]], [good["sign_run"]])
+        self.assertEqual([u["sign_run"] for u in hist["unpublished"]], [9])
+        # What is left is judged and written without raising.
+        self.assertLessEqual(len(ns.issue_body(hist["records"], hist["unpublished"], ".", run=FakeGh())), ns.BODY_LIMIT)
+
+    def test_trimming_records_keeps_the_unpublished_lines(self):
+        unp = [ns.unpublished_line({**one_job_run(100 + i), "conclusion": "cancelled", "run_attempt": 2})
+               for i in range(ns.UNPUBLISHED_KEEP)]
+        body = ns.issue_body(self.records(ns.HISTORY_KEEP, pad=3000), unp, ".", run=FakeGh())
+        self.assertLessEqual(len(body), ns.BODY_LIMIT)
+        hist = ns.parse_history(body)
+        self.assertTrue(0 < len(hist["records"]) < ns.HISTORY_KEEP, len(hist["records"]))
+        self.assertEqual(hist["unpublished"], unp, "a dropped record takes no unpublished line with it")
+        # Lines alone too large for the body: the oldest go, the newest stay.
+        rnd = random.Random(3)
+        huge = [{**u, "conclusion": "%x" % rnd.getrandbits(8000)} for u in unp]
+        body = ns.issue_body([], huge, ".", run=FakeGh())
+        self.assertLessEqual(len(body), ns.BODY_LIMIT)
+        kept = ns.parse_history(body)["unpublished"]
+        self.assertTrue(0 < len(kept) < len(huge), len(kept))
+        self.assertEqual(kept[-1], huge[-1])
+
+    def test_records_too_large_for_the_floor_still_fit(self):
+        recs = self.records(ns.HISTORY_KEEP, pad=3000)
+        body = ns.issue_body(recs, [], ".", run=FakeGh())
+        self.assertLessEqual(len(body), ns.BODY_LIMIT)
+        back = ns.parse_history(body)["records"]
+        self.assertTrue(0 < len(back) < ns.TRAILING + ns.BISECT_AFTER, len(back))
+        self.assertFalse(any("jobs" in r for r in back), "per-job detail goes before records below the floor")
+        self.assertEqual(back[-1]["build"], recs[-1]["build"], "the newest are kept")
 
     def test_unreadable_issue_list_is_an_error(self):
         with self.assertRaises(ns.SourceError):

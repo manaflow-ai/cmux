@@ -79,7 +79,8 @@ extension WorkspaceRowView {
     override func updateLayer() {
         performWithTheme {
             // Every row's title, named or not ("workspace-1", "~"), reads in the same ink (Lucas 2026-11-12).
-            title.textColor = Palette.sidebarTitle
+            title.textColor = SidebarStyle.titleInk
+            icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
             // A detail line is the Codex sidebar's `text-tertiary` (#39956): quieter than the title by a full step.
             subtitle.setColor(Palette.textTertiary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             if isArchived { // dimmed (archiving-DESIGN.md)
@@ -114,7 +115,10 @@ extension WorkspaceRowView {
         layoutColorRail(in: full)
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
-        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
+        // View owns one compact trailing slot at rest. The whole existing text/control cluster uses
+        // the remaining width, so hover close, overflow, badges and captions never collide with it.
+        let contentWidth = max(0, full.width - (screenAction == nil ? 0 : SidebarStyle.trailingSlotPitch))
+        let b = NSRect(x: full.minX, y: full.minY, width: contentWidth, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Entering a row should reveal its controls immediately. Keep the
@@ -126,6 +130,7 @@ extension WorkspaceRowView {
         // (Leo 2026-10-21); the members' line is one layer per group beside the rows
         // (SidebarListView+GroupLines).
         let (th, sh, top, cy) = textMetrics(head: b)
+        screenSlot.frame = SidebarStyle.trailingColumnFrame(rowWidth: full.width, centerY: cy, side: SidebarStyle.controlSize)
         let columns = SidebarStyle.columns(rowWidth: b.width, depth: treeDepth)
         // A custom workspace icon or favicon takes the leading slot; without one the title starts
         // at the leading inset (no default kind glyph).
@@ -136,7 +141,7 @@ extension WorkspaceRowView {
         switch iconKind {
         case nil: side = 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?, .emoji?, .favicon?, .pagePlaceholder?: side = SidebarStyle.iconColumnBox
+        case .symbol?, .emoji?, .favicon?, .pagePlaceholder?, .page?: side = SidebarStyle.iconColumnBox
         }
         // The icon's box starts on lead (where an iconless title would start) and its glyph's ink starts there too, as
         // the pins' and Home's do (`SidebarStyle.iconColumnGlyphX`, Lawrence msg 19643); the text column is the

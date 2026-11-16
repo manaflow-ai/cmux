@@ -129,9 +129,12 @@ fn journaled_put(
         .into_iter()
         .flatten()
         .find(|change| {
-            change["kind"] == "state_upsert" && change["resource"] == RESOURCE && change["id"] == id
+            change.get("kind").and_then(Value::as_str) == Some("state_upsert")
+                && change.get("resource").and_then(Value::as_str) == Some(RESOURCE)
+                && change.get("id").and_then(Value::as_str) == Some(id)
         })
-        .map(|change| change["value"].clone())
+        // A change with no `value` answers null, as an index of it did.
+        .map(|change| change.get("value").cloned().unwrap_or_default())
         .with_context(|| {
             format!("the journal has no put of window record {id} at revision {revision}")
         })
@@ -221,7 +224,7 @@ impl Mux {
                             return Err(record_conflict(&id, expected, current_revision));
                         }
                         if let Some(current) = &current
-                            && Some(&current.snapshot["record"]) == put_record
+                            && current.snapshot.get("record") == put_record
                         {
                             // The stored record is the one put: no row, no
                             // revision, no journal record.
@@ -252,7 +255,7 @@ impl Mux {
                         )?);
                         // The record is stored once more only, in the
                         // change above: the committed result names it.
-                        let result = json!({"id": id, "revision": snapshot["revision"]});
+                        let result = json!({"id": id, "revision": snapshot.get("revision")});
                         written.set(Some(snapshot));
                         Ok(StateChanges::new(result, changes))
                     }

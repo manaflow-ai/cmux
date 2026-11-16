@@ -11,6 +11,10 @@ public nonisolated struct CmuxToastStrings {
     public static var hideDetails: String {
         String(localized: "toast.hideDetails", defaultValue: "Hide Details", bundle: .module)
     }
+    /// The button that hides every toast of a kind for good (``CmuxToast/offersNeverShow``).
+    public static var dontShowAgain: String {
+        String(localized: "toast.dontShowAgain", defaultValue: "Don’t Show Again", bundle: .module)
+    }
     /// The close button's VoiceOver label.
     public static var dismiss: String { String(localized: "toast.dismiss", defaultValue: "Dismiss", bundle: .module) }
 }

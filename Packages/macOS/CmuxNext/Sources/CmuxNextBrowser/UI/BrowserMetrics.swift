@@ -10,7 +10,7 @@ enum BrowserMetrics {
     static var toolbarHeight: CGFloat { max(Metrics.tabStripHeight, Metrics.controlHeight + Metrics.space2) }
     /// Omnibox capsule and toolbar buttons (24 pt compact).
     static var controlHeight: CGFloat { Metrics.controlHeight }
-    static var controlCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    static var controlCornerRadius: CGFloat { Metrics.buttonCornerRadius }
     /// SF Symbol point size inside controls.
     static var symbolPointSize: CGFloat { Metrics.smallIconSize }
     /// Leading glyph box in the omnibox and suggestion rows.
@@ -28,6 +28,10 @@ enum BrowserMetrics {
     static var overlayInset: CGFloat { Metrics.panelInset }
     static var overlayCornerRadius: CGFloat { Metrics.panelCornerRadius }
     static var overlayPadding: CGFloat { Metrics.space4 }
+    /// The prompt bar's corner (Alert, Confirm, Prompt, sign-in), concentric with its buttons ``overlayPadding``
+    /// in: the button corner plus that padding (Lawrence 2026-11-15: "all dialogs needs concentric padding with
+    /// buttons inside").
+    static var promptCornerRadius: CGFloat { Metrics.buttonContainer(padding: overlayPadding).outerRadius }
     /// The shared find pill's height (FindPillMetrics), the same over every pane.
     static var findBarHeight: CGFloat { FindPillMetrics.height }
     static var promptMinWidth: CGFloat { Metrics.paletteWidth / 2 }
