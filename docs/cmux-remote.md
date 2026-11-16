@@ -156,6 +156,8 @@ Every control exists in the command palette, the CLI and MCP:
 | Refresh permissions | cmux Remote: Refresh Permissions | `cmux remote-host refresh` | `remote_refresh` |
 | Restart a worker | cmux Remote: Restart Computer Use / Restart Screen Sharing | `cmux remote-host restart computer-use\|screen-sharing` | `remote_restart` |
 | Share This Mac | Mac Screen: Share This Mac / Stop Sharing This Mac | `cmux remote-host share on\|off` (on uses the app's `remote.confirm` sheet; off uses the app path first, with worker fallback when unattached) | `remote_share` |
+| Share another Mac of yours, confirmed on the device you are at (the target admits it only from a same-account machine its owner granted; until the approval can be delivered there, the answer is `share.needs_same_account_control`) | | `cmux remote-host share on --device DEVICE` | `remote_share` with `device` |
+| Which grant a Mac lacks, its pane opened there, and whether Screen Sharing or Remote Management lets an agent click it | | `cmux remote-host grants [--device DEVICE] [--open]` | |
 | A viewer's access | Mac Screen: Set Device Access… | `cmux remote-host access <device> none\|ask\|view\|full` | `remote_set_access` |
 | Stop the current session | Mac Screen: Stop Current Session | `cmux remote-host stop` (app canonical action first; worker fallback only when app transport is absent) | `remote_stop_session` |
 | Stop the current session directly in the attached app | Mac Screen: Stop Sharing | `cmux action run macScreen.stopSharing` | app action (no worker round-trip) |

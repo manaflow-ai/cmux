@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf";
+inline constexpr std::string_view kProtocolIrSha256 = "cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -409,6 +409,7 @@ struct DeleteTerminalCommandsRequest;
 struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
+struct DeviceSetupRequest;
 struct ExportLayoutRequest;
 struct FeedLocalHandoffAbortRequest;
 struct FeedLocalHandoffBeginRequest;
@@ -657,6 +658,7 @@ struct ConversationRunChangedEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
+struct DeviceSetupStepEvent;
 struct EmptyEvent;
 struct FeedReportsChangedEvent;
 struct FeedViewChangedEvent;
@@ -2943,6 +2945,23 @@ struct DetachedEvent {
     Id surface{};
     std::optional<std::string> view{};
     friend bool operator==(const DetachedEvent&, const DetachedEvent&) = default;
+};
+
+struct DeviceSetupRequest {
+    std::optional<bool> allow_agents{};
+    std::string device{};
+    std::optional<bool> dry_run{};
+    std::string verb{};
+    friend bool operator==(const DeviceSetupRequest&, const DeviceSetupRequest&) = default;
+};
+
+struct DeviceSetupStepEvent {
+    std::string detail{};
+    std::string device{};
+    std::string fix{};
+    std::string state{};
+    std::string step{};
+    friend bool operator==(const DeviceSetupStepEvent&, const DeviceSetupStepEvent&) = default;
 };
 
 struct EmptyEvent {
@@ -8985,6 +9004,12 @@ struct Codec<DetachClientRequest> {
 };
 
 template <>
+struct Codec<DeviceSetupRequest> {
+    static Result<Json> encode(const DeviceSetupRequest& value);
+    static Result<DeviceSetupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ExportLayoutRequest> {
     static Result<Json> encode(const ExportLayoutRequest& value);
     static Result<ExportLayoutRequest> decode(const Json& value);
@@ -10470,6 +10495,12 @@ template <>
 struct Codec<DetachedEvent> {
     static Result<Json> encode(const DetachedEvent& value);
     static Result<DetachedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeviceSetupStepEvent> {
+    static Result<Json> encode(const DeviceSetupStepEvent& value);
+    static Result<DeviceSetupStepEvent> decode(const Json& value);
 };
 
 template <>
