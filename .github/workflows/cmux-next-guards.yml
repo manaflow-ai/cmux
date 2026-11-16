@@ -725,12 +725,49 @@ jobs:
   # cmux-tui republish path, the crash ratchet, the red-checks comment, the
   # backdrop art generator). Each is stdlib Python with fakes for the network
   # and the binaries it calls; only the web lint hook's test also needs bun.
+  # Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
+  # can get it to do". Whether this pull request is hot-only: scripts/ci/cmux_next_route.py --hot-only on the merge
+  # commit's diff, the verdict cmux-next.yml skips its Mac app jobs by (every file a running app takes live through
+  # hot-apply.py, or one that reaches no app tier; no full-ci or dev-build label). A hot-only pull request runs
+  # tooling-tests on Linux, never on a mini. Any failure here reads as not hot: tooling-tests keeps its mini route.
+  hot-route:
+    name: hot-only route
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      hot_only: ${{ steps.route.outputs.hot_only }}
+    steps:
+      - name: Checkout the merge commit and its base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      - name: Route the pull request (cmux_next_route.py --hot-only)
+        id: route
+        env:
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -uo pipefail
+          git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          if ! python3 scripts/ci/cmux_next_route.py --hot-only --event pull_request \
+              --changed-files "$RUNNER_TEMP/changed.txt" --labels "$EVENT_LABELS" --base-rev HEAD^1 \
+              --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"; then
+            echo "::warning title=hot-only route::cmux_next_route.py --hot-only failed; tooling-tests keeps its mini route."
+            echo "hot_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER. Others take fleet Linux, then a free
-    # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith.
-    needs: [portable-placement]
+    # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith. A hot-only pull request
+    # (hot-route) skips the mini: fleet Linux, else Blacksmith.
+    needs: [portable-placement, hot-route]
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.hot-route.outputs.hot_only != 'true' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     steps:
       - name: Checkout
