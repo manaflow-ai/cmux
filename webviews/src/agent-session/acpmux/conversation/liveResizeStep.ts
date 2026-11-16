@@ -44,7 +44,8 @@ export interface LiveResizeClock {
 /// Reads `served`, never `at`: the gap between the start of two steps is the cost of serving the
 /// first, which is what this answer is used to reduce.
 export function continuesLiveResize(clock: LiveResizeClock, now: number, window = LIVE_RESIZE_MS): boolean {
-  return now - clock.at < window;
+  if (clock.served === undefined) return false;
+  return now - clock.served < window;
 }
 
 /// The clock after a width step at `now`: `steps` counts the steps of this drag, and starts again at
