@@ -478,11 +478,15 @@ async function measured(
     commits.push(changed - arrival);
     const inFrame = data.mutationFrames[m] ?? -1;
     while (f < data.frames.length && data.frames[f]! <= changed) f++;
-    const painted = inFrame >= 0 ? inFrame : data.frames[f];
-    if (painted === undefined) continue;
+    // A change made in a frame's callbacks is drawn by that frame, which presents right after them (`changed`, the
+    // end of those callbacks; the frame's own timestamp is its begin time, which can be before the record came). A
+    // change made in a task waits for the next frame.
+    const drawnBy = inFrame >= 0 ? inFrame : data.frames[f];
+    const painted = inFrame >= 0 ? changed : data.frames[f];
+    if (painted === undefined || drawnBy === undefined) continue;
     paints.push(painted - arrival);
     // A frame began after the record came and before the frame that draws it: one the record waited past.
-    if (data.frames.some((at) => at > arrival && at < painted)) missed += 1;
+    if (data.frames.some((at) => at > arrival && at < drawnBy)) missed += 1;
   }
   const long = data.long.filter((task) => task.at >= since && task.at <= lastArrival + 200);
   const all = capture?.records?.all;
