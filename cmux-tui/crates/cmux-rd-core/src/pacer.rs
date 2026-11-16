@@ -115,6 +115,15 @@ impl Pacer {
         self.queued_bytes = 0;
         self.budget_bytes = 0.0;
     }
+
+    /// Takes everything still queued, in order, so the caller can retire it (an
+    /// outage ended and what queued during it is stale, D12). The next frame
+    /// pushed goes at once, as on an idle pacer.
+    pub fn take_queued(&mut self) -> Vec<Vec<u8>> {
+        self.queued_bytes = 0;
+        self.budget_bytes = 0.0;
+        self.queue.drain(..).collect()
+    }
 }
 
 #[cfg(test)]
@@ -190,6 +199,21 @@ mod tests {
         let rest = drain(&mut p, 1_000);
         assert_eq!(first + rest.len(), 101);
         assert_eq!(rest.last().unwrap().1[0], 0xee);
+    }
+
+    #[test]
+    fn taking_the_queue_leaves_an_idle_pacer_that_sends_the_next_frame_at_once() {
+        let mut p = Pacer::new();
+        p.push_frame(frame(100), 10_000_000, 16_667, 0);
+        let first = p.due(0).len();
+        let stale = p.take_queued();
+        assert_eq!(first + stale.len(), 100);
+        assert_eq!(stale[0][0], first as u8, "the unsent tail, in order");
+        assert!(p.is_empty());
+        assert_eq!(p.queued_bytes(), 0);
+        assert_eq!(p.next_deadline_us(), None);
+        p.push_frame(frame(2), 10_000_000, 16_667, 1_000);
+        assert_eq!(p.due(1_000).len(), 2, "the newest frame is not paced behind the stale one");
     }
 
     #[test]

@@ -123,6 +123,8 @@ pub enum IdrReason {
     TailProbe,
     /// The last frame was too large to packetize and was dropped.
     TooLarge,
+    /// Frames queued in the host's pacer through an outage were dropped unsent (D12).
+    Outage,
 }
 
 impl IdrReason {
@@ -132,6 +134,7 @@ impl IdrReason {
             IdrReason::Recovery => "recovery",
             IdrReason::TailProbe => "tail_probe",
             IdrReason::TooLarge => "too_large",
+            IdrReason::Outage => "outage",
         }
     }
 }
@@ -441,6 +444,54 @@ impl MediaEngine {
         }
     }
 
+    /// D12: an outage ended (`Output::outage_ended`) and the host dropped `stale`,
+    /// the datagrams from `encoded` still queued in its pacer. They are retired from
+    /// the controller and the loss meter (a datagram never sent is not loss), their
+    /// frames leave the NACK history (the viewer cannot be repaired into a frame half
+    /// of which never left), and each stream that lost a frame starts over from a
+    /// keyframe of the newest picture: `out.encode` becomes that keyframe when it
+    /// is for such a stream, and is asked for when there is none.
+    pub fn retire_unsent(&mut self, stale: &[Vec<u8>], out: &mut Output, now_us: u64) {
+        let mut dropped: BTreeMap<u16, Vec<u32>> = BTreeMap::new();
+        for d in stale {
+            let Ok((header, _)) = DatagramHeader::decode(d) else { continue };
+            if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec) {
+                continue;
+            }
+            self.cc.on_dropped(header.transport_seq);
+            self.loss_meter.forget(header.transport_seq);
+            let frames = dropped.entry(header.stream).or_default();
+            if frames.last() != Some(&header.frame) {
+                frames.push(header.frame);
+            }
+        }
+        for (&stream, frames) in &dropped {
+            let Some(state) = self.streams.get_mut(&stream) else { continue };
+            for frame in frames {
+                state.history.remove(frame);
+                state.sent_at_us.remove(frame);
+            }
+            state.force_idr = Some(IdrReason::Outage);
+            state.probe_from_us = None;
+            state.probes = 0;
+        }
+        // The outage end already cleared every gate's in-flight count.
+        match out.encode.as_mut() {
+            Some(req) if dropped.contains_key(&req.stream) => {
+                req.force_idr = true;
+                req.idr_reason = Some(IdrReason::Outage);
+            }
+            Some(_) => {}
+            None => {
+                let Some((&stream, _)) = dropped.iter().next() else { return };
+                let Some(state) = self.streams.get_mut(&stream) else { return };
+                let full = state.full();
+                let action = state.gate.damage(full, now_us);
+                out.encode = self.request(stream, action);
+            }
+        }
+    }
+
     /// The controller's target now (all display streams together).
     pub fn target_bps(&self) -> u64 {
         self.cc.target_bps()
@@ -641,7 +692,11 @@ impl MediaEngine {
         while state.history.len() > HISTORY_FRAMES {
             state.history.pop_first();
         }
-        state.force_idr = None;
+        // A frame requested before a keyframe was asked for does not answer it
+        // (one finishing on the encode thread when an outage drop asks for one).
+        if req.force_idr || enc.idr {
+            state.force_idr = None;
+        }
         state.last_frame = req.frame;
         state.probe_from_us = Some(now_us);
         state.probes = 0;

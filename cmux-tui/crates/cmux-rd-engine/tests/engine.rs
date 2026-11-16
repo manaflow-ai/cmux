@@ -503,3 +503,46 @@ fn an_outage_end_holds_the_rate_and_stops_waiting_for_stale_acks() {
     assert_eq!(e.stats().target_bps, start, "an outage is not congestion");
     assert!(e.damage(0, small, 425_000).is_some(), "the gate no longer waits for the stale frame");
 }
+
+#[test]
+fn datagrams_dropped_unsent_after_an_outage_are_not_loss_or_repaired() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 60_000, 0);
+    // The host's pacer sent the head before the radio went away; the rest queued.
+    let (head, stale) = sent.split_at(8);
+    let arrivals = head
+        .iter()
+        .map(|d| Arrival {
+            transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+            arrival_us: 400_000,
+        })
+        .collect();
+    let mut out =
+        e.on_datagram(&feedback(&Feedback { arrivals, ..Feedback::default() }), false, 404_000);
+    assert!(out.outage_ended.is_some());
+    e.retire_unsent(stale, &mut out, 404_000);
+    let next = out.encode.clone().expect("the newest picture is asked for at once");
+    assert!(next.force_idr, "a dropped frame leaves the viewer mid-frame: {next:?}");
+    // The viewer asks for the half-sent frame's missing shards: nothing is resent.
+    let nack = Nack { frame: first.frame, indexes: (8..16).collect() };
+    let out = e.on_datagram(
+        &feedback(&Feedback { nacks: vec![nack], ..Feedback::default() }),
+        false,
+        410_000,
+    );
+    assert!(out.datagrams.is_empty(), "resent shards of a dropped frame");
+    // The keyframe goes out and arrives; the dropped datagrams before it settle as nothing.
+    let fresh = send(&mut e, &next, true, 800, 420_000);
+    let arrivals = fresh
+        .iter()
+        .map(|d| Arrival {
+            transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+            arrival_us: 420_000,
+        })
+        .collect();
+    e.on_datagram(&feedback(&Feedback { arrivals, ..Feedback::default() }), false, 425_000);
+    e.on_datagram(&feedback(&Feedback::default()), false, 600_000);
+    assert_eq!(e.stats().loss, 0.0, "datagrams that never left read as loss");
+}
