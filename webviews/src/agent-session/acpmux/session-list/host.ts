@@ -45,13 +45,10 @@ function pageFields(request: Record<string, unknown>, kind: SessionListPageReque
   return fields;
 }
 
-function validPageRequest(
-  request: Record<string, unknown>,
-  fallbackKind: string,
-): SessionListPageRequest["kind"] | null {
+function validPageRequest(request: Record<string, unknown>): SessionListPageRequest["kind"] | null {
   const allowed = new Set(["kind", "key", "folder", "cold"]);
   if (Object.keys(request).some((field) => !allowed.has(field))) return null;
-  const requested = request.kind === undefined ? fallbackKind : request.kind;
+  const requested = request.kind;
   if (typeof requested !== "string" || !["older", "family", "forks", "folder"].includes(requested)) return null;
   return requested as SessionListPageRequest["kind"];
 }
@@ -104,7 +101,8 @@ export class SessionListHost {
   }
 
   want(sid: string, keys: readonly SessionListKey[]): Promise<SessionListResult> {
-    if (keys.length > LIST_MAX_WANTS || !this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.limit" });
+    if (!this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.sid" });
+    if (keys.length > LIST_MAX_WANTS) return Promise.resolve({ ok: false, code: "list.limit" });
     return this.post("list.want", { sid, keys }).then(
       () => ({ ok: true }),
       (error) => ({ ok: false, code: refusalCode(error) }),
@@ -112,7 +110,8 @@ export class SessionListHost {
   }
 
   unwant(sid: string, keys: readonly SessionListKey[]): Promise<SessionListResult> {
-    if (keys.length > LIST_MAX_WANTS || !this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.limit" });
+    if (!this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.sid" });
+    if (keys.length > LIST_MAX_WANTS) return Promise.resolve({ ok: false, code: "list.limit" });
     return this.post("list.unwant", { sid, keys }).then(
       () => ({ ok: true }),
       (error) => ({ ok: false, code: refusalCode(error) }),
@@ -127,8 +126,12 @@ export class SessionListHost {
   }
 
   /** Starts a page operation; wire continuation and question ids never enter this request. */
-  page(sid: string, request: Record<string, unknown>, kind = "all"): Promise<string | SessionListResult> {
-    const requestedKind = validPageRequest(request, kind);
+  page(
+    sid: string,
+    request: Record<string, unknown>,
+    kind: SessionListPageRequest["kind"],
+  ): Promise<string | SessionListResult> {
+    const requestedKind = validPageRequest(request);
     if (!requestedKind) return Promise.resolve({ ok: false, code: "list.request" });
     if (!this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.sid" });
     const allowedKind = requestedKind;

@@ -71,8 +71,12 @@ export const LIST_MAX_WANTS = 4_096;
 const EMPTY_ROWS: readonly SessionListRow[] = Object.freeze([]);
 const EMPTY_KEYS: readonly SessionListKey[] = Object.freeze([]);
 
+// The driver identifies a row from chatId first, then sessionId. Keep that order here so a
+// remove emitted from Rust addresses the same document row even when both fields are present.
 const keyOf = (row: SessionListRow): string =>
-  `${typeof row.origin === "string" ? row.origin : "local"}\u0000${row.sessionId}`;
+  `${typeof row.origin === "string" ? row.origin : "local"}\u0000${
+    typeof row.chatId === "string" ? row.chatId : row.sessionId
+  }`;
 const refOf = (ref: SessionListKey): string => `${ref.origin}\u0000${ref.chatId}`;
 
 /** Stable newest-first order shared by the driver projection and page slots. */
@@ -81,7 +85,7 @@ export function sessionListOrder(row: SessionListRow): [number, string, string] 
     typeof row.updatedMs === "number" ? row.updatedMs : typeof row.lastActivity === "number" ? row.lastActivity : 0;
   const origin = typeof row.origin === "string" ? row.origin : "local";
   const id = typeof row.chatId === "string" ? row.chatId : row.sessionId;
-  return [activity, origin, id];
+  return [activity, id, origin];
 }
 
 function normalizeRow(value: SessionListRow): SessionListRow | null {
@@ -454,7 +458,8 @@ class SidList {
 }
 
 function compareOrder(a: [number, string, string], b: [number, string, string]): number {
-  return b[0] - a[0] || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]);
+  const codeUnits = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
+  return b[0] - a[0] || codeUnits(b[1], a[1]) || codeUnits(b[2], a[2]);
 }
 
 type Listener = (snapshot: SessionListSnapshot) => void;
@@ -574,13 +579,13 @@ export function parseSessionListChange(value: unknown): SessionListChange | null
   const kind = change.kind;
   if (kind !== "rows" && kind !== "page" && kind !== "on" && kind !== "origin" && kind !== "off" && kind !== "error")
     return null;
-  if (kind !== "off" && typeof change.sid !== "string") return null;
+  if (kind !== "off" && kind !== "error" && typeof change.sid !== "string") return null;
   if (kind === "rows") {
     if (
       typeof change.slot !== "string" ||
       !Array.isArray(change.upserts) ||
       !Array.isArray(change.remove) ||
-      typeof change.complete !== "boolean"
+      (change.complete !== undefined && typeof change.complete !== "boolean")
     )
       return null;
   }
@@ -590,11 +595,20 @@ export function parseSessionListChange(value: unknown): SessionListChange | null
       !Array.isArray(change.rows) ||
       typeof change.hasBefore !== "boolean" ||
       typeof change.hasAfter !== "boolean" ||
-      typeof change.complete !== "boolean"
+      (change.complete !== undefined && typeof change.complete !== "boolean")
     )
       return null;
   }
   if (kind === "origin" && (typeof change.origin !== "string" || typeof change.state !== "string")) return null;
   if ((kind === "off" || kind === "error") && typeof change.code !== "string") return null;
+  if (kind === "error" && change.sid !== undefined && typeof change.sid !== "string") return null;
+  if (kind === "rows" && change.complete === undefined) change.complete = false;
+  if (kind === "page") {
+    if (change.complete === undefined) change.complete = false;
+    if (change.coldUnread === undefined) change.coldUnread = false;
+    if (change.deeper === undefined) change.deeper = [];
+    if (change.missing === undefined) change.missing = [];
+    if (change.unknown === undefined) change.unknown = [];
+  }
   return change as SessionListChange;
 }

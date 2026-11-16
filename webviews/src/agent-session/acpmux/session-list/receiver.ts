@@ -8,7 +8,6 @@ const pump = createDocumentPump<SessionListBatch, SessionListChange, SessionList
   frameKey: "session-list",
   globalKey: "cmuxSessionList",
   parse: parseSessionListChange,
-  makePart: () => new Set<string>(),
   route: (change, hosts, parts) => {
     const stores = new Set<SessionListHost["store"]>();
     for (const host of hosts) {
@@ -36,7 +35,7 @@ export function addSessionListHost(host: SessionListHost, post: SessionListPost)
   const first = visibilityHosts.size === 0;
   pump.add(host, post);
   visibilityHosts.add(host);
-  if (first && typeof document !== "undefined" && document.hidden) void host.visible(false);
+  if (first && typeof document !== "undefined") void host.visible(!document.hidden);
 }
 
 export function removeSessionListHost(host: SessionListHost): void {

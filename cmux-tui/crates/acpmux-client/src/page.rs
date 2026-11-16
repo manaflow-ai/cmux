@@ -371,6 +371,9 @@ impl ListDriver {
     }
 
     pub fn close(&mut self, sid: &str) -> Result<(), DriverError> {
+        if !self.slots.contains_key(sid) {
+            return Err(DriverError::Invalid(InvalidCode::Sid));
+        }
         self.slots.remove(sid);
         self.heads.remove(sid);
         if let Some(old) = self.members.remove(sid) {
@@ -422,6 +425,9 @@ impl ListDriver {
         sid: &str,
         keys: impl IntoIterator<Item = ListKey>,
     ) -> Result<(), DriverError> {
+        if !self.slots.contains_key(sid) {
+            return Err(DriverError::Invalid(InvalidCode::Sid));
+        }
         let keys: Vec<_> = keys.into_iter().take(MAX_WANTED_KEYS + 1).collect();
         if keys.len() > MAX_WANTED_KEYS {
             return Err(DriverError::Limit("list.wants"));
@@ -437,6 +443,9 @@ impl ListDriver {
         sid: &str,
         keys: impl IntoIterator<Item = ListKey>,
     ) -> Result<(), DriverError> {
+        if !self.slots.contains_key(sid) {
+            return Err(DriverError::Invalid(InvalidCode::Sid));
+        }
         let keys: Vec<_> = keys.into_iter().take(MAX_WANTED_KEYS + 1).collect();
         if keys.len() > MAX_WANTED_KEYS {
             return Err(DriverError::Limit("list.wants"));
@@ -1370,6 +1379,12 @@ mod tests {
                 stopped: false,
             },
         );
+        let old_key = RowRef { origin: "local".into(), chat_id: "old".into() };
+        driver.heads.get_mut("s").unwrap().rows.push(old_key.clone());
+        driver.members.entry("s".into()).or_default().insert(old_key.clone());
+        driver
+            .row_values
+            .insert(old_key, json!({"chatId":"old", "origin":"local", "updatedMs": 0}));
         driver.questions.insert(
             "q".into(),
             Question {
@@ -1384,7 +1399,7 @@ mod tests {
                 created: 1,
             },
         );
-        let rows = (0..200).map(|index| json!({"chatId": format!("c{index}"), "origin": "local", "updatedMs": index})).collect();
+        let rows = (0..201).map(|index| json!({"chatId": format!("c{index}"), "origin": "local", "updatedMs": index})).collect();
         let page = crate::wire::PageResult {
             sid: "s".into(),
             rows,
@@ -1404,8 +1419,13 @@ mod tests {
             rest: Vec::new(),
         };
         let event = driver.project(Change::Page(page)).unwrap().unwrap();
-        assert!(matches!(event, ListEvent::Rows { complete: false, .. }));
+        assert!(
+            matches!(&event, ListEvent::Rows { complete: false, remove, .. } if remove == &vec![RowRef { origin: "local".into(), chat_id: "old".into() }])
+        );
         assert!(driver.heads["s"].stopped);
+        assert!(
+            matches!(driver.questions["q"].request.before.as_ref(), Some(Position::List(ListKey { chat_id, .. })) if chat_id == "older")
+        );
         assert_eq!(
             driver.page(PageRequest {
                 sid: "s".into(),
@@ -1416,5 +1436,84 @@ mod tests {
             }),
             Err(DriverError::Limit("list.limit"))
         );
+    }
+
+    #[test]
+    fn list_batch_fixture_bytes_are_the_driver_json() {
+        let row = |chat_id: &str, session_id: &str, updated_ms: u64| json!({"origin":"local", "chatId":chat_id, "sessionId":session_id, "updatedMs":updated_ms});
+        let batch = ListBatch {
+            number: 17,
+            events: vec![
+                ListEvent::Rows {
+                    sid: "fixture-sid".into(),
+                    slot: "all".into(),
+                    upserts: vec![row("chat-b", "session-b", 42), row("chat-a", "session-a", 42)],
+                    remove: Vec::new(),
+                    complete: false,
+                },
+                ListEvent::Rows {
+                    sid: "fixture-sid".into(),
+                    slot: "live".into(),
+                    upserts: vec![row("chat-live", "session-live", 43)],
+                    remove: Vec::new(),
+                    complete: false,
+                },
+                ListEvent::Rows {
+                    sid: "fixture-sid".into(),
+                    slot: "all".into(),
+                    upserts: vec![row("chat-old", "session-old", 10)],
+                    remove: Vec::new(),
+                    complete: false,
+                },
+                ListEvent::Page {
+                    sid: "fixture-sid".into(),
+                    id: "q-older".into(),
+                    rows: Vec::new(),
+                    has_before: true,
+                    has_after: false,
+                    complete: false,
+                    cold_unread: false,
+                    deeper: Vec::new(),
+                    missing: Vec::new(),
+                    unknown: Vec::new(),
+                },
+                ListEvent::Page {
+                    sid: "fixture-sid".into(),
+                    id: "q-family".into(),
+                    rows: vec![row("chat-family", "session-family", 7)],
+                    has_before: false,
+                    has_after: false,
+                    complete: false,
+                    cold_unread: false,
+                    deeper: vec![RowRef { origin: "local".into(), chat_id: "chat-child".into() }],
+                    missing: Vec::new(),
+                    unknown: Vec::new(),
+                },
+                ListEvent::On { sid: "fixture-sid".into() },
+                ListEvent::Off { sid: None, code: "lost".into() },
+                ListEvent::Error { sid: None, id: None, code: "list.protocol".into() },
+            ],
+        };
+        let expected = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../webviews/src/agent-session/acpmux/session-list/fixtures/v2-session-list-batch.bin"
+        ));
+        assert_eq!(batch.json().unwrap().as_slice(), expected);
+    }
+
+    #[test]
+    fn wanted_keys_for_unknown_sid_are_rejected_as_sid() {
+        let mut driver = ListDriver::new();
+        let key = ListKey {
+            last_activity: 1,
+            chat_id: "chat".into(),
+            origin: "local".into(),
+            past: false,
+        };
+        assert_eq!(
+            driver.want("missing", [key.clone()]),
+            Err(DriverError::Invalid(InvalidCode::Sid))
+        );
+        assert_eq!(driver.unwant("missing", [key]), Err(DriverError::Invalid(InvalidCode::Sid)));
     }
 }
