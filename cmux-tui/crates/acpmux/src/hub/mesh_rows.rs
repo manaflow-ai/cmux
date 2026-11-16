@@ -199,6 +199,20 @@ pub(super) fn is_own_host(host: &str) -> bool {
     own != "host" && host.eq_ignore_ascii_case(&own)
 }
 
+/// Tests only: chats by name whose hub mark fails to save (`mark_hub_via`).
+#[cfg(test)]
+pub(crate) static FAIL_HUB_VIA_SAVES: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn fail_hub_via_save(name: &str) -> bool {
+    FAIL_HUB_VIA_SAVES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .any(|n| n == name)
+}
+
 #[cfg(test)]
 mod mesh_route_tests {
     use super::*;
@@ -236,18 +250,4 @@ mod mesh_route_tests {
         assert!(!hub.mesh_may_route("dep-land"), "two peers list it");
         assert!(hub.mesh_may_route("other"));
     }
-}
-
-/// Tests only: chats by name whose hub mark fails to save (`mark_hub_via`).
-#[cfg(test)]
-pub(crate) static FAIL_HUB_VIA_SAVES: std::sync::Mutex<Vec<String>> =
-    std::sync::Mutex::new(Vec::new());
-
-#[cfg(test)]
-fn fail_hub_via_save(name: &str) -> bool {
-    FAIL_HUB_VIA_SAVES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .iter()
-        .any(|n| n == name)
 }

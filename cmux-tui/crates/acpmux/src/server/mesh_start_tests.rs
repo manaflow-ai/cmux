@@ -540,6 +540,8 @@ impl MeshHub for Recorder {
 /// that names its own policy or a mode keeps it.
 #[tokio::test]
 async fn a_hub_machine_start_carries_the_persons_start_level() {
+    // The folder the person picks: the pane's start needs one that exists.
+    let (_dir, _root, cwd) = project();
     for (level, want) in
         [("fullAccess", json!("approve-all")), ("standard", Value::Null), ("ask", Value::Null)]
     {
@@ -561,10 +563,11 @@ async fn a_hub_machine_start_carries_the_persons_start_level() {
             let mut meta = meta;
             meta["peer"] = json!("machine-b");
             meta["name"] = json!(format!("{level}-{key}"));
-            let params = json!({"cwd": "/remote", "mcpServers": [], "_meta": {"acpmux": meta}});
+            let params = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
             let reply = app.call("session/new", params, &mut Vec::new()).await;
             assert!(reply.get("error").is_some(), "{level} {key}: {reply}");
-            let body = mesh.0.lock().unwrap().last().cloned().expect("a start was sent");
+            let sent = mesh.0.lock().unwrap().pop();
+            let body = sent.unwrap_or_else(|| panic!("{level} {key}: no start was sent: {reply}"));
             assert_eq!(body["params"]["_meta"]["acpmux"]["policy"], want, "{level} {key}: {body}");
         }
     }
