@@ -1,0 +1,53 @@
+import AppKit
+import CmuxNextDesign
+@testable import CmuxNextSidebar
+import Testing
+
+/// Lawrence 2026-11-15 (msg 34327): "for minimal mode there is more space at bottom we can use when mouse is not
+/// hovered in sidebar, we can do height animation of bottom area too". In Minimal Mode, with the pointer away, the
+/// footer (profile control, spaces, Search) is hidden, so the workspace list takes its height; the pointer over the
+/// sidebar gives it back. Row heights never change (Minimal Mode keeps density). By default nothing moves.
+@MainActor @Suite(.serialized) struct MinimalModeFooterCollapseTests {
+    private struct Measure: CustomStringConvertible {
+        var listBottom: CGFloat, footerTop: CGFloat, footerHeight: CGFloat
+        var description: String { "list bottom \(listBottom), footer top \(footerTop), footer height \(footerHeight)" }
+    }
+
+    private static func measure(_ sidebar: SidebarView, revealed: Bool) -> Measure {
+        sidebar.setChromeRevealed(revealed)
+        sidebar.needsLayout = true
+        sidebar.layoutSubtreeIfNeeded()
+        return Measure(listBottom: sidebar.edgeFade.frame.maxY, footerTop: sidebar.footerRegion.frame.minY,
+                       footerHeight: sidebar.footerRegion.frame.height)
+    }
+
+    @Test func minimalModeGivesTheHiddenFooterToTheList() async throws {
+        let previousMotion = Motion.reduceMotionOverride
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = previousMotion }
+        let h = try await SidebarBandHideTests().make(#"{"sidebar":{"minimal":true}}"#)
+        defer { h.tearDown() }
+        await h.until { h.sidebar.design.sidebarSections.minimal }
+        let shown = Self.measure(h.sidebar, revealed: true)
+        let rest = Self.measure(h.sidebar, revealed: false)
+        print("FOOTER-COLLAPSE|minimal|shown: \(shown)|rest: \(rest)")
+        #expect(shown.footerHeight > 0, "fixture: the footer has a height to give")
+        #expect(shown.listBottom <= shown.footerTop + 0.5, "revealed, the list ends above the footer: \(shown)")
+        #expect(rest.listBottom >= shown.listBottom + shown.footerHeight - 0.5,
+                "at rest the list takes the hidden footer's height: shown \(shown), rest \(rest)")
+        let again = Self.measure(h.sidebar, revealed: true)
+        #expect(abs(again.listBottom - shown.listBottom) <= 0.5, "the pointer back over the sidebar gives the room back: \(again)")
+    }
+
+    @Test func byDefaultTheFooterKeepsItsHeight() async throws {
+        let previousMotion = Motion.reduceMotionOverride
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = previousMotion }
+        let h = try await SidebarBandHideTests().make("{}")
+        defer { h.tearDown() }
+        let shown = Self.measure(h.sidebar, revealed: true)
+        let rest = Self.measure(h.sidebar, revealed: false)
+        print("FOOTER-COLLAPSE|default|shown: \(shown)|rest: \(rest)")
+        #expect(abs(rest.listBottom - shown.listBottom) <= 0.5, "nothing hides by default, so nothing moves: \(shown) vs \(rest)")
+    }
+}
