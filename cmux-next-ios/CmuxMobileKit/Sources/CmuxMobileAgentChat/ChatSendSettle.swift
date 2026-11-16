@@ -63,8 +63,10 @@ struct ChatSendSettle {
     /// The rows the send put in (the prompt bubble, its working line).
     var rowIDs: [String]
     var motion: ChatSendMotion
-    /// The offset before the rows went in.
-    var fromOffset: Double
+    /// The content height before the rows went in.
+    var fromHeight: Double
+    /// When the send drew the rows (before their first layout).
+    var armedAt: Double = 0
     /// When the glide started (its first layout pass with the rows in), nil until then.
     var start: Double?
     /// The travel at the start: the content's growth, plus any growth while it runs.
@@ -72,10 +74,10 @@ struct ChatSendSettle {
     /// The content height the glide last accounted for.
     var contentHeight: Double = 0
 
-    /// Starts the glide from the resting offset of the first layout with the rows in. False when
-    /// there is nothing to travel (a chat that had room below its rows).
-    mutating func begin(restingOffset: Double, contentHeight: Double, at time: Double) -> Bool {
-        let travel = restingOffset - fromOffset
+    /// Starts the glide on the first layout with the rows in: it travels what they added to the
+    /// content (the keyboard going down moves the resting place on its own). False when nothing grew.
+    mutating func begin(contentHeight: Double, at time: Double) -> Bool {
+        let travel = contentHeight - fromHeight
         guard travel > 0.5 else { return false }
         start = time
         reach = travel

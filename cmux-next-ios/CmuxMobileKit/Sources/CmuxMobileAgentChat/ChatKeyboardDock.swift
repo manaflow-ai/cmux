@@ -589,9 +589,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         }
         // A second send mid-glide starts from where the first has the rows now.
         endSendSettle()
-        sendSettle = ChatSendSettle(rowIDs: ids, motion: motion, fromOffset: Double(scrollView.contentOffset.y))
+        sendSettle = ChatSendSettle(rowIDs: ids, motion: motion, fromHeight: Double(contentHeight),
+                                     armedAt: settleClock)
         list.settlingRowIDs = Set(ids)
-        noteSend("arm \(motion.rawValue) rows \(ids.count) from \(Int(scrollView.contentOffset.y))")
+        noteSend("arm \(motion.rawValue) rows \(ids.count) offset \(Int(scrollView.contentOffset.y)) height \(Int(contentHeight))")
     }
 
     /// DEBUG: a line for `ChatSendTrace` (nothing in other builds).
@@ -607,9 +608,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         guard var settle = sendSettle else { return resting }
         let now = settleClock
         if settle.start == nil {
-            guard settle.begin(restingOffset: Double(resting.y), contentHeight: Double(contentHeight), at: now) else {
-                noteSend("no travel: resting \(Int(resting.y)) from \(Int(settle.fromOffset))")
-                endSendSettle()
+            guard settle.begin(contentHeight: Double(contentHeight), at: now) else {
+                // A pass before the rows are laid out (the keyboard going down): wait for them,
+                // a bounded while.
+                if now - settle.armedAt > ChatSendSpring.settleTime {
+                    noteSend("no travel: height \(Int(contentHeight)) from \(Int(settle.fromHeight))")
+                    endSendSettle()
+                }
                 return resting
             }
             noteSend("begin travel \(Int(settle.reach))")

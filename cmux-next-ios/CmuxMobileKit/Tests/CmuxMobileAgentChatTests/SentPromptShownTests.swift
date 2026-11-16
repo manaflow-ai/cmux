@@ -156,8 +156,8 @@ import Testing
     }
 
     @Test func theRowsStartWhereTheyWereAndArriveAtTheBottom() {
-        var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromOffset: 100)
-        let began = settle.begin(restingOffset: 160, contentHeight: 900, at: 10)
+        var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromHeight: 840)
+        let began = settle.begin(contentHeight: 900, at: 10)
         #expect(began)
         // The first frame draws the rows where they were before the bubble went in.
         #expect(abs(160 - settle.remaining(at: 10) - 100) < 0.001)
@@ -166,8 +166,8 @@ import Testing
     }
 
     @Test func aRowGrowingMidGlideDoesNotJump() {
-        var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromOffset: 0)
-        let began = settle.begin(restingOffset: 50, contentHeight: 500, at: 0)
+        var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromHeight: 450)
+        let began = settle.begin(contentHeight: 500, at: 0)
         #expect(began)
         let before = settle.remaining(at: 0.1)
         // The working line measured 12 pt taller: the resting place moves down 12, and so must
@@ -177,8 +177,8 @@ import Testing
     }
 
     @Test func nothingToTravelIsNoGlide() {
-        var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromOffset: 40)
-        let began = settle.begin(restingOffset: 40, contentHeight: 300, at: 0)
+        var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromHeight: 300)
+        let began = settle.begin(contentHeight: 300, at: 0)
         #expect(!began)
     }
 }
