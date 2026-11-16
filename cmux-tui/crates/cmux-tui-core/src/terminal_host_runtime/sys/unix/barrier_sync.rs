@@ -1,4 +1,5 @@
-//! Ordered syncs for terminal-host discovery files.
+//! Ordered syncs for terminal-host discovery files, and for the files that a
+//! worktree's setup writes by a rename.
 //!
 //! The host record, the publication lock, the host liveness lease and the
 //! deprecated workspace mirror do not need a drive-cache flush: a record
@@ -10,6 +11,13 @@
 //! F_BARRIERFSYNC gives at a fraction of F_FULLFSYNC's cost (0.5 ms against
 //! 3.9 ms on a Mac mini). The exit record, the SQLite registry and the
 //! session journal keep the full sync.
+//!
+//! The status file of a worktree's setup and the ports file of a repository
+//! (`git_ops/worktree_setup`) have this sync too, by a decision of
+//! 2026-11-16. They need the write order, so that the name does not get a
+//! file that is cut short. A power cut can take either file back to the one
+//! from before: the newest status, or the newest block of ports, is then
+//! not in it.
 
 use std::fs::{File, OpenOptions};
 use std::io;

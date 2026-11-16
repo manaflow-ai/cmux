@@ -775,9 +775,10 @@ fn no_flush(_: &File) -> std::io::Result<()> {
     Err(std::io::Error::other("no flush"))
 }
 
-/// A file that is written is flushed before it takes its name: at the flush, the `.partial`
-/// file has each new byte, and the name has the bytes from before. So a machine that stops
-/// after the rename does not have a file that is cut short at the name.
+/// A file that is written is flushed before it takes its name: at the flush, the file that is
+/// flushed has the length of the new bytes, which is not the length of the bytes from before,
+/// and the name has the bytes from before. So a machine that stops after the rename does not
+/// have a file that is cut short at the name.
 #[cfg(unix)]
 #[test]
 fn own_tree_a_written_file_is_flushed_before_it_takes_its_name() {
@@ -794,14 +795,14 @@ fn own_tree_a_written_file_is_flushed_before_it_takes_its_name() {
             seen.borrow_mut().push((length, fs::read_to_string(&name).ok()));
             Ok(())
         },
-        || folder.write("list.json", b"each new byte"),
+        || folder.write("list.json", b"each new byte of the list"),
     );
     let after = fs::read_to_string(&named).ok();
 
     fs::remove_dir_all(top).unwrap();
     assert!(written.is_ok(), "{written:?}");
-    assert_eq!(*flushes.borrow(), [(Some(13), Some("the old bytes".to_string()))]);
-    assert_eq!(after.as_deref(), Some("each new byte"));
+    assert_eq!(*flushes.borrow(), [(Some(25), Some("the old bytes".to_string()))]);
+    assert_eq!(after.as_deref(), Some("each new byte of the list"));
 }
 
 /// A file that is not flushed does not take its name: the write gives the error of the flush,
