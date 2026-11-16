@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentList
 import CmuxNextWakeups
 public import CmuxNextPages
+public import CmuxNextSettings
 import Foundation
 
 /// The agent page's `cmux.agent.chat.rows.*` operations (the design doc's host contract), on a page
