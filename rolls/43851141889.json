@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43851141889",
+  "recorded_at": "2026-11-16T10:57:32Z",
+  "reason": "cmux-tui f3f5654adf3b changes the image's cmux-tui (pinned 8d70e801d341)",
+  "dry_run": false,
+  "cmux_tui": "f3f5654adf3b9f1ea588a9cf24efc99f9706ce07",
+  "fixes": [
+    {
+      "sha": "f3f5654adf3b9f1ea588a9cf24efc99f9706ce07",
+      "mergedAt": "2026-11-16T10:25:46Z",
+      "subject": "cmux chat --on: every machine acpmux reaches is a target, with --wait (#44359)"
+    },
+    {
+      "sha": "5f59917f000a9ffc82f9ddbf4c95d7f9a0af7f35",
+      "mergedAt": "2026-11-16T02:20:15-08:00",
+      "subject": "v2 5i: write the cold kin snapshot sidecar (#44281)"
+    },
+    {
+      "sha": "a04cee415b6eac32a37c35f6997682d8dee33bd5",
+      "mergedAt": "2026-11-16T02:11:50-08:00",
+      "subject": "acpmux: our own lane VMs take the VM boundary, Codex included (#44380)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T10:57:32Z",
+    "snapshot_id": "sh-0ef23012b6f44ea2a0b00ea7b7d961b2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43851141889): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9e70fdc10a863c01b005a66c35bf56078a5ae709",
+    "image": "cloud-native-auto-f3f5654a-43851141889-1",
+    "revision": "ci-43851141889-1",
+    "at": "2026-11-16T10:57:32Z"
+  },
+  "rolled_back": false
+}
