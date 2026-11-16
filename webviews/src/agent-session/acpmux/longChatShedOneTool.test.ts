@@ -349,3 +349,71 @@ test("scrolling up a turn that is one call brings its dropped output lines back,
     chat.close();
   }
 }, 300_000);
+
+/// Lands an older page above the held records as loadOlder's `publish` does for a page inside the turn (`foldOlder`):
+/// the page folds incrementally above them.
+function foldPage(chat: Awaited<ReturnType<typeof openChat>>, page: EventRecord[]) {
+  const pane = chat.client as unknown as { events: EventRecord[]; foldOlder: (older: EventRecord[]) => void };
+  pane.events = [...page, ...pane.events].sort((a, b) => a.seq - b.seq);
+  pane.foldOlder(page);
+  chat.flush();
+}
+
+/// A 12,000-record one-call turn, shed with its call's oldest lines dropped; the full output and reply it streamed.
+async function shedTurn(chat: Awaited<ReturnType<typeof openChat>>) {
+  for (let seq = 1; seq <= 3; seq += 1) chat.deliver();
+  const { sheds } = await streamTurn(chat, 12_000);
+  expect(sheds).toBeGreaterThan(1);
+  const total = chat.state.total;
+  let full = "";
+  let text = "";
+  for (let seq = 4; seq <= total; seq += 1)
+    if (seq % 4 === 0) text += word(seq);
+    else full += line(seq);
+  expect(chat.tool()?.earlierOutput).toBe(true);
+  chat.client.setFollowing(false);
+  return { full, text, first: chat.pane.events[0]!.seq };
+}
+
+const callRows = (chat: Awaited<ReturnType<typeof openChat>>) =>
+  [...chat.pane.rows.values()].filter((row) => row.items?.some((item) => item.tool?.id === CALL));
+
+test("an older page holding the prompt, then the call's opening record and lines, puts the lines back on its one row", async () => {
+  const chat = await openChat(appendStream);
+  try {
+    const { full, first } = await shedTurn(chat);
+    // The page folding the turn's prompt first clears the call ids it knows; the call's opening record and its oldest
+    // lines still fold into the page's row of the call, never a second row whose lines the page then drops.
+    const page: EventRecord[] = [];
+    for (let seq = 1; seq < first; seq += 1) page.push(appendStream(chat.state.target, seq));
+    foldPage(chat, page);
+    expect(callRows(chat)).toHaveLength(1);
+    expect(chat.tool()?.output).toBe(full);
+    expect(chat.tool()?.earlierOutput).toBeUndefined();
+  } finally {
+    chat.close();
+  }
+}, 300_000);
+
+test("a page that reaches below the call's opening record without holding it keeps the call's mark and that record", async () => {
+  const chat = await openChat(appendStream);
+  try {
+    const { full, first } = await shedTurn(chat);
+    // acpmux can leave a record out of a page: this one reaches the turn start but not the call's opening record.
+    const page: EventRecord[] = [];
+    for (let seq = 2; seq < first; seq += 1) if (seq !== 3) page.push(appendStream(chat.state.target, seq));
+    foldPage(chat, page);
+    expect(callRows(chat)).toHaveLength(1);
+    expect(chat.tool()?.output).toBe(full);
+    // The call's start is still unread: the row stays marked, and its opening record stays held aside for a refold.
+    expect(chat.tool()?.earlierOutput).toBe(true);
+    expect([...chat.pane.splits.values()].some((split) => split.aside.some((event) => event.seq === 3))).toBe(true);
+    // A full refold of what is held draws the call's row once, every line in order.
+    (chat.client as unknown as { rebuildKeepingLiveState: () => void }).rebuildKeepingLiveState();
+    chat.flush();
+    expect(callRows(chat)).toHaveLength(1);
+    expect(chat.tool()?.output).toBe(full);
+  } finally {
+    chat.close();
+  }
+}, 300_000);
