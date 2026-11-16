@@ -6,7 +6,7 @@ import os
 /// Capture Screenshot to Chat (`palette.captureScreenshotToChat`, Leo, 2026-11-08, ask-a862e90c70, on
 /// screenshots that could not reach a chat from another app): the system's region pick
 /// (`screencapture -i`, as + > Attach Screenshot… runs it), or a given region with no pick
-/// (`chat.capture.toChat {region}` for scripted walks, `screencapture -R`), written as a PNG into a
+/// (`screencapture -R`; no caller reaches it yet: cmux#43102 review F1, cmux#13742), written as a PNG into a
 /// fresh folder under Chat Uploads (``ChatUploadFolders``, whose expiry covers it). The App then hands
 /// the file to its one route into a chat's composer (`ExternalOpenController.attachToChat`). The pick's
 /// UI and the Screen Recording permission are macOS's; Esc takes nothing and leaves no file.
@@ -28,11 +28,6 @@ public nonisolated struct ScreenshotToChat: Sendable {
         case failed(String)
     }
 
-    /// A `region` that is not four integers with a positive width and height.
-    public struct BadRegion: Error, Equatable, Sendable {
-        public let message: String
-    }
-
     public let folders: ChatUploadFolders
     let executable: String
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.capture-to-chat")
@@ -44,24 +39,6 @@ public nonisolated struct ScreenshotToChat: Sendable {
     init(folders: ChatUploadFolders, executable: String) {
         self.folders = folders
         self.executable = executable
-    }
-
-    /// `chat.capture.toChat`'s params: `{"region": [x, y, w, h]}` takes that region with no pick, and
-    /// none (or `{}`) runs the system's pick. Numbers are rounded to whole points.
-    public static func pick(from params: [String: JSONValue]) throws(BadRegion) -> Pick {
-        guard let region = params["region"], region != .null else { return .picker }
-        guard case .array(let values) = region, values.count == 4 else {
-            throw BadRegion(message: "region must be [x, y, width, height]")
-        }
-        let numbers = values.compactMap { $0.doubleValue }
-        guard numbers.count == 4, numbers.allSatisfy(\.isFinite) else {
-            throw BadRegion(message: "region must be four numbers")
-        }
-        // Int(exactly:): a coordinate past Int's range is refused, never a trapping conversion.
-        let rounded = numbers.compactMap { Int(exactly: $0.rounded()) }
-        guard rounded.count == 4 else { throw BadRegion(message: "region numbers must be whole points in range") }
-        guard rounded[2] > 0, rounded[3] > 0 else { throw BadRegion(message: "region needs a positive width and height") }
-        return .region(x: rounded[0], y: rounded[1], width: rounded[2], height: rounded[3])
     }
 
     /// `screencapture`'s arguments for `pick`, writing `file`: -i the region pick, or -R the region;

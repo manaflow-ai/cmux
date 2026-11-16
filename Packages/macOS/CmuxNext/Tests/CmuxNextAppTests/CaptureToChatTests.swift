@@ -9,8 +9,8 @@ import Testing
 
 /// Capture Screenshot to Chat (`palette.captureScreenshotToChat`) and `chat.capture.toChat`: the
 /// catalog offers it as a global key that `app.captureScreenshotGlobalHotKey` gates (off by default),
-/// the region argument parses to `screencapture -R`, a taken still goes to the chat route as cmux's,
-/// an Esc reaches no chat, and the control method answers `{session, path, bytes}`.
+/// a region over the control socket is refused as person-only, a taken still goes to the chat route as
+/// cmux's, an Esc reaches no chat, and the control method answers `{session, path, bytes}`.
 @MainActor @Suite(.serialized) struct CaptureToChatTests {
     static let key = Shortcut("s", modifiers: [.control, .option, .command])
 
@@ -116,19 +116,28 @@ import Testing
 
     // MARK: The region argument and the answer
 
-    @Test func theRegionParsesToFourWholePointsAndNoneRunsThePick() throws {
-        #expect(try ScreenshotToChat.pick(from: [:]) == .picker)
-        #expect(try ScreenshotToChat.pick(from: ["region": .null]) == .picker)
-        #expect(try ScreenshotToChat.pick(from: ["region": .array([.number(10), .number(20.4), .number(300), .number(199.6)])])
-            == .region(x: 10, y: 20, width: 300, height: 200))
-        for bad: JSONValue in [.array([.number(1), .number(2), .number(3)]), .string("1,2,3,4"),
-                               .array([.number(0), .number(0), .number(0), .number(10)]),
-                               .array([.number(0), .number(0), .string("w"), .number(10)]),
-                               // Past Int's range: rejected, never a trapping conversion (#43102 review F2).
-                               .array([.number(1e100), .number(0), .number(10), .number(10)]),
-                               .array([.number(0), .number(-1e300), .number(10), .number(10)])] {
-            #expect(throws: ScreenshotToChat.BadRegion.self) { try ScreenshotToChat.pick(from: ["region": bad]) }
+    @Test func aScriptedRegionIsRefusedAsPersonOnlyAndTakesNothing() async throws {
+        // cmux#43102 review F1: a region with no pick let any caller of the control socket read other apps'
+        // windows with cmux's Screen Recording grant. It is refused before anything is taken.
+        let box = Box()
+        box.next = .taken(URL(fileURLWithPath: "/tmp/Screenshot.png"), bytes: 12)
+        let capture = CaptureToChat(take: { box.picks.append($0); return box.next }, attach: { box.attached.append(($0, $1)) },
+                                    session: { "s-1" }, source: "com.cmuxterm.app.next")
+        for region: JSONValue in [.array([.number(0), .number(0), .number(640), .number(400)]), .string("0,0,1,1")] {
+            await #expect(throws: ControlError.self) { try await capture.respond(to: ["region": region]) }
+            do {
+                _ = try await capture.respond(to: ["region": region])
+            } catch let error as ControlError {
+                #expect(error.code == ControlError.personOnly().code)
+            }
         }
+        #expect(box.picks.isEmpty, "no picture is taken for a refused region")
+        #expect(box.attached.isEmpty)
+
+        // No region: the system's pick, where the person chooses what to take.
+        #expect(try await capture.respond(to: [:]) == ScreenshotToChat.answer(session: "s-1", file: URL(fileURLWithPath: "/tmp/Screenshot.png"), bytes: 12))
+        #expect(try await capture.respond(to: ["region": .null])["path"] == .string("/tmp/Screenshot.png"))
+        #expect(box.picks == [.picker, .picker])
     }
 
     @Test func aRegionRunsScreencaptureWithRAndNoPick() {

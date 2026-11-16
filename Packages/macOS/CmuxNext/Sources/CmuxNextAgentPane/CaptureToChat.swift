@@ -12,8 +12,10 @@ public import Foundation
 /// new chat, as an unsent draft, with cmux brought forward and the composer focused. Esc takes nothing
 /// and does nothing.
 ///
-/// `chat.capture.toChat {"region": [x, y, w, h]}` runs the same path with that region and no pick, for
-/// scripted walks (the screenshot-into-chat probe), and answers `{session, path, bytes}`.
+/// `chat.capture.toChat` runs the same path, the system's pick included, and answers `{session, path,
+/// bytes}`. A region with no pick is refused there: it would let any caller of the control socket read
+/// other apps' windows with cmux's Screen Recording grant (cmux#43102 review F1; the scripted form waits
+/// on cmux#13742).
 public struct CaptureToChat: Sendable {
     public static let action: ActionID = "palette.captureScreenshotToChat"
     public static let method = "chat.capture.toChat"
@@ -67,26 +69,27 @@ public struct CaptureToChat: Sendable {
         })
     }
 
-    /// `chat.capture.toChat`: `{"region": [x, y, w, h]}` (global points from the top-left) takes that
-    /// region with no pick; without one it runs the pick. Answers `{session, path, bytes}`, or
-    /// `{cancelled: true}` for an Esc; a capture that fails is the `capture_failed` error.
+    /// `chat.capture.toChat`: runs the system's pick, where the person chooses what to take. Answers
+    /// `{session, path, bytes}`, or `{cancelled: true}` for an Esc; a capture that fails is the
+    /// `capture_failed` error. A `region` is refused as person-only: a picture with no pick would hand
+    /// the caller whatever is on screen, past the person and past the browser's capture mask.
     public func controlMethod() -> ControlMethod {
         let capture = self
         return ControlMethod.async(Self.method) { call in
-            let pick: ScreenshotToChat.Pick
-            do {
-                pick = try ScreenshotToChat.pick(from: call.params)
-            } catch let bad as ScreenshotToChat.BadRegion {
-                throw ControlError.invalidParams(bad.message)
-            }
-            switch await capture.run(pick) {
-            case .taken(let file, let bytes):
-                return await ScreenshotToChat.answer(session: capture.session(), file: file, bytes: bytes)
-            case .cancelled:
-                return ScreenshotToChat.cancelledAnswer
-            case .failed(let reason):
-                throw ControlError(code: "capture_failed", message: reason)
-            }
+            try await capture.respond(to: call.params)
         }.withDeadline(.fixed(.seconds(120)))
+    }
+
+    /// The method's answer for `params`; a region is refused before anything is taken.
+    func respond(to params: [String: JSONValue]) async throws -> JSONValue {
+        if let region = params["region"], region != .null { throw ControlError.personOnly() }
+        switch await run(.picker) {
+        case .taken(let file, let bytes):
+            return await ScreenshotToChat.answer(session: session(), file: file, bytes: bytes)
+        case .cancelled:
+            return ScreenshotToChat.cancelledAnswer
+        case .failed(let reason):
+            throw ControlError(code: "capture_failed", message: reason)
+        }
     }
 }
