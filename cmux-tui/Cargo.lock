@@ -26,6 +26,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
+ "cmux-cloud-environment",
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-command-class",
@@ -35,6 +36,7 @@ dependencies = [
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",
+ "cmux-hub-host",
  "cmux-journal",
  "cmux-json",
  "cmux-link",
@@ -52,6 +54,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-signed-bundle",
  "cmux-source-scan",
  "cmux-supervise-core",
  "cmux-tailnet",
@@ -69,6 +72,7 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.3.4",
+ "hpke",
  "imbl",
  "inotify",
  "jsonschema",
@@ -2145,6 +2149,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-signed-bundle"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-source-scan"
 version = "1.0.0"
 dependencies = [
@@ -2443,6 +2456,7 @@ dependencies = [
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
+ "cmux-signed-bundle",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-iface",

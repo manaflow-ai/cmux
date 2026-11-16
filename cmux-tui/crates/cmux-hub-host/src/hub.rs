@@ -247,14 +247,23 @@ impl Hub {
 
     /// `POST /v1/devices`: registers this device as `platform` (`linux`, `macos`).
     pub fn register(&self, platform: &str) -> Res<Value> {
-        let body = json!({
-            "id": self.device.id,
-            "name": self.device.name,
-            "platform": platform,
-            "signingKey": self.signer.public_key(),
-            "agreementKey": self.device.agreement_key()?,
-        });
-        self.call("POST", "/v1/devices", Some(&body))
+        self.register_with(platform, serde_json::Map::new())
+    }
+
+    /// [`Hub::register`] with `extra` fields in the body, e.g. the acpmux share host's
+    /// `shareByJoin`. The device's own fields win over an extra of the same name.
+    pub fn register_with(
+        &self,
+        platform: &str,
+        extra: serde_json::Map<String, Value>,
+    ) -> Res<Value> {
+        let mut body = extra;
+        body.insert("id".into(), json!(self.device.id));
+        body.insert("name".into(), json!(self.device.name));
+        body.insert("platform".into(), json!(platform));
+        body.insert("signingKey".into(), json!(self.signer.public_key()));
+        body.insert("agreementKey".into(), json!(self.device.agreement_key()?));
+        self.call("POST", "/v1/devices", Some(&Value::Object(body)))
     }
 
     /// `POST /v1/auth/device/anchor`: lets this device renew its own host session. Returns
@@ -455,7 +464,11 @@ mod tests {
         let renewal = Renewal::Machine { credential: "cmm_secret".into() };
         let hub = Hub::with_renewal(&origin, device, None, renewal).unwrap();
         assert_eq!(hub.user_id(), None);
-        hub.register("macos").unwrap();
+        let mut extra = serde_json::Map::new();
+        extra.insert("shareByJoin".into(), json!(true));
+        // An extra never replaces the device's own fields.
+        extra.insert("platform".into(), json!("ios"));
+        hub.register_with("macos", extra).unwrap();
         assert_eq!(hub.user_id().as_deref(), Some("p:u"));
         let received = server.join().unwrap();
         // The sign-in: the credential and this device, unsigned.
@@ -466,6 +479,8 @@ mod tests {
         // Then the call itself, with the machine session and the device's signature.
         assert_eq!(received[1].line, "POST /v1/devices HTTP/1.1");
         assert_eq!(received[1].body["platform"], "macos");
+        assert_eq!(received[1].body["shareByJoin"], true);
+        assert_eq!(received[1].body["id"], json!(id));
         assert_eq!(received[1].header("authorization"), Some("Bearer sess-1"));
         assert!(received[1].header("x-device-sig").is_some());
     }

@@ -77,6 +77,7 @@ members = [
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-hub-host",
+    "crates/cmux-signed-bundle",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
@@ -194,6 +195,7 @@ default-members = [
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-hub-host",
+    "crates/cmux-signed-bundle",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
@@ -346,6 +348,7 @@ cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
 cmux-process = { path = "crates/cmux-process" }
 cmux-hub-host = { path = "crates/cmux-hub-host" }
+cmux-signed-bundle = { path = "crates/cmux-signed-bundle" }
 cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
