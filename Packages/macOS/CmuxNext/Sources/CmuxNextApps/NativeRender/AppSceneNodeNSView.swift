@@ -49,6 +49,8 @@ class AppSceneNodeNSView: NSView {
     var exitToken = 0
     /// Distinct keys for additive animations, which run side by side.
     var additiveSerial = 0
+    /// The container the children sit in while the node is `clipped` (AppSceneNodeNSView+Clip.swift).
+    var clipView: AppSceneClipView?
 
     init(id: String, node: AppSceneNode) {
         nodeID = id
@@ -74,6 +76,7 @@ class AppSceneNodeNSView: NSView {
         setOpacity(node.number("opacity").map { CGFloat(min(max($0, 0), 1)) } ?? 1)
         configureDecorations()
         configureMotion()
+        configureClip()
         // An animated change paints its colors now, while the change's motion is known.
         if changeMotion != nil { performWithTheme { paint() } }
         needsLayout = true
@@ -114,7 +117,9 @@ class AppSceneNodeNSView: NSView {
     }
 
     /// The view children are added to (a panel puts them above its surface).
-    var childHost: NSView { self }
+    var childHost: NSView { clipView ?? self }
+    /// Whether the children sit in this view (not in a content view of its own, as a panel's do).
+    var hostsChildrenInSelf: Bool { true }
 
     // MARK: Layout
 
@@ -186,6 +191,7 @@ class AppSceneNodeNSView: NSView {
     override func layout() {
         super.layout()
         layoutDecorations()
+        if let clipView { withoutActions { clipView.frame = bounds } }
         let p = padding
         layoutContent(in: CGRect(x: p.left, y: p.top, width: max(0, bounds.width - p.left - p.right),
                                  height: max(0, bounds.height - p.top - p.bottom)))

@@ -135,6 +135,31 @@ import Testing
         #expect(abs(first.y - 2) < 0.01 || abs(first.y - 38) < 0.01, "at the top edge, inside the stroke")
     }
 
+    @Test func clippedCutsTheChildrenButNotTheNodesOwnGlow() throws {
+        let model = Self.scene([
+            .create(id: "clock", type: "HStack", props: ["frame": ["width": 80, "height": 24], "cornerRadius": 6, "clipped": true,
+                                                         "glow": ["color": "#FFD166", "radius": 8]]),
+            .create(id: "digit", type: "Text", props: ["text": "4", "transition": "slide"]),
+            .children(id: "clock", children: ["digit"]),
+            .root(id: "clock"),
+        ])
+        let (window, root) = Self.host(model)
+        defer { window.contentView = nil; window.close() }
+        let clock = try #require(Self.node("clock", in: root))
+        let digit = try #require(Self.node("digit", in: root))
+        let clip = try #require(digit.superview as? AppSceneClipView, "a clipped node's children sit in its clip")
+        #expect(clip.superview === clock)
+        #expect(clip.layer?.masksToBounds == true)
+        #expect(clip.layer?.cornerRadius == 6)
+        #expect(clip.frame == clock.bounds)
+        #expect(clock.layer?.masksToBounds == false, "the node's own glow is outside the clip")
+        #expect(clock.layer?.shadowRadius == 8)
+        model.apply([.update(id: "clock", props: ["clipped": .null])])
+        root.layoutSubtreeIfNeeded()
+        #expect(digit.superview === clock, "unclipped, the children go back into the node")
+        #expect(!clock.subviews.contains { $0 is AppSceneClipView })
+    }
+
     @Test func gradientAndGlowDraw() throws {
         let model = Self.scene([
             .create(id: "card", type: "VStack", props: ["frame": ["width": 100, "height": 40], "cornerRadius": 8,

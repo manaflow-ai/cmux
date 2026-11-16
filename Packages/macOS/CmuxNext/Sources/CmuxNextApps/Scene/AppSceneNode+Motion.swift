@@ -46,6 +46,10 @@ extension AppSceneNode {
     /// `blur`: a Gaussian blur radius in points, clamped to [0, 100].
     var blurRadius: CGFloat { CGFloat(Self.finite(number("blur"), in: 0...100) ?? 0) }
 
+    /// `clipped`: the node clips its content (children, their transitions and glows) to its frame
+    /// and `cornerRadius`; its own glow stays outside. Off by default.
+    var clipped: Bool { props["clipped"]?.boolValue == true }
+
     /// `glow`: `{ color, radius, opacity? }`, a colored zero-offset shadow around the node's shape.
     var glow: SceneGlow? {
         guard let fields = props["glow"]?.objectValue, let color = fields["color"], color.stringValue != nil else { return nil }
