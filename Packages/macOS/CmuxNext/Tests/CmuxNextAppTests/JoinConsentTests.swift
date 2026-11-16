@@ -737,7 +737,8 @@ import Testing
     }
 
     private static func page(_ model: JoinConsentModel) throws -> [String: Any] {
-        try #require(try JSONSerialization.jsonObject(with: try #require(model.pageData())) as? [String: Any])
+        let data = try #require(model.pageData())
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
     /// Every way the page is left with no record says which one it is (2026-11-15: one generic "could not
