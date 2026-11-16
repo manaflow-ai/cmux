@@ -1894,7 +1894,9 @@ jobs:
             python3 scripts/cmux-next/tests/test_bench_launch.py
             python3 scripts/cmux-next/tests/test_bench_launch_calls.py
             python3 scripts/cmux-next/tests/test_bench_launch_executable.py
+            python3 scripts/cmux-next/tests/test_bench_launch_person_mac.py
             python3 scripts/cmux-next/tests/test_bench_memory_webkit_direct.py
+            python3 scripts/cmux-next/tests/test_bench_page_engine.py
             python3 scripts/cmux-next/tests/test_bench_power_guard.py
             python3 scripts/cmux-next/tests/test_bench_power_loaded.py
             python3 scripts/cmux-next/tests/test_bench_startup_agent_mark.py
