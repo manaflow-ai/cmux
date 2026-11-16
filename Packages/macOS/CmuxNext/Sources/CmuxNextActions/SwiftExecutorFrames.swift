@@ -38,7 +38,10 @@ public nonisolated struct SwiftExecutorFrames {
     /// a deeper call chain has covered since.
     @inline(never)
     public static func deadRecord() -> UInt? {
-        nil // red: the detector comes in the next commit
+        guard let record = activeRecord() else { return nil }
+        var marker = 0
+        let frame = withUnsafeMutablePointer(to: &marker) { UInt(bitPattern: $0) }
+        return record < frame ? record : nil
     }
 
     /// Runs `body`, which runs inside a Swift job frame the caller started, and calls `onUnwind` when
