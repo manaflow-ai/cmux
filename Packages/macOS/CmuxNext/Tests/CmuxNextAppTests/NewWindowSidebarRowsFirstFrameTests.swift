@@ -30,10 +30,32 @@ import Testing
         return services
     }
 
+    /// The sidebar's work counters (`SidebarPerfCounters`) that the work in front of a window's order-in moves: the
+    /// rows passes with the rows feed (`rebuilds`), the full reloads of the list, the row views made. A count has no
+    /// clock and no Mac in it.
+    struct Work {
+        let rebuilds: Int, listReloads: Int, rowViewsMade: Int
+
+        /// The counters as they are now. They are the process's: a test reads them twice with no suspension between.
+        static var now: Work {
+            Work(rebuilds: SidebarPerfCounters.count(.rebuilds), listReloads: SidebarPerfCounters.count(.listReloads),
+                 rowViewsMade: SidebarPerfCounters.count(.rowViewsMade))
+        }
+
+        /// What was added after `start`.
+        func since(_ start: Work) -> Work {
+            Work(rebuilds: rebuilds - start.rebuilds, listReloads: listReloads - start.listReloads, rowViewsMade: rowViewsMade - start.rowViewsMade)
+        }
+
+        var text: String { "rebuilds=\(rebuilds) list_reloads=\(listReloads) row_views_made=\(rowViewsMade)" }
+    }
+
     /// One window with the app that owns it: the window does not keep the app, so the test does.
     @MainActor struct Made {
         let services: AppServices
         let controller: WindowController
+        /// The sidebar work of the window manager's call that made and presented the window.
+        let work: Work
         var model: SidebarModel { controller.sidebar.model }
 
         func close() {
@@ -52,8 +74,9 @@ import Testing
         }
         let listed = SidebarSpaceBar.profiles(services.machines.local, window: id, windows: services.windows)
         try #require(listed.map(\.id.rawValue) == spaces, "the fixture is wrong: the rows pass would not list the two spaces")
+        let start = Work.now
         let controller = services.windows.makeController(for: WindowRegistry.Window(id: id)) // it presents a window with no workspace of its own at once
-        return Made(services: services, controller: controller)
+        return Made(services: services, controller: controller, work: Work.now.since(start))
     }
 
     /// A window with no workspace yet.
@@ -89,5 +112,17 @@ import Testing
         #expect(model.sections == sections, "the rows pass changed the rows after the order-in")
         #expect(model.collapsedSections == folded)
         #expect(model.sectionCustomization == projection)
+    }
+
+    /// The work in front of the order-in, as a count (decision of 2026-11-16: the measure of that work is a count,
+    /// not a time). The window manager's call that makes and presents a window runs no rows pass: a rows pass reads
+    /// each workspace of the window's space, and the list reloads in full after it. The list's full reloads and the
+    /// row views made in that call are in the printed line `NEW-WINDOW-WORK` and in the message; they have no bound
+    /// here.
+    @Test func theMakingOfAWindowRunsNoRowsPass() throws {
+        let made = try Self.window("rows-first-frame-work", listsTheWorkspace: true)
+        defer { made.close() }
+        print("NEW-WINDOW-WORK \(made.work.text)")
+        #expect(made.work.rebuilds == 0, "the making of the window ran a rows pass in front of its order-in (\(made.work.text))")
     }
 }
