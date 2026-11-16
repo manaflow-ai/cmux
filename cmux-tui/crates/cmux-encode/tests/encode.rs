@@ -313,13 +313,13 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
 
 /// Ultra (videotoolbox.rs set_ultra) holds frame rate first: a big change after a still screen
 /// stays within one frame interval's share of the target, an uncapped target stops at the
-/// per-pixel ceiling (3 bits per pixel), the QP floor is set, and a refinement frame of the
+/// per-pixel ceiling (3 bits per pixel), there is no QP floor, and a refinement frame of the
 /// still picture encodes. Prints sizes and encode ms next to standard's. Runs on a fleet Mac.
 #[cfg(target_os = "macos")]
 #[test]
 fn videotoolbox_ultra_holds_frame_rate_first_and_refines_a_still_screen() {
     use cmux_encode::H264Encoder;
-    use cmux_encode::videotoolbox::{ULTRA_MIN_QP, VideoToolbox};
+    use cmux_encode::videotoolbox::VideoToolbox;
     use std::time::Instant;
     const W: usize = 512;
     const H: usize = 256;
@@ -337,7 +337,7 @@ fn videotoolbox_ultra_holds_frame_rate_first_and_refines_a_still_screen() {
         let mut enc =
             VideoToolbox::new(W as u32, H as u32, FPS, kbps, false).expect("hardware encoder");
         enc.set_ultra(ultra);
-        assert_eq!(enc.min_qp(), ultra.then_some(ULTRA_MIN_QP));
+        assert_eq!(enc.min_qp(), None, "no QP floor by default");
         assert_eq!(enc.name().ends_with(" ultra"), ultra, "{}", enc.name());
         let still = I420::new(W, H);
         let mut au = Vec::new();

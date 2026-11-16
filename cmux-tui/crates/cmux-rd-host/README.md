@@ -209,11 +209,13 @@ the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-lat
 - `--encode-profile ultra` (`host` and `serve`; opt-in, standard is the default) stops saving
   bandwidth on a fat link: frames at the viewer's rate (else the display's refresh) up to 120 fps,
   a 150 Mbps ceiling unless `--max-kbps` names one. On VideoToolbox it holds frame rate first:
-  each frame gets one frame interval's share of the target (DataRateLimits) but never more than
-  3 bits per pixel (about 0.78 MB at 1080p), with no QP ceiling and a QP floor of 18
-  (`CMUX_RD_VT_ULTRA_MIN_QP` overrides it), so extra rate buys fps before per-frame quality.
-  One frame interval after the screen goes still, one refinement frame takes up to four frame
-  budgets down to QP 12. H.264 level 5.2 still bounds the frame rate at large sizes
+  it runs the regular hardware encoder instead of the low-latency one (whose realtime encoder
+  refuses DataRateLimits and drops frames instead), and each frame gets one frame interval's
+  share of the target (DataRateLimits) but never more than 3 bits per pixel (about 0.78 MB at
+  1080p), with no QP ceiling and no QP floor (`CMUX_RD_VT_ULTRA_MIN_QP` sets one), so extra
+  rate buys fps before per-frame quality. A keyframe alone gets QP 30 or more. One frame
+  interval after the screen goes still, one refinement frame takes up to four frame budgets.
+  H.264 level 5.2 still bounds the frame rate at large sizes
   (`mac::encoder_fps`): a 4K display encodes at most about 64 fps in H.264.
 
 ## Upstream media (development)

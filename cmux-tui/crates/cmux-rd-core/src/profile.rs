@@ -3,8 +3,8 @@
 //! engine copies it onto every `EncodeRequest`, and the host's encoder applies it. Ultra
 //! stops saving bandwidth and holds frame rate first: frames at the session's rate (up to
 //! [`ULTRA_MAX_FPS`]), each about target/fps within a per-pixel ceiling so extra rate buys
-//! fps before per-frame quality, quality then up to a QP floor, and a refinement frame at a
-//! lower QP once the screen goes still.
+//! fps before per-frame quality and only then quality, and a refinement frame with a larger
+//! budget once the screen goes still.
 
 /// Which encoder settings a session uses. [`EncodeProfile::Standard`] is today's behavior and
 /// the default; [`EncodeProfile::Ultra`] is opt-in.

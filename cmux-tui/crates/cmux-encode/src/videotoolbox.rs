@@ -160,17 +160,21 @@ crate::framework! {
 // Ultra holds frame rate first (fleet sweep, 2026-11-16: at a 120 fps cap past 100 Mbps the
 // encoder grew frames, 164 to 236 KB, instead of fps, and an uncapped target made 0.8-3.7 MB
 // frames that took 13-45 ms to encode). So each frame gets about target/fps (DataRateLimits over
-// one frame interval, as standard), never more than a per-pixel ceiling, and no QP ceiling
-// fights that budget; extra rate buys fps first and then quality, down to a QP floor.
+// one frame interval), never more than a per-pixel ceiling, and no QP ceiling fights that
+// budget; extra rate buys fps first and then quality.
+//
+// That budget needs the regular hardware encoder. Under EnableLowLatencyRateControl
+// VideoToolbox picks its realtime encoder, which refuses DataRateLimits (-12900): on an M4 Pro
+// it dropped 112-116 of 120 scrolled-text frames at 1080p60 instead of shrinking them, and its
+// slice QP never went below 16. The regular encoder (an ultra session) takes DataRateLimits,
+// goes down to QP 11-15 on text, and encoded in 4.6 ms a frame against 5.6.
 
-/// Ultra's QP floor (H.264's scale is 0-51; +6 doubles the quantizer step): past it a frame
-/// spends no more bits, so rate a still-ish screen does not need is left unspent.
-/// `CMUX_RD_VT_ULTRA_MIN_QP` overrides it for the sweep.
-pub const ULTRA_MIN_QP: i32 = 18;
-/// The QP floor of ultra's refinement frame (the still screen, re-encoded once): visually
-/// lossless on text.
-pub const ULTRA_REFINE_MIN_QP: i32 = 12;
-/// No floor (standard).
+/// Ultra's QP floor: none (0). A floor only costs text (QP 18 held scrolled 1080p text to 43 dB
+/// luma PSNR with errors up to 50 levels, where the encoder's own choice gave 62 dB and 2), and
+/// the frame budget, not a floor, is what bounds the rate. `CMUX_RD_VT_ULTRA_MIN_QP` sets one
+/// for the sweep.
+pub const ULTRA_MIN_QP: i32 = NO_MIN_QP;
+/// No floor.
 const NO_MIN_QP: i32 = 0;
 /// The most bits per pixel one ultra frame may take, whatever the target: about 0.78 MB at
 /// 1080p, so a rate the link can carry never turns into frames too large to encode at the
@@ -179,11 +183,13 @@ const ULTRA_MAX_BITS_PER_PIXEL: u64 = 3;
 /// Ultra's refinement frame may take this many frame budgets (within the per-pixel ceiling):
 /// the screen is still, so the next frame interval has room for it.
 const ULTRA_REFINE_BUDGETS: u64 = 4;
-/// Ultra's QP floor for a keyframe: high enough that a 1080p IDR stays well under 1 MB (to set
-/// from the sweep's frame-size column), since the encoder lets an IDR overrun DataRateLimits.
+/// Ultra's QP floor for a keyframe: a 1080p IDR of dense text is 4.6 MB at the encoder's own
+/// QP and still 1.8 MB at QP 22, and the encoder lets an IDR overrun DataRateLimits, so the
+/// keyframe alone gets QP 30 or more; the frames after it bring the detail back.
 pub const ULTRA_IDR_MIN_QP: i32 = 30;
 
-/// Ultra's QP floor: `CMUX_RD_VT_ULTRA_MIN_QP` when it is a QP in 1-51, else [`ULTRA_MIN_QP`].
+/// Ultra's QP floor: `CMUX_RD_VT_ULTRA_MIN_QP` when it is a QP in 1-51, else [`ULTRA_MIN_QP`]
+/// (none).
 fn ultra_min_qp(env: Option<&str>) -> i32 {
     env.and_then(|v| v.trim().parse::<i32>().ok())
         .filter(|qp| (1..=51).contains(qp))
@@ -232,8 +238,11 @@ pub struct VideoToolbox {
     ultra: bool,
     /// Ultra's QP floor ([`ULTRA_MIN_QP`] or its override).
     ultra_min_qp: i32,
-    /// The next frame is ultra's refinement of a still screen ([`ULTRA_REFINE_MIN_QP`]).
+    /// The next frame is ultra's refinement of a still screen ([`ULTRA_REFINE_BUDGETS`]).
     refine_next: bool,
+    /// The session was created with low-latency rate control (standard); an ultra session is
+    /// not ([`create_session`]).
+    session_low_latency: bool,
 }
 
 // SAFETY: the session and buffer are used from one thread at a time (the media loop).
@@ -266,6 +275,17 @@ fn ultra_frame_budget(kbps: u32, fps: u32, pixels: usize, budgets: u64) -> (i32,
     let ceiling = (pixels as u64).saturating_mul(ULTRA_MAX_BITS_PER_PIXEL) / 8;
     let bytes = (u64::try_from(bytes).unwrap_or(0).saturating_mul(budgets)).min(ceiling.max(1));
     (i32::try_from(bytes.max(1)).unwrap_or(i32::MAX), seconds)
+}
+
+/// The encoder's name: profile, rate control (low-latency for standard, the regular encoder's
+/// frame budget for ultra) and the fixed settings.
+fn session_name(baseline: bool, ultra: bool) -> String {
+    format!(
+        "videotoolbox h264 {} {} realtime no-reordering gop=inf{}",
+        if baseline { "constrained-baseline" } else { "high" },
+        if ultra { "frame-budget-rc" } else { "low-latency-rc" },
+        if ultra { " ultra" } else { "" },
+    )
 }
 
 /// Whether a new target replaces the session's rate. A cut applies at once (the link has
@@ -367,20 +387,23 @@ extern "C" fn on_output(
     }
 }
 
-/// A low-latency hardware H.264 session at `width` x `height` whose output
-/// callback writes into `out` (which must outlive the session).
+/// A hardware H.264 session at `width` x `height` whose output callback writes into `out`
+/// (which must outlive the session). `low_latency`: VideoToolbox's low-latency rate control
+/// (standard); off, the regular hardware encoder, which honors DataRateLimits (ultra).
 fn create_session(
     width: usize,
     height: usize,
     fps: u32,
     baseline: bool,
+    low_latency: bool,
     out: &Mutex<Output>,
 ) -> Res<VTCompressionSessionRef> {
     let mut session: VTCompressionSessionRef = null_mut();
     // SAFETY: CF statics from the frameworks; the dictionary is released after use.
     let status = unsafe {
+        let low_latency = if low_latency { kCFBooleanTrue() } else { kCFBooleanFalse() };
         let spec = dict(&[
-            (kVTVideoEncoderSpecification_EnableLowLatencyRateControl(), kCFBooleanTrue()),
+            (kVTVideoEncoderSpecification_EnableLowLatencyRateControl(), low_latency),
             (
                 kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder(),
                 kCFBooleanTrue(),
@@ -442,7 +465,7 @@ impl VideoToolbox {
     pub fn new(width: u32, height: u32, fps: u32, kbps: u32, baseline: bool) -> Res<Self> {
         frameworks()?;
         let out: Box<Mutex<Output>> = Box::default();
-        let session = create_session(width as usize, height as usize, fps, baseline, &out)?;
+        let session = create_session(width as usize, height as usize, fps, baseline, true, &out)?;
         let mut pixel_buffer: CVPixelBufferRef = null_mut();
         // SAFETY: creating an IOSurface-backed 420v buffer; attrs released after use.
         let pb_status = unsafe {
@@ -479,25 +502,25 @@ impl VideoToolbox {
             baseline,
             kbps: kbps.max(100),
             color: None,
-            name: format!(
-                "videotoolbox h264 {} low-latency-rc realtime no-reordering gop=inf",
-                if baseline { "constrained-baseline" } else { "high" }
-            ),
+            name: session_name(baseline, false),
             ultra: false,
             ultra_min_qp: ultra_min_qp(std::env::var("CMUX_RD_VT_ULTRA_MIN_QP").ok().as_deref()),
             refine_next: false,
+            session_low_latency: true,
         };
         this.apply_bitrate(this.kbps);
         Ok(this)
     }
 
-    /// Makes the session encode `width` x `height`, recreating it on a change.
-    /// Returns true when it was recreated (the next frame must be an IDR).
+    /// Makes the session encode `width` x `height` with the profile's rate control, recreating
+    /// it on a change. Returns true when it was recreated (the next frame must be an IDR).
     fn ensure_session(&mut self, width: usize, height: usize) -> Res<bool> {
-        if self.session_size == (width, height) {
+        let low_latency = !self.ultra;
+        if self.session_size == (width, height) && self.session_low_latency == low_latency {
             return Ok(false);
         }
-        let session = create_session(width, height, self.fps, self.baseline, &self.out)?;
+        let session =
+            create_session(width, height, self.fps, self.baseline, low_latency, &self.out)?;
         // SAFETY: invalidating and releasing our previous session once.
         unsafe {
             VTCompressionSessionInvalidate(self.session);
@@ -505,6 +528,7 @@ impl VideoToolbox {
         }
         self.session = session;
         self.session_size = (width, height);
+        self.session_low_latency = low_latency;
         self.color = None;
         self.apply_bitrate(self.kbps);
         if self.ultra {
@@ -513,30 +537,27 @@ impl VideoToolbox {
         Ok(true)
     }
 
-    /// Turns the ultra profile on or off from the next frame: on, each frame gets one frame
-    /// interval's share of the target within a per-pixel ceiling, with a QP floor of
-    /// [`ULTRA_MIN_QP`]; off, today's settings (one frame interval's share, no floor).
+    /// Turns the ultra profile on or off from the next frame, which recreates the session (and
+    /// so is an IDR): on, the regular hardware encoder, each frame one frame interval's share
+    /// of the target within a per-pixel ceiling; off, today's low-latency session.
     pub fn set_ultra(&mut self, on: bool) {
         if self.ultra == on {
             return;
         }
         self.ultra = on;
         self.refine_next = false;
-        self.apply_bitrate(self.kbps);
-        self.apply_min_qp(if on { self.ultra_min_qp } else { NO_MIN_QP });
-        let base = self.name.trim_end_matches(" ultra").to_owned();
-        self.name = if on { format!("{base} ultra") } else { base };
+        self.name = session_name(self.baseline, on);
     }
 
-    /// Ultra only: the next frame refines a still screen, down to [`ULTRA_REFINE_MIN_QP`] with
-    /// [`ULTRA_REFINE_BUDGETS`] frame budgets.
+    /// Ultra only: the next frame refines a still screen with [`ULTRA_REFINE_BUDGETS`] frame
+    /// budgets and no QP floor.
     pub fn set_refine(&mut self, on: bool) {
         self.refine_next = on && self.ultra;
     }
 
-    /// The QP floor in effect, `None` when standard (no floor).
+    /// The QP floor in effect, `None` when there is none (standard, and ultra by default).
     pub fn min_qp(&self) -> Option<i32> {
-        self.ultra.then_some(self.ultra_min_qp)
+        (self.ultra && self.ultra_min_qp != NO_MIN_QP).then_some(self.ultra_min_qp)
     }
 
     /// Ultra's per-frame byte budget now (DataRateLimits bytes), `None` when standard.
@@ -715,13 +736,13 @@ impl VideoToolbox {
         // 3.6 MB on noise at a one-frame-interval budget), so the floor is what keeps it small;
         // the frames after it, and the still screen's refinement, bring the detail back.
         let idr = force_idr && self.ultra;
-        // Ultra's refinement: this frame alone with a lower floor and a larger budget, then back.
+        // Ultra's refinement: this frame alone with a larger budget and no floor, then back.
         let refine = std::mem::take(&mut self.refine_next) && self.ultra && !idr;
         if idr {
-            self.apply_min_qp(ULTRA_IDR_MIN_QP);
+            self.apply_min_qp(ULTRA_IDR_MIN_QP.max(self.ultra_min_qp));
         } else if refine {
             self.apply_rate(self.kbps, ULTRA_REFINE_BUDGETS);
-            self.apply_min_qp(ULTRA_REFINE_MIN_QP);
+            self.apply_min_qp(NO_MIN_QP);
         }
         let result = self.encode_buffer_at(pixel_buffer, force_idr, pts, out);
         if refine {
@@ -824,13 +845,24 @@ mod tests {
 
     #[test]
     fn ultras_qp_floor_defaults_and_overrides() {
-        assert_eq!(ultra_min_qp(None), ULTRA_MIN_QP);
+        assert_eq!(ultra_min_qp(None), NO_MIN_QP, "no floor by default");
         assert_eq!(ultra_min_qp(Some("20")), 20);
         assert_eq!(ultra_min_qp(Some(" 22 ")), 22);
-        assert_eq!(ultra_min_qp(Some("0")), ULTRA_MIN_QP, "0 is out of range");
-        assert_eq!(ultra_min_qp(Some("52")), ULTRA_MIN_QP, "past H.264's range");
-        assert_eq!(ultra_min_qp(Some("x")), ULTRA_MIN_QP);
-        const { assert!(ULTRA_REFINE_MIN_QP < ULTRA_MIN_QP && ULTRA_MIN_QP < ULTRA_IDR_MIN_QP) };
+        assert_eq!(ultra_min_qp(Some("0")), NO_MIN_QP, "0 is out of range");
+        assert_eq!(ultra_min_qp(Some("52")), NO_MIN_QP, "past H.264's range");
+        assert_eq!(ultra_min_qp(Some("x")), NO_MIN_QP);
+    }
+
+    #[test]
+    fn the_name_says_which_rate_control_runs() {
+        assert_eq!(
+            session_name(false, false),
+            "videotoolbox h264 high low-latency-rc realtime no-reordering gop=inf"
+        );
+        assert_eq!(
+            session_name(true, true),
+            "videotoolbox h264 constrained-baseline frame-budget-rc realtime no-reordering gop=inf ultra"
+        );
     }
 
     #[test]
