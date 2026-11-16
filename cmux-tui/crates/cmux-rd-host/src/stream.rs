@@ -112,6 +112,19 @@ fn frame_is_droppable(datagrams: &[Vec<u8>]) -> bool {
     )
 }
 
+fn send_output_datagrams(
+    carrier: &mut dyn Carrier,
+    datagrams: &[Vec<u8>],
+    mut on_departure: impl FnMut(&[u8], u64),
+) {
+    let departed_us = now_us();
+    for datagram in datagrams {
+        if carrier.send_datagram(datagram).is_ok() {
+            on_departure(datagram, departed_us);
+        }
+    }
+}
+
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
 /// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
@@ -587,14 +600,11 @@ impl MediaSession {
         session: SessionId,
         viewer: &Principal,
     ) {
-        let departed_us = now_us();
-        for datagram in &out.datagrams {
-            if carrier.send_datagram(datagram).is_ok() {
-                // Every output path, including tail probes and repair output,
-                // must tell the controller when the carrier accepted it.
-                self.engine.datagram_sent(datagram, departed_us);
-            }
-        }
+        // Every output path, including tail probes and repair output, must tell
+        // the controller when the carrier accepted the datagram.
+        send_output_datagrams(carrier, &out.datagrams, |datagram, departed_us| {
+            self.engine.datagram_sent(datagram, departed_us);
+        });
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
             let _ = self.desktop.release_all();
@@ -974,5 +984,34 @@ mod encode_off_loop_tests {
             ready,
         };
         assert!(carrier_send_queue_busy(&carrier));
+    }
+
+    #[test]
+    fn output_datagrams_stamp_after_the_carrier_accepts_them() {
+        let seen = Arc::new(Seen::default());
+        let ready = UnixStream::pair().expect("socket pair");
+        let mut carrier =
+            FakeCarrier { seen, release: None, sent_input: false, queue_stats: None, ready };
+        let datagram = DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::Video,
+            stream: 0,
+            frame: 7,
+            index: 0,
+            count: 1,
+            fec_count: 0,
+            transport_seq: 19,
+        }
+        .encode()
+        .to_vec();
+        let before = now_us();
+        let mut stamps = Vec::new();
+        send_output_datagrams(&mut carrier, std::slice::from_ref(&datagram), |sent, departed| {
+            stamps.push((sent.to_vec(), departed));
+        });
+        let after = now_us();
+        assert_eq!(stamps.len(), 1);
+        assert_eq!(stamps[0].0, datagram);
+        assert!((before..=after).contains(&stamps[0].1));
     }
 }
