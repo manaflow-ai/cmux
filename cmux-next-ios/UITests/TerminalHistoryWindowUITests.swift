@@ -39,7 +39,7 @@ final class TerminalHistoryWindowUITests: XCTestCase {
         // Up to line 1: each fling that nears the oldest row held fetches older rows.
         var drags = 0
         while state(caption).omitted > 0, drags < 600 {
-            fling(app, from: 0.25, to: 0.8)
+            fling(app, from: 0.2, to: 0.7)
             drags += 1
             if drags % 40 == 0 { attach(app, "2-scrolling-up-\(drags)") }
         }
@@ -49,13 +49,13 @@ final class TerminalHistoryWindowUITests: XCTestCase {
         XCTAssertGreaterThan(top.skipped, 0, "the rows between the window and the screen stay on the Mac: \(caption.label)")
         XCTAssertLessThanOrEqual(top.maxHeld, 10_000, "no replay held more than 10,000 of the 30,000 rows: \(caption.label)")
         // The page's very top: row 000000.
-        for _ in 0..<6 { fling(app, from: 0.25, to: 0.8) }
+        for _ in 0..<6 { fling(app, from: 0.2, to: 0.7) }
         attach(app, "3-line-1")
 
         // Back down: reaching the window's end moves it toward the screen.
         drags = 0
         while (state(caption).window ?? 0) == 0, drags < 200 {
-            fling(app, from: 0.8, to: 0.25)
+            fling(app, from: 0.7, to: 0.2)
             drags += 1
         }
         let down = state(caption)
@@ -67,7 +67,7 @@ final class TerminalHistoryWindowUITests: XCTestCase {
         if jump.waitForExistence(timeout: 3) {
             jump.tap()
         } else {
-            for _ in 0..<40 where state(caption).window != nil { fling(app, from: 0.8, to: 0.25) }
+            for _ in 0..<40 where state(caption).window != nil { fling(app, from: 0.7, to: 0.2) }
         }
         attach(app, "5-the-screen")
         drags = 0
