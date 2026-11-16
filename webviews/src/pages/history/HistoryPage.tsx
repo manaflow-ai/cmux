@@ -5,6 +5,8 @@ import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseE
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
 import { useLasting } from "../../ui/lasting";
+import { isEditableTarget, type KeyStyle, type ShortcutLayout } from "../../ui/keyStyle";
+import { useListKeys } from "../../ui/useListKeys";
 import { CookieBackupsPanel } from "./CookieBackups";
 import { KindIcon } from "./KindIcon";
 import {
@@ -42,10 +44,15 @@ export function HistoryPage({
   store,
   strings,
   now = Date.now,
+  keyStyle,
+  shortcutLayout,
 }: {
   store: HistoryStore;
   strings: Strings;
   now?: () => number;
+  /** `app.keyStyle` and `app.shortcutLayout`; without them the page's own (Standard). */
+  keyStyle?: KeyStyle;
+  shortcutLayout?: ShortcutLayout;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
@@ -62,7 +69,34 @@ export function HistoryPage({
     if (entry && canOpen(entry)) void store.open(entry, newTab);
   };
 
-  const listKeys = (event: KeyboardEvent) => {
+  // `app.keyStyle` (the host's values as props; the page gets no `display` event): in the list
+  // Vim's j/k, gg/G, Ctrl-D/U and l, Emacs' alike, as the arrows and Return; / or Ctrl-S go to the
+  // search field, whose Esc (Vim) or Ctrl-G (Emacs) gives the keyboard back to the list, and whose
+  // Ctrl-N/P (Emacs) move the list as its arrows do.
+  const styleKeys = useListKeys({
+    style: keyStyle,
+    layout: shortcutLayout,
+    onCommand: (command, event) => {
+      const inSearch = isEditableTarget(event.target);
+      const doc = (event.target as Node).ownerDocument ?? document;
+      const move = (offset: number) => store.select(moveSelection(flat, snap.selection, offset));
+      if (command === "list.next") move(1);
+      else if (command === "list.previous") move(-1);
+      else if (command === "list.leave") {
+        if (!inSearch) return false;
+        doc.getElementById("history-list")?.focus();
+      } else if (inSearch) return false;
+      else if (command === "list.first") move(-flat.length);
+      else if (command === "list.last") move(flat.length);
+      else if (command === "list.pageDown") move(10);
+      else if (command === "list.pageUp") move(-10);
+      else if (command === "list.open") open(returnTarget(flat, snap.selection));
+      else if (command === "list.search") doc.querySelector<HTMLInputElement>(".history-search")?.focus();
+      else return false;
+    },
+  });
+
+  const arrowKeys = (event: KeyboardEvent) => {
     if (!plain(event)) return;
     if (event.key === "ArrowDown") store.select(moveSelection(flat, snap.selection, 1));
     else if (event.key === "ArrowUp") store.select(moveSelection(flat, snap.selection, -1));
@@ -71,13 +105,20 @@ export function HistoryPage({
     event.preventDefault();
   };
 
+  const listKeys = (event: KeyboardEvent) => {
+    styleKeys(event);
+    if (!event.defaultPrevented) arrowKeys(event);
+  };
+
   const searchKeys = (event: KeyboardEvent<HTMLInputElement>) => {
+    styleKeys(event);
+    if (event.defaultPrevented) return;
     if (plain(event) && event.key === "Escape" && snap.text) {
       store.setText("");
       event.preventDefault();
       return;
     }
-    listKeys(event);
+    arrowKeys(event);
   };
 
   const rowMenu = (entry: HistoryEntry, event: MouseEvent) => {

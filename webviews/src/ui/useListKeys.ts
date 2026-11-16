@@ -19,10 +19,18 @@ import {
 /// How long the first key of a sequence (vim's g of gg) waits for its second.
 export const LIST_KEYS_PENDING_MS = 1000;
 
-const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn", "AltGraph"]);
+/// Keys pressed on their own (the Shift of G): they leave a pending first key as it is.
+export const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn", "AltGraph"]);
 
 export type UseListKeysOptions = {
-  onCommand: (command: ListCommand, event: KeyboardEvent) => void;
+  /// Runs a command; `false` when this surface has nothing for it, so the key goes on unchanged
+  /// (Vim's Esc in a list with no Esc of its own still reaches the popup that closes on it).
+  /// `pressed` is the event as the handler got it (React's, for asPlainKey).
+  onCommand: (
+    command: ListCommand,
+    event: KeyboardEvent,
+    pressed: ReactKeyboardEvent | KeyboardEvent,
+  ) => boolean | void;
   style?: KeyStyle;
   layout?: ShortcutLayout;
 };
@@ -59,14 +67,32 @@ export function useListKeys({
       clearTimeout(timer.current);
       timer.current = undefined;
       if (outcome === "pass") return;
-      event.preventDefault();
-      event.stopPropagation();
       if (outcome === "pending") {
+        event.preventDefault();
+        event.stopPropagation();
         timer.current = setTimeout(() => keys.reset(), LIST_KEYS_PENDING_MS);
         return;
       }
-      onCommand(outcome, native);
+      if (onCommand(outcome, native, event) === false) return;
+      event.preventDefault();
+      event.stopPropagation();
     },
     [keys, onCommand],
   );
+}
+
+/// For a surface whose own key handler already does a command for a plain key (ArrowDown for
+/// list.next, Return for list.open): `event` as if that key had been pressed alone, to hand to
+/// that handler. Its preventDefault and stopPropagation still reach the real event.
+export function asPlainKey<E extends ReactKeyboardEvent>(event: E, key: string): E {
+  const plain = { value: false };
+  return Object.create(event, {
+    key: { value: key },
+    code: { value: key },
+    metaKey: plain,
+    ctrlKey: plain,
+    altKey: plain,
+    shiftKey: plain,
+    repeat: plain,
+  }) as E;
 }

@@ -46,6 +46,8 @@ import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { graphemePrefix } from "../../ui/initials";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
+import { asPlainKey, useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
+import type { ListCommand } from "../../ui/keyStyle";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import {
   PickerButton,
@@ -1124,6 +1126,10 @@ export function ModelPicker(props: ModelPickerProps) {
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     // Candidate acceptance belongs to the IME. WebKit can report only keyCode 229 on commit.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.target === search.current) {
+      fieldStyleKeys(event);
+      if (event.defaultPrevented) return;
+    }
     const shortcut = event.ctrlKey && ["n", "p", "j", "k"].includes(event.key.toLowerCase());
     if (shortcut) {
       event.preventDefault();
@@ -1164,6 +1170,45 @@ export function ModelPicker(props: ModelPickerProps) {
       close();
       trigger.current?.focus();
     }
+  };
+  // `app.keyStyle`. The search field keeps its typing (Emacs' Ctrl-N/P are its own already); Vim's
+  // Esc (Emacs' Ctrl-G) gives the keyboard to the model list. There j/k, gg/G, l, h and Esc are the
+  // field's arrows, Return, Left and Escape, and / goes back to the field.
+  const modelListTakesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const modelsListElement = () => menu.current?.ownerDocument.getElementById(`${menuId}-models`) ?? null;
+  const fieldStyleKeys = useListKeys({
+    onCommand: (command) => {
+      if (command === "list.next" || command === "list.previous") return move(command === "list.next" ? 1 : -1);
+      const list = modelsListElement();
+      if (command !== "list.leave" || !list || rowCount === 0) return false;
+      list.focus({ preventScroll: true });
+    },
+  });
+  const listStyleKeys = useListKeys({
+    onCommand: (command, _native, pressed) => {
+      const event = pressed as unknown as ReactKeyboardEvent<HTMLInputElement>;
+      if (command === "list.next" || command === "list.previous") return move(command === "list.next" ? 1 : -1);
+      if (command === "list.first" || command === "list.last") {
+        if (rowCount) setActive(command === "list.first" ? 0 : rowCount - 1);
+        return;
+      }
+      if (command === "list.search") return search.current?.focus({ preventScroll: true });
+      const keys: Partial<Record<ListCommand, string>> = {
+        "list.open": "Enter",
+        "list.back": "ArrowLeft",
+        "list.leave": "Escape",
+      };
+      const key = keys[command];
+      if (!key) return false;
+      keyDown(asPlainKey(event, key));
+    },
+  });
+  const modelListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    listStyleKeys(event);
+    // The list has the keyboard only after a key style's leave: the field's own keys still work
+    // there (arrows, Return, Escape, a digit), except on a row a Tab reached.
+    if (!event.defaultPrevented && event.target === event.currentTarget)
+      keyDown(event as unknown as ReactKeyboardEvent<HTMLInputElement>);
   };
   // The chip draws one harness: the one a switch to another harness is starting, else the running
   // one. Browsing another harness in the open menu changes neither its mark nor its name.
@@ -1663,6 +1708,8 @@ export function ModelPicker(props: ModelPickerProps) {
             <ScrollArea fade className="min-h-0 flex-1">
               <PickerOptionList
                 id={`${menuId}-models`}
+                tabIndex={modelListTakesKeys ? -1 : undefined}
+                onKeyDown={modelListKeyDown}
                 className="acpmux-mp-models"
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >

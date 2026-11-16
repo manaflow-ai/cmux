@@ -12,6 +12,8 @@ import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
+import { asPlainKey, useListKeys } from "../../ui/useListKeys";
+import type { ListCommand } from "../../ui/keyStyle";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
@@ -983,12 +985,13 @@ function Columns({
     setModelHl(-1);
   };
 
-  const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const columnKeys = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // ⌘1 to ⌘9 pick a row as 1 to 9 do, also while a search shows (where a bare digit is text).
     const commandDigit = event.metaKey && !event.ctrlKey && !event.altKey && /^[1-9]$/.test(event.key);
     if ((event.metaKey && !commandDigit) || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     // A focused button (the avatar, a card row, a star) keeps its own Return and Space.
-    if (event.target !== field.current && event.target !== event.currentTarget) return;
+    if (event.target !== field.current && event.target !== event.currentTarget && event.target !== modelsList.current)
+      return;
     const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     const clamp = (n: number, length: number) => Math.max(0, Math.min(length - 1, n));
     if (step) {
@@ -1043,6 +1046,40 @@ function Columns({
       pickModel(index);
       close();
     }
+  };
+
+  // `app.keyStyle`. The field keeps its typing: Emacs' Ctrl-N/P move as the arrows do, and Vim's
+  // Esc (Emacs' Ctrl-G) gives the keyboard to the model list. There (modelListCommand) j/k, gg/G, l
+  // and h are the arrows, Home, End, Return and Left; / goes back to the field; Esc is the menu's.
+  const fieldKeys = useListKeys({
+    onCommand: (command, _native, pressed) => {
+      const event = pressed as React.KeyboardEvent<HTMLDivElement>;
+      if (command === "list.next" || command === "list.previous")
+        return columnKeys(asPlainKey(event, command === "list.next" ? "ArrowDown" : "ArrowUp"));
+      if (command !== "list.leave" || !modelsList.current) return false;
+      setCol(1);
+      modelsList.current.focus({ preventScroll: true });
+    },
+  });
+  const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target === field.current) fieldKeys(event);
+    if (!event.defaultPrevented) columnKeys(event);
+  };
+  const modelListCommand = (command: ListCommand, event: React.KeyboardEvent<HTMLDivElement>): boolean | void => {
+    const key: Partial<Record<ListCommand, string>> = {
+      "list.next": "ArrowDown",
+      "list.previous": "ArrowUp",
+      "list.open": "Enter",
+      "list.back": "ArrowLeft",
+    };
+    if (command === "list.first" || command === "list.last") {
+      if (rows.length) setModelHl(command === "list.first" ? 0 : rows.length - 1);
+      return;
+    }
+    if (command === "list.search") return field.current?.focus({ preventScroll: true });
+    const plain = key[command];
+    if (!plain) return false;
+    columnKeys(asPlainKey(event, plain));
   };
 
   // The avatar: the account of the harness whose model the settings column shows (on Starred and in a
@@ -1652,6 +1689,7 @@ function Columns({
 
               <DrivenList
                 ref={holdModelsList}
+                onListCommand={modelListCommand}
                 kind="listbox"
                 label={t("picker.model")}
                 className="acpmux-cols-list"

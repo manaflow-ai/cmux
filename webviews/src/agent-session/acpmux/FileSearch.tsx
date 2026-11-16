@@ -11,6 +11,7 @@ import {
 import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 import { useScrollEdges } from "../../ui/scrollEdges";
+import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
 
 /// How long typing settles before the palette asks again.
 const SEARCH_DEBOUNCE_MS = 80;
@@ -100,9 +101,38 @@ export function FileSearch({
     if (match) onPick(match.path);
   };
 
+  // `app.keyStyle`. The field keeps its typing: Emacs' Ctrl-N/P move the highlight, and Vim's Esc
+  // (Emacs' Ctrl-G) gives the keyboard to the results, where j/k, gg/G and l or Return move and
+  // pick, / goes back to the field and Esc closes, as the field's Esc does.
+  const takesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const styleKeys = useListKeys({
+    onCommand: (command, event) => {
+      const inField = event.target === field.current;
+      const count = results.length;
+      if (command === "list.next" || command === "list.previous") {
+        if (count > 0) setActive((selected + (command === "list.next" ? 1 : -1) + count) % count);
+        return;
+      }
+      if (command === "list.leave") {
+        const list = root.current?.ownerDocument.getElementById(listId);
+        if (!inField || !list || count === 0) return false;
+        list.focus({ preventScroll: true });
+        return;
+      }
+      if (inField) return false;
+      if (command === "list.first" || command === "list.last")
+        setActive(command === "list.first" ? 0 : Math.max(0, count - 1));
+      else if (command === "list.open") pick(results[selected]);
+      else if (command === "list.search") field.current?.focus();
+      else return false;
+    },
+  });
+
   const keyDown = (event: React.KeyboardEvent) => {
     // Keys that commit or cancel an input method's text belong to it, not the palette.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    styleKeys(event);
+    if (event.defaultPrevented) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -166,6 +196,8 @@ export function FileSearch({
         role="listbox"
         aria-label={t("files.search")}
         aria-busy={state.kind === "searching"}
+        tabIndex={takesKeys ? -1 : undefined}
+        onKeyDown={keyDown}
       >
         {state.kind === "searching" && results.length === 0 && <FileSearchLoading />}
         {results.map((match, index) => {

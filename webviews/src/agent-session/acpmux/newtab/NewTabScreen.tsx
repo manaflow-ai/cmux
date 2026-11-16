@@ -15,6 +15,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
+import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
 import type { ConnectKind } from "../environments";
 import type { CloudMachine } from "../cloudMachines";
 import { CloudChatHint } from "../CloudChatHint";
@@ -1664,6 +1665,57 @@ export function NewTabScreen(props: Props) {
   const placeholder = profilePick ? nt("profile.placeholder", { site: shortHost(profilePick.url) }) : nt("placeholder");
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
+  // `app.keyStyle`. The prompt keeps its typing (Emacs' Ctrl-N/P are listStep's arrows already);
+  // Vim's Esc (Emacs' Ctrl-G) on open suggestions gives the keyboard to them, where j/k, gg/G and l
+  // or Return step and run them as the arrows and Return do, and / goes back to the prompt. A key
+  // the rows take never reaches the type-to-field listener (`typeAnywhere`: it is prevented, and
+  // the listbox owns its keys).
+  const rowsTakeKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const stepRows = (step: 1 | -1) => {
+    const leaving = rows[current];
+    if (leaving?.type === "create" && inStrip(leaving)) stripKind.current = leaving.kind;
+    const strip = rows.filter(inStrip);
+    const column = strip.findIndex((row) => row.type === "create" && row.kind === stripKind.current);
+    pick(arrowStep(rows, current, step, Math.max(0, column)));
+  };
+  const fieldKeys = useListKeys({
+    onCommand: (command) => {
+      if (command !== "list.leave" || !rows.length || !list.current) return false;
+      list.current.focus({ preventScroll: true });
+    },
+  });
+  const rowKeys = useListKeys({
+    onCommand: (command) => {
+      if (!rows.length) return false;
+      switch (command) {
+        case "list.next":
+          return stepRows(1);
+        case "list.previous":
+          return stepRows(-1);
+        case "list.first":
+          return pick(0);
+        case "list.last":
+          return pick(rows.length - 1);
+        case "list.open":
+          return void submit();
+        case "list.search":
+          return field.current?.focus();
+        case "list.leave":
+          // The field's first Escape: the suggestions close, the prompt has the keyboard again.
+          setDismissed(text);
+          return field.current?.focus();
+        default:
+          return false;
+      }
+    },
+  });
+  const rowsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    rowKeys(event);
+    const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    if (event.defaultPrevented || event.key !== "Enter" || !plain || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    submit();
+  };
   const keyDown = (event: KeyboardEvent) => {
     touch();
     if (composing.current || event.isComposing || event.keyCode === 229) return;
@@ -1671,6 +1723,11 @@ export function NewTabScreen(props: Props) {
     const input = field.current;
     const state = fieldText();
     if (!input) return;
+    // The profile search, the command list and shell mode keep their own Escape.
+    if (!profilePick && !commandsOpen && !shell) {
+      fieldKeys(event);
+      if (event.defaultPrevented) return;
+    }
     if (profilePick) {
       // The profile search keeps the rows' keys; Escape, or Backspace in its empty field, goes back.
       if (event.key === "Escape" || (event.key === "Backspace" && !state.value)) {
@@ -1799,11 +1856,7 @@ export function NewTabScreen(props: Props) {
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
-      const leaving = rows[current];
-      if (leaving?.type === "create" && inStrip(leaving)) stripKind.current = leaving.kind;
-      const strip = rows.filter(inStrip);
-      const column = strip.findIndex((row) => row.type === "create" && row.kind === stripKind.current);
-      pick(arrowStep(rows, current, step, Math.max(0, column)));
+      stepRows(step);
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
@@ -2700,6 +2753,8 @@ export function NewTabScreen(props: Props) {
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={nt("suggestions")}
+            tabIndex={rowsTakeKeys ? -1 : undefined}
+            onKeyDown={rowsKeyDown}
           >
             {rows.map((row, index) =>
               inStrip(row) ? null : (

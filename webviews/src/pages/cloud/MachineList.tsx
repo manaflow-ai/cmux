@@ -7,6 +7,8 @@
 // Return connects (not a classic machine); chords are ignored.
 import type { KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
+import type { KeyStyle, ShortcutLayout } from "../../ui/keyStyle";
+import { useListKeys } from "../../ui/useListKeys";
 import { costLine, costTicks, useCostClock } from "./cost";
 import {
   canPause,
@@ -47,6 +49,9 @@ export interface MachineListProps {
   dismissed?: ReadonlySet<string>;
   onKeep?: (id: string, keep: boolean) => void;
   onDismissNotice?: (id: string, at: number) => void;
+  /** `app.keyStyle` and `app.shortcutLayout`; without them the page's own (Standard). */
+  keyStyle?: KeyStyle;
+  shortcutLayout?: ShortcutLayout;
 }
 
 export function MachineList({
@@ -61,6 +66,8 @@ export function MachineList({
   dismissed = new Set<string>(),
   onKeep,
   onDismissNotice,
+  keyStyle,
+  shortcutLayout,
 }: MachineListProps) {
   const { t, language } = strings;
   // A running cost or a delete date moves with the clock (once a minute), so neither goes stale.
@@ -68,7 +75,31 @@ export function MachineList({
   const open = (id: string) => {
     if (!rows.find((row) => row.id === id)?.classic) onOpen(id);
   };
+  // `app.keyStyle` (the host's values as props): Vim's j/k, gg/G and l, Emacs' Ctrl-N/P/A/E/F, as
+  // the arrows and Return. The list has no search field, Esc or paging, so those keys go on.
+  const styleKeys = useListKeys({
+    style: keyStyle,
+    layout: shortcutLayout,
+    onCommand: (command) => {
+      const real = rows.filter((row) => row.machine);
+      const to =
+        command === "list.next"
+          ? moveSelection(rows, selection, 1)
+          : command === "list.previous"
+            ? moveSelection(rows, selection, -1)
+            : command === "list.first"
+              ? real[0]?.id
+              : command === "list.last"
+                ? real.at(-1)?.id
+                : undefined;
+      if (to) return onSelect(to);
+      if (command === "list.open" && selection) return open(selection);
+      return ["list.next", "list.previous", "list.first", "list.last"].includes(command);
+    },
+  });
   const onKeyDown = (event: KeyboardEvent) => {
+    styleKeys(event);
+    if (event.defaultPrevented) return;
     // Only keys aimed at the list itself or a row; a focused inline button keeps its own Return.
     if (!plain(event) || (event.target as HTMLElement).tagName === "BUTTON") return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {

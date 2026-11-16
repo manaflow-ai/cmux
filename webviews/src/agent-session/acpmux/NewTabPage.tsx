@@ -3,6 +3,8 @@ import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
+import type { ListCommand } from "../../ui/keyStyle";
+import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
@@ -497,8 +499,35 @@ export function NewTabPage({
     if (kind === "browser" && !query.trim()) return;
     make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
+  // `app.keyStyle`. The prompt keeps its typing: Emacs' Ctrl-N/P step the rows as the arrows do,
+  // and Vim's Esc (Emacs' Ctrl-G) gives the keyboard to the rows, where j/k, gg/G and l or Return
+  // pick as the arrows and Return do and / goes back to the prompt. Their Esc is the page's.
+  const listTakesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const runListCommand = (command: ListCommand, inField: boolean): boolean | void => {
+    if (!rows.length) return false;
+    if (command === "list.next" || command === "list.previous") {
+      setSelected((current) => stepSelection(current, command === "list.next" ? 1 : -1, rows.length));
+      return;
+    }
+    if (inField) {
+      if (command !== "list.leave" || !list.current) return false;
+      list.current.focus({ preventScroll: true });
+      return;
+    }
+    if (command === "list.first" || command === "list.last")
+      setSelected(command === "list.first" ? 0 : rows.length - 1);
+    else if (command === "list.open") {
+      const row = rows[selected];
+      if (row) activate(row);
+    } else if (command === "list.search") field.current?.focus();
+    else return false;
+  };
+  const fieldKeys = useListKeys({ onCommand: (command) => runListCommand(command, true) });
+  const rowKeys = useListKeys({ onCommand: (command) => runListCommand(command, false) });
   const keyDown = (event: KeyboardEvent) => {
     if (composing.current || event.isComposing || event.keyCode === 229) return;
+    fieldKeys(event);
+    if (event.defaultPrevented) return;
     const input = field.current?.text() ?? { value: typed, selectionStart: typed.length, selectionEnd: typed.length };
     replacing.current = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
     // A prompt of several lines, wrapped ones too, keeps ↑ and ↓ for its caret while there is a line
@@ -589,7 +618,9 @@ export function NewTabPage({
             onBlur={(event) => {
               if (
                 fieldElement()?.contains(event.target) &&
-                !fieldElement()?.contains(event.relatedTarget as Node | null)
+                !fieldElement()?.contains(event.relatedTarget as Node | null) &&
+                // A key style's leave hands the keyboard to the rows: they stay up.
+                !list.current?.contains(event.relatedTarget as Node | null)
               )
                 setFocused(false);
             }}
@@ -726,6 +757,17 @@ export function NewTabPage({
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={t(NEW_TAB_LABELS.suggestions)}
+            tabIndex={listTakesKeys ? -1 : undefined}
+            onKeyDown={(event) => {
+              rowKeys(event);
+              if (event.defaultPrevented || event.key !== "Enter" || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              runListCommand("list.open", false);
+            }}
+            onBlur={(event) => {
+              const next = event.relatedTarget as Node | null;
+              if (!list.current?.contains(next) && !fieldElement()?.contains(next)) setFocused(false);
+            }}
           >
             <div ref={listEdges} className="ui-popup-scroll ui-scroll-edge-fade">
               {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}

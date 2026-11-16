@@ -14,6 +14,8 @@ import {
 } from "react";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
+import type { ListCommand } from "./keyStyle";
+import { useListKeys } from "./useListKeys";
 import "./popupSurface.css";
 
 export interface ListboxProps<T> {
@@ -108,10 +110,32 @@ export function Listbox<T>({
     element?.scrollIntoView?.({ block: "nearest" });
   }, [activeId]);
 
+  const last = items.length - 1;
+  // `app.keyStyle` (Vim j/k/gg/G/l, Emacs Ctrl-N/P/A/E/F): the same moves as the arrows, Home,
+  // End and Return. The rest (h, /, Esc, paging) is not this list's, so it goes on unchanged.
+  const listKeys = useListKeys({
+    onCommand: (command) => {
+      const to: Partial<Record<ListCommand, number>> = {
+        "list.next": Math.min(last, current + 1),
+        "list.previous": Math.max(0, current - 1),
+        "list.first": 0,
+        "list.last": last,
+      };
+      if (command in to) {
+        if (items.length) setCurrentHighlight(to[command]!);
+        return;
+      }
+      if (command !== "list.open") return false;
+      const item = items[current];
+      if (item) onOpen(item);
+    },
+  });
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    listKeys(event);
+    if (event.defaultPrevented) return;
     // Cmd, Ctrl and Option chords are the app's.
     if (event.metaKey || event.altKey || event.ctrlKey) return;
-    const last = items.length - 1;
     const moves: Record<string, number> = {
       ArrowDown: Math.min(last, current + 1),
       ArrowUp: Math.max(0, current - 1),

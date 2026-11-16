@@ -1,6 +1,7 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { configureKeyStyle } from "../../ui/keyStyle";
 
 const restore = installDom();
 afterAll(() => restore());
@@ -8,6 +9,7 @@ const { changeValue, click, fire, ops, renderPage, rowElement, run } = await imp
 
 let page: Rendered | null = null;
 afterEach(() => {
+  configureKeyStyle({});
   page?.unmount();
   page = null;
 });
@@ -150,4 +152,50 @@ test("a focused route reveals its row once values arrive and focuses its visible
   } finally {
     window.HTMLElement.prototype.scrollIntoView = original;
   }
+});
+
+// `app.keyStyle` is the page's own row (SettingsApp feeds it to the key layer): Vim's Esc in the
+// search field gives the keyboard to the rows, j/k step them and G and gg reach the ends, / goes
+// back; Emacs' Ctrl-N steps from the field. Standard keeps today's keys (Esc focuses the list).
+// The row until settings-schema.json is regenerated with it, then the page's own value: both say the style.
+function styledPage(style: string) {
+  configureKeyStyle({ "app.keyStyle": style });
+  return renderPage({ path: "/settings/privacy", mock: { values: { "app.keyStyle": style } } });
+}
+
+test("Vim and Emacs move through the rows as Up and Down do; Standard keeps today's keys", async () => {
+  page = await styledPage("vim");
+  const rows = [...page.container.querySelectorAll(".content [data-row-key], .content [data-action-row]")].filter(
+    (row) => !row.matches("[data-filtered]") && !row.closest("[data-filtered], [inert]"),
+  );
+  await fire(search(page), "keydown", { key: "Escape", code: "Escape" });
+  expect(document.activeElement).toBe(rows[0]!);
+  await fire(document.activeElement!, "keydown", { key: "j", code: "KeyJ" });
+  expect(document.activeElement).toBe(rows[1]!);
+  await fire(document.activeElement!, "keydown", { key: "G", code: "KeyG", shiftKey: true });
+  expect(document.activeElement).toBe(rows.at(-1)!);
+  await fire(document.activeElement!, "keydown", { key: "g", code: "KeyG" });
+  await fire(document.activeElement!, "keydown", { key: "g", code: "KeyG" });
+  expect(document.activeElement).toBe(rows[0]!);
+  await fire(document.activeElement!, "keydown", { key: "k", code: "KeyK" });
+  expect(document.activeElement).toBe(search(page));
+  await fire(rows[1]!, "keydown", { key: "/", code: "Slash" });
+  expect(document.activeElement).toBe(search(page));
+  page.unmount();
+
+  page = await styledPage("emacs");
+  await fire(search(page), "keydown", { key: "n", code: "KeyN", ctrlKey: true });
+  const first = document.activeElement as HTMLElement;
+  expect(first.matches("[data-row-key], [data-action-row]")).toBe(true);
+  await fire(first, "keydown", { key: "n", code: "KeyN", ctrlKey: true });
+  expect(document.activeElement).not.toBe(first);
+  page.unmount();
+
+  page = await styledPage("standard");
+  const row = page.container.querySelector<HTMLElement>(".content [data-row-key]")!;
+  row.focus();
+  await fire(row, "keydown", { key: "j", code: "KeyJ" });
+  expect(document.activeElement).toBe(row);
+  await fire(search(page), "keydown", { key: "Escape", code: "Escape" });
+  expect((document.activeElement as HTMLElement).getAttribute("data-section-link")).toBe("privacy");
 });

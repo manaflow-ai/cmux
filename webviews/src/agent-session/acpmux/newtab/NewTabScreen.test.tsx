@@ -24,6 +24,8 @@ import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { pressStyleKeys, type StyleKey } from "../../../../test/support/keyStylePress";
+import { configureKeyStyle } from "../../../ui/keyStyle";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -77,6 +79,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  configureKeyStyle({});
   act(() => root?.unmount());
   root = undefined;
   await settleReact();
@@ -1897,4 +1900,81 @@ test("a page that has focus already reports its field ready at once, and only on
   expect(ready).toEqual(["cmd-t-1"]);
   await render("cmd-t-2");
   expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
+});
+
+// `app.keyStyle` on the New Tab screen: the prompt keeps its typing; Vim's Esc on open suggestions
+// gives the keyboard to them, where j/k and G step (and the page's type-to-field listener takes
+// none of them), / goes back to the prompt and Esc closes them; Emacs' Ctrl-N/P step from the
+// prompt. Standard: Esc closes the suggestions and a key typed with nothing focused goes into the
+// prompt, as before.
+async function styledScreen(style: string) {
+  act(() => configureKeyStyle({ "app.keyStyle": style }));
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={() => {}}
+        onOpenInNewProfile={() => {}}
+      />,
+    );
+  });
+  const field = await typePrompt("example.com");
+  const doc = dom!.window.document;
+  // The prompt's editor has the keyboard, as after typing.
+  act(() => field.querySelector<HTMLElement>("[contenteditable]")!.focus());
+  const keys = async (...pressed: StyleKey[]) => {
+    for (const key of pressed)
+      await act(async () => {
+        pressStyleKeys(dom!.window, doc.activeElement ?? doc.body, [key]);
+      });
+  };
+  const selected = () => doc.querySelector<HTMLElement>('#nt-rows [aria-selected="true"]')?.dataset.type;
+  return { field, doc, keys, selected };
+}
+
+test("Vim: Esc gives the rows the keyboard; j/k/G step there, / goes back, the prompt keeps its text", async () => {
+  const { field, doc, keys, selected } = await styledScreen("vim");
+  expect(selected()).toBe("open");
+  await keys("Escape");
+  expect(doc.activeElement?.id).toBe("nt-rows");
+  await keys("j");
+  expect(selected()).toBe("inProfile");
+  await keys("j");
+  expect(selected()).toBe("newProfile");
+  await keys("k");
+  expect(selected()).toBe("inProfile");
+  // G is the last row (the web search), gg the first.
+  await keys("G");
+  expect(selected()).toBe("search");
+  await keys("g", "g");
+  expect(selected()).toBe("open");
+  expect(promptValue(field)).toBe("example.com");
+  await keys("/");
+  expect(field.contains(doc.activeElement)).toBe(true);
+  await keys("Escape", "Escape");
+  // In the rows Esc is the prompt's first Escape: they close, the prompt has the keyboard.
+  expect(doc.querySelector("#nt-rows .nt-row")).toBeNull();
+  expect(field.contains(doc.activeElement)).toBe(true);
+});
+
+test("Emacs: Ctrl-N and Ctrl-P step the rows from the prompt", async () => {
+  const { keys, selected } = await styledScreen("emacs");
+  await keys("C-n", "C-n", "C-p");
+  expect(selected()).toBe("inProfile");
+});
+
+test("Standard: Esc closes the rows and a key typed with nothing focused goes into the prompt", async () => {
+  const { field, doc, keys } = await styledScreen("standard");
+  expect(doc.querySelector("#nt-rows")?.getAttribute("tabindex")).toBeNull();
+  await keys("Escape");
+  expect(doc.querySelector("#nt-rows .nt-row")).toBeNull();
+  expect(field.contains(doc.activeElement)).toBe(true);
+  (doc.activeElement as HTMLElement | null)?.blur();
+  await act(async () => {
+    doc.body.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "j", code: "KeyJ", bubbles: true, cancelable: true }),
+    );
+  });
+  expect(promptValue(field)).toBe("example.comj");
 });
