@@ -103,6 +103,7 @@ import {
   withHandshakeNewTab,
 } from "./newtab/adoption";
 import { applyWake, readWake, type WakeTargets } from "./pageWake";
+import { wakeMark } from "./wakeMark";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import {
@@ -6861,8 +6862,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     place: (session, anchor) => postScrollAnchor(session, anchor),
   });
   /// An adopt event carried a state and this page took it: the next paint report says so (`appliedWake`), and
-  /// the host lets go of its copy only then (AgentPaneModel `pendingWake`).
-  const wakeAdopted = useRef(false);
+  /// the host lets go of its copy only then (AgentPaneModel `pendingWake`). The rule of the mark: wakeMark.ts.
+  const wakeAdopted = useRef(wakeMark());
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
@@ -7153,7 +7154,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // where a handshake's goes. The composer mounts in this event's render and takes its part there.
       if (adoption.wake) {
         applyWake(adoption.wake, adoption.sessionId, wakeTargets.current);
-        wakeAdopted.current = true;
+        wakeAdopted.current.took();
       }
       directClient.current?.bindToSession(adoption.sessionId);
       paintReported.current = false;
@@ -7208,9 +7209,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const first = !paintReported.current;
     paintReported.current = true;
     if (settledNow) settledReported.current = settledSession;
-    // The state an adopt event carried is this page's now: the host is told once, with this report.
-    const tookWake = wakeAdopted.current;
-    wakeAdopted.current = false;
+    // The state an adopt event carried is this page's now: this report tells the host (wakeMark.ts).
+    const wake = wakeAdopted.current.report();
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
     if (first) swapChatSnapshot();
@@ -7220,8 +7220,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         void callNative("pane.painted", {
           drewKeptTail,
           ...(settledNow ? { settled: true } : {}),
-          ...(tookWake ? { appliedWake: true } : {}),
-        }).catch(() => undefined);
+          ...(wake.applied ? { appliedWake: true } : {}),
+        }).then(wake.reached, () => undefined);
         if (!first) return;
         void loadHighlightedCode();
         void loadEditDiffHunks();
