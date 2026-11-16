@@ -334,7 +334,7 @@ fn only_the_cmux_app_and_never_an_agent_may_provide() {
 fn the_page_provider_hears_installed_apps_site_rules_and_their_removal() {
     let f = fixture();
     f.install("cmux/demo");
-    let rules = super::super::page_ops::Rules { hide: vec![".ad".into()], unstick: vec![] };
+    let rules = super::super::page_ops::Rules { hide: vec![".ad".into()], ..Rules::default() };
     f.supervisor
         .inner
         .lock()

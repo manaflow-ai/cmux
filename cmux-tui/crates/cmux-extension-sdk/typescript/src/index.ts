@@ -215,6 +215,8 @@ export interface SiteStyle {
   origin: string
   hide: string[]
   unstick: string[]
+  /** The page may scroll again (a hidden dialog often leaves it locked). Only with a rule. */
+  scroll?: boolean
 }
 
 /** Whether a site may run JavaScript, from the same setting as Page Info's JavaScript row. */
@@ -237,10 +239,11 @@ export const site = {
     },
     /**
      * Replaces this extension's rules for a site. cmux applies them to its open tabs now and to
-     * every later visit before the page draws, with no extension running. Both lists empty clears
+     * every later visit before the page draws, with no extension running. `scroll` lets a page
+     * locked by a hidden dialog scroll again. Both lists empty clears
      * the site. Scope `browser:write`.
      */
-    set(style: { origin: string; hide?: string[]; unstick?: string[] }, options?: CmuxCallOptions): Promise<{ origin: string; rules: number }> {
+    set(style: { origin: string; hide?: string[]; unstick?: string[]; scroll?: boolean }, options?: CmuxCallOptions): Promise<{ origin: string; rules: number }> {
       return cmux.call<{ origin: string; rules: number }>("browser.site.style.set", style, options)
     }
   },

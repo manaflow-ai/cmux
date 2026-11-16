@@ -65,7 +65,7 @@ describe("local/showcase-clean-page", () => {
     expect(ask.options.gesture).toBe("g-1")
     expect(ask.params.prompt).toContain("#ad-top | div | 728x90")
     expect(ask.params.prompt).not.toContain("article.story")
-    expect(styles.get("https://news.test")).toEqual({ origin: "https://news.test", hide: ["#ad-top", "#cookie"], unstick: ["header.site"] })
+    expect(styles.get("https://news.test")).toEqual({ origin: "https://news.test", hide: ["#ad-top", "#cookie"], unstick: ["header.site"], scroll: true })
     expect(store.get("site:https://news.test")).toMatchObject({ origin: "https://news.test", hide: ["#ad-top", "#cookie"], unstick: ["header.site"] })
     expect(toasts(h).at(-1)).toEqual({ title: "Cleaned 3 elements on news.test", tone: "success" })
   })

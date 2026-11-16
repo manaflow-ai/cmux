@@ -118,9 +118,9 @@ export function parseReply(text: string): Picks | null {
   return null
 }
 
-/** Whether cmux takes a selector as a rule: at most 256 bytes, none of `{ } ; < > @ \` or control characters. */
+/** Whether cmux takes a selector as a rule: at most 256 bytes, none of `{ } ; < @ \` or control characters. */
 export function storable(selector: string): boolean {
-  return selector.length > 0 && utf8Length(selector) <= 256 && !/[{};<>@\\\u0000-\u001f\u007f]/.test(selector)
+  return selector.length > 0 && utf8Length(selector) <= 256 && !/[{};<@\\\u0000-\u001f\u007f]/.test(selector)
 }
 
 /** UTF-8 bytes in `s`, counted by hand: cmux's sandbox has no TextEncoder. */

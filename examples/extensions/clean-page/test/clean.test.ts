@@ -74,10 +74,10 @@ describe("keepListed", () => {
     expect(keepListed({ hide: ["header.site"], unstick: ["header.site"] }, candidates)).toEqual({ hide: ["header.site"], unstick: [] })
   })
 
-  test("drops selectors cmux would refuse as rules", () => {
-    const odd = [c("a[title='{x}']"), c("#a;b"), c("#ok"), c(`#${"x".repeat(300)}`), c("#tab\tbar"), c(`#${"é".repeat(127)}`), c(`#${"é".repeat(128)}`)]
+  test("drops selectors cmux would refuse as rules, keeps the child combinator", () => {
+    const odd = [c("a[title='{x}']"), c("#a;b"), c("#ok"), c("body > div:nth-of-type(2)"), c(`#${"x".repeat(300)}`), c("#tab\tbar"), c(`#${"é".repeat(127)}`), c(`#${"é".repeat(128)}`)]
     // 1 + 127 * 2 = 255 bytes fits; 1 + 128 * 2 = 257 does not.
-    expect(keepListed({ hide: odd.map((o) => o.selector), unstick: [] }, odd)).toEqual({ hide: ["#ok", `#${"é".repeat(127)}`], unstick: [] })
+    expect(keepListed({ hide: odd.map((o) => o.selector), unstick: [] }, odd)).toEqual({ hide: ["#ok", "body > div:nth-of-type(2)", `#${"é".repeat(127)}`], unstick: [] })
   })
 
   test("at most 200 per list", () => {

@@ -115,7 +115,8 @@ export const clean = command(async (args: { again?: boolean }, ctx: CommandConte
   const kept = keepListed(picks, read.candidates)
   const count = kept.hide.length + kept.unstick.length
   try {
-    await site.style.set({ origin, hide: kept.hide, unstick: kept.unstick })
+    // A hidden consent dialog often leaves the page unable to scroll: let it scroll again.
+    await site.style.set({ origin, hide: kept.hide, unstick: kept.unstick, scroll: kept.hide.length > 0 })
     if (count === 0) {
       if (saved) await forget(origin)
     } else {

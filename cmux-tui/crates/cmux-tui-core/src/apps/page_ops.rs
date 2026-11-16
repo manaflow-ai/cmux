@@ -44,6 +44,10 @@ pub struct Rules {
     pub hide: Vec<String>,
     #[serde(default)]
     pub unstick: Vec<String>,
+    /// Let the page scroll again: a hidden consent dialog or popup often
+    /// leaves `overflow: hidden` on the page behind it. Only with a rule.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub scroll: bool,
 }
 
 impl Rules {
@@ -62,6 +66,9 @@ impl Rules {
         for selector in &self.unstick {
             css.push_str(selector);
             css.push_str("{position:static!important;top:auto!important;bottom:auto!important}\n");
+        }
+        if self.scroll && !self.is_empty() {
+            css.push_str("html,body{overflow-y:auto!important}\n");
         }
         css
     }
@@ -100,10 +107,12 @@ fn selectors(params: &Value, field: &str) -> Result<Vec<String>, PageError> {
             return Err(invalid(format!("a selector is longer than {MAX_SELECTOR_BYTES} bytes")));
         }
         // A selector, never a rule: nothing that closes the rule, starts an
-        // at-rule (`@import` would fetch), escapes or leaves the style element.
+        // at-rule (`@import` would fetch) or escapes. `<` keeps `</style>` out
+        // (the installer sets text, so this is belt only); `>` is the child
+        // combinator and stays.
         if let Some(bad) = selector
             .chars()
-            .find(|c| matches!(c, '{' | '}' | ';' | '<' | '>' | '@' | '\\') || c.is_control())
+            .find(|c| matches!(c, '{' | '}' | ';' | '<' | '@' | '\\') || c.is_control())
         {
             return Err(invalid(format!(
                 "selector {selector:?} has {bad:?}, which a selector here may not"
@@ -125,7 +134,15 @@ pub fn parse_set(params: &Value) -> Result<(String, Rules), PageError> {
         .ok_or_else(|| invalid("origin is required"))?;
     Ok((
         origin(raw)?,
-        Rules { hide: selectors(params, "hide")?, unstick: selectors(params, "unstick")? },
+        Rules {
+            hide: selectors(params, "hide")?,
+            unstick: selectors(params, "unstick")?,
+            scroll: match params.get("scroll") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => return Err(invalid("scroll must be true or false")),
+            },
+        },
     ))
 }
 
@@ -180,7 +197,7 @@ impl PageStyles {
     pub fn get(&self, app: &str, origin: &str) -> Value {
         self.sites.get(app).and_then(|sites| sites.get(origin)).map_or(
             Value::Null,
-            |r| json!({ "origin": origin, "hide": r.hide, "unstick": r.unstick }),
+            |r| json!({ "origin": origin, "hide": r.hide, "unstick": r.unstick, "scroll": r.scroll }),
         )
     }
 
@@ -356,6 +373,20 @@ mod tests {
             rules.css(),
             ".ad{display:none!important}\n#cookie-banner{display:none!important}\ndiv[data-x=\"y\"]{display:none!important}\nheader.site{position:static!important;top:auto!important;bottom:auto!important}\n"
         );
+        // The child combinator stays (the reader's fallback selectors use it).
+        let child = json!({ "origin": "https://a.test", "hide": ["body > div:nth-of-type(3)"], "scroll": true });
+        let (_, rules) = parse_set(&child).unwrap();
+        assert_eq!(
+            rules.css(),
+            "body > div:nth-of-type(3){display:none!important}\nhtml,body{overflow-y:auto!important}\n"
+        );
+        // Scroll alone is not a rule; a non-bool is refused.
+        let (_, alone) = parse_set(&json!({ "origin": "https://a.test", "scroll": true })).unwrap();
+        assert!(alone.is_empty() && alone.css().is_empty());
+        assert!(
+            parse_set(&json!({ "origin": "https://a.test", "hide": [".a"], "scroll": "yes" }))
+                .is_err()
+        );
         for bad in [".a{}", ".a;b", "@import url(x)", "</style>", ".a\\7b", ".a\n.b", ""] {
             let params = json!({ "origin": "https://a.test", "hide": [bad] });
             assert!(parse_set(&params).is_err(), "{bad:?}");
@@ -371,12 +402,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let mut styles = PageStyles::default();
-        let rules = Rules { hide: vec![".ad".into()], unstick: vec![] };
+        let rules = Rules { hide: vec![".ad".into()], ..Rules::default() };
         styles.set(Some(dir.as_path()), "local/x", "https://a.test".into(), rules).unwrap();
         let loaded = PageStyles::load(Some(dir.as_path()));
         assert_eq!(
             loaded.get("local/x", "https://a.test"),
-            json!({ "origin": "https://a.test", "hide": [".ad"], "unstick": [] })
+            json!({ "origin": "https://a.test", "hide": [".ad"], "unstick": [], "scroll": false })
         );
         styles
             .set(Some(dir.as_path()), "local/x", "https://a.test".into(), Rules::default())
@@ -388,7 +419,7 @@ mod tests {
     #[test]
     fn the_provider_hears_a_snapshot_then_only_changes() {
         let mut styles = PageStyles::default();
-        let rules = Rules { hide: vec![".ad".into()], unstick: vec![] };
+        let rules = Rules { hide: vec![".ad".into()], ..Rules::default() };
         styles.set(None, "local/x", "https://a.test".into(), rules.clone()).unwrap();
         styles.set(None, "local/off", "https://a.test".into(), rules).unwrap();
         assert!(styles.told_locked(None, |_| true).is_none());
@@ -414,7 +445,7 @@ mod tests {
     #[test]
     fn the_site_cap_holds_per_app() {
         let mut styles = PageStyles::default();
-        let rules = Rules { hide: vec![".ad".into()], unstick: vec![] };
+        let rules = Rules { hide: vec![".ad".into()], ..Rules::default() };
         for i in 0..MAX_SITES {
             styles.set(None, "local/x", format!("https://s{i}.test"), rules.clone()).unwrap();
         }
