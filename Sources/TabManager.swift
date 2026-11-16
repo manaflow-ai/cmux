@@ -3082,8 +3082,10 @@ class TabManager: ObservableObject {
                 alwaysConfirm: alwaysConfirm
             )
         } else {
-            let workspaceWarns = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
-                || hasActiveProcess
+            // A running process asks only while the workspace warning is on:
+            // its Off state promises that workspaces close immediately.
+            let workspaceWarns = warnsBeforeClosingWorkspace
+                && (shouldConfirmConfiguredClose(requiresConfirmation: true, source: .tabClose) || hasActiveProcess)
             showsBatchConfirmation = workspaceWarns || alwaysConfirm
             dontAskAgain = Self.workspaceCloseDontAskAgain(
                 ordinary: hasActiveProcess ? [.workspace, .safety] : .workspace,
@@ -3381,11 +3383,15 @@ class TabManager: ObservableObject {
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
             || windowDockNeedsConfirmation
         let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
-        let warnsWithoutAlwaysConfirm = needsCloseConfirmation
-            || shouldConfirmWorkspaceClose(
-                requiresConfirmation: needsCloseConfirmation,
-                source: source
-            )
+        // `app.warnBeforeClosingWorkspace` gates the running-process prompt
+        // too (#44785): with it off, a workspace closes at once, as its
+        // setting says. Pinning and Always Confirm keep their own prompts.
+        let warnsWithoutAlwaysConfirm = warnsBeforeClosingWorkspace
+            && (needsCloseConfirmation
+                || shouldConfirmConfiguredClose(
+                    requiresConfirmation: needsCloseConfirmation,
+                    source: source
+                ))
         let showsCloseConfirmation = requiresConfirmation
             && (warnsWithoutAlwaysConfirm || alwaysConfirm)
         let dontAskAgain = Self.workspaceCloseDontAskAgain(
@@ -3438,13 +3444,12 @@ class TabManager: ObservableObject {
         }
     }
 
-    /// Gate for the "Close workspace?" and "Close workspaces?" prompts: the
-    /// source's own gate plus `app.warnBeforeClosingWorkspace`. The pinned
-    /// prompt uses `shouldConfirmClose` directly, so turning this setting off
-    /// never removes the protection a user asked for by pinning.
-    private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
-        AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
-            && shouldConfirmConfiguredClose(requiresConfirmation: requiresConfirmation, source: source)
+    /// `app.warnBeforeClosingWorkspace`, the gate of every "Close workspace?"
+    /// and "Close workspaces?" prompt, a running process's included. The
+    /// pinned prompt uses `shouldConfirmClose` directly, so turning this
+    /// setting off never removes the protection a user asked for by pinning.
+    private var warnsBeforeClosingWorkspace: Bool {
+        CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWorkspace
     }
 
     /// What "Don't ask again" turns off on a workspace close prompt. When the
