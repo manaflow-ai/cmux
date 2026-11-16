@@ -191,14 +191,6 @@ impl Controls {
         }
     }
 
-    pub(super) fn ready(&self) -> bool {
-        self.open
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .is_some_and(|o| o.live && o.ready)
-    }
-
     fn send(&self, conn: &Conn, entry: Value) {
         let mut state = self.open.lock().unwrap_or_else(|e| e.into_inner());
         let Some(open) = state.as_mut() else { return };
