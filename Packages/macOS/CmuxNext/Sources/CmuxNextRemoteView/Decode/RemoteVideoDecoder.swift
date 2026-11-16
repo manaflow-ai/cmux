@@ -127,7 +127,8 @@ nonisolated final class RemoteVideoDecoder {
 /// ones ~6 ms), and the first keyframe used to pay it. `start()` creates and
 /// drops one throwaway hardware session from built-in parameter sets while
 /// the stream connects, so the first frame's session create is the cheap one.
-public nonisolated enum RemoteDecoderPrewarm {
+public nonisolated struct RemoteDecoderPrewarm {
+    public nonisolated init() {}
     /// A 128x128 constrained-baseline H.264 SPS and PPS (Annex-B payloads).
     static let parameterSets: [[UInt8]] = [
         [0x67, 0x42, 0xC0, 0x1E, 0xDA, 0x08, 0x11, 0x90],

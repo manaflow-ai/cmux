@@ -321,7 +321,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
 /// A copy it finds is recorded ([`record_copied_key`]) before it answers. A home settled on
 /// this box (its own fresh key) is not.
 pub fn home_copied(home: &Path) -> bool {
-    crate::cli::cloud_join::node_key_copied_at(home)
+    crate::machine_record::node_key_copied_at(home)
 }
 
 /// Whether a node key rotation is pending in `home` (`machine.tunnel.rekey` wrote its
@@ -456,7 +456,7 @@ fn link_refusals(home: &Path) -> Vec<Option<[u8; 32]>> {
 fn refused_by_a_link(home: &Path, key: &[u8; 32]) -> bool {
     link_refusals(home).into_iter().any(|named| match named {
         Some(named) => named == *key,
-        None => !crate::cli::cloud_join::record_own_here(home),
+        None => !crate::machine_record::record_own_here(home),
     })
 }
 
@@ -468,7 +468,7 @@ pub fn finish_link_refusals(home: &Path) -> Result<()> {
     for named in link_refusals(home) {
         match named {
             Some(key) => record_copied_public_key(home, &key)?,
-            None if !crate::cli::cloud_join::record_own_here(home) => record_copied_key(home)?,
+            None if !crate::machine_record::record_own_here(home) => record_copied_key(home)?,
             None => {}
         }
     }
@@ -480,21 +480,20 @@ pub fn finish_link_refusals(home: &Path) -> Result<()> {
 /// the cmux link asks before it records a key as copied with no key named by its own
 /// evidence: a key acpmux settled and joined again here is never marked.
 pub fn node_key_own_here(home: &Path) -> bool {
-    crate::cli::cloud_join::node_key_own_at(home)
+    crate::machine_record::node_key_own_at(home)
 }
 
 /// This box's stamp: the fingerprint acpmux's clone check compares (`cloud_join`
 /// `host_fingerprint`), or none when the OS names no machine.
 pub fn box_stamp() -> Option<String> {
-    crate::cli::cloud_join::host_fingerprint::current()
+    crate::host_fingerprint::current()
 }
 
 /// Whether `stamp`, recorded on the box that wrote it, is this box, by acpmux's clone check
 /// (`host_fingerprint::same_box`, with `home`'s copy markers). A box with no fingerprint now
 /// compares nothing, as acpmux does.
 pub fn stamped_here(home: &Path, stamp: &str) -> bool {
-    box_stamp()
-        .is_none_or(|here| crate::cli::cloud_join::host_fingerprint::same_box(home, stamp, &here))
+    box_stamp().is_none_or(|here| crate::host_fingerprint::same_box(home, stamp, &here))
 }
 
 /// Whether the cmux link in `link_dir` serves the node key in `home` (or will, at its next
