@@ -36,7 +36,7 @@ async function round(n) {
   const cold = dropCaches();
   const profile = mkdtempSync(join(tmpdir(), "cdp-first-"));
   const t0 = performance.now();
-  const child = spawn(chrome, args(profile), { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] });
+  const child = spawn(chrome, args(profile), { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"], detached: true });
   let stderr = "";
   child.stderr.on("data", (d) => { stderr += d; if (stderr.length > 4000) stderr = stderr.slice(-4000); });
   const write = child.stdio[3], read = child.stdio[4];
@@ -64,9 +64,11 @@ async function round(n) {
   }
   calls.push(await call("Target.setDiscoverTargets", { discover: true }));
   const total = Math.round(performance.now() - t0);
-  child.kill("SIGKILL");
-  await new Promise((r) => child.once("exit", r));
-  rmSync(profile, { recursive: true, force: true });
+  // Chrome's zygote and renderers outlive its main process: kill the whole group, then remove the profile.
+  const exited = new Promise((r) => child.once("exit", r));
+  try { process.kill(-child.pid, "SIGKILL"); } catch {}
+  await exited;
+  try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
   const first = calls[0].ms;
   console.log(JSON.stringify({ round: n, cold, load: loadArg === "1", first_ms: first, over_10s: first === null || first > 10000, total_ms: total, calls,
     stderr: first === null || first > 10000 ? stderr.slice(-600) : undefined }));
