@@ -317,6 +317,17 @@ CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id
 // never holds it (the fork's default). Returns 0 when the fork lacks the call
 // or the browser has no page window.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms);
+// Fork API 32 (fork version >= 34 on the Chromium 157 line): window frame
+// sync. Gives browser_id's page compositor a send right of fence_port, a Core
+// Animation fence this app made on its window's context in the turn that
+// resized the page's view (-[CAContext createFencePort]). The GPU sets it on
+// the commit of the page's first frame at the compositor's new size, so that
+// frame and this app's commit show together, or drops it after timeout_ms.
+// done(context, presented) runs once on the UI thread when this returned 1.
+// The caller keeps its own right and drops it at done or its own deadline.
+// Returns 0 when the fork lacks the call or took no fence. UI thread only.
+CMUX_SHIM_EXPORT int cmux_shim_browser_resize_fence(int browser_id, unsigned int fence_port, int timeout_ms,
+                                                    void (*done)(void* context, int presented), void* context);
 // Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
 // Each returns 0 (or does nothing) when the fork lacks the call; the fork's
 // include/cef_cmux.h documents the semantics. UI thread only unless noted.

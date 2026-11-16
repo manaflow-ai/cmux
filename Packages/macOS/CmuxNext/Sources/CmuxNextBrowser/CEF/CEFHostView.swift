@@ -431,6 +431,9 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     override func setFrameSize(_ newSize: NSSize) {
         let wasEmpty = bounds.isEmpty
         super.setFrameSize(newSize)
+        // After super: the fork's tracker resized the page window in the frame notice, so its compositor has the new
+        // size the fence asks for (fork API 32).
+        if !wasEmpty, newSize.width > 0, newSize.height > 0 { layerHosting.pageViewResized() }
         tab?.deviceEmulationViewDidResize()
         tab?.pageWindowHostDidResize(wasEmpty: wasEmpty)
     }
