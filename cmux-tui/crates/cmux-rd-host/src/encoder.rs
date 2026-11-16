@@ -113,9 +113,22 @@ fn openh264_api(lib: Option<&str>) -> Res<OpenH264Api> {
     Err("openh264 is not installed: run `cmux-rd openh264-install` (downloads Cisco's library from Cisco)".into())
 }
 
-/// The software encoder's threads (and OpenH264's slices) for this machine.
+/// The software encoder's threads (and OpenH264's slices) for this machine:
+/// [`threads_for_cores`] of the cores this process may run on.
 pub fn default_threads() -> u16 {
-    2
+    threads_for_cores(std::thread::available_parallelism().map_or(1, |n| n.get()))
+}
+
+/// Two below 8 cores, four from 8. Measured with Cisco's OpenH264 at 1080p
+/// (`scripts/encode-matrix.sh`, cmux#44552): one thread is slower than two even on a 2-vCPU
+/// VM; four gain 5-10% from 8 cores and lose at 4, where they compete with capture and the
+/// session's loop thread.
+pub fn threads_for_cores(cores: usize) -> u16 {
+    if cores >= 8 {
+        4
+    } else {
+        2
+    }
 }
 
 /// [`open`], with OpenH264 coded under the bench's `key=value` settings when given
@@ -188,5 +201,14 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
                 .ok_or_else(|| format!("codec {} not available in this build", cfg.codec).into())
         }
         other => Err(format!("codec {other} not available in this build").into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn eight_cores_encode_on_four_threads_and_fewer_on_two() {
+        let threads: Vec<u16> = [1, 2, 4, 6, 8, 16].map(super::threads_for_cores).to_vec();
+        assert_eq!(threads, [2, 2, 2, 2, 4, 4]);
     }
 }

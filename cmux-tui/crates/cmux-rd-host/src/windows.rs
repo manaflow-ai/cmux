@@ -308,8 +308,7 @@ pub fn selftest(opts: &Opts) -> Res<()> {
     let start = now_ns();
     for frame in 0..frames {
         let pixels = capture.capture()?;
-        let threads = cmux_encode::convert_threads();
-        bgrx_rect_to_i420(pixels, &mut picture, 0, 0, width as usize, height as usize, threads);
+        bgrx_rect_to_i420(pixels, &mut picture, 0, 0, width as usize, height as usize, 2);
         if encoder.encode(&picture, frame == 0, frame as i64 * 16_667, &mut access_unit)? {
             idr += 1;
         }
@@ -805,7 +804,7 @@ impl WindowsSession {
             0,
             self.width as usize,
             self.height as usize,
-            cmux_encode::convert_threads(),
+            2,
         );
         if let (Some(metrics), Some(start)) = (&mut self.metrics, conversion_started) {
             sample(&mut metrics.convert_ms, start);
