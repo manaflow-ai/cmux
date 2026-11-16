@@ -1921,6 +1921,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_sidebar_churn_typed_terminal.py
             python3 scripts/cmux-next/tests/test_sidebar_stress_switch_refs.py
             python3 scripts/cmux-next/tests/test_swift_logic_lines.py
+            python3 scripts/cmux-next/tests/test_tab_switch_frames.py
             python3 scripts/cmux-next/tests/test_tab_switch_judge.py
             python3 scripts/cmux-next/tests/test_tag_teardown.py
             python3 scripts/cmux-next/tests/test_teardown_clone_cleanup.py
