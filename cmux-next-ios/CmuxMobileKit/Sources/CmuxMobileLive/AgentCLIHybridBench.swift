@@ -132,7 +132,8 @@ final class AgentCLIHybridBench {
             let real = Parity(phone: rows, mac: moment.text, columns: session.columns, rows: session.rows)
             total.add(parity)
             realTotal.add(real)
-            moments.append(["name": moment.name, "parity": parity.percent, "parityVsRealScreen": real.percent])
+            moments.append(["name": moment.name, "parity": parity.percent, "parityVsRealScreen": real.percent,
+                            "differing": parity.differing])
             log("\(mode) \(moment.name): parity \(parity.percent)% (vs the real screen \(real.percent)%)")
             paused += CACurrentMediaTime() - pause
         }
@@ -188,6 +189,8 @@ final class AgentCLIHybridBench {
 struct Parity {
     var same = 0
     var total = 0
+    /// The first cells that differ: "row,column phone|mac".
+    var differing: [String] = []
 
     init() {}
 
@@ -210,7 +213,11 @@ struct Parity {
             for column in 0..<columns {
                 let a = column < phoneRow.count ? phoneRow[column] : " "
                 let b = column < macRow.count ? macRow[column] : " "
-                if a == b { same += 1 }
+                if a == b {
+                    same += 1
+                } else if differing.count < 6 {
+                    differing.append("\(row),\(column) \(a)|\(b)")
+                }
                 total += 1
             }
         }
