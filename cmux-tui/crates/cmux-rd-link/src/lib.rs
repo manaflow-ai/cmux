@@ -57,6 +57,10 @@ mod inner {
     pub const PROBE: u8 = 3;
     pub const PROBE_REPLY: u8 = 4;
     pub const CLOSE: u8 = 5;
+    /// Nothing to deliver: the packet only keeps the radios on the path awake
+    /// ([`crate::endpoint::KEEP_AWAKE_US`]). A peer that predates it drops it as
+    /// an unknown kind, so it needs no version or cap.
+    pub const KEEP_AWAKE: u8 = 6;
 }
 
 /// Which side opens the handshake. The viewer initiates; the host responds.
@@ -348,6 +352,8 @@ impl Link {
                 self.state = State::Failed;
                 events.push(Event::Closed);
             }
+            // Its only job, waking this side's radio, is done by arriving.
+            inner::KEEP_AWAKE => {}
             _ => {}
         }
         Ok(())
@@ -392,6 +398,11 @@ impl Link {
     /// A probe with `id`, sealed, for one path (the caller sends it on that path).
     pub fn probe(&mut self, id: u64) -> Result<Vec<u8>, LinkError> {
         self.seal(inner::PROBE, &id.to_le_bytes())
+    }
+
+    /// A keep-awake packet (no payload, never answered), sealed, for the current path.
+    pub fn keep_awake(&mut self) -> Result<Vec<u8>, LinkError> {
+        self.seal(inner::KEEP_AWAKE, &[])
     }
 
     /// Tells the peer the link ends.

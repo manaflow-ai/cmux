@@ -29,7 +29,7 @@ extension RegistryPaletteProvider {
         "browserReload", "browserStop", "browserZoomIn", "browserZoomOut", "browserZoomReset",
         "browser.copyURL", "browser.downloads.show", "browserShowHistory", "agentPane.searchChats", "agentPane.searchFiles",
         "agentPane.switchModel", "agentPane.archiveChat", "agentPane.continueIn", "agentPane.createCheckpoint", "agentPane.git.commit",
-        "agentPane.git.push", "newCloudMachine", "cloudSSH", "remote.reconnect", "agent.harness.add",
+        "agentPane.git.push", "newCloudMachine", "cloudSSH", "remote.reconnect", "agent.harness.add", "macScreen.open",
     ]
 
     private static let rootFamilies: [(category: ActionCategory, members: Set<ActionCategory>, symbol: String)] = [
