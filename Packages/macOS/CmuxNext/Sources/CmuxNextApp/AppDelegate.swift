@@ -398,8 +398,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.cloud.machineWire.onSpareReady = { [weak services] machine in if let services { CloudStartChat.warmSpare(services, ready: machine) } } // login onto a spare the moment it is ready, before any claim
         services.configActions.start(settings: settings)
         services.personInput.start()
-        services.joinConsent.follow(settings: settings)
-        if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
+        services.joinConsent.follow(settings: settings, folder: MachineConsentChanges.folder)
+        if !environment.noActivate { services.signInEnroll.follow { [weak services] in await services?.remoteControl.signedIn() } } // an agent-launched build enrolls no machine; a sign-in turns Control between my devices on
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.

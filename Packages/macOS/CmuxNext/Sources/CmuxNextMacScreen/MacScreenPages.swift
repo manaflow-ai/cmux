@@ -58,6 +58,11 @@ public final class MacScreenPages {
             hubChanged(from: oldValue)
         }
     }
+    /// Answers a request from one of the person's own devices with no approval panel (``DeviceHub/autoApprove``);
+    /// the app sets it, and every hub takes it.
+    public var autoApprove: (@MainActor (SessionRequest) async -> Bool)? {
+        didSet { hub?.autoApprove = autoApprove }
+    }
     /// The service-owned capture barrier, available even after sign-out.
     var captureCleanup: (@MainActor @Sendable (DeviceHubCaptureCleanupPhase, String, String) async -> DeviceHubCaptureCleanupResult)?
     /// Whether this build has a usable device hub address: always, unless a
@@ -141,6 +146,7 @@ public final class MacScreenPages {
             for tab in tabs.values { tab.pane?.model.hub?.hubGone() }
         }
         hub?.onSessionPush = { [weak self] push in self?.handle(push) }
+        hub?.autoApprove = autoApprove
         approval.follow(remoteHosted ? nil : hub)
         watchDeviceNames()
     }

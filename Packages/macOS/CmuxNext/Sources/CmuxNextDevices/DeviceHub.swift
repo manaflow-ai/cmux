@@ -45,6 +45,10 @@ public final class DeviceHub {
     /// Session pushes (`session.*`) in the order they arrive, for the Mac Screen layer:
     /// a ticket starts signaling; a revocation or end closes the peer connection at once.
     @ObservationIgnored public var onSessionPush: ((DeviceHubPush) -> Void)?
+    /// Whether a session request comes from one of the person's own devices with Control or Screen sharing
+    /// consent here (the app asks this Mac's acpmux, `_acpmux/consent_screen_auto`). True: it is answered Allow
+    /// once with no approval panel; false, or nil, the panel asks as before.
+    @ObservationIgnored public var autoApprove: (@MainActor (SessionRequest) async -> Bool)?
     /// The name this device registers with.
     @ObservationIgnored public var deviceName: String
 
@@ -218,7 +222,7 @@ public final class DeviceHub {
         case .relaysChanged:
             await refreshRelays()
         case let .sessionRequest(request):
-            if !pendingRequests.contains(where: { $0.id == request.id }) { pendingRequests.append(request) }
+            if !pendingRequests.contains(where: { $0.id == request.id }), await !answeredWithoutPanel(request) { pendingRequests.append(request) }
             onSessionPush?(push)
         case let .sessionTicket(ticket):
             pendingRequests.removeAll { $0.id == ticket.sessionId }
@@ -231,6 +235,23 @@ public final class DeviceHub {
         case .pong, .unknown:
             break
         }
+    }
+
+    /// A request ``autoApprove`` allows is answered Allow once (never Always: acpmux decides again on every
+    /// request, so turning consent off there stops the next one). One from a run this hub has left is dropped.
+    /// A refusal, or a failed answer, leaves it to the panel.
+    private func answeredWithoutPanel(_ request: SessionRequest) async -> Bool {
+        guard let autoApprove else { return false }
+        let run = generation
+        let allowed = await autoApprove(request)
+        guard run == generation else { return true }
+        guard allowed else { return false }
+        do {
+            _ = try await client.decide(session: request.id, decision: .once, scope: request.scope)
+        } catch {
+            return false
+        }
+        return run == generation
     }
 
     // MARK: Refresh

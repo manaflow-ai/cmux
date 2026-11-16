@@ -12,6 +12,7 @@ struct CloudSignInEnrollCallerTests {
         var sent: [[String: String]] = []
         var recorded: [String] = []
         var signedOutAt: [Int64] = []
+        var hooks = 0
     }
 
     /// The app's sign-in as ``CloudSignInEnroll/signedInPerson`` reads it.
@@ -54,6 +55,28 @@ struct CloudSignInEnrollCallerTests {
         // When the sign-out happened, so acpmux can drop the intent if it lands after a newer sign-in.
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         #expect(acpmux.signedOutAt.count == 1 && acpmux.signedOutAt[0] <= now && acpmux.signedOutAt[0] > now - 60000)
+    }
+
+    /// Contract v2 C: the default-on hook runs after acpmux took a sign-in made while the app runs, never for
+    /// the session found at launch, a sign-out, acpmux refusing it, or a resend after acpmux returned.
+    @Test func signedInRunsOnlyAfterASignInAcpmuxTook() async {
+        let acpmux = FakeAcpmux()
+        let enroll = caller(acpmux)
+        enroll.signedIn = { acpmux.hooks += 1 }
+        enroll.changed(to: "user_a")
+        await enroll.settled()
+        #expect(acpmux.hooks == 0, "the session restored at launch")
+        enroll.changed(to: nil)
+        enroll.changed(to: "user_b")
+        await enroll.settled()
+        #expect(acpmux.hooks == 1)
+        enroll.acpmuxReturned()
+        await enroll.settled()
+        #expect(acpmux.hooks == 1, "a resend is not a sign-in")
+        acpmux.up = false
+        enroll.changed(to: "user_c")
+        await enroll.settled()
+        #expect(acpmux.hooks == 1, "acpmux did not take it")
     }
 
     /// #38319 review F1: signing in publishes the person while its team refresh holds the token back.

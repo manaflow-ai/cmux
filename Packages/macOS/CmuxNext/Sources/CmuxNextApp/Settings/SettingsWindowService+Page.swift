@@ -33,6 +33,8 @@ extension SettingsWindowService {
             "devices": (try? JSONValue.parse(services.devices.pageData(phones: services.iphone.devicePhones))) ?? .null,
             // This Mac's one-line join consent (labs.machineJoin): null unless joined.
             "devices_join": services.joinConsent.pageData().flatMap { try? JSONValue.parse($0) } ?? .null,
+            // A Control switch per owned machine, signed by this Mac's key: null unless devices_join shows.
+            "devices_control": services.remoteControl.hostJSON,
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),

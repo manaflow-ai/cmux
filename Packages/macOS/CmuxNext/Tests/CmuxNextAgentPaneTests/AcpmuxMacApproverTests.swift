@@ -39,6 +39,68 @@ import Testing
         #expect(!key.isValidSignature(signature, for: signed("c", "")))
     }
 
+    /// The consent grant contract's test vector (acpmux `consent_grant::message` has the same one).
+    @Test func theConsentGrantBytesMatchTheContractVector() {
+        let message = AcpmuxMacApprover.consentGrantMessage(grantor: "mac-0011223344556677", account: "user_abc", machineId: "m_1",
+                                                            nodeKey: "AAAA", control: "on", screen: "keep", issuedAt: 1000, expiresAt: 2000)
+        #expect(message == Data("acpmux-consent-grant-v1\u{0}mac-0011223344556677\u{0}user_abc\u{0}m_1\u{0}AAAA\u{0}on\u{0}keep\u{0}1000\u{0}2000".utf8))
+        let hex = message.map { String(format: "%02x", $0) }.joined()
+        #expect(hex == "6163706d75782d636f6e73656e742d6772616e742d7631006d61632d30303131323233333434353536363737"
+            + "00757365725f616263006d5f310041414141006f6e006b65657000313030300032303030")
+    }
+
+    /// A signed grant names this Mac's key, lives 120 s from `now` in milliseconds, carries the public key
+    /// and name for the target's ask, and verifies under that key only for the bytes it names.
+    @Test func aConsentGrantVerifiesWithThisMacsKey() async throws {
+        let approver = AcpmuxMacApprover()
+        let identity = try #require(approver.identity)
+        let now = Date(timeIntervalSince1970: 1_794_781_755.5)
+        let grant = try #require(await approver.consentGrant(account: "user_abc", machineId: "m_1", nodeKey: "AAAA",
+                                                             control: .on, screen: .on, name: "Studio", now: now))
+        #expect(grant["v"] as? Int == 1)
+        #expect(grant["grantor"] as? String == identity.id)
+        #expect(grant["publicKey"] as? String == identity.publicKey)
+        #expect(grant["name"] as? String == "Studio")
+        #expect(grant["control"] as? String == "on" && grant["screen"] as? String == "on")
+        let issuedAt = try #require(grant["issuedAt"] as? UInt64)
+        let expiresAt = try #require(grant["expiresAt"] as? UInt64)
+        #expect(issuedAt == 1_794_781_755_500)
+        #expect(expiresAt == issuedAt + 120_000)
+        let key = try P256.Signing.PublicKey(x963Representation: Self.bytes(identity.publicKey))
+        let signature = try P256.Signing.ECDSASignature(rawRepresentation: Self.bytes(try #require(grant["signature"] as? String)))
+        func signed(_ control: String, account: String = "user_abc", nodeKey: String = "AAAA") -> Data {
+            AcpmuxMacApprover.consentGrantMessage(grantor: identity.id, account: account, machineId: "m_1", nodeKey: nodeKey,
+                                                  control: control, screen: "on", issuedAt: issuedAt, expiresAt: expiresAt)
+        }
+        #expect(key.isValidSignature(signature, for: signed("on")))
+        #expect(!key.isValidSignature(signature, for: signed("off")))
+        #expect(!key.isValidSignature(signature, for: signed("on", account: "user_other")))
+        #expect(!key.isValidSignature(signature, for: signed("on", nodeKey: "BBBB")))
+    }
+
+    /// The account-wide grant (contract v2 A): the same message with `*` for machine id and node key, both
+    /// surfaces on, living 5 minutes; the signer's nil is `default` (drop the machine's own record).
+    @Test func anAccountWideGrantSignsStarForEveryMachine() async throws {
+        let approver = AcpmuxMacApprover()
+        let identity = try #require(approver.identity)
+        let grant = try #require(await approver.consentSigner("user_abc", "*", "*", true, "Studio"))
+        #expect(grant["machineId"] as? String == "*" && grant["nodeKey"] as? String == "*")
+        #expect(grant["control"] as? String == "on" && grant["screen"] as? String == "on")
+        let issuedAt = try #require(grant["issuedAt"] as? UInt64)
+        let expiresAt = try #require(grant["expiresAt"] as? UInt64)
+        #expect(expiresAt == issuedAt + 300_000)
+        let message = AcpmuxMacApprover.consentGrantMessage(grantor: identity.id, account: "user_abc", machineId: "*", nodeKey: "*",
+                                                            control: "on", screen: "on", issuedAt: issuedAt, expiresAt: expiresAt)
+        #expect(message == Data("acpmux-consent-grant-v1\u{0}\(identity.id)\u{0}user_abc\u{0}*\u{0}*\u{0}on\u{0}on\u{0}\(issuedAt)\u{0}\(expiresAt)".utf8))
+        let key = try P256.Signing.PublicKey(x963Representation: Self.bytes(identity.publicKey))
+        let signature = try P256.Signing.ECDSASignature(rawRepresentation: Self.bytes(try #require(grant["signature"] as? String)))
+        #expect(key.isValidSignature(signature, for: message))
+        let cleared = try #require(await approver.consentSigner("user_abc", "m_1", "AAAA", nil, "Studio"))
+        #expect(cleared["control"] as? String == "default" && cleared["screen"] as? String == "default")
+        let clearedAt = try #require(cleared["issuedAt"] as? UInt64)
+        #expect(cleared["expiresAt"] as? UInt64 == clearedAt + 120_000)
+    }
+
     /// The app's key exists only once the app said where it lives: before that nothing signs.
     @Test func noKeyBeforeTheAppConfiguresOne() async {
         let approver = AcpmuxMacApprover(mode: .unconfigured)

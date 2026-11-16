@@ -26,6 +26,23 @@ public import CmuxNextCompat
         claimedGestures.insert(event).inserted
     }
 
+    /// SECURITY: the person's own click or key in the Settings page, from the HID system (`backs`, the
+    /// app's ``PersonInputLedger``), spent once: what every widening on needs first. Posted input fails.
+    public func claimPerson(_ context: PageCallContext, backs: (@MainActor (TimeInterval) -> Bool)?) -> Bool {
+        guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
+              backs?(event) == true else { return false }
+        return claimGesture(event)
+    }
+
+    /// ``set`` behind ``claimPerson``: an on needs the person's own click or key, then `confirm`; an off
+    /// takes any input.
+    public func widen(_ key: String, on: Bool, _ context: PageCallContext, backs: (@MainActor (TimeInterval) -> Bool)?,
+                      confirm: (@MainActor () async -> Bool)?, refusal: PageError,
+                      write: @escaping @MainActor (Bool) async -> String?) async throws -> String? {
+        if on, !claimPerson(context, backs: backs) { throw refusal }
+        return try await set(key, on: on, confirm: confirm, refusal: refusal) { on, _ in await write(on) }
+    }
+
     public final class WritePermit: Sendable {
         private let state = Mutex<(valid: Bool, claimed: Bool)>((true, false))
 

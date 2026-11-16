@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextPages
 @testable import CmuxNextSettings
+import CmuxNextServer
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -484,5 +485,131 @@ import Testing
         }
         #expect(try await !off.value)
         #expect(h.recorder.sets.suffix(2) == ["device true", "device false"])
+    }
+}
+
+/// Control between my devices (`remote_control` for one machine, `remote_control_account` for all of them)
+/// signs a grant that turns other machines' Control on, and a key trust (`grantor_trust`) lets another Mac
+/// do that here: each widens like `join_consent`, so an on (a trust) needs the person's own HID click in the
+/// page, spent once, then Touch ID or the password. An off (back to default, Not Now, Remove) takes any input
+/// with no prompt. These ops are ``RemoteControlConsentPage``'s, served as parts of the Settings page.
+extension SettingsWideningSwitchPersonGateTests {
+    enum ConsentOp: String, CaseIterable {
+        case remoteControl = "cmux.settings.devices.remote_control"
+        case account = "cmux.settings.devices.remote_control_account"
+        case grantorTrust = "cmux.settings.devices.grantor_trust"
+
+        var flag: String { self == .grantorTrust ? "trusted" : "on" }
+        var set: String { [.remoteControl: "control", .account: "account", .grantorTrust: "trust"][self] ?? "" }
+        var reason: String {
+            [.remoteControl: RemoteControlStrings.confirmReason, .account: RemoteControlStrings.accountConfirmReason,
+             .grantorTrust: JoinConsentStrings.grantorTrustReason][self] ?? ""
+        }
+    }
+
+    /// The part as the app wires it (the provider's gate, person check and confirm), recording what gets through.
+    private func wire(_ h: Harness) {
+        let recorder = h.recorder
+        let actions = RemoteControlConsentPage.Actions(
+            setMachine: { _, on in recorder.sets.append("control \(on.map { "\($0)" } ?? "default")"); return nil },
+            setAccount: { recorder.sets.append("account \($0)"); return nil },
+            refreshTrust: { recorder.sets.append("refresh"); return nil },
+            trustGrantor: { _, trusted in recorder.sets.append("trust \(trusted)"); return nil })
+        var confirm: (@MainActor (String) async -> Bool)?
+        if let owner = h.page.ownerConfirm { confirm = { await owner.authenticate(reason: $0) } }
+        h.page.parts = RemoteControlConsentPage(actions: actions, gate: h.page.wideningGate, backs: h.page.personBacksGesture,
+                                                confirm: confirm, refusal: SettingsPageProvider.personOnly).parts
+    }
+
+    /// The page's call for `op` with `params` on `event`; true when it was refused as not the person's.
+    private func refused(_ h: Harness, _ op: String, _ params: JSONValue, _ event: NSEvent) async throws -> Bool {
+        h.ledger.record(event)
+        do {
+            _ = try await h.page.call(op, params: params,
+                                      context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: event.timestamp))
+            return false
+        } catch let error as PageError where error.code == PageNativeOp.userOnlyCode {
+            return true
+        }
+    }
+
+    /// "Refresh trusted Macs" pins the account's keys, so it takes the person's own click (spent once), but no
+    /// confirm; a posted click is refused. Back to the switch for all devices (`on: null`) can turn the machine
+    /// on (when the account is on), so it widens: a posted click is refused, the person's click asks Touch ID
+    /// (review of #44003, B2; before, a posted click sent it).
+    @Test func refreshNeedsThePersonsClickAndDefaultWidens() async throws {
+        let owner = FakeOwner()
+        owner.answer = true
+        let h = try await make(owner: owner)
+        defer { h.cleanUp() }
+        wire(h)
+        let refresh = "cmux.settings.devices.trust_refresh"
+        #expect(try await refused(h, refresh, .object([:]), h.posted()))
+        #expect(h.recorder.sets.isEmpty)
+        let click = try h.click(0)
+        #expect(try await !refused(h, refresh, .object([:]), click))
+        #expect(try await refused(h, refresh, .object([:]), click), "the same click again")
+        #expect(owner.reasons.isEmpty, "refresh asks no Touch ID")
+        let toDefault: JSONValue = .object(["id": .string("m1"), "on": .null])
+        #expect(try await refused(h, ConsentOp.remoteControl.rawValue, toDefault, h.posted()))
+        #expect(h.recorder.sets == ["refresh"], "a posted click sends no default")
+        #expect(try await !refused(h, ConsentOp.remoteControl.rawValue, toDefault, try h.click(0)))
+        #expect(h.recorder.sets == ["refresh", "control default"])
+        #expect(owner.reasons == [RemoteControlStrings.confirmReason], "the default asks Touch ID as an on does")
+    }
+
+    /// The page's call for `op` with `value` on `event`; true when it was refused as not the person's.
+    private func refused(_ h: Harness, _ op: ConsentOp, _ value: Bool, _ event: NSEvent) async throws -> Bool {
+        try await refused(h, op.rawValue, .object(["id": .string("m1"), op.flag: .bool(value)]), event)
+    }
+
+    /// RED before this change: neither op existed (the page's call failed as an unknown op). Now a posted
+    /// click turns neither on and asks nothing, and the same posted click turns both off.
+    @Test func aPostedClickNeitherSignsAGrantNorTrustsAKeyButTurnsBothOff() async throws {
+        let owner = FakeOwner()
+        owner.answer = true
+        let h = try await make(owner: owner)
+        defer { h.cleanUp() }
+        wire(h)
+        for op in ConsentOp.allCases {
+            #expect(try await refused(h, op, true, h.posted()), "a posted click turned \(op) on")
+        }
+        #expect(h.recorder.sets.isEmpty && owner.reasons.isEmpty, "nothing reached the signer or acpmux, nothing asked")
+        for op in ConsentOp.allCases {
+            #expect(try await !refused(h, op, false, h.posted()))
+        }
+        #expect(h.recorder.sets == ConsentOp.allCases.map { "\($0.set) false" }, "off takes any input")
+        #expect(owner.reasons.isEmpty, "an off asks nothing")
+    }
+
+    /// The person's own click asks Touch ID or the password; a cancel leaves it off, a success turns it on,
+    /// and a click is spent once.
+    @Test func thePersonsClickAsksAndOnlyASuccessSignsOrTrusts() async throws {
+        let owner = FakeOwner()
+        let h = try await make(owner: owner)
+        defer { h.cleanUp() }
+        wire(h)
+        for op in ConsentOp.allCases {
+            owner.answer = false
+            #expect(try await refused(h, op, true, h.click(0)), "a cancelled confirm turned \(op) on")
+            #expect(owner.reasons.last == op.reason)
+            owner.answer = true
+            let click = try h.click(0)
+            #expect(try await !refused(h, op, true, click))
+            #expect(h.recorder.sets.last == "\(op.set) true")
+            #expect(try await refused(h, op, true, click), "the same click again")
+        }
+        #expect(h.recorder.sets == ConsentOp.allCases.map { "\($0.set) true" })
+    }
+
+    /// Without the owner's confirm (a Mac that can't ask), nothing is ever signed or trusted.
+    @Test func noConfirmMeansNoGrantAndNoTrust() async throws {
+        let h = try await make(owner: nil)
+        defer { h.cleanUp() }
+        wire(h)
+        for op in ConsentOp.allCases {
+            #expect(try await refused(h, op, true, h.click(0)))
+        }
+        #expect(h.recorder.sets.isEmpty)
     }
 }

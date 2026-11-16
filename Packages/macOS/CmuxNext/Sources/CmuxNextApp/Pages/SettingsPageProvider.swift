@@ -127,21 +127,9 @@ final class SettingsPageProvider: PageProvider {
     /// this page, spent once, then Touch ID or the password (``PageWideningGate``); an off takes any input.
     func widen(_ key: String, _ id: String, reason: String, on: Bool, _ context: PageCallContext,
                _ write: @escaping @MainActor (String, Bool) async -> String?) async throws -> String? {
-        let refusal = Self.personOnly
-        if on {
-            guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                  personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw refusal }
-        }
-        let confirm: (@MainActor () async -> Bool)?
-        if let owner = ownerConfirm {
-            let confirmReason = reason
-            confirm = { @MainActor in await owner.authenticate(reason: confirmReason) }
-        } else {
-            confirm = nil
-        }
-        return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: refusal) { on, _ in
-            return await write(id, on)
-        }
+        var confirm: (@MainActor () async -> Bool)?
+        if let owner = ownerConfirm { confirm = { await owner.authenticate(reason: reason) } }
+        return try await wideningGate.widen("\(key) \(id)", on: on, context, backs: personBacksGesture, confirm: confirm, refusal: Self.personOnly) { await write(id, $0) }
     }
 
     /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.
@@ -196,10 +184,7 @@ final class SettingsPageProvider: PageProvider {
             // agent with Control consent driving this page (the cmux-cua helper posts real-looking
             // clicks) never grants itself more, and the app's line to acpmux is the person's anyway.
             // Off only narrows, so it needs no gesture and takes any input.
-            if on {
-                guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw Self.personOnly }
-            }
+            if on, !wideningGate.claimPerson(context, backs: personBacksGesture) { throw Self.personOnly }
             let write = try Self.host(setJoinConsent, "devices")
             return try await wideningGate.setWithoutConfirmation(
                 "joinConsent \(surface)", on: on,
