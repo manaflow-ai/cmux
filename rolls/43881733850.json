@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43881733850",
+  "recorded_at": "2026-11-16T14:23:34Z",
+  "reason": "cmux-tui 9823fe9e51a8 changes the image's cmux-tui (pinned cabff45de4ca)",
+  "dry_run": false,
+  "cmux_tui": "9823fe9e51a862eebe561eeca787f9f6a87be1b0",
+  "fixes": [
+    {
+      "sha": "9823fe9e51a862eebe561eeca787f9f6a87be1b0",
+      "mergedAt": "2026-11-16T13:46:19Z",
+      "subject": "acpmux: move the hub items LOWER modules use out of hub (layering for the lib split) (#44097)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T14:23:34Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
