@@ -12,8 +12,10 @@ LEDGER = {'schema': 'cmux.rd-stage-ledger/1', 'stages': []}
 
 
 class ParseTests(unittest.TestCase):
-    def test_profiles_are_the_four_asked_for(self):
-        self.assertEqual(list(rdnl.PROFILES), ['clean', 'jitter-5', 'jitter-15-burst', 'jitter-30-loss2', 'stall'])
+    def test_profiles(self):
+        self.assertEqual(list(rdnl.PROFILES), ['clean', 'jitter-5', 'jitter-15-burst', 'jitter-30-loss2', 'stall',
+                                               'wifi-away', 'wifi-away-short', 'wifi-away-long', 'wifi-away-loss'])
+        self.assertEqual(set(rdnl.PROFILES), set(rdnl.PROFILE_LABELS))
         self.assertEqual(rdnl.netem_args('jitter-5'), ['netem', 'delay', '5ms', '5ms', 'limit', '100000'])
         self.assertIn('gemodel', rdnl.netem_args('jitter-15-burst'))
         self.assertEqual(rdnl.netem_args('jitter-30-loss2')[1:7], ['delay', '30ms', '30ms', 'loss', 'random', '2%'])
