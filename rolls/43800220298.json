@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43800220298",
+  "recorded_at": "2026-11-16T03:57:00Z",
+  "reason": "image inputs changed in 6460ec8f9894b44fcea905fc310aa8198744504a..8f02d7e85d193c175840a473f1aa0c54113c2084",
+  "dry_run": false,
+  "cmux_tui": "69400ff148b20f0f79d350134e4a6f720e08d5cf",
+  "fixes": [
+    {
+      "sha": "8f02d7e85d193c175840a473f1aa0c54113c2084",
+      "mergedAt": "2026-11-16T03:47:07Z",
+      "subject": "Cloud VM image: record inputs_sha256 (every input but cmux-tui) and list it (#43909)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T03:57:00Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
