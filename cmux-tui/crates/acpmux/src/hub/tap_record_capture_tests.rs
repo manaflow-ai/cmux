@@ -293,12 +293,12 @@ async fn run_host(
         .await
         .expect("fixture host bootstrap deadline")
         .unwrap();
+    let owned_host = OwnedHost { record: host.clone(), hosts: spec.hosts_dir.clone() };
     let live_lock = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open(spec.hosts_dir.join(format!("{}.{}.live", host.session_id, host.start_nonce)))
         .unwrap();
-    let owned_host = OwnedHost { record: host.clone(), hosts: spec.hosts_dir.clone() };
     let (inbound, mut receiver) = mpsc::channel(64);
     let drain = tokio::spawn(async move { while receiver.recv().await.is_some() {} });
     let attached = timeout(
