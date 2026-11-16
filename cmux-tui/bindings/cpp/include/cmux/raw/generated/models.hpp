@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1";
+inline constexpr std::string_view kProtocolIrSha256 = "e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -622,6 +622,7 @@ struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
 struct AgentCliFrameEvent;
+struct AgentCliLeanEvent;
 struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
@@ -848,6 +849,12 @@ struct AgentCliFrameEvent {
     std::string stream{};
     Id surface{};
     friend bool operator==(const AgentCliFrameEvent&, const AgentCliFrameEvent&) = default;
+};
+
+struct AgentCliLeanEvent {
+    Base64 f{};
+    Id surface{};
+    friend bool operator==(const AgentCliLeanEvent&, const AgentCliLeanEvent&) = default;
 };
 
 struct AgentInventoryChangedEvent {
@@ -10253,6 +10260,12 @@ template <>
 struct Codec<AgentCliFrameEvent> {
     static Result<Json> encode(const AgentCliFrameEvent& value);
     static Result<AgentCliFrameEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliLeanEvent> {
+    static Result<Json> encode(const AgentCliLeanEvent& value);
+    static Result<AgentCliLeanEvent> decode(const Json& value);
 };
 
 template <>

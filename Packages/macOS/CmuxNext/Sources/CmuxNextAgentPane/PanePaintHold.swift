@@ -36,6 +36,8 @@ public final class PanePaintHold {
     private let deadline: DemandTimer
     /// Where the outgoing view shows in the container (``begin(outgoing:incoming:in:keepingPlaceIn:release:ended:)``).
     private var place: KeptPlace?
+    /// Work that waits for the kept view to stop showing (``afterHold(of:_:)``); it outlives a hand-off to the next hold.
+    private var afterEnd: [() -> Void] = []
 
     private struct KeptPlace {
         weak var view: NSView?
@@ -92,6 +94,15 @@ public final class PanePaintHold {
     /// The view this hold keeps on screen, while it holds.
     public var kept: NSView? { holding ? outgoing : nil }
 
+    /// Runs `body` when `view`, which this hold keeps on screen, stops showing (the incoming view showed); false when
+    /// this hold keeps no such view and the caller goes on now. A kept workspace closed meanwhile is torn down then,
+    /// not under the incoming one that has not painted (an empty frame until it did).
+    public func afterHold(of view: NSView, _ body: @escaping () -> Void) -> Bool {
+        guard kept === view else { return false }
+        afterEnd.append(body)
+        return true
+    }
+
     /// A newer swap that waits too takes over: the incoming view, which never
     /// showed, leaves through `remove`, and ``kept`` stays on screen for the
     /// next hold (no empty frame between two pages that have not painted).
@@ -129,6 +140,10 @@ public final class PanePaintHold {
         if let incoming { PageWebView.syncChromiumVisibility(in: incoming) }
         if let outgoing { PageWebView.syncChromiumVisibility(in: outgoing) }
         ended?()
+        // The kept view stopped showing in this transaction: what waited for that (a teardown) goes in it too.
+        let after = afterEnd
+        afterEnd = []
+        after.forEach { $0() }
         CATransaction.commit()
         #if DEBUG || CMUX_BENCH_HOOKS
         if let incoming { ChatOpenTrace.shared.mark(.holdEnd, view: incoming) }
@@ -301,5 +316,21 @@ public struct WorkspaceFirstFrame {
         }
         UnpaintedPages(in: root).whenPainted(one)
         DrawnPages(in: root).whenRedrawn(one)
+    }
+}
+
+/// A container whose ``PanePaintHold`` may keep a view it swapped out on screen until the incoming view paints (the
+/// window's content area).
+@MainActor
+public protocol PaintHoldHosting: AnyObject {
+    var paintHold: PanePaintHold { get }
+}
+
+extension NSView {
+    /// Defers `body` while a container's hold keeps this view on screen: it runs when the hold ends, in that frame.
+    /// False when no hold keeps it (run it now).
+    public func deferredPastPaintHold(_ body: @escaping () -> Void) -> Bool {
+        let holds = sequence(first: self, next: { $0.superview }).dropFirst().lazy.compactMap { ($0 as? PaintHoldHosting)?.paintHold }
+        return holds.contains { $0.afterHold(of: self, body) }
     }
 }

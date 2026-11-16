@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1. */
+/* cmux-tui mux protocol 12, IR e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf. */
 
 
 import type * as T from "./types.js";
@@ -37,6 +37,12 @@ export type AgentCliFrameEvent = { event: "agent-cli-frame" } & {
   "frame": bigint;
   "rows": number;
   "stream": string;
+  "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: attach-byte. */
+export type AgentCliLeanEvent = { event: "agent-cli-lean" } & {
+  "f": T.Base64;
   "surface": T.Id;
 };
 
@@ -783,6 +789,7 @@ export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
   | AgentCliFrameEvent
+  | AgentCliLeanEvent
   | AgentInventoryChangedEvent
   | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
@@ -981,6 +988,7 @@ export type TreeDeltaEvent =
 /** Known events from any attach mode. */
 export type KnownAttachEvent =
   | AgentCliFrameEvent
+  | AgentCliLeanEvent
   | BrowserStateEvent
   | ColorsChangedEvent
   | DetachedEvent
@@ -998,6 +1006,7 @@ export type KnownAttachEvent =
 /** Known byte attach events. */
 export type KnownByteAttachEvent =
   | AgentCliFrameEvent
+  | AgentCliLeanEvent
   | ColorsChangedEvent
   | DetachedEvent
   | NotificationEvent

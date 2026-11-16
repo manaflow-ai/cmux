@@ -161,7 +161,8 @@ class ClassifyTests(unittest.TestCase):
     # run code a push controls (#34124 finds and closes several such routes). The lint rules themselves stay normal.
     PREPUSH_TRUST = ("scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
                      "scripts/git-hooks/pre-push", "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py",
-                     "scripts/install-git-hooks.sh")
+                     "scripts/install-git-hooks.sh", "scripts/git-hooks/hook_python.sh",
+                     "scripts/git-hooks/merge_python.sh")
 
     def test_the_pre_push_trust_boundary_is_high(self):
         for path in self.PREPUSH_TRUST:

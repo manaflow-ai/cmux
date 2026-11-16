@@ -8,6 +8,42 @@ extension WorkspaceRowView {
     /// Where the row's last layout put the menu button, made or not: the menu anchors there (`SidebarRowMenu`).
     var moreFrame: NSRect { moreSlot.frame }
 
+    func makeScreenButton() -> SidebarIconButton {
+        let button = SidebarIconButton(icon: .remoteDisplay, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.viewScreen)
+        button.onPress = { [weak self] in
+            guard let self, let action = self.screenAction else { return }
+            self.onScreenAction?(action)
+        }
+        identify(button, as: "screen")
+        return button
+    }
+
+    func configureScreen(_ machine: SidebarMachine?) {
+        let next: SidebarIntent?
+        if let machine, !isPlaceholderRow {
+            switch machine.kind {
+            case .local: next = .shareScreen(.local)
+            case .cloud: next = .viewScreen(machine.id)
+            case .ssh, .server: next = machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
+            }
+        } else {
+            next = nil
+        }
+        if screenAction != next { screenAction = next; needsLayout = true }
+        if let machine, screenAction != nil {
+            let button = screenSlot.control(in: self)
+            let local = machine.kind == .local
+            button.isHidden = false
+            button.isEnabled = local || machine.kind == .cloud || machine.screenAvailable
+            button.icon = local ? .actionShare : .remoteDisplay
+            button.label = local ? Strings.shareScreen : Strings.viewScreen + (button.isEnabled ? "" : " — " + Strings.statusOffline)
+            identify(button, as: "screen")
+        } else {
+            screenSlot.made?.isHidden = true
+            screenSlot.made?.isEnabled = false
+        }
+    }
+
     func makeCloseButton() -> SidebarIconButton {
         let button = SidebarIconButton.rowClose(label: Strings.closeButton)
         button.onPress = { [weak self] in self?.onClose?() }
@@ -60,6 +96,7 @@ extension WorkspaceRowView {
 
     /// The made controls' accessibility identifiers, for the row's workspace.
     func applyControlIdentifiers() {
+        screenSlot.made.map { identify($0, as: "screen") }
         closeSlot.made.map { identify($0, as: "close") }
         moreSlot.made.map { identify($0, as: "more") }
         pinSlot.made.map { identify($0, as: "pin") }

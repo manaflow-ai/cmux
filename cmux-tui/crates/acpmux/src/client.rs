@@ -142,7 +142,7 @@ impl Client {
             )
         {
             meta.insert(
-                crate::hub::person::CALLER_FIELD.to_owned(),
+                crate::meta_fields::CALLER_FIELD.to_owned(),
                 json!({"sessionId": id, "token": token}),
             );
         }
@@ -151,7 +151,7 @@ impl Client {
         crate::cli_caller::declare(&mut meta, caller);
         hello.set("_meta", json!({"acpmux": meta}));
         // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
-        let init = crate::cli::slow_notice::noted(
+        let init = crate::slow_notice::noted(
             "the connection's hello",
             client.request(method::INITIALIZE, hello),
         )
@@ -198,7 +198,8 @@ impl Client {
         let challenge =
             self.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         let Some((nonce, connection)) = challenge else { return false };
-        let Some(proof) = crate::hub::person::person_proof(key, "unix", &nonce, &connection) else {
+        let Some(proof) = crate::person_proof::person_proof(key, "unix", &nonce, &connection)
+        else {
             return false;
         };
         self.request(method::MUX_PERSON_PROVE, json!({ "proof": proof })).await.is_ok()
@@ -252,7 +253,7 @@ impl Client {
         if m != method::SESSION_NEW {
             return self.send_request(m, params).await;
         }
-        let tool_call = std::env::var(crate::hub::lineage::TOOL_CALL_ENV).ok();
+        let tool_call = std::env::var(crate::meta_fields::TOOL_CALL_ENV).ok();
         let reply = self.send_request(m, with_spawn_tool_call(params, tool_call)).await?;
         self.tag_spawned_by(&reply).await;
         Ok(reply)
@@ -304,7 +305,7 @@ impl Client {
         if !seen.is_empty()
             && let Some(rows) = reply.get_mut("sessions").and_then(Value::as_array_mut)
         {
-            crate::hub::session_pages::sort_session_summaries(rows);
+            crate::session_order::sort_session_summaries(rows);
         }
         Ok(reply)
     }
@@ -336,7 +337,7 @@ impl Client {
         // A peer may return the same raw id as a local session. Keep the owner
         // namespace on the tag request just like prompts and lifecycle calls.
         let Some(id) = crate::cli::resolve::routed_id(reply).ok() else { return };
-        let set = json!({ crate::hub::views::SPAWNED_BY_TAG: parent });
+        let set = json!({ crate::meta_fields::SPAWNED_BY_TAG: parent });
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
     }
 
@@ -385,7 +386,7 @@ impl Client {
 fn with_spawn_tool_call(mut params: Value, tool_call: Option<String>) -> Value {
     let Some(id) = tool_call.filter(|id| !id.is_empty()) else { return params };
     if let Some(mux) = mux_meta(&mut params) {
-        mux.entry(crate::hub::lineage::TOOL_CALL_FIELD).or_insert(Value::String(id));
+        mux.entry(crate::meta_fields::TOOL_CALL_FIELD).or_insert(Value::String(id));
     }
     params
 }
@@ -393,7 +394,7 @@ fn with_spawn_tool_call(mut params: Value, tool_call: Option<String>) -> Value {
 /// `session/new` params that ask for no parent (`_meta.acpmux.parent: null`).
 fn parentless(mut params: Value) -> Value {
     if let Some(mux) = mux_meta(&mut params) {
-        mux.insert(crate::hub::lineage::PARENT_FIELD.into(), Value::Null);
+        mux.insert(crate::meta_fields::PARENT_FIELD.into(), Value::Null);
     }
     params
 }
@@ -412,7 +413,7 @@ fn reply_lacks_lineage(reply: &Value) -> bool {
         || !reply
             .pointer("/_meta/acpmux")
             .and_then(Value::as_object)
-            .is_some_and(|m| m.contains_key(crate::hub::lineage::PARENT_FIELD))
+            .is_some_and(|m| m.contains_key(crate::meta_fields::PARENT_FIELD))
 }
 
 /// An error reply from the daemon. It prints as the message alone and
@@ -548,7 +549,7 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
-    let panic = recent_panic(&crate::daemon::panic_log_path(), now_ms, pid);
+    let panic = recent_panic(&crate::config::panic_log_path(), now_ms, pid);
     let (cause, why) = closed_cause(pid, alive, socket, panic.as_ref());
     let build = match daemon_build {
         Some(b) if b != crate::hub::build() => {

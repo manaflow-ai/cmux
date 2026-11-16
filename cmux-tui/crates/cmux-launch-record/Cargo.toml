@@ -1,0 +1,18 @@
+[package]
+name = "cmux-launch-record"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+workspace = "../cmux-app-ffi"
+description = "Bounded launch record reader and atomic writer for cmux startup"
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1"
+
+[[bench]]
+name = "read"
+harness = false
