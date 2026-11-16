@@ -56,6 +56,10 @@ impl Authority {
     /// join makes it the requirement it always was, for good.
     pub(super) fn enroll_as(&self, sign_in: bool) -> Result<()> {
         self.enroll_with_sync(sign_in, |path| {
+            // Windows opens no folder as a file to flush it; NTFS journals the names.
+            if cfg!(windows) && path.is_dir() {
+                return Ok(());
+            }
             std::fs::File::open(path)?.sync_all()?;
             Ok(())
         })

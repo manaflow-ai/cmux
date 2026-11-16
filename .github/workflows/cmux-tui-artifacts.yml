@@ -4305,7 +4305,9 @@ jobs:
       name: artifacts
       deployment: false
     name: point the windows-feat-cmux-next channel at this tree
-    needs: [tree-preflight, publish-tree-windows]
+    # After publish-tree-tested, whatever its result: the script points only at a tree with its
+    # daemon-tests marker, and a dispatch is the only run that builds Windows to point at.
+    needs: [tree-preflight, publish-tree-windows, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.publish-tree-windows.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10

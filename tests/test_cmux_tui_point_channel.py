@@ -77,13 +77,14 @@ if name == "completion.json":
     open(out, "w").write(body)
     sys.exit(0)
 if name == "completion-windows.json":
-    if os.environ.get("FAKE_WINDOWS", "1") != "1":
+    windows = os.environ.get("FAKE_WINDOWS", "1")
+    if windows not in ("1", "daemon"):
         sys.exit(22)
     key = url.split("/tree/")[1].split("/")[0]
-    body = json.dumps({"key": key, "binaries": {
-        "cmux-tui-acpmux-x86_64-pc-windows-gnu.exe": "4" * 64,
-        "cmux-tui-x86_64-pc-windows-gnu.exe": "5" * 64,
-    }})
+    binaries = {"cmux-tui-x86_64-pc-windows-gnu.exe": "5" * 64}
+    if windows == "1":
+        binaries["cmux-tui-acpmux-x86_64-pc-windows-gnu.exe"] = "4" * 64
+    body = json.dumps({"key": key, "binaries": binaries})
     open(out, "w").write(body)
     sys.exit(0)
 if url.endswith(f"/channels/{os.environ.get('CHANNEL', 'feat-cmux-next')}.json"):
@@ -238,6 +239,11 @@ def main():
     result, after, uploads = run(pointer(OLD), channel="windows-feat-cmux-next", FAKE_WINDOWS="0")
     _check(result.returncode == 0 and commit_of(after) == OLD and not uploads,
            f"a tree without Windows is not pointed at: {uploads} {result.stdout}{result.stderr}")
+    # The Windows acpmux is an optional companion: a tree whose Windows build has only the daemon
+    # leaves the channel where it is, and the job stays green.
+    result, after, uploads = run(pointer(OLD), channel="windows-feat-cmux-next", FAKE_WINDOWS="daemon")
+    _check(result.returncode == 0 and commit_of(after) == OLD and not uploads,
+           f"a Windows tree without acpmux is not pointed at: {uploads} {result.stdout}{result.stderr}")
 
     if FAILURES:
         for failure in FAILURES:
