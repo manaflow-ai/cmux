@@ -1122,6 +1122,42 @@ impl Source for DeferredSource {
     }
 }
 
+/// The source ends a sid (an actor that stopped, a chat evicted) while the client's `unsub` and
+/// `credit` for it are on the wire: the client gets `dropped` and no error, since it could not
+/// know the connection got there first. A sid the connection never had stays `unknown_sid`, and
+/// so does a second `unsub` of the ended one.
+#[tokio::test]
+async fn unsub_and_credit_after_the_connection_ended_the_sid_are_not_errors() {
+    let source = Arc::new(DeferredSource::default());
+    let driver = source.clone();
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
+    hello(&mut client).await;
+    send(&mut client, json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}})).await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Error); // not_ready
+    let sink = source.0.lock().unwrap().clone().unwrap();
+    sink.dropped("s");
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Dropped);
+    send(&mut client, json!({"method":"credit","params":{"sid":"s","consumed":1}})).await;
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    send(&mut client, json!({"method":"unsub","params":{"sid":"never"}})).await;
+    let unknown = |frame: Frame| {
+        assert_eq!(frame.kind, FrameKind::Error);
+        let value: serde_json::Value = frame.decode_json().unwrap();
+        assert_eq!(value["code"], "unknown_sid", "{value}");
+        value["sid"].as_str().unwrap().to_owned()
+    };
+    assert_eq!(unknown(receive(&mut client).await), "never");
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    assert_eq!(unknown(receive(&mut client).await), "s");
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
 #[tokio::test]
 async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
     let source = Arc::new(DeferredSource::default());
