@@ -43,9 +43,9 @@
         "title": "Show",
         "enum": ["branch", "mine", "mentions", "review-requested", "search"],
         "enumTitles": ["This workspace's branch", "My open pull requests", "Mentioning me", "Asking for my review", "Saved search"],
-        "default": "mine"
+        "default": "search"
       },
-      "query": { "type": "string", "title": "Saved search (for Saved search)", "default": "" },
+      "query": { "type": "string", "title": "Saved search (for Saved search)", "default": "repo:manaflow-ai/cmux author:teamleaderleo is:open" },
       "limit": { "type": "integer", "title": "Pull requests", "minimum": 1, "maximum": 30, "default": 5 },
       "login": { "type": "string", "title": "GitHub login (public fallback)", "default": "teamleaderleo" }
     }
