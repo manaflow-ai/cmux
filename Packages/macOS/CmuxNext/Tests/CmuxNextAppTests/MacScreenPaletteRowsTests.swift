@@ -41,17 +41,6 @@ import Testing
         let pages = MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), work: BackgroundWork())
         #expect(pages.viewableDevices.isEmpty)
     }
-
-    @Test func screenSharingIsFoundByTheWordsPeopleType() throws {
-        let registry = ActionRegistry.standard()
-        let open = try #require(registry.descriptor(for: "macScreen.open"))
-        for word in ["screen share", "share screen", "remote desktop", "vnc", "view"] {
-            #expect(open.keywords.contains(word), "\(word)")
-        }
-        #expect(open.paletteTier == .daily)
-        // This Mac's sharing session (stop it, revoke its viewer) sits with Share This Mac, not with tabs.
-        for id: ActionID in ["macScreen.stopSharing", "macScreen.revokeViewer", "macScreen.shareThisMac", "macScreen.stopSharingThisMac"] {
-            #expect(registry.descriptor(for: id)?.category == .remote, "\(id)")
-        }
-    }
+    // The catalog's keywords, tier and categories are pinned in Rust (cmux-action-catalog
+    // tests/screen_sharing_palette.rs): the app reads them from the published FFI, re-pinned after merge.
 }
