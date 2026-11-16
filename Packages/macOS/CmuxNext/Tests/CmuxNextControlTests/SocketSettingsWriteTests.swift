@@ -10,14 +10,15 @@ import Testing
 /// (plans/cmux-next/settings-surfaces.md). These iterate `SettingsSchema.all`,
 /// so a new descriptor is covered with no edit: it sets, reads back and
 /// resets over the socket with schema validation, a value of the wrong type
-/// is refused, and a managed key is refused on every write method.
+/// is refused, and a managed key is refused on every write method. Concurrent
+/// writers are the daemon's to serialize now (cmux-config `lock_config`), not the app's.
 @MainActor @Suite(.serialized) struct SocketSettingsWriteTests {
     func make(managed: ManagedPreferences = ManagedPreferences()) throws -> (ControlRouter, SettingsController, URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-settings-surfaces-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(managed), managedWatchFiles: [])
         // The full package suite runs other main-actor tests in parallel. Give
         // this file-backed round trip enough room to cross the actor boundary
@@ -173,7 +174,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"history":{"terminalCommands":false}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), settings: settings.file, settingsWriter: settings,
@@ -224,38 +225,6 @@ import Testing
     }
 
     final class Box: Sendable { let flag = Mutex(false) }
-
-    /// A daemon write and a socket write at the same time both survive. The daemon holds an
-    /// exclusive `flock` on `.<file name>.lock` beside the settings file from its read of the file
-    /// to its publish (cmux-tui `cmux-config`, `lock_config`); this test is that writer. While it
-    /// holds the lock, the socket's `settings.set` must not write: it would edit a text the other
-    /// writer is about to replace, and one of the two edits would be lost.
-    @Test func aSocketWriteWaitsForTheWriterThatHoldsTheSettingsLock() async throws {
-        let (router, settings, directory) = try make()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "cmux.json")
-        let lock = open(directory.appending(path: ".cmux.json.lock").path, O_WRONLY | O_CREAT | O_CLOEXEC, 0o666)
-        try #require(lock >= 0, "the lock file opens")
-        // Closing the descriptor drops the lock, also when an expectation below throws.
-        defer { close(lock) }
-        try #require(flock(lock, LOCK_EX) == 0, "the other writer takes the lock")
-        let read = try String(contentsOf: url, encoding: .utf8)
-        let write = Task {
-            await router.handle(ControlRequest(id: "1", method: "settings.set",
-                                               params: ["path": "notifications.mutedWorkspaces", "value": ["ws-1"], "origin": "script"]))
-        }
-        // Room for the socket write to reach the file. Nothing reports "waiting for the lock", so
-        // this is a bounded wait: with the lock honored the write cannot finish inside it.
-        try await Task.sleep(for: .milliseconds(500))
-        #expect(try String(contentsOf: url, encoding: .utf8) == read, "the socket wrote the file while another writer held its lock")
-        // The other writer publishes its edit of the text it read, then lets go of the lock.
-        try Data(#"{"appearance":{"density":"compact"}}"#.utf8).write(to: url, options: .atomic)
-        #expect(flock(lock, LOCK_UN) == 0)
-        let answer = await write.value
-        #expect((try? answer.get()) != nil, "\(answer)")
-        #expect(try await settings.file.value(at: ["notifications", "mutedWorkspaces"]) == ["ws-1"], "the socket write is lost")
-        #expect(try await settings.file.value(at: ["appearance", "density"]) == .string("compact"), "the other writer's edit is lost")
-    }
 
     /// A managed key is refused on the socket, schema key or not.
     @Test func aManagedKeyIsRefused() async throws {

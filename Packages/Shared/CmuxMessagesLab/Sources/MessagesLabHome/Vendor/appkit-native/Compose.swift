@@ -788,9 +788,11 @@ final class ComposeView: UIView {
     private(set) var fieldHeight: CGFloat = ComposeMetrics.oneLine
     private(set) var chips: [Attachment] = []
     private(set) var text = ""
-    /// The field is empty because of a send (no character typed and no attachment since): Messages
-    /// keeps it at `ComposeMetrics.emptyAfterSend` (30 pt), not the one-line height.
-    private(set) var emptyAfterSend = false
+    // cmux: no `emptyAfterSend` state. Messages on macOS 27 keeps the field emptied by a send at
+    // `ComposeMetrics.emptyAfterSend` (30 pt) and grows it to the 31 pt one-line height on the
+    // first character; Home keeps every empty field at the one-line height (user, 2026-11-16:
+    // "when imessage chat text input is empty, then i type into, and height of the input
+    // increases by just slightly"; HomeComposerEmptyHeightTests).
     private var placeholder = Strings.placeholder
     var captureMode = false {
         didSet {
@@ -913,7 +915,6 @@ final class ComposeView: UIView {
     static let maxHeight: CGFloat = 295.5
     /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
     private func height(for text: String, width: CGFloat) -> CGFloat {
-        if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
         // cmux: attachments in the text: the lines that hold them are as tall as their thumbnails.
         if !chips.isEmpty, let storage = textView.view.textStorage, storage.string == text {
             let extra = ComposeInlineText.extraHeight(storage, width: ComposeView.fieldWidth(width) - 24 - trailingReserve)
@@ -1280,7 +1281,6 @@ final class ComposeView: UIView {
     /// transaction (catalyst's `ComposeView.update`).
     func update(state: AppState, send: Bool, begin: CFTimeInterval) {
         let d = state.ui.draft
-        let hadDraft = !text.isEmpty || !chips.isEmpty
         let tv = textView.view
         // cmux: attachments are in the text (Draft+InlineMarks.swift): a new or changed attachment
         // builds the field's text again too.
@@ -1306,9 +1306,6 @@ final class ComposeView: UIView {
         let attachmentsChanged = d.attachments != chips
         if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
         text = d.text
-        // Only a send that took a draft (a rejected send is not committed: Store.apply).
-        if send && hadDraft { emptyAfterSend = d.text.isEmpty && d.attachments.isEmpty }
-        else if !d.text.isEmpty || !d.attachments.isEmpty { emptyAfterSend = false }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // With an attachment Messages shows neither the placeholder nor the audio glyph
         // (compose-attach-image stills).

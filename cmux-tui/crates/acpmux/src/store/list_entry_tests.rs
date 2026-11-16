@@ -160,7 +160,7 @@ fn a_held_store_reads_the_checked_folders_after_their_names_are_swapped() {
     let root = home.path().join("sessions");
     let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
     let mut original = meta("chat");
-    original.available_commands = Some(json!([{"name": "original"}]));
+    original.available_commands = Some(json!([{"name": "original"}]).into());
     store.save(&original).unwrap();
     let held = crate::home_fs::PrivateDir::open(&root).unwrap();
     let entries = held.names().unwrap();
@@ -169,7 +169,7 @@ fn a_held_store_reads_the_checked_folders_after_their_names_are_swapped() {
     let replacement = LocalStore::new(root.clone(), 64 * 1024).unwrap();
     let mut other = meta("chat");
     other.name = "replacement".into();
-    other.available_commands = Some(json!([{"name": "replacement"}]));
+    other.available_commands = Some(json!([{"name": "replacement"}]).into());
     replacement.save(&other).unwrap();
     let entry = entries.iter().find(|name| name.as_os_str() == OsStr::new("chat")).unwrap();
     assert_eq!(store.list_entry(&held, entry).unwrap(), Some(original.clone()));
