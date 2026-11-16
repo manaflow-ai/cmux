@@ -137,6 +137,146 @@ pub(crate) fn install_daemon_acpmux(mux: &cmux_tui_core::Mux, socket: &Path) {
     if let Some(sender) = daemon_feed_reply_sender() {
         mux.set_feed_reply_sender(sender);
     }
+    if let Some(asker) = daemon_agent_asker() {
+        cmux_tui_core::agent_ask::install(asker);
+    }
+}
+
+/// An extension's `agent.ask` (cmux-tui-core `apps/agent_ask.rs`): this
+/// binary's `acp exec` with the acpmux home `cmux acp` uses, on this machine,
+/// every tool denied and every permission ask refused, the prompt on stdin
+/// (never an argument), in a scratch folder of its own; the person's default
+/// agent unless the call names one. `exec` makes the chat ephemeral, so no
+/// chat is left in their list. Bounded by the request's timeout.
+#[cfg(unix)]
+fn daemon_agent_asker() -> Option<cmux_tui_core::agent_ask::AgentAsker> {
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    Some(std::sync::Arc::new(move |request: &cmux_tui_core::agent_ask::AskRequest| {
+        ask_agent(&exe, &home, request)
+    }))
+}
+
+/// A folder of the agent's own for one ask: new (never one someone else made
+/// first, since a harness may read project config and hooks from its cwd),
+/// 0700, removed when the ask ends.
+#[cfg(unix)]
+struct AskFolder(PathBuf);
+
+#[cfg(unix)]
+impl AskFolder {
+    fn new() -> Result<Self, String> {
+        use std::os::unix::fs::DirBuilderExt as _;
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir()
+            .join(format!("cmux-agent-ask-{}-{nanos:08x}-{n}", std::process::id()));
+        // Not recursive: fails when the path exists, whoever made it.
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&path)
+            .map_err(|e| format!("agent scratch folder: {e}"))?;
+        Ok(Self(path))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for AskFolder {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The most of a pipe an ask keeps; the rest is read and dropped.
+#[cfg(unix)]
+const ASK_PIPE_BYTES: u64 = 1024 * 1024;
+
+#[cfg(unix)]
+fn ask_agent(
+    exe: &Path,
+    home: &Path,
+    request: &cmux_tui_core::agent_ask::AskRequest,
+) -> Result<String, String> {
+    use std::io::{Read as _, Write as _};
+    let scratch = AskFolder::new()?;
+    let timeout = request.timeout.as_secs().max(1).to_string();
+    let mut command = cmux_process::Command::new(exe);
+    for name in TERMINAL_IDENTITY_ENV {
+        command.env_remove(name);
+    }
+    command.env("ACPMUX_HOME", home).args([
+        "acp",
+        "exec",
+        "--machine",
+        "local",
+        "--policy",
+        "deny-all",
+        "--on-permission",
+        "deny",
+        "--timeout",
+        &timeout,
+    ]);
+    command.arg("--cwd").arg(&scratch.0);
+    if let Some(model) = &request.model {
+        command.arg(format!("--model={model}"));
+    }
+    command
+        .args(["--prompt-file", "-"])
+        .stdin(cmux_process::Stdio::piped())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::piped());
+    // The owned `cmux_process::Child`: dropped while it runs, it ends its group.
+    let mut child =
+        cmux_process::Command::spawn(&mut command).map_err(|e| format!("acpmux exec: {e}"))?;
+    let (stdout, stderr, stdin) = (child.stdout.take(), child.stderr.take(), child.stdin.take());
+    let prompt = request.prompt.as_bytes();
+    let deadline = request.timeout + std::time::Duration::from_secs(10);
+    // Every pipe on a thread of this scope, so neither a long reply nor a
+    // child that never reads its prompt holds the ask past the deadline; the
+    // scope joins them all (a killed child closes the pipes they wait on).
+    let (status, out, err) = std::thread::scope(|scope| {
+        let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+            scope.spawn(move || {
+                let mut bytes = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = pipe.by_ref().take(ASK_PIPE_BYTES).read_to_end(&mut bytes);
+                    let _ = std::io::copy(&mut pipe, &mut std::io::sink());
+                }
+                String::from_utf8_lossy(&bytes).into_owned()
+            })
+        };
+        let out = drain(stdout.map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+        let err = drain(stderr.map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+        if let Some(mut stdin) = stdin {
+            // Closing stdin ends the prompt; a killed child ends the write.
+            scope.spawn(move || {
+                let _ = stdin.write_all(prompt);
+            });
+        }
+        // acpmux cancels the turn at its own --timeout; a little more for its exit.
+        let status = match child.wait_timeout(deadline) {
+            Ok(Some(status)) => Some(status),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                None
+            }
+        };
+        (status, out.join().unwrap_or_default(), err.join().unwrap_or_default())
+    });
+    let Some(status) = status else { return Err("the agent did not answer in time".into()) };
+    if status.success() {
+        Ok(out.trim().to_string())
+    } else {
+        let why = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+        Err(format!(
+            "the agent run failed ({status}){}",
+            if why.is_empty() { String::new() } else { format!(": {why}") }
+        ))
+    }
 }
 
 /// How long a Reports reply waits for acpmux to take it.

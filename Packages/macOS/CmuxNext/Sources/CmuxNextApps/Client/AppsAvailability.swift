@@ -63,3 +63,14 @@ nonisolated extension AppsUnavailableReason {
         return capabilities.contains(daemonCapability) ? nil : .noAppHost
     }
 }
+
+/// Why the Mac app could not open or run an app (`AppsService.openApp`, the App Store handlers).
+public nonisolated enum AppsServiceError: Error {
+    case unknownApp, noPage, noWindow, unknownCommand
+    /// A remote pane whose instance is not running yet (install it with a deploy target).
+    case notDeployed
+    /// Installed but turned off.
+    case disabled
+    /// The supervisor cannot be reached (an older daemon, not connected yet, or turned off).
+    case unavailable(AppsUnavailableReason)
+}

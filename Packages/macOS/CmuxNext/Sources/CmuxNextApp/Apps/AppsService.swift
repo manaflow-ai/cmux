@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextApps
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemonService
 import CmuxNextIcons
@@ -71,8 +72,15 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
+        let site = BrowserSiteControl(stores: services.browserStores, pages: { [weak self] in self?.services.cache.browsers.mapValues(\.tab) ?? [:] },
+                                      selected: { [weak self] in self?.services.windows.active?.focusedPane.flatMap { pane in pane.stripModel.selectedID.flatMap(pane.tab)?.id } })
+        // The last snapshot, so a pair the next one lacks is removed from open tabs too.
+        var styles = SiteStyleSnapshot()
+        transport.provider.onSiteStyles = { site.applyStyles(styles.installers(for: $0)) }
+        let siteOps = SiteAppOps(host: SiteAppHost(tabOrigin: { site.tabOrigin($0) }, origin: { BrowserSiteControl.webOrigin($0) },
+                                                   javaScriptAllowed: { site.javaScriptAllowed($0, tab: $1) }, setJavaScript: { await site.setJavaScript($2, origin: $0, tab: $1) }))
         transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(),
-                                                           BrowserPageAppOps(control: actionControl)]))
+                                                           BrowserPageAppOps(control: actionControl), siteOps]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
@@ -90,12 +98,12 @@ final class AppsService {
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
-        pendingRoute = Self.storeRoute(appID: appID, tab: tab)
+        pendingRoute = AppStoreTab.route(appID: appID, tab: tab)
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
         if let key {
             // An open page moves to the route; a page this show made already opened on it.
-            webStorePages[key]?.open(route: Self.storeRoute(appID: appID, tab: tab))
+            webStorePages[key]?.open(route: AppStoreTab.route(appID: appID, tab: tab))
             pendingRoute = nil
             waitingStore = nil
             return
@@ -192,7 +200,7 @@ extension AppsService: InternalPageProvider {
     /// The React App Store page; it opens on the route of the show that made it. Missing page
     /// resources (a build without the web bundles) show an empty view, never a second store.
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let page = PageFactory(services: services).appsWebPage(route: pendingRoute ?? Self.storeRoute(appID: nil, tab: nil)) else {
+        guard let page = PageFactory(services: services).appsWebPage(route: pendingRoute ?? AppStoreTab.route(appID: nil, tab: nil)) else {
             return NSView()
         }
         webStorePages[key] = page
@@ -205,24 +213,4 @@ extension AppsService: InternalPageProvider {
 
     /// The page keeps its own history (its fragment).
     func history(for key: String) -> (any PageHistory)? { nil }
-
-    /// The page's fragment: a listing, else `tab` (Discover by default).
-    nonisolated static func storeRoute(appID: String?, tab: AppStoreTab?) -> String {
-        if let appID, var query = URLComponents(string: "x:") {
-            query.queryItems = [URLQueryItem(name: "app", value: appID)]
-            return "#/discover?" + (query.percentEncodedQuery ?? "")
-        }
-        return "#/" + (tab ?? .discover).rawValue
-    }
 }
-
-enum AppsServiceError: Error {
-    case unknownApp, noPage, noWindow, unknownCommand
-    /// A remote pane whose instance is not running yet (install it with a deploy target).
-    case notDeployed
-    /// Installed but turned off.
-    case disabled
-    /// The supervisor cannot be reached (an older daemon, not connected yet, or turned off).
-    case unavailable(AppsUnavailableReason)
-}
-

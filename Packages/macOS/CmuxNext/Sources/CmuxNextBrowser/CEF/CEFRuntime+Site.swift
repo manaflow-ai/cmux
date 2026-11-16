@@ -29,6 +29,51 @@ extension CEFRuntime {
         shim?.setContentSetting(browser, url, kind.rawValue, value.rawValue) == 1
     }
 
+    /// A profile's Page Info decisions into the request context of `contextKey`, with no browser
+    /// of it needed: a context gets them before its first page loads (``pushSiteDecisions(for:)``),
+    /// so a decision taken while none of the profile's Chromium pages was open holds there too.
+    func pushSiteDecisions(_ decisions: [String: [SitePermissionKind: SitePermissionSetting]], contextKey: String) {
+        guard let shim else { return }
+        for (origin, site) in decisions {
+            for (kind, setting) in site {
+                guard let value = CEFContentSetting.forDecision(kind, setting) else { continue }
+                _ = contextKey.withCString { key in shim.setContextContentSetting(key, origin, kind.rawValue, value.rawValue) }
+            }
+        }
+    }
+
+    /// The profile store's decisions into the context of `key` (when the store has loaded; else once it has).
+    func pushSiteDecisions(for key: CEFPaneKey) {
+        let store = stores.siteSettings.permissions(for: key.profile)
+        let contextKey = contextKey(for: key)
+        guard store.isLoaded else {
+            // task-owner: one context's decisions once the profile's store has read its file
+            Task { [weak self, weak store] in
+                await store?.whenLoaded()
+                guard let self, let store else { return }
+                self.pushSiteDecisions(store.decisions, contextKey: contextKey)
+            }
+            return
+        }
+        pushSiteDecisions(store.decisions, contextKey: contextKey)
+    }
+
+    /// One decision of `profile` into every context of it that a window was made in (each machine
+    /// and incognito store), open page or not. A context with no window yet gets it when its first
+    /// window is made (``pushSiteDecisions(for:)`` in `CEFPaneHost`).
+    func pushSiteDecision(_ kind: SitePermissionKind, _ setting: SitePermissionSetting, origin: String, profile: BrowserProfileID) {
+        guard state == .ready else { return }
+        let made = hosts.filter { $0.key.profile == profile && ($0.value.isLive || $0.value.isCreatingWindow) }
+        let keys = Set(made.keys.map(contextKey(for:)))
+        for key in keys { pushSiteDecisions([origin: [kind: setting]], contextKey: key) }
+    }
+
+    /// A new site style snapshot (``BrowserSharedStores/documentStartScript``): every live browser
+    /// registers it for its next documents (`CEFSiteStyleBridge`).
+    func syncSiteStyles() {
+        for tab in tabsByBrowser.values { tab.agentRelay.syncSiteStyles() }
+    }
+
     /// Answers a waiting PERMISSION_PROMPT (`CEFPermissionPrompts`).
     func permissionContinue(_ token: Int32, _ outcome: SitePermissionRequest.Outcome) {
         _ = shim?.permissionContinue(token, outcome == .grant ? 1 : outcome == .deny ? 2 : 0)

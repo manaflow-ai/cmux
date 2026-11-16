@@ -324,11 +324,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if !args.tags.is_empty() {
                 meta["tags"] = orchestrate::parse_tags(&args.tags)?;
             }
-            // A detached launch only queues its prompt, with --json too. Known
+            // A detached launch only queues its prompt, with --json too, except an
+            // ephemeral one (`exec`): it is gone when this connection ends, so it
+            // waits for its reply whether the prompt came as words or a file. Known
             // before the create (a prompt file or words make the first prompt).
             let one_shot = launch.first_prompt(&args, &Value::Null).is_some()
                 && (args.quiet || json_out || args.ephemeral)
-                && !(args.detach && launch.launches());
+                && !(args.detach && launch.launches() && !args.ephemeral);
             // Checked before the session exists, so a bad value leaves none behind.
             let on_permission = OnPermission::parse(&args.on_permission)?;
             // A route check an agent runs from its shell ("Reply with only: OK",

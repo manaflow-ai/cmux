@@ -21,19 +21,23 @@ public struct AppsRunRequest: DaemonRequest {
     public var args: JSONValue
     public var idempotencyKey: String?
     public var origin: Origin
+    /// A palette, keybinding or click invocation's own token (origin `user` only): the daemon
+    /// answers it with one gesture for the run, which the command gets as `ctx.gesture` (`runs.rs`).
+    public var gesture: String?
 
-    public init(app: String, op: String, args: JSONValue, idempotencyKey: String?, origin: Origin) {
+    public init(app: String, op: String, args: JSONValue, idempotencyKey: String?, origin: Origin, gesture: String? = nil) {
         self.app = app
         self.op = op
         self.args = args
         self.idempotencyKey = idempotencyKey
         self.origin = origin
+        self.gesture = origin == .user ? gesture : nil
     }
 
     /// `args` is the app's own JSON: sent verbatim (`verbatimFields`), not
     /// through the snake case key strategy.
     enum CodingKeys: String, CodingKey {
-        case app, op, idempotencyKey, origin
+        case app, op, idempotencyKey, origin, gesture
     }
 }
 

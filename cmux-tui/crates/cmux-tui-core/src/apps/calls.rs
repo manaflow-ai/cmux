@@ -10,10 +10,12 @@ use cmux_app_host::ToHost;
 use serde_json::{Value, json};
 
 use super::actions::{self, ActionDecision};
+use super::agent_ask;
 use super::egress;
 use super::grants::{Decision, GestureCheck, Grant, OpClass, ScopeTable, needs_gesture};
 use super::host::HostProcess;
 use super::mirror::Origin;
+use super::page_ops;
 use super::provider;
 use super::supervisor::{HostKey, Inner, Out, Supervisor};
 
@@ -120,8 +122,11 @@ impl Supervisor {
         });
         // Ops the daemon does not own go to their provider (the Mac app), or
         // fail at once when none is connected (APP-R1).
-        let supervisor_op =
-            op.starts_with("app.storage.") || op == "net.fetch" || self.github_read(&op, &params);
+        let supervisor_op = op.starts_with("app.storage.")
+            || op == "net.fetch"
+            || op == "agent.ask"
+            || page_ops::daemon_owned(&op)
+            || self.github_read(&op, &params);
         if !supervisor_op && !self.router.owns(&op) {
             if op == "integration.request" {
                 // The provider sees the method the grant check decided on.
@@ -210,6 +215,14 @@ impl Supervisor {
                 self.page_keys_changed(&app);
             }
             return answer;
+        }
+        if page_ops::daemon_owned(&op) {
+            return self.page_style_call(key, generation, &app, &op, &params);
+        }
+        if op == "agent.ask" {
+            return agent_ask::ask(self.asker(), &self.asks, &app, &params)
+                .map(|value| json!({ "value": value }))
+                .map_err(|e| e.body());
         }
         drop(inner);
         if op == "net.fetch" {

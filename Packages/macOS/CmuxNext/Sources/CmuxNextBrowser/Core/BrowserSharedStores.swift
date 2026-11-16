@@ -24,6 +24,16 @@ public final class BrowserSharedStores {
     public let siteZoom: SiteZoomLevels
     /// HTTP sign-ins the user chose to remember (the WebKit engine's).
     package let httpCredentials: any BrowserHTTPCredentialStoring
+    /// Scripts the App runs in the isolated world of each document that commits for an origin
+    /// (`scheme://host[:port]`): extension site styles (`apps-site-styles`). WebKit runs them at
+    /// every commit; Chromium only where ``documentStartScript`` is not registered yet (or on its
+    /// renderer paths). Empty by default.
+    public var documentCommitScripts: @MainActor (_ origin: String) -> [String] = { _ in [] }
+    /// The same installers as one script that runs at the start of every top-level document and
+    /// picks its own origin's (``BrowserSiteControl/documentStartScript(_:)``); "" for none. Chromium
+    /// registers it per browser (`CEFSiteStyleBridge`), so a cached visit has the styles before its
+    /// first paint; WebKit keeps the commit-time path.
+    public var documentStartScript = ""
 
     /// Stores over `offTheRecord`.
     ///

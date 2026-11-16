@@ -9,6 +9,8 @@ nonisolated enum PageInfoStrings {
     static var dangerous: String { String(localized: "pageInfo.chip.dangerous", defaultValue: "Dangerous", table: "PageInfo", bundle: .module) }
     static var file: String { String(localized: "pageInfo.chip.file", defaultValue: "File", table: "PageInfo", bundle: .module) }
     static var product: String { String(localized: "pageInfo.chip.product", defaultValue: "cmux", table: "PageInfo", bundle: .module) }
+    static var javaScriptOff: String { String(localized: "pageInfo.chip.javaScriptOff", defaultValue: "JavaScript off", table: "PageInfo", bundle: .module) }
+    static var notSecureJavaScriptOff: String { String(localized: "pageInfo.chip.notSecureJavaScriptOff", defaultValue: "Not secure · JavaScript off", table: "PageInfo", bundle: .module) }
 
     // Connection
     static var secureSummary: String { String(localized: "pageInfo.security.secure", defaultValue: "Connection is secure", table: "PageInfo", bundle: .module) }

@@ -165,6 +165,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     // Page Info site state (ABI 3).
     let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let setContentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
+    /// `setContentSetting` on a request context by its key (no browser needed): key, url, type, value.
+    let setContextContentSetting: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
     let visitCookies: @convention(c) (Int32, Int32) -> Int32
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// A tab's favicon through its own request context (``CEFRuntime/favicon(_:url:maxPixels:)``).
@@ -428,6 +430,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         permissionContinue = try r("cmux_shim_permission_continue")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
+        setContextContentSetting = try r("cmux_shim_set_context_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")
         deleteCookies = try r("cmux_shim_delete_cookies")
         downloadFavicon = try r("cmux_shim_download_favicon")

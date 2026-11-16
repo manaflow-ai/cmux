@@ -52,6 +52,8 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         case .file: PageInfoStrings.file
         case .product: PageInfoStrings.product
         case .keyword(let name): name
+        case .javaScriptOff: PageInfoStrings.javaScriptOff
+        case .notSecureJavaScriptOff: PageInfoStrings.notSecureJavaScriptOff
         case nil: nil
         }
     }

@@ -119,8 +119,11 @@ export function chatWidget(render: (context: ChatWidgetContext) => View): (conte
   return render
 }
 
+/** What a command run gets besides its arguments: `gesture` is the palette pick, tap or shortcut that started it (absent from an agent or a script), and `cmux` carries it until the command settles. */
+export type CommandContext = CmuxCommandContext
+
 /** A command (a catalog op the extension declares in catalog.json): runs from the palette, the CLI or another extension. */
-export function command<A, R>(run: (args: A, ctx: { app: string; gesture?: string; cmux: CmuxGlobal }) => R | Promise<R>) {
+export function command<A, R>(run: (args: A, ctx: CommandContext) => R | Promise<R>) {
   return run
 }
 
@@ -200,6 +203,71 @@ export function setPageKeys(bindings: Record<string, string[]>, c: CmuxGlobal = 
 /** Whether `key` is a key cmux can route from a page: `a` to `z` or `/`, alone or with `shift+`. */
 export function isPageKey(key: string): boolean {
   return /^(shift\+)?[a-z/]$/.test(key)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Site settings and the person's agent. Thin names for `cmux.call`: each needs the scope it names
+// in the manifest, and an op marked "gesture" needs `options.gesture` (a command's `ctx.gesture`,
+// or `cmux.gesture()` in a tap handler before its first await).
+
+/** The rules an extension keeps for one site: hidden elements, and fixed or sticky ones made to scroll with the page. */
+export interface SiteStyle {
+  origin: string
+  hide: string[]
+  unstick: string[]
+  /** The page may scroll again (a hidden dialog often leaves it locked). Only with a rule. */
+  scroll?: boolean
+}
+
+/** Whether a site may run JavaScript, from the same setting as Page Info's JavaScript row. */
+export interface SiteJavaScript {
+  origin: string
+  allowed: boolean
+}
+
+/** What `agent.ask` answers: the agent's reply and how long it took. */
+export interface AgentAnswer {
+  text: string
+  ms: number
+}
+
+export const site = {
+  style: {
+    /** This extension's rules for a site (`https://host[:port]`), or null when it keeps none. Scope `site_styles:write`. */
+    get(origin: string, options?: CmuxCallOptions): Promise<SiteStyle | null> {
+      return cmux.call<SiteStyle | null>("browser.site.style.get", { origin }, options)
+    },
+    /**
+     * Replaces this extension's rules for a site. cmux applies them to its open tabs now and to
+     * every later visit before the page draws, with no extension running. `scroll` lets a page
+     * locked by a hidden dialog scroll again. Both lists empty clears
+     * the site. Scope `site_styles:write`.
+     */
+    set(style: { origin: string; hide?: string[]; unstick?: string[]; scroll?: boolean }, options?: CmuxCallOptions): Promise<{ origin: string; rules: number }> {
+      return cmux.call<{ origin: string; rules: number }>("browser.site.style.set", style, options)
+    }
+  },
+  javascript: {
+    /** Whether a site (default: the focused tab's) may run JavaScript. Scope `site_settings:read`. */
+    get(params: { origin?: string; tab?: string } = {}, options?: CmuxCallOptions): Promise<SiteJavaScript> {
+      return cmux.call<SiteJavaScript>("browser.site.javascript.get", params, options)
+    },
+    /** Lets a site run JavaScript or blocks it, then reloads its open tabs. Scope `site_settings:write`; needs a gesture. */
+    set(params: { origin?: string; tab?: string; allowed: boolean }, options?: CmuxCallOptions): Promise<SiteJavaScript> {
+      return cmux.call<SiteJavaScript>("browser.site.javascript.set", params, options)
+    }
+  }
+}
+
+export const agent = {
+  /**
+   * One question to the person's own default agent, with every tool denied: text in, text out.
+   * Scope `agent:execute`; needs a gesture, since it spends their quota. One ask at a time per
+   * extension; the prompt is at most 256 KiB and the reply is cut at 64 KiB.
+   */
+  ask(params: { prompt: string; model?: string }, options?: CmuxCallOptions): Promise<AgentAnswer> {
+    return cmux.call<AgentAnswer>("agent.ask", params, options)
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

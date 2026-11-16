@@ -17,6 +17,10 @@
       "scope": "agent_cli:read",
       "class": "read"
     },
+    "agent.ask": {
+      "scope": "agent:execute",
+      "class": "mutation"
+    },
     "agent.list": {
       "scope": "agent:read",
       "class": "read"
@@ -199,6 +203,22 @@
     },
     "browser.reload": {
       "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.site.javascript.get": {
+      "scope": "site_settings:read",
+      "class": "read"
+    },
+    "browser.site.javascript.set": {
+      "scope": "site_settings:write",
+      "class": "mutation"
+    },
+    "browser.site.style.get": {
+      "scope": "site_styles:write",
+      "class": "read"
+    },
+    "browser.site.style.set": {
+      "scope": "site_styles:write",
       "class": "mutation"
     },
     "browser.tab.emulate": {

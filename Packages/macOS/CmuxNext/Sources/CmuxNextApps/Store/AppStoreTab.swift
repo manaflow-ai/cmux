@@ -1,3 +1,5 @@
+import Foundation
+
 /// A tab of the App Store page (`appStore.show --tab`): the React page's `#/<tab>` route.
 public nonisolated enum AppStoreTab: String, Sendable, Hashable, CaseIterable {
     /// The listings.
@@ -13,4 +15,15 @@ public nonisolated enum AppStoreTab: String, Sendable, Hashable, CaseIterable {
 extension AppStoreTab {
     /// The App Store's title (its tab and the palette entry).
     public static var storeTitle: String { AppsStrings.windowTitle }
+}
+
+extension AppStoreTab {
+    /// The App Store page's fragment: a listing, else `tab` (Discover by default).
+    public static func route(appID: String?, tab: AppStoreTab?) -> String {
+        if let appID, var query = URLComponents(string: "x:") {
+            query.queryItems = [URLQueryItem(name: "app", value: appID)]
+            return "#/discover?" + (query.percentEncodedQuery ?? "")
+        }
+        return "#/" + (tab ?? .discover).rawValue
+    }
 }

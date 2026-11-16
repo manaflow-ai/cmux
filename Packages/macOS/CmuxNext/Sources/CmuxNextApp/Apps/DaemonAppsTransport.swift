@@ -141,7 +141,8 @@ final class DaemonAppsTransport: AppsTransport {
         let userAllowed = await daemon.connection?.userOriginAllowed == true
         let wire = origin.wire(userOriginAllowed: userAllowed)
         Self.logger.info("apps-run \(app, privacy: .public) \(op, privacy: .public) origin=\(wire.rawValue, privacy: .public)")
-        let request = AppsRunRequest(app: app, op: op, args: args.daemonValue, idempotencyKey: idempotencyKey, origin: wire)
+        // A user run carries a fresh token: one invocation, one gesture.
+        let request = AppsRunRequest(app: app, op: op, args: args.daemonValue, idempotencyKey: idempotencyKey, origin: wire, gesture: wire == .user ? UUID().uuidString : nil)
         return AppJSON(try await send(request, timeout: Self.runTimeout).value)
     }
 

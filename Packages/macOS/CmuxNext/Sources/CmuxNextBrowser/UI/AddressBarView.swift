@@ -338,6 +338,11 @@ public final class AddressBarView: NSView {
     /// this tab (`chrome://settings` opened Settings instead).
     public func showPageURL() { controller.send(.pageURLChanged(reportedURL)) }
 
+    /// The shown site's JavaScript setting is block: the chip says "JavaScript off".
+    public var javaScriptBlocked = false {
+        didSet { if javaScriptBlocked != oldValue { updateChrome() } }
+    }
+
     /// Shows the page's URL. While editing, typed text never changes.
     public func update(url: URL?, security: BrowserSecurityState) {
         if url != reportedURL {
@@ -593,7 +598,7 @@ public final class AddressBarView: NSView {
         backdrop.isHidden = !state.isPopupOpen
         if state.isPopupOpen { backdrop.opensUpward = toolbarOpensUpward }
         let site = PageInfoSite(url: state.pageURL, security: security)
-        chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
+        chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip, javaScriptBlocked: javaScriptBlocked)
         updateStarVisibility()
     }
 

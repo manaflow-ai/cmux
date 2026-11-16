@@ -3,6 +3,7 @@
   "ops": [
     "action.list",
     "action.run",
+    "agent.ask",
     "agent.list",
     "agent.report",
     "agent_chat.list",
@@ -51,6 +52,10 @@
     "browser.profile.list",
     "browser.profile.open",
     "browser.reload",
+    "browser.site.javascript.get",
+    "browser.site.javascript.set",
+    "browser.site.style.get",
+    "browser.site.style.set",
     "browser.tab.emulate",
     "browser.tab.emulate.clear",
     "browser.tab.set_profile",

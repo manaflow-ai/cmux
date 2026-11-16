@@ -329,3 +329,52 @@ fn only_the_cmux_app_and_never_an_agent_may_provide() {
         "provider.unavailable"
     );
 }
+
+#[test]
+fn the_page_provider_hears_installed_apps_site_rules_and_their_removal() {
+    let f = fixture();
+    f.install("cmux/demo");
+    // As if granted at install (cmux/demo does not ask for it); rules apply only while it is.
+    f.supervisor
+        .inner
+        .lock()
+        .unwrap()
+        .mirror
+        .apps
+        .get_mut("cmux/demo")
+        .unwrap()
+        .grants
+        .insert("site_styles:write".into());
+    let rules = super::super::page_ops::Rules {
+        hide: vec![".ad".into()],
+        ..super::super::page_ops::Rules::default()
+    };
+    f.supervisor
+        .inner
+        .lock()
+        .unwrap()
+        .page_styles
+        .set(None, "cmux/demo", "https://a.test".into(), rules)
+        .unwrap();
+    let rx = provider(&f, &["browser.site"]);
+    let styles = |rx: &Receiver<Value>| loop {
+        let event = rx.recv_timeout(Duration::from_secs(10)).expect("apps-site-styles");
+        if event["event"] == "apps-site-styles" {
+            return event["styles"].clone();
+        }
+    };
+    let first = styles(&rx);
+    assert_eq!(
+        (first[0]["app"].clone(), first[0]["css"].clone()),
+        (json!("cmux/demo"), json!(".ad{display:none!important}\n"))
+    );
+    // Turned off: its rules stop applying, and the provider removes them from open tabs.
+    f.set("off-demo", "cmux/demo", Origin::User, |o| o.enabled = Some(false)).unwrap();
+    let after = styles(&rx);
+    assert_eq!(
+        (after[0]["origin"].clone(), after[0]["css"].clone()),
+        (json!("https://a.test"), json!(""))
+    );
+    // Turning it off keeps the saved rules; only uninstall clears them (Effect::ClearStorage).
+    assert!(!f.supervisor.inner.lock().unwrap().page_styles.sites.is_empty());
+}
