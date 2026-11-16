@@ -193,35 +193,25 @@ final class CEFRuntime {
     /// Tests inject a spy (which thread maps, and when).
     typealias LibraryLoader = @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError>
     private let libraryLoader: LibraryLoader
-    /// A load begun before any page asked (``beginEarlyLoad(_:)``); the first start or preload of its layout takes it.
-    nonisolated let earlyLoad: CEFEarlyLoad
+    /// A load begun from any thread before any page asked (`CEFEngine.beginEarlyLoad`, handed over by the engine with
+    /// its stores, `adopt(earlyLoad:)`); the first start or preload of its layout takes it instead of loading again.
+    private(set) var earlyLoad: CEFEarlyLoad?
 
-    /// The shared runtime's early load (``beginEarlyLoad(_:)``), reachable from any thread.
-    private nonisolated static let sharedEarlyLoad = CEFEarlyLoad(loader: { CEFRuntime.loadLibrary($0) })
+    private init() { libraryLoader = { CEFRuntime.loadLibrary($0) } }
 
-    private init() {
-        libraryLoader = { CEFRuntime.loadLibrary($0) }
-        earlyLoad = Self.sharedEarlyLoad
-    }
-
-    /// An idle runtime whose framework load is `libraryLoader`, for its own loads and its early load (tests).
+    /// An idle runtime whose framework load is `libraryLoader` (tests).
     init(libraryLoader: @escaping LibraryLoader) {
         self.libraryLoader = libraryLoader
-        earlyLoad = CEFEarlyLoad(loader: libraryLoader)
     }
 
-    /// Starts mapping the shim and the framework of `layout` for the process's runtime now, from any thread, on a
-    /// background task; `CefInitialize` still waits for a page (or the warm start) on the main thread. Idempotent: a
-    /// second call returns the first call's task. The runtime's first `start` or `preload` of the same layout takes
-    /// this task and loads nothing again; for another layout it loads its own.
-    @discardableResult
-    nonisolated static func beginEarlyLoad(_ layout: CEFRuntimeLayout) -> CEFEarlyLoad.LoadTask {
-        sharedEarlyLoad.begin(layout)
+    /// Takes the engine's early load (`CEFEngine.beginEarlyLoad`).
+    func adopt(earlyLoad: CEFEarlyLoad) {
+        self.earlyLoad = earlyLoad
     }
 
     /// The load to await for `candidate`: the early load of that layout when one began, else a new load at `priority`.
     private func newLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> CEFEarlyLoad.LoadTask {
-        if let early = earlyLoad.task(for: candidate) { return early }
+        if let early = earlyLoad?.task(for: candidate) { return early }
         return Task.detached(priority: priority) { [libraryLoader] in libraryLoader(candidate) }
     }
 
@@ -246,7 +236,6 @@ final class CEFRuntime {
         self.shim = shim
         self.storage = storage
         libraryLoader = { _ in .failure(.notEmbedded) }
-        earlyLoad = CEFEarlyLoad(loader: { _ in .failure(.notEmbedded) })
         state = .ready
     }
 

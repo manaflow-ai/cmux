@@ -51,10 +51,14 @@ import Testing
     @Test func anEarlyLoadIsAdoptedByStartWithNoSecondLoad() async {
         let log = LoaderLog()
         let runtime = CEFRuntime(libraryLoader: log.loader())
-        let early = runtime.earlyLoad.begin(Self.layout)
-        #expect(runtime.earlyLoad.begin(Self.layout) == early, "a second begin returns the same task")
+        let earlyLoad = CEFEarlyLoad(loader: log.loader())
+        // Begun off the main actor, as the restored chat's launch images begin it.
+        let layout = Self.layout
+        let early = await Task.detached { earlyLoad.begin(layout) }.value
+        #expect(earlyLoad.begin(Self.layout) == early, "a second begin returns the same task")
         _ = await early.value
         #expect(log.onMain == [false])
+        runtime.adopt(earlyLoad: earlyLoad)
         await #expect(throws: BrowserEngineError.self) { try await runtime.start(layout: Self.layout) }
         #expect(log.onMain == [false], "start took the early load")
     }
@@ -62,9 +66,11 @@ import Testing
     @Test func anEarlyLoadOfAnotherLayoutIsNotAdopted() async {
         let log = LoaderLog()
         let runtime = CEFRuntime(libraryLoader: log.loader())
+        let earlyLoad = CEFEarlyLoad(loader: log.loader())
+        runtime.adopt(earlyLoad: earlyLoad)
         var other = Self.layout
         other.frameworksDirectory = URL(filePath: "/elsewhere/Frameworks", directoryHint: .isDirectory)
-        _ = await runtime.earlyLoad.begin(other).value
+        _ = await earlyLoad.begin(other).value
         await #expect(throws: BrowserEngineError.self) { try await runtime.start(layout: Self.layout) }
         #expect(log.onMain == [false, false], "start loaded its own layout")
     }

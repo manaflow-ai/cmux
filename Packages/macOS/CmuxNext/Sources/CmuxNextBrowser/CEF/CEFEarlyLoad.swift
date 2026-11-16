@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// A framework load begun from any thread before a page asked for Chromium (``CEFRuntime/beginEarlyLoad(_:)``):
+/// A framework load begun from any thread before a page asked for Chromium (`CEFEngine.beginEarlyLoad`):
 /// the shim and the framework are mapped on a background task, and the runtime's first
 /// ``CEFRuntime/start(layout:environment:trigger:)`` or ``CEFRuntime/preload(layout:)`` for the same layout takes that
 /// task instead of loading again. Only the load moves earlier; `CefInitialize` still runs on the main thread when a page
