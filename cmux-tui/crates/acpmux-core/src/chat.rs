@@ -22,10 +22,15 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+pub mod background_cause;
+pub mod meta;
 pub mod queue;
 pub mod record;
 pub mod source;
 pub mod stream;
+pub mod stream_state;
+pub mod todo;
+pub use meta::merge_mux_meta;
 
 use crate::conn::Reply;
 use crate::wire::{Blob, Page};
@@ -1783,3 +1788,5 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
 
 #[cfg(test)]
 mod tests;
+
+pub use stream_state::StreamState;

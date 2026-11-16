@@ -763,37 +763,7 @@ pub struct PromptOptions {
 /// The outcome of one client prompt id, shared with a resend of it.
 pub(super) type PromptOutcome = Arc<tokio::sync::watch::Sender<Option<Result<Value, RpcError>>>>;
 
-/// What the agent's stream says about the current assistant message, used
-/// to record `message_superseded` and to attach streamed error text to
-/// `turn_result`.
-#[derive(Debug, Default)]
-pub(super) struct StreamState {
-    /// `messageId` of the assistant message streaming now.
-    pub(super) open_message: Option<String>,
-    /// Set by a harness retry signal while `open_message` was streaming:
-    /// (abandoned messageId, the retry notice text).
-    pub(super) retry_from: Option<(String, String)>,
-    /// A terminal error the harness reported in-band during this turn.
-    pub(super) harness_error: Option<Value>,
-    /// Text and sequences of the trailing `agent_message_chunk` records of
-    /// the current message; compared with the error text when a turn fails.
-    pub(super) trailing_text: String,
-    pub(super) trailing_seqs: Vec<u64>,
-    pub(super) trailing_overflow: bool,
-    /// The reply segment streaming now (`stream.rs` `reply_segment`): the id stamped on each of
-    /// its `agent_message_chunk` records, until a new message or a prompt (a steer) ends it.
-    pub(super) reply_segment: Option<String>,
-    /// Reply segments started in this turn, which numbers the next one.
-    pub(super) reply_segments: u32,
-    /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
-    pub(super) segment_turn: Option<String>,
-    pub(super) segment_message: Option<String>,
-    /// The turn `plan_shown` is of, and whether that turn has drawn a checklist in the pane (a
-    /// plan with entries, not cleared since): its first plan or TodoWrite call cuts a reply's row
-    /// there, a later one does not (`stream.rs` `cuts_reply`). A prompt starts a new checklist.
-    pub(super) plan_turn: Option<String>,
-    pub(super) plan_shown: bool,
-}
+pub(super) use acpmux_core::chat::StreamState;
 
 /// An inline `/btw` side session's transcript owner: its family and the parent chat's env.
 pub(super) type InlineBtwOwner = (String, std::collections::BTreeMap<String, String>);
@@ -3222,24 +3192,8 @@ impl Hub {
     }
 }
 
-/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
-/// agent sent.
-pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
-    let Some(obj) = v.as_object_mut() else { return };
-    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
-    if !meta.is_object() {
-        *meta = json!({});
-    }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
-    if !mux.is_object() {
-        *mux = json!({});
-    }
-    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
-        for (k, v) in src {
-            dst.insert(k.clone(), v.clone());
-        }
-    }
-}
+/// Shared metadata merge used by v1 and the chat actor.
+pub(crate) use acpmux_core::chat::merge_mux_meta;
 
 /// Ends the startup log load (`Hub::load_logs`) however it stops. A load that panicked
 /// leaves the daemon on the session list and whatever the load finished before the panic
