@@ -253,7 +253,27 @@ pub struct OpenH264Options {
     pub max_qp: Option<u8>,
     pub adaptive_quant: bool,
     pub background_detection: bool,
+    /// How screen content is coded (camera content always codes in camera usage).
+    pub usage: Usage,
+    /// Long-term references (0 off, at most 4). In screen usage a scene change then
+    /// codes a P-frame marked long-term instead of an IDR until all are taken.
+    pub ltr: u8,
 }
+
+/// The usage OpenH264 codes screen content in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Usage {
+    /// Screen usage throughout.
+    Screen,
+    /// Camera usage throughout.
+    Camera,
+    /// Screen usage, camera usage while most of the picture moves (see [`MOTION_CHANGE`]).
+    Switch,
+}
+
+/// The shipped usage and long-term references for screen content.
+pub const SHIPPED_USAGE: Usage = Usage::Switch;
+pub const SHIPPED_LTR: u8 = 0;
 
 impl Default for OpenH264Options {
     fn default() -> Self {
@@ -265,6 +285,8 @@ impl Default for OpenH264Options {
             max_qp: None,
             adaptive_quant: false,
             background_detection: false,
+            usage: SHIPPED_USAGE,
+            ltr: SHIPPED_LTR,
         }
     }
 }
@@ -285,6 +307,15 @@ impl OpenH264Options {
                 "maxqp" => o.max_qp = Some(num()?.min(51) as u8),
                 "aq" => o.adaptive_quant = num()? != 0,
                 "bgd" => o.background_detection = num()? != 0,
+                "usage" => {
+                    o.usage = match v {
+                        "screen" => Usage::Screen,
+                        "camera" => Usage::Camera,
+                        "switch" => Usage::Switch,
+                        _ => return Err(format!("openh264 options usage: {v}").into()),
+                    }
+                }
+                "ltr" => o.ltr = num()?.min(4) as u8,
                 _ => return Err(format!("openh264 options: unknown key {k}").into()),
             }
         }
@@ -313,6 +344,12 @@ impl OpenH264Options {
         if self.background_detection {
             s.push("bgd=on".into());
         }
+        if self.usage != d.usage {
+            s.push(format!("usage={:?}", self.usage).to_lowercase());
+        }
+        if self.ltr != d.ltr {
+            s.push(format!("ltr={}", self.ltr));
+        }
         s.join(" ")
     }
 }
@@ -334,10 +371,10 @@ impl OpenH264 {
             name: String::new(),
             cfg: *cfg,
             opts: opts.clone(),
-            screen: cfg.screen_content,
+            screen: cfg.screen_content && opts.usage != Usage::Camera,
             motion: MotionGuard::default(),
         };
-        this.rebuild(cfg.screen_content)?;
+        this.rebuild(this.screen)?;
         Ok(this)
     }
 
@@ -375,10 +412,10 @@ impl OpenH264 {
             v.uMajor,
             v.uMinor,
             v.uRevision,
-            match (self.cfg.screen_content, screen) {
-                (true, true) => "screen-realtime",
-                (true, false) => "screen-realtime(camera-for-motion)",
-                (false, _) => "camera-realtime",
+            match (self.cfg.screen_content, screen, self.opts.usage) {
+                (true, true, _) => "screen-realtime",
+                (true, false, Usage::Switch) => "screen-realtime(camera-for-motion)",
+                _ => "camera-realtime",
             },
             if self.opts.frame_skip { "on" } else { "off" },
             self.opts.describe()
@@ -405,7 +442,7 @@ impl OpenH264 {
 
     /// Moves between screen and camera usage before `pic` is coded (see [`MOTION_CHANGE`]).
     fn pick_usage(&mut self, pic: &I420) {
-        if !self.cfg.screen_content {
+        if !self.cfg.screen_content || self.opts.usage != Usage::Switch {
             return;
         }
         let changed = self.motion.changed(pic);
@@ -460,7 +497,11 @@ unsafe fn init(
         _ => HIGH_COMPLEXITY,
     };
     p.uiIntraPeriod = 0;
-    p.iNumRefFrame = 1;
+    // Screen usage keeps long-term references only on a link it calls lossless; ours
+    // recovers a lost reference with a keyframe the viewer asks for.
+    p.iNumRefFrame = 1 + c_int::from(opts.ltr);
+    p.bIsLosslessLink = opts.ltr > 0;
+    p.iLTRRefNum = c_int::from(opts.ltr);
     p.eSpsPpsIdStrategy = CONSTANT_ID;
     p.bPrefixNalAddingCtrl = false;
     p.bEnableSSEI = false;
@@ -468,7 +509,7 @@ unsafe fn init(
     // Frame skipping lets the rate controller hold the target (measured: without it the
     // target overshot 6x); a skipped frame sends nothing and the next damage retries.
     p.bEnableFrameSkip = opts.frame_skip;
-    p.bEnableLongTermReference = false;
+    p.bEnableLongTermReference = opts.ltr > 0;
     p.iMultipleThreadIdc = threads;
     p.bUseLoadBalancing = false;
     p.iLoopFilterDisableIdc = 0;
