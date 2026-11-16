@@ -33,16 +33,18 @@ A Linux desktop joins the person's devices and shows up on the Mac's Screen Shar
 like a shared Mac. On the desktop, as the user who is signed in to its graphical session:
 
 ```
-cmux-rd linux-host enable --stack-token-file ~/.config/cmux/stack-token [--allow-control]
+cmux-rd linux-host enable [--allow-control]
 install -Dm644 systemd/cmux-screen-host.service ~/.config/systemd/user/cmux-screen-host.service
 systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host.service
 ```
 
-- `enable` signs in once with a cmux access token (a file only this user can read, mode 0600,
-  or `-` for stdin; it is not stored), creates this desktop's device keys in
+- `enable` signs in once: it prints a sign-in link (and opens it when the desktop has a
+  display), which you can open in any browser, on this machine or another; once you confirm,
+  it continues. `--stack-token-file PATH` (a file only this user can read, mode 0600, or `-`
+  for stdin) passes a cmux access token instead. No token is stored. It creates this desktop's device keys in
   `~/.config/cmux/screen-host/` (0700; files 0600), registers it as a `linux` device, anchors
   it and turns sharing on. The anchor lets the host renew its own session with its device key
-  for 30 days; after that, `share on --stack-token-file ...` again.
+  for 30 days; after that, `share on` again (it signs in the same way).
 - Consent is the Mac's: a viewer the person allowed on the hub (View or Full Control) is
   served; anyone else's request waits for the person. `cmux-rd linux-host requests` lists
   them (also logged: `journalctl --user -u cmux-screen-host`), `approve SESSION [--always]
