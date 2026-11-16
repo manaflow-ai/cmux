@@ -18,7 +18,7 @@ on:
         options: [cmux-platform-production, cmux-platform-staging]
         default: cmux-platform-production
       id:
-        description: "One exact machine (vm_...) or team (team_...) id. Missing or conflicting identities are never kept."
+        description: "One exact machine (vm_...) or team (team_...) id, or `window` for the whole window's id-free counts by minute, outcome, route, status and msg. Missing or conflicting identities are never kept."
         required: true
       start:
         description: "UTC window start, e.g. 2026-11-15T13:20:00Z (empty: 30 minutes ago)"
