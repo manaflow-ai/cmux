@@ -52,6 +52,10 @@ cmux-process = { path = "../cmux-process" }
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 pipewire = { version = "0.10", optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# `cmux-rd observe --input-cmd`: the input poster child, owned and ended with the run.
+cmux-process = { path = "../cmux-process" }
+
 [target.'cfg(windows)'.dependencies]
 # The Windows host uses the stable user32/gdi32 capture path and SendInput.  The
 # DirectX and Media Foundation feature groups are kept here for the phase-3
