@@ -6,8 +6,12 @@ mod display;
 pub mod logged_bodies;
 pub mod logged_init;
 pub mod model_copy;
+mod table;
 pub mod update_repeats;
 pub use display::drop_display_lines;
+pub use table::{Context, Direction, Entry, Record, record_of};
+
+pub const SESSION_PROMPT: &str = "session/prompt";
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

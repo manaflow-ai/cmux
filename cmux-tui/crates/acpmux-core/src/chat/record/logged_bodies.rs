@@ -80,7 +80,7 @@ const PROMPT_BODY_KEYS: [&str; 4] = ["text", "data", "resource", "blob"];
 /// `unstarted_prompt.rs`), the timing reads the records' times (`history_timing.rs`).
 pub fn leave_out_prompt_bodies(kind: &str, msg: &mut Value) {
     let body = match kind {
-        "session/prompt" => msg.pointer_mut("/params/prompt"),
+        super::SESSION_PROMPT => msg.pointer_mut("/params/prompt"),
         "claude.stdin" if msg.get("type").and_then(Value::as_str) == Some("user") => {
             msg.pointer_mut("/message/content")
         }

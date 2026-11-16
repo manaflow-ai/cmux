@@ -391,7 +391,7 @@ pub mod method {
     pub const SESSION_FORK: &str = "session/fork";
     pub const SESSION_CLOSE: &str = "session/close";
     pub const SESSION_DELETE: &str = "session/delete";
-    pub const SESSION_PROMPT: &str = "session/prompt";
+    pub use acpmux_core::chat::record::SESSION_PROMPT;
     pub const SESSION_CANCEL: &str = "session/cancel";
     /// Dedicated, scoped Cloud trigger chat operations. These never fall
     /// through to the ordinary session/new, session/prompt or info paths.
