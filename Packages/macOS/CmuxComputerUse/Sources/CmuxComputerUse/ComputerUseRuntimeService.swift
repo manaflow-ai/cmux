@@ -1760,10 +1760,15 @@ public final class ComputerUseRuntimeService {
         else {
             return
         }
-        _ = Self.writeAuthenticationToken(
+        guard Self.writeAuthenticationToken(
             paths.authenticationToken,
             to: paths.authenticationTokenFileURL
-        )
+        ) else {
+            // A failed write can leave an empty file behind. Remove it so the
+            // next health check sees nothing at the path and tries again.
+            Darwin.unlink(paths.authenticationTokenFileURL.path)
+            return
+        }
     }
 
     /// Starts one pass immediately, then schedules maintenance after it finishes.
