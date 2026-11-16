@@ -114,7 +114,6 @@ export function HeaderNewButton({
 
 /// Where the kind opens, drawn: the chat on the left and the new tab on its right, as the pane will be.
 function NewPreview({ kind, label, keycap }: { kind: NewKind; label: string; keycap?: string }) {
-  const t = useT();
   return (
     <div className="acpmux-header-new-preview" data-new-preview={kind} aria-hidden="true">
       <div className="acpmux-header-new-preview-pane">
