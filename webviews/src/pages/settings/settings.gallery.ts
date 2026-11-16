@@ -919,7 +919,22 @@ Object.assign(variants, {
   }),
   "devices-control": variant("devices", {
     host: { ...host, devices_join: mockDevicesJoin, devices_control: mockDevicesControl },
-    note: "Control from this Mac on the owner's Mac: one machine on, one off, one offline, one whose status failed.",
+    note: "Control between my devices: the account switch on (the default), one machine on with it, one turned off on its own, one offline, one whose status failed.",
+    play: showDevicesGroup('[data-devices-group="control"]'),
+  }),
+  "devices-control-account-off": variant("devices", {
+    host: {
+      ...host,
+      devices_join: mockDevicesJoin,
+      devices_control: {
+        ...mockDevicesControl,
+        account: { ...mockDevicesControl.account!, on: false },
+        rows: mockDevicesControl.rows.map((r) =>
+          r.id === "m_mini" ? { ...r, on: false, status: "off" as const, detail: "Off for all your devices" } : r,
+        ),
+      },
+    },
+    note: "The account switch off: machines that follow it are off; a machine turned on on its own would stay on.",
     play: showDevicesGroup('[data-devices-group="control"]'),
   }),
   "devices-control-ask": variant("devices", {

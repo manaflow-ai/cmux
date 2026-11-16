@@ -11,6 +11,7 @@ import { useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import type {
+  DevicesControlAccount,
   DevicesControlRow,
   DevicesControlState,
   DevicesDevice,
@@ -56,13 +57,19 @@ function Words({ words, attribute }: { words: string[]; attribute: string }) {
 }
 
 /**
- * Control from this Mac: one switch per machine the person owns. On turns Control and screen
- * sharing on there with a grant this Mac signs after the person's own click and Touch ID; off
- * turns both off. A machine that has not trusted this Mac's key yet asks once, on itself, showing
- * the four words this group shows for this Mac (`this_mac_words`).
+ * Control between my devices: an account-wide switch (on for every device signed in to the
+ * account) and one switch per machine the person owns, which narrows it. A switch turns Control
+ * and screen sharing on or off there with a grant this Mac signs after the person's own click and
+ * Touch ID (off takes none). A machine that has not trusted this Mac's key yet asks once, on
+ * itself, showing the four words this group shows for this Mac (`this_mac_words`) beside Refresh
+ * Trusted Macs.
  */
 function ControlGroup({ control }: { control: DevicesControlState }) {
+  const store = useStore();
   const [setting, setSetting] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const words = control.this_mac_words && control.this_mac_words.length > 0 ? control.this_mac_words : null;
+  const refresh = control.refresh ?? null;
   return (
     <section className="group" data-devices-group="control">
       <h3 className="group-title">{control.title}</h3>
@@ -70,13 +77,16 @@ function ControlGroup({ control }: { control: DevicesControlState }) {
         <div className="row" data-devices-control-intro="">
           <div className="row-label">
             <div className="row-help devices-line">{control.help}</div>
-            {control.this_mac_words && control.this_mac_words.length > 0 && (
-              <div className="row-help font-mono selectable" data-devices-control-this-words="">
-                {control.this_mac_words.join(" ")}
-              </div>
-            )}
           </div>
         </div>
+        {control.account && (
+          <ControlAccount
+            account={control.account}
+            locked={setting !== null}
+            onSet={() => setSetting("account")}
+            onDone={() => setSetting(null)}
+          />
+        )}
         {control.rows.map((row) => (
           <ControlRow
             key={row.id}
@@ -86,6 +96,44 @@ function ControlGroup({ control }: { control: DevicesControlState }) {
             onDone={() => setSetting(null)}
           />
         ))}
+        {(words || refresh) && (
+          <div className="row" data-devices-control-trust="">
+            <div className="row-main">
+              <div className="row-label">
+                {words && (
+                  <div className="row-help font-mono selectable" data-devices-control-this-words="">
+                    {words.join(" ")}
+                  </div>
+                )}
+                {refreshError && (
+                  <div className="row-error devices-line" role="alert">
+                    {refreshError}
+                  </div>
+                )}
+              </div>
+              {refresh && (
+                <div className="row-control">
+                  <Button
+                    type="button"
+                    className="button"
+                    data-devices-control-action="refresh"
+                    disabled={setting !== null}
+                    onClick={() => {
+                      setSetting("refresh");
+                      setRefreshError(null);
+                      void store
+                        .refreshTrust()
+                        .then(setRefreshError)
+                        .finally(() => setSetting(null));
+                    }}
+                  >
+                    {refresh}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {control.error && (
           <div className="row">
             <div className="row-error" role="alert">
@@ -95,6 +143,52 @@ function ControlGroup({ control }: { control: DevicesControlState }) {
         )}
       </div>
     </section>
+  );
+}
+
+/** The account-wide switch: on for every device signed in to the account; a machine's own row narrows it. */
+function ControlAccount({
+  account,
+  locked,
+  onSet,
+  onDone,
+}: {
+  account: DevicesControlAccount;
+  locked: boolean;
+  onSet: () => void;
+  onDone: () => void;
+}) {
+  const store = useStore();
+  const [error, setError] = useState<string | null>(null);
+  const titleId = useId();
+  return (
+    <div className="row" data-devices-control-account="">
+      <div className="row-main">
+        <div className="row-label">
+          <div className="row-title" id={titleId}>
+            {account.title}
+          </div>
+          <div className="row-help devices-line">{account.help}</div>
+          {error && (
+            <div className="row-error devices-line" role="alert">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="row-control">
+          <Switch
+            checked={account.on}
+            disabled={account.busy || locked}
+            labelId={titleId}
+            onToggle={(on) => {
+              onSet();
+              setError(null);
+              void store.setRemoteControlAccount(on).then(setError).finally(onDone);
+            }}
+          />
+        </div>
+      </div>
+    </div>
   );
 }
 
