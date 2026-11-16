@@ -465,9 +465,7 @@ impl MediaSession {
             // Too large to send (about 4.6 MB): the engine dropped it and asks for a keyframe.
             self.encoder.halve_bitrate();
         }
-        for datagram in &out.datagrams {
-            carrier.send_datagram(datagram)?;
-        }
+        carrier.send_datagram_frame(out.datagrams)?;
         if let (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) =
             (self.timing.as_mut(), logged)
         {
