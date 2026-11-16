@@ -130,7 +130,7 @@ class SidList {
         .filter(([questionId]) => this.questions.get(questionId)?.state !== "pending")
         .sort((a, b) => a[1] - b[1])[0]?.[0];
       if (evict) {
-        this.questionRows.delete(evict);
+        this.releaseQuestionRows(evict);
         this.questions.delete(evict);
         this.questionOrder.delete(evict);
       }
@@ -280,8 +280,15 @@ class SidList {
     }
     this.questionRows.set(change.id, keys);
     this.questions.set(change.id, {
-      ...change,
+      id: change.id,
+      kind: question.kind,
       rows,
+      hasBefore: change.hasBefore,
+      hasAfter: change.hasAfter,
+      coldUnread: change.coldUnread,
+      deeper: change.deeper,
+      missing: change.missing,
+      unknown: change.unknown,
       state: change.complete ? "complete" : "pending",
       complete: change.complete,
     });
@@ -440,6 +447,14 @@ export class SessionListStore {
         ];
         for (const [sid, other] of this.sids) {
           if (sid !== change.sid && keys.some((key) => other.holds(key))) {
+            other.refresh();
+            touched.add(sid);
+          }
+        }
+      }
+      if (change.kind === "page") {
+        for (const [sid, other] of this.sids) {
+          if (sid !== change.sid && change.rows.some((row) => other.holds(keyOf(row)))) {
             other.refresh();
             touched.add(sid);
           }
