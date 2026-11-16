@@ -772,3 +772,54 @@ fn every_row_carries_its_device_kind_and_glyph() {
         assert_eq!(row.symbol, row.device.symbol(), "{}", row.id);
     }
 }
+
+/// Leo, 2026-11-15: "and why dont' i see the other linked up vms and such? and [a Linux desktop]?" The
+/// Screen Sharing page lists every linked machine, and each row says what its kind can do there:
+/// a Mac or a Linux desktop is viewed through the device hub, a Cloud machine through its desktop,
+/// and every other machine is listed with why it has nothing to press. Leo, 2026-11-15: "we do
+/// have mac to windows and mac to linux and mac to mac on top of the other way around too right?"
+#[test]
+fn every_machine_says_what_the_screen_sharing_page_offers_for_it() {
+    use cmux_device_kind::screen::{NoScreen, Screen, ScreenRoute};
+    let mut src = sources();
+    src.peers["peers"][0]["health"] = json!({"os": "macos", "device": "mac-mini"});
+    src.peers["peers"][1]["health"] = json!({"os": "linux", "device": "linux-server"});
+    let peers = src.peers["peers"].as_array_mut().unwrap();
+    peers.push(json!({"name": "linux-desk", "url": "ssh://linux-desk", "connected": true,
+                      "health": {"os": "linux", "device": "linux-desktop"}}));
+    peers.push(
+        json!({"name": "old-air", "url": "ssh://old-air.tail1234.ts.net", "connected": false}),
+    );
+    src.pairing["devices"].as_array_mut().unwrap().push(json!({
+        "id": "dv_phone", "name": "phone-6a7b", "role": "phone", "created_at": "2026-10-24T00:00:00Z",
+        "revoked_at": null, "connections": 1,
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let view = |route| Some(Screen::View { route });
+    let none = |reason| Some(Screen::None { reason });
+    for (id, screen) in [
+        ("peer:mini-7", view(ScreenRoute::Hub)),
+        ("peer:sandbox", view(ScreenRoute::Cloud)),
+        // A Mac that is not connected (its OS from the network, no health yet).
+        ("peer:old-air", none(NoScreen::Offline)),
+        ("peer:vm-1", none(NoScreen::NoDesktop)),
+        // A Linux desktop is viewed through the device hub like a Mac (`cmux-rd linux-host`).
+        ("peer:linux-desk", view(ScreenRoute::Hub)),
+        // A joined Linux machine that reported no kind: desktop or server, nothing tells.
+        ("joined:m_lane3", none(NoScreen::Unknown)),
+        ("joined:m_quiet", none(NoScreen::Unknown)),
+        ("paired:dv_phone", none(NoScreen::Phone)),
+        ("paired:dv_leo", none(NoScreen::Unknown)),
+        // A person's login is not a machine: the page leaves it out.
+        ("allow:austin@manaflow.ai", None),
+        ("grant:new@manaflow.ai", None),
+    ] {
+        assert_eq!(device(&listing, id).screen, screen, "{id}");
+    }
+    let wire = |id| serde_json::to_value(device(&listing, id)).unwrap()["screen"].clone();
+    assert_eq!(wire("peer:mini-7"), json!({"action": "view", "route": "hub"}));
+    assert_eq!(wire("peer:sandbox"), json!({"action": "view", "route": "cloud"}));
+    assert_eq!(wire("peer:linux-desk"), json!({"action": "view", "route": "hub"}));
+    assert_eq!(wire("peer:vm-1"), json!({"action": "none", "reason": "no-desktop"}));
+    assert!(wire("allow:austin@manaflow.ai").is_null());
+}

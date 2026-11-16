@@ -2414,14 +2414,26 @@ jobs:
             # transfer that crawls there is cut and retried. R2 reads a 31 MB
             # binary in seconds, so two 90 s attempts per file keep the
             # fallback well inside the job's 15 minutes.
-            fetch_published() {
+            # With "optional", a name R2 answers 404 for is left out: a
+            # commit prefix adopt-commit-manifest wrote from its published
+            # tree has only the binaries and manifest.json, no checksums
+            # file (run 43877937618 failed reading cmux-tui-checksums.txt
+            # from one). Any other failed read still goes to the CDN and,
+            # failing there too, fails the step.
+            fetch_published() { # <name> [optional]
+              local status=0
               CMUX_R2_UPLOAD_ATTEMPTS=2 CMUX_R2_UPLOAD_RETRY_DELAY=5 CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=90 \
               python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-                --key "$prefix/$1" --download-to "$directory/$1" ||
-                { curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
-                    --speed-limit 102400 --speed-time 30 \
-                    -o "$directory/$1.partial" "https://files.cmux.com/$prefix/$1?adopt=$GITHUB_RUN_ID" &&
-                  mv "$directory/$1.partial" "$directory/$1"; }
+                --key "$prefix/$1" --download-to "$directory/$1" || status=$?
+              [[ "$status" == 0 ]] && return 0
+              if [[ "$status" == 22 && "${2:-}" == optional ]]; then
+                echo "https://files.cmux.com/$prefix/ has no $1; keeping the publication without it."
+                return 0
+              fi
+              curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
+                  --speed-limit 102400 --speed-time 30 \
+                  -o "$directory/$1.partial" "https://files.cmux.com/$prefix/$1?adopt=$GITHUB_RUN_ID" &&
+                mv "$directory/$1.partial" "$directory/$1"
             }
             for name in "$directory"/*-checksums.txt; do
               [[ -f "$name" ]] && checksums="$checksums $(basename "$name")"
@@ -2442,11 +2454,18 @@ jobs:
             # checksums file, and two reads of one name would race on the
             # same file and its .partial. A string, not an associative array: macOS
             # runners have Bash 3.2, which has no associative arrays.
+            # The manifest's names are required; this run's checksums file
+            # names are not, since the publication may never have had one.
             local seen=" "
-            for name in $checksums $names; do
+            for name in $names; do
               [[ "$name" == manifest.json || "$seen" == *" $name "* ]] && continue
               seen="$seen$name "
               pool_run fetch_published "$name"
+            done
+            for name in $checksums; do
+              [[ "$seen" == *" $name "* ]] && continue
+              seen="$seen$name "
+              pool_run fetch_published "$name" optional
             done
             pool_wait
           }
@@ -4295,6 +4314,39 @@ jobs:
           KEY: ${{ needs.tree-preflight.outputs.key }}
         run: scripts/ci/cmux-tui-point-channel.sh feat-cmux-next "$KEY"
 
+  # The Windows join line (cmux-tui/scripts/machine-join.ps1) installs acpmux
+  # from cmux-tui/channels/windows-feat-cmux-next.json: the tree key, commit and
+  # Windows acpmux sha256 of the newest feat-cmux-next dispatch with
+  # include_windows whose Windows build reached the tree (pushes never build
+  # Windows). The same forward-only compare-and-swap as point-feat-channel.
+  point-windows-channel:
+    environment:
+      name: artifacts
+      deployment: false
+    name: point the windows-feat-cmux-next channel at this tree
+    # After publish-tree-tested, whatever its result: the script points only at a tree with its
+    # daemon-tests marker, and a dispatch is the only run that builds Windows to point at.
+    needs: [tree-preflight, publish-tree-windows, publish-tree-tested]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.publish-tree-windows.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Point the Windows channel at this tree
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: scripts/ci/cmux-tui-point-channel.sh windows-feat-cmux-next "$KEY"
+
   # The tree-commit markers (scripts/cmux-next/tree-commit-marker.sh has the
   # contract): cmux-tui/tree-commits/<sha>.json for each first-parent commit in
   # the last 40 of this run's commit whose tree is published and verified.
@@ -4827,7 +4879,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, mark-tree-commits, sweep-commit-manifests, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.

@@ -221,6 +221,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
 | `quiet-host.sh` | Runs one measurement on a quiet host and records other CPU use. | - | 2026-10-31 | active |
+| `require-chromium.sh` | Sourced by an entry that builds its app: the build requires the Chromium engine unless `--allow-no-chromium`. Measures nothing. | - | 2026-11-16 | active |
 | `bench-ab` | Interleaved A/B driver for fleet benches with A/A self-test and intervals. | - | 2026-11-06 | active |
 | `crash-gate.sh` | Fleet run of the "crash ends the app" gate. | - | 2026-10-30 | active |
 | `blocking-checks.sh` | Checks the main-thread blocking detector's build configurations. | - | 2026-10-24 | active |

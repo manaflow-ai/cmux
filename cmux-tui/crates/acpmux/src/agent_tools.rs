@@ -385,7 +385,7 @@ impl Inputs {
             acpmux: crate::self_command::SelfCommand::current().ok(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_none_or(|v| v != "0"),
-            subsessions: crate::hub::subsessions::enabled(),
+            subsessions: crate::subsession_settings::enabled(),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
@@ -1025,7 +1025,7 @@ impl AgentTools {
                     ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
                 server.env.extend(
-                    crate::hub::person::caller_env(session_id)
+                    crate::person_tokens::caller_env(session_id)
                         .into_iter()
                         .map(|(k, v)| (k.to_owned(), v)),
                 );
