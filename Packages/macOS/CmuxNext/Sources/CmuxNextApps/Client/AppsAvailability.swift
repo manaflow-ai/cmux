@@ -74,4 +74,3 @@ public nonisolated enum AppsServiceError: Error {
     /// The supervisor cannot be reached (an older daemon, not connected yet, or turned off).
     case unavailable(AppsUnavailableReason)
 }
-
