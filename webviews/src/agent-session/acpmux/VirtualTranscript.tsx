@@ -564,15 +564,31 @@ const RowFrame = React.memo(function RowFrame({
   const [loadFading] = useState(loadFade);
   // The height a skipped row is placed at, from its first mount; once it renders the browser keeps
   // its rendered height instead (`auto`), which the row's observer has measured by then.
-  const [skipHeight, setSkipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
+  const observerRef = useRef(observer);
+  observerRef.current = observer;
+  const skipHeightRef = useRef(offscreen ? `auto ${placedHeight}px` : undefined);
+  const skipHeight = skipHeightRef.current;
   // Once the page renders it (still a window or more from the view), the row draws like any other:
   // the paint containment content-visibility brings snaps its contents to whole pixels, a pixel off
-  // the subpixel place (`marginTop`) an unmarked row draws its text at.
+  // the subpixel place (`marginTop`) an unmarked row draws its text at. The drop is the row's own DOM
+  // write, no render; the ref keeps a later render from putting the class back. Observed afresh, the
+  // row reports its rendered height in the next frame even when its observer saw it render first,
+  // while it still counted as skipped (drawnHeightOf).
   useLayoutEffect(() => {
     const node = ref.current;
-    if (!skipHeight || !node) return undefined;
-    return onceRendered(node, () => setSkipHeight(undefined));
-  }, [skipHeight]);
+    if (!skipHeightRef.current || !node) return undefined;
+    return onceRendered(node, () => {
+      skipHeightRef.current = undefined;
+      node.classList.remove(OFFSCREEN_ROW_CLASS);
+      node.style.containIntrinsicHeight = "";
+      const rows = observerRef.current;
+      if (rows) {
+        rows.unobserve(node);
+        rows.observe(node);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame's first mount only
+  }, []);
   // A prompt sent from the latest row: what the composer drew of it moves into this row's bubble and
   // previews, as its entrance (conversation/sendMorph.ts). Its first mount only, before it paints.
   useLayoutEffect(() => {

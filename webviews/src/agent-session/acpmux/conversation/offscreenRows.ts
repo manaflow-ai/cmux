@@ -11,13 +11,12 @@
 ///
 /// A skipped row is never measured (`skippedRow`): its box is the placed height itself, and taking
 /// that for a drawn height would overwrite the estimate with a placeholder (a fixed 60 px trial did,
-/// and every row it mounted was then placed 60 px high). It is measured once it renders, still a
-/// window or more from the view: the row's ResizeObserver reports it when its rendered height differs
-/// from the placed one. Rendered, it drops the class (`onceRendered`) and draws exactly as an unmarked
-/// row does by the time it shows.
+/// and every row it mounted was then placed 60 px high). Once the page renders it, still a window or
+/// more from the view, it drops the class (`onceRendered`), its ResizeObserver reports its rendered
+/// height, and it draws exactly as an unmarked row does by the time it shows.
 ///
-/// Only an engine that both skips (content-visibility) and can say a row is skipped (checkVisibility's
-/// `contentVisibilityAuto`) and keeps a row's overhanging controls drawn (overflow-clip-margin under
+/// Only an engine that skips (content-visibility), says when it renders a skipped row (the state
+/// change event, and checkVisibility's `contentVisibilityAuto`) and keeps a row's overhanging controls drawn (overflow-clip-margin under
 /// the paint containment content-visibility brings) marks rows; any other draws every row as before.
 
 /// The class a row mounted away from the view carries for its whole life (conversation.css).
@@ -53,6 +52,12 @@ export function skipsOffscreenRows(): boolean {
   return supported;
 }
 
+/// The marked rows the page has rendered, by their content-visibility state change event. Kept here
+/// so that asking whether a row is skipped reads no style: `checkVisibility` forced a style update of
+/// the skipped rows on every measure, the top cost of a fling (a fling profile: 18.9 s of 103 s of
+/// long tasks), which undid what skipping saved.
+const renderedRows = new WeakSet<HTMLElement>();
+
 /// Calls `rendered` once, the first time the page renders `row` (an `OFFSCREEN_ROW_CLASS` row): its
 /// content-visibility state change with `skipped` false. Returns the stop; the listener also ends
 /// after that one call.
@@ -60,6 +65,7 @@ export function onceRendered(row: HTMLElement, rendered: () => void): () => void
   const listener = (event: Event) => {
     if (event.target !== row || (event as ContentVisibilityAutoStateChangeEvent).skipped) return;
     row.removeEventListener("contentvisibilityautostatechange", listener);
+    renderedRows.add(row);
     rendered();
   };
   row.addEventListener("contentvisibilityautostatechange", listener);
@@ -83,10 +89,8 @@ export function mountsOffscreen(
 }
 
 /// Whether `row` (a transcript row that mounted offscreen) has its contents skipped now: its height
-/// is then only its placed one, never a drawn one. One style read of the row's first child; a row
-/// that never mounted offscreen is not read.
+/// is then only its placed one, never a drawn one. It is skipped from its mount until the page says it
+/// rendered it (`onceRendered`); no style or layout is read.
 export function skippedRow(row: HTMLElement): boolean {
-  if (!row.classList.contains(OFFSCREEN_ROW_CLASS)) return false;
-  const inside = row.firstElementChild as HTMLElement | null;
-  return inside !== null && !inside.checkVisibility({ contentVisibilityAuto: true });
+  return row.classList.contains(OFFSCREEN_ROW_CLASS) && !renderedRows.has(row);
 }
