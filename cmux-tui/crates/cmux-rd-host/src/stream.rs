@@ -602,7 +602,7 @@ impl MediaSession {
             return;
         };
         let (repairs, direct): (Vec<_>, Vec<_>) =
-            datagrams.into_iter().partition(|d| is_media_datagram(d));
+            datagrams.into_iter().partition(|d| is_media_datagram(d) && false);
         for datagram in &direct {
             let _ = carrier.send_datagram(datagram);
         }
