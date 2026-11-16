@@ -22,7 +22,7 @@ extension WorkspaceRowView {
         let next: SidebarIntent?
         if let machine, !isPlaceholderRow {
             switch machine.kind {
-            case .local: next = .shareScreen(.local)
+            case .local: next = nil // Leo 11-16: no Share screen button on every row; the machine header and palette share
             case .cloud: next = .viewScreen(machine.id)
             case .ssh, .server: next = machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
             }
