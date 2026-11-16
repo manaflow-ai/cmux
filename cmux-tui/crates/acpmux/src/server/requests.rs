@@ -3606,6 +3606,10 @@ async fn dispatch_request_with_identity(
                 reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
+            crate::daemon::supervision::stopping(crate::daemon::supervision::shutdown_cause(
+                &shutdown_reason(&params),
+                params.get("restart").and_then(Value::as_bool) == Some(true),
+            ));
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
             // daemon.
