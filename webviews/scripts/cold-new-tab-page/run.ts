@@ -369,7 +369,7 @@ interface TraceEvent {
   tid: number;
   ts: number;
   dur?: number;
-  args?: { data?: Record<string, unknown> };
+  args?: { data?: Record<string, unknown>; name?: string };
 }
 
 const TRACE_CATEGORIES = [
@@ -406,6 +406,13 @@ function split(events: TraceEvent[], start: TraceEvent, run: Run) {
     self.set(event, (self.get(event) ?? 0) + (event.dur ?? 0));
     stack.push(event);
   }
+  const threads = new Map<number, string>();
+  for (const event of events)
+    if (event.ph === "M" && event.name === "thread_name" && event.pid === start.pid)
+      threads.set(event.tid, event.args?.name ?? "thread");
+  const elsewhere = events
+    .filter((event) => event.ph === "X" && event.pid === start.pid && event.tid !== start.tid && event.dur !== undefined)
+    .sort((a, b) => a.ts - b.ts || (b.dur ?? 0) - (a.dur ?? 0));
   const { marks } = run;
   const edges: [string, number, number][] = [
     ["1 files in", 0, run.parts["1 files in"]],
@@ -421,11 +428,25 @@ function split(events: TraceEvent[], start: TraceEvent, run: Run) {
       byName.set(event.name, (byName.get(event.name) ?? 0) + (self.get(event) ?? 0) / 1000);
     }
     const rows = [...byName.entries()].sort((a, b) => b[1] - a[1]);
+    // The process's other threads in the same part: the time of their outermost events, by thread
+    // and event name (a script that streams in is parsed there while the main thread waits).
+    const others = new Map<string, number>();
+    const ends = new Map<number, number>();
+    for (const event of elsewhere) {
+      if (at(event) < from || at(event) >= to || event.ts < (ends.get(event.tid) ?? 0)) continue;
+      ends.set(event.tid, event.ts + (event.dur ?? 0));
+      const label = `${threads.get(event.tid) ?? "thread"}: ${event.name}`;
+      others.set(label, (others.get(label) ?? 0) + (event.dur ?? 0) / 1000);
+    }
     return {
       name,
       length: to - from,
       busy: rows.reduce((sum, row) => sum + row[1], 0),
       rows: rows.slice(0, 12).map(([event, ms]) => ({ event, ms })),
+      others: [...others.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([event, ms]) => ({ event, ms })),
     };
   });
   // What the compile events of this navigation say of a cache: each `key=value` of their data, counted.
@@ -444,13 +465,17 @@ function split(events: TraceEvent[], start: TraceEvent, run: Run) {
 }
 
 function printSplit(result: ReturnType<typeof split>) {
-  for (const part of result.windows)
+  for (const part of result.windows) {
     console.log(
       `    ${part.name}: ${fixed(part.length)} ms long, main thread busy ${fixed(part.busy)} ms: ${part.rows
         .filter((row) => row.ms >= 1)
         .map((row) => `${row.event} ${fixed(row.ms)}`)
         .join(", ")}`,
     );
+    const others = part.others.filter((row) => row.ms >= 1);
+    if (others.length)
+      console.log(`      other threads: ${others.map((row) => `${row.event} ${fixed(row.ms)}`).join(", ")}`);
+  }
   const cache = Object.entries(result.cache);
   console.log(
     `    compile events' cache data: ${cache.length ? cache.map(([label, count]) => `${label}: ${count}`).join("; ") : "none"}`,
