@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43873097061",
+  "recorded_at": "2026-11-16T13:23:42Z",
+  "reason": "cmux-tui 2b2a04135275 changes the image's cmux-tui (pinned 2019844e5c56)",
+  "dry_run": false,
+  "cmux_tui": "2b2a04135275042a01b818891eecc103f63c577f",
+  "fixes": [
+    {
+      "sha": "2b2a04135275042a01b818891eecc103f63c577f",
+      "mergedAt": "2026-11-16T04:52:45-08:00",
+      "subject": "acpmux: atomic writes reuse one temporary name per file and process (#44522)"
+    },
+    {
+      "sha": "893a8a6caf6a790c9d0325f07d20ac3d8d6372ed",
+      "mergedAt": "2026-11-16T04:50:20-08:00",
+      "subject": "cmux device list: each machine says what Screen Sharing offers for it (#43452)"
+    },
+    {
+      "sha": "69fee54da458fa7ea9e35cf840be73d44a3f65ae",
+      "mergedAt": "2026-11-16T04:49:32-08:00",
+      "subject": "cmux-next: the terminal selection menu cap counts the rows a person sees (base red from #43840) (#44246)"
+    },
+    {
+      "sha": "605ffc94253d92f3bac5bdc70d35e679dd69dfb1",
+      "mergedAt": "2026-11-16T04:37:50-08:00",
+      "subject": "acpmux v2 9b: durable per-chat raw writer and source map (#44397)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T13:23:42Z",
+    "snapshot_id": "sh-b84e967666654bbbbb39fdbd16d272ec",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43873097061): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a2f8e20d440b119245dd5eff7309d2bb332b589f",
+    "image": "cloud-native-auto-2b2a0413-43873097061-1",
+    "revision": "ci-43873097061-1",
+    "at": "2026-11-16T13:23:42Z"
+  },
+  "rolled_back": false
+}
