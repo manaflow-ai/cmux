@@ -33,6 +33,14 @@ fn file_bytes(root: &std::path::Path) -> u64 {
         .sum()
 }
 
+fn chat_count(root: &std::path::Path) -> usize {
+    std::fs::read_dir(root)
+        .expect("fixture sessions directory")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .count()
+}
+
 fn start_fixture(mut shape: acpmux::god_fixture::Shape) -> tempfile::TempDir {
     let scratch = tempfile::tempdir().expect("fixture scratch");
     std::fs::write(scratch.path().join("config.json"), json!({"acpmux.v2": ["start"]}).to_string())
@@ -49,6 +57,7 @@ fn start_fixture(mut shape: acpmux::god_fixture::Shape) -> tempfile::TempDir {
     )
     .expect("store-backed fixture");
     assert_eq!(made.others.len() + 1, shape.chats, "fixture chat count");
+    assert_eq!(chat_count(&scratch.path().join("sessions")), shape.chats, "fixture chat dirs");
     if shape.name == "god" {
         assert!(
             file_bytes(&scratch.path().join("sessions")) >= shape.god_bytes,
@@ -59,7 +68,10 @@ fn start_fixture(mut shape: acpmux::god_fixture::Shape) -> tempfile::TempDir {
 }
 
 async fn daemon_hello(socket: &std::path::Path) {
-    let mut client = UnixStream::connect(socket).await.expect("connect ready daemon");
+    let mut client = tokio::time::timeout(Duration::from_secs(30), UnixStream::connect(socket))
+        .await
+        .expect("connect ready daemon timed out")
+        .expect("connect ready daemon");
     let upgrade = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -67,14 +79,19 @@ async fn daemon_hello(socket: &std::path::Path) {
         "params": {"protocol": 2, "surfaces": ["chat"]}
     });
     client.write_all(format!("{}\n", upgrade).as_bytes()).await.expect("send v2 upgrade");
-    let mut bytes = Vec::new();
-    loop {
-        let byte = client.read_u8().await.expect("read v2 upgrade");
-        if byte == b'\n' {
-            break;
+    let bytes = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut bytes = Vec::new();
+        loop {
+            let byte = client.read_u8().await.expect("read v2 upgrade");
+            if byte == b'\n' {
+                break;
+            }
+            bytes.push(byte);
         }
-        bytes.push(byte);
-    }
+        bytes
+    })
+    .await
+    .expect("read v2 upgrade timed out");
     let reply: serde_json::Value = serde_json::from_slice(&bytes).expect("v2 upgrade reply");
     assert_eq!(reply.pointer("/result/upgrade"), Some(&json!(true)));
     let surfaces = reply
@@ -99,6 +116,7 @@ fn v2_pr09_listen_start() {
     let fixture_build_seconds = fixture_started.elapsed().as_secs_f64();
     let mut small = Vec::with_capacity(ROUNDS);
     let mut god = Vec::with_capacity(ROUNDS);
+    let mut forced_kills = 0;
     for round in 0..ROUNDS {
         let mut small_round = Vec::with_capacity(SAMPLES);
         let mut god_round = Vec::with_capacity(SAMPLES);
@@ -113,7 +131,7 @@ fn v2_pr09_listen_start() {
                 let runtime = tokio::runtime::Runtime::new().expect("gate runtime");
                 runtime.block_on(daemon_hello(&daemon.socket));
                 assert!(daemon.ready.contains("\"ready\":true"));
-                daemon.stop();
+                forced_kills += usize::from(daemon.stop());
             }
         }
         small.push(small_round);
@@ -127,16 +145,16 @@ fn v2_pr09_listen_start() {
     gate_rounds::report("v2.pr09.listen_start", &[("small", &small), ("god", &god)]);
     let small_p95 = best_p95(&small);
     let god_p95 = best_p95(&god);
+    let god_p95_all = all_p95(&god);
     let line = json!({
         "name": "v2.pr09.listen_start",
         "small_p95": small_p95,
         "god_p95": god_p95,
-        "god_p95_all": all_p95(&god),
-        "fixture_build_seconds": fixture_build_seconds,
+        "god_p95_all": god_p95_all,
         "unit": "ns",
     })
     .to_string();
-    eprintln!("{line}");
+    eprintln!("{line} fixture_build_seconds={fixture_build_seconds:.3}");
     if let Some(path) = std::env::var_os("V2_GATE_OUT") {
         std::fs::OpenOptions::new()
             .create(true)
@@ -147,6 +165,13 @@ fn v2_pr09_listen_start() {
     }
     assert!(small_p95 > 0);
     assert!(god_p95 <= 100_000_000, "god listener startup exceeded 100 ms");
+    assert!(god_p95_all <= 100_000_000, "all god listener samples exceeded 100 ms");
+    assert_eq!(forced_kills, 0, "daemon required force-kill during orderly gate stop");
+    assert_eq!(chat_count(&god_fixture.path().join("sessions")), 527, "god fixture chats");
+    assert!(
+        file_bytes(&god_fixture.path().join("sessions")) >= 4 * 1024 * 1024 * 1024,
+        "god fixture store size"
+    );
 }
 
 #[path = "../benches/v2/mod.rs"]

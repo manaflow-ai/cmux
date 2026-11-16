@@ -303,6 +303,29 @@ pub fn ready_line(stdout: impl std::io::Read) -> String {
     }
 }
 
+/// As [`ready_line`], with a bounded deadline. The reader runs separately so a blocked pipe can
+/// be released when the caller's child guard terminates the daemon after a timeout.
+pub fn ready_line_timeout<R: std::io::Read + Send + 'static>(
+    stdout: R,
+    timeout: Duration,
+) -> String {
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ready_line(stdout)));
+        let _ = send.send(result);
+    });
+    match receive.recv_timeout(timeout) {
+        Ok(Ok(line)) => line,
+        Ok(Err(panic)) => std::panic::resume_unwind(panic),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            panic!("daemon did not become ready within {} seconds", timeout.as_secs())
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            panic!("daemon readiness reader exited without a result")
+        }
+    }
+}
+
 /// The binary under test. Only for values (a path a daemon passes on, an
 /// agent host launcher); start a process with [`acpmux`] or [`command`].
 pub fn bin() -> &'static Path {
@@ -348,30 +371,79 @@ pub struct ReadyDaemon {
     pub startup: Duration,
 }
 
+/// Extra command-line arguments and environment entries for a ready daemon. Row 10 reuses the
+/// child runner for restart variants without duplicating its readiness and cleanup paths.
+#[derive(Default)]
+pub struct ReadyDaemonOptions {
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
 impl ReadyDaemon {
-    pub fn stop(mut self) {
+    /// Ask the daemon to stop and wait at most 30 seconds. Returns whether the force-kill end was
+    /// needed; callers can make an orderly shutdown a gate condition.
+    pub fn stop(mut self) -> bool {
+        self.stop_inner()
+    }
+
+    /// Force-stop a child immediately. This is reserved for timeout/error cleanup and is separate
+    /// from [`Self::stop`] so a gate can count unexpected hard kills.
+    pub fn kill(mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+
+    fn stop_inner(&mut self) -> bool {
+        #[cfg(unix)]
+        {
+            // SAFETY: this is the pid returned by the child we spawned.
+            unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = self.child.kill();
+        }
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => return false,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Ok(None) | Err(_) => {
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    return true;
+                }
+            }
+        }
     }
 }
 
 impl Drop for ReadyDaemon {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = self.stop_inner();
     }
 }
 
 pub fn spawn_ready_daemon(scratch: &Path) -> ReadyDaemon {
+    spawn_ready_daemon_with(scratch, &ReadyDaemonOptions::default())
+}
+
+pub fn spawn_ready_daemon_with(scratch: &Path, options: &ReadyDaemonOptions) -> ReadyDaemon {
     let socket = scratch.join("acpmux.sock");
     let mut command = acpmux(scratch);
     command
         .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
+        .args(&options.args)
         .env("ACPMUX_HOME", scratch)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_CATALOG_FETCH", "0")
         .env("ACPMUX_LOGIN_ENV", "0")
         .env("ACPMUX_SPARE_HARNESS", "0");
+    for (key, value) in &options.env {
+        command.env(key, value);
+    }
     if let Some(path) = std::env::var_os("V2_GATE_OUT") {
         command.env("V2_GATE_OUT", path);
     }
@@ -382,7 +454,16 @@ pub fn spawn_ready_daemon(scratch: &Path) -> ReadyDaemon {
         .stderr(Stdio::inherit())
         .spawn()
         .expect("start daemon");
-    let ready = ready_line(child.stdout.take().expect("daemon stdout"));
+    let ready = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ready_line_timeout(child.stdout.take().expect("daemon stdout"), Duration::from_secs(30))
+    })) {
+        Ok(ready) => ready,
+        Err(panic) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            std::panic::resume_unwind(panic);
+        }
+    };
     ReadyDaemon { child, socket, ready, startup: started.elapsed() }
 }
 
