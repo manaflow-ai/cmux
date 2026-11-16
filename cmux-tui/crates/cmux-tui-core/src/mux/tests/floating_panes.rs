@@ -222,10 +222,11 @@ fn floating_panes_in_the_store_follow_a_focus_and_a_close() {
 #[test]
 fn floating_pane_refuses_a_pane_of_a_column_with_rows() {
     let (root, session) = seed("rows", |screen| {
-        // The first column: the stack of panes 1 and 2 in the first row, pane 3 in the second row.
+        // The first column: the stack of panes 1 and 2 in the first row, pane 3 in the second row. The heights
+        // agree with the ratio 0.6 of the fixture's row split, as each record that the product writes does.
         screen.viewport.columns[0].rows = vec![
-            RegistryRow { id: restore_split_id(9), height: 700 },
-            RegistryRow { id: restore_split_id(1), height: 300 },
+            RegistryRow { id: restore_split_id(9), height: 600 },
+            RegistryRow { id: restore_split_id(1), height: 400 },
         ];
     });
     let mux = open_restart_mux(&root, &session);
@@ -243,6 +244,45 @@ fn floating_pane_refuses_a_pane_of_a_column_with_rows() {
     let right = live_pane(&mux, &restore_pane_id(4));
     mux.float_pane_as(&Actor::Daemon, right, FloatMode::On, None, None).unwrap();
     assert_eq!(live_list(&mux).len(), 1);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The rows of the second column of the first screen.
+fn second_column_rows(mux: &Mux) -> usize {
+    mux.with_state(|state| state.workspaces[0].screens[0].layout_columns[1].rows.len())
+}
+
+/// The path of a person: `new-row` makes the rows of a column, then a pane of the other column floats, and a
+/// restart keeps the rows and the list.
+#[test]
+fn floating_pane_floats_beside_rows_that_new_row_made() {
+    let (root, session) = seed("new-row", |_| {});
+    let mux = open_restart_mux(&root, &session);
+    // The second column gets its second row from the act of the product.
+    let right = live_pane(&mux, &restore_pane_id(4));
+    mux.new_row_with_options(right, 500, Default::default(), Some((38, 10)), None).unwrap();
+    assert_eq!(second_column_rows(&mux), 2, "the second column has its two rows");
+    assert_eq!(
+        mux.float_pane_as(&Actor::Daemon, right, FloatMode::On, None, None),
+        Err(FloatPaneError::FixedPane)
+    );
+    assert!(live_list(&mux).is_empty());
+
+    // Pane 3 is a pane of the first column, which has no rows.
+    let low = live_pane(&mux, &restore_pane_id(3));
+    mux.float_pane_as(&Actor::Daemon, low, FloatMode::On, None, None).unwrap();
+    let expected = live_list(&mux);
+    assert_eq!(expected.len(), 1);
+    assert_eq!(stored_list_of(&mux), expected, "after the float");
+    mux.shutdown();
+    drop(mux);
+
+    assert_eq!(stored_list(&root, &session), expected, "the store at rest");
+    let mux = open_restart_mux(&root, &session);
+    assert_eq!(second_column_rows(&mux), 2, "a restart keeps the rows");
+    assert_eq!(live_list(&mux), expected, "a restart keeps the list");
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
