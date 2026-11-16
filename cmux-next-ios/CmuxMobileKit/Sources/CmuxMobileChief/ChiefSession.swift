@@ -715,7 +715,7 @@ public final class ChiefSession {
     }
 
     /// Messages handed to a store still coming up (``send(_:asksForAlerts:)``), until it
-    /// connects. Memory only: a backend swap puts their text in the next store's draft (``use(_:identity:)``).
+    /// connects. Memory only: a backend swap puts their text back in Chief's composer (``use(_:identity:)``).
     private var awaitingSender: [ConversationComposeMessage] = []
 
     /// A text message (Send Message… on a workspace or a tab, with its link at the start).
@@ -742,8 +742,13 @@ public final class ChiefSession {
         if let sink = unsentTextSink {
             sink.showUnsent(text)
         } else {
-            unsentText = unsentText.map { $0 + "\n" + text } ?? text
+            keepForNextScreen(text)
         }
+    }
+
+    /// Unsent text for the next Chief screen (``takeUnsentText()``), after what is kept already.
+    public func keepForNextScreen(_ text: String) {
+        unsentText = unsentText.map { $0 + "\n" + text } ?? text
     }
 
     /// Text kept for the next Chief screen (``keepUnsent(_:)``).

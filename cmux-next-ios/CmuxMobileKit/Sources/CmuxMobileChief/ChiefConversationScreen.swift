@@ -604,6 +604,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     func handOffComposer() {
         guard !handedOffComposer, isViewLoaded else { return }
         handedOffComposer = true
+        // Its field is handed off: unsent text waits for the screen replacing it.
+        if session.unsentTextSink === self { session.unsentTextSink = nil }
         let focused = composerTextView?.isFirstResponder == true || composerFocusedWhenSceneLeft
         session.carryComposerText(composerTextView?.text ?? "", focused: focused)
     }
@@ -892,8 +894,8 @@ extension ChiefSession {
 extension ChiefConversationContainer: ChiefUnsentTextSink {
     /// A message Chief could not send, back in the field (no outbox), after what is typed.
     public func showUnsent(_ text: String) {
-        guard let field = composerTextView else {
-            session.carryComposerText(text)
+        guard let field = composerTextView, !handedOffComposer else {
+            session.keepForNextScreen(text)
             return
         }
         field.text = field.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : field.text + "\n" + text
