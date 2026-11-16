@@ -374,3 +374,40 @@ fn only_a_tailnet_node_this_person_owns_joins_without_asking() {
     assert!(ask.message.contains("lab") && ask.message.contains("as leo"), "{ask:?}");
     one_line(&ask);
 }
+
+/// Design rule (b): the join script's non-interactive mode. No tty (`-T`), no prompt
+/// (`BatchMode`), `CMUX_JOIN_INTERACTIVE=0` so it asks for no vendor sign-in, and the token is
+/// stdin's first line, never in argv.
+#[test]
+fn the_install_runs_the_join_script_non_interactively() {
+    let plan = join_plan("ssh", ORIGIN, "gcp-3", None, TOKEN);
+    assert_eq!(plan.argv.get(1).map(String::as_str), Some("-T"), "{:?}", plan.argv);
+    assert!(plan.argv.iter().any(|w| w == "BatchMode=yes"));
+    let remote = plan.argv.last().unwrap();
+    assert!(remote.contains("CMUX_JOIN_INTERACTIVE=0 sh \"$f\""), "{remote}");
+    assert!(remote.starts_with("sh -c 'IFS= read -r t || exit 2;"), "{remote}");
+    assert_eq!(plan.stdin.as_deref().map(String::as_str), Some(format!("{TOKEN}\n").as_str()));
+    assert!(plan.argv.iter().all(|w| !w.contains(TOKEN)));
+}
+
+/// Design rule (b): after the token line stdin closes, so nothing the join script runs can wait
+/// on it or read a second line.
+#[tokio::test]
+async fn the_real_ssh_runner_closes_stdin_after_the_token_line() {
+    let script = "IFS= read -r t || exit 9; [ \"$t\" = token-line ] || exit 8; \
+                  if IFS= read -r more; then echo open; else echo closed; fi";
+    let plan = SshPlan {
+        argv: vec!["sh".into(), "-c".into(), script.into()],
+        stdin: Some(Zeroizing::new("token-line\n".into())),
+    };
+    let mut lines = Vec::new();
+    let ran = tokio::time::timeout(
+        Duration::from_secs(10),
+        ProcessSsh.run(plan, &mut |l: &str| lines.push(l.to_owned())),
+    )
+    .await
+    .expect("stdin was left open")
+    .unwrap();
+    assert_eq!(ran.code, 0, "{ran:?}");
+    assert_eq!(ran.stdout.trim(), "closed");
+}

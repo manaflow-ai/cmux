@@ -46,3 +46,23 @@ fn no_tailnet_still_lists_ssh_hosts_and_says_why() {
     assert_eq!(answer["candidates"][0]["name"], "lab");
     assert_eq!(answer["tailnet"]["error"], "Tailscale is not installed");
 }
+
+/// Design rule (a): one click joins without asking only a tailnet node the tailnet says this
+/// person owns. Any other host runs nothing until the person confirmed it, named with the login.
+#[test]
+fn a_host_the_person_does_not_own_on_the_tailnet_needs_a_confirmation_naming_host_and_login() {
+    use super::unconfirmed_answer;
+    let ask = unconfirmed_answer(false, "lab", |_| (false, Some("leo".into())))
+        .expect("an unowned host is asked about first");
+    assert_eq!(ask["ok"], false);
+    assert_eq!(ask["failure"]["kind"], "needs_confirmation");
+    assert_eq!(ask["confirm"], json!({"host": "lab", "login": "leo"}));
+    let next = ask["failure"]["next"].as_str().unwrap();
+    assert!(next.contains("lab") && next.contains("leo") && !next.contains('\n'), "{next}");
+
+    // An owned tailnet node joins on one click.
+    assert_eq!(unconfirmed_answer(false, "gcp-3", |_| (true, None)), None);
+    // A confirmed host joins without checking again.
+    let confirmed = unconfirmed_answer(true, "lab", |_| panic!("no check once confirmed"));
+    assert_eq!(confirmed, None);
+}

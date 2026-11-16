@@ -72,29 +72,24 @@ async fn join(conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
         name: text("name").map(str::to_owned),
         hub: text("hub").map(str::to_owned),
     };
-    // One click joins without asking only a tailnet node the tailnet says this person owns; any
-    // other host joins once the person confirmed it, named with the ssh login (`confirmed`).
-    if params.get("confirmed").and_then(Value::as_bool) != Some(true) {
+    let confirmed = params.get("confirmed").and_then(Value::as_bool) == Some(true);
+    if !confirmed {
         let probe_host = request.host.clone();
-        let (owned, login) = tokio::task::spawn_blocking(move || {
-            let owned = crate::tailnet::Tailnet::locate()
-                .and_then(|t| t.status())
-                .is_ok_and(|status| ssh_join::owned_tailnet_node(&status, &probe_host));
-            let login = if owned {
-                None
-            } else {
-                ssh_join::ssh_login(&ssh_join::ssh_program(), &probe_host)
-            };
-            (owned, login)
+        let ask = tokio::task::spawn_blocking(move || {
+            unconfirmed_answer(false, &probe_host, |host| {
+                let owned = crate::tailnet::Tailnet::locate()
+                    .and_then(|t| t.status())
+                    .is_ok_and(|status| ssh_join::owned_tailnet_node(&status, host));
+                let login =
+                    if owned { None } else { ssh_join::ssh_login(&ssh_join::ssh_program(), host) };
+                (owned, login)
+            })
         })
         .await
         .map_err(|_| RpcError::internal("the host check stopped"))?;
-        if !owned {
-            let failure = ssh_join::needs_confirmation(&request.host, login.as_deref());
-            return Ok(json!({
-                "ok": false, "joinId": join_id, "host": request.host, "seconds": 0,
-                "failure": failure, "confirm": {"host": request.host, "login": login},
-            }));
+        if let Some(mut ask) = ask {
+            ask["joinId"] = json!(join_id);
+            return Ok(ask);
         }
     }
     let progress_conn = Arc::clone(conn);
@@ -117,6 +112,29 @@ async fn join(conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     let mut answer = outcome.to_value();
     answer["joinId"] = json!(join_id);
     Ok(answer)
+}
+
+/// One click joins without asking only a tailnet node the tailnet says this person owns; any
+/// other host joins once the person confirmed it, named with its ssh login. `check` answers
+/// whether `host` is such a node and, when not, the login ssh would use. `Some` is the
+/// refusal that runs nothing (`needs_confirmation` with `confirm: {host, login}`).
+pub(super) fn unconfirmed_answer(
+    confirmed: bool,
+    host: &str,
+    check: impl FnOnce(&str) -> (bool, Option<String>),
+) -> Option<Value> {
+    if confirmed {
+        return None;
+    }
+    let (owned, login) = check(host);
+    if owned {
+        return None;
+    }
+    let failure = ssh_join::needs_confirmation(host, login.as_deref());
+    Some(json!({
+        "ok": false, "host": host, "seconds": 0,
+        "failure": failure, "confirm": {"host": host, "login": login},
+    }))
 }
 
 async fn candidates(hub: &Arc<Hub>) -> Result<Value, RpcError> {
