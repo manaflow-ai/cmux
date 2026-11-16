@@ -61,6 +61,22 @@ public final class WorkLine<Result: Sendable> {
         return turn
     }
 
-    /// A work of this line found its thing hidden at its turn (``targetsHiddenAtTheirTurn``).
-    public func noteTargetHiddenAtItsTurn() { targetsHiddenAtTheirTurn += 1 }
+    /// Waits for the thing that a work of this line acts on, and then for the work's turn: until `listed` holds, at most
+    /// `limit` (a timer of `owner`), then for `earlier`, the place before the work's (``WorkTurn/earlier``). The wait for
+    /// the earlier place gives time, so the thing can be hidden when the turn comes. While it is, and `mayReturn` holds
+    /// (what hid it has not ended, so it can come back), the work is counted (``targetsHiddenAtTheirTurn``) and waits for
+    /// the thing again, inside the same limit. A work that did not wait would act on nothing, and the thing would stay
+    /// off its place when it came back. True when the thing was listed inside the limit; the caller reads it again, as
+    /// it can be gone for good.
+    public func waitForTarget(after earlier: Task<Result, Never>?, listed: @escaping @MainActor @Sendable () -> Bool, mayReturn: @MainActor () -> Bool, limit: Duration, owner: String) async -> Bool {
+        let end = ContinuousClock.now + limit
+        if !listed() { await ObservationDeadline(owner: owner).until(listed, limit: limit) }
+        let found = listed()
+        _ = await earlier?.value // its own wait, then its work
+        while found, !listed(), mayReturn(), ContinuousClock.now < end {
+            targetsHiddenAtTheirTurn += 1
+            await ObservationDeadline(owner: owner).until(listed, limit: end - .now)
+        }
+        return found
+    }
 }

@@ -131,11 +131,9 @@ enum NewTabSlot {
         let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }, earlier = turn?.earlier
         let placement: ActionWork = Task { @MainActor in
             let listed: @MainActor @Sendable () -> Bool = { locate() != nil || pane().map { gone(services.daemon(for: $0).store) } == true } // a tab whose close settled first never lists
-            if !listed() { await ObservationDeadline(owner: "NewTabSlot.listed").until(listed, limit: listLimit) }
-            let found = listed()
-            _ = await earlier?.value // its own list wait, then its move's reply
-            // The read at the move's turn finds the tab hidden by a close that has not settled: counted, for a test.
-            if found, locate() == nil, let home = pane(), !gone(services.daemon(for: home).store) { services.paneController(for: home)?.placements.noteTargetHiddenAtItsTurn() }
+            // The list wait, then the earlier move (its own list wait, then its move's reply). A tab that a close hid meanwhile, with the close not settled, can come back: the line waits for it again.
+            let line = pane().flatMap { services.paneController(for: $0) }?.placements ?? WorkLine() // a pane with no controller has no line of moves: an empty line gives the same waits, and no one reads its count
+            let found = await line.waitForTarget(after: earlier, listed: listed, mayReturn: { pane() != nil }, limit: listLimit, owner: "NewTabSlot.listed")
             // A duplicate joins its original's group right after it, in one write that also puts it there.
             if found, let joins, case let (tab, pane)? = locate(), let joined = await TabGroupWrites.join(tab, beside: joins, in: pane, daemon: services.daemon(for: pane)) {
                 if !joined { services.paneController(for: pane)?.resyncStrip() }
