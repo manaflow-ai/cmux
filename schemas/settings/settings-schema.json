@@ -231,6 +231,7 @@
               "appearance.customDensity",
               "appearance.customDensities",
               "appearance.metrics.chromeFontSize",
+              "appearance.fontSmoothing",
               "appearance.metrics.sidebarRowHeight",
               "appearance.borders",
               "appearance.focusIndicator",
@@ -31157,6 +31158,162 @@
       "title" : {
         "key" : "settings.appearance.textSize",
         "text" : "Text Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "antialiased",
+        "system"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.fontSmoothingThin",
+            "text" : "Thin"
+          },
+          "value" : "antialiased"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.fontSmoothingSystem",
+            "text" : "System"
+          },
+          "value" : "system"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "antialiased",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.fontSmoothing.help",
+        "text" : "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.fontSmoothing",
+      "keywords" : [
+        "font",
+        "text",
+        "smoothing",
+        "antialiasing",
+        "antialiased",
+        "thin",
+        "bold",
+        "weight",
+        "rendering",
+        "crisp",
+        "AppleFontSmoothing"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "fontSmoothing"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.fontSmoothing"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.fontSmoothing",
+        "text" : "Text Smoothing"
       },
       "validation" : "portable"
     },
