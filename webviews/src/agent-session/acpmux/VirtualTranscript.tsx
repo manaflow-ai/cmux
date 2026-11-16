@@ -1191,6 +1191,11 @@ const OLDER_RECHECK_MS = 500;
 /// was a fraction of a second of a flick). The least of it: a reader scrolling up fast asks as far
 /// ahead as their speed covers in a page's read (conversation/olderAhead.ts).
 const OLDER_AHEAD_VIEWPORTS = 6;
+/// How near the loaded rows' foot, in viewports, newer history the client let go pages back in (`onLoadNewer`).
+const NEWER_AHEAD_VIEWPORTS = 2;
+/// How many viewports above and below the view the client keeps every row of while the reader is scrolled away
+/// (`onViewRows`, direct.ts `setViewRows`).
+const VIEW_KEEP_VIEWPORTS = 3;
 
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers.
@@ -1651,6 +1656,9 @@ function TranscriptView({
   inViewNow,
   heldWorkedClosing,
   onLoadOlder,
+  canLoadNewer = false,
+  onLoadNewer,
+  onViewRows,
   sends = 0,
   onFollowingChange,
   onJumpShownChange,
@@ -1732,6 +1740,15 @@ function TranscriptView({
   /// at once rather than with the pages read after it.
   /// `rising`: the reader is scrolling up as it asks (OlderAhead), so the page is a big one, with more read ahead.
   onLoadOlder?: (fill: boolean, rising: boolean) => Promise<void>;
+  /// The chat's newest records were let go while the reader scrolled up (AcpmuxSnapshot.canLoadNewer): newer pages
+  /// come in as the view nears the loaded rows' foot (`onLoadNewer`), and reaching that foot is not the latest row.
+  canLoadNewer?: boolean;
+  /// Pages newer history in below the loaded rows (canLoadNewer): asked once per loaded foot while the view is within
+  /// two screens of it.
+  onLoadNewer?: () => Promise<void>;
+  /// The rows at the ends of what the reader sees or is within three screens of, for the client's held window
+  /// (direct.ts `setViewRows`): none of them is let go while the reader is scrolled away.
+  onViewRows?: (first: string | undefined, last: string | undefined) => void;
   /// How many prompts this pane has sent: each new one puts the view at the latest message.
   sends?: number;
   /// Keeps the parent send path in sync with the reader's current follow state.
@@ -1937,6 +1954,9 @@ function TranscriptView({
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
   const followingRef = useRef(true);
+  /// `canLoadNewer` for the input listeners: at the loaded rows' foot with newer history let go, the view is not at
+  /// the latest row, so it does not follow.
+  const canLoadNewerRef = useRef(canLoadNewer);
   const followDeferred = useRef(false);
   /// A send or a move toward the latest row asks to follow now, through the input hold that defers
   /// follow-bottom. It lasts until the reader's next input (userScroll.ts `request`).
@@ -5901,7 +5921,7 @@ function TranscriptView({
     // arm it.
     const atEnd = next >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX;
     const readerReachedBottom =
-      !programmatic && readerMovedDown && next > was.top + 0.5 && (measured.atLatest || atEnd);
+      !canLoadNewer && !programmatic && readerMovedDown && next > was.top + 0.5 && (measured.atLatest || atEnd);
     scrolledTo.current = {
       top: next,
       atLatest: recentUp || (movedUp && !measured.atLatest) ? false : followingRef.current || readerReachedBottom,
@@ -6176,6 +6196,7 @@ function TranscriptView({
         (event?.type === "wheel" ||
           (event?.type === "keydown" && (event.target === node || event.target === node.ownerDocument.body))) &&
         !followingRef.current &&
+        !canLoadNewerRef.current &&
         jumpTarget.current === undefined &&
         node.clientHeight > 0 &&
         node.scrollTop >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX
@@ -6655,6 +6676,46 @@ function TranscriptView({
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   useEffect(() => () => clearTimeout(olderRecheck.current), []);
+  // Newer history the client let go while the reader scrolled up (canLoadNewer) pages back in as the view comes
+  // within two screens of the loaded rows' foot, once per foot (its last row): rows that land below the view move
+  // nothing on screen. An ask that brought nothing asks again on the reader's next scroll there.
+  const newerLoadKey = `${sessionKey}\u0000${rows.at(-1)?.id ?? ""}`;
+  const newerLoadRequested = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const node = ref.current;
+    if (!canLoadNewer || !onLoadNewer || !node || node.clientHeight === 0) {
+      newerLoadRequested.current = undefined;
+      return;
+    }
+    const below = node.scrollHeight - node.scrollTop - node.clientHeight;
+    if (below > NEWER_AHEAD_VIEWPORTS * node.clientHeight) {
+      newerLoadRequested.current = undefined;
+      return;
+    }
+    if (newerLoadRequested.current === newerLoadKey) return;
+    newerLoadRequested.current = newerLoadKey;
+    const asked = newerLoadKey;
+    const settled = () => {
+      if (newerLoadRequested.current === asked) newerLoadRequested.current = undefined;
+    };
+    onLoadNewer().then(settled, settled);
+  }, [canLoadNewer, height, onLoadNewer, newerLoadKey, renderScroll.top]);
+  canLoadNewerRef.current = canLoadNewer;
+  // The rows at the ends of what the reader sees or is within three screens of, for the client's held window: it
+  // never lets them go while the reader is scrolled away (direct.ts `setViewRows`). Told when they change.
+  const viewRowsKey = useRef("");
+  useEffect(() => {
+    const node = ref.current;
+    if (!onViewRows || !node || rows.length === 0 || height <= 0) return;
+    const top = layoutScrollTop(node);
+    const first = rows[visibleLayoutRange(layout, Math.max(0, top - VIEW_KEEP_VIEWPORTS * height), 0, 0).first];
+    const last =
+      rows[Math.min(rows.length - 1, visibleLayoutRange(layout, top + (VIEW_KEEP_VIEWPORTS + 1) * height, 0, 0).first)];
+    const key = `${first?.id ?? ""}\u0000${last?.id ?? ""}`;
+    if (key === viewRowsKey.current) return;
+    viewRowsKey.current = key;
+    onViewRows(first?.id, last?.id);
+  }, [onViewRows, rows, layout, height, renderScroll.top]);
   useEffect(() => {
     olderAhead.reset();
   }, [olderAhead, sessionKey]);

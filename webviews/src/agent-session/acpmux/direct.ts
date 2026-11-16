@@ -3653,6 +3653,17 @@ export class AcpmuxDirectClient {
   /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
   /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
   private following = true;
+  /// The rows at the ends of what the reader sees or is within three screens of (the pane says, `setViewRows`): a
+  /// shed while the reader is scrolled away never lets go of the records that drew them or any between
+  /// (`shedNewerHeld`, `shedOlderInView`). Undefined until the pane says.
+  private viewRows?: { first?: string; last?: string };
+  /// The newest held records were let go while the reader scrolled up (`shedNewerHeld`): the records after the held
+  /// window's newest are owed, read back by newer pages (`loadNewer`), and live records are not held meanwhile.
+  private newerOwed = false;
+  /// A newer page on its way (`loadNewer`).
+  private loadingNewer?: Promise<void>;
+  /// Jump to latest or a send while newer records are owed: the chat opening on its tail (`showLatest`).
+  private latestOpening?: Promise<unknown>;
   /// How many records the chat holds when it next tries to shed inside a turn (`apply`, `HELD_RETRY`).
   private shedRetryAt = 0;
   /// The seq of the record that opened the running turn (its prompt, or its `turn_started` with none open): a turn
@@ -4380,6 +4391,9 @@ export class AcpmuxDirectClient {
         this.chatRows.close();
         this.resetSessionState("left the store");
       }
+      // A reconnect while the chat's newest records were let go for a reader scrolled up (`shedNewerHeld`): what is
+      // held is not the chat's tail to resume from, so it opens on its tail, as Jump to latest would.
+      if (sessionId && this.newerOwed) this.resetSessionState("reconnect while scrolled up");
       const resumeAfter =
         (heldCopy && !heldCopy.own) || drawnEarly ? 0 : sessionId ? this.wholeSeq(sessionId) : this.lastSeq;
       // The attach asked with the list is the open's only while it is of the chat opened now, on
@@ -4569,6 +4583,9 @@ export class AcpmuxDirectClient {
     this.rowsPeer = undefined;
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
+    // An open reads the chat on its tail: nothing is owed after it, and a newer page in flight is dropped.
+    this.newerOwed = false;
+    this.loadingNewer = undefined;
     this.rows.clear();
     this.clearIndexedHistory();
     this.latestRecap = undefined;
@@ -4711,6 +4728,8 @@ export class AcpmuxDirectClient {
   private currentTail(whole = false): KeptTail | undefined {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
+    // Its newest records were let go while the reader scrolled up (`shedNewerHeld`): what is held is not its tail.
+    if (this.newerOwed) return undefined;
     const copy = whole && this.peerCopy?.sessionId === sessionId ? this.peerCopy : undefined;
     if (this.attachedGeneration !== this.selectionGeneration && !copy) return undefined;
     // The newest `KEPT_EVENTS` messages, counting each message's streamed chunks as one
@@ -5695,7 +5714,8 @@ export class AcpmuxDirectClient {
         limit: 5_000,
       });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-      const missed = records(result?.events);
+      // Past the held window's newest record while newer ones are owed: a newer page reads them (`loadNewer`).
+      const missed = this.notOwed(records(result?.events));
       mergeIntoHeld(this.events, missed);
       this.sawPrompts(missed);
       // Only what this page changed is folded again (`rebuild`'s `changedFrom`): past the cursor.
@@ -7868,6 +7888,19 @@ export class AcpmuxDirectClient {
     const copy = this.peerCopy;
     if (copy?.offline && !copy.attaching && copy.sessionId === event.sessionId && event.seq > copy.lastSeq) return;
     if (event.seq <= this.lastSeq) return;
+    // The reader scrolled up past where the newest held records were let go (`shedNewerHeld`): a live record is not
+    // held after the gap, it is owed, and a newer page reads it back (`loadNewer`). The composer's live state (the
+    // queue, a turn running) still moves with it.
+    if (this.newerOwed) {
+      this.lastSeq = event.seq;
+      if (event.dir === "mux") {
+        this.reduceLiveState(event);
+        if (event.kind === "turn_result") this.hostEndedTurn();
+        else if (event.kind === "turn_started") this.turnOpen = true;
+      }
+      this.emitInFrame(event.kind);
+      return;
+    }
     this.holdLive(event);
     this.sawPrompt(event);
     this.lastSeq = event.seq;
@@ -7896,6 +7929,168 @@ export class AcpmuxDirectClient {
   /// The pane's transcript follows its latest row, or the reader scrolled away (VirtualTranscript `following`).
   setFollowing(following: boolean): void {
     this.following = following;
+    // Back at the latest row (Jump to latest, a send, End) while the newest records are owed: the chat opens on its
+    // tail, as any open does (`showLatest`).
+    if (following && this.newerOwed) void this.showLatest();
+  }
+
+  /// The rows at the ends of what the reader sees or is within three screens of (VirtualTranscript): no shed while
+  /// the reader is scrolled away lets go of them or of any row between (`shedNewerHeld`, `shedOlderInView`).
+  setViewRows(first: string | undefined, last: string | undefined): void {
+    this.viewRows = { first, last };
+  }
+
+  /// Whether newer records than the held ones are owed (`shedNewerHeld`): the pane reads them as the reader nears
+  /// the held rows' foot (`loadNewer`).
+  get canLoadNewer(): boolean {
+    return this.newerOwed;
+  }
+
+  /// `added` less the records past the held window's newest while newer ones are owed: those are read in order by
+  /// newer pages (`loadNewer`), never merged after a gap.
+  private notOwed(added: EventRecord[]): EventRecord[] {
+    if (!this.newerOwed) return added;
+    const newest = this.events.at(-1)?.seq ?? -Infinity;
+    return added.filter((event) => event.seq <= newest);
+  }
+
+  /// The chat opens on its tail again: Jump to latest or a send while its newest records are owed shows the true
+  /// latest rows through the same open a switch to the chat makes (`select`), never a second path. One at a time.
+  private showLatest(): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!this.newerOwed || !sessionId) return Promise.resolve();
+    if (this.latestOpening) return this.latestOpening;
+    const opening: Promise<unknown> = this.select(sessionId)
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.latestOpening === opening) this.latestOpening = undefined;
+      });
+    this.latestOpening = opening;
+    return opening;
+  }
+
+  /// The row's place (its record's seq), or undefined when the pane named none or it is not held.
+  private viewSeq(id: string | undefined): number | undefined {
+    if (id === undefined) return undefined;
+    const order = this.rows.orderOf(id);
+    return Number.isFinite(order) ? order : undefined;
+  }
+
+  /// While the reader scrolls up a long chat, its newest held records are let go as older pages come in, so what it
+  /// holds stays bounded however far up it reads (Leo, 2026-11-14: "the dream is infinite chats of infinite length
+  /// with flat or no growth in cpu/memory/even disk"). Once it holds more than `HELD_RECORDS`, the cut keeps the
+  /// oldest `HELD_KEPT` records and every record through the newest row within three screens of the view
+  /// (`setViewRows`), then moves toward older records until no row and no subagent is drawn from records on both
+  /// sides of it, as `shedOlderHeld` does at the other end; a cut that would reach a row the reader is near is not
+  /// made. What leaves goes in place (`dropHeldRun`), no refold. The records after the cut are owed: live ones are
+  /// not held meanwhile, and newer pages read them back (`loadNewer`).
+  private shedNewerHeld(): void {
+    if (this.following || this.events.length <= HELD_RECORDS) return;
+    if (this.replayThrough !== undefined || this.snapshotHold || this.loadingNewer) return;
+    if (this.indexedPlaceholders?.size || this.indexedGaps.length > 0) return;
+    if (this.turnRepairOut || this.gapReads.size > 0) return;
+    const nearest = this.viewSeq(this.viewRows?.last);
+    if (nearest === undefined) return;
+    let cut = Math.max(HELD_KEPT, firstHeldFrom(this.events, Math.floor(nearest) + 1));
+    while (cut > 0 && cut < this.events.length) {
+      const { seq } = this.events[cut]!;
+      let from = this.rows.spanningFrom(seq);
+      for (const [id, first] of this.subagentFirstSeen)
+        if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
+      if (from >= seq) break;
+      const next = firstHeldFrom(this.events, from);
+      cut = next < cut ? next : cut - 1;
+    }
+    if (cut <= 0 || cut >= this.events.length || this.events[cut]!.seq <= nearest) return;
+    this.dropHeldRun(cut, this.events.length);
+    this.newerOwed = true;
+    // The live turn's dots go with its rows: the held rows end in history now.
+    this.rows.delete("typing");
+  }
+
+  /// A chat scrolled away from its latest row lets go of its oldest held records as newer pages come in below
+  /// (`loadNewer`), the way a followed one does (`shedOlderHeld`): only when every record that cut can drop is
+  /// older than the oldest row within three screens of the view (`setViewRows`), since its cut keeps at least the
+  /// newest `HELD_KEPT` records.
+  private shedOlderInView(): void {
+    if (this.following || this.events.length <= HELD_RECORDS) return;
+    const nearest = this.viewSeq(this.viewRows?.first);
+    const kept = this.events[this.events.length - HELD_KEPT]?.seq;
+    if (nearest === undefined || kept === undefined || nearest < kept) return;
+    this.following = true;
+    try {
+      this.shedOlderHeld();
+    } finally {
+      this.following = false;
+    }
+  }
+
+  /// Reads the newer page after the held window's newest record while newer records are owed (`shedNewerHeld`): the
+  /// reader is scrolling back down toward them (VirtualTranscript asks two screens from the held rows' foot). The
+  /// page folds at the foot in seq order; the held window is bounded, so its refold costs the same on every page.
+  /// Once a page reaches the chat's newest record, the chat holds live records again. A page that lands after the
+  /// chat or the held window changed is dropped.
+  loadNewer(): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!this.newerOwed || !sessionId) return Promise.resolve();
+    if (this.loadingNewer) return this.loadingNewer;
+    const generation = this.selectionGeneration;
+    const current = () =>
+      !this.closed && generation === this.selectionGeneration && this.selectedSessionId === sessionId && this.newerOwed;
+    const read = (async () => {
+      // A page that ends before a live record heard meanwhile reads on: at most a few reads an ask.
+      for (let reads = 0; reads < 4 && current(); reads += 1) {
+        const after = this.events.at(-1)?.seq ?? 0;
+        const result = await this.typed("_acpmux/events", {
+          sessionId,
+          afterSeq: after,
+          limit: OLDER_PAGE_RECORDS,
+          maxBytes: OLDER_PAGE_BYTES,
+        });
+        if (!current() || (this.events.at(-1)?.seq ?? 0) !== after) return;
+        const page = records(result?.events)
+          .filter((event) => event.seq > after)
+          .sort((left, right) => left.seq - right.seq);
+        const caughtUp = result?.hasMore !== true && (page.at(-1)?.seq ?? after) >= this.lastSeq;
+        if (page.length > 0) this.foldNewer(page, caughtUp);
+        else if (caughtUp) this.newerOwed = false;
+        if (caughtUp || result?.hasMore === true) break;
+      }
+      this.shedOlderInView();
+      this.emit("history");
+    })().finally(() => {
+      if (this.loadingNewer === read) this.loadingNewer = undefined;
+    });
+    this.loadingNewer = read;
+    return read;
+  }
+
+  /// Folds a newer page (`loadNewer`) below the held rows: merged at the foot and drawn again from the bounded held
+  /// window (`rebuildKeepingLiveState`), keeping the live summary, queue and permission. While newer records are
+  /// still owed the turn on the composer stays the live one, not the held foot's.
+  private foldNewer(page: EventRecord[], caughtUp: boolean): void {
+    const live = {
+      turnOpen: this.turnOpen,
+      turnStartedAtMs: this.turnStartedAtMs,
+      turnPromptAtMs: this.turnPromptAtMs,
+      turnPrompt: this.turnPrompt,
+      turnTokens: this.turnTokens,
+      turnTokenSplit: this.turnTokenSplit,
+      runningTurnId: this.runningTurnId,
+    };
+    mergeIntoHeld(this.events, page);
+    this.sawPrompts(page);
+    if (caughtUp) this.newerOwed = false;
+    this.rebuildKeepingLiveState(undefined, page[0]!.seq);
+    if (caughtUp) return;
+    this.turnOpen = live.turnOpen;
+    this.turnStartedAtMs = live.turnStartedAtMs;
+    this.turnPromptAtMs = live.turnPromptAtMs;
+    this.turnPrompt = live.turnPrompt;
+    this.turnTokens = live.turnTokens;
+    this.turnTokenSplit = live.turnTokenSplit;
+    this.runningTurnId = live.runningTurnId;
+    this.rows.delete("typing");
   }
 
   /// A chat left open lets go of its oldest records once it holds more than `HELD_RECORDS`, as a chat opened on
@@ -8118,7 +8313,7 @@ export class AcpmuxDirectClient {
             if (seq > endSeq) break;
             held.add(seq);
           }
-          const missing = stored.filter((event) => !held.has(event.seq));
+          const missing = this.notOwed(stored).filter((event) => !held.has(event.seq));
           if (missing.length === 0) return;
           let from = Infinity;
           for (const event of missing) from = Math.min(from, event.seq);
@@ -11178,6 +11373,7 @@ export class AcpmuxDirectClient {
       catalog: NO_CATALOG,
       commands: this.commands,
       canLoadOlder: fromStore ? fromStore.canLoadOlder : this.seqHistoryLeft() || this.nativeBefore() !== undefined,
+      ...(!fromStore && this.newerOwed ? { canLoadNewer: true as const } : {}),
       ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
       ...(this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),
       historyFrom: this.firstSeq,
@@ -11465,6 +11661,9 @@ export class AcpmuxDirectClient {
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
     ({ text: input, attachments } = liftInlineImages(input, attachments));
+    // A send while the chat's newest records are owed (`shedNewerHeld`) opens it on its tail first, so the prompt
+    // lands under the true latest rows.
+    if (this.newerOwed) await this.showLatest();
     // A chat opening (a switch) is drawn first: the prompt goes to it once it shows, never while the
     // pane still draws the chat before.
     while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
@@ -15503,6 +15702,8 @@ export class AcpmuxDirectClient {
       )
         this.foldOlder(page);
       else this.rebuildKeepingLiveState();
+      // The reader is scrolling up: the newest held records, far below the view, go (`shedNewerHeld`).
+      this.shedNewerHeld();
       this.historyExhausted = false;
       this.emit("history");
     };

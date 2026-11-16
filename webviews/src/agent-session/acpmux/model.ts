@@ -1473,6 +1473,11 @@ export type AcpmuxSnapshot = {
   }[];
   canLoadOlder: boolean;
   /**
+   * The chat's newest records were let go while the reader scrolled up (direct.ts `shedNewerHeld`): newer pages
+   * read them back as the reader nears the held rows' foot (`loadNewer`). Absent otherwise.
+   */
+  canLoadNewer?: boolean;
+  /**
    * The chat's prompts older than the rows it holds, from acpmux's prompt index (one read at open):
    * the thread rail lays out every turn from the first frame, and pages loaded later fill them in
    * instead of adding ticks. Each is a `user` row (`user-<seq>`, its promptId and the start of its

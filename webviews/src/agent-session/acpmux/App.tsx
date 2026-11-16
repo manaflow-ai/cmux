@@ -6902,6 +6902,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     )
       releaseCalls();
   }, []);
+  /// Newer history the client let go while the reader scrolled up (direct.ts `loadNewer`), and the rows near the view
+  /// it keeps meanwhile (`setViewRows`): one function each for the pane's life.
+  const loadNewerHistory = useCallback(() => directClient.current?.loadNewer() ?? Promise.resolve(), []);
+  const tellViewRows = useCallback(
+    (first: string | undefined, last: string | undefined) => directClient.current?.setViewRows(first, last),
+    [],
+  );
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
     if (handle && pendingWake.current) {
@@ -11720,6 +11727,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                                 rising,
                                                                               ) ?? Promise.resolve()
                                                                           : undefined
+                                                                    }
+                                                                    canLoadNewer={
+                                                                      !workflowTranscript.rows &&
+                                                                      !childRows &&
+                                                                      snapshot.canLoadNewer === true
+                                                                    }
+                                                                    onLoadNewer={
+                                                                      workflowTranscript.rows || childRows
+                                                                        ? undefined
+                                                                        : loadNewerHistory
+                                                                    }
+                                                                    onViewRows={
+                                                                      workflowTranscript.rows || childRows
+                                                                        ? undefined
+                                                                        : tellViewRows
                                                                     }
                                                                     openAt={
                                                                       !childRows &&
