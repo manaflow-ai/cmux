@@ -29,31 +29,34 @@ struct ScreenStreamCursorTests {
 
     @Test func theTelepointersPickTheShapeTheyName() throws {
         var cache = ScreenStreamCursorCache()
-        #expect(!cache.select(nil), "a Mac that sends no shapes: no change")
+        func select(_ id: String?) -> Bool { cache.select(id) }
+        func add(_ id: String) throws -> Bool { cache.add(try Self.cursor(id)) }
+        #expect(!select(nil), "a Mac that sends no shapes: no change")
         #expect(cache.current == nil)
-        #expect(!cache.add(try Self.cursor("arrow")), "not named yet")
-        #expect(cache.select("arrow") && cache.current?.id == "arrow")
-        #expect(!cache.select("arrow"), "unchanged")
+        #expect(try !add("arrow"), "not named yet")
+        #expect(select("arrow") && cache.current?.id == "arrow")
+        #expect(!select("arrow"), "unchanged")
         // Named before it arrived (telepointers are unordered): the arrow stays until it does.
-        #expect(!cache.select("ibeam") && cache.current?.id == "arrow")
-        #expect(cache.add(try Self.cursor("ibeam")) && cache.current?.id == "ibeam")
-        #expect(cache.select("arrow") && cache.current?.id == "arrow", "back to a shape it has")
+        #expect(!select("ibeam") && cache.current?.id == "arrow")
+        #expect(try add("ibeam") && cache.current?.id == "ibeam")
+        #expect(select("arrow") && cache.current?.id == "arrow", "back to a shape it has")
         cache.reset()
-        #expect(cache.current == nil && !cache.select("ibeam"), "a new stream starts over")
+        #expect(cache.current == nil && !select("ibeam"), "a new stream starts over")
     }
 
     /// The viewer keeps every shape the host remembers sending (64), and
     /// more: naming a shape keeps it, as the host's own memory does.
     @Test func theCacheKeepsWhatTheHostRemembers() throws {
         var cache = ScreenStreamCursorCache()
+        func select(_ id: String) -> Bool { cache.select(id) }
         _ = cache.add(try Self.cursor("arrow"))
         for index in 0 ..< ScreenStreamCursorCache.capacity + 10 {
             _ = cache.add(try Self.cursor("s\(index)"))
             if index % 8 == 0 { _ = cache.select("arrow") }
         }
-        #expect(cache.select("s20") && cache.current?.id == "s20")
-        #expect(cache.select("arrow") && cache.current?.id == "arrow", "named often: still here")
-        #expect(!cache.select("s0") && cache.current?.id == "arrow", "the oldest unnamed one left: the arrow stays")
+        #expect(select("s20") && cache.current?.id == "s20")
+        #expect(select("arrow") && cache.current?.id == "arrow", "named often: still here")
+        #expect(!select("s0") && cache.current?.id == "arrow", "the oldest unnamed one left: the arrow stays")
     }
 
     /// A 28x40-point arrow on a 1512x982-point Mac streamed at 3024x1964:

@@ -76,15 +76,16 @@ struct CursorShapeTests {
 
     @Test func theHostSendsAShapeOnceUntilItForgetsIt() {
         var sent = ScreenStreamHost.SentCursorShapes()
-        #expect(sent.needsSend("arrow"))
-        #expect(!sent.needsSend("arrow"), "already sent")
-        for index in 0 ..< ScreenStreamHost.SentCursorShapes.capacity - 1 { #expect(sent.needsSend("s\(index)")) }
-        #expect(!sent.needsSend("arrow"), "used again: newest")
-        #expect(sent.needsSend("one more"))
-        #expect(sent.needsSend("s0"), "the oldest was forgotten and goes again")
+        func send(_ id: String) -> Bool { sent.needsSend(id) }
+        #expect(send("arrow"))
+        #expect(!send("arrow"), "already sent")
+        for index in 0 ..< ScreenStreamHost.SentCursorShapes.capacity - 1 { #expect(send("s\(index)")) }
+        #expect(!send("arrow"), "used again: newest")
+        #expect(send("one more"))
+        #expect(send("s0"), "the oldest was forgotten and goes again")
         #expect(sent.ids.count == ScreenStreamHost.SentCursorShapes.capacity)
         sent.reset()
-        #expect(sent.needsSend("arrow"), "another display: sent again")
+        #expect(send("arrow"), "another display: sent again")
     }
 
     /// macOS's cursor shadow, from the window server's cursor plists.
