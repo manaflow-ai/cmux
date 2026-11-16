@@ -343,18 +343,17 @@ impl RawWriter {
             return Err(self.rollback(start, index_start, error));
         }
         self.offset = end;
-        if self.offset.saturating_sub(self.last_index_offset) >= RAW_INDEX_BYTES
-            || line.len() as u64 >= RAW_INDEX_BYTES
+        if (self.offset.saturating_sub(self.last_index_offset) >= RAW_INDEX_BYTES
+            || line.len() as u64 >= RAW_INDEX_BYTES)
+            && let Some(index) = &mut self.index
         {
-            if let Some(index) = &mut self.index {
-                if let Err(error) = index
-                    .write_all(&seq.to_le_bytes())
-                    .and_then(|_| index.write_all(&start.to_le_bytes()))
-                {
-                    return Err(self.rollback(start, index_start, error));
-                }
-                self.last_index_offset = start;
+            if let Err(error) = index
+                .write_all(&seq.to_le_bytes())
+                .and_then(|_| index.write_all(&start.to_le_bytes()))
+            {
+                return Err(self.rollback(start, index_start, error));
             }
+            self.last_index_offset = start;
         }
         self.unsynced = true;
         let due = sync_now || self.last_sync.elapsed() >= Duration::from_secs(1);
