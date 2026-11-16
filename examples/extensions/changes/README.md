@@ -26,13 +26,16 @@ Settings > Apps > Changes > Show:
 - `cmux.watch("github.changes", params)` does every read. It is one read per (source, params) for
   every window that shows the section, and it stops when the section is gone.
 - Every GitHub read is a conditional request (`If-None-Match`): a pull request that did not change
-  is answered from its ETag and costs GitHub nothing. The section never sets a timer; GitHub
-  webhooks re-read it as checks flip where cmux Cloud relays them, else the source re-reads every
-  60 s at most.
+  is answered from its ETag and costs your rate limit nothing. The section never sets a timer;
+  the source re-reads every 60 s at most (pushed by GitHub webhooks through cmux Cloud once
+  `github.changed` lands, #44146).
 - GitHub access is one scope, `integration:github:read`, approved once on the install card. The
   reads go through your GitHub sign-in in cmux (today the `gh` CLI's; private repositories
-  included) and the token never reaches this extension's code. Without a sign-in it reads public
-  repositories through GitHub's public API (`net:api.github.com`).
+  included) and the token never reaches this extension's code.
+- Without a sign-in it reads public repositories through GitHub's public API, once you grant
+  `net:api.github.com` in Settings > Apps > Changes. That API allows 60 requests an hour, so this
+  route shows at most 5 rows with their checks (no review state) and refreshes every 5 to 15
+  minutes. Set the GitHub login setting so "My open pull requests" knows who you are.
 
 ## Looks
 
