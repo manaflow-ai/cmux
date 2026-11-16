@@ -180,7 +180,7 @@ describe("the editor", () => {
     expect(rowElement(page!.container, LINES_KEY).dataset.kind).toBe("json");
     const first = editor().querySelector('[data-layout-line="0"] .row-layout-chip')!;
     expect(first.hasAttribute("data-pinned")).toBe(true);
-    expect(first.textContent).toBe("Name");
+    expect(first.querySelector(".row-layout-chip-name")!.textContent).toBe("Name");
     expect(chips(0)).toEqual(["branch"]);
     expect(chips(1)).toEqual(["agentStatus"]);
     const icon = editor().querySelector<HTMLButtonElement>('[data-slot="icon"]')!;
@@ -197,13 +197,18 @@ describe("the editor", () => {
     await click(editor().querySelector('[data-slot="working"]')!);
     expect(sets(LINES_KEY).at(-1)!.value).toEqual([["icon", "name", "branch", "working"], ["agentStatus"]]);
     // Option-Down takes Git Branch to the end of line two.
-    await fire(editor().querySelector('[data-chip="branch"]')!, "keydown", { key: "ArrowDown", altKey: true });
+    await fire(editor().querySelector('[data-chip="branch"] .row-layout-chip-grab')!, "keydown", {
+      key: "ArrowDown",
+      altKey: true,
+    });
     expect(sets(LINES_KEY).at(-1)!.value).toEqual([
       ["icon", "name", "working"],
       ["agentStatus", "branch"],
     ]);
     expect(chips(1)).toEqual(["agentStatus", "branch"]);
-    await fire(editor().querySelector('[data-chip="agentStatus"]')!, "keydown", { key: "Delete" });
+    await fire(editor().querySelector('[data-chip="agentStatus"] .row-layout-chip-grab')!, "keydown", {
+      key: "Delete",
+    });
     expect(sets(LINES_KEY).at(-1)!.value).toEqual([["icon", "name", "working"], ["branch"]]);
   });
 
