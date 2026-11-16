@@ -73,6 +73,90 @@ async fn daemon_hello(socket: &std::path::Path) {
         .expect("daemon hello timed out");
 }
 
+/// Reads v1's status gauges over a fresh connection after the readiness clock has ended.
+async fn daemon_status(socket: &std::path::Path) -> serde_json::Value {
+    tokio::time::timeout(Duration::from_secs(30), daemon_status_inner(socket))
+        .await
+        .expect("status request timed out")
+}
+
+async fn daemon_status_inner(socket: &std::path::Path) -> serde_json::Value {
+    let mut client = UnixStream::connect(socket).await.expect("connect status daemon");
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "_acpmux/status",
+        "params": {}
+    });
+    client.write_all(format!("{request}\n").as_bytes()).await.expect("send status request");
+    let bytes = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut bytes = Vec::new();
+        loop {
+            let byte = client.read_u8().await.expect("read status response");
+            if byte == b'\n' {
+                break;
+            }
+            bytes.push(byte);
+        }
+        bytes
+    })
+    .await
+    .expect("read status response timed out");
+    let reply: serde_json::Value = serde_json::from_slice(&bytes).expect("status response JSON");
+    assert_eq!(reply.get("id"), Some(&json!(1)), "status response id");
+    assert!(reply.get("error").is_none(), "status request failed: {reply}");
+    let startup = reply
+        .pointer("/result/gauges/startup")
+        .and_then(serde_json::Value::as_array)
+        .expect("status gauges startup array");
+    for name in ["store open", "hub construct"] {
+        let phase = startup.iter().find(|phase| phase["name"] == name).unwrap_or_else(|| {
+            panic!("status gauges missing completed phase {name:?}: {startup:?}")
+        });
+        assert!(
+            phase["ms"].as_u64().is_some(),
+            "status gauges phase {name:?} was not complete: {phase}"
+        );
+    }
+    reply["result"].clone()
+}
+
+fn startup_phase_summary(samples: &[serde_json::Value]) -> serde_json::Value {
+    let mut by_name: BTreeMap<String, (Vec<u64>, Vec<u64>)> = BTreeMap::new();
+    for startup in samples {
+        for phase in startup.as_array().into_iter().flatten() {
+            let (Some(name), Some(at_ms), Some(ms)) =
+                (phase["name"].as_str(), phase["atMs"].as_u64(), phase["ms"].as_u64())
+            else {
+                continue;
+            };
+            let (at_values, ms_values) = by_name.entry(name.to_owned()).or_default();
+            at_values.push(at_ms);
+            ms_values.push(ms);
+        }
+    }
+    let p95 = |values: &mut Vec<u64>| {
+        values.sort_unstable();
+        values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
+    };
+    serde_json::Value::Object(
+        by_name
+            .into_iter()
+            .map(|(name, (mut at_values, mut ms_values))| {
+                let samples = at_values.len();
+                (
+                    name,
+                    json!({
+                        "samples": samples,
+                        "atMsP95": p95(&mut at_values),
+                        "msP95": p95(&mut ms_values),
+                    }),
+                )
+            })
+            .collect(),
+    )
+}
+
 async fn daemon_hello_inner(socket: &std::path::Path) {
     let mut client = tokio::time::timeout(Duration::from_secs(30), UnixStream::connect(socket))
         .await
@@ -122,6 +206,8 @@ fn v2_pr09_listen_start() {
     let fixture_build_seconds = fixture_started.elapsed().as_secs_f64();
     let mut small = Vec::with_capacity(ROUNDS);
     let mut god = Vec::with_capacity(ROUNDS);
+    let mut startup_phases =
+        [Vec::with_capacity(ROUNDS * SAMPLES), Vec::with_capacity(ROUNDS * SAMPLES)];
     let mut forced_kills = 0;
     for round in 0..ROUNDS {
         let mut small_round = Vec::with_capacity(SAMPLES);
@@ -137,6 +223,10 @@ fn v2_pr09_listen_start() {
                 let runtime = tokio::runtime::Runtime::new().expect("gate runtime");
                 runtime.block_on(daemon_hello(&daemon.socket));
                 assert!(daemon.ready.contains("\"ready\":true"));
+                let side = if chats == 527 { 1 } else { 0 };
+                startup_phases[side].push(
+                    runtime.block_on(daemon_status(&daemon.socket))["gauges"]["startup"].clone(),
+                );
                 forced_kills += usize::from(daemon.stop());
             }
         }
@@ -152,6 +242,17 @@ fn v2_pr09_listen_start() {
     let small_p95 = best_p95(&small);
     let god_p95 = best_p95(&god);
     let god_p95_all = all_p95(&god);
+    eprintln!(
+        "v2.pr09.listen_start startup phases small={} god={}",
+        startup_phase_summary(&startup_phases[0]),
+        startup_phase_summary(&startup_phases[1])
+    );
+    assert_eq!(forced_kills, 0, "daemon required force-kill during orderly gate stop");
+    assert_eq!(chat_count(&god_fixture.path().join("sessions")), 527, "god fixture chats");
+    assert!(
+        file_bytes(&god_fixture.path().join("sessions")) >= 4 * 1024 * 1024 * 1024,
+        "god fixture store size"
+    );
     let line = json!({
         "name": "v2.pr09.listen_start",
         "small_p95": small_p95,
@@ -176,12 +277,6 @@ fn v2_pr09_listen_start() {
     assert!(small_p95 > 0);
     assert!(god_p95 <= 100_000_000, "god listener startup exceeded 100 ms");
     assert!(god_p95_all <= 100_000_000, "all god listener samples exceeded 100 ms");
-    assert_eq!(forced_kills, 0, "daemon required force-kill during orderly gate stop");
-    assert_eq!(chat_count(&god_fixture.path().join("sessions")), 527, "god fixture chats");
-    assert!(
-        file_bytes(&god_fixture.path().join("sessions")) >= 4 * 1024 * 1024 * 1024,
-        "god fixture store size"
-    );
 }
 
 #[path = "../benches/v2/mod.rs"]

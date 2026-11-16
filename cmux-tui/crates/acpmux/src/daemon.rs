@@ -359,6 +359,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // v1 store/session startup continues below this bind boundary.
     let mut v2_tasks = tokio::task::JoinSet::new();
     let v2 = v2_handle(&config);
+    let v2_start = v2.as_ref().is_some_and(|v2| v2.allows_surfaces(&["start"]));
 
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
@@ -469,7 +470,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         }
     }
 
-    let store = crate::store::open(&config.store, &home())?;
+    let store = {
+        let _phase = v2_start.then(|| gauges.phase("store open"));
+        crate::store::open(&config.store, &home())?
+    };
     let mut moved_listener = false;
     let ws_listener = match &ws {
         // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that
@@ -595,7 +599,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         });
     }
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
-    let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    let hub = {
+        let _phase = v2_start.then(|| gauges.phase("hub construct"));
+        Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone())
+    };
     if let Some(v2) = v2.as_ref() {
         let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
         hub.install_v2_tee(tee);
