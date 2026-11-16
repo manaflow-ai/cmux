@@ -1399,7 +1399,7 @@ mod tests {
                 created: 1,
             },
         );
-        let rows = (0..201).map(|index| json!({"chatId": format!("c{index}"), "origin": "local", "updatedMs": index})).collect();
+        let rows = (1..=201).map(|index| json!({"chatId": format!("c{index}"), "origin": "local", "updatedMs": index})).collect();
         let page = crate::wire::PageResult {
             sid: "s".into(),
             rows,
