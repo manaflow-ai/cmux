@@ -2383,3 +2383,9 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   the footer fade's `.hover` duration on `Motion.fadeCurve`, on the window's MotionClock; the footer fades in place.
   `sidebar.spacesVisibility` Always keeps the room. Regression: `MinimalModeFooterCollapseTests`.
   Sidebar-Look: for minimal mode there is more space at bottom we can use when mouse is not hovered in sidebar.
+
+- 2026-11-17 (Lucas, CI repair approval for #44449): Search uses the displayed avatar-band row height for its
+  hit target and trailing clearance. Now Playing keeps the first transport button inside the card at small
+  densities. The shared trailing column still reserves the local Share Screen action. Regression coverage:
+  `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
+  Sidebar-Look: every density is Default scaled by one factor.

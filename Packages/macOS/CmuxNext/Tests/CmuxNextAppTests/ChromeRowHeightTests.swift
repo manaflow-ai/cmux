@@ -13,12 +13,9 @@ import Testing
 /// first tab. also the sizes of the icons/omnibar etc should match the tabbar tab height, which
 /// should match the workspace row height, at all density levels").
 ///
-/// At every density preset and every `sidebar.density`, a real tab strip and a real browser chrome
-/// are laid out in a window: the tab pill, the back button and the omnibar are each as tall as a
-/// one-line sidebar workspace row (``SidebarRowTokens``), the back arrow's ink is the tab icon's
-/// side, and its leftmost ink sits on the first tab icon's box (the box every tab icon shares). Base drew a 24 pt tab beside a 28 pt
-/// omnibar and back button at Compact (30 / 34 / 32 at Comfortable), and the arrow's 12 pt ink
-/// beside the tab's 14 pt icon.
+/// Real tab strips and browser chrome keep that alignment at every preset and `sidebar.density`.
+/// Tabs follow the visible workspace row; the omnibar and its buttons scale Default's 29 pt reference,
+/// and the toolbar glyphs scale the Compact Helium calibration independently of the row-height exceptions.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ChromeRowHeightTests {
     private func load(_ preset: DensityPreset, _ sidebar: SidebarDensity) {
         DesignSettings.shared.densityTokens = preset.tokens
@@ -99,8 +96,8 @@ import Testing
         return inkSpan(rep, pointWidth: size.width)
     }
 
-    /// The tab pill is the density's tab and the back button and omnibar its location bar: Helium's 28 pt at Default,
-    /// Chrome's 28 pt tab and 34 pt bar at Comfortable (Lucas 2026-11-14). The compact densities keep one row for all.
+    /// Tabs follow the visible sidebar row, including sidebar settings. The omnibar and its buttons scale
+    /// Default's separate 29 pt location bar, independent of the specified row-height exceptions.
     @Test(arguments: DensityPreset.allCases, SidebarDensity.allCases)
     func tabNavigationAndOmnibarTakeTheDensitysHeights(preset: DensityPreset, sidebar: SidebarDensity) throws {
         defer { reset() }
@@ -119,9 +116,9 @@ import Testing
         #expect(abs(back.height - omnibar) <= 0.5, "\(label), back button \(back.height)")
         #expect(abs(back.width - omnibar) <= 0.5, "\(label), back button is square: \(back.width)")
         #expect(abs(bar.height - omnibar) <= 0.5, "\(label), omnibar \(bar.height)")
-        if preset == .compact || preset == .ultraCompact {
-            #expect(abs(pill.height - row) <= 0.5 && abs(bar.height - row) <= 0.5, "\(label): one row for all")
-        }
+        #expect(abs(pill.height - row) <= 0.5, "\(label): the tab follows the visible row")
+        let expectedBar = (29 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+        #expect(abs(bar.height - expectedBar) <= 0.5, "\(label): the bar scales Default's 29 pt reference")
     }
 
     @Test(arguments: DensityPreset.allCases)
@@ -154,10 +151,11 @@ import Testing
         #expect(arrowLeft >= iconLeft - 0.75, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
         #expect(arrowLeft <= iconLeft + 0.75 || OmnibarStyle.toolbarInset == 0,
                 "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
-        // The arrow's ink is a point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13: the arrows were
-        // bigger than Helium's), not the tab icon's box.
+        // Compact's 14 pt reload ink calibrates the shared toolbar box (0.617 of its side); the back arrow's
+        // keyline fills 0.6 of that box. Both scale from Default, independently of the small-icon fallback.
         let arrowWidth = arrowInk.upperBound - arrowInk.lowerBound
-        let ink = DensityTokens.toolbarGlyphInk(smallIcon: Metrics.smallIconSize)
+        let box = ((14 / 0.9 / 0.617) * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+        let ink = box * DensityTokens.toolbarGlyphInkRatio
         #expect(abs(arrowWidth - ink) <= 1, "\(preset): back arrow ink \(arrowWidth) wide, want \(ink)")
     }
 }

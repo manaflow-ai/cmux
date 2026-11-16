@@ -47,7 +47,6 @@ const REFERENCE_TOKENS: Record<string, number> = {
   sidebarLineBoxBaseline: 1,
   sidebarIconColumn: 16.5,
   sidebarIconGap: 7,
-  tabIconLeading: 7,
   tabIconSize: 16.5,
   tabIconTitleGap: 7,
   tabGap: 3,
