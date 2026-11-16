@@ -118,6 +118,7 @@ probe() {
   trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
+  quiesce "$app" "$side" "$label"
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
       >>"$out/xctrace.log" 2>&1 &
@@ -135,6 +136,27 @@ probe() {
     python3 -I "$out/profile.py" "$trace" "${line#LR-RUN }" "$side" 2>>"$out/xctrace.log" || echo "LR-PROFILE $side no profile (xctrace.log)"
   fi
   [[ "$line" != *'"error"'* ]]
+}
+
+# quiesce APP SIDE LABEL: before a launch, wait until no process of APP's previous run is left (the app and its
+# Chromium helpers: anything running from APP/Contents/MacOS or APP/Contents/Frameworks), at most 60 s, then 2 s
+# more. The probe returns once the app's own pid exits; without this wait the next launch started while that copy's
+# helpers were still tearing down, and every number counted it. The daemons in Contents/Resources/bin are left
+# alone: a quit keeps them by design, so a person's relaunch finds them running too. Prints LR-SETTLE.
+quiesce() {
+  local app="$1" side="$2" label="$3" started now left waited
+  started="$(python3 -I -c 'import time; print(int(time.time() * 1000))')"
+  while :; do
+    # The paths come in through the environment: in awk's own arguments, awk would match its own command line.
+    left="$(LR_MACOS="$app/Contents/MacOS/" LR_FRAMEWORKS="$app/Contents/Frameworks/" ps -axo command= \
+      | awk 'index($0, ENVIRON["LR_MACOS"]) || index($0, ENVIRON["LR_FRAMEWORKS"]) { n++ } END { print n + 0 }')"
+    now="$(python3 -I -c 'import time; print(int(time.time() * 1000))')"
+    waited=$((now - started))
+    [[ "$left" == 0 || "$waited" -ge 60000 ]] && break
+    sleep 0.1
+  done
+  sleep 2
+  echo "LR-SETTLE $side $label waited_ms=$waited left=$left settle_s=2"
 }
 
 main "$@"; exit $?
