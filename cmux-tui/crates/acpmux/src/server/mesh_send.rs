@@ -179,7 +179,7 @@ fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>, claim: Option<
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
-        host: Some(crate::pairing::machine_name()),
+        host: Some(crate::pairing::mesh_host()),
         claim,
         ..Sender::default()
     }

@@ -319,7 +319,8 @@ async fn heartbeats(
     if !started(&hub, &mut stop).await {
         return;
     }
-    let host = crate::pairing::machine_name();
+    // The name it joined with, so two machines with one host name are two hosts on the mesh.
+    let host = crate::pairing::mesh_host();
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
     loop {

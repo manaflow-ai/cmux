@@ -257,8 +257,15 @@ fn find<'a>(key: &str, by_id: bool, rows: &'a [Value]) -> Result<Option<&'a Valu
 fn machine(row: &Value, on_hub: &dyn Fn(&str) -> bool) -> Result<JoinedMachine, Value> {
     let id = row.get_str("id").unwrap_or_default().to_owned();
     let name = row.get_str("name").unwrap_or(&id).to_owned();
-    // The hub knows it by the host name it heartbeats with; a label is only the list's.
-    let host = row.get_str("hostname").filter(|host| !host.is_empty()).unwrap_or(&name).to_owned();
+    // The hub knows it by the host name it heartbeats with: the name it joined with
+    // (`cmux device add HOST --name NAME`, a pasted line's CMUX_JOIN_NAME) on a current acpmux,
+    // which the hub lists, else its host name, as an older acpmux heartbeats.
+    let hostname = row.get_str("hostname").filter(|host| !host.is_empty());
+    let host = if on_hub(&name) || hostname.is_none() {
+        name.clone()
+    } else {
+        hostname.unwrap_or(&name).to_owned()
+    };
     let details = json!({"device": format!("{PREFIX}{id}"), "name": name, "host": host});
     match row.get_str("state") {
         Some("revoked") => Err(refusal(

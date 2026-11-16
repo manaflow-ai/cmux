@@ -1499,3 +1499,41 @@ fn the_line_device_add_prints_finds_the_machine_with_no_cmux_session() {
     // A name no joined machine has keeps the session's own refusal.
     assert_eq!(on("nowhere").unwrap_err()["code"], "daemon.unreachable");
 }
+
+/// Door A timing run: two Ubuntu VMs added as doora-vm-1 and doora-vm-2 both have the host
+/// name `ubuntu`. A current acpmux heartbeats with the name it joined with, so the hub lists
+/// `doora-vm-1`: the chat goes to that host, never to the shared host name.
+#[test]
+fn a_joined_machine_is_reached_by_the_name_it_joined_with_not_its_host_name() {
+    let rows = || {
+        Ok(vec![
+            json!({"kind": "joined", "id": "m_vm1", "name": "doora-vm-1", "hostname": "ubuntu",
+                   "state": "online"}),
+            json!({"kind": "joined", "id": "m_vm2", "name": "doora-vm-2", "hostname": "ubuntu",
+                   "state": "online"}),
+        ])
+    };
+    let hub = || {
+        vec![
+            json!({"name": "doora-vm-1", "connected": true, "via": "hub"}),
+            json!({"name": "doora-vm-2", "connected": true, "via": "hub"}),
+        ]
+    };
+    for (name, id) in [("doora-vm-1", "m_vm1"), ("doora-vm-2", "m_vm2")] {
+        let found = route_or_joined(
+            Some(name),
+            || {
+                route(
+                    Some(name),
+                    Reads {
+                        catalog: || Ok(catalog()),
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                    },
+                )
+            },
+            Sources { hub, rows },
+        );
+        assert_eq!(found, joined_at(Some(id), name, name));
+    }
+}
