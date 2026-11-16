@@ -1940,6 +1940,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_prepush_gate_watchdog.py
             python3 scripts/cmux-next/tests/test_prepush_window_freeze.py
             python3 scripts/cmux-next/tests/test_push_from_host.py
+            python3 scripts/cmux-next/tests/test_renderer_rest.py
             python3 scripts/cmux-next/tests/test_rj_fake_cli_agent.py
             python3 scripts/cmux-next/tests/test_script_storm_worker.py
             python3 scripts/cmux-next/tests/test_sidebar_churn_typed_terminal.py
