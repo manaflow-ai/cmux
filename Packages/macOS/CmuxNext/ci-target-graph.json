@@ -169,6 +169,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentList",
         "CmuxNextApps",
         "CmuxNextCloud",
         "CmuxNextCompat",
@@ -576,9 +577,7 @@
       "packages": [
         "CmuxHomeRender"
       ],
-      "reads": [
-        "web/"
-      ]
+      "reads": []
     },
     "CmuxNextBookmarks": {
       "kind": "regular",
@@ -1642,6 +1641,7 @@
       ],
       "packages": [],
       "reads": [
+        "cmux-tui/crates/acpmux/src/share_approval_vectors.json",
         "cmux-tui/crates/cmux-rd-proto/tests/vectors/app_lines.json"
       ]
     },
