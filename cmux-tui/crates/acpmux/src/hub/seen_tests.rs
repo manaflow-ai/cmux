@@ -89,6 +89,7 @@ async fn turns_that_end_while_background_work_runs_each_count() {
             "background": true
         }}),
         true,
+        crate::secret_scan::mask,
     );
     hub.refresh_work_below(&s);
     hub.mark_unread_unless_work_below(&s);
@@ -111,6 +112,7 @@ async fn coming_back_while_background_work_runs_tells_every_client_the_count_cle
             "background": true
         }}),
         true,
+        crate::secret_scan::mask,
     );
     hub.refresh_work_below(&s);
     hub.mark_unread_unless_work_below(&s);

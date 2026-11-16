@@ -645,6 +645,7 @@ mod tests {
                 "background": true
             }}),
             true,
+            crate::secret_scan::mask,
         );
         hub.refresh_work_below(&s);
         hub.mark_unread_unless_work_below(&s);

@@ -147,7 +147,7 @@ impl Hub {
             if let Some(mut e) = head.record()
                 && let Some(params) = e.msg.get_mut("params")
             {
-                tree.annotate_live(params, !replay);
+                tree.annotate_live(params, !replay, crate::secret_scan::mask);
             }
             true
         });

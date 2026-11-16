@@ -4,7 +4,7 @@ use super::*;
 
 fn annotate(tree: &mut SubagentTree, update: Value, live: bool) {
     let mut params = json!({"sessionId": "s1", "update": update});
-    tree.annotate_live(&mut params, live);
+    tree.annotate_live(&mut params, live, crate::secret_scan::mask);
 }
 
 /// manaflow-ai/cmux#25230: the background subagents a chat runs past its turn, from their
@@ -177,7 +177,7 @@ fn every_event_of_background_work_says_background() {
     tree.set_own(Some("s1"));
     let events = |tree: &mut SubagentTree, owner: &str, update: Value, live: bool| -> Vec<Value> {
         let mut params = json!({"sessionId": owner, "update": update});
-        tree.annotate_live(&mut params, live);
+        tree.annotate_live(&mut params, live, crate::secret_scan::mask);
         params
             .pointer("/_meta/acpmux/subagents")
             .and_then(Value::as_array)

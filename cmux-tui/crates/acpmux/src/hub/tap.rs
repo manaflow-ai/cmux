@@ -361,7 +361,11 @@ impl Hub {
                 let before = tree.background_running();
                 let running_before = tree.running_count();
                 tree.set_roots(own.iter().chain(&retired).map(String::as_str));
-                subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
+                subagent = tree.annotate_live(
+                    params,
+                    !kind.ends_with(".replay"),
+                    crate::secret_scan::mask,
+                );
                 background_changed = tree.background_running() != before;
                 running_changed = tree.running_count() != running_before;
                 drop(tree);

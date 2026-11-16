@@ -318,9 +318,9 @@ async fn a_paused_workflow_ends_as_paused() {
     let mut tree = SubagentTree::default();
     let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
         "subagentSessionId": "acp-1/toolu_w", "name": "Workflow"}});
-    tree.annotate(&mut spawn);
+    tree.annotate(&mut spawn, crate::secret_scan::mask);
     let mut end = json!({"sessionId": "acp-1", "update": ended[0].clone()});
-    tree.annotate(&mut end);
+    tree.annotate(&mut end, crate::secret_scan::mask);
     assert_eq!(end["_meta"]["acpmux"]["subagents"][0]["reason"], json!("paused"));
 }
 
@@ -444,11 +444,11 @@ fn workflow_agents_reach_clients_in_the_subagent_model() {
     let mut tree = SubagentTree::default();
     let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
         "subagentSessionId": "acp-1/toolu_w", "name": "Workflow", "task": "Workflow"}});
-    tree.annotate(&mut spawn);
+    tree.annotate(&mut spawn, crate::secret_scan::mask);
     let mut progress = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_progress",
         "subagentSessionId": "acp-1/toolu_w", "runId": "wf_4fe", "phases": [{"index": 1, "title": "Review"}],
         "workflowAgents": [{"index": 1, "state": "running", "label": "review:#1"}]}});
-    tree.annotate(&mut progress);
+    tree.annotate(&mut progress, crate::secret_scan::mask);
     assert_eq!(
         progress["_meta"]["acpmux"]["subagents"],
         json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "Workflow", "task": "Workflow", "runId": "wf_4fe",
@@ -534,11 +534,11 @@ fn progress_reaches_clients_in_the_subagent_model() {
     let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
         "subagentSessionId": "acp-1/toolu_w", "name": "Workflow", "task": "Workflow",
         "_meta": {"claude": {"subagentType": "workflow", "toolUseId": "toolu_w"}}}});
-    tree.annotate(&mut spawn);
+    tree.annotate(&mut spawn, crate::secret_scan::mask);
     let mut progress = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_progress",
         "subagentSessionId": "acp-1/toolu_w", "name": "probe", "tokens": 19738, "toolUses": 4, "elapsedMs": 3212,
         "action": "Count: n2", "agents": {"done": 1, "started": 3}}});
-    tree.annotate(&mut progress);
+    tree.annotate(&mut progress, crate::secret_scan::mask);
     assert_eq!(
         progress["_meta"]["acpmux"]["subagents"],
         json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "probe", "task": "Workflow", "tokens": 19738,
@@ -551,14 +551,14 @@ fn a_background_subagent_reaches_clients_marked_background() {
     let mut tree = SubagentTree::default();
     let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
         "subagentSessionId": "acp-1/toolu_b", "name": "Watch", "task": "Watch", "background": true}});
-    tree.annotate(&mut spawn);
+    tree.annotate(&mut spawn, crate::secret_scan::mask);
     assert_eq!(
         spawn["_meta"]["acpmux"]["subagents"],
         json!([{"id": "acp-1/toolu_b", "parent": null, "name": "Watch", "task": "Watch", "state": "running", "background": true}])
     );
     let mut moved = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_progress",
         "subagentSessionId": "acp-1/toolu_f", "background": true}});
-    tree.annotate(&mut moved);
+    tree.annotate(&mut moved, crate::secret_scan::mask);
     assert_eq!(
         moved["_meta"]["acpmux"]["subagents"],
         json!([{"id": "acp-1/toolu_f", "parent": null, "state": "running", "background": true}])

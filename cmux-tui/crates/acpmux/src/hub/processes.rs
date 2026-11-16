@@ -64,7 +64,30 @@ mod preview;
 #[path = "processes_preview_tests.rs"]
 mod process_preview_tests;
 
-impl ProcessTable {
+pub(super) trait ProcessTableMethods {
+    fn insert(&mut self, process: Process) -> usize;
+    fn find_tool(&self, tool: &str) -> Option<usize>;
+    fn find_id(&self, id: &str) -> Option<&Process>;
+    fn fold(
+        &mut self,
+        session: &Session,
+        params: &Value,
+        at: u64,
+        output: Option<&str>,
+    ) -> Option<usize>;
+    fn unused_id(&self, id: String) -> String;
+    fn upsert(&mut self, process: Process);
+    fn log(&mut self, i: usize) -> Process;
+    fn snapshot(&self) -> Vec<Process>;
+    fn page_snapshot(
+        &self,
+        limit: usize,
+        after: Option<&str>,
+    ) -> Result<(Vec<Process>, bool), RpcError>;
+    fn lose_running(&mut self, at: u64, reason: &str, logged: bool) -> Vec<Process>;
+}
+
+impl ProcessTableMethods for ProcessTable {
     /// All appends go here, including records replayed from a logged process update.
     fn insert(&mut self, process: Process) -> usize {
         let at = self.processes.len();

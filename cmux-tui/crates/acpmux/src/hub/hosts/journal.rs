@@ -198,7 +198,9 @@ impl Hub {
             };
             let subagents_own = e.dir == "in"
                 && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
-                && e.msg.get_mut("params").is_some_and(|p| subagents.annotate(p).is_some());
+                && e.msg
+                    .get_mut("params")
+                    .is_some_and(|p| subagents.annotate(p, crate::secret_scan::mask).is_some());
             if e.dir == "mux" {
                 let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
                 match e.kind.as_str() {
