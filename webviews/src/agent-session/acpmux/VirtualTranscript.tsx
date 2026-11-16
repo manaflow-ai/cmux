@@ -63,6 +63,7 @@ import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { besideMask } from "./conversation/besideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
@@ -2449,6 +2450,45 @@ function TranscriptView({
     };
     dock.addEventListener(FIELD_GROWTH_EVENT, grew);
     observer.observe(dock);
+    // The rows beside the stack stay in sight (besideStack.ts): its surfaces' gutters and the room
+    // outside their top corners, written straight to the scroller's mask variables, no render. Read
+    // again when the stack or the scroller changes size, so a taller pane or a tray that opens moves
+    // them with the stack.
+    const scroller = ref.current;
+    const paintBeside = () => {
+      if (!scroller) return;
+      const view = scroller.getBoundingClientRect();
+      const surfaces =
+        over() > 0
+          ? [
+              ...dock.querySelectorAll<HTMLElement>(
+                `:scope > .acpmux-running-tray:not(.${TRAY_GHOST}), .acpmux-composer-box`,
+              ),
+            ].map((surface) => {
+              const box = surface.getBoundingClientRect();
+              const style = getComputedStyle(surface);
+              return {
+                left: box.left - view.left,
+                top: box.top - view.top,
+                right: box.right - view.left,
+                bottom: Math.min(box.bottom, view.bottom) - view.top,
+                radiusLeft: Number.parseFloat(style.borderTopLeftRadius) || 0,
+                radiusRight: Number.parseFloat(style.borderTopRightRadius) || 0,
+              };
+            })
+          : [];
+      const mask = besideMask(surfaces, view.width);
+      for (const [name, value] of [
+        ["--acpmux-beside-images", mask?.images],
+        ["--acpmux-beside-sizes", mask?.sizes],
+        ["--acpmux-beside-positions", mask?.positions],
+      ] as const)
+        if (value) scroller.style.setProperty(name, value);
+        else scroller.style.removeProperty(name);
+    };
+    const besideObserver = new ResizeObserver(paintBeside);
+    besideObserver.observe(dock);
+    if (scroller) besideObserver.observe(scroller);
     noteQueue();
     const space = over();
     const fullHeight = height();
@@ -2458,6 +2498,9 @@ function TranscriptView({
     setDockTray(tray(space));
     return () => {
       observer.disconnect();
+      besideObserver.disconnect();
+      for (const name of ["--acpmux-beside-images", "--acpmux-beside-sizes", "--acpmux-beside-positions"])
+        scroller?.style.removeProperty(name);
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
       rowsMove?.cancel();

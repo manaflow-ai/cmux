@@ -6726,27 +6726,33 @@ a.cv-sha:focus-visible {
   -webkit-mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   -webkit-mask-position:
     0 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   mask-position:
     0 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
@@ -6761,44 +6767,52 @@ a.cv-sha:focus-visible {
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
     var(--cv-inset) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
     var(--cv-inset) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   -webkit-mask-position:
     0 0,
     100% 0,
     0 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   mask-position:
     0 0,
     100% 0,
     0 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
 }
 .acpmux-scroll:has(> .acpmux-minimap[data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
   -webkit-mask-position:
     0 0,
     100% 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   mask-position:
     0 0,
     100% 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
 }
 /* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {
