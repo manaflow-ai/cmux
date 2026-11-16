@@ -65,3 +65,11 @@ describe("local/reader-mode page key", () => {
     expect(h.calls.find((c) => c.name === "browser.page.eval")?.params.tab).toBe("tab_9")
   })
 })
+
+// The capture tour (scripts/cmux-next/media/tours/reader-mode.json) loads this packed copy on a Mac
+// with no bun; it must be what the source packs to. Refresh it with
+// `bun cmux-tui/crates/cmux-app-host/tools/pack.ts examples/extensions/reader-mode` and copy dist/main.js.
+test("the capture tour's packed copy is current", () => {
+  const fixture = join(import.meta.dir, "../../../../../scripts/cmux-next/media/fixtures/reader-mode/main.js")
+  expect(readFileSync(fixture, "utf8")).toBe(built)
+})
