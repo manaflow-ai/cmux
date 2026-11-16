@@ -71,6 +71,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "ci"))
 import fresh_home_launch_smoke as smoke  # noqa: E402
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 # The live nightly-next feed (Info.plist's SUFeedURL; next/appcast-arm64.xml stopped at 2026-11-05's builds, before the
 # staged-update pre-warm, so FROM there never pre-warms).
@@ -587,7 +588,9 @@ class Recorder:
                 self.send("quit")
                 self.process.wait(timeout=10)
             except (OSError, subprocess.TimeoutExpired):
-                os.killpg(self.process.pid, signal.SIGKILL)  # this run's own recorder, by its own process group
+                pass
+        # this run's own recorder, by its own process group, whatever its leader's state: a child would outlive it
+        kill_group(self.process, signal.SIGKILL)
 
 
 def frame_times(path, w, h):
@@ -1083,12 +1086,13 @@ def measure(app: App, name, opts, seed_info, recorder_bin, out: Path, resident_s
         if rec:
             rec.quit()
         result["status"] = app.call("updates.status", timeout=10)
-        if logger.poll() is None:
-            logger.terminate()  # this run's own log stream, by its pid
-            try:
-                logger.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                logger.kill()
+        # this run's own log stream, by its own process group (start_new_session), whatever its leader's state
+        kill_group(logger, signal.SIGTERM)
+        try:
+            logger.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        kill_group(logger, signal.SIGKILL)
         logs.close()
     result.update(socket_s=round(probe.socket_at, 3) if probe.socket_at is not None else None,
                   first_reply_s=round(probe.first_reply_at, 3) if probe.first_reply_at is not None else None,

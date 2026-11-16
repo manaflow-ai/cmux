@@ -105,10 +105,15 @@ def run_one(path: str, env: dict[str, str], log_path: Path, timeout: float) -> R
                 returncode = process.wait(timeout=timeout)
                 note = ""
             except subprocess.TimeoutExpired:
+                # affected_tests_measure.sh runs this file inside an older checkout, whose ci_process_tree.py may
+                # have no kill_group, so the fallback is inline: a refused killpg (macOS EPERM) kills the test by its
+                # handle (cmux#41880 review F1).
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
+                except ProcessLookupError:
                     pass
+                except OSError:
+                    process.kill()
                 process.wait()
                 returncode = TIMEOUT_EXIT
                 note = f"\nrun_python_test_lane: killed after {timeout:.0f}s timeout\n"

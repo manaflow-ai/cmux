@@ -23,10 +23,14 @@ import select
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 
 import tab_switch_judge as judge
+
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci"))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 CUA_DRIVER = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
 ANSWER_SECONDS = 30.0
@@ -171,7 +175,9 @@ class Marker:
                 self.send("quit")
                 self.process.wait(timeout=5)
             except (OSError, subprocess.TimeoutExpired):
-                os.killpg(self.process.pid, signal.SIGKILL)  # this run's own marker, by its own process group
+                pass
+        # this run's own marker, by its own process group, whatever its leader's state: a child would outlive it
+        kill_group(self.process, signal.SIGKILL)
 
 
 def transitions(series, threshold=128.0):

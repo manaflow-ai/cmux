@@ -166,21 +166,19 @@ def start_load(tier, scratch):
 
 def stop_load(procs, scratch):
     import signal
+    # Imported here, not at the top: the perf cron's report job loads this module from a sparse checkout without
+    # scripts/ci, only to compare rows, and never stops a load (cmux#43836 review P1-F1).
+    sys.path.append(os.path.join(HERE, '..', 'ci'))
+    from ci_process_tree import kill_group  # a refused killpg still kills the leader
     for proc in procs:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except OSError:
-            pass
+        kill_group(proc, signal.SIGTERM)
     for proc in procs:
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             pass
         # Whether or not the leader exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            pass
+        kill_group(proc, signal.SIGKILL)
     for name in os.listdir(scratch):
         if name.startswith("w"):
             try:

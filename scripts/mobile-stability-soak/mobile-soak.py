@@ -14,6 +14,9 @@ import time
 import fcntl
 from contextlib import contextmanager
 from pathlib import Path
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 tag = os.environ.get("CMUX_TAG", "swmob")
 bundle_id = os.environ.get("MOBILE_APP_BUNDLE_ID", f"dev.cmux.ios.{tag}").strip()
@@ -86,14 +89,11 @@ def run(args, *, cwd=repo, input_text=None, check=True, extra_env=None, timeout=
     try:
         stdout, _ = proc.communicate(input=input_text, timeout=timeout)
     except subprocess.TimeoutExpired:
+        kill_group(proc, signal.SIGTERM)
         try:
-            os.killpg(proc.pid, signal.SIGTERM)
             stdout, _ = proc.communicate(timeout=2)
-        except Exception:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except Exception:
-                pass
+        except subprocess.TimeoutExpired:
+            kill_group(proc, signal.SIGKILL)
             stdout, _ = proc.communicate()
         raise RuntimeError(f"{' '.join(args)} timed out after {timeout:g}s: {stdout[-1200:]}")
     if check and proc.returncode != 0:

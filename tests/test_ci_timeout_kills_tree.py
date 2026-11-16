@@ -241,6 +241,25 @@ def _catches(handler: ast.ExceptHandler, names: set[str]) -> bool:
         for n in ast.walk(handler.type))
 
 
+def _is_group_kill(call: ast.AST) -> bool:
+    """os.killpg(...), or ci_process_tree's kill_group(...), which sends the same signal to the group and, when
+    killpg is refused, to its leader and members directly (cmux#41880 review F1)."""
+    if not isinstance(call, ast.Call):
+        return False
+    func = call.func
+    if isinstance(func, ast.Attribute) and func.attr == "killpg" and isinstance(func.value, ast.Name) \
+            and func.value.id == "os":
+        return True
+    return (isinstance(func, ast.Name) and func.id == "kill_group") or \
+        (isinstance(func, ast.Attribute) and func.attr == "kill_group")
+
+
+def _gone_test(node: ast.AST) -> bool:
+    """`if not kill_group(...)`: kill_group answers False only when the group is gone."""
+    return isinstance(node, ast.If) and isinstance(node.test, ast.UnaryOp) and isinstance(node.test.op, ast.Not) \
+        and _is_group_kill(node.test.operand)
+
+
 def scan_group_kills(root: Path = ROOT, directories: tuple[str, ...] = GROUP_DIRECTORIES) -> set[str]:
     """{"file.py:function"} for each function that SIGTERMs a process group and SIGKILLs it only if the leader
     lives on."""
@@ -261,9 +280,7 @@ def scan_group_kills(root: Path = ROOT, directories: tuple[str, ...] = GROUP_DIR
             kills: dict[ast.AST, list[ast.Call]] = {}
             loops: set[ast.AST] = set()
             for call in ast.walk(tree):
-                if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
-                        and call.func.attr == "killpg" and isinstance(call.func.value, ast.Name)
-                        and call.func.value.id == "os" and len(call.args) == 2):
+                if not (_is_group_kill(call) and len(call.args) == 2):
                     continue
                 function = next((a for a in above(call) if isinstance(a, (ast.FunctionDef, ast.AsyncFunctionDef))),
                                 None)
@@ -278,7 +295,8 @@ def scan_group_kills(root: Path = ROOT, directories: tuple[str, ...] = GROUP_DIR
                         terms.setdefault(function, []).append(call)
                         breaks = [b for b in ast.walk(loop) if isinstance(b, ast.Break)]
                         if any(_signal(e, "SIGKILL") for e in loop.iter.elts) and all(
-                                any(isinstance(a, ast.ExceptHandler) and _catches(a, LOOKUP_ERRORS) for a in above(b))
+                                any((isinstance(a, ast.ExceptHandler) and _catches(a, LOOKUP_ERRORS))
+                                    or _gone_test(a) for a in above(b))
                                 for b in breaks):
                             loops.add(function)
                 elif _signal(sig, "SIGTERM"):
@@ -332,13 +350,20 @@ class GroupKillAfterGrace(unittest.TestCase):
                             "            os.killpg(p.pid, sig)\n        except ProcessLookupError:\n"
                             "            break\n        try:\n            p.wait(timeout=5)\n"
                             "        except subprocess.TimeoutExpired:\n            pass\n",
+            "bad_kill_group.py": head + "def f(p):\n    kill_group(p, signal.SIGTERM)\n    try:\n"
+                                 "        p.wait(timeout=5)\n    except subprocess.TimeoutExpired:\n"
+                                 "        kill_group(p, signal.SIGKILL)\n",
+            "good_kill_group_loop.py": head + "def g(p):\n    for sig in (signal.SIGTERM, signal.SIGKILL):\n"
+                                       "        if not kill_group(p, sig):\n            break\n        try:\n"
+                                       "            p.wait(timeout=5)\n        except subprocess.TimeoutExpired:\n"
+                                       "            pass\n",
         }
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "d").mkdir()
             for name, text in cases.items():
                 (Path(tmp) / "d" / name).write_text(text, encoding="utf-8")
             self.assertEqual(sorted(scan_group_kills(Path(tmp), ("d",))),
-                             ["bad_except.py:a", "bad_loop.py:b", "bad_term_only.py:c"])
+                             ["bad_except.py:a", "bad_kill_group.py:f", "bad_loop.py:b", "bad_term_only.py:c"])
 
 
 if __name__ == "__main__":

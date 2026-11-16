@@ -35,10 +35,12 @@ another launch of the same app with those launch variables (a daemon knob throug
 old value), so a change behind a knob gets its before and after on one Mac in one step. Prints
 TERMINAL-THROUGHPUT-ARM per arm; the report keeps them under next_arms; the rows stay NEXT's own.
 """
-import argparse, hashlib, json, os, platform, random, shlex, shutil, statistics, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, platform, random, shlex, shutil, signal, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.append(os.path.join(HERE, '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 GHOSTTY_VERSION = "1.4.0"
 GHOSTTY_DMG_SHA256 = "3a02075dbd24318d778426af41dee5507d53ecc4578ede96912ec9ce6d18d3e8"
@@ -429,11 +431,15 @@ def measure_ghostty(opts, writer, payload, scratch, grid):
             try:
                 proc.wait(15)  # it quits once its last window closes
             except subprocess.TimeoutExpired:
-                proc.terminate()  # the PID this script started
+                pass
+            # The group this script started, whatever its leader's state: a quit leader can leave a child in it.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                if not kill_group(proc, sig):
+                    break
                 try:
                     proc.wait(10)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    pass
             log.close()
         if i == "warmup":
             out["warmup"] = run_record("ghostty-warmup", 0, res)

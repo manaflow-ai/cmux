@@ -42,6 +42,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_memory  # noqa: E402  (usage, process_table, _responsible, MB)
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 # workspaces, mix for bench_memory.py (the launch workspace counts as the first one and keeps its
 # terminal; every chat workspace opens on its chat with a terminal first under --fake-agent).
@@ -125,9 +127,7 @@ def peer_idle(bundle: str, settle: float, samples: int) -> dict:
         return result
     finally:
         for sig, grace in ((signal.SIGTERM, 8), (signal.SIGKILL, 0)):
-            try:
-                os.killpg(child.pid, sig)
-            except (ProcessLookupError, PermissionError):  # the group is gone (or only its zombies are left)
+            if not kill_group(child, sig):
                 break
             time.sleep(grace)  # bench: let the app quit before the hard kill
         child.wait(timeout=10)

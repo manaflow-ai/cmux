@@ -38,6 +38,8 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 HERE = Path(__file__).resolve().parent
 OBSERVE = re.compile(r"screenshot|state|list_|get_|describe|find|read|zoom|status|tree|snapshot|windows|apps", re.I)
@@ -479,12 +481,8 @@ def stop_proc(proc: subprocess.Popen | None) -> None:
     # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767 review
     # F1). The group keeps the leader's pid as its id while any member lives.
     for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(proc.pid, sig)
-        except ProcessLookupError:
+        if not kill_group(proc, sig):
             break
-        except PermissionError:
-            pass
         try:
             proc.wait(timeout=10 if sig == signal.SIGTERM else 5)
         except subprocess.TimeoutExpired:

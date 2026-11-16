@@ -915,12 +915,15 @@ class App:
             # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767
             # review F1). The group keeps the leader's pid as its id while any member lives.
             for sig in (signal.SIGTERM, signal.SIGKILL):
+                # The media workflow's stop step runs a copy of this file alone, with no scripts/ci beside it, so
+                # the fallback is inline: a refused killpg (macOS EPERM) signals the leader by its handle
+                # (cmux#41880 review F1).
                 try:
                     os.killpg(self.process.pid, sig)
                 except ProcessLookupError:
                     break
-                except PermissionError:
-                    pass
+                except OSError:
+                    self.process.send_signal(sig)
                 if sig == signal.SIGTERM:
                     try:
                         self.process.wait(timeout=10)

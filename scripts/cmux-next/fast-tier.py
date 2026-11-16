@@ -39,6 +39,8 @@ import subprocess
 import sys
 import threading
 import time
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 KINDS = {"swift": ("package", "filter"), "cargo": ("path", "package"), "script": ("path",)}
 
@@ -126,10 +128,7 @@ def stop_tree(pid):
     mine = os.getpgrp()
     targets = descendants(pid)
     for group in {pid, *(pgid for _, pgid in targets)} - {mine}:
-        try:
-            os.killpg(group, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(group, signal.SIGKILL)
     for child, _ in targets:
         try:
             os.kill(child, signal.SIGKILL)

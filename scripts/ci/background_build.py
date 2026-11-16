@@ -39,6 +39,22 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             pass
 
 
+def kill_group(pgid: int, sig: int) -> bool:
+    """SIG to process group PGID; False only when the group is gone. A refused killpg (macOS EPERM, members exiting)
+    signals the leader by its pid instead (cmux#41880 review F1). Inline rather than ci_process_tree.kill_group: the
+    nightly tests run a copy of this file alone, with no ci_process_tree.py beside it."""
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        try:
+            os.kill(pgid, sig)
+        except OSError:
+            pass
+    return True
+
+
 def paths(state: Path, name: str) -> dict[str, Path]:
     return {kind: state / f"{name}.{kind}" for kind in ("lock", "log", "status", "pid")}
 
@@ -134,9 +150,7 @@ def stop(state: Path) -> int:
             continue
         group = int(pid_file.read_text().strip())
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(group, sig)
-            except (ProcessLookupError, PermissionError):
+            if not kill_group(group, sig):
                 break
             safe_print(f"sent {signal.Signals(sig).name} to {name} (process group {group})")
             if sig == signal.SIGTERM:

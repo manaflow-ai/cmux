@@ -23,6 +23,9 @@ on:
       - "plans/cmux-next/rust-panic-free.md"
       - "scripts/ci/cargo_test_verdict.py"
       - "scripts/ci/git_tree.py"
+      # git_tree.py imports ci_process_tree.py, which loads safe_log.py by path.
+      - "scripts/ci/ci_process_tree.py"
+      - "scripts/cmux-next/safe_log.py"
       - "scripts/ci/test_reds.py"
       - "tests/test_cargo_test_verdict.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!

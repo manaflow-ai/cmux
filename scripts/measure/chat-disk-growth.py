@@ -64,6 +64,8 @@ import socket
 import subprocess
 import sys
 import tempfile
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -295,19 +297,15 @@ class Daemon:
         return {"chat": chat, "home": home, "other_state": home - chat["total"]}
 
     def stop(self):
-        if self.proc and self.proc.poll() is None:
-            try:
-                os.killpg(self.proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                self.proc.wait(timeout=30)
-            except subprocess.TimeoutExpired:
+        if self.proc:
+            # The group, whatever its leader's state: an exited leader can leave a child running in it.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                if not kill_group(self.proc, sig):
+                    break
                 try:
-                    os.killpg(self.proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                    self.proc.wait(timeout=30)
+                except subprocess.TimeoutExpired:
                     pass
-                self.proc.wait(timeout=30)
         if not self.args.keep:
             shutil.rmtree(self.root, ignore_errors=True)
 

@@ -269,5 +269,41 @@ class ProfileSplitTests(unittest.TestCase):
         self.assertEqual((summary["framework_pct"], summary["ours_pct"]), (66.7, 33.3))
 
 
+class ReportCheckoutTests(unittest.TestCase):
+    """The perf cron's report job checks out only the paths its sparse-checkout lists
+    (.github/workflows/cmux-next-perf-budgets.yml), then perf-cron.py loads perf-budgets.py for the comparison. A
+    module-level import from a path outside that list (scripts/ci's ci_process_tree) stopped every report with
+    ModuleNotFoundError (cmux#43836 review P1-F1)."""
+
+    def report_paths(self):
+        text = open(os.path.join(ROOT, ".github/workflows/cmux-next-perf-budgets.yml"), encoding="utf-8").read()
+        blocks = re.findall(r"sparse-checkout: \|\n((?:\s+\S.*\n)+?)\s+sparse-checkout-cone-mode", text)
+        found = [block.split() for block in blocks if "scripts/cmux-next/perf-budgets.py" in block.split()]
+        self.assertEqual(len(found), 1, "the report job's sparse-checkout list")
+        return found[0]
+
+    def test_the_report_jobs_checkout_loads_perf_budgets_and_its_animation_rows(self):
+        import shutil
+        import subprocess
+        with tempfile.TemporaryDirectory() as tree:
+            for path in self.report_paths():
+                source, target = os.path.join(ROOT, path), os.path.join(tree, path)
+                if os.path.isdir(source):
+                    shutil.copytree(source, target)
+                else:
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    shutil.copy(source, target)
+            probe = ("import importlib.util, os, sys\n"
+                     "sys.argv = ['perf-cron.py']\n"
+                     "spec = importlib.util.spec_from_file_location('perf_cron', 'scripts/cmux-next/perf-cron.py')\n"
+                     "cron = importlib.util.module_from_spec(spec)\n"
+                     "spec.loader.exec_module(cron)\n"
+                     "cron.animation_budgets(cron.load_budgets_module())\n"
+                     "print('loaded')\n")
+            done = subprocess.run([sys.executable, "-I", "-c", probe], cwd=tree, capture_output=True, text=True,
+                                  timeout=60)
+            self.assertEqual((done.returncode, done.stdout.strip()), (0, "loaded"), done.stderr[-2000:])
+
+
 if __name__ == "__main__":
     unittest.main()

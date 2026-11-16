@@ -173,11 +173,15 @@ def run_step(step: Step, env: dict[str, str] | None = None) -> Result:
         code: int | None = proc.returncode
     except subprocess.TimeoutExpired:
         # The step's own process group, which start_new_session made: its children go with it. A group that is
-        # gone (ESRCH), or on macOS one whose processes are all zombies (EPERM), has nothing left to stop.
+        # gone (ESRCH) has nothing left to stop. macOS can refuse killpg (EPERM) while members are exiting; the
+        # leader is then killed by its handle (cmux#41880 review F1). The fallback is inline: pr-body-checks.yml
+        # sparse-checks-out this file alone, with no ci_process_tree.py beside it.
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError:
             pass
+        except OSError:
+            proc.kill()
         out, _ = proc.communicate()
         code = None
     return Result(step, code, time.monotonic() - start, out or "")

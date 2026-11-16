@@ -9,6 +9,7 @@ _vendor/yaml/
 app_ffi_pin.py
 base_red_guard_jobs.json
 base_red_rollups.json
+ci_process_tree.py
 deadline_http.py
 failed_steps_log.py
 gh_pages.py

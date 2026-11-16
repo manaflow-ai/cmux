@@ -65,6 +65,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import heavy_profile  # noqa: E402
 import tuikit  # noqa: E402
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 PROFILES = ("L1", "L2", "L3", "L4", "L5", "L6")
 SHIPPED_BUNDLES = ("com.cmuxterm.app",)
@@ -307,10 +309,7 @@ class Profile:
 
     def teardown(self):
         for proc in self.manifest["processes"]:
-            try:
-                os.killpg(proc["pid"], signal.SIGTERM)  # its own session (start_new_session)
-            except OSError:
-                pass
+            kill_group(proc["pid"], signal.SIGTERM)  # its own session (start_new_session)
         for pane in reversed(self.manifest["made"]["panes"]):
             if pane.get("pane_id") and pane.get("pane_id") != self.a.keep:
                 self.cli("teardown.pane.close", "pane", pane["pane_id"], "close")

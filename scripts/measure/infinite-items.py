@@ -54,6 +54,8 @@ import sys
 import tempfile
 import threading
 import time
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 IS_LINUX = sys.platform.startswith("linux")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -444,19 +446,12 @@ class Run:
         except (OSError, RuntimeError, ValueError) as exc:
             log(f"N={self.count} shutdown-daemon: {exc}")
         for proc in reversed(self.procs):
-            if proc.poll() is None:
-                try:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
+            kill_group(proc, signal.SIGTERM)  # the group, whatever its leader's state
         for proc in self.procs:
             try:
                 proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                kill_group(proc, signal.SIGKILL)
         time.sleep(1)  # bench: let the daemons' own teardown end their children
         for pid in own:
             try:

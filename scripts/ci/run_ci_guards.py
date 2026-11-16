@@ -57,6 +57,7 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             print(*args, **kwargs)
         except (BrokenPipeError, OSError, ValueError):
             pass
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER_ROOT = ROOT  # this runner's own checkout; ROOT moves to --root's
@@ -142,10 +143,7 @@ def stop_running() -> None:
     with RUNNING_LOCK:
         pids = list(RUNNING)
     for pid in pids:
-        try:
-            os.killpg(pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(pid, signal.SIGKILL)
 
 
 def cache_root() -> Path:
@@ -493,10 +491,7 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
         finally:
             with RUNNING_LOCK:
                 RUNNING.discard(proc.pid)
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+            kill_group(proc, signal.SIGKILL)
         out.seek(0)
         return returncode, out.read()
 

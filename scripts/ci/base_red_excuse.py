@@ -413,10 +413,14 @@ class GitHub(_evidence.GitHub):
                                        stdout=subprocess.PIPE, stderr=errors, start_new_session=True)
 
             def kill() -> None:
+                # Loaded from a vendored module list without ci_process_tree, so the fallback is inline: a refused
+                # killpg (macOS EPERM) kills gh by its handle (cmux#41880 review F1).
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
+                except ProcessLookupError:
                     pass
+                except OSError:
+                    process.kill()
 
             fired = threading.Event()
 

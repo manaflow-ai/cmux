@@ -33,6 +33,8 @@ import sys
 import threading
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 HERE = Path(__file__).resolve().parent
 DIGEST = HERE / "registry-journal-digest.py"
@@ -162,18 +164,12 @@ class Daemon:
     def stop(self):
         # SIGTERM to the process group this script started, a grace period, then SIGKILL to the group whether or
         # not the leader exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
-        try:
-            os.killpg(self.process.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(self.process, signal.SIGTERM)
         try:
             self.process.wait(timeout=600)
         except subprocess.TimeoutExpired:
             pass
-        try:
-            os.killpg(self.process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(self.process, signal.SIGKILL)
         self.process.wait()
 
 

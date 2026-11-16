@@ -130,10 +130,14 @@ def run_tool(argv: list[str], root: Path, budget: Budget, *, cap: float = 8.0, s
     try:
         out, err = proc.communicate(stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
+        # The hooks run a copy of this file alone, with no ci_process_tree.py beside it, so the fallback is inline: a
+        # refused killpg (macOS EPERM) kills the tool by its handle (cmux#41880 review F1).
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
+        except ProcessLookupError:
             pass
+        except OSError:
+            proc.kill()
         proc.communicate()
         return None
     return subprocess.CompletedProcess(argv, proc.returncode, out, err)

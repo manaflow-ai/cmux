@@ -45,6 +45,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 HERE = Path(__file__).resolve().parent
 SCHEMA = "cmux.cu-bench/1"
@@ -319,12 +321,8 @@ class Mcp:
         # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767
         # review F1). The group keeps the leader's pid as its id while any member lives.
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(self.proc.pid, sig)
-            except ProcessLookupError:
+            if not kill_group(self.proc, sig):
                 break
-            except PermissionError:
-                pass
             try:
                 self.proc.wait(timeout=10 if sig == signal.SIGTERM else 5)
             except subprocess.TimeoutExpired:
