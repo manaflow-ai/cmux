@@ -362,7 +362,7 @@ impl AgentShare {
         }
         let notice = self.sink.notice(json!({
             "kind": if on { "shared" } else { "unshared" },
-            "device_name": shared["name"],
+            "device_name": shared.get("name").cloned().unwrap_or(Value::Null),
             "agent": ticket.actor.label(),
             // Turn Off works on this Mac; another Mac turns off there.
             "turn_off": if on && target.is_none() { json!(TURN_OFF_ACTION) } else { Value::Null },

@@ -118,7 +118,8 @@ pub(super) fn status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     // Whether an agent's share is armed to turn itself off; who and the notices are the app's.
     let mut agents = mux.control_clients.remote_agents.status();
     if !caller.verified_app {
-        agents = json!({"active": agents["active"], "off_in_s": agents["off_in_s"]});
+        let field = |name: &str| agents.get(name).cloned().unwrap_or(Value::Null);
+        agents = json!({"active": field("active"), "off_in_s": field("off_in_s")});
     }
     if let Some(fields) = status.as_object_mut() {
         fields.insert("agent_share".into(), agents);
