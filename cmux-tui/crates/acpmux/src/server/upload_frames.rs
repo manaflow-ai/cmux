@@ -117,15 +117,16 @@ pub(super) fn spawn(
     let (tx, mut rx) = mpsc::channel::<Bytes>(WINDOW);
     let in_flight = Arc::new(InFlight::default());
     let counted = in_flight.clone();
+    let worker_stop = stop.clone();
     tokio::spawn(async move {
         while let Some(frame) = tokio::select! {
             biased;
-            _ = stop.cancelled() => None,
+            _ = worker_stop.cancelled() => None,
             frame = rx.recv() => frame,
         } {
             let reply = tokio::select! {
                 biased;
-                _ = stop.cancelled() => break,
+                _ = worker_stop.cancelled() => break,
                 reply = handle(&hub, origin, auth, frame) => reply,
             };
             let out = match replies.wait_for(Option::is_some).await {

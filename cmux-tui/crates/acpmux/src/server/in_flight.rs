@@ -83,7 +83,7 @@ impl Drop for Ticket {
 impl InFlight {
     /// A connection's table, counted in the hub's `gauge`.
     pub(crate) fn counted(gauge: Arc<AtomicUsize>) -> Self {
-        Self { next: AtomicU64::new(0), by_id: Mutex::default(), gauge }
+        Self { next: AtomicU64::new(0), by_id: Arc::new(Mutex::default()), gauge }
     }
 
     fn map(&self) -> std::sync::MutexGuard<'_, HashMap<String, Entry>> {
@@ -173,7 +173,9 @@ impl InFlight {
 impl Drop for InFlight {
     /// The connection ended: its requests still in flight leave the hub's count with it.
     fn drop(&mut self) {
-        let left = self.map().len();
+        let mut map = self.map();
+        let left = map.len();
+        map.clear();
         self.gauge.fetch_sub(left, Ordering::Relaxed);
     }
 }

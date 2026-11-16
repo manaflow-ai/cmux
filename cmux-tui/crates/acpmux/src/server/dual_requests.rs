@@ -67,20 +67,6 @@ pub(super) struct First {
     stop: Option<oneshot::Receiver<()>>,
 }
 
-impl Drop for First {
-    fn drop(&mut self) {
-        let unfinished = book().entries.get(&self.key).is_some_and(|entry| entry.done_at.is_none());
-        if !unfinished {
-            return;
-        }
-        self.tx.send_replace(Some(Outcome::Answer(crate::request_cancel::cancelled_error())));
-        if let Some(entry) = book().entries.get_mut(&self.key) {
-            entry.done_at = Some(Instant::now());
-            entry.stop = None;
-        }
-    }
-}
-
 impl First {
     pub(super) fn finish(self, outcome: Outcome) {
         self.tx.send_replace(Some(outcome));

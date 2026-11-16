@@ -37,6 +37,7 @@ pub mod author;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
+pub(crate) mod blocking;
 pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;

@@ -303,32 +303,39 @@ where
 {
     let state = Arc::new(std::sync::Mutex::new(ConnectionState::default()));
     let cleanup = Cleanup { state: state.clone(), source: source.clone() };
-    let result = run_connection(
+    let result = run_connection(RunConnectionArgs {
         reader,
         writer,
-        source.clone(),
-        daemon_id.into(),
+        source: source.clone(),
+        daemon_id: daemon_id.into(),
         surfaces,
         role,
         state,
         stop,
-    )
+    })
     .await;
     drop(cleanup);
     source.close().await;
     result
 }
 
-async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
-    mut reader: R,
-    mut writer: W,
+struct RunConnectionArgs<'a, R, W> {
+    reader: R,
+    writer: W,
     source: Arc<dyn Source>,
     daemon_id: String,
-    surfaces: &[String],
+    surfaces: &'a [String],
     role: Role,
     state: Arc<std::sync::Mutex<ConnectionState>>,
     stop: Option<crate::life::StopFence>,
+}
+
+async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+    args: RunConnectionArgs<'_, R, W>,
 ) -> Result<(), ConnError> {
+    let RunConnectionArgs { reader, writer, source, daemon_id, surfaces, role, state, stop } = args;
+    let mut reader = reader;
+    let mut writer = writer;
     let mut stop_wait: Pin<Box<dyn Future<Output = ()> + Send>> = match stop {
         Some(stop) => Box::pin(stop.cancelled()),
         None => Box::pin(std::future::pending()),
