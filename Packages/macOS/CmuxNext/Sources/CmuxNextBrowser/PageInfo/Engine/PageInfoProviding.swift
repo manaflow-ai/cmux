@@ -28,4 +28,14 @@ public protocol PageInfoProviding: AnyObject {
 extension PageInfoProviding where Self: BrowserTab {
     /// The profile's decision store.
     public var sitePermissions: SitePermissionStore { pageInfoSettings.permissions(for: profileID) }
+
+    /// Runs the App's document-commit scripts (``BrowserSharedStores/documentCommitScripts``) in
+    /// the isolated world of the document that just committed, in order.
+    func runDocumentCommitScripts(_ scripts: [String]) {
+        guard !scripts.isEmpty else { return }
+        // task-owner: the committed document's installers, in order; a failure (closed, navigated) drops them
+        Task { [weak self] in
+            for script in scripts { _ = try? await self?.evaluate(script, world: .isolated, gesture: .cmux) }
+        }
+    }
 }

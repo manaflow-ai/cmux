@@ -119,8 +119,11 @@ export function chatWidget(render: (context: ChatWidgetContext) => View): (conte
   return render
 }
 
+/** What a command run gets besides its arguments: `gesture` is the palette pick, tap or shortcut that started it (absent from an agent or a script), and `cmux` carries it until the command settles. */
+export type CommandContext = CmuxCommandContext
+
 /** A command (a catalog op the extension declares in catalog.json): runs from the palette, the CLI or another extension. */
-export function command<A, R>(run: (args: A, ctx: { app: string; gesture?: string; cmux: CmuxGlobal }) => R | Promise<R>) {
+export function command<A, R>(run: (args: A, ctx: CommandContext) => R | Promise<R>) {
   return run
 }
 
@@ -200,6 +203,104 @@ export function setPageKeys(bindings: Record<string, string[]>, c: CmuxGlobal = 
 /** Whether `key` is a key cmux can route from a page: `a` to `z` or `/`, alone or with `shift+`. */
 export function isPageKey(key: string): boolean {
   return /^(shift\+)?[a-z/]$/.test(key)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The browser page and the person's agent. Thin names for `cmux.call`: each needs the scope it
+// names in the manifest, and an op marked "gesture" needs `options.gesture` (a command's
+// `ctx.gesture`, or `cmux.gesture()` in a tap handler before its first await).
+
+/** An element on the page that looks like clutter, as `page.read` saw it. `selector` is the one to hide or unstick. */
+export interface PageCandidate {
+  selector: string
+  tag: string
+  role?: string
+  label?: string
+  /** The start of its text, cut short. */
+  text?: string
+  width: number
+  height: number
+  /** Positioned fixed or sticky. */
+  fixed: boolean
+  /** Its share of the viewport, 0 to 1. */
+  area: number
+}
+
+/** What `page.read` answers: the tab, its address, and the elements a cleaner may pick from. */
+export interface PageRead {
+  tab: string
+  url: string
+  /** `https://host[:port]`: the key `page.style` and `page.javascript` take. */
+  origin: string
+  title: string
+  candidates: PageCandidate[]
+  /** More elements matched than the list holds. */
+  truncated: boolean
+}
+
+/** The rules an extension keeps for one site: hidden elements, and fixed or sticky ones made to scroll with the page. */
+export interface PageStyle {
+  origin: string
+  hide: string[]
+  unstick: string[]
+}
+
+/** Whether a site may run JavaScript, from the same setting as Page Info's JavaScript row. */
+export interface PageJavaScript {
+  origin: string
+  allowed: boolean
+}
+
+/** What `agent.ask` answers: the agent's reply and how long it took. */
+export interface AgentAnswer {
+  text: string
+  ms: number
+}
+
+export const page = {
+  /**
+   * The browser tab the person is looking at (or `tab`): its address, title and the elements that
+   * look like clutter, read by cmux's own script, never the page's. Scope `page:read`. With no
+   * browser tab open it throws `page.none`.
+   */
+  read(params: { tab?: string } = {}, options?: CmuxCallOptions): Promise<PageRead> {
+    return cmux.call<PageRead>("page.read", params, options)
+  },
+  style: {
+    /** This extension's rules for a site, or null when it keeps none. Scope `page:write`. */
+    get(origin: string, options?: CmuxCallOptions): Promise<PageStyle | null> {
+      return cmux.call<PageStyle | null>("page.style.get", { origin }, options)
+    },
+    /**
+     * Replaces this extension's rules for a site. cmux applies them to its open tabs now and to
+     * every later visit before the page draws, with no extension running. Both lists empty clears
+     * the site. Scope `page:write`.
+     */
+    set(style: { origin: string; hide?: string[]; unstick?: string[] }, options?: CmuxCallOptions): Promise<{ origin: string; rules: number }> {
+      return cmux.call<{ origin: string; rules: number }>("page.style.set", style, options)
+    }
+  },
+  javascript: {
+    /** Whether a site (default: the front tab's) may run JavaScript. Scope `site_settings:read`. */
+    get(params: { origin?: string; tab?: string } = {}, options?: CmuxCallOptions): Promise<PageJavaScript> {
+      return cmux.call<PageJavaScript>("page.javascript.get", params, options)
+    },
+    /** Lets a site run JavaScript or blocks it, then reloads its open tabs. Scope `site_settings:write`; needs a gesture. */
+    set(params: { origin?: string; tab?: string; allowed: boolean }, options?: CmuxCallOptions): Promise<PageJavaScript> {
+      return cmux.call<PageJavaScript>("page.javascript.set", params, options)
+    }
+  }
+}
+
+export const agent = {
+  /**
+   * One question to the person's own default agent, with every tool denied: text in, text out.
+   * Scope `agent:execute`; needs a gesture, since it spends their quota. One ask at a time per
+   * extension; the prompt is at most 256 KiB and the reply is cut at 64 KiB.
+   */
+  ask(params: { prompt: string; model?: string }, options?: CmuxCallOptions): Promise<AgentAnswer> {
+    return cmux.call<AgentAnswer>("agent.ask", params, options)
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

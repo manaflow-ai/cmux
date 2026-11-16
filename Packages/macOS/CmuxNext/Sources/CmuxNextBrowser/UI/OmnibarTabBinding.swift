@@ -56,6 +56,7 @@ public final class OmnibarTabBinding {
             Task { @MainActor [weak self] in self?.tab.load(http) }
         }
         addressBar.update(url: BrowserChromeView.omnibarURL(for: state), security: PageInfoSite.omnibarSecurity(for: state))
+        addressBar.javaScriptBlocked = BrowserChromeView.javaScriptBlocked(tab, url: state.url)
     }
 
     /// The page intent for an omnibar disposition other than this page.

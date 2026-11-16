@@ -15,6 +15,10 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
         case product
         /// An extension keyword session: the extension's name.
         case keyword(String)
+        /// The site's JavaScript is blocked (Page Info's JavaScript row, or an extension).
+        case javaScriptOff
+        /// An insecure site whose JavaScript is blocked: both, so "Not secure" never hides.
+        case notSecureJavaScriptOff
     }
 
     /// How loud the chip is. `danger` uses the theme's ANSI red
@@ -48,6 +52,8 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
     public static let productSymbol = "terminal"
     public static let extensionPageSymbol = IconName.browserToolbarExtensions.rawValue
     public static let searchSymbol = IconName.browserOmniboxSearch.rawValue
+    /// Page Info's JavaScript row icon, for a secure site whose JavaScript is blocked.
+    public static let javaScriptOffSymbol = "curlybraces"
 
     /// The button for `site`.
     ///
@@ -58,23 +64,42 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
     ///     input (search, or the selected suggestion's kind). Non-nil while
     ///     user input is in progress: the icon then describes the input, not
     ///     the page, and does not open page info.
-    public static func resolve(site: PageInfoSite, isFocused: Bool, editingSymbol: String?) -> PageInfoIndicator {
+    ///   - javaScriptBlocked: the site's JavaScript setting is block. A web
+    ///     page then says "JavaScript off" (after "Not secure" on an insecure
+    ///     one); a dangerous page keeps its warning. False changes nothing.
+    public static func resolve(site: PageInfoSite, isFocused: Bool, editingSymbol: String?, javaScriptBlocked: Bool = false) -> PageInfoIndicator {
         if let editingSymbol {
             return PageInfoIndicator(symbol: editingSymbol, isTriggerable: false)
         }
         var indicator = pageIndicator(for: site)
+        if javaScriptBlocked { indicator = javaScriptOff(indicator, site: site) }
         if isFocused { indicator.label = nil }
         return indicator
     }
 
     /// The button for the omnibar's current presentation.
-    public static func resolve(site: PageInfoSite, chip: OmnibarPresentation.Chip) -> PageInfoIndicator {
+    public static func resolve(site: PageInfoSite, chip: OmnibarPresentation.Chip, javaScriptBlocked: Bool = false) -> PageInfoIndicator {
         switch chip {
         case .input(let symbol): resolve(site: site, isFocused: true, editingSymbol: symbol)
-        case .page: resolve(site: site, isFocused: false, editingSymbol: nil)
+        case .page: resolve(site: site, isFocused: false, editingSymbol: nil, javaScriptBlocked: javaScriptBlocked)
         case .keyword(let name): PageInfoIndicator(symbol: PageInfoIndicator.extensionPageSymbol, label: .keyword(name), isTriggerable: false)
         case .engineKeyword(let label): PageInfoIndicator(symbol: PageInfoIndicator.searchSymbol, label: .keyword(label), isTriggerable: false)
         }
+    }
+
+    private static func javaScriptOff(_ indicator: PageInfoIndicator, site: PageInfoSite) -> PageInfoIndicator {
+        guard case .web(let connection) = site.kind else { return indicator }
+        var off = indicator
+        switch connection {
+        case .secure:
+            off.symbol = javaScriptOffSymbol
+            off.label = .javaScriptOff
+        case .insecure, .mixedContent:
+            off.label = .notSecureJavaScriptOff
+        case .certificateError, .dangerous:
+            break
+        }
+        return off
     }
 
     private static func pageIndicator(for site: PageInfoSite) -> PageInfoIndicator {

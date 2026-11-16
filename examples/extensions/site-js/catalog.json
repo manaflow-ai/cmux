@@ -1,0 +1,22 @@
+{
+  "family": "local.showcase_site_js",
+  "owner": "app:local/showcase-site-js",
+  "operations": [
+    {
+      "name": "local.showcase_site_js.toggle",
+      "owner": "app:local/showcase-site-js",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "gesture": "required",
+      "input": { "type": "object", "additionalProperties": false, "properties": {} },
+      "cli": { "path": "toggle", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Toggle JavaScript for this site" } },
+      "docs": "Turn JavaScript off for the site in the front browser tab, or back on, then reload its open tabs.",
+      "since": "local.showcase_site_js/1",
+      "export": "toggle"
+    }
+  ]
+}

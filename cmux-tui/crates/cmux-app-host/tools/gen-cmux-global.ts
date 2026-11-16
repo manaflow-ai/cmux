@@ -290,6 +290,18 @@ export function generate(): Record<string, string> {
     "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
     // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
     "memory.search": { scope: "memory:read", class: "read" },
+    // Per-site element rules (hide, unstick) the daemon keeps per extension (apps/page_ops.rs) and
+    // the Mac app applies at each document start for that origin, so a cleaned site stays clean
+    // with no extension call. They change what pages show: browser:write, as browser.page.navigate.
+    "browser.site.style.get": { scope: "browser:write", class: "read" },
+    "browser.site.style.set": { scope: "browser:write", class: "mutation" },
+    // The per-site JavaScript content setting (Page Info's JavaScript row; SiteAppOps in CmuxNextApps,
+    // provider family `browser.site`). `set` needs a gesture.
+    "browser.site.javascript.get": { scope: "site_settings:read", class: "read" },
+    "browser.site.javascript.set": { scope: "site_settings:write", class: "mutation" },
+    // One question to the person's own default agent through acpmux, with every tool denied
+    // (apps/agent_ask.rs): text in, text out, no new keys. Needs a gesture: it spends their quota.
+    "agent.ask": { scope: "agent:execute", class: "mutation" },
     // The older name of chat.list for a customize section's thread list: the daemon answers it
     // from the same chat index as chat.list (apps/routing.rs), shaped {chats: [...]}.
     "agent_chat.list": { scope: "agent_chat:read", class: "read" },

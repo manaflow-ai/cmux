@@ -272,6 +272,9 @@ pub(super) struct Inner {
     /// Each app's budget ladder (`budget.rs`): its VM kills and whether it
     /// is paused. Absent: Normal with nothing counted.
     pub ladders: HashMap<String, super::budget::AppLadder>,
+    /// Extensions' per-site page rules and what the `page` provider holds
+    /// (`page_ops.rs`).
+    pub page_styles: super::page_ops::PageStyles,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -323,6 +326,8 @@ pub struct Supervisor {
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
     pub(super) deployments: super::deploy::Deployments,
+    /// Extensions with an `agent.ask` out (`agent_ask.rs`).
+    pub(super) asks: super::agent_ask::InFlight,
     /// The owner's keepers observers (`AppsSlot::add_server_observer`),
     /// told outside the lock when [`Self::kept_servers`] changes.
     server_observers: OnceLock<super::ServerObservers>,
@@ -440,6 +445,7 @@ impl Supervisor {
                 last_good,
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
+                page_styles: super::page_ops::PageStyles::load(config_state_dir.as_deref()),
             }),
             config,
             router,
@@ -456,6 +462,7 @@ impl Supervisor {
             local_reload_pass: Mutex::new(()),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
+            asks: Default::default(),
             server_observers: OnceLock::new(),
             #[cfg(test)]
             emit_pause: Mutex::new(None),
@@ -643,6 +650,8 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                // Its page rules go with it; the next emit tells the provider.
+                inner.page_styles.forget(self.config.state_dir.as_deref(), app);
                 self.remove_server_dirs(app);
                 vec![]
             }
@@ -755,6 +764,7 @@ impl Supervisor {
         let (sinks, kept_changed) = {
             let mut inner = self.inner.lock().unwrap();
             outs.extend(Self::inventory_demand_locked(&mut inner));
+            outs.extend(Self::page_styles_locked(&mut inner));
             let kept = Self::kept_servers_locked(&inner);
             let changed = std::mem::replace(&mut inner.kept_servers_told, kept) != kept;
             (inner.sinks.clone(), changed)

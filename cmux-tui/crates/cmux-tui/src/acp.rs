@@ -137,6 +137,99 @@ pub(crate) fn install_daemon_acpmux(mux: &cmux_tui_core::Mux, socket: &Path) {
     if let Some(sender) = daemon_feed_reply_sender() {
         mux.set_feed_reply_sender(sender);
     }
+    if let Some(asker) = daemon_agent_asker() {
+        cmux_tui_core::agent_ask::install(asker);
+    }
+}
+
+/// An extension's `agent.ask` (cmux-tui-core `apps/agent_ask.rs`): this
+/// binary's `acp exec` with the acpmux home `cmux acp` uses, on this machine,
+/// every tool denied and every permission ask refused, the prompt on stdin
+/// (never an argument), in a scratch folder of its own; the person's default
+/// agent unless the call names one. `exec` makes the chat ephemeral, so no
+/// chat is left in their list. Bounded by the request's timeout.
+#[cfg(unix)]
+fn daemon_agent_asker() -> Option<cmux_tui_core::agent_ask::AgentAsker> {
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    Some(std::sync::Arc::new(move |request: &cmux_tui_core::agent_ask::AskRequest| {
+        ask_agent(&exe, &home, request)
+    }))
+}
+
+#[cfg(unix)]
+fn ask_agent(
+    exe: &Path,
+    home: &Path,
+    request: &cmux_tui_core::agent_ask::AskRequest,
+) -> Result<String, String> {
+    use std::io::{Read as _, Write as _};
+    let scratch = std::env::temp_dir().join("cmux-agent-ask");
+    std::fs::create_dir_all(&scratch).map_err(|e| format!("agent scratch folder: {e}"))?;
+    let timeout = request.timeout.as_secs().max(1).to_string();
+    let mut command = cmux_process::Command::new(exe);
+    for name in TERMINAL_IDENTITY_ENV {
+        command.env_remove(name);
+    }
+    command.env("ACPMUX_HOME", home).args([
+        "acp",
+        "exec",
+        "--machine",
+        "local",
+        "--policy",
+        "deny-all",
+        "--on-permission",
+        "deny",
+        "--timeout",
+        &timeout,
+    ]);
+    command.arg("--cwd").arg(&scratch);
+    if let Some(model) = &request.model {
+        command.args(["--model", model]);
+    }
+    let mut child = command
+        .args(["--prompt-file", "-"])
+        .stdin(cmux_process::Stdio::piped())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("acpmux exec: {e}"))?;
+    // Read both pipes on their own threads so a long reply never fills one.
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_string(&mut text);
+            }
+            text
+        })
+    };
+    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    if let Some(mut stdin) = child.stdin.take() {
+        // Closing stdin ends the prompt.
+        let _ = stdin.write_all(request.prompt.as_bytes());
+    }
+    // acpmux cancels the turn at its own --timeout; a little more for its exit.
+    let status = match child.wait_timeout(request.timeout + std::time::Duration::from_secs(10)) {
+        Ok(Some(status)) => status,
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("the agent did not answer in time".into());
+        }
+    };
+    let out = stdout.join().unwrap_or_default();
+    let err = stderr.join().unwrap_or_default();
+    if status.success() {
+        Ok(out.trim().to_string())
+    } else {
+        let why = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+        Err(format!(
+            "the agent run failed ({status}){}",
+            if why.is_empty() { String::new() } else { format!(": {why}") }
+        ))
+    }
 }
 
 /// How long a Reports reply waits for acpmux to take it.

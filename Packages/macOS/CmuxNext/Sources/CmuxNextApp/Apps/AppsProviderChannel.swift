@@ -78,7 +78,7 @@ final class AppsProviderChannel {
     static let retried: Set<String> = ["apps.provider.taken", "failed", "not_connected", "timeout"]
     /// Families newer daemons know (`apps/provider.rs` `FAMILIES`), newest first: an older daemon's
     /// `bad-request` registers again without the newest one sent, so one that knows `memory` keeps it.
-    static let newerFamilies: [String] = ["browser.page", "toast", "memory"]
+    static let newerFamilies: [String] = ["browser.site", "browser.page", "toast", "memory"]
 
     /// Spacing of registration retries: 0.5 s doubling, at most 30 s, jittered.
     nonisolated static let registerBackoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
@@ -102,6 +102,8 @@ final class AppsProviderChannel {
         didSet { if let turnedOff { answerRunningDisabled(turnedOff) } }
     }
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "apps.provider")
+    /// `apps-page-styles`: the daemon's full site-style snapshot, sent to the `page` family's connection.
+    @ObservationIgnored var onPageStyles: (@MainActor (AppJSON) -> Void)?
 
     init(link: AppsProviderLink, backoff: Backoff = AppsProviderChannel.registerBackoff) {
         self.link = link
@@ -130,11 +132,14 @@ final class AppsProviderChannel {
         register()
     }
 
-    /// `apps-provider-request` and `apps-provider-cancel` (true; a call of a
+    /// `apps-provider-request`, `apps-provider-cancel` and `apps-page-styles` (true; a call of a
     /// family this channel does not serve is left to its own provider);
     /// other events are not the provider's.
     func handle(name: String, payload: CmuxNextDaemon.JSONValue) -> Bool {
         switch name {
+        case "apps-page-styles":
+            onPageStyles?(AppJSON(payload))
+            return true
         case "apps-provider-request":
             guard let call = RoutedAppCall(AppJSON(payload)) else { return true }
             run(call)
@@ -154,7 +159,7 @@ final class AppsProviderChannel {
     /// Source-aware production entrypoint; a retained old event cannot become a new call.
     func handle(_ envelope: DaemonEventEnvelope) -> Bool {
         guard case .unknown(let name, let payload) = envelope.event else { return false }
-        guard link.accepts(envelope) else { return name.hasPrefix("apps-provider-") }
+        guard link.accepts(envelope) else { return name.hasPrefix("apps-provider-") || name == "apps-page-styles" }
         return handle(name: name, payload: payload)
     }
 

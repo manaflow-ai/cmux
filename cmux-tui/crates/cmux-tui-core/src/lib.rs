@@ -16,6 +16,9 @@ pub mod agent_start_launch;
 mod agent_status;
 pub mod agent_view;
 mod apps;
+/// How an extension's `agent.ask` reaches the person's agent: the binary installs it.
+#[cfg(unix)]
+pub use apps::agent_ask;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;

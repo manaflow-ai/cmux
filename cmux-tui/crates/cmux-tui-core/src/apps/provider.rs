@@ -75,6 +75,11 @@ pub const FAMILIES: &[&str] = &[
     // page service. The daemon has no CDP session for an app-drawn tab
     // (`browser_rendered_by_app`), so an extension reaches one only here.
     "browser.page",
+    // Per-site browser settings the Mac app keeps (`browser.site.javascript.*`:
+    // Page Info's JavaScript row); the daemon answers `browser.site.style.*`
+    // itself and pushes `apps-site-styles` to this family's connection
+    // (page_ops.rs).
+    "browser.site",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
@@ -119,6 +124,11 @@ pub fn family_of(op: &str) -> &str {
     // `browser.*` is the daemon's (its own browsers); only the app's page ops are a family.
     if op.starts_with("browser.page.") {
         return "browser.page";
+    }
+    // `browser.*` is the daemon's (its own browsers); the app's per-site
+    // settings are a family of their own.
+    if op.starts_with("browser.site.") {
+        return "browser.site";
     }
     op.split('.').next().unwrap_or_default()
 }

@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-clean-page",
+  "name": { "en": "Clean this page" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: your own agent picks the ads, banners, popups and sticky bars on a web page, and cmux hides them on that site from then on." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "sparkles" },
+  "categories": ["sidebar", "browser"],
+  "keywords": ["reader", "ads", "clean", "browser", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog.json",
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderSites",
+      "title": { "en": "Sites cleaned" },
+      "symbol": "sparkles",
+      "options": { "defaultRegion": "bottom", "maxRows": 10 }
+    }
+  },
+  "scopes": {
+    "page:read": "Read the address of the page you're looking at and the elements that look like clutter on it.",
+    "page:write": "Hide the elements your agent picked on that site, and put them back when you click Restore.",
+    "agent:execute": "Ask your default agent which elements are clutter, once each time you run the command.",
+    "storage:local": "Remember which sites you cleaned on this Mac, for the Sites cleaned list."
+  },
+  "activation": ["onInterface:cmux.section/1", "onOp:local.showcase_clean_page.clean"],
+  "files": ["dist/", "catalog.json"]
+}
