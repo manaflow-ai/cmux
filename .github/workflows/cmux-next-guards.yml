@@ -721,10 +721,6 @@ jobs:
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
-  # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
-  # cmux-tui republish path, the crash ratchet, the red-checks comment, the
-  # backdrop art generator). Each is stdlib Python with fakes for the network
-  # and the binaries it calls; only the web lint hook's test also needs bun.
   # Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
   # can get it to do". Whether this pull request is hot-only: scripts/ci/cmux_next_route.py --hot-only on the merge
   # commit's diff, the verdict cmux-next.yml skips its Mac app jobs by (every file a running app takes live through
@@ -761,6 +757,10 @@ jobs:
             echo "hot_only=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
+  # cmux-tui republish path, the crash ratchet, the red-checks comment, the
+  # backdrop art generator). Each is stdlib Python with fakes for the network
+  # and the binaries it calls; only the web lint hook's test also needs bun.
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER. Others take fleet Linux, then a free
     # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith. A hot-only pull request
