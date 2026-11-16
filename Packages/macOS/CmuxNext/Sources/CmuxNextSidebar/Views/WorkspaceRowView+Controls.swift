@@ -53,12 +53,15 @@ extension WorkspaceRowView {
     /// The local row on screen while this Mac shares: the workspace the people watching see.
     var showsSharingBadge: Bool { screenShared && (isSelected || isOnScreen) }
 
+    var showsScreen: Bool {
+        screenAction != nil && !isShowingPlaceholder && !renaming && (screenShared ? showsSharingBadge : revealsHoverControls || isSelected)
+    }
+
     /// View screen on hover and on the selected row, never on every row at rest (Leo 2026-11-16); the sharing badge
     /// on the shared row only. It takes the shared slot left of the hover cluster (`after`), over the title's faded
     /// end like ⋮ and ✕, so nothing moves and no slot is reserved at rest. Returns its leading edge when shown.
     func layoutScreen(rowWidth: CGFloat, cy: CGFloat, control: CGFloat, after cluster: [NSRect], fades: Bool) -> CGFloat? {
-        let wanted = screenShared ? showsSharingBadge : revealsHoverControls || isSelected
-        let shown = screenAction != nil && !isShowingPlaceholder && !renaming && wanted
+        let shown = showsScreen
         setHoverShown(screenSlot, shown, fades: fades)
         guard shown else { return nil }
         let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)

@@ -203,9 +203,7 @@ extension WorkspaceRowView {
         // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
         // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
         setHoverShown(closeSlot, showClose, fades: controlFades)
-        setHoverPainted(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
-        // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
-        setHoverPainted(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
+        let marksGiveWay = showClose || (showMore && !hoverCloses)
         var badgeEdge: CGFloat?
         if !badge.state.isUnread, keycap.number != nil {
             _ = layoutKeycap(trailing: trailing, cy: cy, control: control)
@@ -233,6 +231,13 @@ extension WorkspaceRowView {
         let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, moreFrame: moreFrame, control: control, fades: controlFades)
         let cluster = [showClose ? closeFrame : nil, showMore ? moreFrame : nil, pinStart == nil ? nil : pinSlot.frame].compactMap { $0 }
         let screenStart = layoutScreen(rowWidth: b.width, cy: cy, control: control, after: cluster, fades: controlFades)
+        // The unread mark and keycap hide under ✕ and ⋮, and under the screen button when it lands on them (a
+        // selected row's, with no ⋮ or ✕); painted after the screen button is placed.
+        let screenFrame = screenStart == nil ? nil : screenSlot.frame
+        let underScreen = { (mark: NSView) in screenFrame?.intersects(mark.frame) == true }
+        setHoverPainted(badge, badge.state.isUnread && !marksGiveWay && !underScreen(badge), fades: fades)
+        // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
+        setHoverPainted(keycap, keycap.number != nil && !badge.state.isUnread && !marksGiveWay && !underScreen(keycap), fades: fades)
         let overlayStart = (cluster.map(\.minX) + [screenStart].compactMap { $0 }).min()
         let ind = SidebarStyle.indicatorSize
         if markReplacesStatus, columnMark?.view !== agentMark {
