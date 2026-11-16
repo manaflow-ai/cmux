@@ -178,7 +178,8 @@ impl Hub {
             return Err(RpcError::not_found(format!("{}; close matches: {list}", e.message))
                 .with_data(json!({"candidates": shown_close})));
         }
-        self.answer_filtered(found, all, own_only, &own, shown, link)
+        let answer_link = if own_only && !names_hosts { None } else { link };
+        self.answer_filtered(found, all, own_only, &own, shown, answer_link)
     }
 
     fn answer_filtered(
