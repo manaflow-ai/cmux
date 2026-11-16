@@ -908,11 +908,56 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
 #[test]
 fn a_new_tab_page_is_placed_where_the_person_picks_it() {
     let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
-    let placed = dev::placements(&manifest, true);
+    let picked = dev::NewTabPick { app: Some("local/clock".into()), native: false };
+    let placed = dev::placements(&manifest, "local/clock", true, &picked);
     assert_eq!(placed.len(), 1);
     assert_eq!(placed[0]["interface"], "cmux.newtab/1");
+    assert_eq!(placed[0]["shown"], true, "{placed:?}");
     assert!(
         placed[0]["where"].as_str().is_some_and(|w| w.contains("tabs.newTabApp")),
         "{placed:?}"
     );
+}
+
+/// An installed New Tab page the person has not picked is not reported as
+/// shown, and says the one command that picks it (base red: `shown` read the
+/// app's record only, so a Clock page in the Customize folder was reported as
+/// shown while `tabs.newTabApp` was unset and Cmd-T drew cmux's own page,
+/// ask-7fc19bd861).
+#[test]
+fn an_unpicked_new_tab_page_is_not_reported_as_shown() {
+    let manifest = json!({ "implements": {
+        "cmux.newtab/1": { "export": "renderNewTab" },
+        "cmux.section/1": { "export": "renderSection" },
+    } });
+    let id = "local/customize";
+    let cases = [
+        (dev::NewTabPick::default(), "tabs.newTabApp is unset"),
+        (dev::NewTabPick { app: Some("local/other".into()), native: false }, "names local/other"),
+        (dev::NewTabPick { app: Some(id.into()), native: true }, "tabs.nativeNewTabPage false"),
+    ];
+    for (pick, why) in cases {
+        let placed = dev::placements(&manifest, id, true, &pick);
+        let new_tab = placed.iter().find(|p| p["interface"] == "cmux.newtab/1").unwrap();
+        assert_eq!(new_tab["shown"], false, "{pick:?}: {new_tab}");
+        let text = new_tab["why"].as_str().unwrap_or_default();
+        assert!(text.contains(why), "{pick:?}: {text}");
+        if pick.app.as_deref() != Some(id) {
+            assert!(text.contains("cmux settings set tabs.newTabApp local/customize"), "{text}");
+        }
+        // Other contributions keep the record's answer.
+        let section = placed.iter().find(|p| p["interface"] == "cmux.section/1").unwrap();
+        assert_eq!(section["shown"], true, "{section}");
+    }
+}
+
+/// The pick is read the way the app reads it: nested `tabs` keys, comments allowed.
+#[test]
+fn the_new_tab_pick_reads_the_settings_file() {
+    let pick = dev::NewTabPick::of(
+        "{ // mine\n \"tabs\": { \"newTabApp\": \"local/customize\", \"nativeNewTabPage\": true } }",
+    );
+    assert_eq!(pick, dev::NewTabPick { app: Some("local/customize".into()), native: true });
+    assert_eq!(dev::NewTabPick::of("{}"), dev::NewTabPick::default());
+    assert_eq!(dev::NewTabPick::of("not json"), dev::NewTabPick::default());
 }

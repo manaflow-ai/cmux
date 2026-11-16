@@ -722,8 +722,67 @@ pub(super) fn write_types(dir: &Path, types: &str) -> std::io::Result<bool> {
     Ok(true)
 }
 
-/// Where each contribution shows, from the manifest.
-pub(super) fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
+/// The page Cmd-T draws, from the settings file the app reads
+/// (`tabs.newTabApp`, `tabs.nativeNewTabPage`; Swift `NewTabAppSetting`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct NewTabPick {
+    /// The app named in `tabs.newTabApp`; None when unset.
+    pub app: Option<String>,
+    /// `tabs.nativeNewTabPage` is on: that page never draws an extension.
+    pub native: bool,
+}
+
+impl NewTabPick {
+    /// The pick in the settings file (`cmux_config::config_path`); a missing
+    /// or unreadable file is the defaults: cmux's own page.
+    pub(super) fn read() -> Self {
+        std::fs::read_to_string(cmux_config::config_path())
+            .map_or_else(|_| Self::default(), |t| Self::of(&t))
+    }
+
+    pub(super) fn of(text: &str) -> Self {
+        let Ok(root) = cmux_config::jsonc::parse(text) else { return Self::default() };
+        let at = |key: &str| cmux_config::value::value_at(&root, &["tabs", key]).cloned();
+        Self {
+            app: at("newTabApp").and_then(|v| v.as_str().map(str::to_owned)),
+            native: at("nativeNewTabPage").and_then(|v| v.as_bool()) == Some(true),
+        }
+    }
+
+    /// Why `id`'s New Tab page is not the one Cmd-T draws, with the step that
+    /// makes it so; None when it is.
+    pub(super) fn not_shown(&self, id: &str) -> Option<String> {
+        if self.native {
+            return Some(format!(
+                "the native New Tab page is on, which draws no extension: cmux settings set tabs.nativeNewTabPage false{}",
+                if self.app.as_deref() == Some(id) {
+                    String::new()
+                } else {
+                    format!(" and cmux settings set tabs.newTabApp {id}")
+                }
+            ));
+        }
+        match self.app.as_deref() {
+            Some(app) if app == id => None,
+            Some(app) => {
+                Some(format!("tabs.newTabApp names {app}: cmux settings set tabs.newTabApp {id}"))
+            }
+            None => Some(format!(
+                "tabs.newTabApp is unset, so cmux draws its own page: cmux settings set tabs.newTabApp {id}"
+            )),
+        }
+    }
+}
+
+/// Where each contribution shows, from the manifest. `shown` is the app's
+/// record (installed, on, not hidden); a whole New Tab page also needs the
+/// person's pick (`new_tab`), so it is never reported as shown without it.
+pub(super) fn placements(
+    manifest: &Value,
+    id: &str,
+    shown: bool,
+    new_tab: &NewTabPick,
+) -> Vec<Value> {
     let Some(implements) = manifest.get("implements").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -757,7 +816,8 @@ pub(super) fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 }
                 other => other.to_string(),
             };
-            json!({ "interface": interface, "where": place, "shown": shown })
+            let held = (interface == "cmux.newtab/1").then(|| new_tab.not_shown(id)).flatten();
+            json!({ "interface": interface, "where": place, "shown": shown && held.is_none(), "why": held })
         })
         .collect()
 }
@@ -1057,7 +1117,11 @@ impl Session {
         let enabled = record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
         let hidden = record.as_ref().is_some_and(|r| r.field("hidden").as_bool() == Some(true));
         outcome.installed = Some(installed);
-        outcome.placed = placements(&pkg.manifest, installed && enabled && !hidden);
+        let new_tab = NewTabPick::read();
+        outcome.placed =
+            placements(&pkg.manifest, &pkg.id, installed && enabled && !hidden, &new_tab);
+        let new_tab_held =
+            outcome.placed.iter().find_map(|p| p.field("why").as_str().map(str::to_owned));
         if !installed {
             outcome.next = Some(format!(
                 "cmux apps install {}   (shows a card in cmux; until then it loads as a preview)",
@@ -1065,6 +1129,8 @@ impl Session {
             ));
         } else if !enabled {
             outcome.next = Some(format!("{} is turned off in Settings > Apps", pkg.id));
+        } else if let Some(why) = new_tab_held {
+            outcome.next = Some(format!("not your New Tab page yet: {why}"));
         }
         if outcome.changed || probe_unchanged {
             outcome.probe = probe_interface(&pkg.manifest);
