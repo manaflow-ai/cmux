@@ -179,20 +179,24 @@ impl<'a> KeptOwnerWait<'a> {
             // one, of whichever holder took it.
             Ok(LockWait::Free) => acquire(),
             Ok(LockWait::StillHeld) => {
+                // The pid is the record's word. This open did not check it:
+                // the holder can be another process than the record's.
                 let pid = record
                     .get("pid")
                     .and_then(Value::as_u64)
-                    .map(|pid| format!(" (pid {pid})"))
+                    .map(|pid| format!(" (pid {pid} by that record)"))
                     .unwrap_or_default();
                 Err(refused.context(format!(
-                    "workspace session is already owned by another daemon, which keeps the \
-                     session until its exit{pid}; it did not end in {} ms",
+                    "workspace session is already owned by another daemon; a record in the \
+                     session's folder says that an owner{pid} keeps the session until its \
+                     exit; the session was not free in {} ms",
                     began.elapsed().as_millis()
                 )))
             }
             Err(error) => Err(refused.context(format!(
-                "workspace session is already owned by another daemon, which keeps the session \
-                 until its exit; the wait for its end failed: {error:#}"
+                "workspace session is already owned by another daemon; a record in the \
+                 session's folder says that an owner keeps the session until its exit; the \
+                 wait for its end failed: {error:#}"
             ))),
         }
     }
