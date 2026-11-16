@@ -55,6 +55,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use anyhow::Context;
 use rusqlite::Connection;
 
 use crate::panic_free::RecoverPoison;
@@ -196,13 +197,29 @@ impl Drop for SyncerOwner {
     }
 }
 
+/// Opens a store of a session's folder that is not the registry: the
+/// database at `path` (`what` names it in an error), its file restricted,
+/// with the hooks of [`attach_store`]. The one way such a store opens, so
+/// each of them takes no write after the release of the session's owner.
+/// `released` is the owner's ([`super::RegistryConnection::owner_release`]).
+pub(crate) fn open_store(
+    path: &Path,
+    what: &str,
+    released: &OwnerRelease,
+) -> anyhow::Result<Connection> {
+    let connection = super::open_registry_database(path)
+        .with_context(|| format!("open {what} {}", path.display()))?;
+    crate::platform::restrict_file(path)
+        .with_context(|| format!("restrict {what} {}", path.display()))?;
+    attach_store(&connection, path, released);
+    Ok(connection)
+}
+
 /// [`WalDurability::attach_with_commit_delay`] for a store at
 /// `database_path`, with the `CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS` seam.
 /// A later `PRAGMA wal_autocheckpoint` on the connection would replace its
 /// WAL hook.
-/// `released` is the owner's ([`super::RegistryConnection::owner_release`]):
-/// each store of a session takes no write after the owner's release.
-pub(crate) fn attach_store(
+fn attach_store(
     connection: &Connection,
     database_path: &Path,
     released: &OwnerRelease,

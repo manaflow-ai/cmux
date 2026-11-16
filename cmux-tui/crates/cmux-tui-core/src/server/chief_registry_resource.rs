@@ -947,11 +947,7 @@ fn with_store<T>(
 ) -> Result<T, ResourceError> {
     let mut store = mux.chiefs().store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if store.is_none() {
-        let directory = mux.session_state_directory();
-        *store = Some(
-            ChiefStore::open(directory.as_deref(), mux.owner_release())
-                .map_err(|e| internal(operation, &e))?,
-        );
+        *store = Some(mux.open_chief_store().map_err(|e| internal(operation, &e))?);
     }
     match store.as_mut() {
         Some(store) => run(store),

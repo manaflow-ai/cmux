@@ -23,13 +23,12 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::workspace_registry::wal_durability::OwnerRelease;
+use crate::workspace_registry::wal_durability::{self, OwnerRelease};
 
 /// The registry's file inside the session state directory.
 pub(crate) const CHIEFS_FILE: &str = "chiefs.sqlite3";
@@ -294,19 +293,11 @@ impl ChiefStore {
     /// registry takes no write, also when it opens for the first time then.
     pub(crate) fn open(directory: Option<&Path>, released: &OwnerRelease) -> anyhow::Result<Self> {
         let connection = match directory {
-            Some(directory) => {
-                let path = directory.join(CHIEFS_FILE);
-                let connection = crate::workspace_registry::open_registry_database(&path)
-                    .with_context(|| format!("open chief registry {}", path.display()))?;
-                crate::platform::restrict_file(&path)
-                    .with_context(|| format!("restrict chief registry {}", path.display()))?;
-                crate::workspace_registry::wal_durability::attach_store(
-                    &connection,
-                    &path,
-                    released,
-                );
-                connection
-            }
+            Some(directory) => wal_durability::open_store(
+                &directory.join(CHIEFS_FILE),
+                "chief registry",
+                released,
+            )?,
             None => Connection::open_in_memory()?,
         };
         Self::initialize(connection)

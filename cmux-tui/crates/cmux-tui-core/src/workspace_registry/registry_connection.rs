@@ -436,7 +436,7 @@ impl RegistryConnection {
     }
 
     /// The owner's release, for the commit hook of each other store of the
-    /// session folder (`wal_durability::attach_store`).
+    /// session folder (`wal_durability::open_store`).
     pub(crate) fn owner_release(&self) -> &super::wal_durability::OwnerRelease {
         &self.released
     }

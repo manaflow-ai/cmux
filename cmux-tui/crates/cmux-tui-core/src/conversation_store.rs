@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::workspace_registry::wal_durability::OwnerRelease;
+use crate::workspace_registry::wal_durability::{self, OwnerRelease};
 
 #[path = "conversation_import.rs"]
 mod import;
@@ -156,16 +156,7 @@ impl ConversationStore {
         let connection = match directory {
             Some(directory) => {
                 let path = directory.join(CONVERSATIONS_FILE);
-                let connection = crate::workspace_registry::open_registry_database(&path)
-                    .with_context(|| format!("open conversation store {}", path.display()))?;
-                crate::platform::restrict_file(&path)
-                    .with_context(|| format!("restrict conversation store {}", path.display()))?;
-                crate::workspace_registry::wal_durability::attach_store(
-                    &connection,
-                    &path,
-                    released,
-                );
-                connection
+                wal_durability::open_store(&path, "conversation store", released)?
             }
             None => Connection::open_in_memory()?,
         };

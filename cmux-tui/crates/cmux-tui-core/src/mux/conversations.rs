@@ -159,6 +159,15 @@ impl Mux {
         &self.chiefs
     }
 
+    /// Opens this owner's Chief registry, for the slot of [`Self::chiefs`]. The one place that
+    /// opens it: the store gets the owner's release, so it takes no write after it.
+    pub(crate) fn open_chief_store(&self) -> anyhow::Result<crate::chief_registry::ChiefStore> {
+        crate::chief_registry::ChiefStore::open(
+            self.session_state_directory().as_deref(),
+            self.owner_release(),
+        )
+    }
+
     /// The remote-relay state (peers, pairing records, revocation limits).
     pub(crate) fn remote_relay(&self) -> &crate::remote_relay_state::RemoteRelayState {
         &self.conversations.remote
