@@ -6,9 +6,11 @@ mod display;
 pub mod logged_bodies;
 pub mod logged_init;
 pub mod model_copy;
+mod selection;
 mod table;
 pub mod update_repeats;
 pub use display::drop_display_lines;
+pub use selection::{is_context_answer, times_request};
 pub use table::{Context, Direction, Entry, Record, record_of};
 
 pub const SESSION_PROMPT: &str = "session/prompt";

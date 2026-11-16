@@ -510,22 +510,7 @@ impl Hub {
     }
 }
 
-/// Whether a raw `stream_event` line is one a request's timing reads: a `message_start`, or the
-/// first `content_block_delta` after one. Only the main agent's requests are timed; a subagent's
-/// lines (`parent_tool_use_id`) stream alongside them and are never kept.
-fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
-    if params.get("parent_tool_use_id").is_some_and(|p| !p.is_null()) {
-        return false;
-    }
-    match params.pointer("/event/type").and_then(Value::as_str) {
-        Some("message_start") => {
-            awaiting_first_delta.store(true, Ordering::Relaxed);
-            true
-        }
-        Some("content_block_delta") => awaiting_first_delta.swap(false, Ordering::Relaxed),
-        _ => false,
-    }
-}
+use acpmux_core::chat::record::times_request;
 
 #[cfg(test)]
 #[path = "tap_bodies_tests.rs"]

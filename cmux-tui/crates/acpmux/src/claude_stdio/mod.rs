@@ -1174,13 +1174,7 @@ fn tool_title(name: &str, input: &Value) -> String {
     }
 }
 
-/// Whether a raw Claude line answers the `get_context_usage` a turn's result
-/// asked (`ctx-*`); its trimmed breakdown is what acpmux keeps.
-pub fn is_context_answer(line: &Value) -> bool {
-    line.pointer("/response/request_id")
-        .and_then(Value::as_str)
-        .is_some_and(|id| id.starts_with("ctx-"))
-}
+pub use acpmux_core::chat::record::is_context_answer;
 
 /// Claude Code's answer to `get_context_usage` (its `/context`), retaining
 /// every reported category, memory file, MCP tool and skill with token counts.

@@ -2,7 +2,9 @@
 use super::logged_init::{InitSections, LoggedInit};
 use super::update_repeats::{Repeats, UpdateRepeats};
 use super::{EventRecord, drop_display_lines, logged_bodies, model_copy};
+use super::{is_context_answer, times_request};
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
@@ -30,12 +32,12 @@ pub struct Context {
     pub loading: bool,
     pub logged_init: LoggedInit,
     pub update_repeats: UpdateRepeats,
-    pub awaiting_first_delta: bool,
+    pub awaiting_first_delta: AtomicBool,
 }
 
 impl Context {
     pub fn harness_started(&mut self) {
-        self.awaiting_first_delta = false;
+        self.awaiting_first_delta.store(false, Ordering::Relaxed);
     }
 }
 
@@ -120,17 +122,11 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
     if notification && direction == Direction::In {
         let params = value.get("params");
         if kind == "claude.stream_event"
-            && !params.is_some_and(|p| times_request(p, &mut context.awaiting_first_delta))
+            && !params.is_some_and(|p| times_request(p, &context.awaiting_first_delta))
         {
             return None;
         }
-        if kind == "claude.control_response"
-            && params.is_some_and(|p| {
-                p.pointer("/response/request_id")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| id.starts_with("ctx-"))
-            })
-        {
+        if kind == "claude.control_response" && params.is_some_and(is_context_answer) {
             return None;
         }
         if kind.starts_with("claude.") {
@@ -167,18 +163,4 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
     let repeats = (direction == Direction::In && kind == "response")
         .then(|| context.update_repeats.leave_out_repeats(&kind, &mut value));
     Some(Record { dir, kind, msg: value, init: None, repeats })
-}
-
-fn times_request(params: &Value, awaiting_first_delta: &mut bool) -> bool {
-    if params.get("parent_tool_use_id").is_some_and(|p| !p.is_null()) {
-        return false;
-    }
-    match params.pointer("/event/type").and_then(Value::as_str) {
-        Some("message_start") => {
-            *awaiting_first_delta = true;
-            true
-        }
-        Some("content_block_delta") => std::mem::replace(awaiting_first_delta, false),
-        _ => false,
-    }
 }
