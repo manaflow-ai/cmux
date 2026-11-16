@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -1450,6 +1451,7 @@ class HotApplyFFI(unittest.TestCase):
                         CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
                         CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
                         CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
+        self.ffi.RELEASES = self.releases.as_uri()
 
     def tearDown(self):
         subprocess.run(["rm", "-rf", str(self.tmp)])
@@ -1480,6 +1482,11 @@ class HotApplyFFI(unittest.TestCase):
         (tag / "SHA256SUMS").write_text(f"{digest}  CCmuxAppFFI.xcframework.zip\n")
         return digest
 
+    def fetch_library(self):
+        state = self.tmp / "state"
+        get = lambda url: urllib.request.urlopen(url).read()
+        return self.ffi.fetch_library(FFI_FIX, state, get, get)
+
     def test_plan_keeps_a_source_only_ffi_edit_with_the_daemon(self):
         self.carry_dylib()
         code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app))
@@ -1503,27 +1510,28 @@ class HotApplyFFI(unittest.TestCase):
 
     def test_a_dry_run_fetches_and_checks_the_published_library(self):
         digest = self.publish()
-        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
-        self.assertEqual(code, 0, err)
-        self.assertEqual(receipt["steps"]["ffi"]["archive_sha256"], digest)
-        self.assertEqual(Path(receipt["steps"]["ffi"]["copy"]).read_bytes(), b"new library")
+        library, got = self.fetch_library()
+        self.assertEqual(got, digest)
+        self.assertEqual(library.read_bytes(), b"new library")
 
     def test_an_unpublished_release_says_so(self):
-        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
-        self.assertIn("not published", " ".join(receipt["left"]["ffi"]), err)
+        with self.assertRaises(self.ffi.Left) as left:
+            self.fetch_library()
+        self.assertIn("not published", str(left.exception))
 
     def test_a_release_from_before_the_dylib_is_left(self):
         self.publish(member="CCmuxAppFFI.xcframework/macos-arm64_x86_64/libcmux_app_ffi.a")
-        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
-        self.assertIn("carries no libcmux_app_ffi.dylib", " ".join(receipt["left"]["ffi"]), err)
+        with self.assertRaises(self.ffi.Left) as left:
+            self.fetch_library()
+        self.assertIn("carries no libcmux_app_ffi.dylib", str(left.exception))
 
     def test_an_archive_that_does_not_hash_to_its_sums_changes_nothing(self):
         self.publish()
         sums = self.releases / f"cmux-app-ffi-{FFI_FIX}" / "SHA256SUMS"
         sums.write_text(f"{'0' * 64}  CCmuxAppFFI.xcframework.zip\n")
-        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
-        self.assertNotEqual(code, 0)
-        self.assertIn("does not hash", receipt["error"], err)
+        with self.assertRaises(RuntimeError) as error:
+            self.fetch_library()
+        self.assertIn("does not hash", str(error.exception))
         self.assertFalse((self.tmp / "state" / "ffi").exists())
 
     def test_a_developer_id_app_takes_the_library_only_as_asked(self):
