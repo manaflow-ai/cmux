@@ -1,16 +1,18 @@
-//! A link's read of the peer's watch list: before the link is ready on its first link, after
-//! it on every later one (`Peer::lists_after_ready`). Either way the reader publishes the list
-//! once, whole, after its last page (`watch_reply!` in `peer_runtime_io.rs`), then
-//! `PeerNotice::Listed`.
+//! A link's read of the peer's watch list: before the link is ready, or after it on a link that
+//! follows a far restart or a path switch (`Peer::lists_after_ready`). Either way the reader
+//! publishes the list once, whole, after its last page (`watch_reply!` in
+//! `peer_runtime_io.rs`), then `PeerNotice::Listed`.
 
 use super::*;
 
 impl Peer {
     /// Whether this link reads its watch list after it is ready: a link of this instance
-    /// published a whole list before, so the hub holds one and keeps it until the new one is
-    /// whole. One far restart held its link 66 s in the handshake, reading 6 MB of list in
-    /// 1.47 MB pages before it was ready; a first link still reads its list first, since the
-    /// hub has none of this peer's rows to answer from.
+    /// published a whole list before and the last link ended for a far restart or a path switch
+    /// (`LinkEnd::Restarting`, `Switching`), so the hub holds that list, never marked stale, and
+    /// keeps it until the new one is whole. One far restart held its link 66 s in the handshake,
+    /// reading 6 MB of list in 1.47 MB pages before it was ready. A first link, and one after an
+    /// outage (whose rows went stale), still reads its list first: a first one's hub has none
+    /// of this peer's rows to answer from, and the other follows its cursor, a small read.
     pub(super) fn lists_after_ready(&self) -> bool {
         self.whole_list.load(Ordering::SeqCst)
     }

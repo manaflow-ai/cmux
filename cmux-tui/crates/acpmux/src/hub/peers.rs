@@ -846,7 +846,8 @@ impl Hub {
         let peer = peer.to_owned();
         {
             match notice {
-                // Whether a name missing from its rows is final (`hub/no_session.rs`).
+                // Whether a name missing from its rows is final, and messages waiting for the
+                // peer go now (`hub/no_session.rs`).
                 PeerNotice::Listed => self.peer_listed(&peer, generation),
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");

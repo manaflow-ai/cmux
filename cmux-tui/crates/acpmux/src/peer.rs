@@ -145,7 +145,8 @@ pub fn hidden_attach_after(id: &str, after: u64) -> Value {
 pub enum PeerNotice {
     Connected,
     /// The link's whole list (and the changes held while it came) went just before this: a
-    /// first link sends it before `Connected`, a later one after (`Peer::lists_after_ready`).
+    /// link sends it before `Connected`, one after a far restart or a path switch after it
+    /// (`Peer::lists_after_ready`).
     Listed,
     Disconnected(String),
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
@@ -393,7 +394,8 @@ pub struct Peer {
     read_tokens: tokens::TokenCache,
     /// A link of this peer was connected once: a later read runs before its tunnel opens.
     linked_once: AtomicBool,
-    /// A link of this instance published a whole list (`Peer::lists_after_ready`).
+    /// A link of this instance published a whole list, and every link since ended only for a far
+    /// restart or a path switch, which leave the rows usable (`Peer::lists_after_ready`).
     whole_list: AtomicBool,
     /// An ssh attempt timed out in the banner exchange since the link was last ready: the host
     /// is slow, and its attempts get the long connect deadline (`ssh_connect_secs`).

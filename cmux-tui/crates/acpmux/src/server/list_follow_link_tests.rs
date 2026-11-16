@@ -43,7 +43,7 @@ enum Listed {
 }
 
 async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> Listed {
-    // A reconnect reads its list after it is ready: both, in either order.
+    // A link after a far restart reads its list after it is ready: both, in either order.
     let (mut listed, mut connected, mut whole) = (None, false, false);
     while !connected || !whole {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(60), notices.recv())

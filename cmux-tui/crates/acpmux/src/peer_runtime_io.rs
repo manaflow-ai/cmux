@@ -331,6 +331,8 @@ impl Peer {
             self.read_tokens.forget();
             return Some(PeerNotice::Restarting);
         }
+        // An outage marks the rows stale: the next link reads its list (from its cursor) first.
+        self.whole_list.store(false, Ordering::SeqCst);
         // A genuinely stable link starts failure backoff over; a flapping one does not.
         if self.with_link(|l| l.down(crate::store::now_ms(), self.timings.stable_after)) {
             backoff.reset();
@@ -750,9 +752,10 @@ impl Peer {
             let kept = me.keep_pipelined(pipelined.as_ref(), build.as_ref());
             let _ = kept_tx.send(kept);
             // The reader publishes the list (`watch_key`) once it is whole, then `Listed`. A
-            // first link reads it before it is ready, so Connected follows it; a later one makes
-            // the link ready first and reads it beside the steps after Connected, while the hub
-            // keeps the last whole list (`lists_after_ready`). An error reading it ends the link.
+            // link reads it before it is ready, so Connected follows it; one after a far restart
+            // or a path switch is ready first and reads it beside the steps after Connected,
+            // while the hub keeps the last whole list (`lists_after_ready`). An error reading it
+            // ends the link.
             let list = async {
                 let sent = if kept {
                     sent.as_mut().await;
@@ -1133,9 +1136,10 @@ impl Peer {
                 }
                 _ = ping.tick() => {
                     // The selector moved the session to a faster path: the link moves while no
-                    // request is out on it.
+                    // request is out on it, and its list is in (one read after ready has no
+                    // request out between its pages).
                     self.paths_tick();
-                    if self.link().is_ready() && self.switch_due() {
+                    if self.link().is_ready() && listed && self.switch_due() {
                         break Ok(LinkEnd::Switching);
                     }
                     let now = tokio::time::Instant::now();

@@ -146,8 +146,8 @@ async fn link_once_then(
         out_rx
     });
     let mut lists = Vec::new();
-    // Ready, and listed: a reconnect reads its list after it is ready. `took` runs until both,
-    // the handshake's round trips and the list's.
+    // Ready, and listed: a link after a far restart reads its list after it is ready. `took`
+    // runs until both, the handshake's round trips and the list's.
     let (mut ready, mut listed) = (false, false);
     while !ready || !listed {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(30), notices.recv())

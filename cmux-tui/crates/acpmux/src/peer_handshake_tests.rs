@@ -570,7 +570,7 @@ async fn link_to_paced_old_peer(
         let end = link.serve(client, &mut out_rx).await;
         (end, out_rx)
     });
-    // Ready, and listed: a reconnect reads its list after it is ready.
+    // Ready, and listed: a link after a far restart reads its list after it is ready.
     let (mut listed, mut connected) = (None, false);
     let outcome = loop {
         if connected && listed.is_some() {

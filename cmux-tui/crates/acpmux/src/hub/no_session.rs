@@ -66,12 +66,15 @@ impl Hub {
             p.rows_ready.store(true, std::sync::atomic::Ordering::SeqCst);
             p.note_rows_applied();
         }
+        // Messages waiting for a name this list has go now, not after the rest of their retry
+        // delay (`server/outbox.rs` `deliver`).
+        self.outbox.peer_ready.notify_waiters();
     }
 
-    /// Peer `peer`'s link is ready (`PeerNotice::Connected`). A first link's list came before
-    /// it; a later link reads its list after it (`Peer::lists_after_ready`), and until that
-    /// list is applied a name missing from the rows (the last link's) is not final, also after
-    /// a restart, which leaves the rows ready.
+    /// Peer `peer`'s link is ready (`PeerNotice::Connected`). Most links' list came before it;
+    /// one after a far restart or a path switch reads its list after (`Peer::lists_after_ready`),
+    /// and until that list is applied a name missing from the rows (the last link's) is not
+    /// final, though the restart left the rows ready (`peer_unlisted_for`).
     pub(super) fn peer_ready_rows(&self, peer: &str, generation: u64) {
         if let Some(p) = self.peer(peer).filter(|p| p.generation == generation) {
             p.rows_ready.store(p.rows_listed(), std::sync::atomic::Ordering::SeqCst);
@@ -86,6 +89,18 @@ impl Hub {
         for notice in [PeerNotice::sessions_from_values(rows), Listed, Connected] {
             self.apply_peer_notice(&peer.name, peer.generation, notice);
         }
+    }
+
+    /// The refusal for `PEER/name` when PEER's link is ready but this link's list is not in yet
+    /// (one read after ready, `Peer::lists_after_ready`) and its rows lack the name: the
+    /// session may be in the list still coming, so the answer is the retryable one a peer that
+    /// is down gives (`peer_down_for`), not that the session does not exist.
+    pub fn peer_unlisted_for(&self, key: &str) -> Option<RpcError> {
+        use std::sync::atomic::Ordering::SeqCst;
+        let (name, rest) = key.split_once('/')?;
+        let peer = self.peer(name).filter(|_| !rest.is_empty())?;
+        (peer.connected.load(SeqCst) && !peer.rows_ready.load(SeqCst))
+            .then(|| peer.unreachable_error())
     }
 
     /// Whether a send to `key` goes to a peer whose link is down now: queued, and the answer
@@ -217,8 +232,13 @@ mod tests {
         assert!(!hub.no_session_is_final("b/x"));
         peer.connected.store(true, SeqCst);
         assert!(!hub.no_session_is_final("b/x"), "connected, list not applied yet");
+        // A request for it gets the retryable answer a peer that is down gives, not no session.
+        let unlisted = hub.peer_unlisted_for("b/x").expect("its list is not in yet");
+        assert_eq!(unlisted.data.as_ref().unwrap()["retryable"], true, "{unlisted:?}");
+        assert!(hub.peer_down_for("b/x").is_none(), "the link is up");
         peer.rows_ready.store(true, SeqCst);
         assert!(hub.no_session_is_final("b/x"));
+        assert!(hub.peer_unlisted_for("b/x").is_none(), "listed: no session is the answer");
         // A name on this machine is always final.
         assert!(hub.no_session_is_final("nobody"));
         // Its link drops with the rows still cached: a send there is to a machine that is down.
