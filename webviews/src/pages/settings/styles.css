@@ -2786,6 +2786,13 @@ button.menu-disclosure {
   align-items: center;
   gap: var(--ds-space-1);
   min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row-layout-add-item {
+  display: inline-flex;
 }
 
 /* A chip: the host list's token, on the control surface so it reads on the line's fill. */
@@ -2801,13 +2808,30 @@ button.menu-disclosure {
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
+}
+
+/* The chip's text is its grab handle and keyboard stop; the ring draws on the whole chip. */
+.row-layout-chip-grab {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
   cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
 
-.row-layout-chip:focus-visible {
+.row-layout-chip-grab:focus-visible {
+  outline: none;
+}
+
+.row-layout-chip:has(.row-layout-chip-grab:focus-visible) {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
   outline-offset: 1px;
 }
@@ -2832,9 +2856,12 @@ button.menu-disclosure {
   color: var(--danger);
 }
 
-.row-layout-chip[aria-disabled] {
-  cursor: default;
+.row-layout-chip:has(.row-layout-chip-grab:disabled) {
   opacity: 0.6;
+}
+
+.row-layout-chip-grab:disabled {
+  cursor: default;
 }
 
 /* While a chip is dragged it follows the pointer over the rest (a transform, no layout). */
@@ -2843,6 +2870,9 @@ button.menu-disclosure {
   z-index: var(--layer-raised);
   background: var(--surface-popup);
   box-shadow: var(--elevation-2);
+}
+
+.row-layout-chip[data-dragging] .row-layout-chip-grab {
   cursor: grabbing;
 }
 
