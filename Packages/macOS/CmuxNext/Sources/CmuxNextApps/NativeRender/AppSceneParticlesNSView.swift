@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// `Particles`: a particle field the render server runs (`CAEmitterLayer`), with no script and no

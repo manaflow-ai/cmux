@@ -222,7 +222,7 @@ extension MotionGate {
             swing.timingFunction = eased
             return swing
         }
-        let animation: CAAnimation
+        let animation: CAPropertyAnimation
         switch loop.effect {
         case .pulse:
             animation = swing("transform", to: value(space.transform(scale: 1 + 0.06 * amount)))
