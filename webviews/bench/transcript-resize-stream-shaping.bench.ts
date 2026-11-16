@@ -23,10 +23,8 @@
 // `__debug.seedRows(n)` seeds n rows, not n turns (a 200 run reports 198 rows), so the length
 // #44389 reported the crash at is 100,000 here.
 /// <reference types="bun" />
-import path from "node:path";
 import { chromium } from "./browsers";
-import { createServer } from "vite";
-import { warmViteServer } from "../test/support/warmDevServer";
+import { buildLabel, devRequested, gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
 
 const ROWS = Number(process.argv[2] ?? 100_000);
 /// A mode is how rows are shaped, with `-nomap` to draw the transcript without the thread minimap:
@@ -40,7 +38,6 @@ const MODES = (process.argv[3] ?? "scratch,app").split(",").map((name) => {
 });
 if (!Number.isInteger(ROWS) || ROWS < 3) throw new Error("usage: [rows>=3] [modes=scratch,app]");
 
-const webviews = path.resolve(import.meta.dir, "..");
 /// The drag: WIDE to NARROW and back, one width a frame, as a divider under the pointer gives.
 const WIDE = 900;
 const NARROW = 520;
@@ -75,15 +72,11 @@ const pct = (values: number[], p: number) => {
   return Math.round((sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0) * 100) / 100;
 };
 
-const vite = await createServer({
-  root: webviews,
-  configFile: path.join(webviews, "vite.config.ts"),
-  server: { port: 0, host: "127.0.0.1", strictPort: false },
-  logLevel: "error",
-});
-await vite.listen();
 const pagePath = "/test/browser/transcript-fling.html";
-await warmViteServer(vite, pagePath);
+/// A build by default; `--dev` takes a dev server instead and labels every number `dev`
+/// (bench/support/benchPage.ts): React's development bundle was about a third of a frame here.
+const DEV = devRequested();
+const served = await serveBenchPage(pagePath, { dev: DEV });
 // --expose-gc so a run can settle its garbage before the heap is read, and a large old space so the
 // renderer's own limit, not the bench host's, is what a run meets.
 const browser = await chromium.launch({
@@ -92,12 +85,13 @@ const browser = await chromium.launch({
 });
 const runs: Run[] = [];
 try {
-  const { port } = vite.httpServer!.address() as { port: number };
+  console.log(`resize-stream-shaping build=${buildLabel({ dev: DEV })}`);
   for (const mode of MODES) {
     const page = await browser.newPage({ viewport: { width: WIDE + 100, height: 900 } });
     let crashed = false;
     page.on("crash", () => (crashed = true));
-    await page.goto(`http://127.0.0.1:${port}${pagePath}`);
+    await gotoBenchPage(page, served);
+    await requireProductionReact(page, { dev: DEV });
     // `__debug` is installed right after `createRoot().render()`, but `__shaping` is installed by
     // the harness's first render, which a concurrent root does not run synchronously. So wait for
     // the shaping switch itself, not for `__debug`.
@@ -239,7 +233,7 @@ try {
   }
 } finally {
   await browser.close();
-  await vite.close();
+  await served.close();
 }
 
 console.log("");

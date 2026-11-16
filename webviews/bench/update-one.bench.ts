@@ -32,6 +32,7 @@ import { chromium } from "./browsers";
 import type { CDPSession, Page } from "playwright";
 import { SourceMapConsumer, type RawSourceMap } from "source-map-js";
 import { warmViteServer } from "../test/support/warmDevServer";
+import { requireProductionReact } from "./support/benchPage";
 import { perfRow, TARGET_MS } from "./perfRow";
 
 const argv = process.argv.slice(2);
@@ -213,6 +214,10 @@ async function openPage(page: Page, port: number, size: number, surface: Surface
     (globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize = count;
   }, size);
   await page.goto(`http://127.0.0.1:${port}/?mock`);
+  // This bench already asks Vite for production mode; the check says so from the code the page
+  // loaded, so a config change cannot turn these numbers into dev numbers quietly
+  // (bench/support/benchPage.ts).
+  await requireProductionReact(page, { dev: false });
   await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
   if (surface === "chat") {
     const seeded = (await page.evaluate(

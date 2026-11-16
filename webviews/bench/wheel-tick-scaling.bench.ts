@@ -36,6 +36,7 @@ import { chromium, webkit } from "./browsers";
 import { SourceMapConsumer, type RawSourceMap } from "source-map-js";
 import { createServer, type ViteDevServer } from "vite";
 import { warmViteServer } from "../test/support/warmDevServer";
+import { requireProductionReact } from "./support/benchPage";
 import { perfRow, TARGET_MS } from "./perfRow";
 
 const SIZES = (process.argv[2] ?? "50,500,3000").split(",").map(Number);
@@ -481,6 +482,9 @@ try {
   for (const turns of SIZES) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
     await page.goto(`http://127.0.0.1:${port}/?mock`);
+    // Production unless CMUX_TICK_DEV=1, read from the code the page loaded
+    // (bench/support/benchPage.ts).
+    await requireProductionReact(page, { dev: DEV });
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
     const seeded = (await page.evaluate(
       (turns) =>

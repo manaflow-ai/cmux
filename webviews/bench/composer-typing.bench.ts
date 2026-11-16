@@ -26,6 +26,7 @@
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium } from "./browsers";
+import { requireProductionReact } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 
@@ -66,6 +67,9 @@ const METRICS = [
 
 async function openChat(page: Page, port: number, turns: number) {
   await page.goto(`http://127.0.0.1:${port}/?mock`);
+  // `servePane` builds the pane unless `--dev`; the check reads which React the page loaded
+  // (bench/support/benchPage.ts).
+  await requireProductionReact(page, { dev: DEV });
   await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
   const seeded = (await page.evaluate(
     (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),

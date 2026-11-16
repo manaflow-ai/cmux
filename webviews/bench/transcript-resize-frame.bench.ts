@@ -17,17 +17,14 @@
 // #41170 F1: no row may go up past the top while it narrows).
 //   bun bench/transcript-resize-frame.bench.ts [turns=100,1500] [rounds=3]
 /// <reference types="bun" />
-import path from "node:path";
 import { chromium } from "./browsers";
-import { createServer } from "vite";
-import { warmViteServer } from "../test/support/warmDevServer";
+import { buildLabel, devRequested, gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
 import { perfRow, TARGET_MS } from "./perfRow";
 
 const TURNS = (process.argv[2] ?? "100,1500").split(",").map(Number);
 const ROUNDS = Number(process.argv[3] ?? 3);
 if (TURNS.some((turns) => !Number.isInteger(turns) || turns < 3) || !Number.isInteger(ROUNDS) || ROUNDS < 1)
   throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1]");
-const webviews = path.resolve(import.meta.dir, "..");
 /// The drag: from WIDE to NARROW and back, STEPS frames each way.
 const WIDE = 900;
 const NARROW = 520;
@@ -43,15 +40,11 @@ const CASES: readonly Case[] = [
   { name: "scrolled", wide: WIDE, view: "middle" },
 ];
 
-const vite = await createServer({
-  root: webviews,
-  configFile: path.join(webviews, "vite.config.ts"),
-  server: { port: 0, host: "127.0.0.1", strictPort: false },
-  logLevel: "error",
-});
-await vite.listen();
 const pagePath = "/test/browser/transcript-fling.html";
-await warmViteServer(vite, pagePath);
+/// A build by default; `--dev` takes a dev server and labels every number `dev`
+/// (bench/support/benchPage.ts): React's development bundle was about a third of a frame here.
+const DEV = devRequested();
+const served = await serveBenchPage(pagePath, { dev: DEV });
 const browser = await chromium.launch({ headless: true });
 type Drag = {
   work: number[];
@@ -80,7 +73,7 @@ const pct = (values: number[], p: number) => {
   return Math.round((sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0) * 100) / 100;
 };
 try {
-  const { port } = vite.httpServer!.address() as { port: number };
+  console.log(`transcript-resize-frame build=${buildLabel({ dev: DEV })}`);
   const runs: { turns: number; cases: readonly Case[] }[] = [
     ...TURNS.map((turns) => ({ turns, cases: CASES })),
     {
@@ -92,7 +85,8 @@ try {
     const page = await browser.newPage({
       viewport: { width: WIDE + 100, height: 900 },
     });
-    await page.goto(`http://127.0.0.1:${port}${pagePath}`);
+    await gotoBenchPage(page, served);
+    await requireProductionReact(page, { dev: DEV });
     await page.waitForFunction(() => "__debug" in window);
     const seeded = await page.evaluate(`window.__debug.seedRows(${turns})`);
     console.log(`transcript-resize-frame turns=${turns} fixture=${JSON.stringify(seeded)}`);
@@ -275,5 +269,5 @@ try {
   }
 } finally {
   await browser.close();
-  await vite.close();
+  await served.close();
 }
