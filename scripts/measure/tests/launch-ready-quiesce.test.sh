@@ -5,7 +5,9 @@
 set -euo pipefail
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/launch-ready.sh"
-app="/tmp/lr-test/side a/cmux NEXT.app"
+root="$(mktemp -d)"
+trap 'rm -rf "$root"' EXIT
+app="$root/side a/cmux NEXT.app"
 
 # A stand-in process table: two lines from the copy, three that are not (another copy, the daemon this
 # check leaves alone, and an unrelated process).
@@ -13,7 +15,7 @@ ps() {
   printf '%s\n' \
     "$app/Contents/MacOS/cmux NEXT -ApplePersistenceIgnoreState YES" \
     "$app/Contents/Frameworks/cmux NEXT Helper (Renderer).app/Contents/MacOS/cmux NEXT Helper (Renderer)" \
-    "/tmp/lr-test/side b/cmux NEXT.app/Contents/MacOS/cmux NEXT" \
+    "$root/side b/cmux NEXT.app/Contents/MacOS/cmux NEXT" \
     "$app/Contents/Resources/bin/cmux-tui daemon" \
     "/usr/sbin/cfprefsd agent"
 }
