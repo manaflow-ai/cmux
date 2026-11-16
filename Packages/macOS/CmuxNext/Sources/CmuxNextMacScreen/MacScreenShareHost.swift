@@ -16,19 +16,15 @@ public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
-    /// Permission checks; tests replace them. Each is a synchronous TCC query (an IPC to tccd: Screen
-    /// Recording waits on TCC's serial `com.apple.tcc.preflight.kTCCServiceScreenCapture` queue), so they
-    /// run on the system lane, never on the main thread.
-    @ObservationIgnored public var checkScreenRecording: @Sendable () -> Bool = { CGPreflightScreenCaptureAccess() }
-    @ObservationIgnored public var checkAccessibility: @Sendable () -> Bool = { AXIsProcessTrusted() }
-    @ObservationIgnored private let work: BackgroundWork
+    /// A fresh child reads TCC under this app's responsibility, just like `rd serve`. A long-running
+    /// process can cache Screen Recording denial even after the person grants it in Settings.
+    @ObservationIgnored var readPermissions: @Sendable () async throws -> (screen: Bool, control: Bool) = {
+        try await MacScreenPermissionProbe().read()
+    }
     /// The number of reads started; a read applies its answer only when no later read has started.
     @ObservationIgnored private var reads: UInt64 = 0
 
-    /// - Parameter work: the app's blocking-work lanes; the permission checks run on its system lane.
-    public init(work: BackgroundWork) {
-        self.work = work
-    }
+    public init() {}
 
     /// At launch: reads the permissions and rechecks them whenever the app becomes active.
     public func activate() {
@@ -43,17 +39,15 @@ public final class MacScreenShareHost {
     }
 
     /// Reads both permissions off the main thread and shows them. When reads overlap, the last one
-    /// started decides (an older answer that arrives later is dropped). A failed read (cancelled, or the
-    /// app is quitting) changes nothing.
+    /// started decides (an older answer that arrives later is dropped). Cancellation changes nothing;
+    /// an unavailable or failed probe clears permission state rather than keeping an old grant.
     public func refreshPermissions() async {
         reads &+= 1
         let read = reads
-        let screenRecording = checkScreenRecording, accessibility = checkAccessibility
-        // Shown on the Mac Screen page and in Settings soon: userVisible.
-        guard let granted = try? await work.run(.userVisible, mayBlock: .system, { (screenRecording(), accessibility()) }),
-              read == reads else { return }
-        screenRecordingGranted = granted.0
-        accessibilityGranted = granted.1
+        let granted = try? await readPermissions()
+        guard read == reads, !Task.isCancelled else { return }
+        screenRecordingGranted = granted?.screen ?? false
+        accessibilityGranted = granted?.control ?? false
     }
 
     public func requestScreenRecording() {

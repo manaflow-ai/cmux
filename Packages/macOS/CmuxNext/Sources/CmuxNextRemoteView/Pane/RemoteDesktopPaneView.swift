@@ -20,6 +20,8 @@ public final class RemoteDesktopPaneView: NSView {
     /// The connecting reason the card shows (``RemoteViewStatus/connectingReason``).
     private var shownReason: String?
     private var isHovering = false
+    /// One cursor: the overlay and the local pointer's shape (cap `cursor`).
+    private(set) lazy var cursor = RemoteCursorCoordinator(video: video, capture: capture)
 
     static let toolbarInset: CGFloat = 8
 
@@ -37,6 +39,7 @@ public final class RemoteDesktopPaneView: NSView {
         card.isHidden = true
         upstreamIndicator.isHidden = true
         capture.geometry = { [weak self] in self?.video.geometry }
+        _ = cursor
         setAccessibilityRole(.group)
     }
 
@@ -51,7 +54,7 @@ public final class RemoteDesktopPaneView: NSView {
         self.settings = settings
         capture.controller.settings = settings
         capture.controlMode = state.effectiveMode == .control
-        video.showsRemoteCursor = state.effectiveMode == .view
+        cursor.update()
         toolbar.update(state: state, settings: settings, colors: colors)
         banner.isHidden = !state.showsLatencyBanner
         if state.showsLatencyBanner { banner.update(state: state, colors: colors) }
@@ -134,6 +137,7 @@ public final class RemoteDesktopPaneView: NSView {
         super.layout()
         video.frame = bounds
         capture.frame = bounds
+        cursor.update()
         let inset = Self.toolbarInset
         let toolbarWidth = min(toolbar.fittingWidth, bounds.width - inset * 2)
         toolbar.frame = CGRect(
