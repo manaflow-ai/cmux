@@ -503,7 +503,7 @@ class SidebarItemRowView: NSView {
     var pinSquareFrame: CGRect? { pin.isHidden || pin.image == nil ? nil : pin.frame }
 
     /// The ink in the row's leading icon column (tests): the pin, else a color dot, else the item's glyph (Home's, a
-    /// band row's, or a pinned workspace's own icon in the pin's place, `SidebarPinnedRowLeading`).
+    /// band row's, or, in the Debug `SidebarPinnedRowLeading.ownIcon` look, a pinned workspace's own icon in the pin's place).
     var leadingInkFrame: CGRect? {
         if let pin = pinInkFrame { return pin }
         return ownIconInkFrame

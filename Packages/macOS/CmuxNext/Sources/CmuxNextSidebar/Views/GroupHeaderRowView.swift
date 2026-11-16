@@ -583,8 +583,9 @@ final class GroupHeaderRowView: SidebarRowView {
             self.activityEnding = false
             self.activity.configure(.idle)
         }
-        let glyphBox = pinned && SidebarStyle.pinnedRowLeadsWithOwnIcon
-            ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
+        // A pinned group's icon is a pinned workspace row's size, the optical glyph square, in either look, so the two
+        // kinds of pinned row draw their icons at one size on one center line (#42431).
+        let glyphBox = pinned ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
         let glyphSide = min(glyphBox, barHeight)
         glyph.isHidden = !hasIcon || leadsWithMachineMark
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the

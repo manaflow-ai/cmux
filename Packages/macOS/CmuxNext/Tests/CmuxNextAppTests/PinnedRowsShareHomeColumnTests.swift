@@ -240,6 +240,9 @@ import Testing
             let glyph = list.convert(icon.glyph.frame, from: icon)
             #expect(!icon.glyph.isHidden && glyph.minX >= iconPin.maxX,
                     "\(c.testDescription): the group's icon starts at \(glyph.minX), inside its pin (ends \(iconPin.maxX))")
+            let glyphSide = SidebarStyle.rowGlyphOpticalSide
+            #expect(glyph.width <= glyphSide + 0.5,
+                    "\(c.testDescription): the group's icon is \(glyph.width) pt, a pinned workspace row's \(glyphSide) pt")
             let plainName = list.convert(plain.name.frame, from: plain).minX, iconName = list.convert(icon.name.frame, from: icon).minX
             #expect(iconName >= glyph.maxX - 0.5 && iconName > plainName + 0.5,
                     "\(c.testDescription): the group's name starts at \(iconName), its icon ends at \(glyph.maxX), an iconless group's name at \(plainName)")
