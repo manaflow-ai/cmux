@@ -30,6 +30,7 @@ pub mod record;
 pub mod source;
 pub mod stream;
 pub mod stream_state;
+pub mod subagent;
 pub mod todo;
 pub use meta::merge_mux_meta;
 
