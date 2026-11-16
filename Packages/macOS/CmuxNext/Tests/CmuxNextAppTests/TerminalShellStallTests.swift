@@ -1,7 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextSidebar
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -78,7 +80,7 @@ import Testing
         #expect(TerminalStatusBanner.revealDelay(for: .restoring, stall: nil) == TerminalStatusBanner.restoringRevealDelay)
         #expect(TerminalStatusBanner.revealDelay(for: .restoring, stall: .reconnecting) == grace)
         // Lasting: the quiet retries ran out, the daemon gave up, another build owns the shell, it ended.
-        // A drop that is not reconnecting by itself waits a short delay: a daemon restart drops every pane at once.
+        // A drop that is not reconnecting by itself waits as long: a daemon restart drops every pane at once.
         #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.connectionLost, reconnecting: false), stall: nil)
             == TerminalStatusBanner.disconnectedRevealDelay)
         #expect(!TerminalStatusBanner.isInBetween(.disconnected(.connectionLost, reconnecting: false), stall: nil))
@@ -121,7 +123,7 @@ import Testing
         #expect(view.statusText == "cmux lost its link to the shell · Still retrying")
         #expect(!view.statusLabelWaits)
 
-        // A dropped view's "Reconnecting…" waits too; its "Disconnected" waits only its own short delay
+        // A dropped view's "Reconnecting…" waits too; its "Disconnected" waits the same delay
         // from the same start, then says its words (not the in-between mark).
         view.showShellStall(nil)
         view.showStatus(.connected)
@@ -214,6 +216,15 @@ import Testing
         try await Self.until { view.statusText != nil }
         #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
         #expect(view.statusLabel.banner?.showsMark == false)
+    }
+
+    /// Every connection label waits one shared quiet time instead of picking its own: the terminal's
+    /// Reconnecting and Disconnected and the sidebar's Connecting.
+    @Test func connectionLabelsShareOneQuietTime() {
+        #expect(QuietHold.connectionDelay == .seconds(10))
+        #expect(TerminalStatusBanner.disconnectedRevealDelay == QuietHold.connectionDelaySeconds)
+        #expect(TerminalStatusBanner.reconnectingRevealDelay == QuietHold.connectionDelaySeconds)
+        #expect(SidebarPlaceholderGrace.connectingDelay == QuietHold.connectionDelay)
     }
 
     /// Quiet re-attaches that run out turn "Reconnecting…" into "Disconnected" mid-wait: the label still
