@@ -123,6 +123,39 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(self.run_check("cargo test -p nope"), (0, ""))
         self.assertEqual(self.run_check("cargo test -p rd-host", directory="."), (0, ""))
 
+    def test_commands_cargo_runs_correctly_are_not_refused(self) -> None:
+        # Review cases on #44616: each of these does what it says in cargo, so refusing it would be a false red.
+        for command, directory in (
+                ("cargo update -p rd-host", "tui"),  # update -p names lockfile packages, not members
+                ("cargo tree -p rd-host", "tui"),
+                ("cargo test --manifest-path crates/rd-host/Cargo.toml -p rd-host", "tui"),
+                ("(cd crates/rd-host && cargo test -p rd-host)", "tui"),
+                ("cargo test -p old-dep", "tui/vendor/old"),  # cargo runs the excluded package standalone there
+                ("# the comment\ncd crates/rd-host\ncargo test -p rd-host", "tui")):
+            with self.subTest(command=command):
+                self.assertEqual(self.run_check(command, directory=directory), (0, ""))
+
+    def test_a_comment_line_does_not_hide_the_next_command(self) -> None:
+        code, err = self.run_check("# run tests\ncargo test -p rd-host")
+        self.assertEqual(code, 2, err)
+
+    def test_a_subshell_cd_does_not_leak_out(self) -> None:
+        code, err = self.run_check("(cd crates/rd-host && cargo build) && cargo test -p rd-host")
+        self.assertEqual(code, 2, err)
+        code, err = self.run_check("{ cd crates/rd-host; cargo test -p rd-host; }")
+        self.assertEqual(code, 0, err)
+
+    def test_a_literal_member_wins_over_an_exclude(self) -> None:
+        write(self.root / "w" / "Cargo.toml", '[workspace]\nmembers = ["crates/app"]\nexclude = ["crates"]\n')
+        write(self.root / "w" / "crates" / "app" / "Cargo.toml", '[package]\nname = "w-app"\nversion = "0.1.0"\n')
+        self.assertEqual(self.run_check("cargo test -p w-app", directory="w"), (0, ""))
+
+    def test_the_next_step_drops_every_package_flag_and_names_the_others(self) -> None:
+        code, err = self.run_check("cargo test -p rd-host -p tui-app")
+        self.assertEqual(code, 2, err)
+        self.assertIn("directory=tui/crates/rd-host, command: cargo test (", err)
+        self.assertIn("run the other packages (tui-app) apart, in tui", err)
+
     def test_a_command_shlex_cannot_read_is_left_alone(self) -> None:
         self.assertEqual(self.run_check("cargo test -p 'rd-host"), (0, ""))
 

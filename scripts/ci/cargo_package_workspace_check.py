@@ -30,6 +30,10 @@ from pathlib import Path
 
 COMMAND_PREFIXES = ("env", "exec", "time", "command", "nice")
 OPERATORS = ("&&", "||", ";", "|", "&", ";;")
+# The cargo commands whose -p/--package picks workspace members to build or run (`cargo update -p` or `cargo tree -p`
+# may name any package in the lockfile, an excluded path dependency included, and are left alone).
+SELECTING = {"build", "b", "check", "c", "test", "t", "bench", "run", "r", "clippy", "doc", "d", "rustc", "rustdoc",
+             "fix", "nextest", "llvm-cov", "miri"}
 SKIP_DIRS = ("target", "node_modules", ".git")
 PANIC = ("did not find features for (PackageId { name: ... }, NormalOrDev) within activated_features "
          "(cargo/core/resolver/features.rs, exit 101)")
@@ -37,13 +41,18 @@ PANIC = ("did not find features for (PackageId { name: ... }, NormalOrDev) withi
 
 def segments(command: str) -> list[list[str]]:
     """The simple commands of COMMAND as word lists, in order; [] when shlex cannot read it."""
-    lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    # A newline ends a comment and a command: keep it (the comment needs it) and add a separator after it.
+    lexer = shlex.shlex(command.replace("\n", "\n;\n"), posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     lexer.commenters = "#"
     out: list[list[str]] = [[]]
     try:
         for word in lexer:
             if word in OPERATORS or set(word) <= set("&|;"):
+                out.append([])
+            elif set(word) <= set("()"):
+                # Each subshell paren is its own segment, so a `cd` inside one is scoped to it.
+                out += [[ch] for ch in word]
                 out.append([])
             else:
                 out[-1].append(word)
@@ -63,7 +72,16 @@ def strip_prefixes(words: list[str]) -> list[str]:
 def cargo_requests(command: str, directory: str) -> list[tuple[str, list[str], list[str]]]:
     """(directory, cargo words, package names) for each cargo run in COMMAND that names packages."""
     found: list[tuple[str, list[str], list[str]]] = []
+    stack: list[str] = []
     for words in segments(command):
+        if words == ["("]:
+            stack.append(directory)
+            continue
+        if words == [")"]:
+            directory = stack.pop() if stack else directory
+            continue
+        while words and words[0] in ("{", "}"):  # a brace group does not scope `cd`
+            words = words[1:]
         words = strip_prefixes(words)
         if not words:
             continue
@@ -72,11 +90,21 @@ def cargo_requests(command: str, directory: str) -> list[tuple[str, list[str], l
             directory = os.path.normpath(os.path.join(directory, words[1]))
         elif name in ("bash", "sh") and len(words) >= 3 and words[1] == "-c":
             found += cargo_requests(words[2], directory)
-        elif name == "cargo":
+        elif name == "cargo" and selects_members(words[1:]):
             packages = package_names(words[1:])
             if packages:
                 found.append((directory, words, packages))
     return found
+
+
+def selects_members(args: list[str]) -> bool:
+    """Whether cargo ARGS is a subcommand whose -p picks workspace members, run from the directory's workspace:
+    False for another subcommand, or one that names its manifest or directory itself (--manifest-path, -C)."""
+    if any(a == "--manifest-path" or a.startswith("--manifest-path=") or a == "-C" for a in
+           args[:args.index("--") if "--" in args else len(args)]):
+        return False
+    sub = next((a for a in args if not a.startswith(("-", "+"))), None)
+    return sub in SELECTING
 
 
 def package_names(args: list[str]) -> list[str]:
@@ -96,19 +124,18 @@ def package_names(args: list[str]) -> list[str]:
     return names
 
 
-def without_package(words: list[str], name: str) -> list[str]:
-    """WORDS (a cargo command) with every -p/--package flag naming NAME removed."""
+def without_packages(words: list[str]) -> list[str]:
+    """WORDS (a cargo command) with every -p/--package flag removed."""
     out, i = [], 0
     while i < len(words):
         word = words[i]
         if word == "--":
             out += words[i:]
             break
-        if word in ("-p", "--package") and i + 1 < len(words) and words[i + 1].split("@", 1)[0] == name:
+        if word in ("-p", "--package"):
             i += 2
             continue
-        if (word.startswith("--package=") and word.split("=", 1)[1].split("@", 1)[0] == name) or \
-                (word.startswith("-p") and not word.startswith("--") and word[2:].split("@", 1)[0] == name):
+        if word.startswith("--package=") or (word.startswith("-p") and not word.startswith("--") and len(word) > 2):
             i += 1
             continue
         out.append(word)
@@ -124,15 +151,32 @@ def manifest(path: Path) -> dict | None:
 
 
 def workspace_root(directory: Path, root: Path) -> tuple[Path, dict] | None:
-    """The nearest directory at or above DIRECTORY, inside ROOT, whose Cargo.toml has a [workspace] table."""
-    here = directory
-    while True:
+    """The workspace cargo picks from DIRECTORY (inside ROOT), as (its directory, its manifest), when it is an
+    ancestor's: the nearest Cargo.toml at or above DIRECTORY is a [workspace], or a package whose nearest
+    [workspace] ancestor neither excludes it nor is overridden by a package.workspace key. None when cargo runs a
+    standalone package there (excluded, or its own workspace) or there is no workspace at all."""
+    def up(start: Path):
+        here = start
+        while True:
+            yield here
+            if here == root or root not in here.parents:
+                return
+            here = here.parent
+
+    package_dir = None
+    for here in up(directory):
         data = manifest(here / "Cargo.toml")
-        if data is not None and isinstance(data.get("workspace"), dict):
+        if data is None:
+            continue
+        if isinstance(data.get("workspace"), dict):
+            if package_dir is not None and member_reason(here, data["workspace"], package_dir) is not None:
+                return None  # that workspace excludes the package cargo starts from: it runs standalone
             return here, data
-        if here == root or root not in here.parents:
-            return None
-        here = here.parent
+        if package_dir is None:
+            if isinstance(data.get("package"), dict) and "workspace" in data["package"]:
+                return None  # package.workspace names the root itself; not followed here
+            package_dir = here
+    return None
 
 
 def crate_dirs(workspace: Path, name: str) -> list[tuple[Path, dict]]:
@@ -147,15 +191,29 @@ def crate_dirs(workspace: Path, name: str) -> list[tuple[Path, dict]]:
     return found
 
 
+def member_reason(workspace: Path, config: dict, crate: Path) -> str | None:
+    """Why WORKSPACE's [workspace] (CONFIG) excludes CRATE, or None. A path listed literally in members wins over
+    an exclude, as in cargo."""
+    if crate == workspace:
+        return None
+    rel = crate.relative_to(workspace)
+    if any(Path(os.path.normpath(str(m))).parts == rel.parts for m in config.get("members") or []):
+        return None
+    for entry in config.get("exclude") or []:
+        parts = Path(os.path.normpath(str(entry))).parts
+        if rel.parts[:len(parts)] == parts:
+            return f"{workspace.name}/Cargo.toml lists {entry} under [workspace] exclude"
+    return None
+
+
 def outside_reason(workspace: Path, config: dict, crate: Path, data: dict) -> str | None:
     """Why CRATE is not a member of WORKSPACE (CONFIG its [workspace] table), or None when it may be one."""
     if crate == workspace:
         return None
     rel = crate.relative_to(workspace)
-    for entry in config.get("exclude") or []:
-        parts = Path(os.path.normpath(str(entry))).parts
-        if rel.parts[:len(parts)] == parts:
-            return f"{workspace.name}/Cargo.toml lists {entry} under [workspace] exclude"
+    excluded = member_reason(workspace, config, crate)
+    if excluded:
+        return excluded
     if isinstance(data.get("workspace"), dict):
         return f"{rel}/Cargo.toml has its own [workspace]"
     return None
@@ -180,13 +238,16 @@ def check(command: str, directory: str, root: Path) -> list[str]:
             if not reasons or any(reason is None for _, reason in reasons):
                 continue
             crate, reason = reasons[0]
-            rest = without_package(words, name)
+            rest = without_packages(words)
+            others = [other for other in packages if other != name]
             refusals.append(
                 f"{name} is not a member of the workspace at {workspace.relative_to(root)} ({reason}), and "
                 f"`cargo -p {name}` from there does not say so on Linux: cargo panics with \"{PANIC}\". "
                 f"Nothing was run. Next step: run it in the crate's own workspace: "
                 f"directory={crate.relative_to(root)}, command: {shlex.join(rest)} "
-                f"(cmux-ci test: cd {crate.relative_to(root)} && cmux-ci test -- {shlex.join(rest)})")
+                f"(cmux-ci test: cd {crate.relative_to(root)} && cmux-ci test -- {shlex.join(rest)})"
+                + (f"; run the other packages ({', '.join(others)}) apart, in {workspace.relative_to(root)}"
+                   if others else ""))
     return refusals
 
 
