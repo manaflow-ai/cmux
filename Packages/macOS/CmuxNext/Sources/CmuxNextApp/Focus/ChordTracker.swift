@@ -46,7 +46,7 @@ struct ChordTracker {
     }
 
     private(set) var pending: (keys: [Shortcut], window: ObjectIdentifier, focus: FocusState.Resolved?)?
-    var qwertyPositions = false // `shortcuts.keyPositions` "qwerty", as the key router set it last
+    private(set) var qwertyPositions = false // `shortcuts.keyPositions` "qwerty" of the last table step
 
     var isPending: Bool { pending != nil }
 
@@ -58,11 +58,10 @@ struct ChordTracker {
     /// the key router passes the key window's context instead.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, registry: ActionRegistry,
                        focus: FocusState.Resolved? = nil, canArm: () -> Bool) -> Step {
-        qwertyPositions = registry.matchesQwertyPositions
         let bindings = RegistryKeyBindings(registry)
         let context = KeyContext(bits: registry.context)
         return step(event, window: window, focus: focus, table: bindings.table, context: context,
-                    isRunnable: { bindings.canPerform($0, in: context.bits) }, canArm: canArm)
+                    isRunnable: { bindings.canPerform($0, in: context.bits) }, canArm: canArm, qwerty: registry.matchesQwertyPositions)
     }
 
     /// Steps with `table` resolved in `context` (the key window's context
@@ -72,9 +71,10 @@ struct ChordTracker {
     /// `KeyRouter.canArm`); asked only for a first key. `focus` is the
     /// window's focus, kept with an armed chord for ``focusDidChange(to:in:)``.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil, table: KeyBindingTable,
-                       context: KeyContext, isRunnable: (ActionID) -> Bool, canArm: () -> Bool) -> Step {
+                       context: KeyContext, isRunnable: (ActionID) -> Bool, canArm: () -> Bool, qwerty: Bool = false) -> Step {
+        qwertyPositions = qwerty
         func tableStep(_ keys: [Shortcut], _ event: NSEvent) -> KeyBindingTable.SequenceStep {
-            table.step(after: keys, readings: ActionRegistry.shortcuts(for: event, qwerty: qwertyPositions), in: context, isRunnable: isRunnable)
+            table.step(after: keys, readings: ActionRegistry.shortcuts(for: event, qwerty: qwerty), in: context, isRunnable: isRunnable)
         }
         return step(event, window: window, focus: focus, first: { event in
             // A first key only arms here; a single key runs through the dispatcher's tier check.

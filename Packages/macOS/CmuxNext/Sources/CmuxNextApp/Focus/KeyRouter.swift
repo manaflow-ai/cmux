@@ -411,10 +411,9 @@ final class KeyRouter: BrowserKeyRouting {
         let runnable: (ActionID) -> Bool = { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) }
         // Keyed by the shell window, as focus settles report it: a Chromium
         // page window is a child of the shell.
-        chords.qwertyPositions = registry.matchesQwertyPositions
         let step = chords.step(event, window: ObjectIdentifier(controller.window ?? window), focus: focus.resolved, table: table,
                                context: context, isRunnable: runnable,
-                               canArm: { Self.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
+                               canArm: { Self.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) }, qwerty: registry.matchesQwertyPositions)
         if let keys = chords.armedKeys, let shell = controller.window {
             let rows = WhichKeyListing.rows(after: keys, table: table, context: context, isRunnable: runnable, registry: registry)
             whichKey?.show(after: keys, rows: rows, in: shell)
