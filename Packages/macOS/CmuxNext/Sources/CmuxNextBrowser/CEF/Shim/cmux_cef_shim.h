@@ -678,6 +678,14 @@ CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const c
 // a = HTTP status (0 when the fetch failed), s1 = base64 PNG at 1x, or "".
 // Returns 0 when the browser is gone, url is empty or max_size <= 0.
 CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int max_size);
+// GETs an https url through the browser's request context with that
+// profile's stored cookies, first party for url itself, never following a
+// redirect, never answering an auth prompt, bypassing the cache (email
+// verification AutoFill reads Gmail's inbox feed with it). The body never
+// reaches a page. REPLY with `reply` follows: a = HTTP status (0 on failure
+// or a body over max_bytes), s1 = base64 body. Returns 0 when the browser is
+// gone, url is not https or max_bytes <= 0.
+CMUX_SHIM_EXPORT int cmux_shim_profile_fetch(int browser_id, int reply, const char* url, int max_bytes);
 // Browser import: writes cookies into the request context of
 // profile_cache_path (a persistent profile; an off-the-record key returns 0),
 // creating the context when no tab opened it yet. json = [{"url","name",

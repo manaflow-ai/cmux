@@ -169,6 +169,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// A tab's favicon through its own request context (``CEFRuntime/favicon(_:url:maxPixels:)``).
     let downloadFavicon: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    /// An https GET with the tab's profile cookies (``CEFRuntime/profileFetch(_:url:maxBytes:)``); nil in older shims.
+    let profileFetch: (@convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32)?
     /// Browser import: cookies into a profile's request context.
     let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
     let clearCookies: @convention(c) (UnsafePointer<CChar>?, Int32, Int64) -> Int32
@@ -431,6 +433,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         visitCookies = try r("cmux_shim_visit_cookies")
         deleteCookies = try r("cmux_shim_delete_cookies")
         downloadFavicon = try r("cmux_shim_download_favicon")
+        profileFetch = r.optional("cmux_shim_profile_fetch")
         importCookies = try r("cmux_shim_import_cookies")
         clearCookies = try r("cmux_shim_clear_cookies")
         importPasswords = try r("cmux_shim_import_passwords")
