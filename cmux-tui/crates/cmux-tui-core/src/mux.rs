@@ -210,6 +210,7 @@ mod dock_columns;
 mod event_emit;
 mod exit_settle;
 pub(crate) mod feed_local;
+mod floating_panes;
 mod focus;
 mod frontend_projection;
 mod history_search;
@@ -391,6 +392,7 @@ pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
 };
 pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
+pub use floating_panes::{FloatPaneError, FloatPaneOutcome};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
 pub use layout_sizes::{LayoutSizeValue, LayoutSizesError};

@@ -271,6 +271,7 @@ impl Mux {
                     zoomed_pane: None,
                     auto_layout: Some(vec![target_pane_id.clone()]),
                     viewport: RegistryViewport { base_width: None, columns: Vec::new() },
+                    floating: Vec::new(),
                 };
                 after.panes.push(pane_record.clone());
                 after.screens.push(screen_record.clone());
@@ -510,6 +511,7 @@ impl Mux {
                     viewport_base_width: None,
                     layout_columns: Vec::new(),
                     layout_revision: 0,
+                    floating: Vec::new(),
                     layout_undo: Default::default(),
                 });
                 let pane = Pane {

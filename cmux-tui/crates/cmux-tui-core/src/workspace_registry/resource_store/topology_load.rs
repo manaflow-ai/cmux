@@ -503,6 +503,7 @@ fn load_screens(
                 zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
                 auto_layout: auto_layout.map(|value| serde_json::from_str(&value)).transpose()?,
                 viewport: serde_json::from_str(&viewport)?,
+                floating: Vec::new(),
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()

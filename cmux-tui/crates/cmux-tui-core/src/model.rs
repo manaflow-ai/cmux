@@ -11,6 +11,7 @@ use crate::resource::{
 };
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
+mod floating_panes;
 mod layout_columns;
 mod layout_fit;
 mod layout_rows;
@@ -35,6 +36,7 @@ pub(crate) struct ScreenLayoutSnapshot {
     pub viewport_splits: BTreeMap<SplitId, f32>,
     pub viewport_base_width: Option<f32>,
     pub layout_columns: Vec<LayoutColumn>,
+    pub floating: Vec<cmux_layout_reducer::floating_panes::Floating<PaneId>>,
 }
 
 #[derive(Debug, Clone)]
@@ -512,6 +514,8 @@ pub struct Screen {
     /// `viewport_base_width` are derived compatibility projections while
     /// this list is non-empty.
     pub(crate) layout_columns: Vec<LayoutColumn>,
+    /// `floating-panes-v1`: the panes shown above the tiled layout, back to front (model/floating_panes.rs).
+    pub(crate) floating: Vec<cmux_layout_reducer::floating_panes::Floating<PaneId>>,
     /// Monotonic structural revision used to fence layout undo.
     pub(crate) layout_revision: u64,
     /// In-memory only. Pane processes cannot be resurrected across daemon
@@ -529,6 +533,7 @@ impl Screen {
             viewport_splits: self.viewport_splits.clone(),
             viewport_base_width: self.viewport_base_width,
             layout_columns: self.layout_columns.clone(),
+            floating: self.floating.clone(),
         }
     }
 
@@ -645,6 +650,7 @@ impl Screen {
         self.viewport_splits = snapshot.viewport_splits;
         self.viewport_base_width = snapshot.viewport_base_width;
         self.layout_columns = snapshot.layout_columns;
+        self.set_floating_panes(snapshot.floating);
     }
 }
 
