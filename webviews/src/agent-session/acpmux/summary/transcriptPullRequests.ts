@@ -378,17 +378,57 @@ export const markTranscriptSummaryVersion = (rows: readonly AcpmuxRow[], version
 export const transcriptSummaryVersion = (rows: readonly AcpmuxRow[]): object | undefined => summaryVersions.get(rows);
 const fingerprints = new WeakMap<AcpmuxRow, string>();
 
+/// How far back from a chunk's start a reference can begin and still read differently once the
+/// chunk lands: `#5` becoming `#50`, a link or `owner/repo#N` split across chunks.
+const REFERENCE_REACH = 256;
+/// What any reference holds; text without one cannot add or end a reference. A code fence it opens or
+/// closes hides or shows only the text after it, the chunk's own, so a backtick alone changes nothing.
+const MAY_REFER = /#|\/pull\/|\/issues\//;
+/// How much of the reply's start, and of its end before a chunk, must still be there, unchanged.
+const SEAM = 32;
+
+/// Whether `row` is `previous`'s streaming reply grown by text that cannot change its references:
+/// no `#`, `/pull/` or `/issues/` within REFERENCE_REACH of the chunk. O(the chunk): a stream only
+/// appends, so the reply is taken as grown when the SEAM characters it began and ended with are
+/// still in place (a whole-prefix compare of a reply built chunk by chunk cost more than reading it).
+function grewWithoutReferences(previous: AcpmuxRow, row: AcpmuxRow): boolean {
+  if (previous.streaming !== true || row.streaming !== true) return false;
+  const before = previous.text ?? "";
+  const after = row.text ?? "";
+  if (after.length < before.length) return false;
+  const seam = Math.max(0, before.length - SEAM);
+  if (after.slice(seam, before.length) !== before.slice(seam)) return false;
+  if (after.slice(0, SEAM) !== before.slice(0, SEAM)) return false;
+  return !MAY_REFER.test(after.slice(Math.max(0, before.length - REFERENCE_REACH)));
+}
+
 // The producer asks only about the row it changed. A reply chunk with the same PR references
 // leaves the revision alone; a new mention updates it without scanning historical replies.
-export function pullRequestRowKey(row: AcpmuxRow | undefined, replies = true): string {
+// With `previous` (the row it replaces) and `previousKey` (its key, with replies), a streaming
+// reply's chunk that cannot change its references keeps that key without reading the whole reply
+// again, so a long reply costs each chunk O(the chunk), not O(the reply).
+// perf-hot: 1ms pull-request-row-key
+export function pullRequestRowKey(
+  row: AcpmuxRow | undefined,
+  replies = true,
+  previous?: AcpmuxRow,
+  previousKey?: string,
+): string {
   if (!row) return "";
+  if (
+    replies &&
+    row.kind === "assistant" &&
+    previous !== undefined &&
+    previousKey !== undefined &&
+    grewWithoutReferences(previous, row)
+  )
+    return previousKey;
   // Streaming references may change the dock key, but settling identical text must change it too.
   const findings =
     row.kind === "assistant" ? (replies ? replyFindings(row.text ?? "") : []) : rowFindings(row, replies);
-  if (findings.length === 0) return "";
-  let fingerprint = fingerprints.get(row);
-  if (fingerprint === undefined) {
-    fingerprint = JSON.stringify([row.streaming === true, findings]);
+  let fingerprint = "";
+  if (findings.length > 0) {
+    fingerprint = fingerprints.get(row) ?? JSON.stringify([row.streaming === true, findings]);
     fingerprints.set(row, fingerprint);
   }
   return fingerprint;

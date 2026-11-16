@@ -146,6 +146,11 @@
       "bench": "cmux-tui-rust-check.sh test a_streamed_tokens_line_is_built_once_for_every_attached_connection (FANOUT-ENCODE line), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client, 2 clients) on the fleet",
       "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
     },
+    "pull-request-row-key": {
+      "what": "one streamed row stored in an agent chat (direct.ts OrderedRows.set): the row's pull request key, read once per row object and kept, so a reply chunk scans its text once",
+      "bench": "cd webviews && bun bench/composer-typing.bench.ts --lengths 1500 --modes stream (script ms per key, key to frame p95)",
+      "owner": "agent chat"
+    },
     "composer-draft-typing": {
       "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
