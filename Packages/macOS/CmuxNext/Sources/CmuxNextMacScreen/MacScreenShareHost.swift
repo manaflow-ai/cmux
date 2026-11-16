@@ -65,8 +65,8 @@ public final class MacScreenShareHost {
 
     /// Reads both permissions off the main thread and shows them: the helper's, from a fresh
     /// helper process, or this app's in a build without the helper. When reads overlap, the last
-    /// one started decides (an older answer that arrives later is dropped). A failed read
-    /// (cancelled, the helper did not answer, or the app is quitting) changes nothing.
+    /// one started decides (an older answer that arrives later is dropped). A failed read clears
+    /// stale permission state; cancellation leaves the current state untouched.
     public func refreshPermissions() async {
         reads &+= 1
         let read = reads
@@ -77,20 +77,24 @@ public final class MacScreenShareHost {
             if let found = cached ?? helper() { return .helper(found) }
             return .granted(screenRecording(), accessibility())
         })
-        let granted: (Bool, Bool)?
+        let granted: (Bool, Bool)
         var found: MacScreenHelper?
         switch local {
         case let .helper(helper)?:
             found = helper
             lookedUp = .some(helper)
-            granted = await helper.permissions().map { ($0.screenRecording, $0.accessibility) }
+            if let permissions = await helper.permissions() {
+                granted = (permissions.screenRecording, permissions.accessibility)
+            } else {
+                granted = (false, false)
+            }
         case let .granted(screen, access)?:
             lookedUp = .some(nil)
             granted = (screen, access)
         case nil:
-            granted = nil
+            granted = (false, false)
         }
-        guard let granted, read == reads else { return }
+        guard read == reads, !Task.isCancelled else { return }
         grantHolderName = found?.name
         screenRecordingGranted = granted.0
         accessibilityGranted = granted.1

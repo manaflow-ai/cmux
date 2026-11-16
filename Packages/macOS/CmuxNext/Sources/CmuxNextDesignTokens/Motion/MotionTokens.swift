@@ -4,12 +4,13 @@ public import Foundation
 public nonisolated enum MotionSpeed: String, Sendable, CaseIterable, Codable {
     /// The default: short springs tuned for a pro tool (plans/cmux-next/motion.md).
     case fast
-    /// About Apple's system pacing: every duration is 1.5 times longer.
+    /// About Apple's system pacing: every duration is 1.5 times longer, up to the cap
+    /// (`MotionPolicy.cap`, 300 ms): a motion that would end later than the cap ends at the cap.
     case normal
     /// No animation. Every change applies in one frame.
     case off
 
-    /// Multiplier on every spring response and fade duration.
+    /// Multiplier on every spring response and fade duration, before the cap (`MotionPolicy.cap`).
     public var timeScale: Double {
         switch self {
         case .fast: 1
@@ -33,7 +34,7 @@ public nonisolated enum MotionSpeed: String, Sendable, CaseIterable, Codable {
 /// index): append new tokens on both sides.
 public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// An existing item moves or resizes: tab reflow and reorder, sidebar
-    /// rows, pane and divider frames, pane unzoom, toolbar height.
+    /// rows, pane and divider frames, toolbar height.
     case move
     /// Something appears or expands: tab grow-in, group expand, row insert,
     /// sidebar show.
@@ -59,11 +60,10 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// Home list pin drag: tiles making room, rows below the grid, a dropped
     /// tile landing (MessagesLab `SidebarPinDragging.spring`).
     case pinDrag
-    /// A pane zooming to fill its screen and back: it owns the motion and
-    /// covers the other panes (Leo 2026-10-13, Lawrence 2026-10-18).
+    /// A pane zooming to fill its screen: it owns the motion and covers the
+    /// other panes (decided 2026-10-13 and 2026-10-18). The way back is `unzoom`.
     case zoom
-    /// A pane closing: the neighbours that take its space grow over it, with
-    /// their dividers, on this one spring (Lawrence 2026-10-18).
+    /// A window closing: its fade out. A pane close has its own spring, `paneClose`.
     case exit
     /// A new tab growing in at its final slot while the tabs right of it make room, on one
     /// spring (`ui.animations.newTab`, on by default).
@@ -79,6 +79,13 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// A popup shrinking back toward its control as it fades out.
     /// Critically damped. Swift-only.
     case popoverClose
+    /// A pane closing: the neighbours that take its space grow over it, with their dividers, on
+    /// this one spring. It ends sooner than `split`, the motion it undoes: a person waits for what
+    /// arrives and not for what leaves (`MotionPair.pane`). Swift-only.
+    case paneClose
+    /// A zoomed pane going back to its place. It ends sooner than `zoom` (`MotionPair.zoom`).
+    /// Swift-only.
+    case unzoom
 
     /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
     /// or its Debug Settings override in DEV and NIGHTLY builds.

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5.
+// cmux-tui mux protocol 12, IR e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -74,6 +74,10 @@ pub struct AttachSurfaceRequest {
     pub expected_generation: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hybrid_frame: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hybrid_stream: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4367,6 +4371,12 @@ impl CmuxClient {
         }
         if !request.expected_terminal_id.is_missing() {
             self.require_capability_field("attach-surface", "attach-identity-v1")?;
+        }
+        if !request.hybrid_frame.is_missing() {
+            self.require_capability_field("attach-surface", "agent-cli-hybrid-v1")?;
+        }
+        if !request.hybrid_stream.is_missing() {
+            self.require_capability_field("attach-surface", "agent-cli-hybrid-v1")?;
         }
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;

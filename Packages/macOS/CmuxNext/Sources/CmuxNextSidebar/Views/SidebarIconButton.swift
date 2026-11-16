@@ -230,9 +230,16 @@ final class SidebarIconButton: ClickableButton {
         didSet { needsDisplay = true }
     }
 
+    /// The corner of its fills when it sits in a card's corner, concentric with the card (``ConcentricContainer``
+    /// `.cornerControl`); at most half its side. Nil draws ``isRound`` or the button corner.
+    var concentricRadius: CGFloat? {
+        didSet { needsDisplay = true }
+    }
+
     override func updateLayer() {
         // isRound: a light round x on a card (Lawrence 2026-11-07, "the X sits in a heavy box").
-        layer?.cornerRadius = isRound ? min(bounds.width, bounds.height) / 2 : Metrics.buttonCornerRadius // radius-allow: isRound
+        let half = min(bounds.width, bounds.height) / 2
+        layer?.cornerRadius = concentricRadius.map { min($0, half) } ?? (isRound ? half : Metrics.buttonCornerRadius) // radius-allow: isRound
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }

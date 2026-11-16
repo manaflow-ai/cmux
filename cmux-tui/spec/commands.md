@@ -9186,6 +9186,27 @@ that did not declare the capability gets one `output` per PTY read and every
 `scroll-changed`, as before, and the field changes nothing for it; render
 mode and snapshot attaches ignore the field.
 
+Servers advertising `agent-cli-hybrid-v1` send an agent CLI's terminal as cell
+deltas instead of its PTY bytes, to a connection that declared the same
+capability in `set-client-info`, on a `mode:"bytes"` attach without
+`snapshot`, when the terminal's agent report (its `cmux_agent` hook adapter)
+names `claude`, `codex` or `opencode` at attach time. Such an attach gets a
+`colors-changed` with the terminal's colors and one `agent-cli-frame` instead
+of `vt-state`, and `agent-cli-frame` events instead of `output`: at most one
+per 100 ms, the first 8 ms after the first write it holds, and none while the
+screen is unchanged. `resized` becomes an `agent-cli-frame` keyframe at the new
+size; `colors-changed`, `scroll-changed`, `notification`, `overflow` and
+`detached` are unchanged. The first frame is a keyframe (`base: null`), unless
+the attach names `hybrid_stream` and `hybrid_frame`: the `stream` of an earlier
+attach and the newest frame its viewer applied. When the daemon still keeps
+that stream (for 10 minutes after its viewer left, at most 64 streams) and the
+terminal has the same size, the first frame is one delta from that frame
+(`base` is `hybrid_frame`), not the whole screen. Any other attach, any
+terminal whose agent is something else, and any connection without the
+capability gets the byte stream, and the two fields change nothing for it.
+A connection that also declared `agent-cli-hybrid-v2` gets each frame as an
+`agent-cli-lean` event instead (the same frames in a lean form; see `events.md`).
+
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
 Params:
@@ -9203,6 +9224,8 @@ Params:
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
 | `replay_history_start` | `uint64` | default null (the newest rows) | `attach-replay-history-window-v1`; only with `replay_history_rows` |
 | `output_coalesce_ms` | `uint32` | default null (16.667 ms when coalescing) | `attach-output-coalesce-v1` declared in `set-client-info`; 0 to 1000, 0 is off; bytes mode without `snapshot`; ignored without the capability |
+| `hybrid_stream` | `string` | default null | `agent-cli-hybrid-v1` declared in `set-client-info`; with `hybrid_frame`: the `agent-cli-frame` stream to resume; ignored without the capability |
+| `hybrid_frame` | `uint64` | default null | `agent-cli-hybrid-v1`; with `hybrid_stream`: the newest frame the viewer applied |
 
 Result:
 
@@ -9219,6 +9242,7 @@ Errors:
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
 | `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
 | `invalid: output_coalesce_ms <n> is over 1000` | A connection with `attach-output-coalesce-v1` asked for a longer interval |
+| `attach-surface hybrid_stream and hybrid_frame must be supplied together` | Only one of them is supplied |
 | `render attach requires protocol 7` | Server does not implement render mode |
 | terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |
