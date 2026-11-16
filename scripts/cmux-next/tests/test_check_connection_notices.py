@@ -377,6 +377,18 @@ class Allowlist(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn(f"stale row {self.NOTICE}", out)
 
+    def test_a_tracked_file_missing_on_disk_is_not_judged(self):
+        # A review sandbox without some tracked files read 19 listed rows as stale (BLOCK at dec7b89e9efc): their
+        # units were only unseen. A tree missing tracked files gets no verdict, not a red.
+        tree = self.noisy()
+        tree.allow(self.NOTICE)
+        tree.commit("base: the notice is listed")
+        tree.remove(f"{WEB}/AutoResumeNotice.tsx")
+        code, out = tree.check()
+        self.assertEqual(code, 2, out)
+        self.assertIn("cannot judge this tree", out)
+        self.assertNotIn("stale row", out)
+
     def test_a_row_the_base_lacks_fails(self):
         tree = self.noisy()
         tree.allow()

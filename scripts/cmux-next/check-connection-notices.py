@@ -194,6 +194,10 @@ class Tree:
     def __init__(self, root: Path):
         self.root = root
         self.unit_ids: set[str] = set()  # filled by scan()
+        # Tracked files that are not on disk (a sparse or partial checkout, a review sandbox that leaves out large
+        # string tables, a deletion not yet staged): their units, and the strings other units read from them, are
+        # unseen, so no verdict on this tree holds (a review read 19 listed rows as stale this way at dec7b89e9efc).
+        self.missing: list[str] = []
 
     def files(self) -> list[str]:
         prefixes = [p for p, _ in SURFACES]
@@ -206,6 +210,7 @@ class Tree:
         except (OSError, subprocess.CalledProcessError):
             names = [str(p.relative_to(self.root)) for pre in prefixes for p in (self.root / pre).rglob("*")
                      if p.is_file()]
+        self.missing = sorted(n for n in names if not (self.root / n).exists())
         return sorted(n for n in names if (self.root / n).is_file())
 
     def read(self, path: str) -> str:
@@ -506,6 +511,11 @@ def base_allowlist(root: Path, rev: str) -> dict[str, tuple[str, str, str]] | No
 def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdout) -> int:
     tree = Tree(root)
     units = scan(tree)
+    if tree.missing:
+        print(f"connection notices: cannot judge this tree: {len(tree.missing)} tracked file(s) are not on disk "
+              f"(a sparse or partial checkout?), e.g. {', '.join(tree.missing[:3])}; run it in a full checkout",
+              file=out)
+        return 2
     path = root / ALLOWLIST
     allow = read_allowlist(path.read_text(encoding="utf-8", errors="replace")) if path.exists() else {}
     offenders = {u.id: u for u in units if not u.ok}
