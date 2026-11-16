@@ -11,6 +11,9 @@
 use crate::wire::{
     write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
 };
+pub use cmux_rd_proto::DatagramDeparture;
+use cmux_rd_proto::{DatagramHeader, MAX_DEPARTURE_RECEIPTS};
+use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
@@ -28,6 +31,7 @@ pub enum Incoming {
 /// the session is using cmux-rd-link.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MediaQueueStats {
+    pub departure_overflows: u64,
     pub queue_frames: usize,
     pub queue_datagrams: usize,
     pub dropped_frames: u64,
@@ -44,6 +48,7 @@ pub struct MediaQueueStats {
 impl From<cmux_rd_link::net::NetStats> for MediaQueueStats {
     fn from(stats: cmux_rd_link::net::NetStats) -> Self {
         Self {
+            departure_overflows: stats.departure_overflows,
             queue_frames: stats.queue_frames,
             queue_datagrams: stats.queue_datagrams,
             dropped_frames: stats.dropped_frames,
@@ -59,6 +64,12 @@ impl From<cmux_rd_link::net::NetStats> for MediaQueueStats {
 }
 
 pub trait Carrier {
+    /// Append a bounded batch of successful transport writes, never enqueue times.
+    /// Each adapter must preserve the underlying transport's observations.
+    fn drain_departures(&mut self, out: &mut Vec<DatagramDeparture>);
+    /// Lost observations (not lost media). Consumers must mark affected timings incomplete.
+    fn departure_overflows(&self) -> u64;
+
     /// Readable when [`Carrier::receive`] may have something.
     fn fds(&self) -> Vec<RawFd>;
     /// Takes everything waiting, without blocking. `Err` ends the session with its reason.
@@ -82,6 +93,8 @@ pub trait Carrier {
 
 /// A control stream (TCP or Unix) plus, on TCP, the host's UDP socket.
 pub struct SocketCarrier<'a, S> {
+    departures: VecDeque<DatagramDeparture>,
+    departure_overflows: u64,
     pub stream: &'a mut S,
     pub reader: &'a mut FrameReader,
     /// `None` on a carrier without a UDP port (the systemd socket).
@@ -102,11 +115,27 @@ impl<'a, S> SocketCarrier<'a, S> {
             DatagramOut::Udp { peer, .. } => Some(*peer),
             DatagramOut::Stream => None,
         };
-        Self { stream, reader, udp, out, peer_udp }
+        Self {
+            stream,
+            reader,
+            udp,
+            out,
+            peer_udp,
+            departures: VecDeque::new(),
+            departure_overflows: 0,
+        }
     }
 }
 
 impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
+    fn drain_departures(&mut self, out: &mut Vec<DatagramDeparture>) {
+        out.extend(self.departures.drain(..));
+    }
+
+    fn departure_overflows(&self) -> u64 {
+        self.departure_overflows
+    }
+
     fn fds(&self) -> Vec<RawFd> {
         let mut fds = vec![self.stream.as_raw_fd()];
         fds.extend(self.udp.map(AsRawFd::as_raw_fd));
@@ -149,7 +178,22 @@ impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
     }
 
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
-        self.out.send(self.stream, datagram)
+        let header = DatagramHeader::decode(datagram).ok().map(|(header, _)| header);
+        if let Some(wire_bytes) = self.out.send_observed(self.stream, datagram)? {
+            let departed_us = crate::clock::now_ns() / 1000;
+            if let Some(header) = header {
+                if self.departures.len() < MAX_DEPARTURE_RECEIPTS {
+                    self.departures.push_back(DatagramDeparture {
+                        header,
+                        departed_us,
+                        wire_bytes,
+                    });
+                } else {
+                    self.departure_overflows = self.departure_overflows.saturating_add(1);
+                }
+            }
+        }
+        Ok(())
     }
 
     fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, _droppable: bool) -> io::Result<()> {
@@ -188,6 +232,14 @@ impl LinkCarrier {
 
 #[cfg(feature = "link")]
 impl Carrier for LinkCarrier {
+    fn drain_departures(&mut self, out: &mut Vec<DatagramDeparture>) {
+        self.net.drain_departures(out);
+    }
+
+    fn departure_overflows(&self) -> u64 {
+        self.net.departure_overflows()
+    }
+
     fn fds(&self) -> Vec<RawFd> {
         vec![self.net.event_fd()]
     }
@@ -315,5 +367,55 @@ mod path_tests {
     fn startup_path_forgets_rtt_when_replacement_is_unmeasured() {
         let route = Route::Udp("127.0.0.1:4002".parse().unwrap());
         assert_startup_forgets_rtt(path(Some(route), None));
+    }
+}
+
+#[cfg(test)]
+mod departure_tests {
+    use super::*;
+    use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn socket_departure_receipts_bound_storage_and_preserve_success_metadata() {
+        let (mut stream, _peer_stream) = UnixStream::pair().unwrap();
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut reader = FrameReader::default();
+        let mut carrier = SocketCarrier::new(
+            &mut stream,
+            &mut reader,
+            None,
+            DatagramOut::Udp { sock: socket, peer: peer.local_addr().unwrap() },
+        );
+        let header = DatagramHeader {
+            flags: 0,
+            kind: cmux_rd_proto::DatagramKind::Video,
+            stream: 9,
+            frame: 20,
+            index: 0,
+            count: 1,
+            fec_count: 0,
+            transport_seq: 200,
+        };
+        let packet = header.encode();
+        let before = crate::clock::now_ns() / 1000;
+        for _ in 0..MAX_DEPARTURE_RECEIPTS + 2 {
+            carrier.send_datagram(&packet).unwrap();
+        }
+        let after = crate::clock::now_ns() / 1000;
+        assert_eq!(carrier.departure_overflows(), 2);
+        let mut receipts = Vec::new();
+        carrier.drain_departures(&mut receipts);
+        assert_eq!(receipts.len(), MAX_DEPARTURE_RECEIPTS);
+        assert!(receipts.iter().all(|r| r.header == header
+            && r.wire_bytes == packet.len()
+            && (before..=after).contains(&r.departed_us)));
+        // An oversized UDP send fails, and cannot be counted as a departure.
+        let mut oversized = packet.to_vec();
+        oversized.resize(65_536, 0);
+        assert!(carrier.send_datagram(&oversized).is_err());
+        receipts.clear();
+        carrier.drain_departures(&mut receipts);
+        assert!(receipts.is_empty());
     }
 }
