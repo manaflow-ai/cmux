@@ -9,12 +9,44 @@
 //! the mark claims. At most two units per origin are unapplied: one in the
 //! writer's storage retry and one the slot took meanwhile, joined into one
 //! append; another is refused as full.
+//!
+//! A unit names the mark it follows (`after`), and the writer applies it
+//! only when that is the origin's mark now; a walk's first unit names none
+//! and applies only while the mark is off. A unit the writer dropped after
+//! `submit_unit` answered (the origin leaving, a takeover, a removal) leaves
+//! the mark where it was, so the stream's next unit is refused whole too and
+//! the dialer starts again from the mark: no mark is ever ahead of rows that
+//! were never written.
 use super::*;
 use acpmux_book::index::{IndexRecord, MarkRecord, MirrorMark};
 use std::collections::HashSet;
 
+/// The fewest bytes one operation takes in a frame: a `gone` op with a
+/// one-byte origin and chat id, `{"op":"gone","seq":0,"origin":"a","chatId":"a"}`,
+/// and its comma.
+pub const MIN_OP_BYTES: usize = 50;
+
+/// The most operations in one frame a peer sends: the serving side cuts every
+/// list frame (a delta, a page) at `MAX_REPLAY_FRAME_BYTES` and a window at its
+/// row count, 5,242 of the smallest op.
+pub const MAX_FRAME_CHANGES: usize = crate::wire::MAX_REPLAY_FRAME_BYTES / MIN_OP_BYTES;
+
 /// At most this many changes in one unit, the bound on rows held per origin.
-pub const MAX_UNIT_CHANGES: usize = 16_384;
+/// A unit applies in one writer turn at about 3.7 µs a row, so a local row in
+/// the same turn waited about 20 ms behind a unit of [`MAX_FRAME_CHANGES`]
+/// against 75 µs alone; at this size it waits about 2 ms. The dialer cuts a
+/// frame into units of this size, each with the mark after its last change.
+pub const MAX_UNIT_CHANGES: usize = 512;
+
+/// At most this many mirror changes in one writer turn, all origins together
+/// (decision 298). A turn writes its units before a local row queued with them,
+/// at 4.1 to 5.1 µs a change whatever the count (build, append, the index apply
+/// and publishing, measured at 512 to 15,360 changes a turn), and ends with one
+/// log sync of about 0.3 ms. So a local row waits behind at most two units,
+/// about 5 ms: its p95 was 6.7 to 8.4 ms with 30 units of [`MAX_UNIT_CHANGES`]
+/// queued, against 11 to 17 ms at four units, where the bound of 10 ms sat on
+/// the mean. The units past this count wait for the next turns.
+pub const MAX_TURN_UNIT_CHANGES: usize = 2 * MAX_UNIT_CHANGES;
 
 pub enum UnitChange {
     Summary(Box<Summary>),
@@ -23,6 +55,9 @@ pub enum UnitChange {
 
 pub struct MirrorUnit {
     pub origin: String,
+    /// The mark this unit follows: the origin's mark when the source sent it,
+    /// or none for a walk's first unit.
+    pub after: Option<MirrorMark>,
     pub changes: Vec<UnitChange>,
     pub mark: MirrorMark,
 }
@@ -37,6 +72,34 @@ pub struct Counters {
     held: AtomicU64,
     storage: AtomicU64,
     mark_bytes: AtomicU64,
+    out_of_order: AtomicU64,
+    join_refused: AtomicU64,
+    /// Units queued and not yet handled by the writer, per origin.
+    in_flight: Mutex<HashMap<Arc<str>, u32>>,
+    /// The takeovers the writer handled, per origin and by any source.
+    takeovers: Mutex<HashMap<Arc<str>, TakeoverTurns>>,
+    /// Woken after each writer turn: a unit was handled or an origin moved.
+    settled: Notify,
+}
+
+/// The takeovers the writer handled for one origin: those it applied (the
+/// source set, the mark off) and those it held with the origin (leaving, or
+/// its record waiting for the storage retry), and those it refused (the
+/// origin past the bound on origins). A held takeover that is later released
+/// counts again when it applies.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TakeoverTurns {
+    pub applied: u64,
+    pub held: u64,
+    pub refused: u64,
+}
+
+/// What the writer did with one takeover.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TakeoverTurn {
+    Applied,
+    Held,
+    Refused,
 }
 
 /// One read of the mirror's counters.
@@ -59,9 +122,45 @@ pub struct MirrorCounts {
     pub storage: u64,
     /// Bytes the marks added to their appends.
     pub mark_bytes: u64,
+    /// Units refused whole because the mark they follow is not the origin's
+    /// mark now, and unapplied units a takeover dropped.
+    pub out_of_order: u64,
+    /// Unapplied units dropped because the next unit did not follow their
+    /// mark or came from another source.
+    pub join_refused: u64,
 }
 
 impl Counters {
+    fn add_in_flight(&self, origin: &Arc<str>, delta: i32) {
+        if let Ok(mut in_flight) = self.in_flight.lock() {
+            let count = in_flight.entry(origin.clone()).or_default();
+            *count = count.saturating_add_signed(delta);
+            if *count == 0 {
+                in_flight.remove(origin);
+            }
+        }
+    }
+
+    pub(super) fn note_takeover(&self, origin: &str, turn: TakeoverTurn) {
+        if let Ok(mut takeovers) = self.takeovers.lock() {
+            let turns = takeovers.entry(origin.into()).or_default();
+            match turn {
+                TakeoverTurn::Applied => turns.applied += 1,
+                TakeoverTurn::Held => turns.held += 1,
+                TakeoverTurn::Refused => turns.refused += 1,
+            }
+        }
+    }
+
+    fn in_flight(&self, origin: &str) -> u32 {
+        self.in_flight.lock().map_or(0, |in_flight| in_flight.get(origin).copied().unwrap_or(0))
+    }
+
+    /// Wakes the dialers waiting for an origin to settle.
+    pub(super) fn wake(&self) {
+        self.settled.notify_waiters();
+    }
+
     fn read(&self) -> MirrorCounts {
         MirrorCounts {
             forged: self.forged.load(Ordering::Relaxed),
@@ -72,16 +171,18 @@ impl Counters {
             held: self.held.load(Ordering::Relaxed),
             storage: self.storage.load(Ordering::Relaxed),
             mark_bytes: self.mark_bytes.load(Ordering::Relaxed),
+            out_of_order: self.out_of_order.load(Ordering::Relaxed),
+            join_refused: self.join_refused.load(Ordering::Relaxed),
         }
     }
 }
 
-/// A unit whose append failed. A takeover after it clears its mark, so the
-/// retry writes its rows with the mark off.
+/// A unit whose append failed. A takeover after it drops it.
 pub(super) struct RetryUnit {
     source: Source,
+    after: Option<MirrorMark>,
     changes: Vec<UnitChange>,
-    mark: Option<MirrorMark>,
+    mark: MirrorMark,
 }
 
 #[derive(Default)]
@@ -89,6 +190,8 @@ pub(super) struct WriterMirror {
     pub counters: Arc<Counters>,
     units: HashMap<String, RetryUnit>,
     off: HashSet<String>,
+    /// [`MAX_TURN_UNIT_CHANGES`]; a measurement lifts it to compare.
+    pub turn_changes: usize,
     /// Unit appends a test makes fail before they write.
     #[cfg(test)]
     pub fail_appends: usize,
@@ -100,6 +203,7 @@ impl WriterMirror {
             counters,
             units: HashMap::new(),
             off: HashSet::new(),
+            turn_changes: MAX_TURN_UNIT_CHANGES,
             #[cfg(test)]
             fail_appends: 0,
         }
@@ -141,15 +245,58 @@ impl Hub {
             }
         }
         let origin = unit.origin;
-        let unit = MirrorUnit { origin: origin.clone(), changes, mark: unit.mark };
+        let key: Arc<str> = origin.as_str().into();
+        let unit = MirrorUnit { origin, after: unit.after, changes, mark: unit.mark };
+        // Counted before the enqueue, so the writer never handles a unit the
+        // count does not hold.
+        counters.add_in_flight(&key, 1);
         let result = self.updates.enqueue(
-            UpdateKey::Source(origin.into()),
+            UpdateKey::Source(key.clone()),
             PendingUpdate::Unit { source, unit: Box::new(unit) },
         );
+        if result.is_err() {
+            counters.add_in_flight(&key, -1);
+        }
         if matches!(result, Err(HubError::UnitQueueFull)) {
             counters.full.fetch_add(1, Ordering::Relaxed);
         }
         result
+    }
+
+    /// No unit of `origin` is queued, in the writer or waiting for the
+    /// storage retry, and the origin is not leaving: the mark is where every
+    /// unit the source sent left it.
+    pub fn mirror_settled(&self, origin: &str) -> bool {
+        self.mirror.in_flight(origin) == 0
+            && self.updates.pending.lock().is_ok_and(|pending| !pending.retrying.contains(origin))
+            && !self.published.load().is_origin_leaving(origin)
+    }
+
+    /// The takeovers of `origin` the writer handled so far. Each writer turn
+    /// wakes [`Self::wait_mirror_until`], so a dialer waits on a change here.
+    pub fn takeover_turns(&self, origin: &str) -> TakeoverTurns {
+        self.mirror.takeovers.lock().map_or_else(
+            |_| TakeoverTurns::default(),
+            |turns| turns.get(origin).copied().unwrap_or_default(),
+        )
+    }
+
+    /// Waits until [`Self::mirror_settled`], woken by the writer's turns.
+    pub async fn wait_mirror_settled(&self, origin: &str) {
+        self.wait_mirror_until(|hub| hub.mirror_settled(origin)).await;
+    }
+
+    /// Waits until `done` holds, checked again after each writer turn.
+    pub async fn wait_mirror_until(&self, done: impl Fn(&Self) -> bool) {
+        loop {
+            let notified = self.mirror.settled.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if done(self) {
+                return;
+            }
+            notified.await;
+        }
     }
 
     /// The mark of the last unit written for `origin`, if no takeover wrote
@@ -174,15 +321,28 @@ impl UnitChange {
 
 impl HubWriter {
     pub(super) fn apply_unit(&mut self, source: Source, unit: MirrorUnit) -> Result<(), HubError> {
-        let MirrorUnit { origin, changes, mark } = unit;
-        let mut retry = RetryUnit { source, changes, mark: Some(mark) };
+        let key: Arc<str> = unit.origin.as_str().into();
+        let result = self.apply_queued_unit(source, unit);
+        self.mirror.counters.add_in_flight(&key, -1);
+        self.mirror.counters.wake();
+        result
+    }
+
+    fn apply_queued_unit(&mut self, source: Source, unit: MirrorUnit) -> Result<(), HubError> {
+        let MirrorUnit { origin, after, changes, mark } = unit;
+        let mut retry = RetryUnit { source, after, changes, mark };
         // A unit queued before an earlier one's append failed goes after it:
-        // the two are written as one, in order, with the newer mark.
+        // the two are written as one, in order, with the newer mark. They
+        // join only when the later one follows the earlier one's mark from
+        // the same source; otherwise the earlier one is dropped.
         if let Some(mut earlier) = self.mirror.units.remove(&origin) {
-            earlier.changes.append(&mut retry.changes);
-            earlier.mark = retry.mark;
-            earlier.source = source;
-            retry = earlier;
+            if earlier.source == source && retry.after == Some(earlier.mark) {
+                earlier.changes.append(&mut retry.changes);
+                earlier.mark = retry.mark;
+                retry = earlier;
+            } else {
+                self.mirror.counters.join_refused.fetch_add(1, Ordering::Relaxed);
+            }
         }
         self.write_unit(&origin, retry)
     }
@@ -204,6 +364,11 @@ impl HubWriter {
             counters.not_owner.fetch_add(1, Ordering::Relaxed);
             self.release_unit_slot(origin);
             return Err(error);
+        }
+        if unit.after != current.mirror_mark(origin) {
+            counters.out_of_order.fetch_add(1, Ordering::Relaxed);
+            self.release_unit_slot(origin);
+            return Err(HubError::UnitOutOfOrder);
         }
         // The last change for a chat in the unit wins; each chat is written once.
         #[cfg(test)]
@@ -260,7 +425,7 @@ impl HubWriter {
             seq += 1;
             records.push(record);
         }
-        let mark = MarkRecord { seq, origin: origin.to_owned(), mark: unit.mark };
+        let mark = MarkRecord { seq, origin: origin.to_owned(), mark: Some(unit.mark) };
         #[cfg(test)]
         let built = std::time::Instant::now();
         #[cfg(test)]
@@ -284,8 +449,8 @@ impl HubWriter {
                     self.log_dirty = true;
                 }
                 Err(error) => {
+                    // The caller counts the returned error in `log_errors`.
                     counters.storage.fetch_add(1, Ordering::Relaxed);
-                    self.log_errors.fetch_add(1, Ordering::Relaxed);
                     self.storage_retry =
                         Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
                     // Only the changes that were to be written are kept;
@@ -303,7 +468,12 @@ impl HubWriter {
                     self.hold_unit_slot(origin);
                     self.mirror.units.insert(
                         origin.to_owned(),
-                        RetryUnit { source: unit.source, changes, mark: unit.mark },
+                        RetryUnit {
+                            source: unit.source,
+                            after: unit.after,
+                            changes,
+                            mark: unit.mark,
+                        },
                     );
                     return Err(HubError::Log(error));
                 }
@@ -395,11 +565,17 @@ impl HubWriter {
     }
 
     /// A takeover writes the origin's mark off in its own turn, so a replay
-    /// after it gives no cursor and the new source walks.
+    /// after it gives no cursor and the new source walks. A unit still
+    /// waiting for the storage retry no longer follows the mark: dropped.
     pub(super) fn write_mark_off(&mut self, origin: &str) {
-        if let Some(unit) = self.mirror.units.get_mut(origin) {
-            unit.mark = None;
+        if self.mirror.units.remove(origin).is_some() {
+            self.mirror.counters.out_of_order.fetch_add(1, Ordering::Relaxed);
+            self.release_unit_slot(origin);
         }
+        self.append_mark_off(origin);
+    }
+
+    fn append_mark_off(&mut self, origin: &str) {
         if self.published.load().mirror_mark(origin).is_none() && !self.mirror.off.contains(origin)
         {
             return;
@@ -428,7 +604,7 @@ impl HubWriter {
         let mut first = None;
         let off: Vec<_> = self.mirror.off.iter().cloned().collect();
         for origin in off {
-            self.write_mark_off(&origin);
+            self.append_mark_off(&origin);
         }
         let origins: Vec<_> = self.mirror.units.keys().cloned().collect();
         for origin in origins {

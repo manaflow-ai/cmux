@@ -58,6 +58,8 @@ export type BootImage = {
   displayName: string;
   snapshotId: string;
   services: string[];
+  /** The image's inputs key (bake.ts bakeInputsSha256): absent on entries from before it and on bakes it does not cover. */
+  inputs_sha256?: string;
 };
 type Env = keyof typeof SERVICES;
 
@@ -101,7 +103,8 @@ export function validate(images: BootImage[], env: string): void {
   if (new Set(images.map((i) => i.id)).size !== images.length) fail("duplicate ids");
   for (const i of images) {
     const keys = Object.keys(i).sort().join(",");
-    if (keys !== "displayName,id,revision,services,snapshotId") fail(`${i.id}: fields ${keys}`);
+    if (keys !== "displayName,id,revision,services,snapshotId" && keys !== "displayName,id,inputs_sha256,revision,services,snapshotId") fail(`${i.id}: fields ${keys}`);
+    if (i.inputs_sha256 !== undefined && !SHA256.test(i.inputs_sha256)) fail(`${i.id}: bad inputs_sha256`);
     if (!/^[a-z][a-z0-9-]*$/u.test(i.id) || i.id.length > 63) fail(`bad id ${i.id}`);
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(i.revision) || i.revision.length > 64) fail(`${i.id}: bad revision`);
     if (i.displayName.length < 1 || i.displayName.length > 100 || [...i.displayName].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127))
@@ -112,6 +115,8 @@ export function validate(images: BootImage[], env: string): void {
   }
 }
 
+const SHA256 = /^[0-9a-f]{64}$/u;
+
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
 export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[] {
   const ordered = newestFirst ? images : [...images].reverse();
@@ -120,7 +125,7 @@ export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[]
   return newestFirst ? kept : kept.reverse();
 }
 
-export type Candidate = { snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string } };
+export type Candidate = { snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string }; inputs_sha256?: string };
 
 /** The approved entry for a baked candidate: production first, staging last (its order is append-only). */
 export function approve(text: string, entry: BootImage): { text: string; previousFirst: string } {
@@ -172,6 +177,8 @@ export function rolledImage(candidate: Candidate, revision: string, cmuxTui: str
     displayName: `Cloud Native (cmux-tui ${cmuxTui.slice(0, 8)}, image roll ${run}.${attempt})`,
     snapshotId: candidate.snapshot_id,
     services: [],
+    // cmux-platform compares it across rolls: equal means only cmux-tui changed, so a spare stays claimable.
+    ...(typeof candidate.inputs_sha256 === "string" && SHA256.test(candidate.inputs_sha256) ? { inputs_sha256: candidate.inputs_sha256 } : {}),
   };
 }
 

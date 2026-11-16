@@ -9,6 +9,8 @@ type LaunchOptions = Record<string, unknown> | undefined;
 type BrowserTypeLike = {
   launch: (options?: LaunchOptions) => Promise<unknown>;
   launchPersistentContext: (userDataDir: string, options?: LaunchOptions) => Promise<unknown>;
+  // A bench that reads the browser's own pid (the renderers under it in /proc) launches through it.
+  launchServer?: (options?: LaunchOptions) => Promise<unknown>;
 };
 
 const WRAPPED = Symbol.for("cmux.systemChrome");
@@ -40,6 +42,13 @@ export function useSystemChrome(
   browserType.launch = (options) => launch(withSystemChrome(options, shell));
   browserType.launchPersistentContext = (userDataDir, options) =>
     launchPersistentContext(userDataDir, withSystemChrome(options, shell));
+  // launchServer too: unwrapped, it ran Playwright's own chrome-headless-shell, which the perf runner never installs,
+  // so chat-100k-flat.bench.ts failed with "Executable doesn't exist" on every perf cron run (web-ui-flat, run
+  // 43737495243) and cmuxterm-hq's NOW benches row chat_100k_flat_ratio_max never had a value.
+  if (browserType.launchServer) {
+    const launchServer = browserType.launchServer.bind(browserType);
+    browserType.launchServer = (options) => launchServer(withSystemChrome(options, shell));
+  }
   marked[WRAPPED] = true;
 }
 

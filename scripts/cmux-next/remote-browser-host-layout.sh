@@ -72,7 +72,9 @@ rbh_write_bundle() { # <binary> <app> [helper binary]
 # The CEF framework inside <app> is signed by its owner first (a copy by the
 # caller, the embedded app's own framework by sign-cef.sh).
 rbh_sign() { # <app> <identity>
-  local app="$1" identity="$2" flags jit helper
+  local app="$1" identity="$2" flags jit helper sign_tool
+  # codesign-retry.sh: Apple's timestamp service fails for a moment now and then.
+  sign_tool="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/codesign-retry.sh"
   flags=(--force --sign "$identity")
   if [[ "$identity" != "-" ]]; then
     flags+=(--options runtime)
@@ -92,11 +94,11 @@ ENT
     [[ -d "$helper" ]] || continue
     case "$helper" in
       *" Helper.app"|*" Helper (GPU).app"|*" Helper (Renderer).app")
-        codesign "${flags[@]}" --entitlements "$jit" "$helper" || { rm -f "$jit"; return 1; } ;;
+        "$sign_tool" "${flags[@]}" --entitlements "$jit" "$helper" || { rm -f "$jit"; return 1; } ;;
       *)
-        codesign "${flags[@]}" "$helper" || { rm -f "$jit"; return 1; } ;;
+        "$sign_tool" "${flags[@]}" "$helper" || { rm -f "$jit"; return 1; } ;;
     esac
   done
   rm -f "$jit"
-  codesign "${flags[@]}" "$app"
+  "$sign_tool" "${flags[@]}" "$app"
 }

@@ -63,6 +63,20 @@ extension AppearanceSettingsSchema {
                 keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
             ),
             SettingDescriptor(
+                FontSmoothingSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.fontSmoothing", "Text Smoothing"),
+                help: SettingsText.keyed("settings.appearance.fontSmoothing.help", "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."),
+                kind: .choice([
+                    SettingChoice(FontSmoothing.auto.rawValue, SettingsText.keyed("settings.choice.fontSmoothingAuto", "Auto")),
+                    SettingChoice(FontSmoothing.antialiased.rawValue, SettingsText.keyed("settings.choice.fontSmoothingThin", "Thin")),
+                    SettingChoice(FontSmoothing.subpixel.rawValue, SettingsText.keyed("settings.choice.fontSmoothingSmooth", "Smooth")),
+                ]),
+                default: .string(FontSmoothingSetting.fallback.rawValue),
+                keywords: ["AppleFontSmoothing", "antialiased", "antialiasing", "auto", "bold", "crisp", "font", "rendering", "smooth", "smoothing", "subpixel", "system", "text", "thin", "weight"]
+            ),
+            SettingDescriptor(
                 InterfaceScaleSetting.configPath,
                 section: .appearance,
                 group: group,

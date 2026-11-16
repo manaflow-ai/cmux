@@ -97,4 +97,36 @@ import Testing
 
         #expect(decision == .confirm(expected))
     }
+
+    /// Leo, 2026-11-16, on "Open chat-800dd580cab0487c" over two centered paragraphs: "is is a weirdly
+    /// styled thing :(". The title is the name a person reads, the status is its own chip, and the text is one line.
+    @Test func connectionGateTitlesTheNameWithStatusApartAndOneLine() {
+        let target = RemoteConnectionTarget(name: "Nightly desktop", status: "Running", region: "us-west", kind: .desktop, isLive: true)
+        let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))
+        #expect(text.title == "Nightly desktop")
+        #expect(text.status == "Running · us-west")
+        #expect(text.live)
+        #expect(!text.detail.contains("\n"))
+        #expect(text.detail.contains("Connect"))
+        #expect(!text.detail.contains("script"))
+        #expect(!text.detail.contains("machine:"))
+    }
+
+    @Test func aMachineWithNoHumanNameIsACloudMachine() {
+        for name in ["", "  "] {
+            let text = RemoteViewUnavailableView.text(for: .confirmTarget(.desktop(name: name, status: nil, region: nil)))
+            #expect(text.title == "Cloud machine")
+            #expect(text.status == nil)
+        }
+    }
+
+    @Test(arguments: RemoteConnectionTarget.Kind.allCases)
+    func connectionGateCopyIsOneLineForEveryTarget(_ kind: RemoteConnectionTarget.Kind) {
+        for confirm in [true, false] {
+            let target = RemoteConnectionTarget(name: "Studio", kind: kind, requiresConfirmation: confirm)
+            let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))
+            #expect(text.title == "Studio")
+            #expect(!text.detail.isEmpty && !text.detail.contains("\n"))
+        }
+    }
 }

@@ -32,7 +32,7 @@
             {
               "value": "neko",
               "title": {
-                "key": null,
+                "key": "settings.choice.neko",
                 "text": "Neko"
               }
             }
@@ -466,7 +466,7 @@
           },
           "help": {
             "key": "settings.appearance.background.help",
-            "text": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
+            "text": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun."
           },
           "summary": {
             "key": "settings.appearance.background.summary",
@@ -487,6 +487,22 @@
               "title": {
                 "key": "settings.choice.shufflePaintings",
                 "text": "Shuffle Paintings"
+              }
+            },
+            {
+              "value": "appearance",
+              "note": "Light and dark: the pictures in appearance.backgroundLight and appearance.backgroundDark, per window appearance.",
+              "title": {
+                "key": "settings.choice.backgroundFollowAppearance",
+                "text": "Light and Dark"
+              }
+            },
+            {
+              "value": "schedule",
+              "note": "Time of day: the pictures in appearance.backgroundSchedule, by clock time or sun event.",
+              "title": {
+                "key": "settings.choice.backgroundTimeOfDay",
+                "text": "Time of Day"
               }
             }
           ],
@@ -515,13 +531,13 @@
           },
           "help": {
             "key": "settings.appearance.backgroundRotation.help",
-            "text": "How often a shuffled background turns to its next picture."
+            "text": "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes."
           },
           "summary": {
             "key": "settings.appearance.backgroundRotation.summary",
             "text": "How often Shuffle changes the picture"
           },
-          "kind": "choice",
+          "kind": "choice_or_number",
           "swift_owner": {
             "type": "BackdropSelectionSetting",
             "prefixed": true
@@ -555,6 +571,13 @@
               }
             }
           ],
+          "range": {
+            "min": 1,
+            "max": 1440,
+            "step": 1,
+            "unit": "minutes",
+            "placeholder": 30
+          },
           "default": "daily",
           "keywords": [
             "shuffle",
@@ -563,7 +586,190 @@
             "wallpaper",
             "interval",
             "change picture",
-            "background"
+            "background",
+            "minutes"
+          ]
+        },
+        {
+          "key": "appearance.backgroundLight",
+          "name": "light",
+          "note": "The picture of Background's Light and Dark (appearance) in the light appearance: any fixed background id (art, desktop, system:, file:). Unset: the dark side's picture.",
+          "title": {
+            "key": "settings.appearance.backgroundLight",
+            "text": "Light Picture"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundLight.help",
+            "text": "The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture."
+          },
+          "default_label": {
+            "key": "settings.default.sameAsDark",
+            "text": "Same as Dark"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "choices": [],
+          "choices_from": "BackdropSelectionSetting.catalogChoices",
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "light",
+            "appearance",
+            "day",
+            "auto switch"
+          ]
+        },
+        {
+          "key": "appearance.backgroundDark",
+          "name": "dark",
+          "note": "The picture of Background's Light and Dark (appearance) in the dark appearance: any fixed background id. Unset: the light side's picture.",
+          "title": {
+            "key": "settings.appearance.backgroundDark",
+            "text": "Dark Picture"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundDark.help",
+            "text": "The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture."
+          },
+          "default_label": {
+            "key": "settings.default.sameAsLight",
+            "text": "Same as Light"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "choices": [],
+          "choices_from": "BackdropSelectionSetting.catalogChoices",
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "dark",
+            "appearance",
+            "night",
+            "auto switch"
+          ]
+        },
+        {
+          "key": "appearance.backgroundSchedule",
+          "name": "schedule",
+          "note": "Background's Time of Day (schedule): when -> fixed background id. When is HH:MM (24 h, local) or sunrise | sunset | dawn | dusk | noon with an optional offset (sunset-30m, sunrise+1h). Now's picture is the latest entry at or before now (before the first: yesterday's last); a sun event that does not happen today is skipped (BackdropTimeOfDay).",
+          "title": {
+            "key": "settings.appearance.backgroundSchedule",
+            "text": "Time of Day Pictures"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundSchedule.help",
+            "text": "Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "schedule",
+            "time of day",
+            "sunrise",
+            "sunset",
+            "night",
+            "auto switch"
+          ]
+        },
+        {
+          "key": "appearance.backgroundDynamic",
+          "name": "dynamic",
+          "note": "How a dynamic macOS wallpaper (system: .madesktop or .heic) changes: appearance shows its light or dark frame; time follows the sun (solar metadata), the clock (h24), or for a light/dark-only or not downloaded picture the sun above or below -6 degrees.",
+          "title": {
+            "key": "settings.appearance.backgroundDynamic",
+            "text": "Dynamic Wallpaper"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundDynamic.help",
+            "text": "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting."
+          },
+          "summary": {
+            "key": "settings.appearance.backgroundDynamic.summary",
+            "text": "Follow light and dark, or the sun"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "BackdropDynamicMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "appearance",
+              "title": {
+                "key": "settings.choice.backgroundFollowAppearance",
+                "text": "Light and Dark"
+              }
+            },
+            {
+              "value": "time",
+              "title": {
+                "key": "settings.choice.backgroundTimeOfDay",
+                "text": "Time of Day"
+              }
+            }
+          ],
+          "default": "appearance",
+          "keywords": [
+            "dynamic",
+            "wallpaper",
+            "sun",
+            "solar",
+            "time of day",
+            "macos"
+          ]
+        },
+        {
+          "key": "appearance.backgroundLocation",
+          "name": "location",
+          "note": "LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).",
+          "title": {
+            "key": "settings.appearance.backgroundLocation",
+            "text": "Sun Location"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundLocation.help",
+            "text": "Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location."
+          },
+          "default_label": {
+            "key": "settings.default.fromTimeZone",
+            "text": "From Time Zone"
+          },
+          "placeholder": {
+            "key": null,
+            "text": "37.77,-122.42"
+          },
+          "kind": "text",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "location",
+            "latitude",
+            "longitude",
+            "sunrise",
+            "sunset",
+            "sun"
           ]
         },
         {
@@ -1161,6 +1367,66 @@
             "density",
             "interface size",
             "chromeFontSize"
+          ]
+        },
+        {
+          "key": "appearance.fontSmoothing",
+          "note": "How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Ghostty's font-thicken is not affected.",
+          "title": {
+            "key": "settings.appearance.fontSmoothing",
+            "text": "Text Smoothing"
+          },
+          "help": {
+            "key": "settings.appearance.fontSmoothing.help",
+            "text": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
+          },
+          "kind": "choice",
+          "swift_owner": "FontSmoothingSetting",
+          "swift_enum": {
+            "name": "FontSmoothing",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.fontSmoothingAuto",
+                "text": "Auto"
+              }
+            },
+            {
+              "value": "antialiased",
+              "title": {
+                "key": "settings.choice.fontSmoothingThin",
+                "text": "Thin"
+              }
+            },
+            {
+              "value": "subpixel",
+              "title": {
+                "key": "settings.choice.fontSmoothingSmooth",
+                "text": "Smooth"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "AppleFontSmoothing",
+            "antialiased",
+            "antialiasing",
+            "auto",
+            "bold",
+            "crisp",
+            "font",
+            "rendering",
+            "smooth",
+            "smoothing",
+            "subpixel",
+            "system",
+            "text",
+            "thin",
+            "weight"
           ]
         },
         {

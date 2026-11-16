@@ -210,6 +210,8 @@ impl Peer {
     /// Run the connect loop until `stop`.
     pub async fn run(self: Arc<Self>) {
         let mut backoff = Backoff::default();
+        // Refused ssh logins in a row (`Backoff::login_refused`).
+        let mut login_refusals = 0u32;
         let Some(mut out_rx) = self.out_rx.lock().await.take() else {
             // A second run: the first owns the outbound queue and the link.
             tracing::warn!(peer = %self.name, "peer link already running");
@@ -241,13 +243,25 @@ impl Peer {
             // chats are open on it. Only with no failure counted since its backoff last started
             // over, so a link that drops after each handshake waits its backoff from the second.
             let redial_now = was_ready && backoff.failures() == 0;
+            // The remote refused this computer's ssh login: the next attempt waits minutes, not
+            // the doubling seconds, and no open chat or ask cuts that wait (`wait_backoff`).
+            login_refusals = if self.login_refused.load(Ordering::SeqCst) {
+                login_refusals.saturating_add(1)
+            } else {
+                0
+            };
             // A peer down for a day or more is parked on an hourly retry (`PeerLink::retry_delay`).
             // Scheduled before the notice goes out: the hub saves `next_retry_at` to the peer
             // cache while handling it, so a daemon restart mid-wait keeps the parked deadline.
             let delay = (!restarting).then(|| {
                 self.with_link(|l| {
                     let now = crate::store::now_ms();
-                    let delay = l.schedule_retry(&mut backoff, now, crate::peer_link::jitter());
+                    let mut delay = l.schedule_retry(&mut backoff, now, crate::peer_link::jitter());
+                    if login_refusals > 0 {
+                        let least =
+                            Backoff::login_refused(login_refusals, crate::peer_link::jitter());
+                        delay = delay.max(least);
+                    }
                     // Reported only (`nextRetryAt`): the wait below keeps its own delay.
                     let waits = if redial_now { Duration::ZERO } else { delay };
                     l.retry_at = Some(now.saturating_add(waits.as_millis() as u64));
@@ -500,11 +514,25 @@ impl Peer {
     ) -> Result<LinkEnd, String> {
         use crate::peer_paths::Via;
         self.facts.lock_or_recover().refused = false;
+        self.login_refused.store(false, Ordering::SeqCst);
         #[cfg(test)]
         if test_dial::refused() {
+            if test_dial::login_refused() {
+                let reason =
+                    ssh_errors::reason(b"leo@box: Permission denied (publickey,password).");
+                self.note_ssh_failure(reason);
+                return Err(ssh_errors::describe("ssh to box failed (test)".into(), reason));
+            }
             return Err("refused (test)".into());
         }
-        let (via, opened) = self.open_first().await?;
+        let (via, opened) = match self.open_first().await {
+            Ok(opened) => opened,
+            Err(error) => {
+                // No path opened: the network, not a slow peer (`SilenceBudget::dial_struggled`).
+                self.with_silence(SilenceBudget::dial_struggled);
+                return Err(error);
+            }
+        };
         // A losing ssh attempt's process ends now.
         if via != Via::Ssh {
             self.end_tunnel().await;
@@ -832,6 +860,8 @@ impl Peer {
             );
             me.listed_links.lock_or_recover().push_back(link);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
+            // The peer's list stream feeds the index from here, when it lists one.
+            me.start_mirror(link);
             // The path it is ready on is the one to dial first next time, also after a restart.
             me.note_ready_path();
             // What the last link bound to its connection and never answered, on this one.
@@ -873,8 +903,10 @@ impl Peer {
             b.opened(tokio::time::Instant::now());
             (was, b.current())
         });
-        if silence != was {
+        if silence > was {
             tracing::info!(peer = %self.name, "silence budget {}s (was {}s; a link dropped for silence opened again: the peer is slow, not gone)", silence.as_secs(), was.as_secs());
+        } else if silence < was {
+            tracing::info!(peer = %self.name, "silence budget {}s (was {}s; the redial failed first: the network was gone, not the peer slow)", silence.as_secs(), was.as_secs());
         }
         // The first read's gap is the connect, not an answer.
         if let Some(heard) = &heard {
@@ -907,6 +939,11 @@ impl Peer {
         );
         wake_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut wake_probe: Option<tokio::time::Instant> = None;
+        // Why `wake_probe` is set when a network change set it, not a wake.
+        let mut probe_cause: Option<String> = None;
+        // `wake_probe` was set by a request sent on a link already silent a ping interval: a link
+        // it drops tells the budget (`SilenceBudget::probe_dropped`).
+        let mut request_probe = false;
         // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
         // the regular ping's tick may be served first, and its write must be held to the probe's
         // deadline, never the whole send budget.
@@ -917,7 +954,7 @@ impl Peer {
                     // One deadline for the ping to go out and its answer to come back.
                     let deadline = tokio::time::Instant::now() + WAKE_PROBE;
                     match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
-                        Ok(Ok(())) => wake_probe = Some(deadline),
+                        Ok(Ok(())) => (wake_probe, probe_cause, request_probe) = (Some(deadline), None, false),
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(stopped_reading(WAKE_PROBE)),
                     }
@@ -978,6 +1015,9 @@ impl Peer {
                             } else {
                                 PeerNotice::Sessions(rows)
                             };
+                            if let Some(bytes) = list.list_bytes() {
+                                crate::gauges::peer_lists().queued(bytes);
+                            }
                             for notice in std::iter::once(list).chain(held) {
                                 if self
                                     .notices
@@ -1041,7 +1081,40 @@ impl Peer {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
-                    break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
+                    // A request's probe on a link still reading bytes (a large frame on its way, the
+                    // pong queued behind it) is moving: wait another `NETWORK_PROBE`, not drop it.
+                    if request_probe && heard.as_ref().is_some_and(|h| h.silent() < network::NETWORK_PROBE) {
+                        wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE);
+                        continue;
+                    }
+                    if request_probe {
+                        self.with_silence(SilenceBudget::probe_dropped);
+                    }
+                    break Err(match probe_cause {
+                        Some(why) => why,
+                        None => format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()),
+                    });
+                }
+                // This computer's network changed (`peer_network.rs`): the link may ride a route that
+                // is gone. A ping goes out at once and the link is dropped and redialed when nothing
+                // answers within `NETWORK_PROBE`, not after the whole silence budget.
+                () = self.network_changed() => {
+                    let deadline = tokio::time::Instant::now() + network::NETWORK_PROBE;
+                    if wake_probe.is_none_or(|probe| probe > deadline) {
+                        tracing::info!(peer = %self.name, "this computer's network changed; checking the link");
+                        match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                            Ok(Ok(())) => {
+                                wake_probe = Some(deadline);
+                                request_probe = false;
+                                probe_cause = Some(format!(
+                                    "no answer {}s after this computer's network changed",
+                                    network::NETWORK_PROBE.as_secs()
+                                ));
+                            }
+                            Ok(Err(e)) => break Err(e.to_string()),
+                            Err(_) => break Err(stopped_reading(network::NETWORK_PROBE)),
+                        }
+                    }
                 }
                 // Once only. A watch the handshake dropped is never published, and the changes
                 // held after it wait for the list asked for instead (`paged`).
@@ -1135,6 +1208,7 @@ impl Peer {
                     frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
                     wake_probe = None;
+                    request_probe = false;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
                     let (text, compressed) = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => {
@@ -1162,6 +1236,11 @@ impl Peer {
                         }
                         _ => continue,
                     };
+                    // A v2 frame of the peer's list stream goes to this link's mirror.
+                    if crate::link_v2::is_frame_line(&text) {
+                        self.mirror_frame(link, text);
+                        continue;
+                    }
                     let msg = match Message::parse(&text) {
                         Ok(msg) => msg,
                         // Only large messages are compressed, and a reply among them would be
@@ -1324,6 +1403,8 @@ impl Peer {
                     }
                     // Before the frame is marked: a link a wake check drops never had it.
                     check_wake!();
+                    // Read before the write: a large frame's write is not the peer's silence.
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
                     // Marked before the write: a frame that is partly written may still run.
                     let prompt_key = key.as_ref();
                     if let Some(key) = prompt_key {
@@ -1347,6 +1428,30 @@ impl Peer {
                         }
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
+                    }
+                    // A request on a link silent for a ping interval: a network gone without a
+                    // reset takes the write into the kernel's buffer and answers nothing. A ping
+                    // goes out with it and the link is dropped and redialed when nothing answers
+                    // within `NETWORK_PROBE`, not after the whole silence budget. Not for a peer
+                    // that proved slow (`SilenceBudget::may_probe`).
+                    if wake_probe.is_none() && silent >= timings.ping_every && self.with_silence(|b| b.may_probe()) {
+                        let deadline = tokio::time::Instant::now() + network::NETWORK_PROBE;
+                        match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                            Ok(Ok(())) => {
+                                wake_probe = Some(deadline);
+                                request_probe = true;
+                                probe_cause = Some(format!(
+                                    "no answer {}s after a request on a link silent {}s",
+                                    network::NETWORK_PROBE.as_secs(),
+                                    silent.as_secs()
+                                ));
+                            }
+                            Ok(Err(e)) => break Err(e.to_string()),
+                            Err(_) => {
+                                self.with_silence(SilenceBudget::probe_dropped);
+                                break Err(stopped_reading(network::NETWORK_PROBE));
+                            }
+                        }
                     }
                 }
             }

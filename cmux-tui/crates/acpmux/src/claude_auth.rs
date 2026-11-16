@@ -349,10 +349,13 @@ pub fn forget(session_id: &str) {
 }
 
 /// Claude's own words for "no usable sign-in": a missing login, and the API's refusal of the
-/// credential it sent ("Failed to authenticate. API Error: 401 … authentication_error").
+/// credential it sent ("Failed to authenticate. API Error: 401 … authentication_error"); and the
+/// cmux gateway's 401 for an agent with no team or owner key ("cmux: sign in required
+/// (agent.sign_in_required)", hq#11225), whichever agent shows it.
 pub fn is_sign_in_failure(message: &str) -> bool {
     let m = message.to_lowercase();
-    m.contains("not logged in")
+    m.contains(crate::recovery::SIGN_IN_REQUIRED)
+        || m.contains("not logged in")
         || m.contains("please run /login")
         || m.contains("invalid api key")
         || m.contains("oauth token has expired")
@@ -385,7 +388,7 @@ pub fn is_expired_credential(message: &str) -> bool {
 pub fn is_revoked_token(message: &str) -> bool {
     let m = message.to_lowercase();
     (m.contains("oauth token revoked") || m.contains("token has been revoked"))
-        && !crate::hub::turn_errors::says_unreachable(message)
+        && !crate::turn_errors::says_unreachable(message)
 }
 
 /// Whether [`explain`] rewrites `original`: a sign-in failure it has not explained yet, and not
@@ -393,7 +396,7 @@ pub fn is_revoked_token(message: &str) -> bool {
 /// stays as the agent said it, so its turn is retried and typed as the outage it is.
 fn explains(original: &str) -> bool {
     is_sign_in_failure(original)
-        && !crate::hub::turn_errors::says_unreachable(original)
+        && !crate::turn_errors::says_unreachable(original)
         && !original.starts_with("Claude is not signed in here")
 }
 

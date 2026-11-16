@@ -88,7 +88,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_live_code_variant.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_live_code_variant.py"
 
 [[test]]
 path = "tests/test_nightly_mini_gate_timeouts.py"
@@ -107,6 +108,11 @@ lane = "linux-guard"
 path = "tests/test_nightly_next_artifact_check.py"
 lane = "manual"
 reason = "Run by hand with python3 when nightly_next_artifact_check.py or the canary and launch-smoke workflows change; repository policy adds no new CI tests."
+
+[[test]]
+path = "tests/test_nightly_next_build_step_bound.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that nightly-next-one's Release compile has its own timeout-minutes, so a stalled compile cannot hold the push slot for the job's 300 minutes; run python3 tests/test_nightly_next_build_step_bound.py yourself after changing that step (about 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_next_canary_mode.py"
@@ -168,7 +174,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_notary_receipt.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_next_notary_receipt.py"
 
 [[test]]
 path = "tests/test_nightly_next_one_feed_readers.py"
@@ -336,7 +343,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_spm_artifact_preflight.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_spm_artifact_preflight.py"
 
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
@@ -376,3 +384,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. Runs the warm nightly-next build
 [[test]]
 path = "tests/test_nightly_workflow_size.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_xcodebuild_stall_watchdog.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Drives run-xcodebuild-with-diagnostics.sh and app-build-release.sh with a fake xcodebuild that hangs and a fake SWBBuildService that uses no CPU (run 43673773157's deadlock): the stall is sampled, only the build's own processes end, one retry, a second stall fails naming the samples; run python3 tests/test_nightly_xcodebuild_stall_watchdog.py yourself after changing either script (about 10 s, no Mac)."

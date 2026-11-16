@@ -572,8 +572,10 @@ class OwnedRefusal(unittest.TestCase):
         runs_on = cells[0]
         self.assertEqual(jobs["build"]["needs"], "pick-train-runner")
         self.assertIn("needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && "
-                      "needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || "
-                      "vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}", runs_on)
+                      "needs.pick-train-runner.outputs.owned || vars.CI_BLACKSMITH_MACOS == 'on' && "
+                      "needs.pick-train-runner.outputs.blacksmith || (vars.CI_BLACKSMITH_MACOS != 'on' && "
+                      "vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}",
+                      runs_on)
 
 
 class Wiring(unittest.TestCase):

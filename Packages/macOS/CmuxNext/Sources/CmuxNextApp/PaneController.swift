@@ -348,16 +348,16 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
-        let selectNew = pendingSelect.take(shown: snapshot.tabs, record: pane.tabs) // once listed (OutboundTab)
-        if let selectNew { state?.selection.selectMade(selectNew, in: paneKey, inPlaceOf: stripModel.successors[StripTabID(selectNew)]?.rawValue, tabs: snapshot.items.map(\.id.rawValue)) }
+        let selectNew = pendingSelect.take(shown: snapshot.tabs, record: pane.tabs, selected: state?.selection.selection(in: paneKey), listed: { id in snapshot.items.contains { $0.id.rawValue == id } }, fate: { daemon.store.creations.fate(ofStandIn: $0, in: pane) }) // once listed (OutboundTab); else the tab of the selected stand-in
+        if let selectNew { state?.selection.selectMade(selectNew, in: paneKey, inPlaceOf: stripModel.successors[StripTabID(selectNew)]?.rawValue, tabs: snapshot.items.map(\.id.rawValue), standIn: { daemon.store.creations.fate(ofStandIn: $0, in: pane) }) }
         // Members of a collapsed group are hidden (`hiddenTabs`): a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, groups: stripModel.tabGroups, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs })
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, groups: stripModel.tabGroups, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs }, standIn: { daemon.store.creations.fate(ofStandIn: $0, in: pane) })
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)
         if selectNew != nil {
-            // A tab this window created: show it now (focus is the coordinator's expectation, not decided here).
-            showSelected()
+            // A tab this window created: show it now (focus is the coordinator's expectation, not decided here). A New Tab page with no view yet goes by the frame rule (decision 2026-11-16): its view is made at the next frame, for the tab selected then, so a run of New Tab keys makes no page for a tab that no frame shows.
+            if let selectedID, services.agentTabs.isNewTabPage(selectedID.rawValue), !selectedContentIsAlive { presentSelection() } else { showSelected() }
         } else if let selectedID, selectedID.rawValue != currentTabKey {
             presentSelection() // a close selected the neighbor
         } else {

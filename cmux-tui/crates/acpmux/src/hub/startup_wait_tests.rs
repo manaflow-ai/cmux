@@ -89,6 +89,46 @@ async fn a_new_session_does_not_wait_for_another_chats_adoption() {
     }
 }
 
+/// Leo, 2026-11-15, after a restart: "idk why it sent this tho?". His message to a chat whose
+/// agent host the start had adopted at once waited ~28 s, shown as queued, until the slowest other
+/// host's replay ended: every prompt to an adopted chat waited for every host's adoption. It waits
+/// for its own chat's adoption only.
+#[tokio::test(start_paused = true)]
+async fn a_prompt_waits_for_its_own_chats_adoption_not_another_hosts() {
+    let hub = hub();
+    hub.adoption_ready.send_replace(false);
+    {
+        let mut plan = hub.load_plan.lock().unwrap();
+        plan.adopting.insert("fast".into());
+        plan.adopting.insert("slow".into());
+    }
+    let within = std::time::Duration::from_millis(1);
+    // Neither host is adopted yet: both chats' prompts wait.
+    assert!(tokio::time::timeout(within, hub.wait_chat_adopted("fast")).await.is_err());
+    // The fast chat's host is adopted and recovered while the slow one still replays.
+    let waiting = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.wait_chat_adopted("fast").await })
+    };
+    tokio::task::yield_now().await;
+    hub.chat_adopted("fast");
+    tokio::time::timeout(within, waiting)
+        .await
+        .expect("the prompt waited for another chat's adoption")
+        .unwrap();
+    tokio::time::timeout(within, hub.wait_chat_adopted("fast"))
+        .await
+        .expect("a prompt to a chat already adopted waits for nothing");
+    // The slow chat still waits, until its own adoption or adoption's end.
+    assert!(tokio::time::timeout(within, hub.wait_chat_adopted("slow")).await.is_err());
+    // A chat whose host ran at no start waits for nothing.
+    tokio::time::timeout(within, hub.wait_chat_adopted("cold")).await.expect("a cold chat waited");
+    hub.adoption_ready.send_replace(true);
+    tokio::time::timeout(within, hub.wait_chat_adopted("slow"))
+        .await
+        .expect("adoption's end lets every chat's prompt go");
+}
+
 #[test]
 fn the_error_says_what_each_phase_is_doing() {
     let wait = std::time::Duration::from_secs(1);

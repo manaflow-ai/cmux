@@ -113,10 +113,37 @@ public struct ScreenshotMask {
         sequence(first: view, next: \.superview).contains { rules.coversContents($0) || rules.covers($0) }
     }
 
-    /// An animation or a layer transform puts the view's pixels somewhere other than its frame.
+    /// An animation that moves or resizes the layer, or a layer transform, puts the view's pixels
+    /// somewhere other than its frame. A color or opacity blend (a theme change's `ColorTransition`)
+    /// keeps every pixel inside the frame, so it does not count.
     private static func isMoving(_ view: NSView) -> Bool {
         guard let layer = view.layer else { return false }
-        return layer.animationKeys()?.isEmpty == false || !CATransform3DIsIdentity(layer.transform)
+        if !CATransform3DIsIdentity(layer.transform) { return true }
+        return layer.animationKeys()?.contains { key in layer.animation(forKey: key).map(moves) ?? false } == true
+    }
+
+    /// The layer properties whose animation moves its pixels or its sublayers' pixels (key paths by
+    /// their first component: `position.x`, `bounds.size` and `transform.scale` count too).
+    private static let geometryKeys: Set<String> = [
+        "position", "bounds", "frame", "anchorPoint", "anchorPointZ", "transform", "sublayerTransform",
+        "zPosition", "contentsRect", "contentsScale", "contentsCenter", "contentsGravity", "path",
+    ]
+
+    /// Whether `animation` moves pixels: a property animation of a geometry key, a group holding one,
+    /// or any transition but a cross-fade (a push or a reveal slides the content). An unknown kind
+    /// counts as moving, so the capture refuses rather than masking the wrong place.
+    private static func moves(_ animation: CAAnimation) -> Bool {
+        switch animation {
+        case let property as CAPropertyAnimation:
+            guard let root = property.keyPath?.split(separator: ".").first else { return true }
+            return geometryKeys.contains(String(root))
+        case let group as CAAnimationGroup:
+            return group.animations?.contains(where: moves) ?? false
+        case let transition as CATransition:
+            return transition.type != .fade
+        default:
+            return true
+        }
     }
 
     /// The same for a view holding a covered one, whose sublayer transform moves it too.

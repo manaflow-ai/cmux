@@ -40,8 +40,15 @@
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled):hover .nt-row-icon{color:var(--agent-text)}
 .nt-row-favicon{border-radius:4px;box-shadow:none;object-fit:contain}
-.nt-row-title{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis}
-.nt-row-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+/* The title takes the row's room first and is cut only at the action (or the row's trailing padding); the
+   detail takes what is left (flex-basis 0) and goes before the title does (user 34731: a long "Search the
+   web for …" stopped at 60% of the row, a third of it empty). */
+.nt-row-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.nt-row-detail{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+/* The ranked sections' headers (screenModel sectionHeader): a quiet label over its rows, its text on
+   the rows' title column so the eye runs down one edge; never an option (role presentation), so the
+   arrows and the pointer pass over it. */
+.nt-section{box-sizing:border-box;display:flex;align-items:center;padding-block:var(--ds-space-2) var(--ds-space-1);line-height:1.2;padding-inline:var(--ui-row-padding-inline);overflow:hidden;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap;text-overflow:ellipsis;cursor:default;user-select:none}
 .nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);opacity:0}
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
@@ -49,7 +56,6 @@
  .nt-create-strip{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid var(--ds-color-separator);overflow:hidden}
 /* Each action centers its icon and label in its own third, so the strip reads as three cells, not a row that starts off the rows' glyph column (Leo 2026-11-06: "this is misaligned at the left ... have them all individually centered along their things?"). The cell spans the rows' edges, so its hover fill lines up with theirs. */
 .nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;justify-content:center;gap:var(--ds-space-2);min-width:0;height:24px;padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
-.nt-create-strip-item .nt-row-title{flex:0 1 auto;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
 /* Labels that do not all fit (createStripFit.ts) go away together: three icons, still centered, each named by its aria-label and tooltip, never three ellipsized "Nouv…". The title stays measurable (visually hidden, not display:none). */
 .nt-create-strip[data-icons-only] .nt-create-strip-item{position:relative}
 .nt-create-strip[data-icons-only] .nt-create-strip-item .nt-row-title{position:absolute;width:0;height:0;overflow:hidden;clip-path:inset(50%)}
@@ -572,6 +578,12 @@
       var(--ui-popup-padding, 4px)
   );
 }
+.nt-popover .nt-rows > .nt-section {
+  padding-inline-start: calc(
+    var(--nt-composer-inset) + (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2 -
+      var(--ui-popup-padding, 4px) + var(--acpmux-composer-glyph, 16px) + var(--ds-space-2)
+  );
+}
 /* A project's picture centers where the folder glyph does: the ghost button's leading padding (its inset less its
    bearing) and the folder's 14 px box at the composer's density, the + glyph's column (Lucas 2026-11-13: it stood
    3 pt right of + and the shield). It beats the gallery arms' full inset. */
@@ -783,6 +795,56 @@
 .nt-above .acpmux-composer-strip {
   flex: 1 1 0;
   min-width: 0;
+}
+/* The icon column's arms (iconColumn.experiment.ts; the gallery's agent-pane.new-tab-icon-column).
+   Each keeps the folder glyph, + and the shield on one center line (newtab-icon-column.test.ts) and
+   changes only what carries the chips, so the arms read apart at a glance (Leo 2026-11-15: "those
+   all look the same to me"). pad, the shipped arm, is the bare text above: no rule here.
+   - tray: the strip sits in a filled tray inset by --nt-tray-inset from the box's sides and tucked
+     --nt-tray-tuck under its top edge, the box raised over it (Codex's desktop composer). The strip
+     steps back out by the inset, so its glyphs stay on the column. */
+.nt-composer[data-icon-column="tray"] {
+  --nt-tray-inset: var(--ds-space-2);
+  --nt-tray-tuck: calc(var(--ds-space-3) + 6px);
+}
+.nt-composer[data-icon-column="tray"] .nt-box { z-index: var(--layer-raised, 1); }
+.nt-composer[data-icon-column="tray"] .nt-above {
+  position: relative;
+  z-index: var(--layer-base, 0);
+  margin: 0 var(--nt-tray-inset) calc(-1 * var(--nt-tray-tuck));
+  padding: var(--ds-space-1) 0 var(--nt-tray-tuck);
+  border-radius: var(--nt-box-radius) var(--nt-box-radius) 0 0;
+  background: var(--acpmux-composer-tray);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
+}
+:root .nt-screen .nt-composer[data-icon-column="tray"] .nt-above .acpmux-composer-strip {
+  margin-inline: calc(-1 * var(--nt-tray-inset));
+}
+/* - pills: every chip, over the box and under it, is a filled capsule with a hairline rim. Fill and
+     rim only, so no glyph moves off the column. */
+.nt-composer[data-icon-column="pills"] :is(
+    .nt-above .acpmux-location-button,
+    .nt-foot .acpmux-access-trigger,
+    .nt-foot .acpmux-model .acpmux-picker-button,
+    .nt-foot .acpmux-effort .acpmux-picker-button
+  ) {
+  border-radius: var(--ds-radius-control);
+  background: var(--acpmux-pill-fill);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge);
+}
+/* - icons: the chips drop their names and chevrons, leaving a bare column of glyphs. The names stay
+     in the accessibility tree (clipped to nothing, not display: none), so the buttons keep their names. */
+.nt-composer[data-icon-column="icons"] :is(.nt-above .acpmux-location-label, .nt-foot .acpmux-mode-text) {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nt-composer[data-icon-column="icons"] :is(
+    .nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child),
+    .nt-foot .acpmux-access-trigger > .acpmux-icon:last-child:not(:first-child)
+  ) {
+  display: none;
 }
 /* A top strip variant (Debug Settings) draws the strip as the card's own top, spanning it. */
 :root[data-top-strip] .nt-above {

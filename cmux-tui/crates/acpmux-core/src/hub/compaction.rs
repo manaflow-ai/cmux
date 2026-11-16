@@ -212,8 +212,11 @@ impl HubWriter {
                 {
                     self.turn_measure.overlay_ns = overlay_began.elapsed().as_nanos();
                 }
-                self.retire_origin_sources(&current, &next);
+                let freed = self.retire_origin_sources(&current, &next);
                 self.published.store(Arc::new(next));
+                if freed {
+                    self.origin_slot_freed();
+                }
                 self.compaction_counters.damaged_snapshot_frames.store(0, Ordering::Relaxed);
                 self.hydration = None;
                 // Only the obsolete shadow root is retired, never rebuilt maps.

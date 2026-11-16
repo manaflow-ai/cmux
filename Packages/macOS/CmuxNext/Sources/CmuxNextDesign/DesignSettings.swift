@@ -195,11 +195,9 @@ public final class DesignSettings {
     public var showsHoverCards: Bool { hoverCardsEnabled && calmMode.showsHoverEffects }
     /// The pointer paints a hover fill on tabs, sidebar rows and chrome buttons (off in calm mode).
     public var showsHoverFills: Bool { calmMode.showsHoverEffects }
-    /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
-    /// Defaults to `HoverCardTiming.showDelay`.
+    /// `sidebar.hoverCards.delay`: pointer rest before any hover card opens (rows, rail, tabs, the
+    /// Update Ready card, Home link chips). Defaults to `HoverCardTiming.showDelay`, Chrome's 1300 ms.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
-    /// `sidebar.hoverCards.delay` has a value in the file: its delay is a fixed wait, with no settle.
-    public var hoverCardDelayIsSet = false
     /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
     public var workspaceHoverCard = WorkspaceHoverCardOptions()
     /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
@@ -278,6 +276,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Native text keeps the
+    /// launch's value (``ProcessFontSmoothing/current``).
+    public var fontSmoothing: FontSmoothing = .auto
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same

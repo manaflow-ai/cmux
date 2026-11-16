@@ -89,6 +89,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | A Session Info section | `implements["cmux.session.info.section/1"]`; render gets `{ session_id, cwd, branch?, harness? }` | none |
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
+| A whole New Tab page | `implements["cmux.newtab/1"]`; shows only once the person runs `cmux settings set tabs.newTabApp <app id>` (unset: cmux's own page; a missing, hidden or failing app: cmux's own page); render gets `{ surface: "newTab", cwd? }`. The web page only, not `tabs.nativeNewTabPage`. | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |
 | Run my own command | `cmux.actions.run("cmuxConfig.<name>")` from a click | `actions:run` |
 | Run a built-in action | `cmux.actions.run(id, args)` from a click; ids from `cmux.actions.list()`. Actions that sign in, quit, change the system or act on live input are refused | `actions:run` |
@@ -100,6 +101,8 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | Type into a terminal | `cmux.terminal.input.write` | `terminal:execute` |
 | Agents, git, GitHub, notes, the feed | `cmux.agent.list`, `cmux.git.*`, `cmux.integrations.github.request`, `cmux.notes.*`, `cmux.feed.*` | each family's read or write scope |
 | Keep state, call a server | `cmux.storage.*`, `cmux.net.fetch`, `cmux.timer.*`, `cmux.clipboard` | `storage:local`, `net:<host>`, none, `clipboard:write` |
+| Read a browser page (reader mode) | `cmux.page.read({ tab? })`: the page's url and title, its main text as blocks (heading, paragraph, list_item, quote, code, image) with title, byline and site, and its links. No `tab`: the focused browser tab | `page:read` (highlighted on the consent sheet) |
+| Link hints on a browser page | `cmux.page.hints({ action: "show" \| "clear", tab? })` draws the built-in `f` labels and answers `{tab, hints: [{label, text, href}]}`; `cmux.page.follow({ label, new_split?, tab? })` clicks the hint's element, or opens its link in a new split (`F`). Both need a gesture (a key or a click) | `page:write` |
 | Errors | `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'` | |
 
 The whole op list with scopes is `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`
