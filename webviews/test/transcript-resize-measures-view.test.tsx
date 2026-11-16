@@ -93,7 +93,13 @@ const chat = (count: number): AcpmuxRow[] =>
     at: index,
   }));
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 200));
+/// Real time passing: a drag's width steps come a frame apart, and the transcript settles 120 ms after the width holds.
+function elapse(ms: number) {
+  // A late wake only spreads the drag's steps apart (each then settles alone): more rows measured, never fewer.
+  // fixed-wait: the drag's frames and the settle run on real timers, so a slow runner cannot hide a whole-chat layout.
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+const settle = () => elapse(200);
 
 /// Rows measured by one width step, and by a drag (steps a frame apart) with its settle once the width held.
 async function resizeCost(count: number): Promise<{ step: number; drag: number }> {
@@ -131,7 +137,7 @@ async function resizeCost(count: number): Promise<{ step: number; drag: number }
       boxWidth = width;
       await act(async () => {
         resize.callback();
-        await new Promise((resolve) => setTimeout(resolve, 16));
+        await elapse(16);
       });
     }
     await act(settle);
