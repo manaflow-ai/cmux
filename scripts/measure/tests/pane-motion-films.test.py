@@ -24,6 +24,7 @@ CODE = {code: name for name, code in M.KEY.items()}
 BUNDLE = "/fake/cmux DEV fake.app"
 BINARY = BUNDLE + "/Contents/MacOS/cmux DEV fake"
 INSTANCE_100 = f"PREFLIGHT activate: instance pid 100: parent 50, command {BINARY}"
+PAGES = ("newtab", "chromium", "chat")  # the tab kinds that the app shows as a Chromium page in a child window
 
 
 class Clock:
@@ -61,6 +62,17 @@ class World:
         # pid: its parent. 100 = the launch's own process; 150 = an instance that launchd started before this run.
         self.pids = {100: 50, **({150: 1} if "other-instance-before" in faults else {})}
         self.ps_calls, self.pending, self.zoom_keys_at_a_pending_tab = 0, 0, []
+        self.words = []  # for each key sequence to the active app: (the `key_window` word of the call, the window that had the keys)
+
+    def page(self):
+        """With the fault `page-takes-keys`, the app's design by a read of its code (ChildPageFocus.swift,
+        FocusEffectApplier.swift): a Chromium page shows in a child window, and that window has the keys while its
+        page has focus. Returns the id of that page (the last tab of the focused pane, when it is a page and the app
+        is active), else None: the shell window has the keys. A model of the app, not the app."""
+        pane = next((p for p in self.spaces.get(self.shown, {}).get("panes", []) if p["id"] == self.focus), None)
+        if "page-takes-keys" not in self.faults or not self.active or not pane or not pane["tabs"]:
+            return None
+        return pane["tabs"][-1]["id"] if pane["tabs"][-1]["kind"] in PAGES else None
 
     def ident(self, kind):
         self.count += 1
@@ -132,7 +144,11 @@ class FakeApp:
     def rpc(self, method, params=None, timeout=60):
         world, params = self.world, params or {}
         if method == "debug.focus":
-            return {"app_active": world.active, "key_window": "ShellWindow" if world.active else None}
+            page = world.page()
+            said = {"app_active": world.active, "key_window": ("CefNSWindow" if page else "ShellWindow") if world.active else None}
+            if "page-takes-keys" in world.faults:  # the part of the app's reply that says which window has the keys
+                said["windows"] = [{"id": "window1", "is_key": world.active and not page, "appkit": {"child_window_page": page}}]
+            return said
         if method == "debug.frames":
             return {} if params.get("action") == "start" else {"frames": 120, "p50_ms": 8.33, "refresh_ms": 8.33}
         if method == "debug.window_frame":
@@ -145,8 +161,15 @@ class FakeApp:
                 world.record.update(capturing=False, written=True, frames=world.record["complete"], first_t=1.0, last_t=6.0, movie_status="completed")
             return dict(world.record or {})
         if method == "debug.key" and "sequence" in params:
-            if not world.active:  # the app's own words for a window that cannot become key
-                return {"error": f"the {params.get('key_window')} window did not become key"}
+            wanted, page = params.get("key_window"), world.page()
+            if world.active:
+                world.words.append((wanted, "page" if page else "shell"))
+            # The app's own words for a window that cannot become key: no window of an app that is not active, and
+            # not the shell window while a page has the keys (the app gives them back to the page).
+            if not world.active or (wanted == "shell" and page):
+                return {"error": f"the {wanted} window did not become key"}
+            if wanted == "page" and "page-takes-keys" in world.faults and not page:
+                return {"error": "no Chromium page window for pane"}
             world.sequences += 1
             for name in (CODE[step["key_code"]] for step in params["sequence"] if step["down"]):
                 if name not in M.MODIFIERS:
@@ -330,6 +353,25 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual({row["id"]: (row["status"], row["launch_form"]) for row in report["films"]}, {"T-D": ("made", "activate"), "T-Z": ("made", "activate")})
         self.assertEqual((launches[0].world.one_keys, next(row for row in report["films"] if row["id"] == "T-Z")["zoom"]), (0, "key"))
         self.assertEqual((BOUNDS[0], 15 in BOUNDS), (10, True))  # 10 s for the app after the open; 15 s for the split to settle
+
+    def test_the_key_window_word_of_each_key_sequence_is_the_window_that_has_the_keys(self):
+        # The fake has the app's design here: after a new tab its page has the keys in its own window, and the app
+        # then refuses `shell` (`the shell window did not become key`); it refuses `page` when no page has them.
+        code, report, lines, launches = self.run_films({"open-activates", "page-takes-keys"}, "--films", "T-D,P07")
+        failed = [line for line in lines if " FAILED: " in line]
+        self.assertEqual((code, self.forms(launches), failed), (0, ["activate"], []))
+        words = launches[0].world.words
+        self.assertEqual([word for word, _ in words], [has for _, has in words])
+        # The preflight: a new tab, its close (the page has the keys), a split, the zoom in and out. T-D: Cmd-D.
+        # P07: a held Cmd-T, then the closes (a page has the keys).
+        self.assertEqual([word for word, _ in words], ["shell", "page", "shell", "shell", "shell", "shell", "shell", "page"])
+        self.assertTrue(any(line.startswith("PREFLIGHT close-tab ok: ") and "key_window = page" in line for line in lines))
+        rows = {row["id"]: row for row in report["films"]}
+        self.assertEqual({ident: (row["status"], row["launch_form"]) for ident, row in rows.items()},
+                         {"T-D": ("made", "activate"), "P07": ("made", "activate")})
+        self.assertEqual([act.get("key_window") for act in rows["P07"]["acts"]], ["shell", "page"])
+        self.assertFalse(any("refused_as" in act for row in rows.values() for act in row["acts"]))
+        self.assertEqual(launches[0].world.one_keys, 0)  # no key by the one-key call
 
     def test_an_open_that_does_not_make_the_app_active_goes_on_in_the_one_key_form(self):
         code, report, lines, launches = self.run_films(set(), "--films", "T-D")
