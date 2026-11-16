@@ -763,6 +763,8 @@ fn export(session: &Session) -> Value {
     };
     for (t, bytes) in session.chunks.iter().filter(|(t, _)| *t <= end) {
         while let Some(due) = pacer.due().filter(|due| *due <= at(*t)) {
+            // In time order: the moments before this frame check see the screen without it.
+            note_moments(ms(due), &mut mac, &stream, &mut moments);
             stream.check(&mut mac, ms(due) - start);
             pacer.sent(due);
         }
@@ -772,6 +774,7 @@ fn export(session: &Session) -> Value {
         pacer.wrote(at(*t));
     }
     if let Some(due) = pacer.due() {
+        note_moments(ms(due), &mut mac, &stream, &mut moments);
         stream.check(&mut mac, ms(due) - start);
     }
     note_moments(u64::MAX, &mut mac, &stream, &mut moments);
