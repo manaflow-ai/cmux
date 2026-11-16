@@ -4,6 +4,7 @@ import { Schema } from "@milkdown/kit/prose/model";
 import { EditorState } from "@milkdown/kit/prose/state";
 import { fieldGrowth, growthHoldsTop } from "../src/agent-session/acpmux/composer/fieldGrowth";
 import { FIELD_GROWTH_EVENT, type FieldGrowthEvent } from "../src/agent-session/acpmux/composer/fieldGrowthEvent";
+import { teardownDom } from "./support/domTeardown";
 
 test("one line grows and shrinks in CSS pixels at every composer zoom", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });
@@ -107,9 +108,6 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
       }
     }
   } finally {
-    dom.window.close();
-    for (const [key, had, value] of saved)
-      if (had) scope[key] = value;
-      else delete scope[key];
+    await teardownDom(saved, { window: dom.window, scope });
   }
 });

@@ -120,11 +120,13 @@ public struct Metrics {
     public static var tabHeight: CGFloat {
         let metric = MetricTunables.tabHeight
         let tab = metric.explicitValue ?? (compactTabs ? min(metric.value, chromeRowHeight) : chromeRowHeight)
-        guard DesignSettings.shared.overrides[.tabStripHeight] != nil else { return tab }
+        // A set corner padding derives the strip from this tab, ahead of a strip-height override.
+        guard DesignSettings.shared.paneChrome.cornerPadding == nil,
+              DesignSettings.shared.overrides[.tabStripHeight] != nil else { return tab }
         let strip = MetricTunables.tabStripHeight
         let densityStrip = scale(strip.tunable.resolve(tokens.resolve(compact: strip.compactValue, comfortable: strip.comfortable, token: strip.name)))
         // A set bar height sizes the pill: the density's own pill and room, not the chrome row's.
-        return max((metric.explicitValue ?? metric.value) + tabStripHeight - densityStrip, 0)
+        return max(tab + tabStripHeight - densityStrip, 0)
     }
     public static var controlHeight: CGFloat { MetricTunables.controlHeight.value }
     public static var tabMaxWidth: CGFloat { MetricTunables.tabMaxWidth.value }

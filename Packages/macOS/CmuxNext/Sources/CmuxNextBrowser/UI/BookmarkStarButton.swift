@@ -50,7 +50,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         image.translatesAutoresizingMaskIntoConstraints = false
-        image.imageScaling = .scaleNone
+        image.imageScaling = .scaleProportionallyDown
         addSubview(image)
         NSLayoutConstraint.activate([
             // The trailing icon with 1 pt around it: 20 pt at Standard.
@@ -58,6 +58,8 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.trailingIconSize + 2 },
             image.centerXAnchor.constraint(equalTo: centerXAnchor),
             image.centerYAnchor.constraint(equalTo: centerYAnchor),
+            image.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor),
+            image.heightAnchor.constraint(lessThanOrEqualTo: heightAnchor),
         ])
         setAccessibilityElement(true)
         setAccessibilityRole(.button)

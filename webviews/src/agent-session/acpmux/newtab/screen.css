@@ -152,9 +152,8 @@
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
 /* The column grows with the same zoom as the composer contents. */
 .nt-screen .nt-composer {
-  /* WebKit renders this specified width with two zoom factors. C * t / t / t
-     therefore draws C * t. The portal below starts with an already drawn anchor. */
-  width: min(100%, calc(var(--cmux-composer-column, calc(var(--cv-column, 800px) * var(--cmux-composer-zoom, 1))) / var(--cmux-composer-zoom, 1) / var(--cmux-composer-zoom, 1)));
+  /* The column is a drawn width. Convert it to CSS pixels once; zoom restores its density. */
+  width: min(100%, calc(var(--cmux-composer-column, calc(var(--cv-column, 800px) * var(--cmux-composer-zoom, 1))) / var(--cmux-composer-zoom, 1)));
   align-self: center;
   margin-inline: auto;
 }

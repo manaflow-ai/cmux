@@ -81,7 +81,7 @@ import Testing
         #expect(fills.count == 1, "one fill: \(fills.map { "\($0.bounds.size)" })")
         let fill = try #require(fills.first)
         #expect(fill.frame == chooser.bounds, "the fill is the whole segment")
-        #expect(fill.cornerRadius == NewTabButtonView.splitCornerRadius)
+        #expect(fill.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: min(chooser.bounds.width, chooser.bounds.height)))
         #expect(fill.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner], "only the group's trailing corners round")
         chooser.isHighlighted = false
         #expect(filledLayers(layer).isEmpty, "no fill once the menu closes and the pointer is away")
