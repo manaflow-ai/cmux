@@ -1,0 +1,86 @@
+{
+  "title": "Reader mode (examples/extensions/reader-mode): a news article becomes clean, readable text, and the same command turns it back",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": ["workspace", "new", "--name", "Reading"],
+      "shot": false
+    },
+    {
+      "title": "Show the Reading workspace",
+      "cmux": ["workspace", "name:Reading", "focus"],
+      "shot": false
+    },
+    {
+      "title": "Pack the Reader mode example, then cmux ext dev --once loads it into this cmux",
+      "daemon": true,
+      "cmux": [
+        "workspace", "name:Reading", "screen", "current", "pane", "current", "tab", "current",
+        "terminal", "current", "write", "--text",
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; cd {repo}/examples/extensions/reader-mode && { command -v bun >/dev/null && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts . || { mkdir -p dist && cp test/packed/main.js dist/main.js; }; } && cmux ext dev --once --no-install\r"
+      ],
+      "wait": 8
+    },
+    {
+      "title": "Install it: the install card asks for browser:execute",
+      "cmux": ["action", "run", "app.install", "--no-wait", "--app", "local/reader-mode"],
+      "wait": 3
+    },
+    {
+      "title": "Accept the consent card",
+      "rpc": { "method": "debug.dialog", "params": { "press": "confirm" } },
+      "wait": 3
+    },
+    {
+      "title": "Its page in Extensions: a local extension starts with read scopes only, so browser:execute is off",
+      "cmux": ["action", "run", "appStore.show", "--app", "local/reader-mode", "--tab", "installed"],
+      "wait": 2
+    },
+    {
+      "title": "Its permissions drawn",
+      "rpc": { "method": "debug.page", "params": { "page": "cmux.apps", "action": "wait", "selector": ".apps-grants .apps-grant:nth-child(2) button[role=switch]", "timeout_ms": 20000 } },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Allow browser:execute",
+      "rpc": { "method": "debug.page", "params": { "page": "cmux.apps", "action": "click", "selector": ".apps-grants .apps-grant:nth-child(2) button[role=switch]" } },
+      "wait": 2
+    },
+    {
+      "title": "Confirm the grant",
+      "rpc": { "method": "debug.dialog", "params": { "press": "confirm" } },
+      "wait": 3
+    },
+    {
+      "title": "A news article in a browser tab",
+      "cmux": ["tab", "create", "browser", "--url", "https://www.bbc.co.uk/news/articles/cmdx1vpprk9vo", "--name", "News", "--workspace", "name:Reading"],
+      "wait": 8
+    },
+    {
+      "title": "Show the article tab",
+      "cmux": ["workspace", "name:Reading", "screen", "current", "pane", "current", "tab", "name:News", "focus"],
+      "wait": 8
+    },
+    {
+      "title": "Shift+R on the page: the article as clean text",
+      "rpc": { "method": "debug.key", "params": { "key": "r", "modifiers": ["shift"], "target": "page" } },
+      "wait": 6
+    },
+    {
+      "title": "Space scrolls the story: text and images inline, no ads, menus or popups",
+      "rpc": { "method": "debug.key", "params": { "key": "space", "target": "page" } },
+      "wait": 3
+    },
+    {
+      "title": "Shift+R again: the page is back as it was",
+      "rpc": { "method": "debug.key", "params": { "key": "r", "modifiers": ["shift"], "target": "page" } },
+      "wait": 4
+    }
+  ]
+}

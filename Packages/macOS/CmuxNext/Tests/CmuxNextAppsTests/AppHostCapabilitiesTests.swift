@@ -12,6 +12,19 @@ struct AppHostCapabilitiesTests {
         #expect(await owner.calls == 1)
     }
 
+    /// `browser.page` has a dot in it: `browser.page.eval` is its op, as the daemon routes it.
+    /// Matched on the first dot only, the channel dropped every page call and the extension
+    /// waited for the daemon's 30 s deadline.
+    @Test func aFamilyWithADotOwnsItsOps() async throws {
+        let page = DottedOwner()
+        let router = AppHostCapabilities([Owner(), page])
+        #expect(router.handles("browser.page.eval"))
+        #expect(!router.handles("browser.navigate"))
+        #expect(!router.handles("browser.pages.eval"))
+        let reply = try await router.handle(.init(app: "local/reader-mode", op: "browser.page.eval", params: [:], origin: "user"))
+        #expect(reply == .string("browser.page.eval"))
+    }
+
     @Test func anUnownedFamilyNeverReachesAnOwner() async throws {
         let owner = Owner()
         let router = AppHostCapabilities([owner])
@@ -54,5 +67,11 @@ struct AppHostCapabilitiesTests {
             }
             return ["app": .string(request.app), "op": .string(request.op), "origin": .string(request.origin), "params": request.params]
         }
+    }
+
+    private struct DottedOwner: AppHostCapabilityHandler {
+        let families: Set<String> = ["browser.page"]
+
+        func handle(_ request: AppHostCapabilityRequest) async throws(AppHostCapabilityError) -> AppJSON { .string(request.op) }
     }
 }

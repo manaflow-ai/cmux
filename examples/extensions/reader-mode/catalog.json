@@ -1,0 +1,30 @@
+{
+  "family": "local.reader_mode",
+  "operations": [
+    {
+      "name": "local.reader_mode.toggle",
+      "owner": "app:local/reader-mode",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "docs": "Shows the focused browser tab's article as clean, readable text, or goes back to the page when reader mode is on.",
+      "since": "1.0.0",
+      "export": "toggle",
+      "input": { "type": "object", "additionalProperties": false, "properties": { "tab": { "type": "string", "description": "The browser tab (a tab_ id); the focused one when absent." } } },
+      "output": {
+        "type": "object",
+        "properties": {
+          "reader": { "type": "boolean" },
+          "reason": { "type": "string" },
+          "title": { "type": "string" },
+          "words": { "type": "integer" },
+          "minutes": { "type": "integer" }
+        }
+      },
+      "cli": { "path": "toggle" },
+      "mcp": { "expose": "default" },
+      "palette": { "title": "Reader Mode: Toggle" },
+      "keyboard": [{ "key": "shift+r", "when": "browserFocused" }]
+    }
+  ]
+}
