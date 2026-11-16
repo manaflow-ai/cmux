@@ -172,7 +172,7 @@ const CLI_ALIAS: &str = "acpmux";
 pub fn own_bin() -> Option<std::path::PathBuf> {
     let exe = crate::self_command::undeleted(std::env::current_exe().ok()?);
     let same = |alias: &std::path::Path| same_file(&exe, alias);
-    match bin_choice(&exe, &crate::daemon::daemon_prefix(), same)? {
+    match bin_choice(&exe, &crate::daemon_parts::daemon_prefix(), same)? {
         BinChoice::Exe(path) | BinChoice::Alias(path) => Some(path),
         BinChoice::Wrapper(script) => {
             let path = wrapper_path(&crate::config::home());
