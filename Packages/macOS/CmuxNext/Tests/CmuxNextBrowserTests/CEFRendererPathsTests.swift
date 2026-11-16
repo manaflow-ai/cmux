@@ -103,6 +103,31 @@ import Testing
         #expect(!tab.sendClick(x: 1, y: 1))
     }
 
+    /// Both transports must accept an async page reply after the ordinary evaluation's 5 s
+    /// deadline. This delay crosses that boundary deliberately; it is not a settling sleep.
+    @Test(arguments: [Int32(24), 29]) func anAsyncEvaluationOutlivesTheOrdinaryTransportDeadline(forkAPI: Int32) async throws {
+        let rig = try Rig(forkAPI: forkAPI)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.addScriptToEvaluateOnNewDocument") || forkAPI == 29 }
+        await rig.settle()
+        Spy.evaluations = []
+        Spy.devToolsSent = []
+        let evaluation = Task { try await tab.evaluateAsync("return Promise.resolve(42);") }
+        await rig.until { !Spy.evaluations.isEmpty || Spy.devToolsCalls.contains("Runtime.evaluate") }
+        let token = Spy.evaluations.last?.token
+        let message = Spy.evaluationMessages.last
+        try #require(forkAPI == 29 ? token != nil : Spy.devToolsCalls.contains("Runtime.evaluate"))
+        try await Task.sleep(for: .seconds(6))
+        if let token {
+            rig.runtime.handle(.evaluateResult(token: token, status: 1, value: "42"))
+        } else if let message {
+            rig.runtime.handle(.devToolsResult(browser: 7, messageID: message, success: true,
+                json: #"{"result":{"type":"number","value":42}}"#))
+        }
+        #expect(try await evaluation.value == .number(42))
+    }
+
     @Test func aRendererInstallsEveryDocumentScriptOnceForEveryBrowser() throws {
         Spy.reset(forkAPI: 29)
         let refused = CEFDocumentScripts(post: .pageChannel).installInRenderer(try Spy.library())
@@ -313,6 +338,8 @@ private nonisolated enum Spy {
     nonisolated(unsafe) static var scripts: [Script] = []
     nonisolated(unsafe) static var nextMessage: Int32 = 1
     nonisolated(unsafe) static var unanswered: [Int32] = []
+    // Accessed by the same serialized MainActor suite and its synchronous spy shim as unanswered.
+    nonisolated(unsafe) static var evaluationMessages: [Int32] = []
     /// False: the shim predates fork API 29 and has none of its exports.
     nonisolated(unsafe) static var exportsRendererPaths = true
     static let rendererPathSymbols: Set<String> = ["cmux_shim_add_document_script", "cmux_shim_add_page_channel", "cmux_shim_tab_evaluate",
@@ -330,6 +357,7 @@ private nonisolated enum Spy {
         scripts = []
         nextMessage = 1
         unanswered = []
+        evaluationMessages = []
         exportsRendererPaths = true
     }
 
@@ -339,6 +367,7 @@ private nonisolated enum Spy {
         let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { browser, method, _ in
             Spy.devToolsSent.append((method.map { String(cString: $0) } ?? "", browser))
             Spy.nextMessage += 1
+            if method.map({ String(cString: $0) }) == "Runtime.evaluate" { Spy.evaluationMessages.append(Spy.nextMessage) }
             Spy.unanswered.append(Spy.nextMessage)
             return Spy.nextMessage
         }

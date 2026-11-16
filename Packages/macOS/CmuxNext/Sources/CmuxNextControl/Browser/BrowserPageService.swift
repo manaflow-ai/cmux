@@ -80,7 +80,7 @@ public struct BrowserPageService: Sendable {
                 let value: JSONValue
                 do {
                     // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
-                    value = try await Self.run(engine, .evaluate(BrowserPageScripts.jsonSafe(script)), tab)
+                    value = try await Self.run(engine, .evaluateAsync("return \(BrowserPageScripts.jsonSafe(script));"), tab)
                 } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
                     // The wrapper reports what the script throws, so this is a
                     // parse failure: nothing ran. Statements, not an expression.
@@ -92,7 +92,7 @@ public struct BrowserPageService: Sendable {
                 var result: [String: JSONValue] = Self.base(tab)
                 result["value"] = value["value"] ?? .null
                 return .object(result)
-            },
+            }.withDeadline(.fixed(.seconds(30))),
             .async("browser.page.snapshot") { call in
                 let tab = try Self.tab(call)
                 let params = call.request.params

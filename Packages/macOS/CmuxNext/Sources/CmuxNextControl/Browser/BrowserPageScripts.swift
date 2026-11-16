@@ -60,7 +60,7 @@ enum BrowserPageScripts {
             + "if (typeof v.toJSON === 'function') return v.toJSON(); try { return JSON.parse(JSON.stringify(v)); } catch (e) { return String(v); } }; "
             + "try { const v = (\n\(script)\n); if (v === null || typeof v !== 'object' || typeof v.then !== 'function') return safe(v); "
             + "let timer; const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('the promise did not settle in \(promiseTimeoutMs / 1000) s')), \(promiseTimeoutMs)); }); "
-            + "return Promise.race([v, late]).then(safe, fail).finally(() => clearTimeout(timer)); } "
+            + "return Promise.race([v, late]).then(safe).catch(fail).finally(() => clearTimeout(timer)); } "
             + "catch (e) { return fail(e); } })()"
     }
 

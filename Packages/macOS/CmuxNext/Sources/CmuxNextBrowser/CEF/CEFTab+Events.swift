@@ -208,6 +208,17 @@ extension CEFTab {
     // MARK: Scripts
 
     public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
+        try await evaluate(script, world: world, gesture: gesture, timeout: CEFRuntime.evaluateTimeout)
+    }
+
+    /// The page-eval wrapper settles its promise within 20 s. Leave time for its reply before the
+    /// app provider's 30 s deadline; ordinary evaluations keep their shorter transport deadline.
+    public func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
+        try await evaluate("(async () => {\n\(body)\n})()", world: .page, gesture: .agent, timeout: .seconds(25))
+    }
+
+    private func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture,
+                          timeout: Duration) async throws -> BrowserJSValue {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
         // `runtime` is `unowned`, so it is read once here, while it is known alive, and held for the
         // calls below: an isolated-world evaluate is four round trips, and re-reading it after one
@@ -216,7 +227,7 @@ extension CEFTab {
         // No DevTools session for the tab's own scripts (fork API 29): its renderer stays shareable.
         if runtime.forkFeatures.rendererPaths {
             let result = try await runtime.evaluate(browserID, world: world == .isolated ? "cmux" : "", script: script,
-                                                    userGesture: gesture == .agent)
+                                                    userGesture: gesture == .agent, timeout: timeout)
             return try await result.value()
         }
         var params: [String: any Sendable] = ["expression": script, "returnByValue": true, "awaitPromise": true]
@@ -236,7 +247,7 @@ extension CEFTab {
             params["contextId"] = context
         }
         // An agent's script and its value can be megabytes: encoded and parsed off the main actor.
-        let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", payload: params)
+        let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", payload: params, timeout: timeout)
         return try await CEFDevToolsResult.parsedEvaluation(json)
     }
 
