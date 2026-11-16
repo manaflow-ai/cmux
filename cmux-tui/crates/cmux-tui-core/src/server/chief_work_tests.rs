@@ -220,7 +220,7 @@ fn chief_work_finds_the_same_chats_through_the_v2_list_but_a_closed_root() {
         };
         let under = |mut meta: acpmux::store::SessionMeta, parent: &str| {
             meta.subsession = serde_json::from_value(
-                json!({"startedBy": parent, "shortName": meta.id.clone(), "depth": 1}),
+                json!({"startedBy": parent, "shortName": &meta.id, "depth": 1}),
             )
             .ok();
             meta

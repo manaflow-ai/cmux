@@ -294,6 +294,10 @@ fn tagged(home: &str, tag: &str, tags: Option<&Value>) -> Tagged {
     }
 }
 
+/// The Chief's chats: their rows as `_acpmux/sessions` writes them (newest first), the ids it
+/// owns, and those of them that are subagents.
+type ChiefChats = (Vec<Value>, HashSet<String>, HashSet<String>);
+
 /// The Chief's chats as v1's [`family`] finds them, through the v2 list: `(rows, owned,
 /// children)`, the rows as `_acpmux/sessions` writes them (by id), newest first.
 ///
@@ -312,7 +316,7 @@ fn chief_kin(
     socket: &Path,
     link: &AcpmuxLink,
     deadline: Instant,
-) -> Result<Option<(Vec<Value>, HashSet<String>, HashSet<String>)>, Failure> {
+) -> Result<Option<ChiefChats>, Failure> {
     use super::agent_session_attach::agent_session_link::list_source::{
         self, INFO_ROWS, Opened, bounded_away, extras, rows_by_id,
     };
