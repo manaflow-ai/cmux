@@ -65,10 +65,7 @@ export default componentEntry<Props>({
   title: "Finish moments",
   area: "Agent pane",
   height: 180,
-  covers: [
-    "agent-session/acpmux/finish/finishMoments.ts",
-    "agent-session/acpmux/finish/FinishBurst.tsx#FinishBurst",
-  ],
+  covers: ["agent-session/acpmux/finish/finishMoments.ts", "agent-session/acpmux/finish/FinishBurst.tsx#FinishBurst"],
   load: async () => FinishMomentsGallery,
   styles: () =>
     Promise.all([

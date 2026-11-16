@@ -1804,9 +1804,11 @@ function shapeTurn(
   // the harness has said which message answers. Lucas, 2026-11-14, on ten build updates drawn
   // under a closed Worked for over a two-sentence answer: "why did it yap so much in the response?
   // shouldnt that stuff have been in the Worked for".
-  const markedAnswer = lastFinalAnswer(body) !== undefined;
-  const foldsUnderAnswer = (id: string) =>
-    markedAnswer && body.some((row) => row.id === id && row.assistantPhase === "commentary");
+  const commentary =
+    lastFinalAnswer(body) === undefined
+      ? undefined
+      : new Set(body.filter((row) => row.assistantPhase === "commentary").map((row) => row.id));
+  const foldsUnderAnswer = (id: string) => commentary?.has(id) ?? false;
   const keptOut: ReadonlySet<string> =
     repliesArm === "answer"
       ? new Set([...[...replies].filter((id) => !foldsUnderAnswer(id)), ...(cutOff ? [cutOff.reply.id] : [])])

@@ -143,6 +143,10 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           <OpenBook />
         </span>
         <span className="cv-command__text">{called}</span>
+        <span className="cv-command__meta">
+          <ReactionMark reaction={tool.reaction} />
+          {tool.approved && <ApprovedMark />}
+        </span>
       </div>
     );
   return (

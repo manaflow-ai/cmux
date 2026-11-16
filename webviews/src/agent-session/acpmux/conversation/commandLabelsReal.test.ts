@@ -137,7 +137,10 @@ const CASES: [command: string, label: string][] = [
     `Ran for f in /tmp/sidebar-first.log /tmp/sidebar-core.log; do echo "--- $f"; wc -c "$f"; tail -100 "$f"; done`,
   ],
   // `cd X && …`, env prefixes and plumbing steps around the work.
-  ["cd ~/Projects/checkouts/cmux/x && git status | head -5; git log --oneline -1; ls", "Ran git status | head -5; git log --oneline -1; ls"],
+  [
+    "cd ~/Projects/checkouts/cmux/x && git status | head -5; git log --oneline -1; ls",
+    "Ran git status | head -5; git log --oneline -1; ls",
+  ],
   [
     "CMUX_BROWSER_TESTS=1 bun test test/live-line-lead-tone-browser.test.ts 2>&1 | tail -20",
     "Ran tests in live-line-lead-tone-browser.test.ts",
@@ -145,7 +148,10 @@ const CASES: [command: string, label: string][] = [
   ["M=~/mirrors/cmux.git; git -C $M log --format='%h %cr %s' -2 origin/main 2>/dev/null", "Read git history"],
   [`echo "head: $(git rev-parse HEAD)"; git log --oneline -3`, "Read git history"],
   ["pwd && git status --short", "Checked git status"],
-  ["git diff --check && git diff --stat && git commit --amend --no-edit && git rev-parse HEAD", "Ran git diff --check && git diff --stat && git commit --amend --no-edit && git rev-parse HEAD"],
+  [
+    "git diff --check && git diff --stat && git commit --amend --no-edit && git rev-parse HEAD",
+    "Ran git diff --check && git diff --stat && git commit --amend --no-edit && git rev-parse HEAD",
+  ],
   [
     "git status --short --branch && git fetch origin feat-cmux-next && git rev-parse origin/feat-cmux-next",
     "Ran git status --short --branch && git fetch origin feat-cmux-next && git rev-parse origin/feat-cmux-next",
@@ -164,7 +170,10 @@ const CASES: [command: string, label: string][] = [
   ],
   ["ls -l $(which pr-owner 2>/dev/null) 2>/dev/null", "Ran ls -l $(which pr-owner 2>/dev/null)"],
   ["ps -eo pid,ppid,args | rg 'git (fetch|gc)'", "Ran ps -eo pid,ppid,args | rg 'git (fetch|gc)'"],
-  [`which convert magick ffmpeg; python3 -c "import numpy" 2>&1`, `Ran which convert magick ffmpeg; python3 -c "import numpy" 2>&1`],
+  [
+    `which convert magick ffmpeg; python3 -c "import numpy" 2>&1`,
+    `Ran which convert magick ffmpeg; python3 -c "import numpy" 2>&1`,
+  ],
   // An assignment that runs something destructive is the step it names.
   ["X=$(rm -rf build); ls", "Ran X=$(rm -rf build); ls"],
 ];

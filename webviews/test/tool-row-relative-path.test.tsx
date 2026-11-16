@@ -66,3 +66,23 @@ test("a Read row names its file by its name, with its full path as the title", a
   const titles = [...host.querySelectorAll(".cv-tool__file")].map((node) => node.getAttribute("title"));
   expect(titles).toEqual(["/Users/you/src/app/docs/guide.md", "/Users/you/notes.md"]);
 });
+
+test("a failed read or a read of several files is no flat read row, so its row still opens", async () => {
+  const { readPath } = await import("../src/agent-session/acpmux/conversation/readPath");
+  const read = (status: string, paths: string[]) =>
+    ({ id: "r", kind: "read", title: "Read File", status, locations: paths.map((path) => ({ path })) }) as never;
+  expect(readPath(read("completed", ["/a/guide.md"]))).toBe("/a/guide.md");
+  expect(readPath(read("failed", ["/a/guide.md"]))).toBeUndefined();
+  expect(readPath(read("completed", ["/a/guide.md", "/a/notes.md"]))).toBeUndefined();
+});
+
+test("a piped read stays a command, and a read after any cd keeps its path as written", async () => {
+  const { readPath, readFullPath } = await import("../src/agent-session/acpmux/conversation/readPath");
+  const shell = (command: string) =>
+    ({ id: "s", kind: "execute", title: command, command, status: "completed", exitCode: 0 }) as never;
+  expect(readPath(shell("cat build.log | grep error"))).toBeUndefined();
+  expect(readPath(shell("cat foo.ts"))).toBe("foo.ts");
+  expect(readFullPath("foo.ts", shell("cat foo.ts"), "/repo")).toBe("/repo/foo.ts");
+  for (const command of ["cd .. && cat foo.ts", "cd $D && cat foo.ts", "cd /tmp; cat foo.ts"])
+    expect(readFullPath("foo.ts", shell(command), "/repo")).toBe("foo.ts");
+});

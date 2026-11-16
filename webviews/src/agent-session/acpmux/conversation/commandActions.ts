@@ -193,7 +193,7 @@ function assigned(step: string, vars: Map<string, string[]>) {
 function wholeLine(command: string): string {
   const [first = "", ...rest] = commandFolder(command).rest.trim().split("\n");
   // A heredoc's marker starts text that is not the command (`python3 - <<'PY'`): the line ends there.
-  const marker = first.search(/<<-?\s*['"]?[A-Za-z_]+/);
+  const marker = first.search(/(?<!<)<<-?(?!<)\s*['"]?[A-Za-z_]+/);
   const line = (marker >= 0 ? first.slice(0, marker) : first).replace(/\s+/g, " ").trim();
   return marker >= 0 || rest.some((part) => part.trim()) ? `${line}…` : line;
 }

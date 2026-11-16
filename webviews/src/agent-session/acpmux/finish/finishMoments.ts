@@ -125,7 +125,6 @@ const subscribe = (listener: () => void) => {
   return () => void listeners.delete(listener);
 };
 
-
 /// The `ci` or `merged` moment pull request `url` shows now.
 export function usePullRequestFinish(url: string): FinishKind | undefined {
   const read = () => (current && current.kind !== "turn" && current.url === url ? current.kind : undefined);

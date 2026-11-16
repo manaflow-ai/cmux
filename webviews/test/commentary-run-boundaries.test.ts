@@ -67,8 +67,8 @@ for (const family of ["codex", "claude", "gemini", "muse", undefined])
         const folded = turnViewFrom([...concluding, summary], closed, { ...options, working: false });
         expect(
           folded.rows.filter((row) => row.kind === "activity" || row.kind === "assistant").map((row) => row.id),
-        // Marked commentary folds with the work beside a marked final answer, however long, as the
-        // Codex app folds it (2026-11-14); unmarked prose keeps the length rule.
+          // Marked commentary folds with the work beside a marked final answer, however long, as the
+          // Codex app folds it (2026-11-14); unmarked prose keeps the length rule.
         ).toEqual(phase === "commentary" ? ["final"] : [...visible]);
         const reopened = toggleTurnFold([...concluding, summary], closed, foldId);
         expectSeparate(turnViewFrom([...concluding, summary], reopened, { ...options, working: false }).rows, text);

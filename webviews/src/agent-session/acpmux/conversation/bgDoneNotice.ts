@@ -7,7 +7,7 @@
 // turn, not move and stay sticky"; "not sure this makes much sense ... outside of the main turn").
 import { translate } from "../i18n";
 
-export type BgDone = { promptId: string; description: string; exit?: number };
+export type BgDone = { promptId: string; description: string; failed: boolean; exit?: number };
 
 const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 
@@ -19,22 +19,30 @@ export function bgDoneNotice(msg: Record<string, unknown> | undefined): BgDone |
   const provenance = meta?.provenance;
   const taskId = text(provenance?.bgTaskId);
   if (!provenance || !taskId || provenance.kind !== "notice") return undefined;
-  const title = text((provenance.notice as { title?: unknown } | undefined)?.title) ?? "";
+  const notice = provenance.notice as { title?: unknown; severity?: unknown } | undefined;
+  const title = text(notice?.title) ?? "";
   const exit = /\(exit (-?\d+)\)\s*$/.exec(title)?.[1];
+  // acpmux marks every end that did not go well `warn` (bg_notify.rs): a nonzero exit, and a task
+  // stopped, killed or lost, which has no exit code.
+  const failed = notice?.severity === "warn" || (exit !== undefined && Number(exit) !== 0);
   return {
     promptId,
     description: text(provenance.bgTaskDescription) ?? taskId,
+    failed,
     ...(exit !== undefined && { exit: Number(exit) }),
   };
 }
 
 /// The `background_turn` started record a background finish stands for: a result names its task, a
-/// nonzero exit is a failure with its code.
+/// failure says so, with its exit code when it has one.
 export function bgDoneStarted(done: BgDone): Record<string, unknown> {
-  const failed = done.exit !== undefined && done.exit !== 0;
-  const summary = failed
-    ? `${translate("bgTask.failed", { command: done.description })} · ${translate("tools.exit", { code: done.exit! })}`
-    : translate("bgTask.completed", { command: done.description });
+  const failed = done.failed;
+  const exit = failed && done.exit !== undefined && done.exit !== 0 ? done.exit : undefined;
+  const summary = !failed
+    ? translate("bgTask.completed", { command: done.description })
+    : exit === undefined
+      ? translate("bgTask.failed", { command: done.description })
+      : `${translate("bgTask.failed", { command: done.description })} · ${translate("tools.exit", { code: exit })}`;
   return {
     id: done.promptId,
     state: "started",

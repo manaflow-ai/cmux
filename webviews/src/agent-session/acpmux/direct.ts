@@ -1176,115 +1176,119 @@ export function mergeQueue(
   edited?: ReadonlySet<string>,
 ): QueuedPrompt[] {
   const known = new Map(current.map((entry) => [entry.id, entry]));
-  const merged = listed.map((entry) => {
-    const id = String(entry?.promptId ?? "");
-    const preview = String(entry?.prompt ?? entry?.preview ?? "");
-    const had = known.get(id);
-    // A held prompt keeps its record's content whatever the list's preview says (THE RULE, Hold).
-    const heldRecord = had?.awaitingOwner === true && had.revision !== undefined && entry?.awaitingOwner !== false;
-    const whole = had !== undefined && (heldRecord || oneLine(had.prompt).startsWith(preview.replace(/…$/, "")));
-    // acpmux lists its images (after a reload or a restart too); one that lists none (an older
-    // acpmux) keeps those the pane had.
-    const listedImages = Array.isArray(entry?.images)
-      ? withKnownBytes(promptImages(entry.images), had?.images)
-      : had?.images;
-    // The `queued` record the pane read names the sender, while its text is still the one listed
-    // (an edit the pane missed makes it the person's, as acpmux does). The list's `fromAgent`
-    // says so too: null is the person's (an edit past the preview's cut leaves its head the
-    // same), and a name is an agent's, also for a row the pane never read the record of (a
-    // reload). An older acpmux lists none.
-    const listed = entry?.fromAgent;
-    // Keep the complete queue record here: when `fromAgent` is absent, the
-    // sender lives in `_meta.provenance` and `queuedMessage` must see it.
-    // Override only the text with acpmux's current preview; a stale full
-    // prompt would make the provenance branch look like an edit.
-    // An agent's message the person edited, or a prompt acpmux could not attribute, lists null
-    // but its provenance (acpmux `QueuedPromptSummary.provenance`): its card names that sender.
-    const listedProvenance =
-      entry?.provenance && typeof entry.provenance === "object" ? (entry.provenance as unknown) : undefined;
-    const listedMessage = queuedMessage(
-      {
-        ...entry,
-        text: preview,
-        fromAgent: listed,
-        fromHarness: entry?.fromHarness,
-        ...(listedProvenance ? { _meta: { ...entry?._meta, provenance: listedProvenance } } : {}),
-      },
-      undefined,
-      true,
-    );
-    const kept = whole ? had.message : undefined;
-    // A queue listing may carry the full provenance even when its compatibility `fromAgent`
-    // field is absent. Preserve that parsed agent message; only an explicit null says that the
-    // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
-    // user prompt until it left the queue, so its received card (and reply actions) disappeared.
-    const message = listed === null ? (listedProvenance ? listedMessage : undefined) : (kept ?? listedMessage);
-    // acpmux's inbox notice: the threads acpmux lists (`inboxNotice`, its provenance), else those its
-    // `queued` record named while the text is the same. An edit makes it the person's (hub/queue.rs
-    // drops the provenance), so it keeps none. A notice whose record the pane never read (a chat
-    // reopened on a recent page) drew as the person's queued prompt under "Paused after an error"
-    // (Leo, 2026-11-05: "Why is the thing still queued? ... don't show these kinds of things").
-    // One that names no thread, or from an acpmux that lists none (its `[inbox]` text from acpmux),
-    // is still no prompt of the person's: no thread to draw, and no queue row.
-    const listedInbox =
-      entry?.inboxNotice && typeof entry.inboxNotice === "object"
-        ? (queuedInbox({ text: preview, _meta: { provenance: entry.inboxNotice } }) ?? { threads: [] })
-        : !("inboxNotice" in (entry ?? {})) && entry?.client === "acpmux" && preview.startsWith("[inbox] ")
-          ? (had?.inbox ?? { threads: [] })
-          : undefined;
-    const inbox =
-      message || edited?.has(id)
-        ? undefined
-        : (listedInbox ?? (whole && !("inboxNotice" in (entry ?? {})) ? had.inbox : undefined));
-    // A list that names the field says whose it is, null the owner's (acpmux lists it for every
-    // prompt once it serves authors); an older acpmux lists none, and the records read decide.
-    const hold = listedHold(entry, had);
-    // Text, images and parts of a held prompt are its record's, together (never a list's images
-    // under a record's text).
-    const heldKeepsRecord = heldRecord && hold.awaitingOwner === true;
-    const author =
-      entry && typeof entry === "object" && "author" in entry
-        ? queuedAuthor(entry.author)
-        : authors?.has(id)
-          ? (authors.get(id) ?? undefined)
-          : had?.author;
-    const built = queuedEntry(
-      id,
-      whole ? had.prompt : preview,
-      had?.next === true,
-      false,
-      // A held prompt's images are its text's: the record the pane holds while it keeps that text.
-      heldKeepsRecord ? had?.images : listedImages,
-      message,
-      author,
-      heldKeepsRecord ? had?.inlineParts : (recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts),
-      // A resume comes from acpmux's word only: the listing's `subagentRetry` (from the prompt's
-      // `subagent_retry` provenance, which an edit drops), else, from an acpmux that lists none,
-      // the one its `queued` record gave while the text is the same (the preview that text or cut
-      // from it). An edit, seen or missed, drops it; a null listing removes it.
-      message || inbox || author || edited?.has(id)
-        ? undefined
-        : "subagentRetry" in (entry ?? {})
-          ? withRecovered(listedRetry(entry.subagentRetry), had?.retry)
-          : whole && (preview.endsWith("…") || oneLine(had.prompt) === preview)
-            ? had.retry
-            : undefined,
-      // A guest's prompt that waits for the owner (acpmux lists `awaitingOwner`; an older one, none).
-      hold,
-      inbox,
-    );
-    // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
-    // let go. A list without the field (an older acpmux) keeps what the records said.
-    const next =
-      entry?.heldByStop === true && entry?.held !== false
-        ? { ...built, heldByStop: true as const }
-        : entry?.held === false || entry?.heldByStop === false
-          ? built
-          : keepStopHold(built, had);
-    // An entry the list left as it was stays the same object: the transcript keys a waiting message's
-    // card by its entry (queuedMessages.ts), so an unchanged one draws nothing again.
-    return had && sameQueuedEntry(had, next) ? had : next;
-  });
+  // A background finish waiting for its turn is never a queued card (bgDoneNotice.ts), whichever
+  // listing brings it back (an attach, a reload, a session change).
+  const merged = listed
+    .filter((entry) => !String(entry?.promptId ?? "").startsWith("bg-done-"))
+    .map((entry) => {
+      const id = String(entry?.promptId ?? "");
+      const preview = String(entry?.prompt ?? entry?.preview ?? "");
+      const had = known.get(id);
+      // A held prompt keeps its record's content whatever the list's preview says (THE RULE, Hold).
+      const heldRecord = had?.awaitingOwner === true && had.revision !== undefined && entry?.awaitingOwner !== false;
+      const whole = had !== undefined && (heldRecord || oneLine(had.prompt).startsWith(preview.replace(/…$/, "")));
+      // acpmux lists its images (after a reload or a restart too); one that lists none (an older
+      // acpmux) keeps those the pane had.
+      const listedImages = Array.isArray(entry?.images)
+        ? withKnownBytes(promptImages(entry.images), had?.images)
+        : had?.images;
+      // The `queued` record the pane read names the sender, while its text is still the one listed
+      // (an edit the pane missed makes it the person's, as acpmux does). The list's `fromAgent`
+      // says so too: null is the person's (an edit past the preview's cut leaves its head the
+      // same), and a name is an agent's, also for a row the pane never read the record of (a
+      // reload). An older acpmux lists none.
+      const listed = entry?.fromAgent;
+      // Keep the complete queue record here: when `fromAgent` is absent, the
+      // sender lives in `_meta.provenance` and `queuedMessage` must see it.
+      // Override only the text with acpmux's current preview; a stale full
+      // prompt would make the provenance branch look like an edit.
+      // An agent's message the person edited, or a prompt acpmux could not attribute, lists null
+      // but its provenance (acpmux `QueuedPromptSummary.provenance`): its card names that sender.
+      const listedProvenance =
+        entry?.provenance && typeof entry.provenance === "object" ? (entry.provenance as unknown) : undefined;
+      const listedMessage = queuedMessage(
+        {
+          ...entry,
+          text: preview,
+          fromAgent: listed,
+          fromHarness: entry?.fromHarness,
+          ...(listedProvenance ? { _meta: { ...entry?._meta, provenance: listedProvenance } } : {}),
+        },
+        undefined,
+        true,
+      );
+      const kept = whole ? had.message : undefined;
+      // A queue listing may carry the full provenance even when its compatibility `fromAgent`
+      // field is absent. Preserve that parsed agent message; only an explicit null says that the
+      // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
+      // user prompt until it left the queue, so its received card (and reply actions) disappeared.
+      const message = listed === null ? (listedProvenance ? listedMessage : undefined) : (kept ?? listedMessage);
+      // acpmux's inbox notice: the threads acpmux lists (`inboxNotice`, its provenance), else those its
+      // `queued` record named while the text is the same. An edit makes it the person's (hub/queue.rs
+      // drops the provenance), so it keeps none. A notice whose record the pane never read (a chat
+      // reopened on a recent page) drew as the person's queued prompt under "Paused after an error"
+      // (Leo, 2026-11-05: "Why is the thing still queued? ... don't show these kinds of things").
+      // One that names no thread, or from an acpmux that lists none (its `[inbox]` text from acpmux),
+      // is still no prompt of the person's: no thread to draw, and no queue row.
+      const listedInbox =
+        entry?.inboxNotice && typeof entry.inboxNotice === "object"
+          ? (queuedInbox({ text: preview, _meta: { provenance: entry.inboxNotice } }) ?? { threads: [] })
+          : !("inboxNotice" in (entry ?? {})) && entry?.client === "acpmux" && preview.startsWith("[inbox] ")
+            ? (had?.inbox ?? { threads: [] })
+            : undefined;
+      const inbox =
+        message || edited?.has(id)
+          ? undefined
+          : (listedInbox ?? (whole && !("inboxNotice" in (entry ?? {})) ? had.inbox : undefined));
+      // A list that names the field says whose it is, null the owner's (acpmux lists it for every
+      // prompt once it serves authors); an older acpmux lists none, and the records read decide.
+      const hold = listedHold(entry, had);
+      // Text, images and parts of a held prompt are its record's, together (never a list's images
+      // under a record's text).
+      const heldKeepsRecord = heldRecord && hold.awaitingOwner === true;
+      const author =
+        entry && typeof entry === "object" && "author" in entry
+          ? queuedAuthor(entry.author)
+          : authors?.has(id)
+            ? (authors.get(id) ?? undefined)
+            : had?.author;
+      const built = queuedEntry(
+        id,
+        whole ? had.prompt : preview,
+        had?.next === true,
+        false,
+        // A held prompt's images are its text's: the record the pane holds while it keeps that text.
+        heldKeepsRecord ? had?.images : listedImages,
+        message,
+        author,
+        heldKeepsRecord ? had?.inlineParts : (recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts),
+        // A resume comes from acpmux's word only: the listing's `subagentRetry` (from the prompt's
+        // `subagent_retry` provenance, which an edit drops), else, from an acpmux that lists none,
+        // the one its `queued` record gave while the text is the same (the preview that text or cut
+        // from it). An edit, seen or missed, drops it; a null listing removes it.
+        message || inbox || author || edited?.has(id)
+          ? undefined
+          : "subagentRetry" in (entry ?? {})
+            ? withRecovered(listedRetry(entry.subagentRetry), had?.retry)
+            : whole && (preview.endsWith("…") || oneLine(had.prompt) === preview)
+              ? had.retry
+              : undefined,
+        // A guest's prompt that waits for the owner (acpmux lists `awaitingOwner`; an older one, none).
+        hold,
+        inbox,
+      );
+      // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
+      // let go. A list without the field (an older acpmux) keeps what the records said.
+      const next =
+        entry?.heldByStop === true && entry?.held !== false
+          ? { ...built, heldByStop: true as const }
+          : entry?.held === false || entry?.heldByStop === false
+            ? built
+            : keepStopHold(built, had);
+      // An entry the list left as it was stays the same object: the transcript keys a waiting message's
+      // card by its entry (queuedMessages.ts), so an unchanged one draws nothing again.
+      return had && sameQueuedEntry(had, next) ? had : next;
+    });
   // The chat's own change carries its whole queue each time (a step, its usage): the same entries
   // give the same list back, so nothing that reads the queue sees a change.
   return merged.length === current.length && merged.every((entry, index) => entry === current[index])
@@ -9977,7 +9981,7 @@ export class AcpmuxDirectClient {
         if (bgDone) {
           // No prompt row: the background line opens the turn, as a `background_turn` record's does.
           this.rows.delete(durableRowId);
-          this.bgDoneTurns.set(bgDone.promptId, bgDone.exit !== undefined && bgDone.exit !== 0);
+          this.bgDoneTurns.set(bgDone.promptId, bgDone.failed);
           this.reduceBackgroundTurn(event, bgDoneStarted(bgDone));
         }
       } else if (event.kind === "stopping") {
@@ -10154,7 +10158,12 @@ export class AcpmuxDirectClient {
         const bgFailed = bgDoneId === undefined ? undefined : this.bgDoneTurns.get(bgDoneId);
         if (event.kind === "turn_result" && bgDoneId && bgFailed !== undefined) {
           this.bgDoneTurns.delete(bgDoneId);
-          this.reduceBackgroundTurn(event, { id: bgDoneId, state: "ended", quiet: !bgFailed, trigger: "task_notification" });
+          this.reduceBackgroundTurn(event, {
+            id: bgDoneId,
+            state: "ended",
+            quiet: !bgFailed,
+            trigger: "task_notification",
+          });
         }
       } else if (event.kind === "queue_declined") {
         // The owner declined a guest's prompt: one quiet line where it was declined, never gone silently.

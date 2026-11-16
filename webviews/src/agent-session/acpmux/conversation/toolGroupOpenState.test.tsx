@@ -206,7 +206,12 @@ test("a run line the reader closed stays closed when the run splits back into it
 });
 
 test("closing one of a run's groups leaves its sibling as it was", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), search("c3", "retry"), search("c4", "backoff")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   const container = await mount(<ToolRows row={run("r1", calls)} sessionId="siblings" />);
   await open(container, /^Ran 2 commands and ran 2 searches$/);
   // A call that is still running leaves the run unfolded: its groups draw, open from the run's line.
@@ -299,7 +304,12 @@ async function click(container: HTMLElement, selector: string) {
 }
 
 test("a run whose groups the reader closed one by one stays closed when the turn folds it", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), search("c3", "retry"), search("c4", "backoff")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   const container = await mount(<ToolRows row={run("r1", calls)} sessionId="one-by-one" />);
   await open(container, /^Ran 2 commands and ran 2 searches$/);
   // The running turn draws the run's groups, open from the run's line; the reader closes each.
@@ -314,7 +324,12 @@ test("a run whose groups the reader closed one by one stays closed when the turn
 });
 
 test("a steered turn's open run line stays closed over groups the reader closed while it ran", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), search("c3", "retry"), search("c4", "backoff")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   // The running turn keeps its calls in sight in their groups, open (turns.ts codexRuns).
   const container = await mount(<ToolRows row={{ ...run("r1", calls), foldRun: false }} sessionId="steered" />);
   expect(groupLines(container)).toEqual({ "group:commands:c1": true, "group:searches:c3": true });
@@ -407,7 +422,12 @@ const mcpLine = (container: HTMLElement) =>
   );
 
 test("a run whose groups the reader closed stays open at the turn's end over an MCP group they opened", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), search("c3", "retry"), search("c4", "backoff")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   const items = [...calls, mcp("m1"), mcp("m2")];
   const container = await mount(<ToolRows row={{ ...run("r1", items), foldRun: false }} sessionId="mcp-open" />);
   await click(container, 'button[data-tool-group="group:commands:c1"]');
@@ -422,7 +442,12 @@ test("a run whose groups the reader closed stays open at the turn's end over an 
 });
 
 test("an MCP group opened after the reader set the run line opens it again at the turn's end", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), search("c3", "retry"), search("c4", "backoff")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   const items = [...calls, mcp("m1"), mcp("m2")];
   const container = await mount(<ToolRows row={run("r1", items)} sessionId="mcp-later" />);
   await open(container, /^Ran 2 commands/);

@@ -110,9 +110,7 @@ const editRow = (id: string, file: string): AcpmuxRow => ({
 const EARLIER = editRow("edit-earlier", "/repo/src/a.ts");
 const LATEST = editRow("edit-latest", "/repo/src/b.ts");
 
-async function renderCards(
-  onOpenDiff: (rowId: string) => void = () => undefined,
-) {
+async function renderCards(onOpenDiff: (rowId: string) => void = () => undefined) {
   const { createRoot } = await import("react-dom/client");
   const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
   const { SessionEditsContext } = await import("../src/agent-session/acpmux/turnChanges/sessionRows");
@@ -145,9 +143,11 @@ test("every card shows its Undo and View changes at rest, as the Codex app does 
   }
 });
 
-test("keyboard focus on an earlier card shows its buttons", async () => {
+test("an earlier card's View changes takes keyboard focus and stays shown", async () => {
   const { earlier } = await renderCards();
-  await act(async () => earlier.querySelector<HTMLElement>(".acpmux-review-changes")!.focus());
+  const review = earlier.querySelector<HTMLElement>(".acpmux-review-changes")!;
+  await act(async () => review.focus());
+  expect(review.ownerDocument.activeElement).toBe(review);
   expect(shown(earlier, ".acpmux-review-changes")).toBe(true);
   expect(shown(earlier, ".acpmux-edited-undo")).toBe(true);
 });

@@ -291,7 +291,8 @@ export const ToolRow = memo(function ToolRow({
       {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
           of screenshots stays a list of lines (Lucas, 2026-11-11: "this really really big scroll
           because it has so many images"), as the Codex app's does. */}
-      {fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
+      {/* A read never opens: no body, even with the fold held open (Verbose view, a Find reveal). */}
+      {!read && fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
         <div {...fold.bodyProps}>
           {images.length > 0 && <ToolImages sources={images} />}
           {shell ? (

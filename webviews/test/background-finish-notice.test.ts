@@ -16,7 +16,7 @@ afterAll(() => teardownDom(saved, { window: dom.window }));
 const T0 = 1_794_000_000_000;
 type Row = { id: string; kind: string; text?: string; background?: { cause?: { weight?: string } } };
 
-async function replay(exit: number) {
+async function replay(exit: number | "killed") {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
   let seq = 0;
@@ -24,14 +24,26 @@ async function replay(exit: number) {
   const say = (text: string) =>
     event(
       "agent_message_chunk",
-      { jsonrpc: "2.0", method: "session/update", params: { sessionId: "agent", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } } },
+      {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "agent",
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+        },
+      },
       "in",
     );
   const promptId = "bg-done-bg-1";
+  // A task stopped, killed or lost has no exit code: acpmux's `warn` says it did not go well.
+  const title =
+    exit === "killed"
+      ? "Background command killed: Build the app"
+      : `Background command finished: Build the app (exit ${exit})`;
   const notice = {
     promptId,
     client: "acpmux",
-    text: `[notice from acpmux] Background command finished: Build the app (exit ${exit})`,
+    text: `[notice from acpmux] ${title}`,
     _meta: {
       provenance: {
         bgTaskDescription: "Build the app",
@@ -39,7 +51,7 @@ async function replay(exit: number) {
         from: "fromAgent",
         fromName: "acpmux",
         kind: "notice",
-        notice: { sender: "acpmux", severity: exit ? "warn" : "info", title: `Background command finished: Build the app (exit ${exit})` },
+        notice: { sender: "acpmux", severity: exit ? "warn" : "info", title },
       },
     },
   };
@@ -102,4 +114,23 @@ test("a background failure draws its line over the agent's reply, with no prompt
   expect(drawn[at]?.background?.cause?.weight).toBe("failure");
   const reply = drawn.findIndex((row) => row.text === "The build failed: the fleet is offline.");
   expect(reply).toBeGreaterThan(at);
+});
+
+test("a background task killed with no exit code still draws as a failure over the reply", async () => {
+  const { drawn } = await replay("killed");
+  const at = drawn.findIndex((row) => row.kind === "backgroundTurn");
+  expect(drawn[at]?.background?.cause?.weight).toBe("failure");
+  expect(drawn.findIndex((row) => row.text === "The build failed: the fleet is offline.")).toBeGreaterThan(at);
+});
+
+test("a queue listing (attach, reload, session change) never brings a waiting finish back as a card", async () => {
+  const { mergeQueue } = await import("../src/agent-session/acpmux/direct");
+  const merged = mergeQueue(
+    [],
+    [
+      { promptId: "bg-done-bg-1", prompt: "[notice from acpmux] Background command finished: Build the app (exit 0)" },
+      { promptId: "p2", prompt: "next question" },
+    ],
+  );
+  expect(merged.map((entry) => entry.id)).toEqual(["p2"]);
 });
