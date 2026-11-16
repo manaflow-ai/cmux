@@ -134,7 +134,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         codec: opts.str_or("codec", DEFAULT_CODEC),
         content: opts.str_or("content", "screen"),
         openh264_lib: opts.get("openh264-lib").map(str::to_owned),
-        threads: opts.num_or("threads", 2)?,
+        threads: opts.num_or("threads", crate::encoder::default_threads())?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
         settle_us: opts.num_or("settle-us", DEFAULT_SETTLE_US)?,
         upstream_record: opts.get("upstream-record").map(std::path::PathBuf::from),
