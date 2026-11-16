@@ -705,7 +705,7 @@ pub(super) fn flush_text(state: &mut ActorState, row: Option<u64>) {
         Some(row) => state.subs.text.remove(&row).map(|text| (row, text)).into_iter().collect(),
         None => std::mem::take(&mut state.subs.text).into_iter().collect(),
     };
-    if state.subs.text.is_empty() {
+    if state.subs.text.is_empty() && state.subs.presence.is_none() {
         state.subs.flush_at = None;
     }
     if pieces.is_empty() {
