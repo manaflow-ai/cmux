@@ -45,6 +45,32 @@ import Testing
         #expect(store.image(for: Self.address, profile: .default) != nil, "the icon shows instead of the globe")
     }
 
+    /// Another page of the same site (a Spotify album after the home page's icon fetch failed) loads the icon
+    /// itself: its row and strip item show it at once, not after the failure memory (up to 30 minutes) ends.
+    @Test func aPageThatLoadedTheIconItselfShowsItWhileTheFailureIsRemembered() async throws {
+        let loader = FlakyLoader()
+        let store = TabFaviconStore(loader: loader, clock: ManualClock())
+        _ = store.image(for: Self.address, profile: .default)
+        await loader.until { loader.calls == 1 && !store.isFetching(Self.address, profile: .default) }
+
+        let album = MockBrowserEngine(kind: .cef).makeMockTab(
+            BrowserTabConfiguration(initialURL: URL(string: "https://open.example/album/1")))
+        let mapsAgain = MapsAgain()
+        withObservationTracking {
+            #expect(store.image(for: Self.address, profile: .default, tab: album) == nil, "the album's icon is not loaded yet")
+        } onChange: {
+            mapsAgain.fire()
+        }
+
+        // The album page's own fetch of the same address lands in the shared favicon cache.
+        loader.cached = FlakyLoader.icon()
+        album.favicon = loader.cached
+        await loader.until { mapsAgain.fired }
+        #expect(mapsAgain.fired, "the album's row maps again when its page loads the icon")
+        #expect(store.image(for: Self.address, profile: .default, tab: album) != nil, "the icon shows instead of the globe")
+        #expect(loader.calls == 1, "no second fetch: the page's own icon is used")
+    }
+
     /// A URL that keeps failing (a site with no icon) is held off longer each time, not fetched every minute.
     @Test func aURLThatKeepsFailingIsHeldOffLongerEachTime() {
         #expect(TabFaviconStore.failureMemory(after: 1) == TabFaviconStore.failureMemory)
@@ -64,10 +90,18 @@ private nonisolated final class MapsAgain: Sendable {
 @MainActor private final class FlakyLoader: BrowserFaviconLoading {
     var calls = 0
     var succeeds = false
+    /// What the shared cache holds (an icon a tab fetched itself).
+    var cached: NSImage?
 
     func favicon(at url: URL, profile: BrowserProfileID) async -> NSImage? {
         calls += 1
         guard succeeds else { return nil }
+        return Self.icon()
+    }
+
+    func cachedFavicon(at url: URL, profile: BrowserProfileID) -> NSImage? { cached }
+
+    static func icon() -> NSImage? {
         let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         return context?.makeImage().map { NSImage(cgImage: $0, size: NSSize(width: 1, height: 1)) }
