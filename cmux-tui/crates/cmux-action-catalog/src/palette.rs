@@ -21,6 +21,8 @@ pub static ALIASES: &[(&str, &[&str])] = &[
     ("appearance.changeBackground", &["background", "wallpaper"]),
     ("appearance.customize", &["font", "theme", "background"]),
     ("browserTheme", &["theme"]),
+    ("macScreen.open", &["screen share", "share screen", "screen sharing", "remote desktop", "vnc"]),
+    ("macScreen.stopSharing", &["cmux remote: end screen sharing session", "end screen sharing session", "end screen sharing", "stop screen sharing", "stop screen share"]),
     ("moveSurfaceToPaneDown", &["move to split below", "move to bottom split", "move to lower split", "move tab to split below", "move tab down a split", "send tab down"]),
     ("moveSurfaceToPaneLeft", &["move to left split", "move to split left", "move tab to left split", "move tab to split left", "send tab left"]),
     ("moveSurfaceToPaneRight", &["move to right split", "move to split right", "move tab to right split", "move tab to split right", "send tab right"]),
