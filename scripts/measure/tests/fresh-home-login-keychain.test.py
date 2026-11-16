@@ -7,15 +7,13 @@ No Mac, no `security`: `subprocess.run` is replaced by a recorder. So this prove
 to the private home, create only when the keychain is missing, a failure is CannotRun), NOT what `security` does on a
 Mac and NOT that Chromium then skips the dialog.
 Run: python3 -I scripts/measure/tests/fresh-home-login-keychain.test.py"""
-import importlib.util, os, subprocess, sys, tempfile, unittest
+import os, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SPEC = importlib.util.spec_from_file_location("fresh_home_smoke_under_test",
-                                              os.path.join(HERE, "..", "..", "ci", "fresh_home_launch_smoke.py"))
-M = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(M)
+sys.path.insert(0, os.path.join(HERE, "..", "..", "ci"))
+import fresh_home_launch_smoke as M  # noqa: E402  (by name, as the harnesses import it: one module object)
 
 
 class LoginKeychain(unittest.TestCase):
