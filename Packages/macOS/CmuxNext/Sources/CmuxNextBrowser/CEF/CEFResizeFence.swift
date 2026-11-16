@@ -17,9 +17,16 @@ final class CEFResizeFences {
     /// This turn's fence of each window.
     private var current: [ObjectIdentifier: CEFResizeFence] = [:]
     private let clock: any Clock<Duration>
+    private let makePort: @MainActor (CALayer) -> mach_port_t?
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameters:
+    ///   - clock: runs this app's deadline of each fence.
+    ///   - makePort: the fence of the window of a layer (`-[CAContext createFencePort]` by default; tests pass a port
+    ///     of their own).
+    init(clock: any Clock<Duration> = ContinuousClock(),
+         makePort: @escaping @MainActor (CALayer) -> mach_port_t? = { CEFResizeFence.createFencePort(layer: $0) }) {
         self.clock = clock
+        self.makePort = makePort
     }
 
     /// Joins one page resized in this turn to `window`'s fence for this turn (made on first use).
@@ -34,7 +41,7 @@ final class CEFResizeFences {
         if let open = current[key] {
             fence = open
         } else {
-            guard let port = CEFResizeFence.createFencePort(layer: layer) else { return false }
+            guard let port = makePort(layer) else { return false }
             fence = CEFResizeFence(port: port)
             current[key] = fence
             CEFHostView.trackerStats.resizeFences += 1
@@ -98,7 +105,7 @@ final class CEFResizeFence {
     /// `-[CAContext createFencePort]` on the context of `layer`'s tree (QuartzCore SPI, as Chromium's
     /// `CALayerTreeCoordinator` and WebKit use it): the render server holds this transaction's commit of that context,
     /// and the ones after it, until every send right of the port is gone.
-    fileprivate static func createFencePort(layer: CALayer) -> mach_port_t? {
+    static func createFencePort(layer: CALayer) -> mach_port_t? {
         let contextGetter = NSSelectorFromString("context")
         let create = NSSelectorFromString("createFencePort")
         guard layer.responds(to: contextGetter),
