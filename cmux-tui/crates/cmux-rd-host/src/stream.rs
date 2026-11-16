@@ -19,7 +19,7 @@ use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
-use cmux_rd_proto::datagram::{flags, DatagramHeader, DatagramKind};
+use cmux_rd_proto::{flags, DatagramHeader, DatagramKind};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
