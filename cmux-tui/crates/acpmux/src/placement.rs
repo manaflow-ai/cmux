@@ -737,14 +737,8 @@ pub fn load_row(row: &Value, registry: Option<&Value>, now_ms: u64) -> Value {
     let h = row.get("health").unwrap_or(&Value::Null);
     let cores = reading(h, "/pressure/cores").or_else(|| reading(h, "/cpus"));
     let busy = reading(h, "/load/0").map(|l| cores.map_or(l, |c| l.min(c)));
-    let mut out = json!({
-        "room": null,
-        "coresBusy": busy.map(|b| (b * 10.0).round() / 10.0),
-        "cores": cores,
-        "ramFreeBytes": reading(h, "/ram/freeBytes"),
-        "live": h.get("liveSessions").and_then(Value::as_u64),
-        "offlineMs": null,
-    });
+    let mut room = None;
+    let mut offline_ms = None;
     let (verdict, words) = if peer_down(row).is_some() {
         let state = row.get("state").and_then(Value::as_str).unwrap_or("offline");
         if matches!(state, "connecting" | "reconnecting" | "restarting") {
@@ -752,10 +746,9 @@ pub fn load_row(row: &Value, registry: Option<&Value>, now_ms: u64) -> Value {
         } else {
             let since =
                 row.get("downSince").or_else(|| row.get("lastSeen")).and_then(Value::as_u64);
-            let gone = since.map(|t| now_ms.saturating_sub(t));
-            out["offlineMs"] = json!(gone);
-            let words =
-                gone.map_or_else(|| "offline".to_owned(), |ms| format!("offline {}", ago(ms)));
+            offline_ms = since.map(|t| now_ms.saturating_sub(t));
+            let words = offline_ms
+                .map_or_else(|| "offline".to_owned(), |ms| format!("offline {}", ago(ms)));
             ("offline", words)
         }
     } else {
@@ -767,7 +760,7 @@ pub fn load_row(row: &Value, registry: Option<&Value>, now_ms: u64) -> Value {
         let c =
             Candidate { name: name.to_owned(), local: false, health: h.clone(), health_at: None };
         let w = weigh(&c, Some(lanes));
-        out["room"] = json!(w.room);
+        room = w.room;
         match (&w.refused, w.room) {
             (Some(_), _) if !w.load => ("held", "held".to_owned()),
             (Some(_), _) => ("busy", "busy".to_owned()),
@@ -775,9 +768,16 @@ pub fn load_row(row: &Value, registry: Option<&Value>, now_ms: u64) -> Value {
             (None, None) => ("unknown", "no reading".to_owned()),
         }
     };
-    out["verdict"] = json!(verdict);
-    out["words"] = json!(words);
-    out
+    json!({
+        "verdict": verdict,
+        "words": words,
+        "room": room,
+        "coresBusy": busy.map(|b| (b * 10.0).round() / 10.0),
+        "cores": cores,
+        "ramFreeBytes": reading(h, "/ram/freeBytes"),
+        "live": h.get("liveSessions").and_then(Value::as_u64),
+        "offlineMs": offline_ms,
+    })
 }
 
 /// How long `ms` is in the load row's words: "2 min", "3 h", "4 d"; under a minute, "now".
