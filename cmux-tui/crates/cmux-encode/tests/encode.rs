@@ -310,3 +310,73 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
     let worst = sizes.iter().copied().max().unwrap_or(0);
     assert!(worst <= budget * 3 / 2, "a changed frame of {worst} B is over the {budget} B budget");
 }
+
+/// Ultra (videotoolbox.rs set_ultra): a big change after a still screen is not cut to one
+/// frame interval's share (the one-second window is a loose safety, the pacer spreads the
+/// frame), the QP ceiling holds, and a refinement frame of the still picture encodes. Prints
+/// sizes and encode times next to standard's for the PR's numbers. Runs on a fleet Mac.
+#[cfg(target_os = "macos")]
+#[test]
+fn videotoolbox_ultra_spends_bits_on_a_change_and_refines_a_still_screen() {
+    use cmux_encode::H264Encoder;
+    use cmux_encode::videotoolbox::{ULTRA_MAX_QP, VideoToolbox};
+    use std::time::Instant;
+    const W: usize = 512;
+    const H: usize = 256;
+    const FPS: u32 = 30;
+    const KBPS: u32 = 2_000;
+    let noise = |seed: &mut u64, pic: &mut I420| {
+        for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
+            *seed ^= *seed << 13;
+            *seed ^= *seed >> 7;
+            *seed ^= *seed << 17;
+            *px = 16 + (*seed % 220) as u8;
+        }
+    };
+    let run = |ultra: bool| -> (Vec<usize>, usize, f64) {
+        let mut enc =
+            VideoToolbox::new(W as u32, H as u32, FPS, KBPS, false).expect("hardware encoder");
+        enc.set_ultra(ultra);
+        assert_eq!(enc.max_qp(), ultra.then_some(ULTRA_MAX_QP));
+        assert_eq!(enc.name().ends_with(" ultra"), ultra, "{}", enc.name());
+        let still = I420::new(W, H);
+        let mut au = Vec::new();
+        let mut pts = 0i64;
+        for i in 0..30 {
+            enc.encode(&still, i == 0, pts, &mut au).expect("encode");
+            pts += 1_000_000 / i64::from(FPS);
+        }
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut pic = I420::new(W, H);
+        let mut sizes = Vec::new();
+        let mut ms = 0.0;
+        for _ in 0..3 {
+            noise(&mut seed, &mut pic);
+            let t = Instant::now();
+            enc.encode(&pic, false, pts, &mut au).expect("encode");
+            ms += t.elapsed().as_secs_f64() * 1e3;
+            pts += 1_000_000 / i64::from(FPS);
+            sizes.push(au.len());
+        }
+        // The screen goes still on the last picture: one refinement frame of it.
+        enc.set_refine(true);
+        enc.encode(&pic, false, pts, &mut au).expect("refinement encode");
+        let refined = au.len();
+        (sizes, refined, ms / 3.0)
+    };
+    let (standard, standard_refined, standard_ms) = run(false);
+    let (ultra, ultra_refined, ultra_ms) = run(true);
+    let budget = (KBPS as usize * 1000 / 8) / FPS as usize;
+    eprintln!(
+        "per-frame budget {budget} B; standard changed {standard:?} B ({standard_ms:.2} ms/frame), \
+         next {standard_refined} B; ultra changed {ultra:?} B ({ultra_ms:.2} ms/frame), \
+         refinement {ultra_refined} B"
+    );
+    let ultra_worst = ultra.iter().copied().max().unwrap_or(0);
+    let standard_worst = standard.iter().copied().max().unwrap_or(0);
+    assert!(
+        ultra_worst > budget * 3 / 2,
+        "ultra cut a changed frame to {ultra_worst} B, within the {budget} B per-frame budget"
+    );
+    assert!(ultra_worst > standard_worst, "ultra {ultra_worst} B <= standard {standard_worst} B");
+}

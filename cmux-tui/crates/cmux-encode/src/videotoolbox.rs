@@ -149,6 +149,35 @@ crate::framework! {
     }
 }
 
+// Ultra's QP ceiling, bound apart for the same reason (MaxAllowedFrameQP is macOS 12+): without
+// it an ultra session keeps its loose rate window and has no ceiling.
+crate::framework! {
+    mod vt_qp_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_MaxAllowedFrameQP: CFStringRef;
+    }
+}
+
+/// Ultra's QP ceiling (H.264's scale is 0-51; +6 doubles the quantizer step). Low enough that
+/// text stays near-lossless at any motion: the rate is not saved, so a busy frame grows instead
+/// of blurring, and the pacer, not the encoder, spreads an oversized frame. Set from the
+/// fleet pair's text-error sweep over 18-22; `CMUX_RD_VT_ULTRA_MAX_QP` overrides it.
+pub const ULTRA_MAX_QP: i32 = 20;
+/// The QP ceiling of ultra's refinement frame (the still screen, re-encoded once): visually
+/// lossless on text.
+pub const ULTRA_REFINE_QP: i32 = 12;
+/// H.264's highest QP: no ceiling.
+const H264_MAX_QP: i32 = 51;
+/// Ultra's DataRateLimits: a safety window of one second at this multiple of the target, never
+/// a per-frame cap (one large frame is the pacer's to spread, not the encoder's to shrink).
+const ULTRA_RATE_WINDOW_MULTIPLE: u64 = 2;
+
+/// Ultra's QP ceiling: `CMUX_RD_VT_ULTRA_MAX_QP` when it is a QP in 1-51, else [`ULTRA_MAX_QP`].
+fn ultra_max_qp(env: Option<&str>) -> i32 {
+    env.and_then(|v| v.trim().parse::<i32>().ok())
+        .filter(|qp| (1..=H264_MAX_QP).contains(qp))
+        .unwrap_or(ULTRA_MAX_QP)
+}
+
 /// Loads the frameworks the encoder binds at run time (crate::dynlib); an error says which
 /// framework or symbol is missing.
 // Each module's `available` also arrives through its glob import; the path names which one.
@@ -187,6 +216,13 @@ pub struct VideoToolbox {
     /// The color tag the session carries (surface path); `None` until set.
     color: Option<ColorTag>,
     name: String,
+    /// The ultra profile: a low QP ceiling and a loose one-second rate window
+    /// ([`VideoToolbox::set_ultra`]).
+    ultra: bool,
+    /// Ultra's QP ceiling ([`ULTRA_MAX_QP`] or its override).
+    ultra_max_qp: i32,
+    /// The next frame is ultra's refinement of a still screen ([`ULTRA_REFINE_QP`]).
+    refine_next: bool,
 }
 
 // SAFETY: the session and buffer are used from one thread at a time (the media loop).
@@ -210,6 +246,13 @@ fn frame_budget(kbps: u32, fps: u32) -> (i32, f64) {
     let fps = fps.max(1);
     let bytes = u64::from(kbps.min(2_000_000)) * 1000 / 8 / u64::from(fps);
     (i32::try_from(bytes.max(1)).unwrap_or(i32::MAX), 1.0 / f64::from(fps))
+}
+
+/// Ultra's DataRateLimits: [`ULTRA_RATE_WINDOW_MULTIPLE`] times the rate's bytes over one
+/// second, a loose safety and no per-frame cap.
+fn ultra_rate_window(kbps: u32) -> (i32, f64) {
+    let bytes = u64::from(kbps.min(2_000_000)) * 1000 / 8 * ULTRA_RATE_WINDOW_MULTIPLE;
+    (i32::try_from(bytes.max(1)).unwrap_or(i32::MAX), 1.0)
 }
 
 /// Whether a new target replaces the session's rate. A cut applies at once (the link has
@@ -427,6 +470,9 @@ impl VideoToolbox {
                 "videotoolbox h264 {} low-latency-rc realtime no-reordering gop=inf",
                 if baseline { "constrained-baseline" } else { "high" }
             ),
+            ultra: false,
+            ultra_max_qp: ultra_max_qp(std::env::var("CMUX_RD_VT_ULTRA_MAX_QP").ok().as_deref()),
+            refine_next: false,
         };
         this.apply_bitrate(this.kbps);
         Ok(this)
@@ -448,7 +494,55 @@ impl VideoToolbox {
         self.session_size = (width, height);
         self.color = None;
         self.apply_bitrate(self.kbps);
+        if self.ultra {
+            self.apply_max_qp(self.ultra_max_qp);
+        }
         Ok(true)
+    }
+
+    /// Turns the ultra profile on or off from the next frame: on, a QP ceiling of
+    /// [`ULTRA_MAX_QP`] and DataRateLimits loosened to a one-second window at twice the
+    /// target; off, today's settings (no ceiling, one frame interval's share per frame).
+    pub fn set_ultra(&mut self, on: bool) {
+        if self.ultra == on {
+            return;
+        }
+        self.ultra = on;
+        self.refine_next = false;
+        self.apply_bitrate(self.kbps);
+        self.apply_max_qp(if on { self.ultra_max_qp } else { H264_MAX_QP });
+        let base = self.name.trim_end_matches(" ultra").to_owned();
+        self.name = if on { format!("{base} ultra") } else { base };
+    }
+
+    /// Ultra only: the next frame refines a still screen under [`ULTRA_REFINE_QP`].
+    pub fn set_refine(&mut self, on: bool) {
+        self.refine_next = on && self.ultra;
+    }
+
+    /// The QP ceiling in effect, `None` when standard (no ceiling).
+    pub fn max_qp(&self) -> Option<i32> {
+        self.ultra.then_some(self.ultra_max_qp)
+    }
+
+    /// Sets the session's QP ceiling. Optional like the speed keys: an OS without the key, or
+    /// an encoder that refuses it, keeps the rate settings alone.
+    fn apply_max_qp(&mut self, qp: i32) -> bool {
+        if vt_qp_sys::available().is_err() {
+            return false;
+        }
+        let value = number_i32(qp);
+        // SAFETY: our live session; the number is released after the session retains it.
+        let status = unsafe {
+            let s = VTSessionSetProperty(
+                self.session,
+                vt_qp_sys::kVTCompressionPropertyKey_MaxAllowedFrameQP(),
+                value,
+            );
+            CFRelease(value);
+            s
+        };
+        status == 0
     }
 
     /// Tags the session's output with `color` (primaries, transfer, matrix).
@@ -486,7 +580,8 @@ impl VideoToolbox {
     /// at the current rate. A budget the encoder refuses leaves only the average rate.
     fn apply_bitrate(&mut self, kbps: u32) {
         let bps = number_i32((kbps.min(2_000_000) * 1000) as i32);
-        let (bytes, seconds) = frame_budget(kbps, self.fps);
+        let (bytes, seconds) =
+            if self.ultra { ultra_rate_window(kbps) } else { frame_budget(kbps, self.fps) };
         // SAFETY: our live session; every CF object is released after use (the array
         // retains its numbers, the session retains the array).
         unsafe {
@@ -581,6 +676,25 @@ impl VideoToolbox {
         if let Ok(mut o) = self.out.lock() {
             *o = Output::default();
         }
+        // Ultra's refinement: this frame alone under the refinement ceiling, then back.
+        let refine = std::mem::take(&mut self.refine_next) && self.ultra;
+        if refine {
+            self.apply_max_qp(ULTRA_REFINE_QP);
+        }
+        let result = self.encode_buffer_at(pixel_buffer, force_idr, pts, out);
+        if refine {
+            self.apply_max_qp(self.ultra_max_qp);
+        }
+        result
+    }
+
+    fn encode_buffer_at(
+        &mut self,
+        pixel_buffer: CVPixelBufferRef,
+        force_idr: bool,
+        pts: i64,
+        out: &mut Vec<u8>,
+    ) -> Res<bool> {
         // `pts` is the capture time in microseconds (the trait's contract).
         let time =
             CMTime { value: pts, timescale: 1_000_000, flags: K_CM_TIME_FLAGS_VALID, epoch: 0 };
@@ -646,6 +760,26 @@ mod tests {
         assert_eq!(frame_budget(1_000, 30).0, 4_166);
         assert_eq!(frame_budget(100, 0), (12_500, 1.0), "fps 0 counts as 1");
         assert!(frame_budget(u32::MAX, 1).0 > 0, "clamped, never negative");
+    }
+
+    #[test]
+    fn ultras_rate_window_is_one_second_at_twice_the_target() {
+        assert_eq!(ultra_rate_window(100_000), (25_000_000, 1.0));
+        assert_eq!(ultra_rate_window(8_000).0, 2_000_000);
+        assert!(ultra_rate_window(u32::MAX).0 > 0, "clamped, never negative");
+        // Far looser than standard's per-frame share at 120 fps: 240 frames' worth.
+        assert_eq!(ultra_rate_window(100_000).0 / frame_budget(100_000, 120).0, 240);
+    }
+
+    #[test]
+    fn ultras_qp_ceiling_defaults_and_overrides() {
+        assert_eq!(ultra_max_qp(None), ULTRA_MAX_QP);
+        assert_eq!(ultra_max_qp(Some("18")), 18);
+        assert_eq!(ultra_max_qp(Some(" 22 ")), 22);
+        assert_eq!(ultra_max_qp(Some("0")), ULTRA_MAX_QP, "0 is out of range");
+        assert_eq!(ultra_max_qp(Some("52")), ULTRA_MAX_QP, "past H.264's range");
+        assert_eq!(ultra_max_qp(Some("x")), ULTRA_MAX_QP);
+        assert!(ULTRA_REFINE_QP < ULTRA_MAX_QP);
     }
 
     #[test]

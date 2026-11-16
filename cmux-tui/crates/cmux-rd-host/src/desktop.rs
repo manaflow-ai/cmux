@@ -8,6 +8,7 @@
 use crate::stream::SessionCfg;
 use crate::Res;
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_proto::InputEvent;
 use std::os::fd::RawFd;
 
@@ -25,6 +26,9 @@ pub trait FrameSource: Send {
     /// Encodes the captured picture into `out` as Annex-B. Returns true for an IDR.
     fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool>;
     fn set_bitrate(&mut self, kbps: u32);
+    /// The encoder profile for the next frame, and whether that frame refines a still screen
+    /// (ultra). An encoder without an ultra mode keeps its settings.
+    fn set_profile(&mut self, _profile: EncodeProfile, _refine: bool) {}
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
 }
