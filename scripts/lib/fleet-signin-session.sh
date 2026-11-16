@@ -9,9 +9,9 @@
 #   source scripts/lib/fleet-signin-session.sh
 #   cmux_fleet_signin_load || { echo "$CMUX_FLEET_SIGNIN_ERROR"; exit 1; }
 #   echo "signed in as $CMUX_FLEET_SIGNIN_EMAIL"
-#   cmux_fleet_signin_launch "$udid" "$bundle_id" [simctl launch args...]
+#   cmux_fleet_signin_simctl --set "$sims" launch "$udid" "$bundle_id"   # xcrun simctl, with the session
 #
-# The refresh token stays in an unexported shell variable: only the one `simctl launch` gets it, as
+# The refresh token stays in an unexported shell variable: only that one `xcrun simctl` call gets it, as
 # SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN (a DEBUG cmux-next iPhone app adopts it while it holds no
 # session: CmuxMobileAuthModel.launchTokenStore). Nothing here prints it.
 
@@ -53,13 +53,14 @@ print("\n".join(values))
   return 0
 }
 
-# cmux_fleet_signin_launch UDID BUNDLE_ID [ARGS...]: `xcrun simctl launch` with the session in that launch only.
-cmux_fleet_signin_launch() {
+# cmux_fleet_signin_simctl ARGS...: `xcrun simctl ARGS` (a launch: `--set SET launch UDID BUNDLE_ID`) with the
+# session in that one call's environment only.
+cmux_fleet_signin_simctl() {
   if [[ -z "${_cmux_fleet_signin_token:-}" ]]; then
-    echo "cmux_fleet_signin_launch: no session loaded (cmux_fleet_signin_load)" >&2
+    echo "cmux_fleet_signin_simctl: no session loaded (cmux_fleet_signin_load)" >&2
     return 1
   fi
-  SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN="$_cmux_fleet_signin_token" xcrun simctl launch "$@"
+  SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN="$_cmux_fleet_signin_token" xcrun simctl "$@"
 }
 
 # cmux_fleet_signin_forget: drops the session from this shell.

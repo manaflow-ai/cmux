@@ -47,18 +47,18 @@ test("the session reaches one simctl launch and nothing else", () => {
   const r = run(`
 cmux_fleet_signin_load
 echo "account=$CMUX_FLEET_SIGNIN_EMAIL"
-cmux_fleet_signin_launch UDID-1 dev.cmux.mobile.tag --flag
+cmux_fleet_signin_simctl --set "${f.dir}/sims" launch UDID-1 dev.cmux.mobile.tag
 env > "${f.dir}/child-env"
 xcrun simctl launch UDID-1 dev.cmux.mobile.tag
 cmux_fleet_signin_forget
-cmux_fleet_signin_launch UDID-1 dev.cmux.mobile.tag || echo "no session after forget"
+cmux_fleet_signin_simctl launch UDID-1 dev.cmux.mobile.tag || echo "no session after forget"
 `, f);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /account=agent@example\.com/);
   assert.match(r.stdout, /no session after forget/);
   const launches = fs.readFileSync(path.join(f.dir, "launches"), "utf8");
   assert.equal(launches.match(/token reached the launch/g)?.length, 1, launches);
-  assert.match(launches, /argv: simctl launch UDID-1 dev\.cmux\.mobile\.tag --flag\nSIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN\ntoken reached/);
+  assert.match(launches, /argv: simctl --set \S+\/sims launch UDID-1 dev\.cmux\.mobile\.tag\nSIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN\ntoken reached/);
   assert.doesNotMatch(fs.readFileSync(path.join(f.dir, "child-env"), "utf8"), new RegExp(TOKEN), "a child of the script inherits the token");
   assert.doesNotMatch(r.stdout + r.stderr, new RegExp(TOKEN));
 });
