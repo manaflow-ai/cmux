@@ -51,6 +51,20 @@ for arg in "$@"; do
   esac
 done
 tag="split-spring"
+# Measurement branch only (hq#11877): with `cmux-ci run --cef sha256:<engine>` the app embeds that engine (a writable
+# copy, as the embed phase signs it) instead of the manifest's, and the app cache is off, so a before and an after
+# run of one commit differ only in the engine.
+if [[ -n "${CMUX_CI_CEF_DIR:-}" ]]; then
+  cef_src="$CMUX_CI_CEF_DIR"
+  [[ -d "$cef_src/include" ]] ||
+    cef_src="$(dirname "$(find "$CMUX_CI_CEF_DIR" -maxdepth 3 -type d -name 'Chromium Embedded Framework.framework' | head -1)")"
+  [[ -d "$cef_src/include" ]] || { echo "split-spring: no CEF dist under CMUX_CI_CEF_DIR" >&2; exit 2; }
+  cef_copy="${TMPDIR:-/tmp}/split-spring-cef-$(basename "$(dirname "$CMUX_CI_CEF_DIR")")-$$"
+  rm -rf "$cef_copy"; cp -R "$cef_src" "$cef_copy"; chmod -R u+w "$cef_copy"
+  export CMUX_CEF_PATH="$cef_copy" CMUX_NEXT_REQUIRE_CEF=1
+  echo "split-spring: engine $(grep -m1 'define CMUX_CEF_API_VERSION' "$cef_copy/include/cef_cmux.h") from $CMUX_CI_CEF_DIR"
+  app_cache=0 build_only=0
+fi
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
 sha="$(git rev-parse HEAD)"
