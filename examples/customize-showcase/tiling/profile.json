@@ -1,0 +1,21 @@
+{
+  "name": "tiling",
+  "description": "A scrolling tiling window manager: every terminal and browser gets its own column, columns scroll sideways instead of shrinking, focus follows the mouse, a thin rail sidebar with numbered workspaces and a status bar at the bottom.",
+  "settings": {
+    "layout.mainPane": "off",
+    "layout.newPanePlacement": "split",
+    "layout.tileBrowsers": true,
+    "layout.scrollAreas": true,
+    "layout.newColumnWidth": "fixed",
+    "layout.defaultColumnWidth": 0.5,
+    "layout.centerFocusedColumn": "on-overflow",
+    "layout.focusFollowsMouse": true,
+    "layout.linkPlacement": "new-column",
+    "layout.paneSeparation": "cards",
+    "appearance.chromeStyle": "blocks",
+    "appearance.focusIndicator": "border",
+    "sidebar.style": "rail",
+    "sidebar.controlsOnHover": true,
+    "ui.calm": "calm"
+  }
+}
