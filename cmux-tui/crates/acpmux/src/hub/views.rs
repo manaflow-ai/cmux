@@ -70,8 +70,7 @@ pub(super) fn summary_title(title: &str) -> String {
     }
 }
 
-/// The tag naming the session whose agent started this one (`Hub::spawned_by`).
-pub const SPAWNED_BY_TAG: &str = "spawnedBy";
+pub use crate::meta_fields::SPAWNED_BY_TAG;
 const COORDINATOR_PARENT_TAG: &str = "mux.parent";
 
 /// The direct parent has the same precedence as lineage_of(), without walking
