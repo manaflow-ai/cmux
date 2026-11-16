@@ -236,6 +236,13 @@ impl Mux {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(hold);
     }
 
+    /// Test seam: waits for a settle run that is in progress, then says if a
+    /// settle run of this owner ended with a panic (a run holds the run lock
+    /// from its start to its end).
+    pub(crate) fn exit_settle_run_panicked_for_test(&self) -> bool {
+        self.exit_settles.running.lock().is_err()
+    }
+
     fn run_exit_settle_hold_for_test(&self) {
         let hold = self
             .exit_settles

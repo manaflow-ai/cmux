@@ -309,7 +309,7 @@ fn the_next_owner_keeps_its_store_when_a_settle_ran_at_the_release() {
     let before = store_state(&next);
     drop(resume);
     // Returns after the held settle run: both take the run lock.
-    mux.run_due_exit_settles_for_test();
+    let settle_panicked = mux.exit_settle_run_panicked_for_test();
     let after = store_state(&next);
     let write = write_at(&mut next, "next-owner-write", before.0);
     drop(next);
@@ -321,6 +321,11 @@ fn the_next_owner_keeps_its_store_when_a_settle_ran_at_the_release() {
          (revision, tabs) before {before:?}, after {after:?}; the next owner's write at \
          revision {}: {write:?}",
         before.0
+    );
+    assert!(
+        !settle_panicked,
+        "the settle thread of an owner that released its session ended with a panic at its \
+         write, which the store refused"
     );
 }
 
@@ -339,6 +344,8 @@ fn an_owner_that_released_its_session_cannot_write_the_store() {
         .expect("the session is free for the next owner after the release");
     let before = store_state(&next);
     let late = write_at(&mut mux.workspace_registry.lock().unwrap(), "late-write", before.0);
+    // A panic of the write would leave the lock of the owner's registry poisoned.
+    let writer_panicked = mux.workspace_registry.lock().is_err();
     let after = store_state(&next);
     let write = write_at(&mut next, "next-owner-write", before.0);
     drop(next);
@@ -350,6 +357,11 @@ fn an_owner_that_released_its_session_cannot_write_the_store() {
          write: {late:?}; (revision, tabs) before {before:?}, after {after:?}; the next \
          owner's write at revision {}: {write:?}",
         before.0
+    );
+    assert!(
+        !writer_panicked,
+        "the write of an owner that released its session ended with a panic, and not with the \
+         store's refusal"
     );
 }
 

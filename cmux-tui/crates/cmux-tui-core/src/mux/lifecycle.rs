@@ -1,6 +1,12 @@
 //! Mux lifecycle: side-table purges on close, shutdown and journal finalization, server readiness, daemon handoff and shutdown requests, surface options and machine usage.
 
 use super::*;
+use crate::workspace_registry::wal_durability::OwnerRelease;
+
+/// How long the owner's release waits for what can still write the session's
+/// stores (decision of 2026-11-16). A person's quit waits at most this much
+/// longer, and only when such a writer lives.
+const RELEASE_WAIT: Duration = Duration::from_secs(2);
 
 impl Mux {
     /// Drop per-surface metadata for a surface that has left the tree.
@@ -173,13 +179,40 @@ impl Mux {
     /// (feed_local, "detached session owner did not become ready"). The
     /// leases go first: this owner keeps listening until it exits, so no new
     /// owner binds the socket before it is removed here.
+    ///
+    /// The session's locks are the last thing this owner gives up, and from
+    /// that step on it writes no store of the session (decision of
+    /// 2026-11-16): the release takes the registry connection's lock, so no
+    /// registry transaction is open on another thread, and under that lock
+    /// it sets the owner's release and drops the locks. Each later commit of
+    /// this process fails in the one commit hook that each store of the
+    /// session has (`workspace_registry::wal_durability`), whichever thread
+    /// makes it. When a writer holds that lock for longer than
+    /// [`RELEASE_WAIT`], this owner keeps the session: the kernel frees the
+    /// locks when the process ends.
     pub fn release_ownership(&self, socket_path: &Path) {
         {
             let mut registry = self.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
-            drop(registry.lease.take());
-            drop(registry.session_guard.take());
+            match self.registry_connection.get_until(Instant::now() + RELEASE_WAIT) {
+                Some(held) => {
+                    self.registry_connection.mark_released(&held);
+                    drop(registry.lease.take());
+                    drop(registry.session_guard.take());
+                }
+                None => eprintln!(
+                    "cmux-tui: this daemon keeps its session until it exits: a write of the \
+                     session's store did not end in {} ms",
+                    RELEASE_WAIT.as_millis()
+                ),
+            }
         }
         crate::server::cleanup(socket_path);
+    }
+
+    /// The release of this owner, for each store of the session folder that
+    /// opens at its first use: its commits fail after the release too.
+    pub(crate) fn owner_release(&self) -> &OwnerRelease {
+        self.registry_connection.owner_release()
     }
 
     /// Stop the terminal readers and the journal writer; with

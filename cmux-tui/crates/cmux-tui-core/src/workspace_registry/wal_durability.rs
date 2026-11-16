@@ -48,9 +48,10 @@
 //! The thread sleeps on a condition variable while nothing is owed (no
 //! timer, no wakeups at idle).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -121,6 +122,50 @@ thread_local! {
     /// The syncer of the commit in progress on this thread: the commit hook
     /// sets it before SQLite writes the frames, the WAL hook takes it after.
     static COMMITTING: RefCell<Option<Arc<Shared>>> = const { RefCell::new(None) };
+    /// This thread said that a write of it was refused after the release
+    /// ([`OwnerRelease`]): one line for each thread, not one for each try.
+    static SAID_REFUSED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether the owner of a session gave the session up (decision of
+/// 2026-11-16). One object for each owner: the registry connection owns it
+/// and sets it, under its lock, in the same step in which the owner drops
+/// its session locks. The commit hook of each store of the session folder
+/// holds a clone and reads it at each commit: once it is set the commit
+/// becomes a rollback and its caller gets an error, because the next owner
+/// has the store from then on. A store that the owner opens after the
+/// release gets the same object, so its first commit fails too.
+#[derive(Clone, Default)]
+pub(crate) struct OwnerRelease(Arc<AtomicBool>);
+
+impl OwnerRelease {
+    pub(crate) fn is_released(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+
+    /// Only [`super::RegistryConnection::mark_released`] calls this, with
+    /// the connection lock held.
+    pub(super) fn set(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    /// The commit hook's part: true when the commit must fail. Says so on
+    /// stderr the first time on each thread.
+    fn refuses_commit(&self, database_path: &Path) -> bool {
+        if !self.is_released() {
+            return false;
+        }
+        if !SAID_REFUSED.with(|said| said.replace(true)) {
+            let thread = std::thread::current();
+            eprintln!(
+                "cmux-tui: thread {} tried to write {} after this daemon released its session; \
+                 each such write fails",
+                thread.name().unwrap_or("with no name"),
+                database_path.display()
+            );
+        }
+        true
+    }
 }
 
 /// A view of one database's syncer (see the module docs): its commit
@@ -151,12 +196,26 @@ impl Drop for SyncerOwner {
     }
 }
 
-/// [`WalDurability::attach`] for a store at `database_path`, with the
-/// `CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS` seam. A later
-/// `PRAGMA wal_autocheckpoint` on the connection would replace its WAL hook.
-pub(crate) fn attach_store(connection: &Connection, database_path: &Path) -> WalDurability {
+/// [`WalDurability::attach_with_commit_delay`] for a store at
+/// `database_path`, with the `CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS` seam.
+/// A later `PRAGMA wal_autocheckpoint` on the connection would replace its
+/// WAL hook.
+/// `released` is the owner's ([`super::RegistryConnection::owner_release`]):
+/// each store of a session takes no write after the owner's release.
+pub(crate) fn attach_store(
+    connection: &Connection,
+    database_path: &Path,
+    released: &OwnerRelease,
+) -> WalDurability {
     let delay = super::registry_connection::slow_durable_commit_delay();
-    WalDurability::attach(connection, database_path, delay, true)
+    WalDurability::attach_with_commit_delay(
+        connection,
+        database_path,
+        delay,
+        true,
+        None,
+        released.clone(),
+    )
 }
 
 impl WalDurability {
@@ -167,30 +226,17 @@ impl WalDurability {
     /// caller asks ([`Self::request_flush`]), so a request's several commits
     /// share one flush and none of them waits behind a flush of an earlier
     /// one (an F_FULLFSYNC holds the file, so a WAL write that lands during
-    /// it waits for it).
-    pub(crate) fn attach(
-        connection: &Connection,
-        database_path: &Path,
-        slow_flush: Option<Duration>,
-        flush_each_commit: bool,
-    ) -> Self {
-        Self::attach_with_commit_delay(
-            connection,
-            database_path,
-            slow_flush,
-            flush_each_commit,
-            None,
-        )
-    }
-
-    /// [`Self::attach`] whose commits each wait `commit_delay` inside
-    /// `COMMIT` (the registry's `CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS` seam).
+    /// it waits for it). `commit_delay`: each commit waits that long inside
+    /// `COMMIT` (the registry's `CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS`
+    /// seam). `released`: the owner's release; a commit after it fails
+    /// ([`OwnerRelease`]).
     pub(crate) fn attach_with_commit_delay(
         connection: &Connection,
         database_path: &Path,
         slow_flush: Option<Duration>,
         flush_each_commit: bool,
         commit_delay: Option<Duration>,
+        released: OwnerRelease,
     ) -> Self {
         let mut wal_path = database_path.as_os_str().to_owned();
         wal_path.push("-wal");
@@ -217,6 +263,10 @@ impl WalDurability {
         });
         let owner = SyncerOwner(shared.clone());
         let _ = connection.commit_hook(Some(move || {
+            if released.refuses_commit(&owner.0.database_path) {
+                // SQLite turns this commit into a rollback.
+                return true;
+            }
             crate::debug_spans::mark("sqlite.commit");
             if let Some(delay) = owner.0.commit_delay {
                 std::thread::sleep(delay);
@@ -241,6 +291,25 @@ impl WalDurability {
             shared.state.lock().recover_poison().stopping = true;
         }
         Self { shared }
+    }
+
+    /// [`Self::attach_with_commit_delay`] for a database that no owner
+    /// releases, with no commit delay.
+    #[cfg(test)]
+    pub(crate) fn attach(
+        connection: &Connection,
+        database_path: &Path,
+        slow_flush: Option<Duration>,
+        flush_each_commit: bool,
+    ) -> Self {
+        Self::attach_with_commit_delay(
+            connection,
+            database_path,
+            slow_flush,
+            flush_each_commit,
+            None,
+            OwnerRelease::default(),
+        )
     }
 
     /// Wait until every commit made before this call is on disk.

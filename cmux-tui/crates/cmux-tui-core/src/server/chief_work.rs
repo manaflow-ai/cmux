@@ -103,7 +103,8 @@ fn target(mux: &Mux, chief: &str) -> Result<(PathBuf, PathBuf), Failure> {
     let mut slot = mux.chiefs().store.lock().map_err(|_| UNAVAILABLE)?;
     if slot.is_none() {
         *slot = Some(
-            ChiefStore::open(mux.session_state_directory().as_deref()).map_err(|_| UNAVAILABLE)?,
+            ChiefStore::open(mux.session_state_directory().as_deref(), mux.owner_release())
+                .map_err(|_| UNAVAILABLE)?,
         );
     }
     let known = slot.as_ref().ok_or(UNAVAILABLE)?.get(chief).map_err(|_| UNAVAILABLE)?.is_some();

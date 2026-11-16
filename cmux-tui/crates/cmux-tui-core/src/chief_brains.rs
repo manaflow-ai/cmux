@@ -1372,7 +1372,7 @@ fn is_default(record: &ChiefRecord) -> bool {
 fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
     let mut store = mux.chiefs().store.lock().unwrap_or_else(PoisonError::into_inner);
     if store.is_none() {
-        match ChiefStore::open(mux.session_state_directory().as_deref()) {
+        match ChiefStore::open(mux.session_state_directory().as_deref(), mux.owner_release()) {
             Ok(opened) => *store = Some(opened),
             Err(_) => return Vec::new(),
         }

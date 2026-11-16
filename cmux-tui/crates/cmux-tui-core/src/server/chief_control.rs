@@ -181,7 +181,7 @@ fn target(
         if store.is_none() {
             let directory = mux.session_state_directory();
             *store = Some(
-                crate::chief_registry::ChiefStore::open(directory.as_deref())
+                crate::chief_registry::ChiefStore::open(directory.as_deref(), mux.owner_release())
                     .map_err(|e| failed("internal", format!("{e:#}")))?,
             );
         }

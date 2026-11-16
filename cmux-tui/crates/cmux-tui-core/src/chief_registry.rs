@@ -29,6 +29,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::workspace_registry::wal_durability::OwnerRelease;
+
 /// The registry's file inside the session state directory.
 pub(crate) const CHIEFS_FILE: &str = "chiefs.sqlite3";
 /// The default Chief's id: the participant `agent_mux` of every install.
@@ -288,7 +290,9 @@ pub(crate) struct ChiefStore {
 }
 
 impl ChiefStore {
-    pub(crate) fn open(directory: Option<&Path>) -> anyhow::Result<Self> {
+    /// `released` is the release of the session's owner: after it the
+    /// registry takes no write, also when it opens for the first time then.
+    pub(crate) fn open(directory: Option<&Path>, released: &OwnerRelease) -> anyhow::Result<Self> {
         let connection = match directory {
             Some(directory) => {
                 let path = directory.join(CHIEFS_FILE);
@@ -296,7 +300,11 @@ impl ChiefStore {
                     .with_context(|| format!("open chief registry {}", path.display()))?;
                 crate::platform::restrict_file(&path)
                     .with_context(|| format!("restrict chief registry {}", path.display()))?;
-                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
+                crate::workspace_registry::wal_durability::attach_store(
+                    &connection,
+                    &path,
+                    released,
+                );
                 connection
             }
             None => Connection::open_in_memory()?,

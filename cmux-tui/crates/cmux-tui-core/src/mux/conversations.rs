@@ -31,7 +31,10 @@ impl Mux {
         let mut store = self.conversations.store.lock().unwrap();
         if store.is_none() {
             let directory = self.session_state_directory();
-            *store = Some(ConversationStore::open(directory.as_deref())?);
+            *store = Some(ConversationStore::open_for_owner(
+                directory.as_deref(),
+                self.owner_release(),
+            )?);
         }
         operation(store.as_mut().expect("conversation store opened above"))
     }
