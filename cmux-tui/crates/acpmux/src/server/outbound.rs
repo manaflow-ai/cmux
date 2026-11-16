@@ -60,6 +60,14 @@ pub(super) fn reply_lane(msg: &Message, reply_to: Option<&str>) -> Lane {
     }
 }
 
+/// The lane of a line serialized for `method` (a list or status answer sent as one line).
+pub(super) fn method_lane(method: Option<&str>) -> Lane {
+    match method {
+        Some(m) if is_cheap_read(m) => Lane::Read,
+        _ => Lane::Bulk,
+    }
+}
+
 /// Which lane a line goes in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Lane {

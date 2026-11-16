@@ -658,14 +658,9 @@ impl Conn {
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
-        // A notice queued after this reply may go before it, and the answer to a cheap list read
-        // goes ahead of the bulk lane (`outbound.rs`): the client keeps each row with the higher
-        // `listSeq` (`hub/row_log.rs`), so their order does not matter.
-        let lane = match method {
-            Some(m) if outbound::is_cheap_read(m) => outbound::Lane::Read,
-            _ => outbound::Lane::Bulk,
-        };
-        if !queue.push_in(line, lane) {
+        // A cheap list read goes ahead of the bulk lane (`outbound.rs`), so a notice may pass it: the
+        // client keeps each row with the higher `listSeq` (`hub/row_log.rs`); order does not matter.
+        if !queue.push_in(line, outbound::method_lane(method)) {
             return false;
         }
         whole
@@ -2480,9 +2475,6 @@ mod nodelay_tests;
 
 #[cfg(test)]
 mod outbound_queue_tests;
-
-#[cfg(test)]
-mod read_lane_tests;
 
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
