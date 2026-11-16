@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43860659897",
+  "recorded_at": "2026-11-16T11:57:48Z",
+  "reason": "cmux-tui f12bd4c90023 changes the image's cmux-tui (pinned e4975567312e)",
+  "dry_run": false,
+  "cmux_tui": "f12bd4c9002334ad3d74a192d86e97c144393698",
+  "fixes": [
+    {
+      "sha": "f12bd4c9002334ad3d74a192d86e97c144393698",
+      "mergedAt": "2026-11-16T11:32:25Z",
+      "subject": "cmux-rd: --source synthetic, two-Mac measurements over ssh with no Screen Recording or Accessibility grant (#44441)"
+    },
+    {
+      "sha": "15fcfb02601cacc2413051b0f9ca3a7b458b4da9",
+      "mergedAt": "2026-11-16T03:20:09-08:00",
+      "subject": "cmux-rd-host: linux-host status --json in the shared screen-share status shape (#44312)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T11:57:48Z",
+    "snapshot_id": "sh-613ffc2f603142ed8488b7e91e917bfc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43860659897): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "02b349bd2eea29270e3099e37cf3c5e8005580a9",
+    "image": "cloud-native-auto-f12bd4c9-43860659897-1",
+    "revision": "ci-43860659897-1",
+    "at": "2026-11-16T11:57:48Z"
+  },
+  "rolled_back": false
+}
