@@ -2110,14 +2110,29 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
 # fix was already on the base and a base merge would have cleared them. So when every base verdict read ran and
 # passed the script the head's extra error lines name, the refusal says that by name, and says to merge the base. It
 # excuses nothing by itself: a red is still only excused by a base verdict that fails the same lines.
-SUB_CHECK = re.compile(r"((?:\./|scripts/)[\w./-]+\.(?:sh|py|mjs|js|ts))")
+# Read from the extension back, never forward from a path's start: a line of "scripts/scripts/scripts/..." makes
+# every start scan the whole rest of it, which is quadratic in the line (PrLogPatternsScale). Each backward
+# walk stops at the end of the previous match, so the whole reading is linear.
+SUB_CHECK_END = re.compile(r"\.(?:sh|py|mjs|js|ts)(?![\w.-])")
+# What a path of a script a step runs is made of.
+SUB_CHECK_PATH = "_./-"
 
 
 def sub_checks(error: str) -> frozenset:
     """The scripts an error line names (`./scripts/lint-ios-package-conventions.sh`), which is how a step's log says
-    which check printed it; empty when the line names none. Only a script a step runs (`./...` or `scripts/...`), so a
-    compiler error naming a source file is no sub-check."""
-    return frozenset(found.group(1).removeprefix("./") for found in SUB_CHECK.finditer(error))
+    which check printed it; empty when the line names none. Only a script a step runs (`scripts/...`, with or without
+    a leading `./`), so a compiler error naming a source file is no sub-check."""
+    found: set = set()
+    stop = 0
+    for end in SUB_CHECK_END.finditer(error):
+        begin = end.start()
+        while begin > stop and (error[begin - 1].isalnum() or error[begin - 1] in SUB_CHECK_PATH):
+            begin -= 1
+        stop = end.end()
+        path = error[begin:end.end()].removeprefix("./")
+        if path.startswith("scripts/") and "//" not in path:
+            found.add(path)
+    return frozenset(found)
 
 
 # What scripts/ci/run-checks-concurrently.sh prints for a check that passed: `::group::<command>: ok, <n>s`, which the

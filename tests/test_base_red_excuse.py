@@ -10425,6 +10425,8 @@ RAW_LOG_READERS = {
     "failed_steps_log": "what a comment shows; never compared",
     "step_owners": "the one placer of a line in a step, read by the two above alone",
     "lines_of": "a parser of log lines",
+    "check_passed_in": "one line of the concurrent check runner's own (`<command>: ok, 22s`), read to refuse; "
+                       "compares nothing and excuses nothing",
     "unplaced_signature": "an unplaced log's whole-log signature, compared only on identity (UnplacedSignature)",
     "refused_at_setup": "a gate: only refuses",
     "no_verdict": "a gate: a no-verdict compile is ignored only on another pass's proof (compile_pass_at)",
@@ -10441,7 +10443,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -13927,6 +13929,7 @@ SCANNERS = {
     "base_red_excuse._top_level": lambda f: (excuse._top_level(f.log, "||"), excuse._top_level(f.log, "&&")),
     "base_red_excuse._unwrapped": lambda f: excuse._unwrapped("(" * len(f.lines) + f.log + ")" * len(f.lines)),
     "failed_steps_log.lines_of": lambda f: excuse.lines_of(f.log),
+    "base_red_excuse.check_passed_in": lambda f: excuse.check_passed_in(f.log, "scripts/x.sh"),
     "failed_steps_log.step_owners": lambda f: (excuse.step_owners(f.job, f.log, **UNKNOWN),
                                               excuse.step_owners(f.job, f.flood, **UNKNOWN)),
     "failed_steps_log._live_red": lambda f: excuse._live_red(f.lines, 0, len(f.lines), opened=True),
