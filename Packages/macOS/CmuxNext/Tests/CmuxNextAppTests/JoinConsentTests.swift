@@ -185,7 +185,11 @@ import Testing
             fake.askShown = false
             model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
             #expect(await model.answer(allow: true) == text, "\(name)")
-            #expect(model.ask != nil && model.askError == text, "\(name): the sheet shows it")
+            if fake.status?.credentialPresent == true {
+                #expect(model.ask != nil && model.askError == text, "\(name): the sheet shows it")
+            } else {
+                #expect(model.ask == nil, "\(name): a Mac that is not joined has nothing to allow, so the sheet closes")
+            }
             _ = await model.answer(allow: false)
         }
 

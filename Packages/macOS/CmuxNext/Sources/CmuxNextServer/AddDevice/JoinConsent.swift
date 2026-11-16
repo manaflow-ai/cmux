@@ -557,8 +557,10 @@ public final class JoinConsentModel {
             // checks the person itself; this keeps a grant off a Mac that shows no switches).
             let (reading, _) = await read(.writeCheck)
             guard enabled else { return refuse(JoinConsentStrings.changedMeanwhile, "the Labs switch is off") }
-            guard reading.status?.credentialPresent == true, reading.status?.revoked != true else {
-                return refuse(JoinConsentStrings.notJoined, reading.status?.revoked == true ? "this Mac's join was revoked" : "this Mac is not joined")
+            // An unread join status (the CLI failed) is not "not joined": it says only that this Mac could not confirm.
+            guard let joinStatus = reading.status else { return refuse(failed, "this Mac's join status could not be read") }
+            guard joinStatus.credentialPresent, !joinStatus.revoked else {
+                return refuse(JoinConsentStrings.notJoined, joinStatus.revoked ? "this Mac's join was revoked" : "this Mac is not joined")
             }
             // SECURITY: the device owner confirms every grant (Touch ID or the login password), whatever the
             // input that asked for it: an event's source fields can be forged by a process allowed to post
