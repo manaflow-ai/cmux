@@ -229,23 +229,8 @@ extension SidebarListViewComponents {
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
         let displayY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
             + drag.restFrame.height / 2 : drag.probeCard.midY
-        let gap = rowGap(drag) // the list's gap or a block's among item rows (pinned workspaces): one rule for every row
-        var y = gap.map { SidebarDragGeometry.baseY(displayY: displayY, gapY: $0.y, gapHeight: $0.height) }
-            ?? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
-        if let gap {
-            // A row moves by its edges too (Lawrence 2026-10-20): its top past the middle of the row above moves it up,
-            // its bottom past the middle of the row below moves it down (`SidebarDragGeometry.edgeY`). The rest shape's
-            // edges, as for the centre above, so a morph does not move them. Tiles keep the centre (`rowGap`).
-            let morphs = drag.morphs || drag.tileSource != nil
-            let height = morphs ? drag.restFrame.height : drag.lift.frame.height
-            let top = morphs ? displayY - height / 2 : drag.lift.frame.minY
-            let reversing = drag.docTargetChangedUp.map { $0 != drag.movingUp } ?? false
-            guard let edge = geometry.edgeY(top: top, bottom: top + height, x: point.x, movingUp: drag.movingUp, gapY: gap.y,
-                                            gapHeight: gap.height, current: drag.docTarget, reversing: reversing) else { return }
-            // Into a block from the list the centre decides, as before: half the card over the block's last row.
-            if let hit = geometry.hit(CGPoint(x: point.x, y: edge)), rows[hit.slot.key] != nil || (drag.blockTarget != nil && hit.slot.kind == .row) { y = edge }
-            y = gap.held(y, in: geometry, x: point.x)
-        }
+        // One rule for the list's rows and a block's item rows (pinned workspaces): `docDragBaseY`. Nil keeps the target.
+        guard var y = docDragBaseY(drag, geometry: geometry, rows: rows, displayY: displayY, x: point.x) else { return }
         // A block item's card back over its own slot drops where it came from. The base has the dragged items out, so
         // that slot's centre is the next item's middle there, and a point either way picked a neighbour's half: a
         // release where the drag started moved the item one place (Lawrence 2026-10-30, the stuck Home drag).
