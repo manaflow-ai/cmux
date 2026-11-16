@@ -1887,4 +1887,73 @@ mod tests {
         assert!(phone.ping().await.is_ok());
         assert!(!mac.is_closed());
     }
+    /// Link keepalive tight enough to close a silent peer within a second.
+    fn quick_keepalive() -> LinkConfig {
+        LinkConfig {
+            keepalive: Some(Duration::from_millis(50)),
+            keepalive_timeout: Duration::from_millis(600),
+            aligned: false,
+        }
+    }
+
+    /// The next frame from the Mac that is not one of its keepalive pings.
+    async fn next_from_mac(
+        frames: &mut FramedRead<tokio::io::ReadHalf<tokio::io::DuplexStream>, FrameCodec>,
+    ) -> Option<Frame> {
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(5), frames.next()).await.ok()??.ok()?;
+            if frame.kind != FrameType::Ping {
+                return Some(frame);
+            }
+        }
+    }
+
+    /// The partial link (PROTOCOL.md "Parked link"): a Mac whose phone parked
+    /// the link before the OS suspended it outlives its keepalive timeout,
+    /// sends the silent phone nothing (no ping, no held channel data), and on
+    /// the phone's first ping answers and sends what it held. The phone side
+    /// is raw frames, as a suspended phone sends nothing at all.
+    #[tokio::test(start_paused = true)]
+    async fn a_parked_mac_link_waits_silently_for_the_phone() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let mac = Link::new(a, Role::Mac, quick_keepalive(), None);
+        let (read, write) = tokio::io::split(b);
+        let mut from_mac = FramedRead::new(read, FrameCodec);
+        let mut to_mac = FramedWrite::new(write, FrameCodec);
+        to_mac.send(Frame::new(1, FrameType::Open, br#"{"service":"echo"}"#.to_vec())).await.unwrap();
+        let served = mac.accept().await.expect("the echo channel").channel;
+        to_mac
+            .send(Frame::new(
+                3,
+                FrameType::Open,
+                br#"{"service":"_link.park","args":{"hold_ms":5000}}"#.to_vec(),
+            ))
+            .await
+            .unwrap();
+        let answer = next_from_mac(&mut from_mac).await.expect("the Mac answers the park");
+        assert_eq!((answer.channel, answer.kind), (3, FrameType::Close));
+        let info: CloseInfo = serde_json::from_slice(&answer.payload).unwrap();
+        assert_eq!(info.code, "parked");
+
+        // Output for the suspended phone waits on the Mac.
+        served.send(Bytes::from_static(b"held")).await.unwrap();
+        let quiet = tokio::time::timeout(Duration::from_secs(4), from_mac.next()).await;
+        assert!(quiet.is_err(), "a parked Mac sent its silent phone {quiet:?}");
+        assert!(!mac.is_closed(), "closed while parked: {:?}", mac.closed_state().borrow().clone());
+
+        // The phone is back: its ping ends the park.
+        to_mac.send(Frame::new(0, FrameType::Ping, 7u64.to_be_bytes().to_vec())).await.unwrap();
+        let mut got = Vec::new();
+        while got.len() < 2 {
+            let frame = tokio::time::timeout(Duration::from_secs(1), from_mac.next())
+                .await
+                .expect("the Mac answers the returning phone")
+                .expect("open")
+                .unwrap();
+            got.push((frame.channel, frame.kind, frame.payload));
+        }
+        assert!(got.contains(&(0, FrameType::Pong, Bytes::from(7u64.to_be_bytes().to_vec()))), "{got:?}");
+        assert!(got.contains(&(1, FrameType::Data, Bytes::from_static(b"held"))), "{got:?}");
+        assert!(!mac.is_closed());
+    }
 }
