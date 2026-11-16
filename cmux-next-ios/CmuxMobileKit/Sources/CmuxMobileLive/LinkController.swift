@@ -45,6 +45,8 @@ public final class LinkController {
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
+    /// A heartbeat is armed: it probes the link on its beats.
+    var isBeating: Bool { heartbeatTask.map { !$0.isCancelled } ?? false }
     @ObservationIgnored private var probeTask: Task<Void, Never>?
     /// Foreground silence is detected within 5 s: 2.5 s of quiet until a
     /// probe, 2 s for any inbound frame, and 0.5 s grace for the FFI

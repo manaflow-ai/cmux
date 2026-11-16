@@ -92,9 +92,9 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         controller.send(.background)
         try await eventually { controller.isParked }
         #expect(dialer.first.parkCount == 1)
-        // Past several background heartbeats: no probe reaches the parked link.
+        // No heartbeat is left to probe the parked link while away.
+        #expect(!controller.isBeating, "a parked link keeps its heartbeat")
         clock.advance(by: LinkController.backgroundHeartbeat * 4)
-        try await Task.sleep(for: .milliseconds(50))
         #expect(dialer.first.probeCount == 1, "a parked link was probed while away")
 
         controller.send(.resume)
