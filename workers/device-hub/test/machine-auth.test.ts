@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { platformUserIdFor } from "../src/machine";
-import { Device, STACK_DEV_PROJECT, STACK_PROJECT, mockOutbound, platformCalls, platformMachines, rawCall, signIn } from "./helpers";
+import { BASE, Device, STACK_DEV_PROJECT, STACK_PROJECT, mockOutbound, platformCalls, platformMachines, rawCall, signIn, worker } from "./helpers";
 
 /** A machine the person `sub` joined: its credential, as cmux-platform knows it. */
 async function joinedMachine(sub: string, project = STACK_PROJECT, extra: Record<string, unknown> = {}) {
@@ -18,6 +18,32 @@ async function joinedMachine(sub: string, project = STACK_PROJECT, extra: Record
 async function machineSignIn(credential: string, deviceId: string) {
   mockOutbound();
   return rawCall("POST", "/v1/auth/machine", { body: { credential, deviceId } });
+}
+
+/** The machine's desktop, signed in with `credential` and registered: its device and session answer. */
+async function machineHost(person: { userId: string }, credential: string) {
+  const desktop = await Device.create({ userId: person.userId, session: "" }, "Desktop", "linux");
+  const res = await machineSignIn(credential, desktop.id);
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  const machine = await Device.create({ userId: res.json.userId, session: res.json.session }, "Desktop", "linux");
+  Object.assign(machine, { id: desktop.id, signing: desktop.signing, signingKey: desktop.signingKey, agreementKey: desktop.agreementKey });
+  await machine.register();
+  return { machine, answer: res.json };
+}
+
+/** `POST /v1/auth/device` signed by `d`: device-key renewal, with no credential. */
+async function renew(d: Device) {
+  const body = JSON.stringify({ userId: d.account.userId });
+  const headers = { ...(await d.headers("POST", "/v1/auth/device", body)), "content-type": "application/json" };
+  const res = await worker.fetch(`${BASE}/v1/auth/device`, { method: "POST", headers, body });
+  const text = await res.text();
+  return { status: res.status, json: text ? (JSON.parse(text) as any) : null };
+}
+
+/** A session token's claims. */
+function claims(session: string): Record<string, any> {
+  const part = session.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+  return JSON.parse(atob(part + "=".repeat((4 - (part.length % 4)) % 4)));
 }
 
 describe("POST /v1/auth/machine", () => {
@@ -40,9 +66,6 @@ describe("POST /v1/auth/machine", () => {
     const machine = await Device.create({ userId: person.userId, session: res.json.session }, "Desktop", "linux");
     Object.assign(machine, { id: desktop.id, signing: desktop.signing, signingKey: desktop.signingKey, agreementKey: desktop.agreementKey });
     await machine.register();
-    const anchored = await machine.call("POST", "/v1/auth/device/anchor", {});
-    expect(anchored.status, JSON.stringify(anchored.json)).toBe(200);
-    expect(anchored.json.anchoredUntil).toBeGreaterThan(Date.now());
     const shared = await machine.call("PUT", `/v1/devices/${machine.id}/mac-screen`, { shared: true });
     expect(shared.status, JSON.stringify(shared.json)).toBe(200);
     // The person's own Mac sees it, shared: the same account, from the platform's answer alone.
@@ -115,5 +138,49 @@ describe("POST /v1/auth/machine", () => {
     const res = await machineSignIn(credential, crypto.randomUUID());
     expect(res.status).toBe(200);
     expect(res.json.expiresAt).toBeLessThanOrEqual(soon);
+  });
+
+  it("refuses a revoked or expired credential at once, and its last session ends within the hour", async () => {
+    const person = await signIn();
+    const credential = await joinedMachine(person.sub);
+    const { machine, answer } = await machineHost(person, credential);
+    const { iat, exp } = claims(answer.session);
+    expect(exp - iat).toBeLessThanOrEqual(3600);
+    // No anchor, so no device-key renewal: the session ends with its hour.
+    const anchor = await machine.call("POST", "/v1/auth/device/anchor", {});
+    expect(anchor.status).toBe(403);
+    expect(JSON.stringify(anchor.json)).toContain("machine_scope");
+    expect((await renew(machine)).status).toBe(403);
+    // Renewal is a new sign-in, and cmux-platform is asked again: revoked there, refused here.
+    const before = platformCalls.length;
+    platformMachines.delete(credential);
+    expect((await machineSignIn(credential, machine.id)).status).toBe(401);
+    expect(platformCalls.length).toBe(before + 1);
+    // Expired after it was issued: refused the same way.
+    const lapsing = await joinedMachine(person.sub);
+    await machineHost(person, lapsing);
+    platformMachines.set(lapsing, { ...platformMachines.get(lapsing), expiresAt: new Date(Date.now() - 1000).toISOString() });
+    expect((await machineSignIn(lapsing, crypto.randomUUID())).status).toBe(401);
+  });
+
+  it("never makes one team's machine read as another team's person", async () => {
+    // Two people on two teams; A joined a machine to team A.
+    const a = await signIn();
+    const b = await signIn();
+    const credential = await joinedMachine(a.sub, STACK_PROJECT, { teamId: "team_A" });
+    const { machine, answer } = await machineHost(a, credential);
+    expect(answer).toMatchObject({ userId: a.userId, teamId: "team_A", ownerKind: "user" });
+    expect(answer.userId).not.toBe(b.userId);
+    // B's own devices: the machine is not among them, so it is not B's same-account host.
+    const bMac = await Device.create(b, "Laptop", "macos");
+    await bMac.register();
+    const listed = (await bMac.call("GET", "/v1/devices")).json.devices.map((d: any) => d.id);
+    expect(listed).not.toContain(machine.id);
+    // And the machine's session reaches nothing of B's.
+    expect((await machine.call("PUT", `/v1/devices/${bMac.id}/mac-screen`, { shared: true })).status).toBe(403);
+    // A team answer never names the account: a credential on team B joined by A is still A's.
+    const onB = await joinedMachine(a.sub, STACK_PROJECT, { teamId: "team_B" });
+    const other = await machineSignIn(onB, crypto.randomUUID());
+    expect(other.json).toMatchObject({ userId: a.userId, teamId: "team_B" });
   });
 });

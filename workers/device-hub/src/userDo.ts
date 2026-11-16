@@ -15,7 +15,8 @@ interface CallContext {
   stackToken: string | null;
   /**
    * `host`: a device-key renewal session, which may only serve this device as a host. `machine`:
-   * a joined machine's sign-in (index.ts authMachine), which may also register, anchor and share it.
+   * a joined machine's sign-in (index.ts authMachine), which may also register and share it, never
+   * anchor it: it renews only by signing in again, which asks cmux-platform each time.
    */
   scope: "full" | "host" | "machine";
   /** A host session's cmux relay entitlement, as recorded at its last anchor. */
@@ -1127,15 +1128,15 @@ export class UserDO extends DurableObject<Env> {
   }
 
   /**
-   * What a machine session may do: what a host session may, and set this
-   * machine up as a host (anchor it, turn its sharing on). Its registration
-   * passed before dispatch. Not: another device, permissions above the saved
-   * ones, relay writes, a session as viewer.
+   * What a machine session may do: what a host session may, and turn this
+   * machine's sharing on. Its registration passed before dispatch. Not:
+   * another device, permissions above the saved ones, relay writes, a session
+   * as viewer, or an anchor: device-key renewal would outlive the credential,
+   * so a revoked machine would keep its host session for 30 days.
    */
   private machineAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
     const [a, b, d] = parts;
     const n = parts.length;
-    if (a === "auth" && b === "device" && d === "anchor" && n === 3 && m === "POST") return true;
     if (a === "devices" && n === 3 && d === "mac-screen" && m === "PUT" && b === me.id) return true;
     return this.hostAllowed(m, parts, me, raw);
   }

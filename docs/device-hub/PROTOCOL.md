@@ -45,9 +45,12 @@ host-signed allow lists are later work.
   who never signed in to the hub has no account to join a machine to (403
   `account_not_on_hub`). The `machine` session is the one device's
   `deviceId` (every call signed by it), ends with the credential (at most
-  1 h), carries no Stack token (no cmux relay), and may register that device,
-  anchor it and turn its sharing on or off, besides what a host session may
-  (403 `machine_scope` otherwise). Without `MACHINE_ORIGINS` the route is 503
+  1 h), carries no Stack token (no cmux relay), and may register that device
+  and turn its sharing on or off, besides what a host session may (403
+  `machine_scope` otherwise). It may not anchor the device, so the machine
+  renews only by signing in again, and cmux-platform is asked every time: a
+  revoked or expired credential is refused at once, and the last session
+  issued for it ends within 1 h. Without `MACHINE_ORIGINS` the route is 503
   `machine_auth_unavailable`.
 - **Device key**: each device has two P-256 keys in its Secure Enclave
   (CryptoKit `SecureEnclave.P256.Signing` and `.KeyAgreement`). Public keys are

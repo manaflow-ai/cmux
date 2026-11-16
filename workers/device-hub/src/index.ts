@@ -58,9 +58,11 @@ async function authStack(request: Request, env: Env): Promise<Response> {
  * to cmux signs in with its cmux-platform machine credential, `POST
  * /v1/auth/machine {credential, deviceId}`. The hub asks cmux-platform whose
  * it is (machine.ts) and answers a `machine` session for that one device: it
- * may register it, anchor it and turn its sharing on or off, and otherwise
- * only what a host session may. It ends with the credential, at most in an
- * hour, and carries no Stack token, so it gets no cmux relay.
+ * may register it and turn its sharing on or off, and otherwise only what a
+ * host session may. It ends with the credential, at most in an hour, and
+ * carries no Stack token, so it gets no cmux relay. It never anchors, so the
+ * machine renews only by signing in again: cmux-platform is asked each time,
+ * and a revoked credential's last session ends within the hour.
  */
 async function authMachine(request: Request, env: Env): Promise<Response> {
   const body = await readJson(request);
