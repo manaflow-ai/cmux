@@ -219,10 +219,10 @@ mod tests {
         assert!(stream.update(&screen(&["> hi"]), 5).is_none(), "nothing changed");
         let b = stream.update(&screen(&["> hi", "✻ Misting…"]), 10).unwrap();
         assert_eq!((b.base, b.frame), (Some(1), 2));
-        assert_eq!(viewer(&[&a, &b]), screen(&["> hi", "✻ Misting…"]));
+        assert_eq!(viewer(&[&a, &b]).parity(&screen(&["> hi", "✻ Misting…"])), (80, 80));
         let key = stream.keyframe(20);
         assert_eq!((key.base, key.frame), (None, 2));
-        assert_eq!(viewer(&[&key]), screen(&["> hi", "✻ Misting…"]));
+        assert_eq!(viewer(&[&key]).parity(&screen(&["> hi", "✻ Misting…"])), (80, 80));
     }
 
     #[test]
@@ -235,9 +235,11 @@ mod tests {
         let resumed = stream.resume(1, 30).unwrap();
         assert_eq!((resumed.base, resumed.frame), (Some(1), 3));
         assert!(resumed.data.len() < stream.keyframe(30).data.len());
-        assert_eq!(viewer(&[&a, &resumed]), screen(&["one", "two!", "three", "four"]));
+        let want = screen(&["one", "two!", "three", "four"]);
+        assert_eq!(viewer(&[&a, &resumed]).parity(&want), (80, 80));
         // Up to date: an empty delta.
-        assert_eq!(viewer(&[&a, &resumed, &stream.resume(3, 40).unwrap()]), stream.shown());
+        let again = stream.resume(3, 40).unwrap();
+        assert_eq!(viewer(&[&a, &resumed, &again]).parity(&stream.shown()), (80, 80));
         // A frame the stream never sent.
         assert!(stream.resume(9, 40).is_none());
     }
