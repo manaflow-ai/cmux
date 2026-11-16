@@ -111,21 +111,17 @@ const EARLIER = editRow("edit-earlier", "/repo/src/a.ts");
 const LATEST = editRow("edit-latest", "/repo/src/b.ts");
 
 async function renderCards(
-  secondOpinion?: (rowId: string, files: readonly string[]) => void,
   onOpenDiff: (rowId: string) => void = () => undefined,
 ) {
   const { createRoot } = await import("react-dom/client");
   const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
   const { SessionEditsContext } = await import("../src/agent-session/acpmux/turnChanges/sessionRows");
-  const { SecondOpinionContext } = await import("../src/agent-session/acpmux/conversation/secondOpinion");
   root = createRoot(host);
   await act(async () =>
     root!.render(
       <SessionEditsContext.Provider value={[EARLIER, LATEST]}>
-        <SecondOpinionContext.Provider value={secondOpinion}>
-          <EditedFilesCard row={EARLIER} onOpenDiff={onOpenDiff} />
-          <EditedFilesCard row={LATEST} onOpenDiff={onOpenDiff} />
-        </SecondOpinionContext.Provider>
+        <EditedFilesCard row={EARLIER} onOpenDiff={onOpenDiff} />
+        <EditedFilesCard row={LATEST} onOpenDiff={onOpenDiff} />
       </SessionEditsContext.Provider>,
     ),
   );
@@ -139,28 +135,26 @@ const shown = (card: HTMLElement, selector: string) => {
   return window.getComputedStyle(button!).opacity !== "0";
 };
 
-test("an earlier card's View changes waits for hover; the latest card's shows at rest", async () => {
+test("every card shows its Undo and View changes at rest, as the Codex app does (Lucas, 2026-11-14)", async () => {
   const { earlier, latest } = await renderCards();
   expect(earlier.hasAttribute("data-earlier")).toBe(true);
   expect(latest.hasAttribute("data-earlier")).toBe(false);
-  expect(shown(earlier, ".acpmux-review-changes")).toBe(false);
-  expect(shown(latest, ".acpmux-review-changes")).toBe(true);
+  for (const card of [earlier, latest]) {
+    expect(shown(card, ".acpmux-review-changes")).toBe(true);
+    expect(shown(card, ".acpmux-edited-undo")).toBe(true);
+  }
 });
 
 test("keyboard focus on an earlier card shows its buttons", async () => {
-  const { earlier } = await renderCards(() => undefined);
+  const { earlier } = await renderCards();
   await act(async () => earlier.querySelector<HTMLElement>(".acpmux-review-changes")!.focus());
   expect(shown(earlier, ".acpmux-review-changes")).toBe(true);
   expect(shown(earlier, ".acpmux-edited-undo")).toBe(true);
 });
 
 test("cards retain Undo and View changes without offering Second opinion", async () => {
-  const asked: string[] = [];
   const opened: string[] = [];
-  const { earlier, latest } = await renderCards(
-    (rowId) => asked.push(rowId),
-    (rowId) => opened.push(rowId),
-  );
+  const { earlier, latest } = await renderCards((rowId) => opened.push(rowId));
   for (const card of [earlier, latest]) {
     expect(card.querySelector(".acpmux-second-opinion")).toBeNull();
     const actions = card.querySelector(".acpmux-edited-actions")!;
@@ -171,7 +165,6 @@ test("cards retain Undo and View changes without offering Second opinion", async
   }
   await act(async () => latest.querySelector<HTMLElement>(".acpmux-review-changes")!.click());
   expect(opened).toEqual(["edit-latest"]);
-  expect(asked).toEqual([]);
 });
 
 test("a lone card with no session rows is the latest", async () => {
@@ -186,7 +179,7 @@ test("a lone card with no session rows is the latest", async () => {
 
 test("the aggregate is keyboard reachable and opens that card without toggling its inline diff", async () => {
   const opened: string[] = [];
-  const { latest } = await renderCards(undefined, (rowId) => opened.push(rowId));
+  const { latest } = await renderCards((rowId) => opened.push(rowId));
   const summary = latest.querySelector<HTMLButtonElement>(".acpmux-edited-summary")!;
   const counts = summary.querySelector<HTMLElement>(".acpmux-edited-summary-counts")!;
   const link = summary.querySelector<HTMLElement>(".acpmux-edited-summary-link")!;
@@ -225,6 +218,31 @@ test("file rows retain shared parent paths and exact diff targets without invent
   expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
   await act(async () => fileRows[1]!.click());
   expect(opened).toEqual([{ id: row.id, path: "src/net/client.ts" }]);
+});
+
+test("a file outside the checkpoint reads from the chat's folder, not from the disk root (Lucas, 2026-11-14)", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
+  const { SessionCwdContext } = await import("../src/agent-session/acpmux/turnChanges/sessionRows");
+  const first = editRow("absolute-first", "/Users/me/code/app/webviews/test/scratch.test.ts");
+  const second = editRow("absolute-second", "/Users/me/code/app/webviews/test/other.test.ts");
+  const row = { ...first, items: [...first.items!, ...second.items!] };
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <SessionCwdContext.Provider value="/Users/me/code">
+        <EditedFilesCard row={row} onOpenDiff={() => undefined} />
+      </SessionCwdContext.Provider>,
+    ),
+  );
+  const file = host.querySelector<HTMLElement>(".acpmux-edited-file")!;
+  expect(file.querySelector(".acpmux-edited-dir-head")?.textContent).toBe("app/");
+  expect(file.querySelector(".acpmux-edited-dir")?.textContent).toBe("app/webviews/test/");
+  expect(file.querySelector(".acpmux-edited-base")?.textContent).toBe("scratch.test.ts");
+  // The diff still opens at the full path.
+  expect(file.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(
+    "/Users/me/code/app/webviews/test/scratch.test.ts",
+  );
 });
 
 test("without a diff opener, the aggregate remains static counts", async () => {
