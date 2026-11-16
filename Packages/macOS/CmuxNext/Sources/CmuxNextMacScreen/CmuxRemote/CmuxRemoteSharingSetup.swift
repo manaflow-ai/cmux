@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// A window-scoped permission guide for the process that actually captures the screen: this app.
 /// The same guide serves the visible Share action and the CLI's person-confirmed share request.
@@ -90,8 +91,8 @@ struct CmuxRemoteSharingSetup {
                 if Task.isCancelled { shown.dismiss(from: center) }
             }
         } onCancel: {
-            // task-owner: one hop to the main actor to dismiss the overview this cancelled wait showed
-            Task { @MainActor in shown.dismiss(from: center) }
+            // The cancel can come from any thread: the overview this cancelled wait showed ends on main.
+            MainDelivery().run { shown.dismiss(from: center) }
         }
     }
 
