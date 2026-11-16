@@ -363,7 +363,7 @@ reliable bounded progress signal in this protocol that distinguishes both cases,
 so explicit Restart retains recovery of a wedged full owner. Automatic ensure
 keeps reporting `server.busy` without replacing it. The
 `replace_unresponsive_owner` integration tests cover both healthy and wedged
-saturation and normal ensure adopting the original owner once a slot opens.
+saturation and normal ensure adopting the original owner once capacity is available.
 
 `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
 contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
