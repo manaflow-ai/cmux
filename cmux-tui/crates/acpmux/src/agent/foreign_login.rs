@@ -20,7 +20,10 @@
 //! to them on purpose (`cli/chief/launch.rs` `brain_env_allowed`), so it keeps
 //! them. A command line that names no known agent, or more than one, loses
 //! every harness's own sign-in and keeps only the provider API keys: the safe
-//! side; its profile's env can still give it a login on purpose.
+//! side; its profile's env can still give it a login on purpose. The provider
+//! keys only multi-provider harnesses read (`login_env::PROVIDER_KEYS`:
+//! OPENROUTER_API_KEY, GROQ_API_KEY, ...) reach those harnesses and the one
+//! family that signs in with each, never Claude Code, Codex or another agent.
 //!
 //! Every path that starts a harness's own program goes through here: an
 //! agent (`agent/command.rs`), a fork of a terminal's chat (`chat_fork.rs`),
@@ -62,6 +65,8 @@ pub(crate) const LOGIN_ENV_OWNERS: &[LoginEnv] = &[
     // `GOOGLE_*` stays: Claude Code on Vertex reads it on purpose (`login_env.rs`).
     LoginEnv { key: "GEMINI_API_KEY", family: "gemini", shared_with_others: true },
     LoginEnv { key: "GEMINI_CLI_HOME", family: "gemini", shared_with_others: false },
+    // xAI's grok CLI home (`~/.grok`, its `grok login` session): its own.
+    LoginEnv { key: "GROK_HOME", family: "grok", shared_with_others: false },
     // Muse Code's API key: no other harness signs in with it.
     LoginEnv { key: "META_API_KEY", family: "muse", shared_with_others: false },
 ];
@@ -76,8 +81,19 @@ pub(crate) struct LoginEnv {
     pub(crate) shared_with_others: bool,
 }
 
-/// The login keys a harness of `family` must not inherit.
+/// The login keys a harness of `family` must not inherit: another family's own login, and the
+/// provider keys only multi-provider harnesses read ([`provider_key_foreign`]).
+#[cfg(test)]
 pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static str> + '_ {
+    foreign_login_keys_for(family, None)
+}
+
+/// [`foreign_login_keys`] for an agent on a profile whose env is `profile`: its Bedrock and Vertex
+/// switches decide, as they do for the login shell (`login_env::allowed_with`).
+pub(crate) fn foreign_login_keys_for<'a>(
+    family: &'a str,
+    profile: Option<&'a std::collections::BTreeMap<String, String>>,
+) -> impl Iterator<Item = &'static str> + 'a {
     LOGIN_ENV_OWNERS
         .iter()
         .filter(move |login| {
@@ -85,6 +101,44 @@ pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static 
                 && (!login.shared_with_others || SINGLE_LOGIN_FAMILIES.contains(&family))
         })
         .map(|login| login.key)
+        .chain(
+            crate::login_env::PROVIDER_KEYS
+                .iter()
+                .copied()
+                .filter(move |key| provider_key_foreign(key, family, profile)),
+        )
+}
+
+/// Whether a provider key of `login_env::PROVIDER_KEYS` (the ones [`LOGIN_ENV_OWNERS`] does not
+/// already name) must not reach `family`. One rule for both sides: a family keeps from the daemon's
+/// env exactly what the login shell's allow-list gives it (`login_env::allowed_with`, with the
+/// profile's env). So the multi-provider harnesses keep every key, the key's own family
+/// ([`provider_key_owner`]) keeps it, and a family that uses it under a condition keeps it under
+/// that condition: Claude with the person's Vertex switch keeps `GOOGLE_API_KEY`. An unknown
+/// command (`""`) keeps them, as it keeps the shared keys above.
+fn provider_key_foreign(
+    key: &str,
+    family: &str,
+    profile: Option<&std::collections::BTreeMap<String, String>>,
+) -> bool {
+    !LOGIN_ENV_OWNERS.iter().any(|login| login.key == key)
+        && !family.is_empty()
+        && !crate::login_env::allowed_with(key, "", Some(family), profile)
+}
+
+/// The one family that owns a `login_env::PROVIDER_KEYS` key besides the multi-provider
+/// harnesses: the login shell's allow-list gives it that family (`login_env::allowed_with`), and
+/// the scrub keeps it there ([`provider_key_foreign`] reads the allow-list). Another family that
+/// uses the key under a condition (Claude on Vertex: `GOOGLE_*`) says so in its own allow-list arm.
+pub(crate) fn provider_key_owner(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "ANTHROPIC_BASE_URL" => "claude",
+        "OPENAI_BASE_URL" | "AZURE_OPENAI_API_KEY" => "codex",
+        "GOOGLE_API_KEY" | "GOOGLE_GENERATIVE_AI_API_KEY" => "gemini",
+        "XAI_API_KEY" => "grok",
+        "DEEPSEEK_API_KEY" => "deepseek",
+        _ => return None,
+    })
 }
 
 /// What a harness's command line runs, for the scrub.
@@ -284,10 +338,14 @@ const EXECUTABLES: [(&str, &str); 20] = [
 
 /// Every login `runs` must not inherit, removed through `remove`, for an
 /// agent started outside [`scrub`]'s profile path (a sign-in check, a model
-/// list).
-pub(crate) fn remove_foreign(runs: &Runs, mut remove: impl FnMut(&str)) {
+/// list), whose env is `profile`.
+pub(crate) fn remove_foreign(
+    runs: &Runs,
+    profile: Option<&std::collections::BTreeMap<String, String>>,
+    mut remove: impl FnMut(&str),
+) {
     if let Some(kept) = runs.kept() {
-        foreign_login_keys(kept).for_each(&mut remove);
+        foreign_login_keys_for(kept, profile).for_each(&mut remove);
     }
 }
 
@@ -295,7 +353,7 @@ pub(crate) fn remove_foreign(runs: &Runs, mut remove: impl FnMut(&str)) {
 /// whatever set it so far (the daemon's own env, the login shell, machine
 /// env). Call before the profile's own env is applied.
 pub(crate) fn scrub(cmd: &mut Command, name: &str, profile: &HarnessProfile) {
-    remove_foreign(&classify(name, profile), |key| {
+    remove_foreign(&classify(name, profile), Some(&profile.env), |key| {
         cmd.env_remove(key);
     });
 }
@@ -334,6 +392,31 @@ mod tests {
         assert!(muse.contains(&"GEMINI_CLI_HOME") && !muse.contains(&"META_API_KEY"));
     }
 
+    /// The provider keys a multi-provider harness reads (`login_env::PROVIDER_KEYS`) reach only
+    /// those harnesses and the one family that signs in with each, whatever env set them (the
+    /// daemon's own, from a shell holding OPENROUTER_API_KEY): Claude Code, Codex and every other
+    /// agent lose them. An unknown command keeps them, as it keeps the shared provider keys.
+    #[test]
+    fn provider_keys_reach_only_multi_provider_harnesses_and_their_own_family() {
+        let loses = |family: &str, key: &str| foreign_login_keys(family).any(|k| k == key);
+        for family in ["claude", "codex", "gemini", "muse", "cursor", "grok", "deepseek"] {
+            for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY", "HF_TOKEN", "TOGETHER_API_KEY"] {
+                assert!(loses(family, key), "{key} reaches {family}");
+            }
+        }
+        for family in ["opencode", "pi", "omp", "prime", "hermes", ""] {
+            for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY", "XAI_API_KEY", "OPENAI_BASE_URL"] {
+                assert!(!loses(family, key), "{family:?} loses {key}");
+            }
+        }
+        // Each family keeps the ones it signs in with.
+        assert!(!loses("claude", "ANTHROPIC_BASE_URL") && loses("claude", "OPENAI_BASE_URL"));
+        assert!(!loses("codex", "OPENAI_BASE_URL") && loses("codex", "ANTHROPIC_BASE_URL"));
+        assert!(!loses("gemini", "GOOGLE_API_KEY") && loses("claude", "GOOGLE_API_KEY"));
+        assert!(!loses("grok", "XAI_API_KEY") && loses("claude", "XAI_API_KEY"));
+        assert!(!loses("deepseek", "DEEPSEEK_API_KEY") && loses("codex", "DEEPSEEK_API_KEY"));
+    }
+
     #[test]
     fn a_multi_provider_harness_keeps_provider_keys_but_not_other_sign_ins() {
         let opencode: Vec<_> = foreign_login_keys("opencode").collect();
@@ -346,7 +429,7 @@ mod tests {
     fn an_agent_loses_the_other_logins_an_unknown_command_every_sign_in_and_a_host_none() {
         let removed = |runs: Runs| {
             let mut keys = Vec::new();
-            remove_foreign(&runs, |key| keys.push(key.to_owned()));
+            remove_foreign(&runs, None, |key| keys.push(key.to_owned()));
             keys
         };
         let codex = removed(Runs::Agent("codex".into()));

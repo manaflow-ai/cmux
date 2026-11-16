@@ -20,8 +20,8 @@ extension CloudStrings {
 
     /// The connect answer or its socket failed a safety check (the check is in the log).
     package static var linkCheckFailed: String {
-        String(localized: "cloud.link.checkFailed",
-               defaultValue: "cmux didn't connect: the Cloud app's answer for this machine failed a safety check. Click Connect to try again; if it keeps happening, run `cmux cloud diagnostics`.",
+        String(localized: "cloud.link.checkFailedPlain",
+               defaultValue: "cmux didn't connect: the Cloud app's answer for this machine failed a safety check. Click Connect to try again.",
                table: "Cloud", bundle: .module)
     }
 

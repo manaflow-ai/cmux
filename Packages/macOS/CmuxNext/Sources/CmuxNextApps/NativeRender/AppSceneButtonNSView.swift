@@ -56,7 +56,7 @@ final class AppSceneButtonNSView: AppSceneNodeNSView {
 
     override func layoutContent(in rect: CGRect) {
         fill.frame = rect
-        fill.cornerRadius = Metrics.itemCornerRadius
+        fill.cornerRadius = Metrics.buttonCornerRadius
         let inner = rect.insetBy(dx: Metrics.space2, dy: 0)
         if !title.isHidden {
             let height = ceil(title.naturalSize.height)
@@ -72,7 +72,7 @@ final class AppSceneButtonNSView: AppSceneNodeNSView {
         }
     }
 
-    override func updateLayer() {
+    override func paint() {
         performWithTheme {
             title.textColor = node.flag("destructive") ? Palette.danger : Palette.textPrimary
             let state = ChromeHover.State(hovering: isHovered && isTappable, pressed: isPressed)

@@ -42,6 +42,8 @@ enum AgentPaneHandshakeReply {
                 handshake.peer = seed.host
                 if let peer = seed.host { handshake.machineName = peer }
                 if seed.showsHarnesses { handshake.harnesses = true }
+                if seed.picksCloud { handshake.pickCloud = true }
+                handshake.cloudStartHandoff = seed.cloudStartHandoff
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
             // The surface holds after the chat has a session (a reload
@@ -96,6 +98,7 @@ enum AgentPaneHandshakeReply {
                 model.wakeSource = nil
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
+                model.openWaits.ran(.handshake)
             }
             model.hasHandshake = true
             // A handshake starts a connection: the page says when its client is ready (`pane.clientReady`).

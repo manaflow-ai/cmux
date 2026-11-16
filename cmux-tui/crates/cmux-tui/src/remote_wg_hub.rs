@@ -285,11 +285,12 @@ fn start_wireguard_hub_tunnel(
     options: HubTunnel,
     timeout: Duration,
 ) -> anyhow::Result<(Arc<cmux_wg::WgNet>, cmux_wg::MultipathControl)> {
-    let config = if path == Path::new("-") {
+    let mut config = if path == Path::new("-") {
         read_wireguard_config_stdin(&mut io::stdin().lock())?
     } else {
         read_wireguard_config(path)?
     };
+    config.ultra = ultra_setting();
     let probes = options.probes.then(cmux_wg::ProbeConfig::default);
     let send_buffer = options.send_buffer;
     let kind = cmux_wg::PathKind::ViaCloudRegion;

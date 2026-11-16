@@ -9,7 +9,7 @@ import Testing
 /// (PROTOCOL.md "Devices"). The phone lists and links that Mac once; two Macs
 /// that only share a name stay two Macs, each linked.
 @MainActor
-@Suite(.serialized) struct MacMachineIDLinkTests {
+@Suite(.serialized, .timeLimit(.minutes(2))) struct MacMachineIDLinkTests {
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
     let teamID = "t-machine-\(UUID().uuidString.prefix(8))"
@@ -33,7 +33,9 @@ import Testing
     }
 
     func settle(_ done: () -> Bool) async {
-        for _ in 0..<3000 where !done() { try? await Task.sleep(for: .milliseconds(1)) }
+        // No deadline of its own: 3000 sleeps ended before a busy kit run's main actor had
+        // applied the state waited for (cmux#40635). The suite's time limit bounds a hang.
+        while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
     }
 
     func drain() async {

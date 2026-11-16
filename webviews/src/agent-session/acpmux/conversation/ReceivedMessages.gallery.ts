@@ -106,7 +106,7 @@ function snapshot() {
 }
 
 const HEAD = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
-const LINE = ".cv-lane-batch__body .cv-received .cv-disclosure__toggle";
+const LINE = ".cv-lane-batch__body .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
 
 /// Opens the "Received N messages" row (level 1).
 const openRow: Play = async (ctx) => {
@@ -124,6 +124,65 @@ const openMessage: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__body .cv-received__text"), { capMs: 10_000 });
 };
 
+// Leo's 2026-11-14 capture: a "Received 2 messages" row whose hover was the solid popup surface and
+// stopped after its first message ("this has no transparency at all + is not scrollable"). Two
+// long reports, so the card is taller than the pane and must scroll in itself.
+const LONG_SENDERS: Sender[] = [
+  { name: "lane-box-2/coord-2", session: "s-coord", harness: "claude" },
+  { name: "lane-box-5/ask-59c3", session: "s-ask", harness: "claude" },
+];
+const LONG_REPORT = (topic: string, lines: number) =>
+  Array.from(
+    { length: lines },
+    (_, index) =>
+      `${topic} step ${index + 1}: the check ran on the build box, the numbers held, and the next step waits on its review.`,
+  ).join("\n");
+TEXT["s-coord"] = LONG_REPORT("Helper re-sign", 14);
+TEXT["s-ask"] = LONG_REPORT("Pin bump", 10);
+
+function longSnapshot() {
+  return chat(
+    [
+      user("Keep me posted on the helper re-sign.", 9),
+      // A long reply first, so the row sits low in the pane, as in Leo's capture: its card opens
+      // above it over the transcript, never over the composer.
+      assistant(
+        Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of the reply under the card.`).join("\n\n"),
+        8.8,
+      ),
+      summary(8.7, { status: "completed", durationMs: 12_000, toolCount: 0 }),
+      received(LONG_SENDERS[0]!, 6),
+      received(LONG_SENDERS[1]!, 5.5),
+      assistant("Both reports are in; the pin bump is next.", 5),
+      summary(4.9, { status: "completed", durationMs: 30_000, toolCount: 0 }),
+    ],
+    {
+      title: "helper-coordinator",
+      sessions: [
+        session({ sessionId: SESSION_ID, title: "helper-coordinator", name: "helper-coordinator" }),
+        ...LONG_SENDERS.map((sender) =>
+          session({ sessionId: sender.session, title: sender.name, name: sender.name, harness: sender.harness }),
+        ),
+      ],
+    },
+  );
+}
+
+/// The "Received N messages" row's hover card, shown over the chat.
+const GROUP_HOVER_POPUP = ".cv-group-hover__popup";
+const hoverRow: Play = async (ctx) => {
+  const head = ".cv-message-group__head";
+  await ctx.waitFor(() => ctx.document.querySelector(head), { capMs: 10_000 });
+  await ctx.hover({ selector: head });
+  await ctx.waitFor(
+    () => {
+      const popup = ctx.document.querySelector(GROUP_HOVER_POPUP);
+      return popup && !popup.hasAttribute("data-starting-style") ? popup : null;
+    },
+    { capMs: 10_000 },
+  );
+};
+
 const variants: Record<string, AgentPaneVariant> = {
   collapsed: {
     note: 'Selected default: a notice of three threads, two messages that came in while its turn ran and a notice of two are one row, "Received 7 messages", closed. No session names at rest; the senders\' short names are its hover.',
@@ -139,6 +198,11 @@ const variants: Record<string, AgentPaneVariant> = {
     snapshot: snapshot(),
     play: openMessage,
   },
+  "hover-long": {
+    note: 'Leo\'s 2026-11-14 capture redrawn: two long reports in one "Received 2 messages" row, hovered. The card is the one hover card glass (the chat under it blurs in place, no solid fill) and scrolls in itself to the second report; the transcript under it stays.',
+    snapshot: longSnapshot(),
+    play: hoverRow,
+  },
 };
 
 export default agentPaneEntry({
@@ -152,6 +216,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/LaneNoticeBatch.css",
     "agent-session/acpmux/conversation/laneNoticeBatches.ts",
     "agent-session/acpmux/conversation/messageRuns.ts",
+    "agent-session/acpmux/conversation/MessageGroupHover.tsx",
+    "agent-session/acpmux/conversation/MessageGroupHover.css",
   ],
   variants,
 });

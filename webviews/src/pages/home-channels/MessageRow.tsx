@@ -83,7 +83,14 @@ export const MessageRow = memo(function MessageRow({
   const body = (
     <>
       <div className="hc-msg-gutter">
-        {head ? <Avatar participant={author} size={20} /> : <time className="hc-msg-hover-time">{time}</time>}
+        {/* The row's label already says the time: the hover copy is only for the eye (CMUX-326). */}
+        {head ? (
+          <Avatar participant={author} size={20} />
+        ) : (
+          <time className="hc-msg-hover-time" aria-hidden="true">
+            {time}
+          </time>
+        )}
       </div>
       <div className="hc-msg-main">
         {parent && depth > MAX_THREAD_INDENT && (

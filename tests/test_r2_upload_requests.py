@@ -339,6 +339,58 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 5)
         self.assertIn("too slow", result.stderr)
 
+    def test_a_write_once_read_back_that_trickles_is_cut_and_retried(self):
+        # Runs 42637934072 and 42638931588: the cmux-tui publish sat 73 min in
+        # the read-back of an object already there, and the nightly waiting for
+        # its tree failed. The first read-back trickles; the retry reads it whole.
+        self.env.update(CMUX_R2_UPLOAD_RETRY_DELAY="0", CMUX_R2_UPLOAD_ATTEMPTS="2",
+                        CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS="1")
+        gets = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_HEAD(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(BODY)))
+                self.end_headers()
+
+            def do_GET(self):
+                gets.append(self.path)
+                self.send_response(200)
+                if len(gets) > 1:
+                    self.send_header("Content-Length", str(len(BODY)))
+                    self.end_headers()
+                    self.wfile.write(BODY)
+                    return
+                self.send_header("Content-Length", str(1 << 30))
+                self.end_headers()
+                try:
+                    for _ in range(100):
+                        self.wfile.write(b"x")
+                        self.wfile.flush()
+                        time.sleep(0.05)
+                except OSError:
+                    pass
+
+            def do_PUT(self):
+                raise AssertionError("an identical object is never written again")
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = True
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+        started = time.monotonic()
+        result = self.upload("appcast.xml", "--write-once", endpoint=f"https://127.0.0.1:{server.server_port}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLess(time.monotonic() - started, 8)
+        self.assertIn("too slow", result.stderr)
+        self.assertIn("Already present with matching digest", result.stdout)
+        self.assertEqual(len(gets), 2)
+
     def test_the_deadline_is_not_swallowed_by_a_connect_over_several_addresses(self):
         # socket.create_connection tries each resolved address and catches
         # OSError between them: a deadline raised as one would be lost there.

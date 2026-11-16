@@ -110,10 +110,8 @@ final class TranscriptSelection {
     /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
     var axElements: [ID: MessageAccessibilityElement] = [:]
     unowned let controller: ChatController
-    /// Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
-    /// Messages' highlight (61, 88, 126) and over its text (225) the selected text
-    /// (225, 229, 235) (lossless still selected-text.png).
-    static let highlightFill = Fixture.p3(2.6, 37.7, 85).cgColor
+    // cmux: the fill (MessagesLab's screen blend of P3 (2.6, 37.7, 85), Messages' dark highlight) is per row now,
+    // from the surface under it: SelectionHighlightStyle.
     private(set) var anchor: TextPosition?
     private(set) var focus: TextPosition?
     private var downPoint: CGPoint?
@@ -257,6 +255,13 @@ final class TranscriptSelection {
     /// the bubble and off the glyphs (scrawl 2026-10-18, "highlighting ... is broken").
     /// Markdown rows use their MarkdownLayout, long rows their tiled layout, plain rows
     /// their TextLayout; offsets are the display string's in every case.
+    /// cmux: the highlight's style for a text row: the blend that shows on its bubble (sent or received) in the
+    /// palette of the window view that draws it (SelectionHighlightStyle).
+    static func highlightStyle(_ spec: RowSpec, palette: PaletteBox?) -> SelectionHighlightStyle {
+        guard case let .part(p) = spec.kind else { return .screen }
+        return PaletteScope.with(palette) { SelectionHighlightStyle.style(on: p.outgoing ? Fixture.outgoing : Fixture.incoming) }
+    }
+
     static func geometry(_ spec: RowSpec) -> RowTextGeometry? {
         guard case let .part(p) = spec.kind, SelText.isText(p.part) else { return nil }
         return p.geometry(width: spec.width)
@@ -382,7 +387,7 @@ final class TranscriptSelection {
         let visible = (demo.bounds.minY - h - top)...(demo.bounds.maxY + h - top)
         let path = CGMutablePath()
         for rect in Self.highlightRects(sel, body: RowDraw.bodyRect(spec), geometry: g, visible: visible) { path.addRect(rect) }
-        cell.setSelectionHighlight(path.isEmpty ? nil : path)
+        cell.setSelectionHighlight(path.isEmpty ? nil : path, style: Self.highlightStyle(spec, palette: demo.palette)) // cmux
     }
 }
 

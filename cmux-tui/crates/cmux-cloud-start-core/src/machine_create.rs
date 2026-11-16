@@ -7,11 +7,18 @@ use serde::{Deserialize, Serialize};
 pub const INDETERMINATE: &str = "cmux.cloud.indeterminate";
 
 /// Codes (by suffix) of a server that refused the create before making anything.
-const DEFINITIVE: [&str; 13] = [
+const DEFINITIVE: [&str; 18] = [
     "plan_required",
     "plan.required",
     "quota_exceeded",
     "quota.exceeded",
+    // The team's VM limit (paused machines count), its spending cap and the member's budget
+    // (cmux-platform#1192: each a final 403 until a machine is deleted or the cap is raised).
+    "vm_limit",
+    "spend_cap_reached",
+    "spend_cap.reached",
+    "member_budget_reached",
+    "member_budget.reached",
     "size_locked",
     "size.locked",
     "approval_denied",

@@ -42,7 +42,7 @@ extension SidebarViewComponents {
         if overlay !== subviews.last { addSubview(overlay, positioned: .above, relativeTo: nil) }
         let rect = overlay.convert(windowRect, from: nil)
         overlay.performWithTheme {
-            overlay.ring.show(rect, cornerRadius: Metrics.corners.radius(fitting: rect.size, radius: Metrics.insetCornerRadius), refused: refused, animated: Motion.sidebar.animatesMovement)
+            overlay.ring.show(rect, cornerRadius: Metrics.corners.radius(fitting: rect.size, radius: Metrics.insetCornerRadius), refused: refused, animated: Motion.sidebar.animatesMovement(in: window))
         }
     }
 

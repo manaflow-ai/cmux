@@ -105,6 +105,21 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
     config.save().map_err(|e| anyhow!("preserve daemon listener settings for restart: {e:#}"))
 }
 
+/// The `_acpmux/shutdown` reason of this command: which command, then the caller's own word
+/// when it set `ACPMUX_STOP_REASON` (tools/nightly-update's heal names itself there), so the
+/// daemon's log tells a script's restart from a person's.
+fn cli_reason(restart: bool, end_agents: bool) -> String {
+    let command = match (restart, end_agents) {
+        (true, _) => "cli: daemon restart",
+        (false, true) => "cli: daemon shutdown --end-agents",
+        (false, false) => "cli: daemon shutdown",
+    };
+    match std::env::var("ACPMUX_STOP_REASON") {
+        Ok(why) if !why.trim().is_empty() => format!("{command} ({})", why.trim()),
+        _ => command.to_owned(),
+    }
+}
+
 async fn run_on(
     clock: &dyn Clock,
     end_agents: bool,
@@ -120,6 +135,7 @@ async fn run_on(
     if restart {
         params.set("restart", json!(true));
     }
+    params.set("reason", json!(cli_reason(restart, end_agents)));
     // A refusal (a shutdown already under way hands its agents off) or a
     // closed connection still ends with the daemon's exit, and the sweep
     // below ends whatever it left running.

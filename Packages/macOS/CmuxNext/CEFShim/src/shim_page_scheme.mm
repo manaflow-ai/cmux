@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <functional>
 #include <mutex>
 
 #include "cmux_page_path.h"
@@ -26,7 +27,10 @@ namespace {
 // host: Open emits CMUX_SHIM_PAGE_RESOURCE on the UI thread and waits for
 // cmux_shim_page_resource_respond(token, ...). CEF calls the handler's
 // methods in sequence on its IO sequence; Respond runs on the main thread,
-// so the answer and the waiting callback are guarded by mutex_.
+// so the answer and the waiting callback are guarded by mutex_. A media
+// chunk shorter than the rest of its file goes to Chromium as the rest of
+// the file (PageRangedStream): Read asks the page host for each next chunk,
+// under a token of its own, and Chunk hands it to the waiting read.
 class DynamicResource : public CefResourceHandler {
  public:
   DynamicResource(int token, int browser_id, std::string url, std::string csp)
@@ -46,22 +50,18 @@ class DynamicResource : public CefResourceHandler {
     for (auto& [name, value] : range_headers_) headers.emplace(name, value);
     headers.emplace("Cache-Control", "no-store");
     response->SetHeaderMap(headers);
-    response_length = static_cast<int64_t>(body_.size());
+    response_length = streaming_ ? stream_.length : static_cast<int64_t>(body_.size());
   }
-  bool Read(void* data_out, int bytes_to_read, int& bytes_read, CefRefPtr<CefResourceReadCallback>) override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    const size_t left = body_.size() - offset_;
-    const size_t count = std::min(left, static_cast<size_t>(std::max(bytes_to_read, 0)));
-    if (count == 0) {
-      bytes_read = 0;
-      return false;
-    }
-    memcpy(data_out, body_.data() + offset_, count);
-    offset_ += count;
-    bytes_read = static_cast<int>(count);
-    return true;
-  }
+  bool Read(void* data_out, int bytes_to_read, int& bytes_read, CefRefPtr<CefResourceReadCallback> callback) override;
   void Cancel() override;
+
+  // The page host's answer to `token` (main thread): the request's own, or the next chunk a
+  // stream asked for. False when that request already ended or was answered.
+  bool Answer(int token, int status, std::string mime, std::string body, std::string range_headers = "",
+              std::string csp = "") {
+    if (token != token_) return Chunk(token, std::move(body), status, range_headers);
+    return Respond(status, std::move(mime), std::move(body), std::move(range_headers), std::move(csp));
+  }
 
   // The page host's answer (main thread). False when the request already
   // ended (cancelled) or was answered.
@@ -77,6 +77,10 @@ class DynamicResource : public CefResourceHandler {
       body_ = std::move(body);
       range_headers_ = PageRangeHeaders(range_headers);
       answer_csp_ = PageHeaderValue(csp);
+      if (PlanRangedStream(range_, status_, range_headers_, static_cast<int64_t>(body_.size()), &stream_)) {
+        streaming_ = true;
+        range_headers_ = stream_.headers;
+      }
       callback = callback_;
       callback_ = nullptr;
     }
@@ -86,6 +90,33 @@ class DynamicResource : public CefResourceHandler {
 
   int browser_id() const { return browser_id_; }
   const std::string& url() const { return url_; }
+
+  // The next chunk of a stream (main thread), handed to the read that waits for it; a chunk that
+  // is not the next part of the same file fails the response.
+  bool Chunk(int token, std::string body, int status, const std::string& range_headers) {
+    CefRefPtr<CefResourceReadCallback> callback;
+    int delivered = 0;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!read_callback_ || token != chunk_token_) return false;
+      callback = read_callback_;
+      read_callback_ = nullptr;
+      chunk_token_ = 0;
+      if (!AcceptRangedChunk(&stream_, status, PageRangeHeaders(range_headers), static_cast<int64_t>(body.size()))) {
+        failed_ = true;
+        delivered = -2;  // net::ERR_FAILED
+      } else {
+        body_ = std::move(body);
+        const size_t count = std::min(body_.size(), static_cast<size_t>(std::max(read_want_, 0)));
+        memcpy(read_out_, body_.data(), count);
+        offset_ = count;
+        delivered = static_cast<int>(count);
+      }
+      read_out_ = nullptr;
+    }
+    callback->Continue(delivered);
+    return true;
+  }
 
  private:
   const int token_;
@@ -102,6 +133,16 @@ class DynamicResource : public CefResourceHandler {
   std::vector<std::pair<std::string, std::string>> range_headers_;
   std::string answer_csp_;
   size_t offset_ = 0;
+  // The request's Range header, and the stream its answer became (PlanRangedStream).
+  std::string range_;
+  bool streaming_ = false;
+  bool failed_ = false;
+  PageRangedStream stream_;
+  // A read waiting for the next chunk: its buffer stays valid until read_callback_ runs.
+  int chunk_token_ = 0;
+  CefRefPtr<CefResourceReadCallback> read_callback_;
+  char* read_out_ = nullptr;
+  int read_want_ = 0;
   IMPLEMENT_REFCOUNTING(DynamicResource);
 };
 
@@ -145,6 +186,7 @@ bool DynamicResource::Open(CefRefPtr<CefRequest> request, bool& handle_request, 
   {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = callback;
+    range_ = range;
   }
   {
     std::lock_guard<std::mutex> lock(pending_mutex());
@@ -154,19 +196,190 @@ bool DynamicResource::Open(CefRefPtr<CefRequest> request, bool& handle_request, 
   return true;
 }
 
+bool DynamicResource::Read(void* data_out, int bytes_to_read, int& bytes_read,
+                           CefRefPtr<CefResourceReadCallback> callback) {
+  int token = 0;
+  std::string range;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const size_t left = body_.size() - offset_;
+    const size_t count = std::min(left, static_cast<size_t>(std::max(bytes_to_read, 0)));
+    if (count > 0) {
+      memcpy(data_out, body_.data() + offset_, count);
+      offset_ += count;
+      bytes_read = static_cast<int>(count);
+      return true;
+    }
+    if (failed_) {
+      bytes_read = -2;  // net::ERR_FAILED
+      return false;
+    }
+    if (!streaming_ || stream_.next >= stream_.total || bytes_to_read <= 0) {
+      bytes_read = 0;
+      return false;
+    }
+    // The rest of the file comes from the page host one chunk at a time, as the player reads.
+    chunk_token_ = token = NextToken();
+    range = PageRangedStreamNextRange(stream_);
+    read_callback_ = callback;
+    read_out_ = static_cast<char*>(data_out);
+    read_want_ = bytes_to_read;
+  }
+  {
+    std::lock_guard<std::mutex> lock(pending_mutex());
+    pending()[token] = this;
+  }
+  CefPostTask(TID_UI, new EmitResourceTask(token, browser_id_, url_, range));
+  bytes_read = 0;
+  return true;
+}
+
 void DynamicResource::Cancel() {
+  int chunk = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = nullptr;
+    read_callback_ = nullptr;
+    read_out_ = nullptr;
+    chunk = chunk_token_;
+    chunk_token_ = 0;
   }
   std::lock_guard<std::mutex> lock(pending_mutex());
   pending().erase(token_);
+  if (chunk) pending().erase(chunk);
 }
 
 // Whether every request of a first-party page goes to the page host, as a dynamic path does
 // (cmux_shim_page_scheme_set_live): the live web loop (web-dev.json) then serves page files from a
 // dev server or an overlay folder instead of the folder fixed at registration. Read per request.
 std::atomic<bool> g_live_pages{false};
+
+// Set by StopDeferredPageRequests, before CefShutdown.
+std::atomic<bool> g_page_requests_stopping{false};
+
+// A request from a top frame the browser side still reads as blank (JudgePageRequest's
+// kWaitForFrame). On a busy launch a page's scripts and styles are asked for before CEF has the
+// frame's committed URL; the frame object Create gets is often an early one that never learns
+// it. This handler polls on TID_FILE_USER_BLOCKING (a file handler's Open blocks, so it must not
+// run on the IO or UI thread) for the URL of the browser's top frame, 10-50 ms on
+// cmux-lawrence-2 and at most kDeferredPageWaitMs, then `decide` makes the real handler (the
+// file, or 403: DeferredPageRequestAllowed) and every call goes to that handler. No access is
+// added: the top frame must be the page, and so must the request's own first party.
+class DeferredPageResource : public CefResourceHandler {
+ public:
+  using Decide = std::function<CefRefPtr<CefResourceHandler>(const std::string& frame_url)>;
+  static constexpr int kDeferredPageWaitMs = 5000;
+  static constexpr int kDeferredPagePollMs = 10;
+
+  DeferredPageResource(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, Decide decide)
+      : browser_(browser), frame_(frame), decide_(std::move(decide)) {}
+
+  bool Open(CefRefPtr<CefRequest> request, bool& handle_request, CefRefPtr<CefCallback> callback) override {
+    handle_request = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      request_ = request;
+      callback_ = callback;
+    }
+    Poll();
+    return true;
+  }
+  void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& response_length, CefString& redirect) override {
+    if (CefRefPtr<CefResourceHandler> inner = Inner()) return inner->GetResponseHeaders(response, response_length, redirect);
+    response->SetStatus(403);
+    response->SetStatusText(PageStatusText(403));
+    response->SetMimeType("text/plain");
+    response_length = 0;
+  }
+  bool Read(void* data_out, int bytes_to_read, int& bytes_read, CefRefPtr<CefResourceReadCallback> callback) override {
+    if (CefRefPtr<CefResourceHandler> inner = Inner()) return inner->Read(data_out, bytes_to_read, bytes_read, callback);
+    bytes_read = 0;
+    return false;
+  }
+  bool Skip(int64_t bytes_to_skip, int64_t& bytes_skipped, CefRefPtr<CefResourceSkipCallback> callback) override {
+    if (CefRefPtr<CefResourceHandler> inner = Inner()) return inner->Skip(bytes_to_skip, bytes_skipped, callback);
+    bytes_skipped = -2;  // net::ERR_FAILED
+    return false;
+  }
+  void Cancel() override {
+    CefRefPtr<CefResourceHandler> inner;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      cancelled_ = true;
+      callback_ = nullptr;
+      inner = inner_;
+    }
+    if (inner) inner->Cancel();
+  }
+
+  // Judge once the frame's URL is known, else look again shortly (TID_FILE_USER_BLOCKING).
+  void Poll() {
+    std::string frame_url = CurrentFrameURL();
+    const bool settled = !browser_ || (!frame_url.empty() && frame_url != "about:blank") ||
+                         waited_ms_ >= kDeferredPageWaitMs;
+    // No new poll once the shim shuts CEF down (CefPostDelayedTask then crashes): judge now.
+    if (!settled && !g_page_requests_stopping.load() &&
+        CefPostDelayedTask(TID_FILE_USER_BLOCKING, new PollTask(this), kDeferredPagePollMs)) {
+      waited_ms_ += kDeferredPagePollMs;
+      return;
+    }
+    CefRefPtr<CefResourceHandler> inner = decide_(frame_url);
+    CefRefPtr<CefRequest> request;
+    CefRefPtr<CefCallback> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (cancelled_) return;
+      inner_ = inner;
+      request = request_;
+      callback = callback_;
+    }
+    bool handle_request = false;
+    // The inner handler answers now (a file, a 403) or calls `callback` itself later (the page host).
+    if (!inner->Open(request, handle_request, callback)) {
+      callback->Cancel();
+      return;
+    }
+    if (handle_request) callback->Continue();
+  }
+
+ private:
+  class PollTask : public CefTask {
+   public:
+    explicit PollTask(CefRefPtr<DeferredPageResource> owner) : owner_(owner) {}
+    void Execute() override { owner_->Poll(); }
+
+   private:
+    CefRefPtr<DeferredPageResource> owner_;
+    IMPLEMENT_REFCOUNTING(PollTask);
+  };
+
+  // The URL the browser now has for the requesting top frame: CEF's current frame of its id, else
+  // the browser's main frame (the object Create got is often an early frame that never learns the
+  // URL, and its id can be gone once the document commits).
+  std::string CurrentFrameURL() {
+    if (!browser_) return frame_->IsValid() ? frame_->GetURL().ToString() : std::string();
+    const CefString id = frame_->GetIdentifier();
+    CefRefPtr<CefFrame> current = id.empty() ? nullptr : browser_->GetFrameByIdentifier(id);
+    if (!current || !current->IsValid()) current = browser_->GetMainFrame();
+    return current && current->IsValid() ? current->GetURL().ToString() : std::string();
+  }
+
+  CefRefPtr<CefResourceHandler> Inner() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return inner_;
+  }
+
+  const CefRefPtr<CefBrowser> browser_;
+  const CefRefPtr<CefFrame> frame_;
+  const Decide decide_;
+  int waited_ms_ = 0;  // Poll only; its calls never overlap
+  std::mutex mutex_;
+  CefRefPtr<CefRequest> request_;
+  CefRefPtr<CefCallback> callback_;
+  CefRefPtr<CefResourceHandler> inner_;
+  bool cancelled_ = false;
+  IMPLEMENT_REFCOUNTING(DeferredPageResource);
+};
 
 // Immutable after construction: Create runs off the UI thread.
 class PageFactory : public CefSchemeHandlerFactory {
@@ -200,10 +413,32 @@ class PageFactory : public CefSchemeHandlerFactory {
       headers.emplace("Referrer-Policy", "no-referrer");
       return Respond(200, "OK", "text/html", headers, kArtifactDocument, sizeof(kArtifactDocument) - 1);
     }
-    if (!PageRequestAllowed(main_frame, frame_url, parent_url, domain_)) {
-      static char kBody[] = "Forbidden";
-      return Respond(403, "Forbidden", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
+    // A request with no frame has nothing to wait for: it is judged now.
+    switch (JudgePageRequest(main_frame, frame_url, parent_url, domain_, !frame)) {
+      case PageRequestVerdict::kAllow:
+        return Serve(browser, request);
+      case PageRequestVerdict::kRefuse:
+        return Forbidden();
+      case PageRequestVerdict::kWaitForFrame: {
+        CefRefPtr<PageFactory> self(this);
+        return new DeferredPageResource(browser, frame, [self, browser, request](const std::string& settled_url) {
+          if (!DeferredPageRequestAllowed(settled_url, request->GetFirstPartyForCookies().ToString(), self->domain_))
+            return self->Forbidden();
+          return self->Serve(browser, request);
+        });
+      }
     }
+    return Forbidden();
+  }
+
+ private:
+  CefRefPtr<CefResourceHandler> Forbidden() const {
+    static char kBody[] = "Forbidden";
+    return Respond(403, "Forbidden", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
+  }
+
+  // An admitted request: the page's file, a dynamic path, or the live page host.
+  CefRefPtr<CefResourceHandler> Serve(CefRefPtr<CefBrowser> browser, CefRefPtr<CefRequest> request) const {
     if (request->GetMethod().ToString() != "GET") {
       static char kBody[] = "Method Not Allowed";
       CefResponse::HeaderMap headers = Headers();
@@ -229,14 +464,16 @@ class PageFactory : public CefSchemeHandlerFactory {
     if ((path.empty() || path == "/") && !entry_.empty()) path = "/" + entry_;
     if (parsed && ResolvePagePath(root_, path, &file, &mime)) {
       if (CefRefPtr<CefStreamReader> stream = CefStreamReader::CreateForFile(file)) {
-        return new CefStreamResourceHandler(200, "OK", mime, Headers(), stream);
+        CefResponse::HeaderMap headers = Headers();
+        // A file named by its content (pane.css?h=...): every page of the renderer shares its parse.
+        if (IsContentHashedQuery(CefString(&parts.query).ToString())) headers.emplace("Cache-Control", kImmutableCacheControl);
+        return new CefStreamResourceHandler(200, "OK", mime, headers, stream);
       }
     }
     static char kBody[] = "Not Found";
     return Respond(404, "Not Found", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
   }
 
- private:
   CefResponse::HeaderMap Headers() const {
     CefResponse::HeaderMap headers;
     for (auto& [name, value] : PageResponseHeaders(csp_)) headers.emplace(name, value);
@@ -266,6 +503,8 @@ std::map<std::string, CefRefPtr<PageFactory>>& pages() {
 bool g_global_ready = false;
 
 }  // namespace
+
+void StopDeferredPageRequests() { g_page_requests_stopping.store(true); }
 
 void RegisterPageSchemes(CefRefPtr<CefRequestContext> context) {
   if (!context) return;
@@ -359,7 +598,7 @@ int cmux_shim_page_resource_respond(int token, int status, const char* mime, con
   }
   std::string bytes;
   if (body && length > 0) bytes.assign(static_cast<const char*>(body), length);
-  return resource->Respond(status, mime ? mime : "", std::move(bytes)) ? 1 : 0;
+  return resource->Answer(token, status, mime ? mime : "", std::move(bytes)) ? 1 : 0;
 }
 
 int cmux_shim_page_resource_respond_ranged(int token, int status, const char* mime, const char* range_headers,
@@ -374,7 +613,7 @@ int cmux_shim_page_resource_respond_ranged(int token, int status, const char* mi
   }
   std::string bytes;
   if (body && length > 0) bytes.assign(static_cast<const char*>(body), length);
-  return resource->Respond(status, mime ? mime : "", std::move(bytes), range_headers ? range_headers : "") ? 1 : 0;
+  return resource->Answer(token, status, mime ? mime : "", std::move(bytes), range_headers ? range_headers : "") ? 1 : 0;
 }
 
 int cmux_shim_page_resource_respond_page(int token, int status, const char* mime, const char* range_headers,
@@ -389,8 +628,8 @@ int cmux_shim_page_resource_respond_page(int token, int status, const char* mime
   }
   std::string bytes;
   if (body && length > 0) bytes.assign(static_cast<const char*>(body), length);
-  return resource->Respond(status, mime ? mime : "", std::move(bytes), range_headers ? range_headers : "",
-                           csp ? csp : "")
+  return resource->Answer(token, status, mime ? mime : "", std::move(bytes), range_headers ? range_headers : "",
+                          csp ? csp : "")
              ? 1
              : 0;
 }

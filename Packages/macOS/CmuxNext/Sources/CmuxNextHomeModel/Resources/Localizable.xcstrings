@@ -2500,127 +2500,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tab 1–9 (like VS Code)"
+            "value": "Tab 1–9"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブ 1–9（VS Code と同じ）"
+            "value": "タブ 1–9"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "علامة التبويب 1–9 (مثل VS Code)"
+            "value": "علامة التبويب 1–9"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kartica 1–9 (kao u VS Code)"
+            "state": "translated",
+            "value": "Kartica 1–9"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Faneblad 1–9 (som i VS Code)"
+            "state": "translated",
+            "value": "Faneblad 1–9"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tab 1–9 (wie in VS Code)"
+            "value": "Tab 1–9"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pestaña 1–9 (como en VS Code)"
+            "value": "Pestaña 1–9"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onglet 1–9 (comme VS Code)"
+            "value": "Onglet 1–9"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Scheda 1–9 (come VS Code)"
+            "state": "translated",
+            "value": "Scheda 1–9"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំង 1–9 (ដូច VS Code)"
+            "state": "translated",
+            "value": "ផ្ទាំង 1–9"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭 1–9 (VS Code와 동일)"
+            "value": "탭 1–9"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fane 1–9 (som i VS Code)"
+            "state": "translated",
+            "value": "Fane 1–9"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Karta 1–9 (jak w VS Code)"
+            "state": "translated",
+            "value": "Karta 1–9"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aba 1–9 (como no VS Code)"
+            "state": "translated",
+            "value": "Aba 1–9"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладка 1–9 (как в VS Code)"
+            "state": "translated",
+            "value": "Вкладка 1–9"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "แท็บ 1–9 (เหมือน VS Code)"
+            "state": "translated",
+            "value": "แท็บ 1–9"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sekme 1–9 (VS Code gibi)"
+            "state": "translated",
+            "value": "Sekme 1–9"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладка 1–9 (як у VS Code)"
+            "state": "translated",
+            "value": "Вкладка 1–9"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab 1–9 (như VS Code)"
+            "state": "translated",
+            "value": "Tab 1–9"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "标签页 1–9（与 VS Code 相同）"
+            "value": "标签页 1–9"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "分頁 1–9（與 VS Code 相同）"
+            "value": "分頁 1–9"
           }
         }
       }

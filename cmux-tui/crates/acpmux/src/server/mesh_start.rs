@@ -26,9 +26,10 @@
 //! refused there: `trust.pending`, `trust.untrusted`), records the mark on the chat
 //! (`SessionMeta::hub_via`), and holds every prompt the hub relays to that chat to it, so the
 //! pane cannot prompt through the hub what it could not prompt over a peer link. A full-access
-//! starter's policy goes on as over a link (`forward_starter_policy`). The VM-boundary opt-out
-//! (`hub/vm_boundary.rs`) is not sent: it is a linked peer's setting, and without it the chat
-//! keeps the platform sandbox, which fails safe.
+//! starter's policy goes on as over a link, and the person's own start goes at the person's start
+//! level (`Hub::forward_start_policy`): without it the machine starts every such chat asking.
+//! The VM-boundary opt-out (`hub/vm_boundary.rs`) is not sent: it is a linked peer's setting,
+//! and without it the chat keeps the platform sandbox, which fails safe.
 //!
 //! A marked start goes as control body version 2 (`mesh_control::MARKED_START_VERSION`): a
 //! machine takes it only if it keeps that gate. One on an older cmux refuses the version before
@@ -76,9 +77,11 @@ async fn start(
     let mut start = params.clone();
     super::super::peer_forward::strip_new_meta(&mut start);
     // As a linked peer's start is marked: whom it is for (the machine gates `app` and `web`
-    // there), a full-access starter's policy, and who creates it.
+    // there), a full-access starter's policy or the person's own start level
+    // (`hub/full_access_children.rs`), and who creates it.
     super::super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut start);
-    hub.forward_starter_policy(conn.caller(), &mut start);
+    // let person = super::super::requests::person_start(conn, params);
+    // hub.forward_start_policy(person, conn.caller(), &mut start).await;
     crate::hub::merge_mux_meta(&mut start, created_by);
     let start = start
         .as_object()

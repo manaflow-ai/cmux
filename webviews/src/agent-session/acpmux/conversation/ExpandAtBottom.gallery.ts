@@ -236,43 +236,122 @@ const expandAway: Play = async (ctx) => {
   expect(after.scrollHeight > before.scrollHeight + 20, "away from the bottom nothing grew down", { before, after });
 };
 
-/// A turn still running at the bottom, its first two commands done under "Ran 2 commands" (Leo,
+/// The running-chat scenes were checked under live-turn-work `line` (a stretch still running draws
+/// no run); they pin it so they keep that look whatever the default.
+const RUNNING_ARM = { "live-turn-work": "line" };
+
+/// A chat still working at the bottom, its first two commands done under "Ran 2 commands" (Leo,
 /// 2026-11-06, on a recording under load: "the entire tool call expansion apparatus is borked" and
-/// "way too discontinuous"). Opening the group while the agent goes on: a third command joins it
-/// mid-fold. `cmuxGalleryArrive` (set by the play) delivers that next snapshot as acpmux would, so a
-/// frame test can land it on any frame of the fold (transcript-expand-under-load.test.ts).
+/// "way too discontinuous"). Their stretch ended with its summary: under the live-turn-work
+/// `line` a stretch still running draws none of its runs, only the live line (turns.ts
+/// `codexRuns`), so the run the reader opens is an ended stretch's. Opening the group while the agent
+/// goes on: its next command lands mid-fold, on the live line. `cmuxGalleryArrive` (set by the play)
+/// delivers that next snapshot as acpmux would, so a frame test can land it on any frame of the fold
+/// (transcript-expand-under-load.test.ts).
 const runningHead = [...earlier, ...middle, user("Run the fetch tests and show me the log", 6)];
 const runCommands = [
   command("Run the fetch tests", "bun test fetch", log),
   command("Show the test log", "tail -n 12 fetch.log", log),
 ];
-const slowCommand = command("Run the slow case", "bun test fetch --slow", log);
+const slowCommand = tool("bun test fetch --slow", "execute", "in_progress", {
+  command: "bun test fetch --slow",
+  description: "Run the slow case",
+});
 const reply = assistant("Two runs pass; checking the slow case next.", 4, { id: "expand-at-bottom-reply" });
-const runningSnapshot = chat([...runningHead, activity(runCommands, 5, { id: "expand-at-bottom-run" }), reply], {
+const ran = [
+  ...runningHead,
+  activity(runCommands, 5, { id: "expand-at-bottom-run" }),
+  reply,
+  summary(3.9, { status: "completed", durationMs: 21_000, toolCount: 2 }),
+];
+const runningSnapshot = chat(ran, { title: "Fetch tests", isWorking: true });
+const arrivedSnapshot = chat([...ran, activity([slowCommand], 3.8, { id: "expand-at-bottom-next" })], {
   title: "Fetch tests",
   isWorking: true,
 });
-const arrivedSnapshot = chat(
-  [
-    ...runningHead,
-    activity([...runCommands, slowCommand], 5, { id: "expand-at-bottom-run", version: 2 }),
-    { ...reply, version: 2 },
-  ],
-  { title: "Fetch tests", isWorking: true },
-);
 
 declare global {
   interface Window {
-    /** The under-load scene's next snapshot: a third command joins the group. */
+    /** The under-load scene's next snapshot: the agent's next command, on the live line. */
     cmuxGalleryArrive?: () => void;
   }
 }
 
-/// At the bottom of the running turn, with the next snapshot armed for the test to deliver.
+/// At the bottom of the working chat, with the next snapshot armed for the test to deliver. An ended
+/// stretch keeps its run open while the chat works (turns.ts `codexRuns`), so the reader has shut it
+/// first, at the very bottom, and gone back to the end.
 const armUnderLoad: Play = async (ctx) => {
   await atBottom(ctx);
+  await settle(ctx);
+  const group = ctx.document.querySelector<HTMLElement>(GROUP);
+  if (group?.getAttribute("aria-expanded") === "true") {
+    await toggleAndSettle(ctx, group, "false");
+    await toEnd(ctx);
+  }
   const view = ctx.document.defaultView!;
   view.cmuxGalleryArrive = () => view.cmuxAcpmuxBridge?.receive(structuredClone(arrivedSnapshot));
+};
+
+/// A click whose layout is slow, as at load ~260 (Leo, 2026-11-10: "when things get slow this tool
+/// call expansion situatoin gets insanely f***ed"): the page is busy for `ms` right after React drew
+/// the click, before the browser lays out what opened, while the turn's next snapshot lands. The
+/// clicked line opens where it was clicked (foldAnchor.ts `notePlacement`).
+const slowClick = async (ctx: Parameters<Play>[0], line: HTMLElement, ms = 1_200) => {
+  const row = line.closest<HTMLElement>(".acpmux-row")!;
+  ctx.document.defaultView!.addEventListener(
+    "click",
+    () => {
+      const until = performance.now() + ms;
+      while (performance.now() < until);
+    },
+    { once: true },
+  );
+  const before = measure(ctx, line);
+  const head = row.getBoundingClientRect().top;
+  line.click();
+  ctx.document.defaultView?.cmuxGalleryArrive?.();
+  const id = line.getAttribute("data-tool-id") ?? line.getAttribute("data-tool-group");
+  const again = () =>
+    (id && row.isConnected
+      ? row.querySelector<HTMLElement>(`[data-tool-id="${id}"], [data-tool-group="${id}"]`)
+      : undefined) ?? line;
+  await settle(ctx, () => again().getAttribute("aria-expanded") === "true");
+  const after = measure(ctx, again());
+  expect(Math.abs(after.line - before.line) <= 2, "a slow render moved the clicked line", { before, after });
+  const moved = row.getBoundingClientRect().top - head;
+  expect(Math.abs(moved) <= 2, "a slow render moved the run's header", { moved });
+};
+
+/// At the bottom of the working chat: "Ran 2 commands" opened with a slow render, the agent's next
+/// command landing as it renders.
+const slowGroup: Play = async (ctx) => {
+  await armUnderLoad(ctx);
+  await slowClick(ctx, ctx.document.querySelector<HTMLElement>(GROUP)!);
+};
+
+/// The group open, then one of its commands opened with a slow render while the next snapshot lands.
+const slowCommandLine: Play = async (ctx) => {
+  await armUnderLoad(ctx);
+  const group = ctx.document.querySelector<HTMLElement>(GROUP)!;
+  await toggleAndSettle(ctx, group, "true");
+  await toEnd(ctx);
+  const command = [
+    ...ctx.document.querySelectorAll<HTMLElement>(
+      '[data-row-id="expand-at-bottom-run"] button.cv-tool.is-toggle[aria-expanded="false"]',
+    ),
+  ][0]!;
+  await slowClick(ctx, command);
+};
+
+/// Away from the bottom: an earlier turn's command opened with a slow render.
+const slowAway: Play = async (ctx) => {
+  await atBottom(ctx);
+  await settle(ctx);
+  const node = scroller(ctx);
+  const line = [...ctx.document.querySelectorAll<HTMLElement>(".cv-worked")].at(-2)!;
+  node.scrollTop += line.getBoundingClientRect().top - node.getBoundingClientRect().top - 160;
+  await settle(ctx);
+  await slowClick(ctx, line);
 };
 
 export default agentPaneEntry({
@@ -283,6 +362,8 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/conversation/foldAnchor.ts",
+    // An opened run draws in its scroll box (RunScroll.tsx); the tall group's play opens one.
+    "agent-session/acpmux/conversation/RunScroll.tsx#RunScroll",
   ],
   variants: {
     shipped: {
@@ -311,9 +392,27 @@ export default agentPaneEntry({
       play: collapseTallGroup,
     },
     "under-load": {
-      note: "A running turn scrolled to the very bottom with “Ran 2 commands” closed. Opened while a third command joins the group: one motion, the bottom stays pinned, nothing overlaps.",
+      note: "A working chat scrolled to the very bottom with an ended stretch's “Ran 2 commands” shut by the reader. Opened while the agent's next command lands on the live line: one motion, the bottom stays pinned, nothing overlaps.",
       snapshot: runningSnapshot,
+      experiments: RUNNING_ARM,
       play: armUnderLoad,
+    },
+    "slow-render-group": {
+      note: "Play: a working chat's ended “Ran 2 commands” opened while the page takes 1.2 s to draw the click and the agent's next command lands on the live line: it opens in place, the header stays, the view stops following.",
+      snapshot: runningSnapshot,
+      experiments: RUNNING_ARM,
+      play: slowGroup,
+    },
+    "slow-render-command": {
+      note: "Play: a command inside the open group opened during a 1.2 s render while the next snapshot lands: the command opens under its line and stays open; nothing above it moves.",
+      snapshot: runningSnapshot,
+      experiments: RUNNING_ARM,
+      play: slowCommandLine,
+    },
+    "slow-render-away": {
+      note: "Play: away from the bottom, an earlier turn's “Worked for” opened during a 1.2 s render: the line stays where it was clicked.",
+      snapshot: chat(rows, { title: "Fetch tests" }),
+      play: slowAway,
     },
     "expand-away": {
       note: "Away from the bottom an earlier turn's “Worked for” line opens down: the line and the view stay where they were.",

@@ -99,6 +99,15 @@ pub fn spare_refusal(cwd: &Path) -> Option<String> {
     spare_refusal_in(cwd, dirs::home_dir().as_deref(), cfg!(target_os = "macos"))
 }
 
+/// Why a daemon start may not go on by itself with a chat's restored work in `cwd` (its queued
+/// prompts, a cut turn, held agent messages: `hub/protected_hold.rs`), or `None` when it may. As
+/// `spare_refusal`: off macOS the home folder itself raises no privacy prompt, and a machine whose
+/// chats all run there (a fleet lane VM, a cmux Cloud machine) has no person to open each chat, so
+/// a hold there left every queue waiting for good after an update restarted the daemon.
+pub fn restored_work_refusal(cwd: &Path) -> Option<String> {
+    spare_refusal(cwd)
+}
+
 /// `spare_refusal` for the user whose home folder is `home`, on macOS or not.
 pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<String> {
     let refusal = refusal_in(cwd, home)?;
@@ -144,23 +153,18 @@ pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
 /// Makes `dir` (and missing parents) owner-only whatever the umask: under 002 it would be
 /// group-writable. One an older build made with the umask is narrowed when it is this user's own
 /// folder; a link or another user's folder is left alone.
+///
+/// Made through the folder this daemon holds (`home_fs`): a home replaced after the check never
+/// gets it.
 fn owner_only_dir(dir: &Path) -> std::io::Result<()> {
-    let mut made = std::fs::DirBuilder::new();
-    made.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
-    made.create(dir)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let meta = std::fs::symlink_metadata(dir)?;
-        // SAFETY: getuid has no preconditions.
-        let mine = meta.uid() == unsafe { libc::getuid() };
-        if meta.is_dir() && mine && meta.mode() & 0o077 != 0 {
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-        }
+        crate::home_fs::private_dir(dir)
     }
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        crate::home_fs::create_dir_all(dir, 0o700)
+    }
 }
 
 fn guarded(path: &Path, homes: &[PathBuf]) -> Option<&'static str> {

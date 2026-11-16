@@ -18,12 +18,19 @@ use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+#[cfg(feature = "bench")]
+const PRESENTED_QUEUE_CAPACITY: usize = 4096;
+
 /// The largest picture the viewer's H.264 level (5.2) decodes at 60 fps. A larger display is
 /// scaled down on the GPU by ScreenCaptureKit, keeping its aspect ratio.
 const MAX_SIZE: (f64, f64) = (3840.0, 2160.0);
 /// Frames ScreenCaptureKit may have in flight. The session holds one (the newest, so a
 /// recovery keyframe can be encoded with no new capture) and encodes another.
 const QUEUE_DEPTH: c_long = 4;
+/// The frame rate when the display's refresh rate cannot be read.
+pub const FALLBACK_FPS: u32 = 60;
+/// The highest refresh rate taken from a display mode (the viewer's settings allow up to 240).
+const MAX_REFRESH_FPS: u32 = 240;
 /// kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange.
 const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
 /// SCStreamOutputTypeScreen and SCFrameStatusComplete.
@@ -48,6 +55,96 @@ pub struct Bounds {
 pub struct PixelBuffer(Retained);
 
 impl PixelBuffer {
+    /// Read the observer's marker without copying a captured image. The lock is
+    /// released on every return, including an invalid marker or read failure.
+    #[cfg(feature = "bench")]
+    pub fn marker(&self, origin: (usize, usize), cell: usize) -> Option<u16> {
+        struct Unlock(sys::CVPixelBufferRef);
+        impl Drop for Unlock {
+            fn drop(&mut self) {
+                // SAFETY: this guard owns a successful read-only lock.
+                unsafe {
+                    cv::CVPixelBufferUnlockBaseAddress(self.0, 1);
+                }
+            }
+        }
+        let buffer = self.0.as_ptr().cast_mut();
+        // SAFETY: retained NV12 pixel buffer from our ScreenCaptureKit stream;
+        // its luma allocation stays locked for the slice's entire lifetime.
+        unsafe {
+            if cv::CVPixelBufferLockBaseAddress(buffer, 1) != 0 {
+                return None;
+            }
+            let _unlock = Unlock(buffer);
+            let base = cv::CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+            let stride = cv::CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+            let length = stride.checked_mul(cv::CVPixelBufferGetHeightOfPlane(buffer, 0))?;
+            if base.is_null() || length > isize::MAX as usize {
+                return None;
+            }
+            crate::observe::read_marker(
+                std::slice::from_raw_parts(base, length),
+                stride,
+                origin,
+                cell,
+            )
+        }
+    }
+
+    #[cfg(feature = "bench")]
+    pub fn marker_nonce(&self, origin: (usize, usize), cell: usize) -> Option<(u16, [u8; 16])> {
+        struct Unlock(sys::CVPixelBufferRef);
+        impl Drop for Unlock {
+            fn drop(&mut self) {
+                // SAFETY: this guard owns a successful read-only lock.
+                unsafe { cv::CVPixelBufferUnlockBaseAddress(self.0, 1) };
+            }
+        }
+        let buffer = self.0.as_ptr().cast_mut();
+        // SAFETY: retained NV12 pixel buffer from our ScreenCaptureKit stream.
+        unsafe {
+            if cv::CVPixelBufferLockBaseAddress(buffer, 1) != 0 {
+                return None;
+            }
+            let _unlock = Unlock(buffer);
+            let base = cv::CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+            let stride = cv::CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+            let length = stride.checked_mul(cv::CVPixelBufferGetHeightOfPlane(buffer, 0))?;
+            if base.is_null() || length > isize::MAX as usize {
+                return None;
+            }
+            crate::observe::read_marker_nonce(
+                std::slice::from_raw_parts(base, length),
+                stride,
+                origin,
+                cell,
+            )
+        }
+    }
+
+    /// Bounded luma sample for explicitly enabled, local benchmark quality evidence.
+    #[cfg(feature = "bench")]
+    pub fn eval_roi(&self) -> Option<Vec<u8>> {
+        let buffer = self.0.as_ptr().cast_mut();
+        // SAFETY: the retained ScreenCaptureKit NV12 image remains locked while copied.
+        unsafe {
+            if cv::CVPixelBufferLockBaseAddress(buffer, 1) != 0 {
+                return None;
+            }
+            let base = cv::CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+            let stride = cv::CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+            let length = stride.checked_mul(cv::CVPixelBufferGetHeightOfPlane(buffer, 0));
+            let result = match length {
+                Some(length) if !base.is_null() && length <= isize::MAX as usize => {
+                    crate::eval::roi(std::slice::from_raw_parts(base, length), stride)
+                }
+                _ => None,
+            };
+            cv::CVPixelBufferUnlockBaseAddress(buffer, 1);
+            result
+        }
+    }
+
     /// The buffer's IOSurface (owned by the buffer).
     pub fn io_surface(&self) -> Option<*mut c_void> {
         // SAFETY: a live CVPixelBuffer.
@@ -62,6 +159,22 @@ struct Shared {
     /// The newest frame's display time and its arrival here, on the protocol clock in µs.
     newest_times: Option<(u64, u64)>,
     dirty: Vec<Rect>,
+    #[cfg(feature = "bench")]
+    presented: Option<crate::observe::PresentedSampleQueue>,
+}
+
+#[cfg(feature = "bench")]
+#[derive(Clone, Copy)]
+pub struct MarkerConfig {
+    pub origin: (usize, usize),
+    pub cell: usize,
+    pub expected_nonce: Option<[u8; 16]>,
+}
+
+#[cfg(feature = "bench")]
+pub struct PresentedBatch {
+    pub samples: Vec<crate::observe::PresentedMarkerSample>,
+    pub queue_overflow: bool,
 }
 
 /// One end of the wake pipe, closed on drop.
@@ -89,6 +202,8 @@ struct Sink {
     /// Stream pixels per display point, and the stream size.
     scale: f64,
     size: (u32, u32),
+    #[cfg(feature = "bench")]
+    marker: Option<MarkerConfig>,
 }
 
 /// The live output objects (by address) and their sinks.
@@ -172,6 +287,36 @@ fn native_size(display: u32) -> (u32, u32) {
         cg::CGDisplayModeRelease(mode);
         size
     }
+}
+
+/// A display's refresh rate in Hz from its current mode, rounded (59.94 is 60). None when the mode
+/// reads 0, as some built-in panels' modes do, or there is no mode.
+fn refresh_rate(display: u32) -> Option<u32> {
+    // SAFETY: a display id; the copied mode is released here.
+    let hz = unsafe {
+        let mode = cg::CGDisplayCopyDisplayMode(display);
+        if mode.is_null() {
+            return None;
+        }
+        let hz = cg::CGDisplayModeGetRefreshRate(mode);
+        cg::CGDisplayModeRelease(mode);
+        hz
+    };
+    hz_to_fps(hz)
+}
+
+/// A mode's refresh rate as a frame rate: rounded, at most [`MAX_REFRESH_FPS`], None for 0.
+fn hz_to_fps(hz: f64) -> Option<u32> {
+    (hz.is_finite() && hz >= 1.0).then(|| (hz.round() as u32).min(MAX_REFRESH_FPS))
+}
+
+/// The refresh rate of the display `which` names (`main` or an index, as [`Capture::start`] picks
+/// it), else [`FALLBACK_FPS`] when it reads 0 or the display list is not available.
+pub fn refresh_fps(which: &str) -> u32 {
+    let Ok((content, displays)) = shareable_displays() else { return FALLBACK_FPS };
+    let rate = pick(&displays, which).ok().and_then(|(_, id)| refresh_rate(id));
+    release_all(content, &displays);
+    rate.unwrap_or(FALLBACK_FPS)
 }
 
 type ContentAnswer = Result<Id, String>;
@@ -339,9 +484,6 @@ extern "C" fn did_output(
             return;
         }
         let buffer = cm::CMSampleBufferGetImageBuffer(sample);
-        if buffer.is_null() {
-            return;
-        }
         let mut rects = Vec::new();
         let dirty = cf::CFDictionaryGetValue(info, sck::SCStreamFrameInfoDirtyRects());
         if !dirty.is_null() {
@@ -361,15 +503,41 @@ extern "C" fn did_output(
         // The display time is in mach absolute time: its age now, taken off the protocol clock.
         let shown = number(info, sck::SCStreamFrameInfoDisplayTime())
             .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
+        let frame = (!buffer.is_null()).then(|| PixelBuffer(Retained::retain(buffer.cast_const())));
+        #[cfg(feature = "bench")]
+        let (counter, nonce) = sink.marker.map_or((None, None), |marker| {
+            frame.as_ref().map_or((None, None), |pixels| {
+                if marker.expected_nonce.is_some() {
+                    pixels
+                        .marker_nonce(marker.origin, marker.cell)
+                        .map_or((None, None), |(counter, nonce)| (Some(counter), Some(nonce)))
+                } else {
+                    (pixels.marker(marker.origin, marker.cell), None)
+                }
+            })
+        });
         {
             let mut shared = sink.shared.lock().unwrap_or_else(|p| p.into_inner());
-            shared.newest = Some(PixelBuffer(Retained::retain(buffer.cast_const())));
-            shared.newest_times = shown.map(|shown| (shown, arrived));
-            // A complete frame with no dirty rectangles still changed something.
-            if rects.is_empty() {
-                rects.push(Rect { x: 0, y: 0, width: sink.size.0, height: sink.size.1 });
+            #[cfg(feature = "bench")]
+            {
+                if let Some(presented) = shared.presented.as_mut() {
+                    presented.push(crate::observe::PresentedMarkerSample {
+                        counter,
+                        nonce,
+                        display_us: shown,
+                        arrived_us: arrived,
+                    });
+                }
             }
-            shared.dirty.append(&mut rects);
+            if let Some(frame) = frame {
+                shared.newest = Some(frame);
+                shared.newest_times = shown.map(|shown| (shown, arrived));
+                // A complete frame with no dirty rectangles still changed something.
+                if rects.is_empty() {
+                    rects.push(Rect { x: 0, y: 0, width: sink.size.0, height: sink.size.1 });
+                }
+                shared.dirty.append(&mut rects);
+            }
         }
     }
     sink.wake.wake();
@@ -422,14 +590,58 @@ extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
 
 impl Capture {
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
+        Self::start_with_marker(which, fps, max_width, true, None)
+    }
+
+    /// A session's capture: `shows_cursor` false leaves the cursor out of the pictures (the
+    /// viewer draws it from cursor metadata, cap `cursor`).
+    pub fn start_for_session(
+        which: &str,
+        fps: u32,
+        max_width: Option<u32>,
+        shows_cursor: bool,
+    ) -> Res<Self> {
+        Self::start_with_marker(which, fps, max_width, shows_cursor, None)
+    }
+
+    #[cfg(feature = "bench")]
+    pub fn start_observing(
+        which: &str,
+        fps: u32,
+        max_width: Option<u32>,
+        marker: MarkerConfig,
+    ) -> Res<Self> {
+        Self::start_with_marker(which, fps, max_width, true, Some(marker))
+    }
+
+    fn start_with_marker(
+        which: &str,
+        fps: u32,
+        max_width: Option<u32>,
+        shows_cursor: bool,
+        #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
+        #[cfg(not(feature = "bench"))] marker: Option<()>,
+    ) -> Res<Self> {
         let (content, displays) = shareable_displays()?;
         let picked = pick(&displays, which);
-        let result = picked.and_then(|(display, id)| Self::stream(display, id, fps, max_width));
+        let result = picked.and_then(|(display, id)| {
+            Self::stream(display, id, fps, max_width, shows_cursor, marker)
+        });
         release_all(content, &displays);
         result
     }
 
-    fn stream(display: Id, id: u32, fps: u32, max_width: Option<u32>) -> Res<Self> {
+    fn stream(
+        display: Id,
+        id: u32,
+        fps: u32,
+        max_width: Option<u32>,
+        shows_cursor: bool,
+        #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
+        #[cfg(not(feature = "bench"))] marker: Option<()>,
+    ) -> Res<Self> {
+        #[cfg(not(feature = "bench"))]
+        let _ = marker;
         let _pool = AutoreleasePool::new();
         // SAFETY: a display id from ScreenCaptureKit.
         let frame = unsafe { cg::CGDisplayBounds(id) };
@@ -488,7 +700,13 @@ impl Capture {
                 sel(c"setQueueDepth:"),
                 QUEUE_DEPTH,
             );
-            msg::<unsafe extern "C" fn(Id, Sel, bool)>()(config, sel(c"setShowsCursor:"), true);
+            // Without the cursor when the viewer draws it from metadata (cap `cursor`): one
+            // cursor on the viewer's screen, not the local one over a baked-in copy.
+            msg::<unsafe extern "C" fn(Id, Sel, bool)>()(
+                config,
+                sel(c"setShowsCursor:"),
+                shows_cursor,
+            );
             msg::<unsafe extern "C" fn(Id, Sel, *const c_void)>()(
                 config,
                 sel(c"setColorSpaceName:"),
@@ -508,8 +726,21 @@ impl Capture {
                 sys::system::dispatch_release(queue);
                 return Err("ScreenCaptureKit did not make a stream".into());
             }
-            let shared = Arc::new(Mutex::new(Shared::default()));
-            let sink = Arc::new(Sink { shared: shared.clone(), wake: wake_write, scale, size });
+            let shared = Arc::new(Mutex::new(Shared {
+                #[cfg(feature = "bench")]
+                presented: marker.map(|_| {
+                    crate::observe::PresentedSampleQueue::with_capacity(PRESENTED_QUEUE_CAPACITY)
+                }),
+                ..Shared::default()
+            }));
+            let sink = Arc::new(Sink {
+                shared: shared.clone(),
+                wake: wake_write,
+                scale,
+                size,
+                #[cfg(feature = "bench")]
+                marker,
+            });
             sinks().lock().unwrap_or_else(|p| p.into_inner()).push((output as usize, sink));
             let mut error: Id = null_mut();
             let added = msg::<
@@ -590,8 +821,37 @@ impl Capture {
 
     /// The newest complete frame (kept, so a recovery keyframe needs no new capture), with its
     /// display and arrival times when ScreenCaptureKit gave a display time.
+    #[cfg(feature = "bench")]
     pub fn newest(&self) -> Option<(PixelBuffer, Option<(u64, u64)>)> {
-        let shared = self.shared.lock().unwrap_or_else(|p| p.into_inner());
+        self.frames().newest()
+    }
+
+    /// A reader of the newest frame for the session's encode thread.
+    pub fn frames(&self) -> Frames {
+        Frames(self.shared.clone())
+    }
+
+    #[cfg(feature = "bench")]
+    pub fn take_presented(&self) -> PresentedBatch {
+        self.clear_wakes();
+        let mut shared = self.shared.lock().unwrap_or_else(|p| p.into_inner());
+        shared.dirty.clear();
+        PresentedBatch {
+            samples: shared.presented.as_mut().map_or_else(Vec::new, |queue| queue.take()),
+            queue_overflow: shared.presented.as_ref().is_some_and(|queue| queue.overflowed()),
+        }
+    }
+}
+
+/// The newest captured frame of a [`Capture`], read from another thread (the session's encode
+/// thread) while the capture's owner drains damage.
+pub struct Frames(Arc<Mutex<Shared>>);
+
+impl Frames {
+    /// The newest complete frame (kept, so a recovery keyframe needs no new capture), with its
+    /// display and arrival times when ScreenCaptureKit gave a display time.
+    pub fn newest(&self) -> Option<(PixelBuffer, Option<(u64, u64)>)> {
+        let shared = self.0.lock().unwrap_or_else(|p| p.into_inner());
         shared.newest.clone().map(|frame| (frame, shared.newest_times))
     }
 }
@@ -642,6 +902,16 @@ mod tests {
         assert_eq!(fit(3456, 2234, None), (3342, 2160));
         assert_eq!(fit(1920, 1080, Some(1280)), (1280, 720));
         assert_eq!(fit(1366, 768, None), (1366, 768));
+    }
+
+    #[test]
+    fn refresh_rates_round_and_zero_means_unknown() {
+        assert_eq!(hz_to_fps(120.0), Some(120));
+        assert_eq!(hz_to_fps(119.88), Some(120));
+        assert_eq!(hz_to_fps(59.94), Some(60));
+        assert_eq!(hz_to_fps(0.0), None);
+        assert_eq!(hz_to_fps(f64::NAN), None);
+        assert_eq!(hz_to_fps(500.0), Some(MAX_REFRESH_FPS));
     }
 
     #[test]

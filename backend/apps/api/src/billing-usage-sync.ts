@@ -1,6 +1,7 @@
 import type { Env } from "./env.ts"
+import { PASS_THROUGH_BP } from "./usage-billing-store.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
-import { INCLUDED_MODES, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
+import { billedLevelMicros, defaultTeamMode, INCLUDED_MODES, overageModelMarkup, poolsMachineTime, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
 
 /**
  * The usage sync (cx-y79zh S4, plans/cmux-next/usage-billing.md section 3, placement option a): the
@@ -18,6 +19,9 @@ import { INCLUDED_MODES, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_S
  *    meter aggregates `last`, so a repeat cannot double bill). The identifier names the level's state
  *    (period, micros, fact count, last fact time, and per seat the seats): the same state is the same
  *    event; any new fact, correction or seat change is a new event. Unchanged levels are not sent again.
+ *    The level sent is the billed level (billing-catalog.ts billedLevelMicros): under price set v2 the model share
+ *    above the pool is billed at list + 10% (Leo 2026-11-09); v1 and e2e send the level at cost as before. The
+ *    markup is pinned to the period at its first mark or push, like the included amount.
  * 4. The included mode (billing-catalog.ts): per team, the whole level goes to the graduated price's
  *    meter; per seat, the level above included x seats goes to the flat price's meter. A Team
  *    customer's mode is the operator's setting in force at the period start; the usage item moves to
@@ -57,7 +61,16 @@ export interface SyncReport {
 }
 
 type StripeItem = { id: string; quantity?: number; price: { id: string; product: string | { id: string }; lookup_key?: string | null; recurring?: { interval?: string } | null }; current_period_start?: number; current_period_end?: number }
-type StripeSubscription = { id: string; status: string; customer: string | { id: string }; metadata?: Record<string, string>; items: { data: StripeItem[] } }
+type StripeInvoice = { id: string; status?: string | null; amount_paid?: number; billing_reason?: string | null; status_transitions?: { paid_at?: number | null } | null }
+type StripeSubscription = { id: string; status: string; customer: string | { id: string }; metadata?: Record<string, string>; items: { data: StripeItem[] }; latest_invoice?: string | StripeInvoice | null }
+
+/**
+ * The invoice that lifts the raise lock (billing-catalog.ts teamCapUnpaidMaxPools): a renewal (billing_reason
+ * subscription_cycle) that was paid with money (amount_paid above 0). The sign-up invoice does not count: a card that
+ * pays a first month can still be one that is disputed later; a renewal paid a month on is the signal.
+ */
+export const paidRenewal = (inv: string | StripeInvoice | null | undefined): StripeInvoice | null =>
+  inv && typeof inv === "object" && inv.status === "paid" && inv.billing_reason === "subscription_cycle" && Number(inv.amount_paid ?? 0) > 0 ? inv : null
 
 export const stripeFetch = async (key: string, method: "GET" | "POST", path: string, form?: Record<string, string>, idempotencyKey?: string): Promise<any> => {
   const headers: Record<string, string> = { authorization: `Bearer ${key}`, "stripe-version": STRIPE_API_VERSION }
@@ -101,7 +114,7 @@ const listActive = async (key: string): Promise<{ subs: StripeSubscription[]; tr
     let after: string | undefined
     let page = 0
     for (; page < MAX_PAGES; page++) {
-      const list = await stripeFetch(key, "GET", `/v1/subscriptions?status=${status}&limit=100${after ? `&starting_after=${after}` : ""}`)
+      const list = await stripeFetch(key, "GET", `/v1/subscriptions?status=${status}&limit=100&expand[]=data.latest_invoice${after ? `&starting_after=${after}` : ""}`)
       subs.push(...(list.data as StripeSubscription[]))
       if (!list.has_more || list.data.length === 0) break
       after = list.data.at(-1).id
@@ -111,8 +124,17 @@ const listActive = async (key: string): Promise<{ subs: StripeSubscription[]; tr
   return { subs, truncated }
 }
 
-/** The price set in force: `e2e` only on the development Worker that asks for it; every other environment gets v1. */
-export const usagePriceSet = (env: Env): UsagePriceSet => (env.ENVIRONMENT === "development" && env.BILLING_USAGE_PRICE_SET === "e2e" ? "e2e" : "v1")
+/**
+ * The price set in force: `e2e` only on the development Worker that asks for it; `v2` (Team 25 USD per seat,
+ * model overage at list + 10%, the spending cap; Leo 2026-11-09) on development, staging or production with
+ * BILLING_USAGE_PRICE_SET=v2. Production has no setting, so it stays v1 until the founders' go sets it
+ * (plans/cmux-next/billing-go-live.md); live keys stay refused by stripeKeyMode either way.
+ */
+export const usagePriceSet = (env: Pick<Env, "ENVIRONMENT" | "BILLING_USAGE_PRICE_SET">): UsagePriceSet => {
+  if (env.ENVIRONMENT === "development" && env.BILLING_USAGE_PRICE_SET === "e2e") return "e2e"
+  if ((env.ENVIRONMENT === "development" || env.ENVIRONMENT === "staging" || env.ENVIRONMENT === "production") && env.BILLING_USAGE_PRICE_SET === "v2") return "v2"
+  return "v1"
+}
 
 export const syncUsage = async (env: Env, only?: { readonly subscription?: string }): Promise<SyncReport> => {
   const mode = stripeKeyMode(env.STRIPE_USAGE_KEY)
@@ -140,7 +162,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   }
   const isUsageItem = (i: StripeItem) => usagePrices.has(i.price.id) || idOf(i.price.product) === USAGE_PRODUCT_ID
 
-  const listed = only?.subscription ? { subs: [(await stripeFetch(key, "GET", `/v1/subscriptions/${encodeURIComponent(only.subscription)}`)) as StripeSubscription], truncated: false } : await listActive(key)
+  const listed = only?.subscription ? { subs: [(await stripeFetch(key, "GET", `/v1/subscriptions/${encodeURIComponent(only.subscription)}?expand[]=latest_invoice`)) as StripeSubscription], truncated: false } : await listActive(key)
   if (listed.truncated) console.error(JSON.stringify({ msg: "billing.usage_sync.truncated", pages: MAX_PAGES }))
   const isCmux = (sub: StripeSubscription) => sub.metadata?.app === "cmux" && ACTIVE.has(sub.status)
   const cmux = listed.subs.filter(isCmux)
@@ -154,11 +176,16 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
    * Sends the level of [start, end) for this subscription when it changed, in the period's mode: per team the
    * whole level, per seat the level above included x seats (`seats` = the most the period has seen).
    */
-  const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number, mode: IncludedMode, includedUsd: number, seatsNow: number) => {
+  const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number, mode: IncludedMode, includedUsd: number, seatsNow: number, markupBp: number) => {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
-    const level = await meter.level(team, start * 1000, end * 1000)
+    const facts = await meter.level(team, start * 1000, end * 1000, poolsMachineTime(set))
     const sent = await meter.pushState(team, sub.id, start)
     const seats = mode === "per_seat" ? Math.max(seatsNow, sent?.mode === "per_seat" ? sent.seats : 1) : 1
+    // The billed level (billing-catalog.ts billedLevelMicros): the pool at cost, model overage x the period's pinned
+    // markup. Stripe subtracts the pool (per seat below, per team by the graduated price's free tier), leaving the billed
+    // overage. At pass-through (v1, e2e, every period from before pinning) it is the level itself, so identifiers do not change.
+    const pool = Math.round(includedUsd * 1_000_000) * (mode === "per_seat" ? seats : 1)
+    const level = { ...facts, micros: billedLevelMicros(facts.models_micros, facts.machine_micros, pool, markupBp / 10_000) }
     // per_team keeps the S4 identifier form, so a deploy does not resend every unchanged level.
     const identifier = mode === "per_seat" ? `ais:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}:${seats}` : `ai:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}`
     if (sent?.identifier === identifier || (sent === null && level.facts === 0)) return false
@@ -174,7 +201,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       const err = e as { status?: number; stripeMessage?: string }
       if (!(err.status === 400 && /identifier/i.test(err.stripeMessage ?? "") && /(already|duplicate|exists)/i.test(err.stripeMessage ?? ""))) throw e
     }
-    await meter.recordPush(team, sub.id, start, end, identifier, level.micros, { mode, seats, included_usd: includedUsd, sent_micros: value, event_ts: timestamp })
+    await meter.recordPush(team, sub.id, start, end, identifier, level.micros, { mode, seats, included_usd: includedUsd, sent_micros: value, event_ts: timestamp, markup_bp: markupBp })
     return true
   }
 
@@ -202,7 +229,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       // The period's mode: a Team customer's operator setting in force at the period start (a change applies from
       // the next period; a period already pushed keeps its mode); every other plan is per team.
       const periodStart = planItem!.current_period_start
-      const mode: IncludedMode = USAGE_TEAM_MODE_PLANS.has(plan) && periodStart ? await meter.periodMode(team!, sub.id, periodStart) : "per_team"
+      const mode: IncludedMode = USAGE_TEAM_MODE_PLANS.has(plan) && periodStart ? await meter.periodMode(team!, sub.id, periodStart, defaultTeamMode(set)) : "per_team"
       const want = priceOf.get(`${plan}:${mode}`)
       if (!want) {
         skip("no_usage_price")
@@ -215,7 +242,8 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       const prev = periodStart ? await meter.previousPush(team!, sub.id, periodStart) : null
       if (prev) {
         const prevMode = isIncludedMode(prev.mode) ? prev.mode : "per_team"
-        if (await pushLevel(team!, sub, prev.period_start, prev.period_end, prevMode, prev.included_usd ?? includedUsd, prev.seats)) report.pushed++
+        // The closed period keeps the markup it was pushed with (pass-through for a push from before pinning).
+        if (await pushLevel(team!, sub, prev.period_start, prev.period_end, prevMode, prev.included_usd ?? includedUsd, prev.seats, await meter.periodMarkup(team!, prev.period_start, PASS_THROUGH_BP))) report.pushed++
       }
       // The usage item only: an item on a usage price or the usage product. The plan item is never written.
       let item = sub.items.data.find(isUsageItem)
@@ -236,10 +264,19 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
       const seen = mode === "per_seat" ? await meter.pushState(team!, sub.id, start) : null
       const seats = seen?.mode === "per_seat" ? Math.max(quantity, seen.seats) : quantity
+      // A per-seat period already pushed keeps the included amount it was pushed with, like its mode: a price set
+      // change applies from the next period, so the meter value and the console never mix two amounts in one period.
+      const periodIncluded = seen?.mode === "per_seat" && seen.included_usd !== null ? seen.included_usd : includedUsd
       // The team can be billed above its included amount until this period ends (inference/included-stop.ts);
       // the mark also names the period's included amount for the console (team.ai_limit.get).
-      await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: includedUsd })
-      if (await pushLevel(team!, sub, start, end, mode, includedUsd, seats)) report.pushed++
+      // The period's markup is pinned like its included amount: the set's at the period's first push or mark, kept until
+      // it closes (a set change mid-period neither raises nor lowers it; usage-billing-store.ts periodMarkupBp).
+      const markupBp = await meter.periodMarkup(team!, start, Math.round(overageModelMarkup(set) * 10_000))
+      await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: periodIncluded, markup_bp: markupBp })
+      // The raise lock lifts at the first paid renewal (team-cap.ts); the subscription list carries its latest invoice.
+      const renewal = paidRenewal(sub.latest_invoice)
+      if (renewal) await meter.markPaidInvoice(team!, sub.id, renewal.id, Number(renewal.amount_paid), renewal.status_transitions?.paid_at ?? Math.floor(Date.now() / 1000))
+      if (await pushLevel(team!, sub, start, end, mode, periodIncluded, seats, markupBp)) report.pushed++
       else report.unchanged++
     } catch (e) {
       report.failed++

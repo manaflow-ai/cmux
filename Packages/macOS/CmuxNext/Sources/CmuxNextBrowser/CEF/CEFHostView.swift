@@ -29,6 +29,7 @@ final class CEFHostView: NSView {
         }
     }
     private var windowObserver: (any NSObjectProtocol)?
+    private weak var cardClipArea: PaneContentAreaView?
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
     /// ground: the page window's gap shows this view until Chromium's frame
@@ -98,7 +99,8 @@ final class CEFHostView: NSView {
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
         liveResizeWillStart?()
-        layerHosting.windowLiveResize(active: true)
+        // Only a resize a person drags (a mouse button down) detaches the page; a display change also starts one.
+        layerHosting.windowLiveResize(active: true, byPerson: NSEvent.pressedMouseButtons != 0)
         updateBackground()
     }
 
@@ -266,14 +268,27 @@ final class CEFHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // The fork's tracker re-places the page on this view's frame notices and its ancestors'. A resize drag
+        // keeps the pane views' notices for its end (`FrameNoticeHold`): a move they did not post reaches the fork
+        // here, once (the window's page update in the same frame then finds the fork's read current).
+        enclosingFrameNoticeReaders?.add(self) { [weak self] in self?.pagesNeedUpdate(force: false) }
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
+        cardClipArea?.chromeClipReaders.remove(self)
+        cardClipArea = nil
         readGeometry = nil
         readPlacement = nil
         invalidateOcclusionMemo()
         // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
         layerHosting.windowDidChange()
         guard let window else { return }
+        let area = superview.flatMap { parent in
+            sequence(first: parent, next: \.superview).first { $0 is PaneContentAreaView } as? PaneContentAreaView
+        }
+        if let area {
+            cardClipArea = area
+            area.chromeClipReaders.add(self) { [weak self] in self?.pagesNeedUpdate(force: false) }
+        }
         windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] note in
             let force = note.userInfo?[browserPagesForceUpdateKey] as? Bool ?? false
             let geometryOnly = note.userInfo?[browserPagesGeometryOnlyKey] as? Bool ?? false
@@ -387,6 +402,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The page window this container told of a resize motion (a divider drag), to tell its end wherever the
     /// page is by then (``CEFLayerHosting/resizeMotion(active:)``); nil otherwise.
     var motionHosting: CEFLayerHosting?
+    /// A split's, close's or zoom's spring found the page holding the keys: its window stays a page window through the
+    /// motion, and the page waits at the size it rests at instead of laying out at every frame's size
+    /// (``CEFTabContentView/paneMotionWillRest(sizeChange:)``). True from the spring's start to its landing or first retarget.
+    var pageRestHold = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -558,6 +577,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             paneMotion(active: false)
             return
         }
+        endRestHold()
         paneMotion(active: true)
         beginPageSync(.drag)
     }
@@ -572,6 +592,18 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         layer?.masksToBounds = true
         // A see-through page (a cmux page) shows the pane under it, so its gap does too.
         layer?.backgroundColor = tab.host.hostView.pageSeeThrough ? nil : tab.pageBackdropColor
+        return true
+    }
+
+    /// The page lays out once at `size`, the size its pane's spring rests at, and keeps it to the landing: at the page
+    /// area's top-left corner, clipped by this view, as a held page is. Again on a retarget. False when it cannot hold
+    /// (not a plain page here, out of a window, no size).
+    func holdPageAtRest(_ size: CGSize) -> Bool {
+        guard size.width >= 1, size.height >= 1, heldPageSize != nil || startPageHold() else { return false }
+        if heldPageSize != size {
+            heldPageSize = size
+            needsLayout = true
+        }
         return true
     }
 
@@ -594,6 +626,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// asked for, and the page holds again when it shows (`resumePageHold`).
     func dropHold(keepingKeyHold: Bool = false) {
         if !keepingKeyHold { pageMotionHold = nil }
+        // A hide or reparent drops a spring's rest hold too: the page's next spring decides afresh.
+        pageRestHold = false
         guard heldPageSize != nil else { return }
         heldPageSize = nil
         layer?.masksToBounds = false

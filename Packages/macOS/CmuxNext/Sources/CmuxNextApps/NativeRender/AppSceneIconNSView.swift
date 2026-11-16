@@ -19,7 +19,7 @@ final class AppSceneIconNSView: AppSceneNodeNSView {
         image.image = NSImage.icon(symbol: node.string("symbol") ?? "circle", size: side)
     }
 
-    override func updateLayer() {
+    override func paint() {
         performWithTheme { image.contentTintColor = node.props["color"]?.sceneColor ?? Palette.textSecondary }
     }
 

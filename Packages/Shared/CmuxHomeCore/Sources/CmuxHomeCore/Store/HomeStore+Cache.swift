@@ -31,6 +31,25 @@ extension HomeStore {
         viewCache.setScrollAnchor(anchor, for: id)
     }
 
+    /// The Chief conversation Home showed last, as the cache has it (nil: none yet, or a cache
+    /// from before it was kept).
+    public var cachedChief: ConversationID? { viewCache.chief }
+
+    /// The Chief to draw at the first frame (CMUX-571): the cached one while this launch has not
+    /// named its own (``rememberChief(_:)``) and the cached inbox has it; nil otherwise.
+    /// Observed, so a view that reads it follows the live Chief once it is named.
+    public var launchChief: ConversationID? {
+        guard !chiefDecided, let id = viewCache.chief, mirror.conversations[id] != nil else { return nil }
+        return id
+    }
+
+    /// This launch named its Chief, `id` (nil: none): ``launchChief`` ends, and the cache keeps
+    /// `id` for the next launch's first frame (a coalesced write; the same one writes nothing).
+    public func rememberChief(_ id: ConversationID?) {
+        if let id { viewCache.setChief(id) }
+        if !chiefDecided { chiefDecided = true }
+    }
+
     /// The cache's conversations and sends in `rows` now, before `start()` connects: a view built
     /// before the store starts (the Home list at launch) draws its first frame complete. Idempotent.
     public func primeFromCache() {
@@ -85,7 +104,7 @@ extension HomeStore {
         var state = HomeCacheState()
         state.me = mirror.me ?? me
         state.conversations = mirror.conversations
-        state.windows = mirror.windows.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
+        state.windows = mirror.cachedWindows
         state.sends = log.entries.compactMap(HomeCachedSend.init)
         return state
     }

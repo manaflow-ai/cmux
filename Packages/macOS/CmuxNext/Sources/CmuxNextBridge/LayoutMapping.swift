@@ -28,9 +28,20 @@ public struct LayoutMapping {
             handles.screens[screenID] = screen.handle
             guard let layout = layout(of: screen, paneIDs: paneIDs, handles: &handles) else { continue }
             let zoomed = screen.zoomedPane.flatMap { paneIDs[$0] } != nil
-            screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout, zoomed: zoomed))
+            screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout, zoomed: zoomed,
+                                        hiddenDividers: hiddenDividers(of: screen, in: layout, handles: handles)))
         }
         return Result(screens: screens, handles: handles)
+    }
+
+    /// The layout ids of the screen's splits whose divider the daemon hides (`hidden_dividers`), among the ones it shows.
+    func hiddenDividers(of screen: ScreenModel, in layout: ScreenLayout, handles: LayoutHandleMap) -> Set<LayoutSplitID> {
+        guard !screen.hiddenDividers.isEmpty else { return [] }
+        let trees: [SplitNode] = switch layout {
+        case let .splits(root): [root]
+        case let .columns(columns): columns.flatMap(\.trees)
+        }
+        return Set(trees.flatMap(\.splits).filter { handles.splits[$0].map(screen.hiddenDividers.contains) == true })
     }
 
     func layout(of screen: ScreenModel, paneIDs: [DaemonPaneID: LayoutPaneID],

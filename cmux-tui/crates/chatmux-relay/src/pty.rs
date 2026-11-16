@@ -8,7 +8,9 @@
 //! Session model (docs/TERMINAL.md):
 //! - cmux-tui path (preferred): a `cmux-tui --headless --session <name>`
 //!   daemon owns the mux; each attachment is a `cmux-tui attach` viewer PTY.
-//!   Detach kills only the viewer; the daemon keeps the session.
+//!   Detach kills only the viewer; the daemon keeps the session. The daemon
+//!   ends a terminal left with no tab after 30 s, as every `ensure` owner,
+//!   when its cmux-tui lists `--terminal-reap-grace-seconds` in its help.
 //! - cmux-tui RAW single-terminal path (W86): pty_open with a `surface`
 //!   attaches ONE terminal over the daemon's JSON-lines control socket.
 //! - fallback (no cmux-tui): a plain $SHELL PTY held across detaches, with a

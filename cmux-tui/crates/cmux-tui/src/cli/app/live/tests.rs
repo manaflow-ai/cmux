@@ -114,6 +114,7 @@ fn swift_switches_start_and_stop_with_a_tag() {
             detach: false,
             setting_done: false,
             discard: false,
+            fresh: false,
         })
     );
     assert_eq!(
@@ -133,8 +134,24 @@ fn swift_switches_start_and_stop_with_a_tag() {
             detach: true,
             setting_done: true,
             discard: true,
+            fresh: false,
         })
     );
+    assert_eq!(
+        parse(&words(&["start", "--swift", "--fresh"])).unwrap(),
+        Command::Swift(Swift {
+            on: true,
+            worktree: None,
+            tag: None,
+            detach: false,
+            setting_done: false,
+            discard: false,
+            fresh: true,
+        })
+    );
+    // --fresh is start's: stop and the web loop refuse it.
+    assert!(parse(&words(&["stop", "--swift", "--fresh"])).is_err());
+    assert!(parse(&words(&["start", "--fresh"])).is_err());
 }
 
 #[test]

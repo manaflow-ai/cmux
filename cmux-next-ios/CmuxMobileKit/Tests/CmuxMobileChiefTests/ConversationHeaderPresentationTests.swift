@@ -42,7 +42,11 @@ struct ConversationHeaderPresentationTests {
         #expect(activations == 2)
     }
 
-    @Test func systemHeaderBlursIntactContentThroughNameAndFadesBelowIt() {
+    /// The user, 2026-11-10: the top and bottom bars' scroll edge must be the
+    /// native one, not a manufactured blur. `.system` draws nothing of its
+    /// own: UIKit's soft edge effect, its safe area reaching the header's
+    /// bottom, covers the header, and the composer's bottom edge stays native.
+    @Test func systemHeaderUsesOnlyTheNativeScrollEdgeEffect() {
         let controller = makeController(header: .init(scrollEdge: .system))
         let messages = makeController()
         defer { controller.store.stop(); messages.store.stop() }
@@ -51,33 +55,22 @@ struct ConversationHeaderPresentationTests {
             host.view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
             host.view.layoutIfNeeded()
         }
-        // Opting in changes only the material, never the resting transcript layout.
+        // Opting in never changes the resting transcript layout.
         #expect(controller.collectionView.contentInset == messages.collectionView.contentInset)
         #expect(controller.header.frame == messages.header.frame)
-        #expect(messages.headerMaterial.superview == nil)
         guard #available(iOS 26.0, *) else { return }
         let collection = controller.collectionView
-        let material = controller.headerMaterial
-        let name = controller.header.nameButton.convert(controller.header.nameButton.bounds, to: controller.view)
+        let headerBottom = controller.header.frame.maxY - collection.frame.minY
         for offset in [-collection.contentInset.top, 100, 400] {
             collection.contentOffset.y = offset
             controller.view.setNeedsLayout()
             controller.view.layoutIfNeeded()
-            material.layoutIfNeeded()
             #expect(collection.layer.mask == nil)
             #expect(!collection.topEdgeEffect.isHidden)
-            #expect(material.effect is UIBlurEffect)
-            #expect(material.superview === controller.view)
-            #expect(!material.isUserInteractionEnabled)
-            #expect(material.frame.maxY > name.maxY)
-            let colors = material.fade.colors as? [CGColor] ?? []
-            let stops = material.fade.locations ?? []
-            #expect(colors.count == 3 && stops.count == 3)
-            guard colors.count == 3, stops.count == 3 else { continue }
-            #expect(colors[0].alpha == 1 && colors[1].alpha == 1 && colors[2].alpha == 0)
-            let fadeStart = material.frame.minY + CGFloat(stops[1].doubleValue) * material.bounds.height
-            #expect(fadeStart >= name.maxY)
-            #expect(material.frame.maxY - fadeStart > name.height)
+            #expect(collection.topEdgeEffect.style == .soft)
+            #expect(collection.bottomEdgeEffect.style == .soft)
+            // The native pocket reaches the header's bottom.
+            #expect(collection.safeAreaInsets.top >= headerBottom - 0.5)
         }
     }
 
@@ -140,13 +133,10 @@ struct ConversationHeaderPresentationTests {
             #expect(!overlay.content.clipsToBounds)
             if #available(iOS 26.0, *), edge == .system {
                 let siblings = controller.view.subviews
-                let materialIndex = siblings.firstIndex(of: controller.headerMaterial) ?? -1
                 let replyIndex = siblings.firstIndex(of: overlay) ?? -1
                 let composerIndex = siblings.firstIndex(of: controller.composerContainer) ?? -1
                 let headerIndex = siblings.firstIndex(of: controller.header) ?? -1
-                #expect(replyIndex >= 0 && replyIndex < materialIndex)
-                #expect(materialIndex < composerIndex && composerIndex < headerIndex)
-                #expect(controller.headerMaterial.frame.maxY > controller.header.frame.maxY)
+                #expect(replyIndex >= 0 && replyIndex < composerIndex && composerIndex < headerIndex)
             }
             #expect(overlay.content.frame.minY == controller.header.frame.maxY)
             #expect(overlay.content.contentOffset.y > 0)

@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import runner_routing_table as table  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 CLASSES = {
     "apple-app-build": {"needs": "macos", "description": "Builds the app with Xcode."},
@@ -102,7 +104,7 @@ class RoutingTableTests(unittest.TestCase):
                                       ({"runs-on": route.replace(" || fromJSON(vars.RUNNER_POOLS).linux_2", "")}, False)):
                 with self.subTest(changed=changed):
                     (workflows / "controls.yml").write_text(table.yaml.safe_dump({
-                        "jobs": {"portable-placement": {**job, **changed}}}, width=10000))
+                        "jobs": {"portable-placement": workflow_jobs.copy_job(job, changed)}}, width=10000))
                     problems, allowed = table.hosted_light_policy(policy, workflows)
                     self.assertEqual(not problems, accepted, problems)
                     self.assertEqual(bool(allowed), accepted)
@@ -184,6 +186,7 @@ class RoutingTableTests(unittest.TestCase):
             baseline = {"runs-on": route, "environment": "ci-routing-agent", "steps": [{"run": "python3 decide.py"}]}
             for change, error in (({}, False), ({"environment": "release"}, True),
                                   ({"environment": {"name": "ci-routing-agent"}}, True),
+                                  ({"environment": {"name": "ci-routing-agent", "deployment": False}}, False),
                                   # ci.yml's router: the routing environment off pull requests, none on them.
                                   ({"environment": "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}"}, False),
                                   ({"environment": "${{ github.event_name != 'pull_request' && 'release' || '' }}"}, True),
@@ -215,7 +218,7 @@ class RoutingTableTests(unittest.TestCase):
                     self.assertEqual(len(allowed), 0 if error else 1)
                     if not error:
                         number = int(allowed[0].rsplit(":", 1)[1])
-                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + {**baseline, **change}["runs-on"])
+                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + workflow_jobs.single_runs_on({**baseline, **change}))
             policy.write_text(json.dumps({"job_classes": {}, "hosted_light_jobs": {}}))
             self.assertEqual(table.hosted_light_policy(policy, workflows), ([], []))
 
@@ -307,7 +310,7 @@ class RoutingTableTests(unittest.TestCase):
                 for inherited in (False, True):
                     with self.subTest(value=value, inherited=inherited):
                         job = {"runs-on": route, "environment": "ci-routing-agent"}
-                        document = {"jobs": {"picker": dict(job), "report": dict(job)}}
+                        document = {"jobs": {"picker": workflow_jobs.copy_job(job), "report": workflow_jobs.copy_job(job)}}
                         if inherited:
                             document["env"] = {"TOKEN": value}
                         else:

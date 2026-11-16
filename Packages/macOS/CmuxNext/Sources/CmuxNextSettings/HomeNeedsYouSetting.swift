@@ -1,9 +1,8 @@
 /// `feed.needsYouInChief` in cmux.json: whether Chief Home pins the Feed's open requests (permission
-/// prompts, questions, sign-ins) in a Needs you card under its header (`FeedNeedsYouPin`). Off by
+/// prompts, questions, sign-ins) in a Needs you card under its header (the Feed page's `#/needs-you`). Off by
 /// default: the Feed itself always lists them. Leo 2026-11-03: "I just wanted to see permission
 /// things, period, not a pinned thing by default. Toggle-on, yes, but I haven't verified the looks
-/// of that yet". Its look (Debug Settings > Feed > Needs you in Home, `feed.needsYouStyle`) applies
-/// only while this is on.
+/// of that yet".
 public nonisolated struct HomeNeedsYouSetting {
     public nonisolated init() {}
     /// `configPath` and `fallback` (off until the person turns it on) are generated from

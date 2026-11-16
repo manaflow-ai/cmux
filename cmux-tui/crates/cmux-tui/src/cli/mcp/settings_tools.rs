@@ -197,6 +197,7 @@ impl SettingTool {
             stream: false,
             resolve: Vec::new(),
             view: Default::default(),
+            filter: Default::default(),
         };
         let result = match backend.resource(session, plan, &[]) {
             Ok(result) => result,
@@ -239,7 +240,7 @@ impl SettingTool {
 /// The raw file value may contain invalid objects or credentials even for a
 /// known scalar key. Only a valid effective value crosses the MCP boundary.
 fn project(row: &Row, value: &Value) -> Value {
-    let mut projected = row.raw.clone();
+    let mut projected = row.raw();
     if let Some(object) = projected.as_object_mut() {
         object.remove("accepts");
         object.remove("refuses");

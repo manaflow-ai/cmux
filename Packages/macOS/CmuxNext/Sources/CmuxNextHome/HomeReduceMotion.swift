@@ -16,7 +16,9 @@ final class HomeReduceMotion {
 
     private init() {
         Self.mirror()
-        // The list's pin drag reads the gate when a movement starts (speed off, Reduce Motion, settings).
+        // The list's pin drag reads the gate when a movement starts (speed off, Reduce Motion, settings). It has no
+        // window: a pin drag starts with a press in the list, and a live resize of the list's window holds the
+        // pointer until it ends, so no pin drag starts in a window that is resized.
         CmuxSidebarView.movementGate = { Motion.sidebar.animatesMovement }
         // The message box's dictation waveform follows the input level only while Home's loops run.
         MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesLoops }

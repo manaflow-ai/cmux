@@ -172,13 +172,14 @@ fn write_if_changed(path: &Path, text: &str) -> Result<bool> {
         return Ok(false);
     }
     let dir = path.parent().ok_or_else(|| anyhow!("{} has no folder", path.display()))?;
-    std::fs::create_dir_all(dir).map_err(|e| anyhow!("cannot make {}: {e}", dir.display()))?;
+    crate::home_fs::create_dirs(dir).map_err(|e| anyhow!("cannot make {}: {e}", dir.display()))?;
     let mut new = path.as_os_str().to_owned();
     new.push(".acpmux-new");
     let new = PathBuf::from(new);
-    let written = std::fs::write(&new, text).and_then(|()| std::fs::rename(&new, path));
+    let written =
+        crate::home_fs::write(&new, text).and_then(|()| crate::home_fs::rename(&new, path));
     if let Err(e) = written {
-        let _ = std::fs::remove_file(&new);
+        let _ = crate::home_fs::remove_file(&new);
         return Err(anyhow!("cannot write {}: {e}", path.display()));
     }
     Ok(true)
@@ -307,7 +308,7 @@ pub(crate) fn uninstall(m: &dyn Machine) -> Result<Report> {
         let existing = std::fs::read_to_string(&path).ok();
         let ours = existing.is_some() && unit_plan(existing.as_deref()) != UnitFile::Foreign;
         if ours {
-            std::fs::remove_file(&path)
+            crate::home_fs::remove_file(&path)
                 .map_err(|e| anyhow!("cannot remove {}: {e}", path.display()))?;
         }
         let _ = m.run("systemctl", &["--user", "daemon-reload"], CALL_WAIT);
@@ -328,7 +329,7 @@ pub(crate) fn uninstall(m: &dyn Machine) -> Result<Report> {
     let _ = m.run("launchctl", &["bootout", &job], CALL_WAIT);
     let existed = path.is_file();
     if existed {
-        std::fs::remove_file(&path)
+        crate::home_fs::remove_file(&path)
             .map_err(|e| anyhow!("cannot remove {}: {e}", path.display()))?;
     }
     Ok(Report {

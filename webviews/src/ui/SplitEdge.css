@@ -1,0 +1,51 @@
+/* The draggable edge between two panes (SplitEdge.tsx), drawn as a native split divider: the pane's
+   own hairline stays the line at rest; hovered or dragged, a 2px line in the focus ring's color at 60%
+   over it (DividerHandleView's active color). The hit zone is 8px, centred on the pane's edge. The
+   pane it sizes must be positioned (relative or absolute). */
+.ui-split-edge {
+  --ui-split-edge-hit: 8px;
+  position: absolute;
+  z-index: var(--layer-raised, 2);
+  top: 0;
+  bottom: 0;
+  width: var(--ui-split-edge-hit);
+  cursor: col-resize;
+  touch-action: none;
+}
+.ui-split-edge[data-side="left"] {
+  left: calc(var(--ui-split-edge-hit) / -2);
+}
+.ui-split-edge[data-side="right"] {
+  right: calc(var(--ui-split-edge-hit) / -2);
+}
+.ui-split-edge[data-side="start"] {
+  inset-inline-start: calc(var(--ui-split-edge-hit) / -2);
+}
+.ui-split-edge[data-side="end"] {
+  inset-inline-end: calc(var(--ui-split-edge-hit) / -2);
+}
+.ui-split-edge::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  translate: -50% 0;
+  background: transparent;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.ui-split-edge:hover::after,
+[data-split-resizing] > .ui-split-edge::after {
+  background: color-mix(in srgb, var(--cmux-app-focus-ring, var(--agent-border, CanvasText)) 60%, transparent);
+}
+/* While dragging (SplitEdge marks the page), the resize cursor holds over every pane, a frame's
+   included, and nothing is selected. */
+:root[data-split-resizing],
+:root[data-split-resizing] * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+:root[data-split-resizing] iframe {
+  pointer-events: none;
+}

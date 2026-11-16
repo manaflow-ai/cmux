@@ -41,6 +41,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var statsReports = 0
         /// rb/1 popup surface streams and their buffered units.
         var surfaces = RemoteRdSurfaceStreams()
+        /// The remote cursor as metadata (cap `cursor`).
+        var cursorFeed = RemoteCursorFeed()
         var status = RemoteViewStatus(state: .connecting)
     }
 
@@ -56,6 +58,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var splitter = RemoteRdStreamSplitter()
         /// Created from the welcome's caps; ends with the session.
         var upstream: RemoteUpstreamConsent?
+        /// Why the path closed (the carrier's reason, or rejected bytes); nil until it did.
+        var endReason: String?
+        /// The carrier's latest progress text while the path opens; cleared once it is ready.
+        var connectingReason: String?
 
         init(core: RemoteRdSession, input: RemoteRdInput, service: String) {
             self.core = core
@@ -178,39 +184,6 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         }
     }
 
-    // MARK: RemoteViewStreamSource
-
-    public func accessUnits() -> AsyncStream<RemoteAccessUnit> {
-        let (stream, continuation) = AsyncStream.makeStream(of: RemoteAccessUnit.self, bufferingPolicy: .bufferingNewest(8))
-        let previous = state.withLock { state in
-            defer { state.units = continuation }
-            return state.units
-        }
-        previous?.finish()
-        return stream
-    }
-
-    public func statusUpdates() -> AsyncStream<RemoteViewStatus> {
-        let (stream, continuation) = AsyncStream.makeStream(of: RemoteViewStatus.self, bufferingPolicy: .bufferingNewest(4))
-        let (previous, current) = state.withLock { state in
-            defer { state.statuses = continuation }
-            return (state.statuses, state.status)
-        }
-        previous?.finish()
-        continuation.yield(current)
-        return stream
-    }
-
-    public func cursorUpdates() -> AsyncStream<RemoteCursorState> {
-        let (stream, continuation) = AsyncStream.makeStream(of: RemoteCursorState.self, bufferingPolicy: .bufferingNewest(1))
-        let previous = state.withLock { state in
-            defer { state.cursors = continuation }
-            return state.cursors
-        }
-        previous?.finish()
-        return stream
-    }
-
     public func requestKeyframe() {
         requestKeyframe(stream: 0)
     }
@@ -220,13 +193,18 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     private func carrierEvent(_ event: RemoteRdCarrierEvent) {
         switch event {
         case .ready:
+            engine.connectingReason = nil
             sendControl(.hello(hello))
             sendControl(.start(key: startKey, mode: control ? "control" : "view"))
         case let .data(data):
             guard !engine.handshake.isEnded else { return }
             ingest(data)
-        case .closed:
-            closed()
+        case let .closed(reason):
+            closed(reason: reason)
+        case let .progress(text):
+            guard !engine.handshake.isEnded else { return }
+            engine.connectingReason = text
+            publishStatus()
         }
     }
 
@@ -235,8 +213,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             do {
                 try engine.core.push(streamBytes: segment.bytes, nowMicros: nowMicros())
             } catch {
-                // The stream broke or the host flooded the queues: end the session.
-                closed()
+                // The stream broke, the host flooded the queues or sent a non-frame refusal line: log it, end the session.
+                let reason = "rd stream bytes rejected: \(String(describing: error))"
+                Self.logger.error("\(reason, privacy: .public)")
+                closed(reason: reason)
                 return
             }
             // A surface's frames follow its show in the same read: open its
@@ -303,11 +283,27 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                     _ = state.withLock { $0.services?.yield(body) }
                 }
                 if case let .stats(stats) = control { logHostStats(stats) }
+                if case let .cursorShape(message) = control, let shape = message.cursorShape {
+                    state.withLock { state in
+                        if let cursor = state.cursorFeed.receive(shape: shape) { state.cursors?.yield(cursor) }
+                    }
+                }
                 engine.handshake.receive(control)
                 handleUpstream(control)
             case let .datagram(datagram):
-                // Upstream feedback goes to its sender; InputAck datagrams to
-                // the input channel; any other datagram is refused without a state change.
+                // Cursor positions to the pane (latest wins); upstream feedback goes to its
+                // sender; InputAck datagrams to the input channel; any other datagram is
+                // refused without a state change.
+                let cursor = state.withLock { state -> Bool in
+                    switch state.cursorFeed.receive(datagram: datagram) {
+                    case .notCursor: return false
+                    case .dropped: return true
+                    case let .state(cursor):
+                        state.cursors?.yield(cursor)
+                        return true
+                    }
+                }
+                if cursor { continue }
                 let senders = engine.upstream?.activeSenders ?? []
                 if senders.contains(where: { (try? $0.receive(datagram: datagram, nowMicros: now)) == true }) { continue }
                 try? engine.input.acknowledge(datagram: datagram)
@@ -364,7 +360,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         carrier.send(bytes)
     }
 
-    private func closed() {
+    /// Only the close that ends a live session records its reason: a later one, or one after the
+    /// host ended the session, says nothing new.
+    private func closed(reason: String) {
+        if !engine.handshake.isEnded { engine.endReason = reason }
         engine.handshake.connectionClosed()
         publishStatus()
         finish()
@@ -375,7 +374,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         if let consent = engine.upstream, case .streaming = engine.handshake.phase {
             upstream = RemoteUpstreamStatus(offered: consent.isOffered, requested: consent.requested, active: consent.active)
         }
-        let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream)
+        let endReason = engine.handshake.isEnded ? engine.endReason : nil
+        let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream, endReason: endReason,
+                                      connectingReason: engine.connectingReason)
         state.withLock { state in
             guard state.status != status else { return }
             state.status = status

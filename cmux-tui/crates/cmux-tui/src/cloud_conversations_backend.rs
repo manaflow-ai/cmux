@@ -388,8 +388,11 @@ impl CloudBackend for RemoteCloudBackend {
         client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError> {
         self.handshake(url, bearer, client_version).map(|stream| {
-            Box::new(RemoteWire { handle: self.runtime.handle().clone(), stream })
-                as Box<dyn CloudWire>
+            Box::new(RemoteWire {
+                handle: self.runtime.handle().clone(),
+                stream,
+                wake: Arc::new(tokio::sync::Notify::new()),
+            }) as Box<dyn CloudWire>
         })
     }
 }
@@ -451,6 +454,9 @@ fn transport(error: &reqwest::Error) -> TransportError {
 struct RemoteWire {
     handle: tokio::runtime::Handle,
     stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    /// Ends a waiting `recv` early (`CloudWire::interrupter`); a wake with
+    /// no receive waiting ends the next one.
+    wake: Arc<tokio::sync::Notify>,
 }
 
 impl CloudWire for RemoteWire {
@@ -466,12 +472,22 @@ impl CloudWire for RemoteWire {
         })
     }
 
+    fn interrupter(&self) -> Option<cmux_tui_core::cloud_conversations::WireInterrupt> {
+        let wake = self.wake.clone();
+        Some(Arc::new(move || wake.notify_one()))
+    }
+
     fn recv(&mut self, timeout: Duration) -> WireRecv {
         let stream = &mut self.stream;
+        let wake = self.wake.clone();
         self.handle.block_on(async move {
-            let next = match tokio::time::timeout(timeout, stream.next()).await {
-                Err(_) => return WireRecv::Idle,
-                Ok(next) => next,
+            // `next` is cancel safe: a frame half read stays buffered.
+            let next = tokio::select! {
+                next = tokio::time::timeout(timeout, stream.next()) => match next {
+                    Err(_) => return WireRecv::Idle,
+                    Ok(next) => next,
+                },
+                () = wake.notified() => return WireRecv::Idle,
             };
             match next {
                 None | Some(Err(_)) => WireRecv::Closed { code: None },

@@ -4,6 +4,7 @@
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -155,7 +156,7 @@ import Testing
 
     @Test func recordedParentsSurviveARelaunchAndKeepTheNewest() throws {
         let suite = "cmux.next.tests.lineage.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let first = AgentSessionParents(defaults: defaults)
         first.record(Self.identity("s-caller"), of: Self.identity("s-opened"))

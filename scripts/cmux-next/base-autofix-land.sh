@@ -40,7 +40,7 @@ main() {
   settings_made_at="${4:-}"
   actions_made_at="${5:-}"
   actions_current=0 settings_current=0
-  action_exports='^plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)$'
+  action_exports='^plans/cmux-next/(action-surfaces\.json|action-catalog\.json|actions\.md|links\.json)$'
   # From scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes,
   # so this does not become a fourth hand-kept copy of it (review of #23915).
   local settings_alternation
@@ -81,6 +81,9 @@ main() {
     case "$1" in
       Packages/macOS/CmuxNext/ci-target-graph.json | plans/cmux-next/daemon-capabilities.json | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
         | clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
+      # The docs reference pages (base-autofix.sh step 1e1) follow the exports, as the docs shortcuts do.
+      web/data/next-docs/settings-reference.generated.json) ((actions_current && settings_current)) ;;
+      web/data/next-docs/*.generated.json) ((actions_current)) ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f', with --ratchets).
       Packages/*.swift | ios/cmux/*.swift) return 0 ;;
       web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* \

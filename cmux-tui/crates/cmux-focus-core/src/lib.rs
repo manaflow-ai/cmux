@@ -9,6 +9,12 @@
 //!   receives the whole state.
 //! - [`close_focus`]: the focus successor of every close kind (pane, tab,
 //!   workspace).
+//! - [`close_selection::Openers`]: the one close-selection rule for tabs
+//!   and workspaces: who opened which item, and the item selected after a
+//!   close (Chromium's ranks and opener lifetime).
+//! - [`close_selection::windows::WindowCloseSelection`]: that rule's whole
+//!   state for the workspaces of every window (the creates a window waits
+//!   for, the window of each relation, the repairs, the pick).
 //! - [`close_aim::PaneCloseAim`]: which pane a Close Tab press is aimed at
 //!   after a close emptied a pane.
 //! - [`omnibar_memory::OmnibarFocusMemory`]: Chrome's per-tab address bar
@@ -31,6 +37,7 @@ pub mod agent_cursor_visibility;
 pub mod child_window;
 pub mod close_aim;
 pub mod close_focus;
+pub mod close_selection;
 pub mod event;
 pub mod input;
 pub mod invariants;

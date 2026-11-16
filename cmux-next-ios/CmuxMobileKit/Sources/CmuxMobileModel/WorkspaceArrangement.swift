@@ -368,10 +368,14 @@ public protocol NotificationClearing: AnyObject {
     /// Mark All Notifications as Read: every tab the Mac shows unread is read
     /// (`ack-tab-notifications`); returns how many.
     func markAllNotificationsRead(on macID: String) async throws -> Int
+    /// Whether Mark All Notifications as Read takes `macID` now (a Mac whose reads wait for it
+    /// while it reconnects says yes).
+    func canMarkAllNotificationsRead(on macID: String) -> Bool
 }
 
 extension NotificationClearing {
     public func markAllNotificationsRead(on macID: String) async throws -> Int { 0 }
+    public func canMarkAllNotificationsRead(on macID: String) -> Bool { canClearNotifications(on: macID) }
 }
 
 extension AppStore {

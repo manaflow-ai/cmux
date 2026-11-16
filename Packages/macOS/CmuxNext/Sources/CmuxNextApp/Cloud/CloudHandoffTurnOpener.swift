@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextTabs
 import Foundation
 
 /// `cloud.handoffTurn {sessionId}`: the owner side of a Cloud chat's hand-off (cloud work mode,
@@ -29,7 +30,8 @@ struct CloudHandoffTurnOpener {
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if let refusal = refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
             let place = { () -> (tab: String, machine: String, host: String?)? in
-                guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key),
+                guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key,
+                      let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine),
                       view.model.sessionId == nil || view.model.sessionId == session,
                       ownsSession(recorded: tab.agentSession?.session, asked: session),
                       let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,

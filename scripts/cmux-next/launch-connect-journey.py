@@ -118,7 +118,7 @@ class Tag:
         self.session = "cmux-app-" + self.tag
         self.binary = os.path.join(self.app, "Contents/MacOS/cmux DEV")
         self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
-        self.state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{self.tag}/tui")
+        self.state = os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{self.tag}/tui")
         self.scratch = tempfile.mkdtemp(prefix="launch-connect-")
         with open(os.path.join(self.scratch, "cmux.json"), "w") as config:
             config.write("{}\n")

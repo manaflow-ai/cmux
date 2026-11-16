@@ -14,7 +14,8 @@ const WORKFLOW_SUFFIX: &str = ".workflow.js";
 /// `cmux workflow --help` and `cmux help workflow`.
 pub(super) const HELP: &str = "\
 USAGE
-  cmux workflow start <file> [--args-json JSON] [--name NAME] [--session SESSION]
+  cmux workflow start <file> [--args JSON] [--name NAME] [--session SESSION]
+  cmux workflow list
   cmux workflow status [run-id]
   cmux workflow pause|resume <run-id>
 
@@ -102,10 +103,24 @@ pub(crate) fn parse(words: &[String], cwd: &Path) -> Result<Invocation, String> 
     match action.as_str() {
         "start" => parse_start(rest, cwd),
         "status" => parse_id_action(rest, |run_id| Invocation::Status { run_id }),
+        // `list` is every scope's word for its rows: `workflow list` is
+        // `workflow status` with no run id (docs/cli-conventions.md in
+        // cmuxterm-hq).
+        "list" | "ls" => {
+            if !rest.is_empty() {
+                return Err(
+                    "workflow list takes no arguments; `cmux workflow status RUN_ID` shows one run"
+                        .into(),
+                );
+            }
+            Ok(Invocation::Status { run_id: None })
+        }
         "pause" => parse_required_id(rest, "pause", |run_id| Invocation::Pause { run_id }),
         "resume" => parse_required_id(rest, "resume", |run_id| Invocation::Resume { run_id }),
         "__run" => parse_run(rest),
-        _ => Err(format!("unknown workflow action {action:?}")),
+        _ => Err(format!(
+            "unknown workflow action {action:?}; run `cmux workflow --help` for its actions"
+        )),
     }
 }
 
@@ -122,9 +137,11 @@ fn parse_start(words: &[String], cwd: &Path) -> Result<Invocation, String> {
         let flag = words.get(index).ok_or("workflow start option is missing")?.as_str();
         let value = words.get(index + 1).ok_or_else(|| format!("{flag} needs a value"))?;
         match flag {
-            "--args-json" => {
+            // `--args JSON` as `cmux script run` spells it; `--args-json`
+            // is its old spelling.
+            "--args" | "--args-json" => {
                 args = serde_json::from_str(value)
-                    .map_err(|error| format!("--args-json is invalid JSON: {error}"))?;
+                    .map_err(|error| format!("{flag} is invalid JSON: {error}"))?;
             }
             "--name" => name = Some(nonempty(value, "--name")?),
             "--session" | "--session-id" => session_id = Some(nonempty(value, flag)?),

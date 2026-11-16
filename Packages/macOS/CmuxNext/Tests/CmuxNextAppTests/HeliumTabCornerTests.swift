@@ -40,7 +40,8 @@ import Testing
         defer { scene.window.close() }
         for cell in scene.strip.cells.values {
             #expect(cell.backgroundLayer.cornerRadius == Metrics.tabCornerRadius, "\(density): \(cell.backgroundLayer.cornerRadius) pt")
-            #expect(cell.backgroundLayer.cornerRadius < Metrics.heliumTabCornerRadius, "\(density): less round than the old 8 pt tab")
+            // Lawrence 2026-11-11, "same roundness as chrome": Chromium's 8 on a 30 pt tab, at each height.
+            #expect(cell.backgroundLayer.cornerRadius == Metrics.chromeRowCornerRadius(height: Metrics.tabHeight), "\(density): Chrome's ratio")
             #expect(cell.backgroundLayer.cornerCurve == .circular, "\(density): Helium's tab is a circular-arc SkRRect, not a squircle")
         }
     }

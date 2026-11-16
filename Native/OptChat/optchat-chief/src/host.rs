@@ -882,6 +882,61 @@ fn start(
         ),
         Source::Local { .. } => (Some("unknown".to_owned()), None, None),
     };
+    // A panic goes to `<optchat root>/panics.jsonl`; the cmux-next app sends
+    // it to Sentry under the telemetry choice (RustPanicSource.chief).
+    {
+        let mut fields = cmux_panic_log::Fields::new();
+        fields.insert("process".into(), "optchat-chief".into());
+        fields.insert("pid".into(), std::process::id().into());
+        fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
+        fields.insert("build".into(), BUILD.into());
+        cmux_panic_log::install(paths.root.join("panics.jsonl"), fields, |_| false);
+    }
+    // Product analytics (analytics/mod.rs): content-free events to PostHog
+    // under the telemetry choice, re-read every few minutes.
+    {
+        let cloud = matches!(source, Source::Cloud { .. });
+        let exe = std::env::current_exe().ok();
+        let channel = crate::analytics::channel(
+            if cloud { "cloud" } else { "local" },
+            &|k| std::env::var(k).ok(),
+            exe.as_deref(),
+        );
+        let release = crate::analytics::release_build(&channel);
+        let config = crate::analytics::Config {
+            source: if cloud { "cloud" } else { "local" },
+            person: if cloud {
+                person.clone().filter(|p| p != "unknown")
+            } else {
+                None
+            },
+            team: if cloud { team.clone() } else { None },
+            build: BUILD.to_owned(),
+            channel,
+            app_version: env("CMUX_CHIEF_APP_VERSION"),
+            engine: if engine_choice.as_deref() == Some("native") {
+                "native"
+            } else {
+                "acpmux"
+            },
+            endpoint: env("CMUX_CHIEF_ANALYTICS_ENDPOINT")
+                .filter(|_| cfg!(debug_assertions))
+                .unwrap_or_else(crate::analytics::Config::endpoint),
+        };
+        if let Some(analytics) = crate::analytics::Analytics::open(&paths.root, config, move || {
+            crate::analytics::consent::read(release)
+        }) {
+            log(format!(
+                "analytics: {}",
+                if analytics.is_on() {
+                    "on"
+                } else {
+                    "off (telemetry choice)"
+                }
+            ));
+            trace.set_analytics(analytics);
+        }
+    }
     trace.emit(
         "usage.identity",
         json!({
@@ -1598,6 +1653,8 @@ fn start(
         .with_trace(trace.clone())
         .with_person(paths.person.clone())
         .with_pinned_harness(sub_set.is_some())
+        // goal.rs: Claude subagents work under /goal on Opus 5.5 until done.
+        .with_goal(true)
         .with_engine_file(Some(crate::engine::path(home)))
         .with_families(families.clone())
         .with_harness_grant(chief_tools.clone())
@@ -1663,6 +1720,22 @@ fn start(
     // The memory's one change book: the inspector's edits and the chat's
     // deleted messages (brain/inbox.rs) share its journal and rebuild worker.
     let memory_editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
+    // The MCP hub (mcp_hub): servers the Chief adds itself; a task's result
+    // and a subscribed event reach the brain as a note, as a peer Chief's do.
+    let mcp_hub = crate::mcp_hub::McpHub::new(
+        paths.root.join("mcp"),
+        Some(crate::skills::chief_dir(home)),
+        {
+            let tx = Mutex::new(tx.clone());
+            Arc::new(move |text: String| {
+                let _ = tx
+                    .lock()
+                    .expect("mcp tx")
+                    .send(Input::PeerChiefNote { text });
+            })
+        },
+    );
+    mcp_hub.start();
     crate::tools::serve_all(
         &paths.tools_socket,
         crate::tools::Served {
@@ -1690,6 +1763,7 @@ fn start(
                     })
                 },
             ))),
+            mcp: Some(mcp_hub.clone()),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;

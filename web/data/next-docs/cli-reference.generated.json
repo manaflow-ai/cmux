@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 857,
-    "mcp": 771
+    "verbs": 867,
+    "mcp": 783
   },
   "nouns": [
     {
@@ -407,7 +407,7 @@
         },
         {
           "command": "cmux agent toggle-ui-pointer",
-          "title": "Inspect UI Element",
+          "title": "Point at Element",
           "id": "agentPane.togglePointerInspector",
           "mcp": true,
           "mcpTool": "app_agent_toggle_ui_pointer"
@@ -530,6 +530,13 @@
           "mcpTool": "app_run_command"
         },
         {
+          "command": "cmux app run-menu-item",
+          "title": "Run App Menu Item",
+          "id": "app.menu.run",
+          "mcp": true,
+          "mcpTool": "app_run_menu_item"
+        },
+        {
           "command": "cmux app settings",
           "title": "Settings…",
           "id": "openSettings",
@@ -601,6 +608,13 @@
           "id": "app.install",
           "mcp": true,
           "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps reload",
+          "title": "Reload Custom Views",
+          "id": "app.reloadCustomViews",
+          "mcp": true,
+          "mcpTool": "app_apps_reload"
         },
         {
           "command": "cmux apps remove",
@@ -1415,6 +1429,13 @@
           "mcpTool": "app_cloud_move"
         },
         {
+          "command": "cmux cloud move-to-machine",
+          "title": "Move to Another Machine",
+          "id": "cloudMoveToMachine",
+          "mcp": true,
+          "mcpTool": "app_cloud_move_to_machine"
+        },
+        {
           "command": "cmux cloud network-list",
           "title": "List Cloud Networks",
           "id": "cloudNetworkList",
@@ -1574,6 +1595,13 @@
           "id": "cloudSetNetworkAccess",
           "mcp": true,
           "mcpTool": "app_cloud_set_network_access"
+        },
+        {
+          "command": "cmux cloud setup-desktop",
+          "title": "Start Desktop…",
+          "id": "cloudSetupDesktop",
+          "mcp": true,
+          "mcpTool": "app_cloud_setup_desktop"
         },
         {
           "command": "cmux cloud setup-github",
@@ -1762,7 +1790,7 @@
         },
         {
           "command": "cmux density use-cozy",
-          "title": "Density: Cozy",
+          "title": "Density: Default",
           "id": "appearance.density.cozy",
           "mcp": false,
           "mcpTool": null
@@ -1792,6 +1820,32 @@
           "id": "device.add",
           "mcp": true,
           "mcpTool": "app_device_add"
+        }
+      ]
+    },
+    {
+      "noun": "divider",
+      "verbs": [
+        {
+          "command": "cmux divider hide",
+          "title": "Hide Divider",
+          "id": "divider.hide",
+          "mcp": true,
+          "mcpTool": "app_divider_hide"
+        },
+        {
+          "command": "cmux divider insert",
+          "title": "Insert New",
+          "id": "divider.insertNew",
+          "mcp": true,
+          "mcpTool": "app_divider_insert"
+        },
+        {
+          "command": "cmux divider show",
+          "title": "Show Divider",
+          "id": "divider.show",
+          "mcp": true,
+          "mcpTool": "app_divider_show"
         }
       ]
     },
@@ -2085,6 +2139,13 @@
           "id": "home.showHiddenConversations",
           "mcp": true,
           "mcpTool": "app_home_show_hidden"
+        },
+        {
+          "command": "cmux home start-agent",
+          "title": "Start Queued Agent Now",
+          "id": "home.startQueuedAgent",
+          "mcp": true,
+          "mcpTool": "app_home_start_agent"
         },
         {
           "command": "cmux home switch-view",
@@ -3840,20 +3901,6 @@
           "mcpTool": null
         },
         {
-          "command": "cmux settings use-animations-without-bounce",
-          "title": "Use Animations Without Bounce",
-          "id": "appearance.animations.bounce.none",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux settings use-bouncy-animations",
-          "title": "Use Bouncy Animations",
-          "id": "appearance.animations.bounce.subtle",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
           "command": "cmux settings use-chromium-by-default",
           "title": "Use Chromium for New Browser Tabs",
           "id": "browser.defaultEngine.chromium",
@@ -4333,6 +4380,13 @@
           "mcpTool": "app_sidebar_show_spaces"
         },
         {
+          "command": "cmux sidebar toggle-custom",
+          "title": "Toggle Custom Sidebar",
+          "id": "sidebar.custom.toggle",
+          "mcp": true,
+          "mcpTool": "app_sidebar_toggle_custom"
+        },
+        {
           "command": "cmux sidebar toggle-item-archive",
           "title": "Archive/Unarchive Item",
           "id": "sidebar.item.toggleArchive",
@@ -4677,6 +4731,13 @@
           "mcpTool": "app_tab_duplicate"
         },
         {
+          "command": "cmux tab duplicate-to-new-split",
+          "title": "Duplicate Tab to New Split",
+          "id": "tab.duplicateToNewSplit",
+          "mcp": true,
+          "mcpTool": "app_tab_duplicate_to_new_split"
+        },
+        {
           "command": "cmux tab hibernate",
           "title": "Hibernate Tab",
           "id": "hibernateTab",
@@ -4787,6 +4848,13 @@
           "id": "tab.moveToSpace",
           "mcp": true,
           "mcpTool": "app_tab_move_to_space"
+        },
+        {
+          "command": "cmux tab move-to-window",
+          "title": "Move Tab to Window…",
+          "id": "tab.moveToWindow",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_window"
         },
         {
           "command": "cmux tab move-to-workspace",
@@ -4983,6 +5051,13 @@
           "id": "tab.stashToRight",
           "mcp": true,
           "mcpTool": "app_tab_stash_to_right"
+        },
+        {
+          "command": "cmux tab stop-mac-screen-viewing",
+          "title": "Stop Viewing Shared Screen",
+          "id": "macScreen.stopViewing",
+          "mcp": true,
+          "mcpTool": "app_tab_stop_mac_screen_viewing"
         },
         {
           "command": "cmux tab toggle-chat-notifications",
@@ -6238,6 +6313,6 @@
   "mcpExempt": {
     "credentials": 7,
     "endsApp": 4,
-    "systemChange": 75
+    "systemChange": 73
   }
 }

@@ -19,6 +19,7 @@ import argparse, base64, glob, http.server, json, os, plistlib, shutil, subproce
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 import kit_downloads  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -152,7 +153,7 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "auto
                                       "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY,
                                       "CMUX_NEXT_DOWNLOADS_DIR": DOWNLOADS},
                        stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT)
-print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
     # The "not downloaded" checks look only in DOWNLOADS: refuse to run them unless the app saves there.
@@ -177,7 +178,7 @@ try:
             with open(os.path.join(opts.out, f"{engine}-pdf.png"), "wb") as f:
                 f.write(base64.b64decode(shot["png_base64"]))
         else:
-            print(f"note: {engine}: no screenshot ({shot.get('error') if isinstance(shot, dict) else shot})", flush=True)
+            safe_print(f"note: {engine}: no screenshot ({shot.get('error') if isinstance(shot, dict) else shot})", flush=True)
         time.sleep(3)  # a download would have landed by now
         landed = [f for f in os.listdir(DOWNLOADS) if RUN in f]
         check(not landed, f"{engine}: the PDF is not downloaded ({landed})")

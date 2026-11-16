@@ -13,7 +13,7 @@
 # a newer commit removed, and when no area is known to build it. An earlier
 # base autofix repair made from an older tree is replaced. The exports land as
 # a whole or not at all (the settings schema and docs/mdm; the
-# three action exports), and files built from an export that waits wait with
+# four action exports), and files built from an export that waits wait with
 # it. The defaults snapshot reads flags anywhere in the app's sources, so it is
 # never copied: on a moved tip it is derived again there
 # (scripts/ci/defaults_guard.py snapshot), and only when nothing else waits.
@@ -68,7 +68,7 @@ while IFS= read -r cmux_next_export; do settings_exports+=("$cmux_next_export");
   sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
 (( ${#settings_exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
 # Every file of the action export (regenerate-action-exports.sh writes the same list).
-action_exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
+action_exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/action-catalog.json plans/cmux-next/actions.md plans/cmux-next/links.json)
 areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$(dirname "${BASH_SOURCE[0]}")/autofix-areas.sh}"
 
 # The areas whose inputs a list of changed paths (stdin) touches.
@@ -87,17 +87,27 @@ output_areas() {
       */generated/strings.json) echo strings; echo webviews ;;
       cmux-tui/bindings/*) echo sdk ;;
       # The exports read the actions area only; what is built from them follows them (built_from).
-      plans/cmux-next/action-surfaces.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
+      plans/cmux-next/action-surfaces.json | plans/cmux-next/action-catalog.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
       plans/cmux-next/daemon-capabilities.json) echo capabilities ;;
       schemas/settings/settings-schema.json | docs/mdm/*) echo settings ;;
       "$snapshot") echo settings; echo actions ;;
       web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
+      # The docs reference pages (base-autofix.sh 1e1): the settings reference from the settings export,
+      # the others from the action export. Unclaimed, they never landed on a moved tip while the schema
+      # did, and the docs test stayed red on feat-cmux-next (dee3e635, #39914). All of them are also
+      # built by web/scripts/export-next-docs.ts, which the shortcuts area holds: a new generator on the
+      # tip holds what the old one wrote.
+      web/data/next-docs/settings-reference.generated.json) echo settings; echo shortcuts ;;
+      web/data/next-docs/*.generated.json) echo actions; echo shortcuts ;;
       cmux-tui/crates/cmux-app-host/generated/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f').
       Packages/*.swift | ios/cmux/*.swift) echo ratchets ;;
       clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;
       webviews/*) echo webviews ;;
+      # The Cargo locks (base-autofix.sh --locks) follow every Cargo manifest (autofix-areas.sh locks); before
+      # cmux-tui/*, which would claim cmux-app-ffi's lock for formatting.
+      Cargo.lock | */Cargo.lock) echo locks ;;
       cmux-tui/* | Native/OptChat/*) echo fmt ;;
       *) echo unknown ;;
     esac
@@ -107,7 +117,7 @@ output_areas() {
 # The export a file is part of; an export lands whole (regenerate-*-exports.sh list them).
 export_of() {
   case "$1" in
-    plans/cmux-next/action-surfaces.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
+    plans/cmux-next/action-surfaces.json | plans/cmux-next/action-catalog.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
     schemas/settings/settings-schema.json | docs/mdm/*) echo settings ;;
   esac
 }
@@ -116,7 +126,8 @@ built_from() {
   case "$1" in
     web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* \
       | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo actions ;;
-    */generated/strings.json) echo settings ;;
+    */generated/strings.json | web/data/next-docs/settings-reference.generated.json) echo settings ;;
+    web/data/next-docs/*.generated.json) echo actions ;;
   esac
 }
 
@@ -403,6 +414,24 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     message+=$'\n\n'"Re-applied on ${tip:0:12}, which $branch moved to after ${base:0:12}."
     [[ -z "$held" ]] || message+=$'\n'"Left to the next run (newer commits changed them or their inputs): $(printf '%s' "$held" | tr '\n' ' ')"
     git commit --quiet -m "$message"
+  fi
+  # Judge the final candidate, including a repair reconstructed on a moved tip. A source,
+  # export or re-pin marker disagreement is never safe progress. Keep this inside the retry
+  # loop: a green result for the old candidate does not cover the next one.
+  if ! (
+    # land.sh injects its write token through git's config environment. Cargo executes
+    # build scripts/tests: none may inherit publication credentials. The parent retains
+    # its authentication for fetch/push; only this check runs without it.
+    unset TOKEN GH_TOKEN GITHUB_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
+    for auth_var in "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}"; do
+      [[ -z "$auth_var" ]] || unset "$auth_var"
+    done
+    cargo test --locked --manifest-path "$(git rev-parse --show-toplevel)/cmux-tui/Cargo.toml" \
+      -p cmux-action-catalog --test swift_parity
+  ); then
+    echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
+    echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
+    exit 1
   fi
   # A plain push: it fails rather than overwrite a commit pushed meanwhile.
   if git push --quiet "$remote" "HEAD:refs/heads/$branch"; then

@@ -5,8 +5,8 @@ import QuartzCore
 /// The Sidebar States Playground's "Group backgrounds" sheet (Lawrence 2026-11-05: "invariant: groups must always have
 /// a visible bg color, groups should support both glassy and solid bgs too"): the real ``GroupHeaderRowView`` for a
 /// group with no color, each palette color and a custom color, open and collapsed, in each
-/// `sidebar.groupHeader.background` look (solid and glass, at rest and hovered), at every density and text size, in
-/// the light and dark sheets. Glass stands over a strip of color so its see-through shows.
+/// `sidebar.groupHeader.background` look (solid, glass and sections, at rest and hovered), at every density and text
+/// size, in the light and dark sheets. Glass stands over a strip of color so its see-through shows.
 @MainActor
 struct GroupBackgroundPlaygroundSection {
     /// The groups each look shows, top to bottom: no color first, then the editor's order, then a custom color.
@@ -21,6 +21,8 @@ struct GroupBackgroundPlaygroundSection {
             look(Strings.glass, style: .glass, hovered: false),
             look(Strings.solidHovered, style: .solid, hovered: true),
             look(Strings.glassHovered, style: .glass, hovered: true),
+            look(Strings.sections, style: .sections, hovered: false),
+            look(Strings.sectionsHovered, style: .sections, hovered: true),
         ])
     }
 
@@ -66,6 +68,12 @@ struct GroupBackgroundPlaygroundSection {
         }
         static var glassHovered: String {
             String(localized: "sidebar.groupBackgroundPlayground.glassHovered", defaultValue: "Glass, hovered", bundle: .module)
+        }
+        static var sections: String {
+            String(localized: "sidebar.groupBackgroundPlayground.sections", defaultValue: "Sections", bundle: .module)
+        }
+        static var sectionsHovered: String {
+            String(localized: "sidebar.groupBackgroundPlayground.sectionsHovered", defaultValue: "Sections, hovered", bundle: .module)
         }
         static func name(_ tint: GroupTint) -> String {
             tint.isNone ? String(localized: "sidebar.groupBackgroundPlayground.noColor", defaultValue: "No color", bundle: .module) : tint.wire

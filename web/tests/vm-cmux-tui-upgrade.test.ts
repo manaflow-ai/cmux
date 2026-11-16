@@ -183,3 +183,35 @@ finish "OK passed"
     expect(appCopy).toBe(script);
   });
 });
+
+describe("Cloud daemon upgrade on a machine already running the target", () => {
+  // A binary-only update (the app's machine update) leaves the image's guest
+  // adapter; the fleet run still installs this build's integration, which its
+  // install.cmd carries, even though the binary already matches.
+  test("runs the install so the guest integration lands", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-current-"));
+    const run = path.join(root, "run");
+    mkdirSync(run);
+    try {
+      const start = script.indexOf('if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then');
+      const end = script.indexOf("FREE=$(df", start);
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(end).toBeGreaterThan(start);
+      writeFileSync(path.join(run, "install.cmd"), `printf 'integration\\n' > '${path.join(run, "installed")}'\n`);
+      const fixture = `flock() { return 0; }
+${functions}
+D=77
+exe_sha() { echo "$TARGET_SHA"; }
+bin_sha() { echo "$TARGET_SHA"; }
+install_state_mount() { :; }
+${script.slice(start, end)}
+`;
+      const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 5000 });
+      expect(result.status).toBe(0);
+      expect(readFileSync(path.join(run, "result"), "utf8").trim()).toBe("OK already-current daemon=77");
+      expect(existsSync(path.join(run, "installed"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

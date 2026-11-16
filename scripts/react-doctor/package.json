@@ -1,0 +1,8 @@
+{
+  "name": "cmux-react-doctor-tool",
+  "private": true,
+  "description": "Pinned React Doctor for scripts/ci/react_doctor_gate.py. Bump the version here and rerun the gate with --update-baseline.",
+  "devDependencies": {
+    "react-doctor": "0.9.22"
+  }
+}

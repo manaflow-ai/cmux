@@ -34,7 +34,7 @@ def definitions(path, names):
 GOLDEN = definitions(ROOT.parent / "ci/frame-pacing/golden.py", {"EPS", "THRESHOLDS", "motion", "percentile"})
 MEASURE = definitions(ROOT / "pane-perf-terminal.py",
                       {"WINDOW_ACTIONS", "WINDOW_RESTORE", "WINDOW_TARGET_HZ", "WINDOW_REFRESH_TOLERANCE", "WINDOW_MAX_STEP", "WINDOW_MIN_INTERMEDIATE",
-                       "finite_nonnegative", "first_window", "measure"})
+                       "finite_nonnegative", "first_window", "moving_frames", "measure"})
 
 
 def measured(values=None, *, name="window-zoom", refresh=PERIOD, monitor_refresh=PERIOD,

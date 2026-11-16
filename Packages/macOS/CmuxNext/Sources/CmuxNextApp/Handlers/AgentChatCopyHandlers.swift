@@ -154,7 +154,6 @@ enum AgentChatCopyHandlers {
     private static func refusal(_ message: String) -> ActionWorkFailure { ActionWorkFailure(refusal: .unavailable, reason: message) }
 }
 
-
 private enum AgentChatCopyStrings {
     static var notAChat: String { String(localized: "agentChat.copy.notAChat", defaultValue: "Focus a started agent chat first.", table: "Handlers", bundle: .module) }
     static var noName: String { String(localized: "agentChat.copyName.noName", defaultValue: "The focused chat has no agent name yet.", table: "Handlers", bundle: .module) }

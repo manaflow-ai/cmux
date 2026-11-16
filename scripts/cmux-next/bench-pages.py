@@ -43,15 +43,19 @@ PAGES = {
 
 
 def write_tunable(tag, key, value):
-    """The tag's Debug Settings override file (DebugSettingsService); only this bench tag's file."""
-    directory = os.path.expanduser(f"~/Library/Application Support/cmux/{tag}")
-    os.makedirs(directory, exist_ok=True)
-    path = os.path.join(directory, "debug-tunables.json")
-    try:
-        with open(path) as existing:
-            data = json.load(existing)
-    except (OSError, ValueError):
-        data = {"version": 1, "values": {}}
+    """The tag's Debug Settings override file (DebugSettingsService); only this bench tag's file. Written in NEXT's
+    own `cmux-next/<tag>`; read from there, else from classic's `cmux/<tag>`, where older builds kept it."""
+    support = os.path.expanduser("~/Library/Application Support")
+    path = os.path.join(support, "cmux-next", tag, "debug-tunables.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = {"version": 1, "values": {}}
+    for source in (path, os.path.join(support, "cmux", tag, "debug-tunables.json")):
+        try:
+            with open(source) as existing:
+                data = json.load(existing)
+            break
+        except (OSError, ValueError):
+            continue
     data.setdefault("values", {})[key] = value
     with open(path, "w") as out:
         json.dump(data, out, indent=2, sort_keys=True)

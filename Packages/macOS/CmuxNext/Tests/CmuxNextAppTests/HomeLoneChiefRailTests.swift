@@ -52,7 +52,7 @@ struct HomeLoneChiefRailTests {
     static func page(chiefs: Int, width: CGFloat, tunables: TunableStore? = nil) throws -> Page {
         _ = NSApplication.shared
         let suite = "cmux.tests.loneChiefRail.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         home.update(model(chiefs: chiefs))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))

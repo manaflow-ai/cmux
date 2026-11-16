@@ -17,6 +17,7 @@ import { RenderCard } from "./RenderCard";
 import { isChart } from "./diagramBlockModel";
 import { canRender } from "./renderCardModel";
 import { renderFence } from "./renderCall";
+import { TourBlock, isTourFence } from "../repoTour/TourBlock";
 import { RemoteMedia } from "../chips/ReplyMedia";
 import { isRemoteMedia } from "../chips/replyMediaModel";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
@@ -161,12 +162,14 @@ function Block({
     case "list": {
       const L = block.ordered ? "ol" : "ul";
       const tasks = block.items.every((it) => it.task);
+      const numbers = listNumberStyle(block);
       return (
         <L
           className={`cv-list ${block.ordered ? "cv-ol" : "cv-ul"}${tasks ? " cv-tasks" : ""}${motion}`}
           data-depth={depth}
           start={block.ordered && block.start !== 1 ? block.start : undefined}
-          style={listNumberStyle(block)}
+          style={numbers}
+          data-wide-numbers={numbers ? "" : undefined}
         >
           {block.items.map((it, i) => (
             <li key={i} className={it.task ? "cv-task" : undefined}>
@@ -200,6 +203,14 @@ function Block({
         </BlockTail>
       );
     case "code": {
+      // A repo tour (repoTour/): a ```cmux-tour fence is its card, a pending line while it streams,
+      // never the streaming code it would otherwise draw as.
+      if (code !== "plain" && isTourFence(block.lang, block.code, block.open === true))
+        return (
+          <BlockTail trailing={trailing}>
+            <TourBlock lang={block.lang} code={block.code} open={block.open === true} />
+          </BlockTail>
+        );
       if (code === "open")
         return (
           <PlainCode
@@ -437,6 +448,7 @@ export function Markdown({
   trailing,
   skills,
   commonmark = false,
+  claims,
 }: MarkdownProps) {
   // A selection copied out of a message keeps its formatting (selectionCopy.ts); once per page.
   installSelectionCopy();
@@ -489,8 +501,21 @@ export function Markdown({
       ...(thumbnails === false ? { thumbnails } : {}),
       ...(skills?.size ? { skills } : {}),
       ...(commonmark ? { commonmark } : {}),
+      ...(claims?.length ? { claims } : {}),
     };
-  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails, skills, commonmark]);
+  }, [
+    commits,
+    githubRepository,
+    linkIcon,
+    noteIds,
+    notePrefix,
+    overBudget,
+    started,
+    thumbnails,
+    skills,
+    commonmark,
+    claims,
+  ]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   // A later token must not invalidate every completed code block's memoized props.

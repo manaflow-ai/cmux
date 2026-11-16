@@ -20,6 +20,7 @@
     {"name": "huggingface", "aliases": ["hugging face", "hf", "huggingface.co"], "title": "Hugging Face", "publisher": "huggingface.co", "url": "https://huggingface.co/mcp", "auth": "none", "scopes": [], "docs": "https://huggingface.co/settings/mcp"},
     {"name": "context7", "aliases": ["context7.com"], "title": "Context7", "publisher": "context7.com", "url": "https://mcp.context7.com/mcp", "auth": "key", "key_header": "CONTEXT7_API_KEY", "key_optional": true, "scopes": [], "docs": "https://context7.com/docs"},
     {"name": "cloudflare-docs", "aliases": ["cloudflare"], "title": "Cloudflare Docs", "publisher": "cloudflare.com", "url": "https://docs.mcp.cloudflare.com/mcp", "auth": "none", "scopes": [], "docs": "https://developers.cloudflare.com/agents/model-context-protocol/"},
-    {"name": "exa", "aliases": ["exa.ai"], "title": "Exa", "publisher": "exa.ai", "url": "https://mcp.exa.ai/mcp", "auth": "none", "scopes": [], "docs": "https://docs.exa.ai/reference/exa-mcp"}
+    {"name": "exa", "aliases": ["exa.ai"], "title": "Exa", "publisher": "exa.ai", "url": "https://mcp.exa.ai/mcp", "auth": "none", "scopes": [], "docs": "https://docs.exa.ai/reference/exa-mcp"},
+    {"name": "deepwiki", "aliases": ["deepwiki.com", "devin wiki"], "title": "DeepWiki", "publisher": "deepwiki.com", "url": "https://mcp.deepwiki.com/mcp", "auth": "none", "scopes": [], "docs": "https://docs.devin.ai/work-with-devin/deepwiki-mcp"}
   ]
 }

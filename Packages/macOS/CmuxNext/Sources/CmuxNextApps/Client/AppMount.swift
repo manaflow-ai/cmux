@@ -35,6 +35,10 @@ public final class AppMount: AppSceneInteraction, Identifiable {
         client?.dispatch(self, node: node, event: event, payload: payload)
     }
 
+    public func reload() {
+        client?.reload(app: appID)
+    }
+
     /// A fresh `AppSceneHostingView` for AppKit hosts (the sidebar).
     public func makeView() -> AppSceneHostingView { AppSceneHostingView(model: model, bundleDirectory: bundleDirectory) }
 
@@ -104,12 +108,45 @@ extension AppsClient {
         }
     }
 
-    private func send(_ mount: AppMount) {
+    /// Mounts every view of `app` again and lists again. A mount whose script failed to load has no
+    /// host left, so its new mount starts one that reads the saved files and runs them again; a
+    /// running host renders the mount anew. A drawn view stays on screen until its new scene, which
+    /// the supervisor marks `reset`. The error card's Reload and Reload Custom Views use it.
+    public func reload(app: String) {
+        refresh()
+        for mount in mounts.values where mount.appID == app { send(mount, keepingScene: true) }
+    }
+
+    /// Reload Custom Views: the supervisor reads every local folder again and reruns each local app
+    /// (`apps.local.reload`, the same read as `cmux ext reload`), restarting its host and sending its
+    /// open views again; a saved script that does not load keeps its last good view and says why in
+    /// its section. The daemon answers it from a thread of its own, and it runs off the mount chain,
+    /// so views go on answering clicks meanwhile. The list that follows mounts again the views that
+    /// had failed (``remountListedFailures()``).
+    public func reloadLocalApps() {
+        guard availability.isAvailable else { return }
+        // task-owner: one App Store call beside the mount chain; the list after it is the client's
+        Task { [weak self, transport] in
+            _ = try? await transport.storeCall("apps.local.reload")
+            self?.refresh()
+        }
+    }
+
+    /// ``reload(app:)`` for every app the person keeps in a local folder (`local/…`: the customize
+    /// folder and the local development apps): their views mount again, no host restarts.
+    public func remountLocalApps() {
+        refresh()
+        for mount in mounts.values where mount.appID.hasPrefix("local/") { send(mount, keepingScene: true) }
+    }
+
+    /// Sends `mount` to the supervisor. `keepingScene` leaves a drawn (ready) view as it is until
+    /// the new scene replaces it; otherwise the view shows loading meanwhile.
+    private func send(_ mount: AppMount, keepingScene: Bool = false) {
         guard availability.isAvailable else {
             mount.model.status = .disconnected(AppsStrings.unavailable(unavailableReason ?? .notConnected))
             return
         }
-        mount.model.reset()
+        if !keepingScene || mount.model.status != .ready { mount.model.reset() }
         enqueue { [weak self] transport in
             do throws(AppsTransportError) {
                 try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id, context: mount.context)

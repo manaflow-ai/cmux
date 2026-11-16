@@ -18,11 +18,16 @@ use crate::stamp::{FileStamp, FileState};
 use crate::text::{prompt_text, title_line};
 use crate::time::parse_rfc3339_ms;
 
+mod rows;
 mod threads;
+pub use rows::{CodexThreadRow, thread_rows};
 pub use threads::forget;
 use threads::query_threads;
 
 const ARCHIVED: &str = "archived_sessions";
+/// The folders that hold rollouts ([`classify`]'s sessions); every other file of the root that
+/// [`classify`] reads is the root's own entry.
+pub(super) const SESSION_FOLDERS: &[&str] = &["sessions", ARCHIVED];
 
 pub(super) fn list(root: &Path) -> io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();

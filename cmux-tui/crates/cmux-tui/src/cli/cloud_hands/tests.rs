@@ -121,6 +121,9 @@ struct App {
 
 impl App {
     fn new(credential: Option<&'static str>) -> Self {
+        // `run_if_requested` installs ring before it serves; these tests call `serve` directly, and
+        // under nextest each test is its own process, so no other test has installed it either.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let (input, lines) = mpsc::unbounded_channel();
         let (sender, events) = mpsc::unbounded_channel();
         tokio::spawn(serve(lines, move |event: Value| {
@@ -170,6 +173,7 @@ impl App {
                 self.backlog.push(event);
             }
         };
+        // timeout: test-only bound; a missing event fails the test instead of hanging it.
         tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.expect(kind)
     }
 

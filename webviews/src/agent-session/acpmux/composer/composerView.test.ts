@@ -52,3 +52,44 @@ test("a tool call's snapshot is the same composer view; a new prompt is not", ()
     false,
   );
 });
+
+test("a turn's token counts and subagent progress, and another chat's status, leave a started chat's view the same", () => {
+  // The shown chat's entry is the same object in each list, as the client keeps an entry it did not change.
+  const shown = { sessionId: "s1", title: "This", status: "running" };
+  const sessions = (status: string, title = "Other") =>
+    [
+      shown,
+      {
+        sessionId: "s2",
+        title,
+        status,
+        indicator: status === "running" ? "working" : "done",
+        updatedAt: status.length,
+      },
+    ] as AcpmuxSnapshot["sessions"];
+  const commands = [{ name: "plan" }];
+  const at = (extra: Partial<AcpmuxSnapshot>) =>
+    composerView({
+      ...snapshot([start, prompt, reply], "connected", commands),
+      sessionId: "s1",
+      sessions: sessions("idle"),
+      ...extra,
+    });
+  const before = at({});
+  // The turn's live fields are not in the view at all.
+  const step = at({ turnTokens: 1200, subagentStructureVersion: 3, subagentProgress: {} } as Partial<AcpmuxSnapshot>);
+  expect("turnTokens" in step).toBe(false);
+  expect(sameComposerView(before, step)).toBe(true);
+  // Another chat starting to run changes only its live fields.
+  expect(sameComposerView(before, at({ sessions: sessions("running") }))).toBe(true);
+  // Its title is shown in the @ menu: a change draws the composer again.
+  expect(sameComposerView(before, at({ sessions: sessions("idle", "Renamed") }))).toBe(false);
+  // The shown chat's own entry is compared whole.
+  const own = sessions("idle");
+  own[0] = { ...own[0]!, status: "idle" };
+  expect(sameComposerView(before, at({ sessions: own }))).toBe(false);
+  // A new chat (no rows yet) reads the other chats' recency for its folder strip and suggestion.
+  const fresh = (status: string) =>
+    composerView({ ...snapshot([], "connected", commands), sessions: sessions(status) } as AcpmuxSnapshot);
+  expect(sameComposerView(fresh("idle"), fresh("running"))).toBe(false);
+});

@@ -1,8 +1,8 @@
 import Foundation
 
 /// The HTTP half of `cmux.wire/1` for ``WireHomeSource``: `POST /v1/ops`,
-/// `POST /v1/read`, `GET /v1/selfhost/info`, the attachment routes and the
-/// socket upgrade request. It adds the auth of ``HomeWireAuth`` (a Bearer
+/// `POST /v1/read`, `GET /v1/selfhost/info`, the Hosted Chief's brain route,
+/// the attachment routes and the socket upgrade request. It adds the auth of ``HomeWireAuth`` (a Bearer
 /// for `.stack`, nothing for `.tailscale`) and turns every answer into a
 /// value or a ``HomeRejection``, the same way the daemon's proxy does
 /// (cmux-tui-cloud-conversations `contract.rs`).
@@ -93,6 +93,22 @@ struct HomeWireClient: Sendable {
         let http = self.http
         let reply = try await exchange(request, effect: effect) { try await http.send($0) }
         return try Self.check(reply, effect: effect)
+    }
+
+    /// `method` (`GET`, `PUT`) to `path` with an optional JSON body: the
+    /// status and the parsed body of any answer, so a caller can tell a route
+    /// this server does not have (404) from a refusal.
+    func request(_ method: String, _ path: String, _ body: HomeWireJSON? = nil, effect: Effect) async throws
+        -> (status: Int, body: HomeWireJSON) {
+        var request = URLRequest(url: url(path))
+        request.httpMethod = method
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body.data
+        }
+        let http = self.http
+        let reply = try await exchange(request, effect: effect) { try await http.send($0) }
+        return (reply.status, HomeWireJSON.parse(reply.body) ?? .null)
     }
 
     /// `POST /v1/read {op, params}`: the reply's `value`.

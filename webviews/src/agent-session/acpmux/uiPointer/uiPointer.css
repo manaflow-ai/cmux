@@ -1,0 +1,186 @@
+/* The UI inspector's overlay (uiPointer/overlay.ts): the outline, the label beside it and the hint.
+   One fixed host over the page with no pointer events, so nothing under it reflows or loses a hover.
+   The label and the hint wear the tooltip's tint and rim on an opaque page background; the outline and the
+   label's name are the pane accent. */
+.cmux-ui-pointer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-debug);
+  pointer-events: none;
+}
+
+.cmux-ui-pointer [hidden] {
+  display: none;
+}
+
+.cmux-ui-pointer-outline,
+.cmux-ui-pointer-label {
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+.cmux-ui-pointer-outline {
+  box-sizing: border-box;
+  border: 2px solid var(--agent-accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-accent) 12%, transparent);
+}
+
+.cmux-ui-pointer-label,
+.cmux-ui-pointer-hint {
+  box-sizing: border-box;
+  max-width: min(var(--tooltip-max-width, 320px), calc(100vw - 8px));
+  border: var(--tooltip-rim-width, 1px) solid
+    var(--cmux-separator, color-mix(in srgb, var(--agent-text) 12%, transparent));
+  border-radius: 6px;
+  /* Opaque: the label sits over any page content, which must never show through its text. The
+     tooltip's tint is laid over the page background instead of over a blur. */
+  background:
+    linear-gradient(var(--tooltip-tint, transparent), var(--tooltip-tint, transparent)), var(--agent-page-bg);
+  box-shadow: var(--tooltip-shadow);
+  color: var(--cmux-tooltip-ink, var(--agent-text));
+  font-family: var(--font-ui);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.cmux-ui-pointer-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: max-content;
+  padding: 4px 8px;
+}
+
+.cmux-ui-pointer-label__head,
+.cmux-ui-pointer-label__styles {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.cmux-ui-pointer-label__name {
+  flex: none;
+  color: var(--agent-accent);
+  font-weight: var(--weight-emphasis);
+}
+
+.cmux-ui-pointer-label__selector {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+}
+
+.cmux-ui-pointer-label__size,
+.cmux-ui-pointer-label__styles {
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cmux-ui-pointer-label__size {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+.cmux-ui-pointer-label__snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmux-ui-pointer-label__snippet[data-empty] {
+  color: var(--agent-muted);
+}
+
+.cmux-ui-pointer-label__styles {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmux-ui-pointer-label__swatch {
+  flex: none;
+  align-self: center;
+  /* A dot of the element's text colour, sized to the caption it sits in. */
+  width: 0.75em;
+  aspect-ratio: 1;
+  border: var(--tooltip-rim-width, 1px) solid color-mix(in srgb, var(--agent-text) 24%, transparent);
+  border-radius: 4px;
+  background: var(--cmux-ui-pointer-swatch);
+}
+
+.cmux-ui-pointer-hint {
+  position: fixed;
+  inset-inline: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 12px;
+  width: max-content;
+  /* One line wherever it fits; it wraps its keys under the text only in a narrow pane. */
+  max-width: calc(100vw - 8px);
+  margin-inline: auto;
+  padding: 4px 8px;
+}
+
+.cmux-ui-pointer-hint[data-edge="top"] {
+  top: 4px;
+}
+
+.cmux-ui-pointer-hint[data-edge="bottom"] {
+  bottom: 4px;
+}
+
+.cmux-ui-pointer-hint__keys {
+  display: flex;
+  gap: 8px;
+  color: var(--agent-muted);
+}
+
+.cmux-ui-pointer-hint__key {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.cmux-ui-pointer-kbd {
+  padding: 0 4px;
+  border: var(--tooltip-rim-width, 1px) solid color-mix(in srgb, var(--agent-text) 20%, transparent);
+  border-radius: 4px;
+  color: var(--agent-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-caption);
+}
+
+/* The label moves with the outline: one short glide between elements, from where it is now. The
+   first place of either (data-instant) takes none. Reduce Motion and the motion switch (data-cmux-motion)
+   leave them to jump in one frame. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cmux-ui-pointer-outline,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cmux-ui-pointer-label {
+    transition:
+      translate var(--agent-motion-hover) var(--agent-ease-out),
+      width var(--agent-motion-hover) var(--agent-ease-out),
+      height var(--agent-motion-hover) var(--agent-ease-out);
+  }
+}
+
+:root .cmux-ui-pointer [data-instant] {
+  transition: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .cmux-ui-pointer-label,
+  .cmux-ui-pointer-hint {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--surface-popup, var(--agent-page-bg));
+  }
+}

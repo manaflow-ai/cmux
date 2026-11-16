@@ -108,3 +108,87 @@ test("a prompt held while the agent starts reads as sent, and Stop hands every h
   expect(harnessSwitch.view().intent?.phase).toBe("starting");
   expect(harnessSwitch.cancelQueuedAll()).toBe(false);
 });
+
+test("a new chat's first prompt waits only on the picks its session does not already have", async () => {
+  // Each pick is a round trip to the agent that the first prompt waits on, seconds apiece on a busy
+  // Mac (Leo, 2026-11-05: "it thinks so so long..."): one the session started with is not sent.
+  const calls: string[] = [];
+  let open = false;
+  const port: SwitchPort = {
+    ...trustRefusingPort(),
+    shown: () =>
+      open
+        ? {
+            sessionId: "s1",
+            harness: "claude",
+            model: "opus",
+            modeId: "default",
+            empty: true,
+            configOptions: [
+              { id: "effort", category: "thought_level", currentValue: "high", options: [{ value: "high" }] },
+              { id: "fast-mode", currentValue: "off", options: [{ value: "off" }, { value: "on" }] },
+            ],
+          }
+        : undefined,
+    create: async () => "s1",
+    open: async (sessionId) => {
+      open = true;
+      return sessionId;
+    },
+    send: async (text) => void calls.push(`send ${text}`),
+    setModel: async (model) => void calls.push(`model ${model}`),
+    setMode: async (mode) => void calls.push(`mode ${mode}`),
+    setConfig: async (configId, value) => void calls.push(`config ${configId}=${value}`),
+  };
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(port);
+  const started = harnessSwitch.switchTo("claude", "/work", {
+    model: "opus",
+    options: { effort: "high", "fast-mode": "on" },
+  });
+  harnessSwitch.pickMode("default");
+  const sent = harnessSwitch.send("fix the tests");
+  expect(await started).toBe("s1");
+  await sent;
+  expect(calls).toEqual(["config fast-mode=on", "send fix the tests"]);
+});
+
+test("a new chat still sends every pick its session differs on before the first prompt", async () => {
+  // A model switch can reset effort, so the effort the old model reported is sent again too.
+  const calls: string[] = [];
+  let open = false;
+  const port: SwitchPort = {
+    ...trustRefusingPort(),
+    shown: () =>
+      open
+        ? {
+            sessionId: "s1",
+            harness: "claude",
+            model: "sonnet",
+            modeId: "default",
+            empty: true,
+            configOptions: [
+              { id: "effort", category: "thought_level", currentValue: "high", options: [{ value: "high" }] },
+            ],
+          }
+        : undefined,
+    create: async () => "s1",
+    open: async (sessionId) => {
+      open = true;
+      return sessionId;
+    },
+    send: async (text) => void calls.push(`send ${text}`),
+    setModel: async (model) => void calls.push(`model ${model}`),
+    setMode: async (mode) => void calls.push(`mode ${mode}`),
+    setConfig: async (configId, value) => void calls.push(`config ${configId}=${value}`),
+  };
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(port);
+  const started = harnessSwitch.switchTo("claude", "/work", { model: "opus", options: { effort: "high" } });
+  harnessSwitch.pickMode("acceptEdits");
+  const sent = harnessSwitch.send("fix the tests");
+  await started;
+  await sent;
+  expect(calls.slice(0, 3).sort()).toEqual(["config effort=high", "mode acceptEdits", "model opus"]);
+  expect(calls[3]).toBe("send fix the tests");
+});

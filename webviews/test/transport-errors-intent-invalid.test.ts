@@ -1,13 +1,15 @@
 // The pane's host refuses a malformed request with `transport.intent_invalid` (the Swift host
 // checks every frame: .cmux-scratch/pane-protocol/pane-native-transport-review.md). That is the
-// pane's bug, never the person's, so the text says what happened in plain words and what to do,
-// without the pane's plumbing ("the pane sent a request the app does not accept", Leo's live
-// report 2026-10-21). The refusal itself goes to the console for a developer.
+// pane's bug, never the person's, so the text says what happened in plain words, without the
+// pane's plumbing ("the pane sent a request the app does not accept", Leo's live report
+// 2026-10-21), and never asks the person to try again: the same request is refused the same way
+// (Leo, 2026-11-12, on "Try again": "try what? no, it should just automatically do stuff"). The
+// refusal itself goes to the console for a developer.
 import { expect, test } from "bun:test";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { errorMessage } from "../src/agent-session/acpmux/transportErrors";
 
-test("a malformed-request refusal reads as plain words with one action", () => {
+test("a malformed-request refusal reads as plain words and asks for nothing", () => {
   const logged: unknown[] = [];
   const original = console.error;
   console.error = (...args: unknown[]) => void logged.push(args);
@@ -18,8 +20,8 @@ test("a malformed-request refusal reads as plain words with one action", () => {
     console.error = original;
   }
   expect(text).toBe(translate("transport.intentInvalid"));
-  // No plumbing words: what happened, then the one thing to do.
-  for (const jargon of [/\brequest\b/i, /\bpane\b/i, /\baccept/i, /intent/i]) expect(text).not.toMatch(jargon);
-  expect(text.endsWith(translate("question.replyFailed").split(". ").pop()!)).toBe(true);
+  // No plumbing words, and no Try again: what happened only.
+  for (const jargon of [/\brequest\b/i, /\bpane\b/i, /\baccept/i, /intent/i, /try again/i])
+    expect(text).not.toMatch(jargon);
   expect(logged).toHaveLength(1);
 });

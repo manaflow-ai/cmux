@@ -35,14 +35,12 @@ struct WorkspaceAutoNameWiring {
                 guard let services else { return [] }
                 return services.machines.daemons.flatMap { daemon in
                     let identity = daemon.identity
+                    let supportsNameSource = daemon.supports(DaemonCapability.workspaceNameSource.rawValue)
+                    // The list only: a workspace's name state is read by its own observation.
                     return daemon.store.workspaces.map { workspace in
-                        WorkspaceAutoNamer.Target(
-                            machineID: daemon.machineID,
-                            workspace: workspace,
-                            supportsNameSource: daemon.supports(DaemonCapability.workspaceNameSource.rawValue),
-                            daemonGeneration: identity?.generation,
-                            nameSource: workspace.nameSource,
-                            nameRevision: workspace.nameRevision)
+                        WorkspaceAutoNamer.Shown(machineID: daemon.machineID, workspace: workspace,
+                                                 supportsNameSource: supportsNameSource,
+                                                 daemonGeneration: identity?.generation)
                     }
                 }
             },

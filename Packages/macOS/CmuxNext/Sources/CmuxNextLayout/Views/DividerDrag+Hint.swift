@@ -46,7 +46,7 @@ extension DividerDrag {
         drag.hintToast?.dismiss()
         drag.hintToast = nil
         if let text, let window = screen.window, window.isVisible {
-            drag.hintToast = toasts.show(CmuxToast(id: Self.hintToastID, message: text, duration: .seconds(30)), in: window)
+            drag.hintToast = toasts.show(CmuxToast(id: Self.hintToastID, message: text, duration: .seconds(30), keepsDuration: true), in: window)
         }
         return drag
     }

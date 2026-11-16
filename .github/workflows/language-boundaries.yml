@@ -1,0 +1,114 @@
+name: language boundaries
+
+# Each area of the app stays in its language (.github/language-boundaries.toml). Lawrence's rule, relayed by Leo
+# (2026-11-10): "imessage home lives in swift, chat ui lives in react, acpmux/cmux-tui lives in rust, cmux cloud
+# core should be rust (together with cmux-tui/acpmux) and should have very minimal in swift." A pull request into
+# feat-cmux-next or main that deletes or moves an area's files out of its language, adds a foreign language there,
+# or adds Swift to a Swift-minimal area fails the `language-boundaries` check unless Leo approved the port (the
+# `leo-approved-port` label added by teamleaderleo plus his `leo-approved-port:` PR comment, not a review; the
+# script's docstring has the limit). A pull request anywhere that removes Swift and adds React/web code (a Swift-to-
+# React port) fails too unless Lawrence or Leo added `react-port-ok` (Lawrence, relayed by Leo, 2026-11-11: "also
+# let's not move stuff to react anymore unless we talk about it / swift->rust is usually fine though"). Adding or
+# removing a label re-runs it.
+#
+# scripts/ci/language_boundaries.py decides, run from the base commit with the base's manifest, never the pull
+# request's code; the head is read only as a list of changed files. It runs on pull_request_target, so this file is
+# the base's too: a pull request cannot edit the check that judges it. Same shape as classic-frozen-guard.yml.
+on:
+  pull_request_target:
+    branches: [main, feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: language-boundaries-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  language-boundaries:
+    name: language-boundaries
+    # Every label change re-runs it (a skipped run would read as a pass and replace a failing one).
+    # A base-revision control-plane job (cla-policy-guard.yml's runner rule): a VM destroyed after one job,
+    # never a persistent or contributor-controlled machine.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Check out the check and the manifest from the base commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/language_boundaries.py
+            .github/language-boundaries.toml
+          sparse-checkout-cone-mode: false
+
+      - name: Check the changed files against the language boundaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/language_boundaries.py ] || [ ! -f .github/language-boundaries.toml ]; then
+            # The pull request that adds the check: its base has no check to run yet.
+            echo "::notice::The base has no language-boundaries check yet; nothing to check."
+            exit 0
+          fi
+          files="$RUNNER_TEMP/files.jsonl"
+          format=json
+          # One JSON object per changed file: status, path, and a rename's old path, every character kept (a TSV
+          # or git's default output quotes or escapes a path with a quote, tab or newline, and it then matches no
+          # area).
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | {status, path: .filename, old: (.previous_filename // "")} | tojson' > "$files"; then
+            # The REST listing shares the installation's rate limit. Read the same files from the PR's merge
+            # commit (classic-frozen-guard.yml's fallback): its first parent is the base.
+            echo "::warning::The REST file listing failed; reading the changed files from refs/pull/$PR/merge."
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            export GIT_CONFIG_VALUE_0
+            if git fetch --no-tags --filter=blob:none --depth=2 \
+                 origin "+refs/pull/$PR/merge:refs/guard/merge" \
+               && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
+               && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
+               && git diff -z --name-status -M refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/files.z"; then
+              # -z: NUL-separated, every path byte for byte, nothing quoted.
+              files="$RUNNER_TEMP/files.z"
+              format=git-z
+              # No GitHub listing cap applies to git, and a base that already has some of the changes lists fewer.
+              CHANGED_FILES=""
+            else
+              echo "::error::Could not list the changed files; re-run this check."
+              exit 1
+            fi
+          fi
+          set -- --files "$files" --format "$format" --labels-json "$LABELS_JSON"
+          if [ -n "$CHANGED_FILES" ]; then set -- "$@" --expected-files "$CHANGED_FILES"; fi
+          if printf '%s' "$LABELS_JSON" | grep -qE '"(leo-approved-port|react-port-ok)"'; then
+            # Only with an approval label on: who added it, and Leo's approval line, one compact JSON object per line
+            # (`tojson`, so a body's newlines stay escaped). Each carries its author's type (User, Bot) and the
+            # GitHub App it went through. GitHub reports no app for a review (REST or GraphQL), so a review is
+            # marked `source: "review"` and never approves: an app acting for Leo would look like him.
+            gh api --paginate "repos/$REPOSITORY/issues/$PR/events?per_page=100" \
+              --jq '.[] | {event, label: (.label.name // null), actor: (.actor.login // null), type: (.actor.type // null), app: (.performed_via_github_app.slug // null)} | tojson' \
+              > "$RUNNER_TEMP/events.jsonl" || { echo "::error::Could not read the label's events; re-run this check."; exit 3; }
+            gh api --paginate "repos/$REPOSITORY/issues/$PR/comments?per_page=100" \
+              --jq '.[] | {user: (.user.login // null), type: (.user.type // null), body, app: (.performed_via_github_app.slug // null), source: "comment"} | tojson' \
+              > "$RUNNER_TEMP/notes.jsonl" || { echo "::error::Could not read the comments; re-run this check."; exit 3; }
+            gh api --paginate "repos/$REPOSITORY/pulls/$PR/reviews?per_page=100" \
+              --jq '.[] | {user: (.user.login // null), type: (.user.type // null), body, app: (.performed_via_github_app.slug // null), source: "review"} | tojson' >> "$RUNNER_TEMP/notes.jsonl" \
+              || { echo "::error::Could not read the reviews; re-run this check."; exit 3; }
+            set -- "$@" --events "$RUNNER_TEMP/events.jsonl" --notes "$RUNNER_TEMP/notes.jsonl"
+          fi
+          python3 scripts/ci/language_boundaries.py "$@"

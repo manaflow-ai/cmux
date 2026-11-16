@@ -1,0 +1,11 @@
+[package]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Predictive local echo for a terminal whose shell runs on another machine (a Cloud VM, an SSH host): which typed characters cmux may draw before the remote echoes them, and when to take them back. Policy only; the macOS app draws the overlay (asked over the app FFI)"
+
+[lints]
+workspace = true

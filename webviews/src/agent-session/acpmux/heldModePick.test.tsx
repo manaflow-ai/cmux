@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { flushHeldModePick, heldModePickForTest, holdModePick } from "./heldModePick";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -13,10 +14,11 @@ const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const saved = new Map<string, unknown>();
 
-afterEach(() => {
+afterEach(async () => {
   flushHeldModePick();
   if (root) act(() => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const key of keys) {

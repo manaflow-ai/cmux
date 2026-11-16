@@ -436,3 +436,22 @@ fn a_flood_flush_writes_bounded_frames_and_asks_for_the_next_pass_at_once() {
     );
     assert!(dirty, "the bytes left wait for a pass without being marked dirty");
 }
+
+/// The record of files this daemon last appended to holds one entry per terminal that still
+/// has segments: removing a terminal's segments forgets its entry. Before, an entry stayed for
+/// every terminal that ever wrote in full mode, and each append walked all of them.
+#[test]
+fn removed_terminals_leave_no_verified_entry() {
+    let directory = store_directory("verified");
+    let segments = Segments::default();
+    for index in 0..200_u32 {
+        let terminal = TerminalPublicId::parse(format!("term_{:032x}", 1000 + index)).unwrap();
+        let terminal_directory = terminal_directory(&directory, &terminal);
+        append_frame(&segments, &terminal_directory, "g1", 0, b"output").unwrap();
+        segments.forget(&directory, &terminal);
+        remove(&directory, &terminal);
+    }
+    let kept = segments.verified.lock().unwrap().len();
+    assert_eq!(kept, 0, "{kept} entries for terminals whose segments are gone");
+    let _ = fs::remove_dir_all(&directory);
+}

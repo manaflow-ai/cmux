@@ -196,12 +196,6 @@ struct CloudPausedStartTests {
 /// failed machines listed no reason and every row's created_at was null.
 @MainActor @Suite
 struct CloudListedMachineRowTests {
-    static func session(_ machine: CloudMachine) -> CloudMachineSession {
-        CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id),
-                                                                        resolver: LateReceiverResolver(refusing: 0, dials: CloudPausedStartTests.Dials())),
-                            localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
-    }
-
     @Test func aRowNamesItsFailureAndCreationTime() throws {
         let data = Data(#"""
         {"id":"vm_1688397baaa64707a11a","status":"failed","creator":"user_a","name":"coord-test","created_at":1793868882000,
@@ -209,16 +203,6 @@ struct CloudListedMachineRowTests {
         """#.utf8)
         let machine = try #require(CloudMachine(next: try JSONDecoder().decode(JSONValue.self, from: data)))
         #expect(machine.createdAt == Date(timeIntervalSince1970: 1_793_868_882))
-        let session = Self.session(machine)
-        guard case .object(let row) = CloudHandlers.listedMachine(session, owner: "team") else { Issue.record("not an object"); return }
-        #expect(row["error"] == .object(["code": .string("cloud.provider.unavailable"), "message": .string("provider call failed")]))
-        #expect(row["created_at"] != .null)
-    }
-
-    @Test func aRowWithNoFailureSaysNull() {
-        let session = Self.session(CloudMachine(id: "vm-ok", status: .running))
-        guard case .object(let row) = CloudHandlers.listedMachine(session, owner: "team") else { Issue.record("not an object"); return }
-        #expect(row["error"] == .null)
     }
 }
 

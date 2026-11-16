@@ -9,6 +9,7 @@
 // passive markup in srcdoc with the nonce'd frame script that refuses link clicks, and a frame that
 // leaves its document anyway shows the source. Other dev pages show their source only.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SplitEdge } from "../../../ui/SplitEdge";
 import { useT } from "../i18n";
 import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import {
@@ -134,6 +135,18 @@ export function ArtifactPanel({
         onClose();
       }}
     >
+      {/* Its left edge is the split's divider and drags as one (ui/SplitEdge.tsx). The width is a share of
+          the pane set on the shell, where the Background tasks column and the header's push read it too,
+          so everything beside the chat moves with the edge. */}
+      <SplitEdge
+        side="left"
+        property="--acpmux-artifact-share"
+        storageKey="cmux.agentPane.artifact.share"
+        unit="vw"
+        min={20}
+        max={80}
+        on="parent"
+      />
       <div className="acpmux-artifact-bar">
         <span className="acpmux-artifact-title">{title}</span>
         {pinned && (

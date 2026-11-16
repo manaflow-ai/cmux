@@ -224,7 +224,19 @@ kept under `on_exit` keep, a keep-layout tab) shows one-click Restart. The op is
 `restart-tab {surface}` (`tab-restart-v1`, Unix owners): it runs the L2 worker for the
 same terminal id, so the tab id, placement, name, pin, group and every reference to the
 terminal stay, and the new shell starts below the previous screen and the marker line.
-An explicit request has no backoff and resets the supervisor's attempt count. A tab whose terminal runs, launches or already restarts is the typed reject
+An explicit request has no backoff and resets the supervisor's attempt count. It takes a turn in
+the respawn gate, so the restarts of a restored session's
+kept tabs never all launch at once. The tabs kept for a start at a frontend's connect (their terminal
+ran an agent session) are the restore: they wait in the gate's line. A terminal the person sees
+(the daemon's active workspace) and each other restart (Restart Shell Here, the first show of a
+parked tab, in a hidden workspace too) is the person's: it does not wait for the line or for a
+turn of the line to end (`StartupAdoptionGate::turn_first_if`), and the slots bound such starts
+among themselves. The request does not say who sent it: a script's `cmux tab restart` of a dead tab that is
+not such a kept tab goes first too, and a kept agent tab that the person restarts by hand, or that a frontend starts at
+the first show of its workspace (a protected folder), waits in the line unless its workspace is the
+active one. A failed launch is tried again
+(`terminal_respawn/retry.rs`); a next try that waits a backoff takes its turn when the wait is over. The turn ends when the new shell is in the tabs: the wait for its
+prompt, to type a resume command there, holds no turn. A tab whose terminal runs, launches or already restarts is the typed reject
 `tab-not-dead`. There is no automatic-restart setting and no reducer or FFI change; the
 superseded design (a new terminal id and a `terminal.restartLostTerminals` setting,
 orphan branch feat-cmux-next-tab-restart-4) did not land. Surfaces, one shared action

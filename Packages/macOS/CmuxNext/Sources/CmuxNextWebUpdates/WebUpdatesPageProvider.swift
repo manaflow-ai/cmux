@@ -33,7 +33,7 @@ public final class WebUpdatesPageProvider: PageProvider {
         do {
             try await updater.rollBack()
         } catch {
-            throw PageError(code: "cmux.settings.web_updates.failed", message: error.localizedDescription)
+            throw PageError.failed(error, code: "cmux.settings.web_updates.failed")
         }
         return .object([:])
     }

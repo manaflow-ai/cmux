@@ -546,8 +546,7 @@ function usePierreFileTreeSelection(
 }
 
 const FILE_TREE_ITEM_HEIGHT = 29;
-const FILE_TREE_FONT_FAMILY =
-  '"Inter", system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
+const FILE_TREE_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif';
 
 export function getInitialFileTreeRowCount(): number {
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;

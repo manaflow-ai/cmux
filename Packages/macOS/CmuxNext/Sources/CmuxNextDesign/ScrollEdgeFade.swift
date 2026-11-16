@@ -66,6 +66,12 @@ public final class ScrollEdgeFadeView: NSView {
     public var topClip: CGFloat = 0 {
         didSet { if oldValue != topClip { updateFade(animated: false) } }
     }
+    /// Holds the top band's fade off: below `topClip` the list shows whole, though content is hidden above. For a view
+    /// that stands at the list's top and must not fade (a stuck section header, which draws its own fade under it).
+    /// The band's stops move on the same short crossfade as its colors. Off by default.
+    public var holdsTopEdge = false {
+        didSet { if oldValue != holdsTopEdge { updateFade(animated: true, movesStops: true) } }
+    }
     /// Whether hidden content fades at the edges. Off, the mask stays opaque at every edge, so the
     /// whole list shows (`sidebar.noFade`). Setting it re-reads the edges at once.
     public var fades = true {
@@ -156,7 +162,10 @@ public final class ScrollEdgeFadeView: NSView {
     }
 
     /// Re-reads the scroll position.
-    public func updateFade(animated: Bool = true) {
+    public func updateFade(animated: Bool = true) { updateFade(animated: animated, movesStops: false) }
+
+    /// `updateFade`; `movesStops` moves the gradient's stops on the band's crossfade too (`holdsTopEdge`).
+    private func updateFade(animated: Bool, movesStops: Bool) {
         guard let layer else { return }
         observeDocument(scrollView.documentView)
         let next = fades ? Self.hiddenEdges(of: scrollView) : []
@@ -170,7 +179,10 @@ public final class ScrollEdgeFadeView: NSView {
             let top: CGFloat = Self.rendersTopDown(layer) ? 0 : 1
             fadeMask.startPoint = CGPoint(x: 0.5, y: top)
             fadeMask.endPoint = CGPoint(x: 0.5, y: 1 - top)
-            fadeMask.locations = Self.locations(height: layer.bounds.height, fade: fade, topClip: topClip).map { NSNumber(value: Double($0)) }
+        }
+        let stops = Self.locations(height: layer.bounds.height, fade: fade, topClip: topClip, holdsTop: holdsTopEdge)
+        Motion.feedback.transaction(movesStops && animated ? .hover : nil) {
+            fadeMask.locations = stops.map { NSNumber(value: Double($0)) }
         }
         setEdges(next, animated: animated)
     }
@@ -192,9 +204,9 @@ public final class ScrollEdgeFadeView: NSView {
     /// Gradient stops top to bottom, as fractions of `height`: the top band holds its color down
     /// to `topClip` (the gradient's first color extends above its first stop), then fades over
     /// `fade`; the bottom band fades over `fade`. The clip gives way to keep the stops in order.
-    static func locations(height: CGFloat, fade: CGFloat, topClip: CGFloat) -> [CGFloat] {
+    static func locations(height: CGFloat, fade: CGFloat, topClip: CGFloat, holdsTop: Bool = false) -> [CGFloat] {
         let clip = min(max(0, topClip) / max(height, 1), max(0, 1 - 2 * fade))
-        return [clip, clip + fade, 1 - fade, 1]
+        return [clip, clip + (holdsTop ? 0 : fade), 1 - fade, 1]
     }
 
     private func setEdges(_ next: ScrollEdges, animated: Bool) {

@@ -14,6 +14,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { trayLatestLook } from "./trayLatest.experiment";
+import { RUNNING_TRAY_LINE } from "./subagentSelectors";
 
 const agent = (slug: string, task: string, minutes: number, fields: Partial<Subagent> = {}): Subagent => ({
   id: `agent-${slug}`,
@@ -70,7 +71,7 @@ const expanded = async (ctx: PlayContext) => {
   const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
   if (head && head.getAttribute("aria-expanded") !== "true")
     await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
+  await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LINE));
 };
 
 export default agentPaneEntry({
@@ -92,7 +93,7 @@ export default agentPaneEntry({
   },
   variants: {
     "four-agents": {
-      note: "The pick. Two run (one stopped to wait on its own background work), one finished, one failed: each line is one row, its title, what it did last muted after it, then its state, time and Stop in their columns. The failed line leads, so the list's cap never hides it; the ended ones leave their quiet lines in the transcript.",
+      note: "The pick. Two run (one stopped to wait on its own background work), one finished, one failed: each line is one row, its title, what it did last muted after it, then its state, time and Stop in their columns. The failed one leaves the hat at once (its failed line stays in the transcript); the ended ones leave their quiet lines in the transcript.",
       play: expanded,
       snapshot: scene(FOUR),
     },

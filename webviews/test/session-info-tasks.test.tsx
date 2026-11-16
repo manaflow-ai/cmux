@@ -23,6 +23,7 @@ import {
   type ProcessSource,
 } from "../src/agent-session/acpmux/session-info/processes";
 import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -57,6 +58,7 @@ beforeEach(() => resetSessionInfoState());
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

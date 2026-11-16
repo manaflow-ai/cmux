@@ -3281,7 +3281,7 @@ class Git:
         if not items:
             return {}
         data = "".join(f"{rev}\n" if by_id else f"{rev}:{path}\n" for rev, path in items).encode()
-        # Through a file, never `input=`: over a pipe a big answer can deadlock (check-leo-bans.py).
+        # Through a file, never `input=`: over a pipe a big answer can deadlock (check-ui-font.py).
         with tempfile.TemporaryFile() as stdin:
             stdin.write(data)
             stdin.seek(0)

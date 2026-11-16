@@ -93,8 +93,11 @@ struct HomeAgentPills {
     }
 
     /// The agent whose pill holds `point` (row coordinates), or nil.
-    func peer(at point: CGPoint) -> String? {
-        pills.first { $0.rect.insetBy(dx: -2, dy: -2).contains(point) }?.peer
+    func peer(at point: CGPoint) -> String? { pill(at: point)?.peer }
+
+    /// The pill that holds `point` (row coordinates), or nil.
+    func pill(at point: CGPoint) -> Pill? {
+        pills.first { $0.rect.insetBy(dx: -2, dy: -2).contains(point) }
     }
 
     func draw(_ ctx: CGContext, origin: CGPoint) {

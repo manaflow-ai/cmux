@@ -13,6 +13,9 @@ extension SidebarModel {
     /// A placeholder row (a machine still connecting) is never selected,
     /// renamed, dragged or shown.
     public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState.isPending == true }
+    /// A row this app is creating (`SidebarRowState.creating`): like a placeholder it is never selected, but it
+    /// drags, and its drop is the slot the create takes once the daemon lists the workspace.
+    public func isCreating(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .creating }
 
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {
@@ -22,6 +25,10 @@ extension SidebarModel {
         selectionExtent = nil
         send(.select(id))
     }
+
+    /// Whether a click on `id` shows a workspace the window does not show now. The one test of a press that
+    /// switches, for the list's rows and the rail's marks: such a press moves no key (`KeyNeutralPressTarget`).
+    public func clickShowsAnotherWorkspace(_ id: WorkspaceID) -> Bool { !isPlaceholder(id) && shownWorkspaceID != id }
 
     /// The workspace the window shows: the active workspace, or the one a
     /// selected pinned tile names (its `SidebarItem.topItem`). Selection

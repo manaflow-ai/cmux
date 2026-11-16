@@ -103,6 +103,9 @@ pub struct InitParams {
     pub locale: Option<String>,
     pub strings: Value,
     pub main: String,
+    /// The script's file name, so an error names `main.js:2:12`; `None`
+    /// keeps QuickJS's `eval_script`.
+    pub main_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -382,7 +385,11 @@ impl AppVm {
     /// Evaluates the app's main script and calls `__cmuxAppInit`.
     pub fn init(&mut self, params: InitParams) -> Result<(), VmError> {
         let main = params.main;
-        if let Err(error) = self.enter("main", move |ctx| ctx.eval::<(), _>(main))? {
+        let mut options = rquickjs::context::EvalOptions::default();
+        options.filename = params.main_name;
+        if let Err(error) =
+            self.enter("main", move |ctx| ctx.eval_with_options::<(), _>(main, options))?
+        {
             return Err(VmError::Init(format!("main: {error}")));
         }
         let init = json!({
@@ -799,6 +806,29 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
             s.borrow_mut().push(FromHost::Done { cb: cb as u64, ok, body: parse(&json) }, bytes);
         })?,
     )?;
+    // Pure and local: no message to the supervisor, no state.
+    native
+        .set("zone", Function::new(ctx.clone(), |name: String, at: f64| zone_json(&name, at))?)?;
     ctx.globals().set("__cmuxAppNative", native)?;
     Ok(())
+}
+
+/// `__cmuxAppNative.zone(name, atMs)`: an IANA zone's UTC offset and abbreviation at
+/// an instant, as JSON (`{"offsetMinutes","abbreviation"}`, or `{"error"}` for a name
+/// the database does not know). QuickJS has no Intl, so this is how an extension shows
+/// the time in another zone (`cmux.time.zone`).
+pub(crate) fn zone_json(name: &str, at_ms: f64) -> String {
+    use chrono::{Offset as _, TimeZone as _};
+    use chrono_tz::OffsetName as _;
+    let Ok(tz) = name.parse::<chrono_tz::Tz>() else {
+        return json!({ "error": format!("{name} is not an IANA time zone") }).to_string();
+    };
+    let ms = if at_ms.is_finite() { at_ms as i64 } else { 0 };
+    let Some(instant) = chrono::DateTime::from_timestamp_millis(ms) else {
+        return json!({ "error": format!("{at_ms} is not a time") }).to_string();
+    };
+    let offset = tz.offset_from_utc_datetime(&instant.naive_utc());
+    let minutes = offset.fix().local_minus_utc() / 60;
+    let abbreviation = offset.abbreviation().unwrap_or_default();
+    json!({ "offsetMinutes": minutes, "abbreviation": abbreviation }).to_string()
 }

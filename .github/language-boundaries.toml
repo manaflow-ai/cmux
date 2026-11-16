@@ -1,0 +1,149 @@
+# Language boundaries: which language each area of the app stays in.
+#
+# Lawrence's rule, relayed by Leo (2026-11-10): "imessage home lives in swift, chat ui lives in react,
+# acpmux/cmux-tui lives in rust, cmux cloud core should be rust (together with cmux-tui/acpmux) and should have
+# very minimal in swift." #37777 (the Chief panel and conversation tabs became the React Messages page and the
+# native Swift transcript was deleted) and #37736 (the React Messages view for docked Home) broke this rule and
+# shipped a broken Chief UI to the nightly; this file and its check stop the next one.
+#
+# Checked on every pull request into feat-cmux-next and main by the `language-boundaries` check
+# (.github/workflows/language-boundaries.yml, scripts/ci/language_boundaries.py), always with the BASE branch's copy
+# of this file and of the script, never the pull request's. The agents' merge gate (merge_hold) reads the same file
+# from the PR base.
+#
+# Schema (keep it this simple; every field is required):
+#
+#   [[area]]
+#   name     = "short-kebab-name"        # shown in the check's errors
+#   language = "swift" | "rust" | "web"  # web = React / TypeScript / shared web (ts tsx js jsx mjs cjs css html)
+#   policy   = "keep" | "minimal"
+#   paths    = ["glob", ...]             # repo-relative; `**` crosses directories, `*` and `?` stay in one segment
+#
+# policy = "keep": the area stays in `language`. A pull request fails when, inside the area,
+#   - it loses files of `language`: more files of `language` deleted or renamed out of the area (or renamed to
+#     another language) than added to it. A split, move within the area or rename passes; a deletion with no
+#     replacement in the same language, the shape of a port, fails;
+#   - or it adds a file of a foreign language: swift areas refuse rust and web files, web areas refuse swift and
+#     rust files, rust areas refuse swift files (crates already carry small TypeScript runtimes and templates).
+#   Files that are no language (json, md, xcstrings, toml, images) are never counted.
+# policy = "minimal": `language` is where the area's logic goes; Swift stays minimal there. A pull request fails
+#   when it adds a Swift file to the area (a new file, or one renamed or copied in from outside it). Changing or
+#   deleting existing Swift there passes.
+#
+# A pull request that changes this file, scripts/ci/language_boundaries.py or .github/workflows/language-boundaries.yml
+# fails the same way: the boundaries are Leo's call.
+#
+# The only way through is Leo's approval: the label `leo-approved-port` added by teamleaderleo, plus a comment or
+# review by teamleaderleo with a line starting `leo-approved-port:` and his reason, carrying no agent footer.
+# Agents never add that label or write that line (scripts/ci/language_boundaries.py's docstring says what the check
+# can and cannot tell apart).
+#
+# Swift to React, anywhere in the repo (not only in the areas below). Lawrence, relayed by Leo (2026-11-11): "also
+# let's not move stuff to react anymore unless we talk about it / swift->rust is usually fine though".
+#
+#   [[react_port]]                        # exactly one table
+#   label     = "react-port-ok"
+#   approvers = ["login", ...]            # who may add the label (a User account, not through a GitHub App)
+#   web       = ["glob", ...]             # where new React / web code counts
+#
+# A pull request is a React port, the same feature moving from Swift to web, when in one diff it
+#   - removes Swift files on net: more `.swift` files deleted, or renamed to another language, than added, and
+#   - adds at least one web file (ts tsx js jsx mjs cjs mts cts css html vue svelte) under `web`: a new file, or one
+#     renamed or copied in from outside `web` or from another language.
+# Such a pull request fails unless `label` is on it and its latest `labeled` event's actor is one of `approvers`, a
+# User account acting without a GitHub App (a bot, an app or any other account never counts). Talk to Lawrence or
+# Leo first; they add the label. Agents never add it. Swift to Rust, new Rust and new web code that removes no Swift
+# pass. Edits that empty a Swift file without deleting it are not counted: the rulebook covers those.
+
+[[area]]
+name = "imessage-home"
+language = "swift"
+policy = "keep"
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHome/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TopPages/TopHomePageView*.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugHome*.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/CaptureSceneRegistry+Home*.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient/FeedNeedsYouSection.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Page/SetupCardRoute.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/HomeFilterPlaygroundSection.swift",
+  "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxHomeRender/**",
+  "Packages/macOS/CmuxNext/Tests/CmuxNextHomeEngineTests/**",
+  "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Home*.swift",
+  "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AAHome*.swift",
+]
+
+[[area]]
+name = "chief-transcript-panel-and-conversation-tabs"
+language = "swift"
+policy = "keep"
+paths = [
+  # The native Chief transcript #37777 deleted lived in CmuxNextHome/NativeTranscript (imessage-home covers it too).
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefViews/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Chief/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+ChiefHost.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/ChiefPanel+*.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/WorkspaceModel+ChiefPanelTabs.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/Chief*.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/SidebarChiefAvatar+Home.swift",
+  "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Chief*.swift",
+  "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OndineMermaidRendererTests.swift",
+]
+
+[[area]]
+name = "chat-ui"
+language = "web"
+policy = "keep"
+paths = [
+  "webviews/src/agent-session/**",
+  "webviews/src/chief-web/**",
+]
+
+[[area]]
+name = "acpmux"
+language = "rust"
+policy = "keep"
+paths = [
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/acpmux-*/**",
+]
+
+[[area]]
+name = "cmux-tui"
+language = "rust"
+policy = "keep"
+paths = [
+  "cmux-tui/crates/cmux-tui/**",
+  "cmux-tui/crates/cmux-tui-*/**",
+]
+
+[[area]]
+name = "cloud-core-rust"
+language = "rust"
+policy = "keep"
+paths = [
+  "cmux-tui/crates/cmux-cloud-*/**",
+]
+
+[[area]]
+name = "cloud-core-swift-minimal"
+language = "rust"
+policy = "minimal"
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/**",
+]
+
+[[react_port]]
+label = "react-port-ok"
+approvers = ["lawrencecchen", "teamleaderleo"]
+web = [
+  "webviews/**",
+  "agent-chat/**",
+]

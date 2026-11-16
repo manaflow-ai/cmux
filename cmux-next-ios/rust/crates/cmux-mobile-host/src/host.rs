@@ -343,12 +343,10 @@ pub fn unauthorized(error: &anyhow::Error) -> bool {
         {
             return *status == 401;
         }
-        if let Some(cmux_mobile_link::signaling::SignalingError::Connect(message)) =
-            cause.downcast_ref::<cmux_mobile_link::signaling::SignalingError>()
-        {
-            return message.contains("401");
-        }
-        false
+        matches!(
+            cause.downcast_ref::<cmux_mobile_link::signaling::SignalingError>(),
+            Some(cmux_mobile_link::signaling::SignalingError::Unauthorized)
+        )
     })
 }
 
@@ -674,10 +672,12 @@ mod tests {
             anyhow::Error::new(cmux_mobile_link::api::ApiError::Status { status: 401, body: String::new() })
                 .context("POST /v1/devices");
         assert!(unauthorized(&refused));
+        assert!(unauthorized(&anyhow::Error::new(cmux_mobile_link::signaling::SignalingError::Unauthorized)));
+        // Another failed upgrade (a 502 from the edge) is not a refused token.
         let upgrade = anyhow::Error::new(cmux_mobile_link::signaling::SignalingError::Connect(
-            "HTTP error: 401 Unauthorized".into(),
+            "HTTP error: 502 Bad Gateway".into(),
         ));
-        assert!(unauthorized(&upgrade));
+        assert!(!unauthorized(&upgrade));
         let server =
             anyhow::Error::new(cmux_mobile_link::api::ApiError::Status { status: 502, body: String::new() });
         assert!(!unauthorized(&server));

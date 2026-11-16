@@ -141,8 +141,9 @@ async fn allowlisted_args_and_the_system_prompt_file_reach_the_claude_command() 
     let s = c.request(method::SESSION_NEW, new_params("cached")).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let got = argv_of(&hub, &mut c, &id).await;
-    // The preset's words, then acpmux's own system prompt flag, then the
-    // flags that carry acpmux's protocol.
+    // The preset's words, then acpmux's own system prompt flags (the preset's
+    // file, then cmux's rules appended to the system prompt), then the flags
+    // that carry acpmux's protocol.
     let file = std::fs::canonicalize(&file).unwrap();
     assert_eq!(
         got[..6],
@@ -156,7 +157,9 @@ async fn allowlisted_args_and_the_system_prompt_file_reach_the_claude_command() 
         ],
         "{got:?}"
     );
-    assert_eq!(got[6], "-p", "{got:?}");
+    assert_eq!(got[6], "--append-system-prompt", "{got:?}");
+    assert!(got[7].starts_with(acpmux::agent_tools::CONCURRENT_WORK_RULE), "{got:?}");
+    assert_eq!(got[8], "-p", "{got:?}");
 }
 
 #[tokio::test]

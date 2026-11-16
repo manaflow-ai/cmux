@@ -98,7 +98,7 @@ import UniformTypeIdentifiers
 
         init() {
             let suite = "cmux.tests.homeLaunchList.\(UUID().uuidString)"
-            defaults = UserDefaults(suiteName: suite)!
+            defaults = UserDefaults(testSuiteName: suite)!
             defaults.removePersistentDomain(forName: suite)
             let ref = Ref()
             let rows: @MainActor @Sendable () -> [InboxRow] = {

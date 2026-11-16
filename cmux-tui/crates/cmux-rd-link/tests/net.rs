@@ -63,3 +63,32 @@ fn a_session_runs_over_real_udp_sockets() {
     assert!(wait(&viewer, &mut at_viewer, |e| e
         .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)))));
 }
+
+#[test]
+fn a_stun_server_that_resolves_after_start_still_gives_the_reflexive_candidate() {
+    // A STUN server on loopback that answers every binding request with a fixed address.
+    let server = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let server_addr = server.local_addr().unwrap();
+    let reflexive: std::net::SocketAddr = "203.0.113.7:4242".parse().unwrap();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 1500];
+        while let Ok((n, from)) = server.recv_from(&mut buf) {
+            if let Some(tx) = buf.get(8..20).filter(|_| n >= 20) {
+                let tx: [u8; 12] = tx.try_into().unwrap();
+                let _ = server.send_to(&cmux_transport::stun::binding_success(tx, reflexive), from);
+            }
+        }
+    });
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let net = start(Role::Initiator, &v, h.public);
+    // The resolver answers on the driver's fourth ask, as a slow lookup would.
+    let mut asks = 0;
+    net.add_stun_later(Box::new(move || {
+        asks += 1;
+        (asks > 3).then(|| vec![server_addr])
+    }));
+    let mut seen = Vec::new();
+    let late =
+        NetEvent::Candidate(Candidate { kind: CandidateKind::ServerReflexive, addr: reflexive });
+    assert!(wait(&net, &mut seen, |e| e.contains(&late)), "the late STUN server is queried");
+}

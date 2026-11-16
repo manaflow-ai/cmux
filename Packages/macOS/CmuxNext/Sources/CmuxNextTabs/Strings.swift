@@ -8,7 +8,7 @@ enum Strings {
     static var newTabHoldHint: String {
         String(localized: "tabs.newTab.holdHint", defaultValue: "New Tab (hold for more)", bundle: .module)
     }
-    /// A pane's "…" at the tab bar's trailing end (`PaneToolbarView`).
+    /// "More": the tab group editor's overflow row.
     static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
     static func axOnMachine(_ name: String) -> String {
@@ -23,9 +23,9 @@ enum Strings {
         String(localized: "tabs.ax.theme", defaultValue: "theme \(name)", bundle: .module)
     }
     static var axPlayingAudio: String { String(localized: "tabs.ax.playingAudio", defaultValue: "Playing audio", bundle: .module) }
-    /// A zoomed pane's indicator's tooltip (cmux classic's wording).
+    /// A zoomed pane's indicator's tooltip and VoiceOver label (cmux classic's wording).
     static var exitZoom: String { String(localized: "tabs.zoom.exit", defaultValue: "Exit Zoom", bundle: .module) }
-    /// VoiceOver: the tab's pane is zoomed (it shows the zoom indicator).
+    /// VoiceOver: the tab's pane is zoomed.
     static var axZoomed: String { String(localized: "tabs.ax.zoomed", defaultValue: "Zoomed", bundle: .module) }
     /// The speaker button's tooltip and VoiceOver action (Chrome's wording).
     static var muteTab: String { String(localized: "tabs.audio.mute", defaultValue: "Mute tab", bundle: .module) }

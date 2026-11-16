@@ -29,6 +29,14 @@ pub(super) trait Controller {
     /// Fired after an inferred loss via three duplicate acks.
     fn on_loss(&mut self, now: Instant, in_flight: usize) {}
 
+    /// cmux patch: fired on a loss found from SACK blocks (RFC 6675). The
+    /// sender's pipe already leaves out what the peer SACKed, so unlike
+    /// [`Controller::on_loss`] the window is not inflated by three segments
+    /// for the duplicate ACKs that reported it.
+    fn on_sack_loss(&mut self, now: Instant, in_flight: usize) {
+        self.on_loss(now, in_flight)
+    }
+
     fn pre_transmit(&mut self, now: Instant) {}
 
     fn post_transmit(&mut self, now: Instant, len: usize) {}
@@ -37,7 +45,7 @@ pub(super) trait Controller {
     fn set_mss(&mut self, mss: usize) {}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(super) enum AnyController {
     None(no_control::NoControl),

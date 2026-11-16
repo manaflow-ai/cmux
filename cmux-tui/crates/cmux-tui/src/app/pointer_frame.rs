@@ -81,7 +81,9 @@ impl App {
                 .pane(pane)
                 .and_then(|pane| pane.tabs.get(index))
                 .map(|tab| PointerHitIdentity::Tab(tab.surface)),
-            Hit::SidebarTab { surface, .. } => Some(PointerHitIdentity::Tab(surface)),
+            Hit::SidebarTab { surface, .. } | Hit::AgentRow { surface, .. } => {
+                Some(PointerHitIdentity::Tab(surface))
+            }
             Hit::ProjectionRow { target: ProjectionTarget::Surface { surface, .. }, .. } => {
                 Some(PointerHitIdentity::Tab(surface))
             }

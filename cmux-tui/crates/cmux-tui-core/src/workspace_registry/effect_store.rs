@@ -14,9 +14,11 @@ mod creation_record;
 mod effect_intent;
 mod input_receipts;
 mod receipt_presence;
+mod receipt_retention;
 use creation_record::read_creation_record;
 pub(crate) use effect_intent::{EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt};
 use input_receipts::{prune_resource_input_receipts, record_resource_input_receipt_completion};
+pub(crate) use receipt_retention::compact_resource_receipts;
 
 /// Transient input and viewport interactions keep a finite exactly-once replay
 /// window. Cleanup runs in batches so high-frequency traffic does not pay for
@@ -275,12 +277,13 @@ pub(super) fn recover_resource_effects(transaction: &Transaction<'_>) -> anyhow:
            )",
         [],
     )?;
+    let ids = StoredIds::load(transaction)?;
     for (idempotency_key, operation, intent_json) in interrupted {
         append_resource_effect_journal_record(
             transaction,
             &idempotency_key,
             &operation,
-            &serde_json::from_str(&intent_json)?,
+            &serde_json::from_str(&ids.text(intent_json))?,
             None,
             ResourceEffectJournalState::Indeterminate,
         )?;
@@ -906,7 +909,7 @@ impl WorkspaceRegistry {
     /// under the same key.
     /// Commit a projected patch and its effect receipt. Public `deltas` that
     /// the journal already states are dropped first; `restates_all` says
-    /// they restate every live resource, so they may seed the public fold.
+    /// they restate every live resource, so they complete the public fold.
     #[allow(clippy::too_many_arguments)]
     pub fn commit_resource_effect_patch(
         &mut self,
@@ -934,6 +937,28 @@ impl WorkspaceRegistry {
     #[cfg(test)]
     pub(crate) fn set_resource_patch_failures_remaining(&self, failures: u64) {
         self.resource_patch_failures_remaining.set(failures);
+    }
+
+    /// Makes the next `failures` topology snapshot reads fail (tests).
+    #[cfg(test)]
+    pub(crate) fn fail_next_topology_snapshots_for_test(&self, failures: u64) {
+        self.topology_snapshot_failures_remaining.set(failures);
+    }
+
+    /// Makes every later effect outcome commit fail inside SQLite, as a full
+    /// disk or an I/O error does, while intent and indeterminate marks still
+    /// commit.
+    #[cfg(test)]
+    pub(crate) fn reject_resource_effect_commits_for_test(&self) {
+        self.connection
+            .get()
+            .execute_batch(
+                "CREATE TEMP TRIGGER reject_resource_effect_commit
+                 BEFORE UPDATE OF state ON resource_effect_receipts
+                 WHEN NEW.state = 'committed'
+                 BEGIN SELECT RAISE(ABORT, 'injected outcome commit failure'); END;",
+            )
+            .unwrap();
     }
 
     /// Commit every durable side of a topology close before the mux detaches
@@ -1293,6 +1318,12 @@ fn read_effect_preparation(
     else {
         return Ok(None);
     };
+    let ids = StoredIds::load(connection)?;
+    let (stored_fingerprint, intent_json, outcome_json) = (
+        ids.fingerprint(stored_fingerprint)?,
+        ids.text(intent_json),
+        outcome_json.map(|outcome| ids.text(outcome)),
+    );
     require_effect_identity(
         idempotency_key,
         operation,
@@ -1334,8 +1365,17 @@ fn read_effect_record(
             [idempotency_key],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
-        .optional()
-        .map_err(Into::into)
+        .optional()?
+        .map(|(operation, fingerprint, state, intent_json): (String, String, String, String)| {
+            let ids = StoredIds::load(connection)?;
+            Ok::<_, anyhow::Error>((
+                operation,
+                ids.fingerprint(fingerprint)?,
+                state,
+                ids.text(intent_json),
+            ))
+        })
+        .transpose()
 }
 
 fn require_effect_identity(
@@ -1355,3 +1395,6 @@ fn require_effect_identity(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod receipt_retention_tests;

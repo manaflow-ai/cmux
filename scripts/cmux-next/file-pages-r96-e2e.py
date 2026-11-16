@@ -41,6 +41,7 @@ SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 BINARY = os.path.join(opts.app, "Contents/MacOS/cmux DEV")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown, pty_count
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 TEARDOWN = TagTeardown(opts.app)
 TEARDOWN.install()
 PTYS_BEFORE = pty_count()
@@ -194,17 +195,17 @@ def launch():
 
 def quit_app(app, unsaved_button):
     """debug.quit as Cmd-Q; the unsaved-changes dialog gets `unsaved_button`; the terminal sheet Quit."""
-    print(f"debug.quit open: {rpc('debug.quit', {'open': True})}", flush=True)
+    safe_print(f"debug.quit open: {rpc('debug.quit', {'open': True})}", flush=True)
     dialog = wait(lambda: next((d for d in dialogs() if any(b.get("id") == "dont-save" for b in d.get("buttons", []))), None), 10)
     expect(f"the quit asks about unsaved changes ({unsaved_button})", dialog is not None, json.dumps(rpc("debug.dialog"))[:400])
     if dialog:
         snapshot(f"quit-unsaved-{unsaved_button}")
-        print(f"press {unsaved_button}: {rpc('debug.dialog', {'id': dialog['id'], 'press': unsaved_button})}", flush=True)
+        safe_print(f"press {unsaved_button}: {rpc('debug.dialog', {'id': dialog['id'], 'press': unsaved_button})}", flush=True)
     if wait(lambda: (rpc("debug.quit") or {}).get("asking"), 5):
         rpc("debug.quit", {"press": "quit"})
     try:
         app.wait(timeout=30)
-        print(f"quit {app.pid} exit {app.returncode}", flush=True)
+        safe_print(f"quit {app.pid} exit {app.returncode}", flush=True)
     except subprocess.TimeoutExpired:
         app.send_signal(signal.SIGKILL)  # the PID launched here, never a pattern
         failures.append(f"quit {app.pid}")
@@ -237,7 +238,7 @@ try:
     # A link follows on Cmd-click while editing (the page's link router).
     clicked = rpc("debug.page", {"page": "cmux.markdown", "action": "click", "selector": "a[href='other.md']", "meta": True})
     moved = wait(lambda: "Other page" in text_of("cmux.markdown"), 5)
-    print(f"followed other.md: {bool(moved)} click={clicked} text={text_of('cmux.markdown')[:200]!r}", flush=True)
+    safe_print(f"followed other.md: {bool(moved)} click={clicked} text={text_of('cmux.markdown')[:200]!r}", flush=True)
     if moved:
         key("[", ["command"])
         expect("Cmd-[ goes back to README.md", wait(lambda: "Docs home" in text_of("cmux.markdown"), 5) is not None)
@@ -252,7 +253,7 @@ try:
     for action in ("palette.openDirectoryDiffViewer", "openDiffViewer"):
         reply = rpc("action.run", {"action": action, "origin": "cli"})
         text = json.dumps(reply)
-        print(f"{action} without focus: {text[:240]}", flush=True)
+        safe_print(f"{action} without focus: {text[:240]}", flush=True)
         expect(f"{action} without focus refuses with the needsFocus text",
                "The picker opens only when focus is requested." in text, text[:300])
         time.sleep(0.8)  # test harness: a picker would be on screen by now
@@ -272,7 +273,7 @@ try:
     key("right")  # a real key event to the page: the gesture
     reply = filepages({"open_link": link}) if link else {}
     gesture = reply.get("gesture") is True
-    print(f"gesture after debug.key: {gesture}", flush=True)
+    safe_print(f"gesture after debug.key: {gesture}", flush=True)
     if gesture:
         sheet = wait(lambda: next(iter(dialogs()), None), 5)
         expect("with a gesture the sheet names the resolved path", sheet is not None and any(SECRET in line for line in sheet.get("lines", []) + [sheet.get("title", "")]),
@@ -322,7 +323,7 @@ try:
         app.wait(timeout=20)
     except subprocess.TimeoutExpired:
         app.send_signal(signal.SIGKILL)  # the PID launched here
-    print(f"crashed {app.pid} exit {app.returncode}", flush=True)
+    safe_print(f"crashed {app.pid} exit {app.returncode}", flush=True)
     open(CODE, "wb").write(b"changed by another writer\n")
     app = launch()
     restored = filepages({"restore": draft["id"]}) if draft else {}
@@ -337,7 +338,7 @@ try:
     quit_app(app, "dont-save")
     expect("the other writer's bytes stay", open(CODE, "rb").read() == b"changed by another writer\n", repr(open(CODE, "rb").read()))
 
-    print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
+    safe_print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
 finally:
     for app in launched:
         if app.poll() is None:
@@ -351,5 +352,5 @@ finally:
             except subprocess.TimeoutExpired:
                 app.send_signal(signal.SIGKILL)  # the PID launched here, never a pattern
     TEARDOWN.end()
-    print(f"PTYs open before: {PTYS_BEFORE}, after: {pty_count()}", flush=True)
+    safe_print(f"PTYs open before: {PTYS_BEFORE}, after: {pty_count()}", flush=True)
 sys.exit(1 if failures else 0)

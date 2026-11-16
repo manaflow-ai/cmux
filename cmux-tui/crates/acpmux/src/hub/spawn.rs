@@ -38,7 +38,7 @@ fn copy_legacy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
         ));
     }
     if meta.file_type().is_dir() {
-        std::fs::create_dir_all(dst)?;
+        crate::home_fs::create_dirs(dst)?;
         for entry in std::fs::read_dir(src)? {
             let entry = entry?;
             copy_legacy_tree(&entry.path(), &dst.join(entry.file_name()))?;
@@ -51,7 +51,7 @@ fn copy_legacy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
                 "new durable state is occupied",
             ));
         }
-        std::fs::copy(src, dst)?;
+        crate::home_fs::copy(src, dst)?;
         std::fs::File::open(dst)?.sync_all()?;
     } else {
         return Err(std::io::Error::new(
@@ -73,16 +73,16 @@ fn copy_legacy_atomic(src: &Path, dst: &Path) -> std::io::Result<()> {
     let tmp = dst.with_file_name(format!(".{name}.migrating"));
     if let Ok(meta) = std::fs::symlink_metadata(&tmp) {
         if meta.file_type().is_dir() {
-            std::fs::remove_dir_all(&tmp)?;
+            crate::home_fs::remove_dir_all(&tmp)?;
         } else {
-            std::fs::remove_file(&tmp)?;
+            crate::home_fs::remove_file(&tmp)?;
         }
     }
     copy_legacy_tree(src, &tmp)?;
     if let Some(parent) = dst.parent() {
         std::fs::File::open(parent)?.sync_all()?;
     }
-    std::fs::rename(&tmp, dst)?;
+    crate::home_fs::rename(&tmp, dst)?;
     if let Some(parent) = dst.parent() {
         std::fs::File::open(parent)?.sync_all()?;
     }
@@ -102,7 +102,7 @@ fn migrate_legacy_harness_state(
     if pi_session_for(new_root, agent_id)?.is_none()
         && let Some(old_pi) = pi_session_for(&legacy_root, agent_id)?
     {
-        std::fs::create_dir_all(new_root)?;
+        crate::home_fs::create_dirs(new_root)?;
         let target = new_root.join(old_pi.file_name().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "legacy Pi filename missing")
         })?);
@@ -119,7 +119,7 @@ fn migrate_legacy_harness_state(
     for suffix in ["continuity.jsonl", "events.jsonl"] {
         let source = legacy_events.join(format!("{agent_id}.{suffix}"));
         if std::fs::symlink_metadata(&source).is_ok() {
-            std::fs::create_dir_all(&new_events)?;
+            crate::home_fs::create_dirs(&new_events)?;
             let target = new_events.join(format!("{agent_id}.{suffix}"));
             if std::fs::symlink_metadata(&target).is_err() {
                 copy_legacy_atomic(&source, &target)?;
@@ -168,17 +168,19 @@ impl Hub {
     /// read here goes with the profile, and only a cold start records it
     /// (`Hub::ensure_child`, `hub/start_gate/preset_bind.rs`): a request that
     /// finds the agent running spawns nothing and records nothing.
+    /// `launch_digest`: the launch of the entry `profile` comes from, as the entry is written
+    /// (`Resolved::launch_digest`; `profile.launch_digest()` when `profile` is the entry itself).
     pub(super) async fn spawn_profile(
         &self,
         session: &Session,
         profile: &HarnessProfile,
+        launch_digest: String,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
-        let launch_digest = profile.launch_digest();
         let (profile, preset_digest, account_home) =
             self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
         Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })
@@ -303,6 +305,165 @@ impl Hub {
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        // Codex on a cmux Cloud machine: the image's own-or-team rule, as its launcher applies it
+        // (codex_cloud_auth.rs). A bound route owns the provider instead.
+        if crate::codex_app_server::is_profile_launch(&p.argv)
+            && !p.env.contains_key(crate::routes::NAME_KEY)
+        {
+            let env = p.env.clone();
+            let var = move |k: &str| {
+                env.get(k)
+                    .cloned()
+                    .or_else(|| crate::login_env::var(k))
+                    .or_else(|| std::env::var(k).ok())
+                    .filter(|v| !v.is_empty())
+            };
+            let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+            let root = self.vm_marker_root();
+            #[cfg(unix)]
+            let broker = matches!(crate::codex_auth_file::read(), Ok(Some(_)));
+            #[cfg(not(unix))]
+            let broker = false;
+            let inputs =
+                crate::codex_cloud_auth::Inputs { root: &root, home: &home, var: &var, broker };
+            match crate::codex_cloud_auth::own_reason(
+                &inputs,
+                crate::codex_cloud_auth::host_resolves,
+            )
+            .await
+            {
+                Some(reason) => {
+                    tracing::info!(session = %meta.id, reason, "codex on this Cloud machine uses its own sign-in");
+                    let cmux_config = inputs.cmux_config();
+                    crate::codex_cloud_auth::apply(&mut p.argv, &mut p.env, &var, cmux_config);
+                }
+                // Team mode: the provider's key in the launch env itself, since a remote-origin
+                // chat gets no login env to carry it.
+                None => {
+                    if crate::codex_cloud_auth::apply_team(&mut p.env, &inputs) {
+                        tracing::info!(session = %meta.id, "codex on this Cloud machine uses the team's model plane");
+                    }
+                }
+            }
+        }
+        // Claude on a cmux Cloud machine: the model-plane pair the image's launcher puts back in
+        // team mode (claude_cloud_auth.rs). A bound route owns the provider instead.
+        // The family as the launch derives it (`agent/command.rs`): a discovered Claude profile has
+        // none set. The sign-in check reads the env the child gets: the profile's `${env:…}` and
+        // keychain references resolved as the launch resolves them (`resolved_profile_env`; one
+        // that does not resolve keeps own), over the vault's and `machine.env`'s values, and its
+        // project settings (`claude_cloud_auth::launch_env`). A remote-origin launch (the app's
+        // Cloud chat, over its peer link) gets none of those, only the host base and its profile
+        // (`agent/command.rs`), so only those count as its sign-in (#43821).
+        // Only an owner Cloud machine's Claude, so no other launch resolves its references twice.
+        // A launcher that picks Claude's provider itself (`claude-sr`, `claude-cr`) owns it too.
+        let claude_on_cloud = crate::config::derive_family(&meta.harness, &p) == "claude"
+            && !p.env.contains_key(crate::routes::NAME_KEY)
+            && crate::claude_cloud_auth::launches_claude_itself(&p.argv)
+            && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root());
+        let resolved = match claude_on_cloud.then(|| crate::agent::resolved_profile_env(&p)) {
+            Some(Ok(env)) => Some(env),
+            Some(Err(error)) => {
+                tracing::info!(session = %meta.id, %error, "claude profile env does not resolve; it keeps its own sign-in");
+                None
+            }
+            None => None,
+        };
+        if let Some(resolved) = resolved {
+            let env = crate::claude_cloud_auth::launch_env_now(resolved, meta.remote_origin);
+            let read = env.clone();
+            let var = move |k: &str| read.get(k).cloned().filter(|v| !v.is_empty());
+            let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+            let root = self.vm_marker_root();
+            let inputs = crate::codex_cloud_auth::Inputs {
+                root: &root,
+                home: &home,
+                var: &var,
+                broker: false,
+            };
+            let cwd = std::path::Path::new(&meta.cwd);
+            // The launch's own `--settings`, which Claude applies over every settings file; one
+            // it cannot read keeps own.
+            let flag = crate::claude_cloud_auth::flag_settings(p.argv.get(1..).unwrap_or(&[]), cwd);
+            let pair = match &flag {
+                Ok(flag) => {
+                    crate::claude_cloud_auth::team_pair(
+                        &inputs,
+                        &env,
+                        flag.as_ref(),
+                        cwd,
+                        crate::codex_cloud_auth::host_resolves,
+                    )
+                    .await
+                }
+                Err(error) => {
+                    tracing::info!(session = %meta.id, %error, "claude --settings does not read; it keeps its own sign-in");
+                    None
+                }
+            };
+            if let (Some(pair), Ok(flag)) = (pair, &flag) {
+                tracing::info!(session = %meta.id, "claude on this Cloud machine uses the team's model plane");
+                crate::claude_cloud_auth::apply_team(
+                    &mut p.env,
+                    &mut p.argv,
+                    flag.as_ref(),
+                    pair,
+                    env.get(crate::claude_cloud_auth::HEADERS).map(String::as_str).unwrap_or(""),
+                    meta.remote_origin,
+                );
+            }
+        }
+        // Gemini and Grok on a cmux Cloud machine: the team's gateway when the person has no
+        // sign-in of their own and the gateway serves the agent (provider_cloud_auth.rs,
+        // hq#11225). A bound route, or a launcher that picks the provider itself, owns it instead.
+        // The probe waits at most `PROBE_DEADLINE`; any failure keeps own.
+        // The own-key check reads the env the child gets, as Claude's above does: the profile's
+        // references resolved (one that does not resolve keeps own), over the vault's and
+        // `machine.env`'s values (`provider_cloud_auth::LaunchEnv`, #43800); a remote-origin launch
+        // (the app's Cloud chat, over its peer link) gets none of those, only its profile.
+        // Only an owner Cloud machine's launch, so no other resolves its references twice.
+        let root = self.vm_marker_root();
+        let provider = crate::provider_cloud_auth::Provider::for_family(
+            &crate::config::derive_family(&meta.harness, &p),
+        )
+        .filter(|provider| {
+            !p.env.contains_key(crate::routes::NAME_KEY)
+                && crate::provider_cloud_auth::launches_itself(*provider, &p.argv)
+                && crate::codex_cloud_auth::owner_cloud_image_at(&root)
+        });
+        let resolved = provider.map(|provider| (provider, crate::agent::resolved_profile_env(&p)));
+        let provider = match resolved {
+            Some((provider, Ok(resolved))) => Some((provider, resolved)),
+            Some((provider, Err(error))) => {
+                tracing::info!(session = %meta.id, agent = provider.name(), %error, "agent profile env does not resolve; it keeps its own sign-in");
+                None
+            }
+            None => None,
+        };
+        if let Some((provider, resolved)) = provider {
+            let launch = crate::provider_cloud_auth::LaunchEnv::now(
+                provider.name(),
+                resolved,
+                meta.remote_origin,
+            );
+            match crate::provider_cloud_auth::decide_launch(
+                provider,
+                &launch,
+                &root,
+                crate::provider_cloud_auth::probe_providers,
+            )
+            .await
+            {
+                crate::provider_cloud_auth::Mode::LeftAlone => {}
+                crate::provider_cloud_auth::Mode::Own(reason) => {
+                    tracing::info!(session = %meta.id, agent = provider.name(), reason, "agent on this Cloud machine uses its own sign-in");
+                }
+                crate::provider_cloud_auth::Mode::Team(team) => {
+                    tracing::info!(session = %meta.id, agent = provider.name(), "agent on this Cloud machine uses the team's gateway");
+                    crate::provider_cloud_auth::apply_team(&mut p.env, team);
+                }
+            }
+        }
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher
@@ -326,6 +487,17 @@ impl Hub {
         if let Some(file) = prompt_file {
             p.argv.push("--system-prompt-file".into());
             p.argv.push(file.to_string_lossy().into_owned());
+        }
+        // cmux's rules as the chat captured them, on the harness's own system-level channel
+        // (Claude's appended system prompt, Codex's developer instructions), at every spawn: the
+        // prefix every chat shares, never a hidden addition after the person's first prompt.
+        // A remote-origin chat captures none, and a chat moved under a guard takes its rules in
+        // its next message instead (`turns.rs`, `append_owed_rules`), as does one whose
+        // transcript already has them.
+        if !meta.remote_origin && !meta.cmux_rules_in_transcript {
+            let rules =
+                crate::context_inventory::launch_args(meta.cmux_context.as_deref(), &p, &meta.cwd);
+            p.argv.extend(rules);
         }
         // Claude Code defers MCP tools behind its tool search, which it turns
         // off by itself behind a router; the cmux server lists every tool
@@ -441,3 +613,11 @@ pub fn expand_env_value(
     }
     out
 }
+
+#[cfg(test)]
+#[path = "spawn_claude_cloud_tests.rs"]
+mod claude_cloud_tests;
+
+#[cfg(test)]
+#[path = "spawn_codex_cloud_tests.rs"]
+mod codex_cloud_tests;

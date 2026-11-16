@@ -1,0 +1,72 @@
+/* Skeleton gallery stage (fixture layout) and the looks not picked (Skeleton.gallery.tsx says why). */
+.ui-skeleton-gallery__cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ds-space-3);
+}
+.ui-skeleton-gallery__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-space-40);
+  padding: var(--ds-space-3);
+  border: var(--cmux-hairline, 0.5px) solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+.ui-skeleton-gallery__icon {
+  width: var(--ds-control-primary);
+  height: var(--ds-control-primary);
+  border-radius: var(--ds-radius-md);
+}
+.ui-skeleton-gallery__wide { width: 78%; }
+.ui-skeleton-gallery__half { width: 58%; }
+.ui-skeleton-gallery__footer {
+  width: 38%;
+  height: var(--ds-control-compact);
+  margin-top: auto;
+}
+.ui-skeleton-gallery__rows {
+  display: grid;
+  gap: var(--ds-space-3);
+}
+.ui-skeleton-gallery__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.ui-skeleton-gallery__avatar {
+  flex: none;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+}
+.ui-skeleton-gallery__row > .ui-skeleton-gallery__wide,
+.ui-skeleton-gallery__row > .ui-skeleton-gallery__half {
+  flex: none;
+}
+
+.ui-skeleton-gallery[data-look="static"] .ui-skeleton {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ui-skeleton-gallery[data-look="pulse"] .ui-skeleton {
+    animation: ui-skeleton-gallery-pulse var(--cmux-spinner-period) var(--cmux-ease-out) infinite !important;
+  }
+  .ui-skeleton-gallery[data-look="shimmer"] .ui-skeleton {
+    animation: ui-skeleton-gallery-shimmer var(--cmux-shimmer-period) linear infinite !important;
+    background-image: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--ds-color-fg) 8%, transparent) 50%, transparent 70%);
+    background-size: 250% 100%;
+  }
+}
+@keyframes ui-skeleton-gallery-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+@keyframes ui-skeleton-gallery-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}

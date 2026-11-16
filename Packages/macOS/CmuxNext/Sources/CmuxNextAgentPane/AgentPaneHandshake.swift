@@ -25,8 +25,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, peer, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, wake,
-             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, pickCloud, wake,
+             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable, cloudStartHandoff, cloudTurnRewind
     }
 
     public var protocolVersion: Int
@@ -108,6 +108,12 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// True for a page opened by Integrate a Harness… (cx-uj5g8): it shows its Harnesses page.
     /// Handed out once. Pages that predate it ignore it.
     public var harnesses: Bool?
+    /// True for a page New Cloud Chat opened (`AgentPaneSeed.picksCloud`): it picks Cloud for its
+    /// new chat once Cloud is offered. Handed out once. Pages that predate it ignore it.
+    public var pickCloud: Bool?
+    /// The one-time token of the page whose `/side --on cloud` or `/cd --on cloud` opened this New
+    /// Cloud Chat (``AgentPaneSeed/cloudStartHandoff``). Handed out once. Pages that predate it ignore it.
+    public var cloudStartHandoff: String?
     /// The past turns of the device-wide chat a new chat opened for (cx-khns1): the page shows
     /// them read-only until the chat has a session. Pages that predate it ignore it.
     public var pastTurns: [AgentPanePastTurn]?
@@ -125,6 +131,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var cloudHandoffs: Bool?
     /// True when this pane has an authenticated cmux-tui route for Cloud repository actions.
     public var cloudRepositoryAvailable: Bool?
+    /// The prompt row ids (`user-<seq>`) whose turn has a whole-machine Cloud checkpoint taken
+    /// before it (`chat.rewindTurn {rowId}`; `chat.turnCheckpoint {afterSeq}` saves one): present
+    /// only for a signed-in Cloud chat with `cloud.turnCheckpoints` on. Pages that predate it ignore it.
+    public var cloudTurnRewind: [String]?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?

@@ -13,6 +13,8 @@ pub(crate) struct AttentionMessages {
     pub requested: &'static str,
     /// Row detail of a tab whose agent waits on the person.
     pub blocked: &'static str,
+    /// Row detail of a tab whose agent finished a turn nobody has viewed.
+    pub done: &'static str,
     /// Row detail of a tab with an unread notification.
     pub unread: &'static str,
     /// Toast prefix when a jump lands on a marked tab: `Needs you: <reason>`.
@@ -25,6 +27,7 @@ pub(super) const ENGLISH: AttentionMessages = AttentionMessages {
     filter_placeholder: "type to filter",
     requested: "needs you",
     blocked: "waiting on you",
+    done: "done",
     unread: "unread",
     needs_you: "Needs you",
 };
@@ -35,6 +38,7 @@ pub(super) const JAPANESE: AttentionMessages = AttentionMessages {
     filter_placeholder: "入力して絞り込む",
     requested: "対応が必要",
     blocked: "あなたの応答待ち",
+    done: "完了",
     unread: "未読",
     needs_you: "対応が必要",
 };

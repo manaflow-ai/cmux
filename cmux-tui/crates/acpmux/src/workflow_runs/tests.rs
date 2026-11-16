@@ -17,6 +17,7 @@ fn spec() -> RunRecord {
         state: State::Paused,
         activities: BTreeMap::new(),
         outcome: None,
+        caller_subagent: None,
     }
 }
 
@@ -181,4 +182,18 @@ fn a_corrupt_run_does_not_hide_other_recoverable_workflows() {
     std::fs::write(store.directory("wf-corrupt").unwrap().join("run.json"), b"broken").unwrap();
     assert_eq!(store.list().unwrap(), vec![run]);
     assert!(store.get("wf-corrupt").is_err());
+}
+
+/// A record update lets go of the record lock, also while a child the daemon forked meanwhile has
+/// the descriptor: else the next update waits until that child execs.
+#[cfg(unix)]
+#[test]
+fn a_dropped_record_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+    let dir = tempfile::tempdir().unwrap();
+    let held = lock(dir.path()).unwrap();
+    let keeper = crate::fork_tests::Keeper::fork();
+    drop(held);
+    let free = crate::fork_tests::free(&dir.path().join("record.lock"));
+    drop(keeper);
+    assert!(free, "a dropped record lock stayed held through a forked child's copy");
 }

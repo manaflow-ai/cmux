@@ -136,6 +136,29 @@ import Testing
         #expect(machine.handle(.macSignaled) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
     }
 
+    /// The network came back while a retry dial was in flight on the dead
+    /// path (iOS reliability matrix, network_back_during_inflight_dial): the
+    /// dial starts again on the new path at once, instead of waiting out its
+    /// 25 s timeout and then a backoff step. A waiting machine dials now; a
+    /// live link is left to roam.
+    @Test func networkChangeRestartsADialInFlightAndEndsTheBackoff() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(machine.handle(.networkChanged) == [], "a live link roams in place")
+        #expect(machine.handle(.linkDropped(generation: 1, reason: "network lost")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        // The redial is on the dead path; the network comes back.
+        #expect(machine.handle(.networkChanged) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+        // The old dial's late failure is ignored.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "timeout")) == [])
+        _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
+        _ = machine.handle(.dialFailed(generation: 4, reason: "x"))
+        guard case .waiting(_, let attempt, _, _) = machine.phase else { Issue.record("expected waiting"); return }
+        #expect(machine.handle(.networkChanged) == [.dial(generation: 6, macID: "m1", transport: .wireGuard)])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: attempt + 1))
+    }
+
     /// The link really died while presence says the Mac is offline: no dial
     /// until presence brings it back (then at once).
     @Test func aDeadLinkToAnOfflineMacWaitsForPresence() {
@@ -176,6 +199,54 @@ import Testing
         // The abandoned dial's late failure changes nothing.
         #expect(machine.handle(.dialFailed(generation: 2, reason: "answer timeout")) == [])
         guard case .connecting = machine.phase else { Issue.record("expected connecting"); return }
+    }
+
+    /// A revoked session (the service refused a token minted fresh for the
+    /// dial) stops every redial: no retry, foreground, signal or network
+    /// event dials again, and the status says "Signed out", never
+    /// "Reconnecting…". Sign-out ends the controller; nothing else leaves it.
+    @Test func aRevokedSessionStopsRedialingAndSaysSignedOut() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        // The dial that was refused is still connecting: it is closed.
+        #expect(machine.handle(.signedOut(generation: 1)) == [.close])
+        #expect(machine.phase == .signedOut)
+        #expect(machine.phase.statusLine(macName: "Studio") == "Signed out")
+        for event: LinkMachine.Event in [.retryDue(generation: 2), .foreground, .resume, .macSignaled,
+                                         .networkChanged, .target(mac), .transport(.wireGuard),
+                                         .dialFailed(generation: 2, reason: "x")] {
+            #expect(machine.handle(event) == [], "\(event) dialed a signed-out session")
+        }
+        #expect(machine.phase == .signedOut)
+        // An idle link closed (`applyLinks` untargets it) and opened again:
+        // still signed out, and nothing dials.
+        #expect(machine.handle(.target(nil)) == [])
+        #expect(machine.phase == .signedOut)
+        #expect(machine.handle(.target(mac)) == [])
+        #expect(machine.handle(.retryDue(generation: machine.generation)) == [])
+        #expect(machine.phase == .signedOut)
+        #expect(machine.target == mac)
+        // A late result for an older dial changes nothing.
+        var other = LinkMachine(transport: .webRTC)
+        _ = other.handle(.target(mac))
+        _ = other.handle(.transport(.wireGuard))
+        #expect(other.handle(.signedOut(generation: 1)) == [])
+        guard case .connecting = other.phase else { Issue.record("a stale revoke ended a live dial"); return }
+    }
+
+    @Test func onlyARefusedFreshTokenIsARevokedSession() {
+        let refused = LiveAPI.Failure(status: 401, code: "unauthorized", message: "refresh token revoked")
+        #expect(LinkController.sessionRevoked(refused, afterRefresh: true))
+        // The first 401 may be an expired token: it refreshes and redials.
+        #expect(!LinkController.sessionRevoked(refused, afterRefresh: false))
+        #expect(!LinkController.sessionRevoked(LiveAPI.Failure(status: 503, code: "x", message: ""), afterRefresh: true))
+        #expect(!LinkController.sessionRevoked(LinkError(code: "timeout", message: ""), afterRefresh: true))
+        // The dial's own refusal: the Rust link's signaling upgrade got a 401.
+        let upgrade = LinkError(code: LinkError.unauthorized, message: "signaling connect failed: 401 Unauthorized")
+        #expect(LinkController.sessionRevoked(upgrade, afterRefresh: true))
+        #expect(!LinkController.sessionRevoked(upgrade, afterRefresh: false))
+        #expect(LinkController.authRefused(upgrade))
+        #expect(!LinkController.authRefused(LinkError(code: "signaling", message: "HTTP error: 502 Bad Gateway")))
     }
 
     /// termfix-r13 D4 (T-LIFE-13: offline label ≤ 5 s): terminals say the Mac

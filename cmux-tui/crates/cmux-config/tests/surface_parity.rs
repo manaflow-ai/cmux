@@ -42,8 +42,8 @@ fn strings<'a>(row: &'a Value, surface: &str, field: &str) -> Vec<&'a str> {
 fn every_schema_row_declares_matching_surface_operations() {
     let schema = Schema::embedded();
     for row in &schema.rows {
-        let surfaces =
-            row.raw.get("surfaces").unwrap_or_else(|| panic!("{} has no surfaces", row.key));
+        let raw = row.raw();
+        let surfaces = raw.get("surfaces").unwrap_or_else(|| panic!("{} has no surfaces", row.key));
         assert_eq!(
             surfaces.as_object().map(|object| object.keys().cloned().collect::<Vec<_>>()),
             Some(vec!["cli".into(), "mcp".into(), "palette".into(), "socket".into()]),
@@ -51,52 +51,47 @@ fn every_schema_row_declares_matching_surface_operations() {
             row.key
         );
         for surface in ["cli", "socket"] {
-            assert_eq!(operations(&row.raw, surface), CLI_AND_SOCKET, "{} {surface}", row.key);
-            assert_eq!(row.raw["surfaces"][surface]["offered"], true, "{} {surface}", row.key);
+            assert_eq!(operations(&raw, surface), CLI_AND_SOCKET, "{} {surface}", row.key);
+            assert_eq!(raw["surfaces"][surface]["offered"], true, "{} {surface}", row.key);
             let expected_aliases = if surface == "cli" { RESET_ALIASES } else { &[] };
-            assert_eq!(
-                aliases(&row.raw, surface),
-                expected_aliases,
-                "{} {surface} aliases",
-                row.key
-            );
+            assert_eq!(aliases(&raw, surface), expected_aliases, "{} {surface} aliases", row.key);
             if surface == "cli" {
                 assert!(
-                    strings(&row.raw, surface, "app_operations").is_empty(),
+                    strings(&raw, surface, "app_operations").is_empty(),
                     "{} {surface} native app methods",
                     row.key
                 );
                 assert!(
-                    strings(&row.raw, surface, "app_aliases").is_empty(),
+                    strings(&raw, surface, "app_aliases").is_empty(),
                     "{} {surface} native app aliases",
                     row.key
                 );
             }
         }
         assert_eq!(
-            aliases(&row.raw, "socket"),
+            aliases(&raw, "socket"),
             &[] as &[&str],
             "{} socket aliases are daemon-only",
             row.key
         );
         assert_eq!(
-            strings(&row.raw, "socket", "app_operations"),
+            strings(&raw, "socket", "app_operations"),
             ["settings.get", "settings.set", "settings.reset"],
             "{} app socket methods",
             row.key
         );
         assert_eq!(
-            strings(&row.raw, "socket", "app_aliases"),
+            strings(&raw, "socket", "app_aliases"),
             RESET_ALIASES,
             "{} app socket aliases",
             row.key
         );
-        let palette = &row.raw["surfaces"]["palette"];
-        let palette_operations = operations(&row.raw, "palette");
+        let palette = &raw["surfaces"]["palette"];
+        let palette_operations = operations(&raw, "palette");
         let palette_offered = palette["offered"].as_bool().unwrap_or(false);
         assert_eq!(
             palette_offered,
-            row.raw["surfaces"]["palette"]["row"] != Value::Null,
+            raw["surfaces"]["palette"]["row"] != Value::Null,
             "{} palette",
             row.key
         );
@@ -120,7 +115,7 @@ fn every_schema_row_declares_matching_surface_operations() {
             }
         }
 
-        let mcp_operations = operations(&row.raw, "mcp");
+        let mcp_operations = operations(&raw, "mcp");
         let expected_mcp = if row.agent_settable {
             MCP_READ.iter().chain(MCP_WRITE).copied().collect::<Vec<_>>()
         } else {
@@ -128,11 +123,11 @@ fn every_schema_row_declares_matching_surface_operations() {
         };
         assert_eq!(mcp_operations, expected_mcp, "{} mcp", row.key);
         assert_eq!(
-            aliases(&row.raw, "mcp"),
+            aliases(&raw, "mcp"),
             if row.agent_settable { RESET_ALIASES } else { &[] },
             "{} mcp aliases",
             row.key
         );
-        assert_eq!(row.raw["surfaces"]["mcp"]["offered"], true, "{} mcp", row.key);
+        assert_eq!(raw["surfaces"]["mcp"]["offered"], true, "{} mcp", row.key);
     }
 }

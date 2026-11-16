@@ -29,11 +29,17 @@ mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
+mod cua_recovery;
+mod customize_library_tool;
+mod customize_tools;
 mod keybinding_tools;
+mod keys_tools;
 mod live_code_tools;
+mod live_file;
 mod messages;
 mod open_tool;
 mod placement;
+mod pptx_view;
 mod remote_tools;
 mod render_tool;
 mod schema;
@@ -41,6 +47,7 @@ mod settings_tools;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
+mod tool_list;
 mod transport;
 mod upstream;
 mod upstream_listing;
@@ -218,6 +225,16 @@ pub(super) trait Backend {
         ))
     }
 
+    /// One `cmux customize WORDS…` verb, run by the CLI's own code
+    /// (`customize_tools`).
+    fn customize(&self, _words: &[String]) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "customize.unavailable",
+            "this server cannot reach the customization files",
+        ))
+    }
+
     /// Cloud chat repo actions run on the selected machine daemon.
     fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
@@ -231,6 +248,11 @@ pub(super) trait Backend {
     /// setup card waits with the call, not on this server's thread
     /// (`computer_use_gate`). `None`: the call runs without the card.
     fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        None
+    }
+    /// Daemon requests from another thread: `open {live}` reloads a changed file's
+    /// tab from its watch thread (`live_file`). `None`: no live files.
+    fn resource_sender(&self) -> Option<live_file::Sender> {
         None
     }
     /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
@@ -355,6 +377,15 @@ impl Backend for LiveBackend {
     }
 
     #[cfg(unix)]
+    fn customize(&self, words: &[String]) -> Result<Value, CallFailure> {
+        super::customize::run_json(words, "mcp").map_err(|error| CallFailure {
+            kind: FailureKind::Rejected,
+            error,
+            idempotency_key: None,
+        })
+    }
+
+    #[cfg(unix)]
     fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
         if let Some(fields) = request.as_object_mut() {
             fields.insert("id".into(), json!(1));
@@ -381,6 +412,11 @@ impl Backend for LiveBackend {
         Some(std::sync::Arc::new(move |method: &str, params: Value, timeout: Duration| {
             transport::app_method(&global, method, params, timeout, None, false)
         }))
+    }
+
+    fn resource_sender(&self) -> Option<live_file::Sender> {
+        let global = self.global.clone();
+        Some(std::sync::Arc::new(move |plan| transport::resource(&global, plan, &[])))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -466,10 +502,12 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         [command] if command == "serve" => serve(global, true),
         [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
-        _ => {
-            eprintln!("cmux: {usage}");
-            2
-        }
+        _ => super::scope_usage_failure(
+            global.output,
+            "mcp",
+            &super::unknown_words("mcp", args),
+            usage.strip_prefix("usage: ").unwrap_or(usage),
+        ),
     }
 }
 
@@ -546,6 +584,11 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         .into_iter()
         .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
         .collect();
+    // An idle chat's other servers end (`upstream::IDLE_STOP`) while the harness keeps this one.
+    let idle = server.upstreams.iter().map(|p| std::sync::Arc::downgrade(&p.inner)).collect();
+    if let Err(error) = upstream::stop_idle(idle, upstream::IDLE_STOP) {
+        eprintln!("cmux mcp: idle servers keep running: no thread: {error}");
+    }
     server.run(io::stdin().lock(), &output)
 }
 
@@ -657,6 +700,8 @@ pub(super) struct Server<B> {
     call_cap: Option<Duration>,
     /// While a `cmux_exec` script runs: when its time limit ends.
     call_deadline: Option<Instant>,
+    /// While a `cmux_exec` script runs: the `_meta` its calls pass on (`upstream::passed_meta`).
+    call_meta: Option<Value>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
     /// The ids `render` returned in this process: a render may update only one of these.
@@ -664,6 +709,10 @@ pub(super) struct Server<B> {
     /// The last text `terminal_input_write` typed into each terminal (by the session and
     /// terminal the call named), for [`Self::wait_past_typed`].
     typed: std::cell::RefCell<std::collections::HashMap<(Option<String>, String), String>>,
+    /// The files `open {live}` reloads on change, started with the first.
+    live_files: std::cell::RefCell<Option<live_file::Watches>>,
+    /// The decks `open` previews, served on loopback, started with the first.
+    decks: std::cell::RefCell<Option<pptx_view::Decks>>,
 }
 
 impl<B: Backend> Server<B> {
@@ -683,7 +732,10 @@ impl<B: Backend> Server<B> {
             upstreams: Vec::new(),
             call_cap: None,
             call_deadline: None,
+            call_meta: None,
             typed: std::cell::RefCell::default(),
+            live_files: std::cell::RefCell::default(),
+            decks: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
         }
@@ -749,22 +801,15 @@ impl<B: Backend> Server<B> {
             "initialize" => {
                 chat_tools::remember_client(&params);
                 let code_mode = self.code_mode && self.allowed.is_none();
-                let wrap_up = code_mode
-                    && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
-                let offers =
-                    code_mode && self.upstreams.iter().any(|up| up.name == code_mode::OFFER_SERVER);
-                Ok(initialize(&params, self.list_changed, code_mode, wrap_up, offers))
+                Ok(initialize(&params, self.list_changed, code_mode))
             }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
-                let tools = self.list();
-                let mut exposed = code_mode::descriptors(&tools);
-                if let Some(workflow) =
-                    tools.iter().find(|tool| tool["name"] == workflow_tools::NAME)
-                {
-                    exposed.push(workflow.clone());
-                }
-                Ok(json!({ "tools": exposed }))
+                // cmux_workflow is not listed on its own: no chat called it in 172 NEXT
+                // transcripts while its schema cost every Claude chat about 450 tokens of
+                // deferred listing (2026-11-09 audit). A script still reaches it as
+                // `cmux.cmux_workflow`, and `cmux workflow` calls it directly.
+                Ok(json!({ "tools": code_mode::descriptors(&self.list()) }))
             }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => {
@@ -803,32 +848,7 @@ impl<B: Backend> Server<B> {
     /// [`Self::list`] from the actions and proxied tools as last read,
     /// asking nothing again.
     fn listed(&self) -> Vec<Value> {
-        let mut tools =
-            v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
-        tools
-            .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
-        tools.push(action_tools::window_list_tool());
-        tools.push(super::agents::snapshot_tool());
-        tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
-        tools.extend(agent_dispatch_tools::descriptors());
-        tools.push(workflow_tools::descriptor());
-        tools.extend(cloud_repo_tools::descriptors());
-        tools.extend(chat_tools::descriptors());
-        tools.extend(live_code_tools::descriptors());
-        tools.push(super::agents_doctor::mcp_tool());
-        tools.push(agent_wait_tool::descriptor());
-        tools.push(agent_events_tool::descriptor());
-        tools.extend(terminal_talk_tools::descriptors());
-        tools.push(render_tool::descriptor());
-        tools.push(open_tool::descriptor());
-        tools.extend(video_tools::descriptors());
-        tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
-        tools
-            .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
-        tools.extend(automation_tools::descriptors());
-        tools.extend(
-            keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
-        );
+        let mut tools = tool_list::first_party();
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
         for proxied in &self.upstreams {
             let taken = tools
@@ -906,7 +926,9 @@ impl<B: Backend> Server<B> {
             return Ok(workflow::internal_call(&self.backend, operation));
         }
         if name == workflow_tools::NAME {
-            return Ok(workflow_tools::call(&self.backend, &arguments));
+            // A script's own call carries no `_meta`: it passes on the script's (`call_meta`).
+            let meta = upstream::passed_meta(params).or_else(|| self.call_meta.clone());
+            return Ok(workflow_tools::call(&self.backend, &arguments, meta));
         }
         if name == code_mode::DOCS {
             let tools = self.list();
@@ -924,11 +946,13 @@ impl<B: Backend> Server<B> {
             let mut images = Vec::new();
             self.call_cap = Some(self.script_limits.total);
             self.call_deadline = Some(Instant::now() + self.script_limits.total);
+            self.call_meta = upstream::passed_meta(params);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
                 self.script_request(request, &mut tools, &mut images)
             });
             self.call_cap = None;
             self.call_deadline = None;
+            self.call_meta = None;
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
@@ -937,7 +961,9 @@ impl<B: Backend> Server<B> {
             }
             return Ok(result);
         }
-        if let Some(job) = self.proxied_tool(name, &arguments) {
+        if let Some(mut job) = self.proxied_tool(name, &arguments) {
+            // A script's own call carries no `_meta`: it passes on the script's (`call_meta`).
+            job.meta = upstream::passed_meta(params).or(job.meta);
             return Ok(job.run(self.call_cap));
         }
         if let Some(result) = chat_tools::call(name, &arguments) {
@@ -1061,6 +1087,9 @@ impl<B: Backend> Server<B> {
         if let Some(result) = self.call_video(name, &arguments) {
             return Ok(result);
         }
+        if keys_tools::owns(name) {
+            return Ok(self.call_keys(name, &arguments));
+        }
         if name == open_tool::NAME {
             if !self.actions_loaded {
                 self.refresh_actions();
@@ -1077,6 +1106,12 @@ impl<B: Backend> Server<B> {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_library_tool::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {
@@ -1359,7 +1394,15 @@ impl<B: Backend> Server<B> {
             })
             .flatten();
         let call_session = call.session.clone();
-        match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
+        // A terminal wait that ran out of time says `timed_out`, as the CLI's does.
+        let wait = super::wire::wait_timeout::Wait::of(&call.plan);
+        let answer = self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes);
+        match answer.map(|mut value| {
+            if let Some(wait) = &wait {
+                wait.mark(&mut value);
+            }
+            value
+        }) {
             Ok(value) if typed.is_some() => success(
                 {
                     let mut value = value;
@@ -1463,7 +1506,7 @@ impl<B: Backend> Server<B> {
         }
         // On screen the typed line follows the prompt, so an output line is the one
         // that starts with the match.
-        if !regex::Regex::new(&pattern).ok()?.is_match(&typed) {
+        if !cmux_tui_core::wait_pattern::compile(&pattern).ok()?.is_match(&typed) {
             return None;
         }
         let anchored = format!("(?m)^\\s*(?:{pattern})");
@@ -1501,26 +1544,18 @@ impl<B: Backend> Server<B> {
     }
 }
 
-/// `wrap_up`: the chat's acpmux server is folded in, so its next-step box is steered to here too
-/// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]). `offers`: the chat's cmux-sessions server is
-/// folded in, so suggesting a new chat is steered to here too ([`code_mode::OFFER_INSTRUCTION`]).
-fn initialize(
-    params: &Value,
-    list_changed: bool,
-    code_mode: bool,
-    wrap_up: bool,
-    offers: bool,
-) -> Value {
+/// In code mode the wrap-up and suggested-session steers are only in `cmux_exec`'s description,
+/// which Claude Code always loads (`anthropic/alwaysLoad`), so the instructions do not repeat
+/// them.
+fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
-            "{} {}{}{}",
+            "{} {}",
             if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
             acpmux::agent_tools::ASKING_RULE,
-            if wrap_up { code_mode::WRAP_UP_INSTRUCTION } else { "" },
-            if offers { code_mode::OFFER_INSTRUCTION } else { "" }
         ),
     })
 }
@@ -1615,15 +1650,19 @@ fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
 
 pub(super) fn failure_result(failure: CallFailure) -> Value {
     // An owner that says whether the run started (the app's `busy` and
-    // `timeout`) decides the state.
+    // `timeout`) decides the state. So does one that says it decided the refusal
+    // itself (`rejected`: a pane that cannot split): the app marks that `not_run`
+    // too (nothing applied), and `not_run` alone would tell the agent to send it again.
     let data = failure.error.get("data").or_else(|| failure.error.get("details"));
     let owner_state = data.and_then(|data| {
+        let said = data.get("state").and_then(Value::as_str);
+        if said == Some("rejected") {
+            return Some("rejected");
+        }
         if data.get("not_run") == Some(&Value::Bool(true)) {
             return Some("not_run");
         }
-        data.get("state")
-            .and_then(Value::as_str)
-            .filter(|state| matches!(*state, "not_run" | "in_progress"))
+        said.filter(|state| matches!(*state, "not_run" | "in_progress"))
     });
     // The app's queue deadline (`timeout`) says nothing about whether the
     // run started; a retry with the same key is safe either way.

@@ -6,7 +6,6 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
-import CmuxNextImportSuggestions
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -84,7 +83,6 @@ enum ChiefMemoryImportHandlers {
             return try CmuxNextSettings.JSONValue.parse(Data(output.stdout.utf8))
         }
         provider.restart = { [weak services] in _ = services?.home.brain.ensure(asked: true) }
-        provider.notice = { ImportScanner(home: FileManager.default.homeDirectoryForCurrentUser).conductorOnboardingNotice(now: Date()) }
         let native = AppPageNativeProvider(services: services, page: .importHistory)
         let routes = [PageRoute(prefix: "cmux.importHistory.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .importHistory, routes: routes) else { return nil }

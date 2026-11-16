@@ -47,6 +47,8 @@ const MAX_SMALL_FILE: u64 = 4 * 1024;
 const MAX_PACKED_REFS: u64 = 16 * 1024 * 1024;
 /// The longest ref name taken as a branch.
 const MAX_REF_NAME: usize = 1024;
+/// The most of a repository's `config` read for its origin.
+const MAX_CONFIG: u64 = 256 * 1024;
 
 impl GitState {
     /// The git state of `dir`, the folder a session runs in.
@@ -104,6 +106,49 @@ pub fn linked_worktree(dir: &Path) -> Option<(PathBuf, PathBuf)> {
 pub fn repo_root(dir: &Path) -> Option<PathBuf> {
     let dir = std::fs::canonicalize(dir).ok()?;
     dir.ancestors().find(|folder| folder.join(".git").exists()).map(Path::to_path_buf)
+}
+
+/// The `owner/name` of the GitHub repository `dir`'s checkout names as its `origin` remote, read
+/// from the shared git directory's `config` (a linked worktree's too); never the git process.
+/// `None` outside a repository, with no origin, or one that is not on GitHub.
+pub fn origin_repo(dir: &Path) -> Option<String> {
+    let dir = std::fs::canonicalize(dir).ok()?;
+    let config = common_dir(&find_git_dir(&dir)?).join("config");
+    let file = open_file(&config)?.take(MAX_CONFIG);
+    let mut in_origin = false;
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_origin = line.replace(char::is_whitespace, "") == "[remote\"origin\"]";
+            continue;
+        }
+        if !in_origin {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=')
+            && key.trim() == "url"
+        {
+            return github_repo(value.trim());
+        }
+    }
+    None
+}
+
+/// `owner/name` of a GitHub remote URL: `https://github.com/o/n(.git)`, `git@github.com:o/n.git`,
+/// `ssh://git@github.com/o/n`.
+fn github_repo(url: &str) -> Option<String> {
+    let rest =
+        ["https://github.com/", "http://github.com/", "git@github.com:", "ssh://git@github.com/"]
+            .iter()
+            .find_map(|p| url.strip_prefix(p))?;
+    let rest = rest.trim_end_matches('/');
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    let (owner, name) = rest.split_once('/')?;
+    let ok = |s: &str| {
+        !s.is_empty()
+            && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    };
+    (ok(owner) && ok(name)).then(|| format!("{owner}/{name}"))
 }
 
 /// The folder holding `dir`'s HEAD file (its worktree's git directory, a
@@ -302,6 +347,26 @@ mod tests {
         // A main checkout's git directory goes with it: nothing to add back.
         assert_eq!(linked_worktree(&main), None);
         assert_eq!(linked_worktree(&dir.join("gone")), None);
+    }
+
+    #[test]
+    fn origin_repo_reads_the_origin_remote_of_a_checkout_and_its_worktrees() {
+        let dir = scratch("origin");
+        repo(&dir, "main");
+        git(&dir, &["remote", "add", "upstream", "https://github.com/other/fork.git"]);
+        git(&dir, &["remote", "add", "origin", "git@github.com:acme/widgets.git"]);
+        let sub = dir.join("src");
+        std::fs::create_dir_all(&sub).unwrap();
+        assert_eq!(origin_repo(&sub).as_deref(), Some("acme/widgets"));
+        let linked = dir.with_extension("linked");
+        git(&dir, &["worktree", "add", "-b", "side", linked.to_str().unwrap()]);
+        assert_eq!(origin_repo(&linked).as_deref(), Some("acme/widgets"));
+        assert_eq!(github_repo("https://github.com/o/n/").as_deref(), Some("o/n"));
+        assert_eq!(github_repo("ssh://git@github.com/o/n.git").as_deref(), Some("o/n"));
+        assert!(github_repo("https://gitlab.com/o/n").is_none());
+        assert!(origin_repo(&std::env::temp_dir().join("no-such-acpmux-dir")).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&linked);
     }
 
     #[test]

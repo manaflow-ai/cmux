@@ -13,6 +13,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -59,12 +60,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -322,10 +320,18 @@ test("in the text Up and Down move the caret between lines; in the list they ste
   expect(highlighted()).toBe(-1);
   await caretAt(3); // the first line
   expect(await press("ArrowDown")).toBe(false); // the caret goes down a line
-  expect(await press("ArrowUp")).toBe(true); // the first line: into the rows, at the last
-  expect(highlighted()).toBe(count - 1);
+  expect(await press("ArrowUp")).toBe(true); // the first line: into the rows, at the last line
+  // The last line is the create strip, entered at its first action; ← stays on the strip there.
+  const strip = rows().findIndex((row) => row.classList.contains("nt-create-strip-item"));
+  expect(highlighted()).toBe(strip < 0 ? count - 1 : strip);
+  if (strip >= 0) {
+    expect(await press("ArrowLeft")).toBe(true);
+    expect(highlighted()).toBe(strip);
+    expect(await press("ArrowUp")).toBe(true); // the last listed row
+    expect(highlighted()).toBe(strip - 1);
+  }
 
-  expect(await press("ArrowLeft")).toBe(false); // the list: back to the text, the caret moves
+  expect(await press("ArrowLeft")).toBe(false); // a listed row: back to the text, the caret moves
   expect(highlighted()).toBe(-1);
   await press("Enter");
   expect(calls).toEqual([["ask", "claude", "first line\nsecond line", undefined, "claude-opus-5-5"]]);

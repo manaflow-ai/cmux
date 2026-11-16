@@ -23,7 +23,7 @@ pub(crate) struct BillingMessages {
 
 pub(super) const ENGLISH: BillingMessages = BillingMessages {
     usage: "usage: cmux billing <checkout|status|portal> [OPTIONS] [--json]\n\nStart, read and manage a cmux plan. The cmux app asks cmux.com for a Stripe\nCheckout page bound to your signed-in account. No card data passes through\ncmux, and nothing is charged until you pay on the Stripe page.\n\n  cmux billing checkout [--plan plus|pro|max|team] [--team ID] [--open auto|cmux|default|none]\n      Open a checkout for the plan (default pro). auto: a cmux browser tab when\n      the cmux browser is signed in to Stripe Link, else your default browser.\n      Team needs --team (a team you administer). --no-open prints the URL only.\n  cmux billing status [--team ID]\n      Your plan, where it is billed, and your team's plan.\n  cmux billing portal [--team ID] [--open auto|cmux|default|none]\n      Open billing management (change plan, cards, invoices, cancel).\n\nPlans: Plus $15/mo, Pro $50/mo, Max $200/mo, Team $60/seat/mo. Each includes Cloud VMs,\nCodeRouter model usage and Chief credits; see https://cmux.com/pricing.\n",
-    unknown_verb: "unknown billing verb \"{verb}\"; use checkout, status or portal",
+    unknown_verb: "unknown billing verb \"{verb}\"; use checkout, status or portal (`cmux billing --help`)",
     unknown_plan: "unknown plan \"{plan}\"; use plus, pro, max or team",
     unknown_open: "--open takes auto, cmux, default or none, not \"{value}\"",
     plan_required_team: "--plan team needs --team ID (a team you administer)",

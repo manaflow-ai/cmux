@@ -12,6 +12,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { promptBlocks, withoutInlineTokens, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -78,11 +79,7 @@ afterAll(async () => {
   // A frame the look dots asked for (StyleSwitch.tsx) can land after the last test's act: its render
   // runs in the next task, which must still have a window.
   await new Promise((resolve) => setTimeout(resolve, 0));
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -161,11 +158,11 @@ async function paste(plain: string) {
   await settle();
 }
 
-/// 130 lines of a log (780 words, over the 750-word limit) with a blank line in it, which a paste keeps.
-const LOG = Array.from({ length: 130 }, (_, index) => `line ${index + 1} of the build log`)
+/// 600 lines of a log (3,600 words, over the 3,500-word limit) with a blank line in it, which a paste keeps.
+const LOG = Array.from({ length: 600 }, (_, index) => `line ${index + 1} of the build log`)
   .join("\n")
   .replace("line 13 of the build log\n", "line 13 of the build log\n\n");
-const OTHER = Array.from({ length: 130 }, (_, index) => `row ${index + 1} of the other table`).join("\n");
+const OTHER = Array.from({ length: 600 }, (_, index) => `row ${index + 1} of the other table`).join("\n");
 
 const send = (composer: RefObject<ComposerHandle | null>) =>
   act(async () => {

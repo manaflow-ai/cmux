@@ -55,51 +55,59 @@ pub(crate) fn decode(packet: &[u8]) -> Option<(Probe, IpAddr, IpAddr)> {
     Some((probe, source.ip(), destination.ip()))
 }
 
-/// Encrypt one probe packet and send it on `path` only.
+/// Encrypt one probe packet and send it on `path` only, adding its
+/// WireGuard counter to `off_path`: the peer is told it did not travel on the
+/// data path (`crate::ultra_auto`), so a path that loses it is not loss.
 fn send_probe(
     tunn: &mut Tunn,
     underlay: &mut dyn Underlay,
     scratch: &mut [u8],
-    path: PathId,
-    packet: &[u8],
+    (path, packet): (PathId, &[u8]),
+    off_path: &mut Vec<u64>,
 ) {
     if let TunnResult::WriteToNetwork(encrypted) = tunn.encapsulate(packet, scratch) {
+        if let Some((_, counter)) = crate::ultra::data_id(encrypted) {
+            off_path.push(counter);
+        }
         underlay.send_on(path, encrypted);
     }
 }
 
-/// Send the pings the underlay wants now. Returns when it next wants one.
-/// Nothing is sent before the first handshake: a probe must not be what
-/// starts a session.
+/// Send the pings the underlay wants now, adding their counters to
+/// `off_path`. Returns when it next wants one. Nothing is sent before the
+/// first handshake: a probe must not be what starts a session.
 pub(crate) fn send_due(
     tunn: &mut Tunn,
     underlay: &mut dyn Underlay,
     scratch: &mut [u8],
     route: Option<(IpAddr, IpAddr)>,
     now: Instant,
+    off_path: &mut Vec<u64>,
 ) -> Option<Instant> {
     let (local, remote) = route?;
     tunn.time_since_last_handshake()?;
     let due = underlay.poll_probes(now);
     for (path, id) in due.pings {
         let packet = encode(local, remote, &Probe { kind: ProbeKind::Ping, id, path });
-        send_probe(tunn, underlay, scratch, path, &packet);
+        send_probe(tunn, underlay, scratch, (path, &packet), off_path);
     }
     due.next
 }
 
-/// Answer a ping on the path it arrived on, or report a pong.
+/// Answer a ping on the path it arrived on (its counter added to
+/// `off_path`), or report a pong.
 pub(crate) fn receive(
     tunn: &mut Tunn,
     underlay: &mut dyn Underlay,
     scratch: &mut [u8],
     (probe, source, destination): (Probe, IpAddr, IpAddr),
     arrived_on: PathId,
+    off_path: &mut Vec<u64>,
 ) {
     match probe.pong() {
         Some(pong) => {
             let packet = encode(destination, source, &pong);
-            send_probe(tunn, underlay, scratch, arrived_on, &packet);
+            send_probe(tunn, underlay, scratch, (arrived_on, &packet), off_path);
         }
         None => underlay.on_pong(probe.path, probe.id, Instant::now()),
     }

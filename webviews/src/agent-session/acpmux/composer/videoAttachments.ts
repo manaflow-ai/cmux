@@ -4,9 +4,11 @@
 // main thread (`video.info`, AgentPaneVideoInfo.swift): only for a file whose path it knows, in a
 // chat on this Mac. The answer goes on the chip (`ComposerAttachment.video`): its tile draws the
 // poster and length, and its key frames are there for the prompt (sent with the video's link by
-// videoPrompt.ts, which comes with the sent bubble's tile). A send made while a read is out waits
-// for it a few seconds at most (VIDEO_INFO_DEADLINE_MS); a chip whose read failed or timed out
-// stays a file chip and goes as its path alone.
+// videoPrompt.ts, which comes with the sent bubble's tile). No send waits for a read (Leo,
+// 2026-11-10: "it's 99% of the time fine for it to just to be a path and stuff, so idk why it's so
+// slow"): a chip sent before its read answered, or whose read failed, goes as its path alone, in the
+// box its header gave it (videoShape.ts). The count useVideoInfo answers is the reads out within
+// VIDEO_INFO_DEADLINE_MS, for a caller that shows them.
 //
 // Then the frames the agent sees (Leo, 2026-11-01: "i feel like cmux-next should give u better tools
 // to deal with this kind of thing"): the answer's probes pick the times (videoFramePick.ts: each

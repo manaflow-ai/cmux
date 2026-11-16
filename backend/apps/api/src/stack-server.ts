@@ -25,7 +25,15 @@ export interface StackServer {
    * inference-plans.ts), null when absent or not a string. `vm_plan` is its operator Cloud grant
    * (client_read_only_metadata.cmuxVmPlan, cloud-plan.ts cloudPlanId), read for Cloud machine limits only.
    */
-  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; vm_plan?: string | null; vm_personal_tenant?: boolean } | null>
+  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; vm_plan?: string | null; vm_personal_tenant?: boolean; vm_personal_tenant_visible?: boolean } | null>
+  /**
+   * Marks a cmux VM personal tenant (server_metadata.cmuxVmPersonalTenant) for clients too: its
+   * client_read_only_metadata gains cmuxVmPersonalTenant: true, every other key kept. A sign-in client lists the
+   * person's Stack teams itself and cannot read server metadata, so without this it offered the tenant as a team
+   * (CMUX-380: the app's active team was a tenant, and `cmux auth token` was refused). Only a team whose server
+   * metadata carries the marker is changed; false when it does not (or is gone), and nothing is written.
+   */
+  markVmPersonalTenantVisible?(teamId: string): Promise<boolean>
   /**
    * A user's client_read_only_metadata.cmuxPlan (web billing's personal plan mirror,
    * inference-plans.ts): the plan id, null when absent, "user_gone" for USER_NOT_FOUND.
@@ -97,6 +105,10 @@ export const readVmPlanOverride = (metadata: unknown): string | null => {
  * check included); a 429 means Stack did not do the work, so a retried POST makes nothing twice.
  */
 export const RETRY_429_MAX_MS = 2000
+/** Whether a team's client_read_only_metadata marks it a cmux VM personal tenant for clients (markVmPersonalTenantVisible). */
+export const vmTenantVisible = (metadata: unknown): boolean =>
+  !!metadata && typeof metadata === "object" && !Array.isArray(metadata) && (metadata as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] === true
+
 export const retryAfterMs = (res: Response): number | null => {
   const raw = res.headers.get("retry-after")
   const seconds = raw === null ? 1 : Number(raw)
@@ -175,7 +187,18 @@ export const stackServer = (
       // Server-only metadata: a cmux VM personal tenant (team-vm-api-personal-stack.ts) is never mirrored as a cmux team.
       const meta = r.server_metadata
       const vm_personal_tenant = !!meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] != null
-      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_plan: readVmPlanOverride(r.client_read_only_metadata), vm_personal_tenant }
+      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_plan: readVmPlanOverride(r.client_read_only_metadata), vm_personal_tenant, vm_personal_tenant_visible: vmTenantVisible(r.client_read_only_metadata) }
+    },
+    markVmPersonalTenantVisible: async (teamId) => {
+      const r = await lookup<{ client_read_only_metadata?: unknown; server_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
+      if (isGone(r)) return false
+      const meta = r.server_metadata
+      if (!meta || typeof meta !== "object" || Array.isArray(meta) || (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] == null) return false
+      if (vmTenantVisible(r.client_read_only_metadata)) return true
+      const ro = r.client_read_only_metadata
+      const kept = ro && typeof ro === "object" && !Array.isArray(ro) ? (ro as Record<string, unknown>) : {}
+      await call("PATCH", `/teams/${encodeURIComponent(teamId)}`, { client_read_only_metadata: { ...kept, [PERSONAL_TENANT_METADATA_KEY]: true } })
+      return true
     },
     getUserPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])

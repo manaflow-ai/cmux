@@ -25,6 +25,8 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The running turn's task list pinned in the chat: off, the composer's hat shows it.
         Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // The prompt coach card after a chat that took several corrections (webviews PromptCoachCard.tsx).
+        Row(key: "agentPane.display.promptCoach", fallback: .bool(true), accepted: [.bool(false)], refused: [.string("off")]),
         // The hat over the composer tucked away to its pull tab: off, it shows.
         Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
@@ -40,10 +42,11 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("right"), .bool(true)]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
-        // The whole chat's face: today's tuned Inter unless one of the candidates is picked.
-        Row(key: "agentPane.display.font.ui", fallback: .string("inter-tuned"),
+        // The whole chat's face: the macOS system font unless one of the candidates is picked
+        // (ab5bc5a1, Font-order: "default fonts on cmux for everything should be macos default, not inter").
+        Row(key: "agentPane.display.font.ui", fallback: .string("system-ui"),
             accepted: [.string("verdana"), .string("roboto"), .string("plex"), .string("source-sans"), .string("geist"),
-                       .string("inter"), .string("system-ui"), .string("system-ui-tight"),
+                       .string("inter"), .string("inter-tuned"), .string("system-ui-tight"),
                        .string("cmux-sans"), .string("hanken"), .string("atkinson")],
             refused: [.string("comic"), .string("system"), .bool(true)]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],

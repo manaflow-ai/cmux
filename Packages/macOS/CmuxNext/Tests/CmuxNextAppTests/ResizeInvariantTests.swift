@@ -59,7 +59,7 @@ import Testing
     @Test func theHomeTranscriptKeepsItsMinimumThroughResizes() throws {
         _ = NSApplication.shared
         let suite = "cmux.tests.resize.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let sidebar = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         sidebar.update(HomeLoneChiefRailTests.model(chiefs: 2))

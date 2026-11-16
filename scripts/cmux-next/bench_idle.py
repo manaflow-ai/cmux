@@ -234,7 +234,7 @@ def prepare(scenario, control, args, app_pid, bundle):
             reason = "no Chromium renderer appeared within 90 s"
         return reason
     if scenario == "chromium-hidden":
-        return refused(run_action("newTab"))
+        return refused(run_action("newTab"))  # New Workspace (Cmd-N): the Chromium tab's workspace hides
     if scenario == "minimized":
         return refused(run_action("minimizeWindow"))
     return None
@@ -297,7 +297,9 @@ def main():
         raise SystemExit(f"bench-idle: no app at {bundle}")
     if args.fresh:
         # Saved tabs (a restored Chromium tab starts CEF) would change every scenario.
-        shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
+        # NEXT's own folder and an older build's in classic's (a new build adopts that one at launch).
+        for parent in ("cmux-next", "cmux"):
+            shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/{parent}/tags/{tag}/tui"), ignore_errors=True)
     scratch = tempfile.mkdtemp(prefix=f"bench-idle-{tag}-")
     # The bench's own variables on top of bench_launch.py's defaults (--env adds or overrides them).
     env = {}

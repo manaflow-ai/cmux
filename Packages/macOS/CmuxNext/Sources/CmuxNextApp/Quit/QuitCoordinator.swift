@@ -1,7 +1,10 @@
 import AppKit
+import CmuxNextAgentActivity
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextSettings
@@ -10,8 +13,8 @@ import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), asks
-/// about unsaved documents, decides (`QuitPolicy`; no quit asks how to quit),
-/// then completes (`QuitSteps`, CmuxNextControl): save and close windows, and
+/// about unsaved documents, decides (`QuitPolicy`; no quit asks how to quit, and Cmd-Q, the menu and the Dock
+/// quit the app only, CMUX-630), then completes (`QuitSteps`, CmuxNextControl): save and close windows, and
 /// for End end the local terminals and stop the local daemon. A failed end
 /// step shows `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are
 /// never ended.
@@ -88,19 +91,20 @@ final class QuitCoordinator {
         DebugTimings.markLaunch("quit.requested")
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
-        let origin = origins.consume(appleEventReason: Self.quitReason())
+        let origin = origins.consume(appleEventReason: NSAppleEventManager.shared().quitReason)
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
-            // Unsaved documents are the quit's one question (R96 quit hook).
+            let choice = QuitPolicy.decide(origin, behavior: behavior)
+            // Unsaved documents (R96 quit hook) are the only question a quit can ask.
             guard await resolveUnsaved(origin) else {
                 isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
                 quitRefused()
                 return
             }
-            await complete(QuitPolicy.decide(origin, behavior: behavior), sender)
+            await complete(choice, sender)
         }
         return .terminateLater
     }
@@ -144,14 +148,14 @@ final class QuitCoordinator {
 
     /// The quit's steps after the decision `choice` (`QuitSteps.run`).
     func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
-        let services = services
+        let services = services, steps = steps
         return QuitSteps(
             prepareWindows: { [steps] in
-                let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: services.cache.browserTabs.isIncognitoTab)
+                let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
-                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: incognito.contains)) },
-                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: incognito.contains)) },
+                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
+                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
@@ -234,14 +238,5 @@ final class QuitCoordinator {
     private func sheetWindow() -> NSWindow? {
         let candidates = [services.windows.active?.window, NSApp?.mainWindow] + services.windows.controllers.map(\.window)
         return candidates.compactMap { $0 }.first { $0.isVisible && !$0.isMiniaturized && $0.attachedSheet == nil }
-    }
-
-    /// `kAEQuitReason` of the quit Apple event being handled, if any.
-    private static func quitReason() -> OSType? {
-        guard let event = NSAppleEventManager.shared().currentAppleEvent,
-              event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEQuitApplication),
-              let reason = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) ?? event.paramDescriptor(forKeyword: AEKeyword(kAEQuitReason))
-        else { return nil }
-        return reason.enumCodeValue
     }
 }

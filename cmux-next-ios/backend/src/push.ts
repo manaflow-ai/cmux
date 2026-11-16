@@ -600,6 +600,38 @@ export const classifyApns = (status: number, reason: string | undefined): ApnsOu
   return "failed"
 }
 
+export interface ApnsSendResult {
+  readonly token: string
+  readonly environment: PushRegistration["environment"]
+  readonly outcome: ApnsOutcome
+  readonly status: number
+  readonly reason?: string
+}
+
+/** One failed send as `notify` answers it: never the token, the topic or an error's text. */
+export interface NotifyFailure {
+  readonly environment: PushRegistration["environment"]
+  readonly status: number
+  readonly reason: string
+}
+
+/** APNs' `reason` is one word from Apple's fixed list (BadEnvironmentKeyInToken, TopicDisallowed, ...). */
+const APNS_REASON = /^[A-Za-z]{1,64}$/
+
+/**
+ * The failed sends for the `notify` answer, so the Mac can tell why APNs refused (a key not enabled for the
+ * sandbox, a topic the key may not push to): APNs' reason word, `unknown` for any other body, `network` when
+ * no answer came.
+ */
+export const notifyFailures = (results: ReadonlyArray<ApnsSendResult>): Array<NotifyFailure> =>
+  results
+    .filter((r) => r.outcome === "failed")
+    .map((r) => ({
+      environment: r.environment,
+      status: r.status,
+      reason: r.status === 0 ? "network" : typeof r.reason === "string" && APNS_REASON.test(r.reason) ? r.reason : "unknown"
+    }))
+
 /** Sends one event to every target; never throws. */
 export const sendApns = async (
   config: ApnsConfig,
@@ -607,18 +639,20 @@ export const sendApns = async (
   e: NotifyEvent,
   now: number,
   fetcher: typeof fetch = fetch
-): Promise<Array<{ token: string; outcome: ApnsOutcome; status: number; reason?: string }>> => {
+): Promise<Array<ApnsSendResult>> => {
   if (targets.length === 0) return []
   const token = await providerToken(config, now)
   return Promise.all(
     targets.map(async (t) => {
       try {
         const res = await fetcher(apnsRequest(t, e, token, now))
-        const reason = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: string }).reason
+        const body = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: unknown } | null)?.reason
+        // A malformed body (`{"reason": true}`, `null`) has no reason.
+        const reason = typeof body === "string" ? body : undefined
         if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) cached = undefined
-        return { token: t.token, outcome: classifyApns(res.status, reason), status: res.status, ...(reason ? { reason } : {}) }
+        return { token: t.token, environment: t.environment, outcome: classifyApns(res.status, reason), status: res.status, ...(reason ? { reason } : {}) }
       } catch (err) {
-        return { token: t.token, outcome: "failed" as const, status: 0, reason: String(err).slice(0, 120) }
+        return { token: t.token, environment: t.environment, outcome: "failed" as const, status: 0, reason: String(err).slice(0, 120) }
       }
     })
   )

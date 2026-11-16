@@ -28,6 +28,9 @@ final class AppContainer {
     let approveSigner: (any FeedApproveSigning)?
     private let notificationDelegate: NotificationDelegate
     private(set) var home: HomeStore?
+    /// The Hosted Chief check for `home`: its card while the Chief does not
+    /// answer, and Turn On (nil for a source without Cloud Chief brains).
+    private(set) var chiefBrain: HomeChiefBrainModel?
     /// Which chat server Home uses (Settings > Chat Server), persisted.
     let chatServers = HomeChatServerStore(defaults: .standard)
     /// The wire source behind `home`, shut down when Home is rebuilt.
@@ -118,6 +121,10 @@ final class AppContainer {
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                if let chiefBrain = self?.chiefBrain {
+                    // task-owner: one brain read; ends with its answer
+                    Task { await chiefBrain.refresh() }
+                }
                 guard let source = self?.homeSource else { return }
                 // task-owner: one reconnect nudge; ends at once
                 Task { await source.reconnectNow() }
@@ -153,9 +160,11 @@ final class AppContainer {
         if let home, homeKey == key { return home }
         dropHome()
         homeKey = key
-        let store = HomeStore(source: makeHomeSource(server: server, account: account))
+        let source = makeHomeSource(server: server, account: account)
+        let store = HomeStore(source: source)
         store.start()
         home = store
+        chiefBrain = (source as? any HomeChiefBrainControlling).map { HomeChiefBrainModel(control: $0) }
         return store
     }
 
@@ -165,7 +174,7 @@ final class AppContainer {
     }
 
     private func makeHomeSource(server: HomeChatServer, account: SignedInAccount) -> any HomeSource {
-        guard !homeUsesMock else { return MockHomeSource() }
+        guard !homeUsesMock else { return Self.previewMock() }
         let source: WireHomeSource
         switch server {
         case .hosted:
@@ -184,10 +193,22 @@ final class AppContainer {
         return source
     }
 
+    /// The DEBUG mock owner; `CMUX_IOS_PREVIEW_CHIEF_OFF=1` gives it a Hosted
+    /// Chief whose brain is off, so Home shows the Chief card (simulator screenshots).
+    private static func previewMock() -> MockHomeSource {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_CHIEF_OFF"] == "1" {
+            return MockHomeSource(options: .init(hostedChiefBrain: false))
+        }
+        #endif
+        return MockHomeSource()
+    }
+
     /// Stops Home and closes its sockets.
     private func dropHome() {
         home?.stop()
         home = nil
+        chiefBrain = nil
         homeKey = nil
         if let old = homeSource {
             // task-owner: one shutdown; ends with it

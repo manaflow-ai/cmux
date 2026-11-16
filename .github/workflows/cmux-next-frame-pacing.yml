@@ -69,7 +69,9 @@ jobs:
       ref: ${{ inputs.ref || 'feat-cmux-next' }}
 
   gate:
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     needs: resolve-ref
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
@@ -105,7 +107,9 @@ jobs:
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -189,13 +193,13 @@ jobs:
       tag: ${{ needs.gate.outputs.tag }}
       ref: ${{ needs.resolve-ref.outputs.sha }}
       platform: macos
-      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
       backend_mode: local
 
   bench:
     needs: [resolve-ref, gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') }}
     # The GUI-token wait and bench step both fit in this job timeout.
     timeout-minutes: 45
     env:
@@ -389,7 +393,7 @@ jobs:
         with:
           name: frame-pacing-${{ github.run_id }}
           path: ${{ runner.temp }}/frame-pacing/out
-          retention-days: 14
+          retention-days: 7
 
   # A gate skip prevents the bench job from starting, so keep a receipt for
   # that outcome too. This makes skipped nights distinguishable from missing
@@ -431,4 +435,4 @@ jobs:
         with:
           name: frame-pacing-${{ github.run_id }}
           path: ${{ runner.temp }}/frame-pacing/out
-          retention-days: 14
+          retention-days: 7

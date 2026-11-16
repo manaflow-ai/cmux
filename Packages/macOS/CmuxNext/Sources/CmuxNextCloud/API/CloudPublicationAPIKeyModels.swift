@@ -1,7 +1,7 @@
 import Foundation
 
-/// One API key of a protected Cloud publication, as `/api/vm/publications/:id/api-keys`
-/// lists it. The server never answers the key itself here, only its last four characters.
+/// One API key of a Cloud publication (a machine port's preview), as cmux-platform's
+/// `/v1/cloud/machines/{id}/previews/{port}/api-keys` lists it. The server never answers the key itself here, only its last four characters.
 public struct CloudPublicationAPIKey: Sendable, Hashable, Codable {
     public var id: String
     public var publicationId: String?
@@ -12,8 +12,8 @@ public struct CloudPublicationAPIKey: Sendable, Hashable, Codable {
     public var revokedAt: String?
 }
 
-/// `POST /api/vm/apis`: a machine port published under a generated hostname, with a new key.
-/// `token` is in this answer only; API clients send it as `cookie` (`__Host-cmux-api-key=<token>`),
+/// `POST /v1/cloud/machines/{id}/previews/{port}/api-keys`: a machine port's preview, with a new key.
+/// `token` is in this answer only; API clients send it as `cookie` (`__Host-cmux-preview=<token>`),
 /// which the Cloud edge withholds from the machine.
 public struct CloudProvisionedAPI: Sendable, Hashable, Codable {
     public var url: String

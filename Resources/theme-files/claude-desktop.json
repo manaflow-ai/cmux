@@ -1,0 +1,27 @@
+// Claude Desktop: warm paper and clay. A cream page, a beige sidebar, the clay accent, no borders and
+// room to breathe. Copy it to ~/.config/cmux/themes/claude-desktop.json (yours wins over this one),
+// edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "Claude Desktop",
+  "description": "A cream page, a beige sidebar, the clay accent, no borders.",
+
+  // The terminal theme, and its own colors.
+  "appearance.theme": "Claude Light",
+  "colors": { "background": "#faf9f5", "foreground": "#141413", "selection": "#f0eee6", "accent": "#d97757" },
+  "appearance.accent": "theme",
+
+  // No picture: the page itself is the look.
+  "appearance.background": "none",
+  "appearance.borders": "none",
+
+  // A beige sidebar beside a cream page and agent pane.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f0eee6",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#faf9f5",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+
+  "appearance.density": "comfortable"
+}

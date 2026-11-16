@@ -13,7 +13,7 @@
         {
           "key": "agents.guidance.claude",
           "name": "guidanceClaude",
-          "note": "On: a new Claude Code chat gets the cmux:cmux-chat skill's first-turn pointer (agent_guidance.rs CLAUDE_GUIDANCE). The skill itself stays listed either way.",
+          "note": "On: a new Claude Code chat gets cmux's chat guidance (agent_guidance.rs CLAUDE_GUIDANCE) in its system prompt (--append-system-prompt). The cmux:cmux-chat skill stays listed either way.",
           "title": {
             "key": "settings.agents.guidance.claude",
             "text": "cmux Guidance for Claude Code"
@@ -36,7 +36,7 @@
         {
           "key": "agents.guidance.codex",
           "name": "guidanceCodex",
-          "note": "On: a new Codex chat gets cmux's chat guidance as first-turn context (agent_guidance.rs AGENT_GUIDANCE), the channel Codex uses for AGENTS.md.",
+          "note": "On: a new Codex chat gets cmux's chat guidance (agent_guidance.rs AGENT_GUIDANCE) as its developer instructions, or as first-turn context when its Codex config sets developer_instructions itself.",
           "title": {
             "key": "settings.agents.guidance.codex",
             "text": "cmux Guidance for Codex"

@@ -37,6 +37,8 @@ public final class LaunchReveal {
     /// The deadlines of regions made after the window (`LaunchRegion.hasOwnDeadline`).
     @ObservationIgnored private var ownDeadlines: [LaunchRegion: DemandTimer] = [:]
     @ObservationIgnored private let clock: any Clock<Duration>
+    /// Regions shown by their deadline, not their data (the launch marks' `reveal.<region>.by_deadline`).
+    @ObservationIgnored public private(set) var shownByDeadline: Set<LaunchRegion> = []
     @ObservationIgnored private let deadline: Duration
 
     /// - Parameter deadline: How long after the first `hold` every region
@@ -62,16 +64,16 @@ public final class LaunchReveal {
         table.add(view)
         guard region.hasOwnDeadline else {
             deadlineTimer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in
-                for region in LaunchRegion.allCases where !region.hasOwnDeadline { self?.markReady(region) }
+                for region in LaunchRegion.allCases where !region.hasOwnDeadline { self?.expire(region) }
             }
             return
         }
         let timer = ownDeadlines[region] ?? DemandTimer(owner: "launch.reveal-deadline.\(region.rawValue)", clock: clock)
         ownDeadlines[region] = timer
         if alone {
-            timer.schedule(after: deadline) { @MainActor [weak self] in self?.markReady(region) }
+            timer.schedule(after: deadline) { @MainActor [weak self] in self?.expire(region) }
         } else {
-            timer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in self?.markReady(region) }
+            timer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in self?.expire(region) }
         }
     }
 
@@ -92,6 +94,12 @@ public final class LaunchReveal {
             if let layer = view.layer, layer.presentation() != nil { Motion.panes.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
         }
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
+    }
+
+    /// The deadline passed with `region`'s data still missing: it shows anyway.
+    private func expire(_ region: LaunchRegion) {
+        if !isReady(region) { shownByDeadline.insert(region) }
+        markReady(region)
     }
 
     /// `view` has its data before its region (a terminal's frame from the last quit): it shows at

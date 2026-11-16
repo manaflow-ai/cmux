@@ -10,8 +10,11 @@ flock -n 9 || exit 0
 sum=$(sha256sum "$d/script" | cut -d' ' -f1)
 key=$(cat "$d/script" "$d/repo" | sha256sum | cut -d' ' -f1)
 # A runner launched by an earlier start may have run these files to their end while this one waited
-# to be scheduled: a script and repo step that are done are not run again.
-if grep -q "\"state\":\"done\".*\"start_sha256\":\"$key\"" "$d/status.json" 2>/dev/null; then exit 0; fi
+# to be scheduled: a script and repo step that are done are not run again, unless the repo step's
+# background fill failed since (machine_bootstrap.rs `FILL_FAILED`): then the step repairs it.
+as_u() { "$@"; }
+fill_failed() { r=$(cat "$d/repo-status.json" 2>/dev/null) || return 1; case "$r" in *'"fill":"background"'*) ;; *) return 1 ;; esac; f=$(printf '%s\n' "$r" | sed -n 's/.*"dir":"\([^"]*\)".*/\1/p'); [ -n "$f" ] || return 1; x=$(command -v cmux-tui || command -v cmux) || return 1; c=0; as_u "$x" repo wait "$f" 0 >/dev/null 2>&1 || c=$?; [ "$c" = 1 ]; }
+if grep -q "\"state\":\"done\".*\"start_sha256\":\"$key\"" "$d/status.json" 2>/dev/null && ! fill_failed; then exit 0; fi
 # Held for the runner's whole life, taken blocking: a machine-config apply probes it (shared,
 # non-blocking, released at once) to wait while this runner runs; the kernel drops it at the end.
 [ -f "$d/alive" ] && [ ! -L "$d/alive" ] || rm -f "$d/alive"

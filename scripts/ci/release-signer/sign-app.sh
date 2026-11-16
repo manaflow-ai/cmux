@@ -253,7 +253,7 @@ if [[ "$MODE" == helper-first ]]; then
   for rel in "${machos[@]}"; do [[ "$rel" == "$cu_rel/"* ]] && cu_machos+=("$rel"); done
   verify_helper() { # <helper.app>: every Mach-O in it
     local rel
-    for rel in "${cu_machos[@]}"; do
+    for rel in ${cu_machos[@]+"${cu_machos[@]}"}; do
       run_signer "$R" verify --config-file /dev/null "$1/${rel#"$cu_rel/"}" > "$work/log" 2>&1 ||
         { tail -5 "$work/log" >&2; echo "error: signature check failed for $rel" >&2; exit 1; }
     done
@@ -261,7 +261,7 @@ if [[ "$MODE" == helper-first ]]; then
   # A new nonce in Info.plist separates this submission from every other one.
   isolate_helper_submission "$computer_use"
   cu_args=(--code-signature-flags runtime --entitlements-xml-file "$HELPER_ENTITLEMENTS")
-  for rel in "${cu_machos[@]}"; do cu_args+=(--code-signature-flags "${rel#"$cu_rel/"}:runtime"); done
+  for rel in ${cu_machos[@]+"${cu_machos[@]}"}; do cu_args+=(--code-signature-flags "${rel#"$cu_rel/"}:runtime"); done
   echo "==> signing nested helper ${computer_use##*/}"
   run_signer "$R" sign "${identity_args[@]}" "${cu_args[@]}" "$computer_use" > "$work/log" 2>&1 ||
     { tail -40 "$work/log" >&2; echo "error: signing the Computer Use helper failed" >&2; exit 1; }

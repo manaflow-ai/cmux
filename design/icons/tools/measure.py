@@ -15,7 +15,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
-ICONS = Path(os.environ.get("ICONS_DIR", ROOT / "icons"))
+ICONS = Path(os.environ.get("ICONS_DIR", ROOT / "source"))
 OUT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "measure" / "ink.json"
 CELL, COLS, UNIT = 96, 16, 4
 

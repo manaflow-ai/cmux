@@ -25,17 +25,33 @@
 // ... through the What's New page, you can just get back to a prior version if you wanted to"): its
 // builds, each with its commit, its changes since the build before, and Install, which asks once,
 // then has the app download that build, check its signature and team, and restart into it.
-import { useState, type CSSProperties, type ReactNode } from "react";
+// A click on a row of the sidebar Updated card's list opens this page at that change (Leo
+// 2026-11-08: "maybe just bring them to the section in what's new aka bringing that tab up"):
+// `focus` (the route's `entry=` and `area=`) scrolls to the row with that title, else to the area's
+// section, unfolds the area that hides it, and marks it for a moment (useFocusScroll).
+// A curated change whose highlight carries a before/after pair shows it under its line
+// (MediaCompare.tsx); the sheet shows no other pictures.
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Button } from "../../ui/Button";
+import { Icon } from "../settings/icons";
 import type { Strings } from "../shared/i18n";
 import { areaOf, byArea, type AreaKey } from "./areas";
-import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type ReleaseView } from "./model";
+import {
+  dayLabel,
+  groupByDay,
+  isFiller,
+  mergedView,
+  rowKind,
+  titleKey,
+  type MediaRef,
+  type ReleaseView,
+} from "./model";
 import { withoutWorkCodes } from "./readableChange";
 import { journalKeys, loadNear } from "./JournalPage";
-import { Maintenance } from "./ReleaseParts";
+import { Maintenance, Media } from "./ReleaseParts";
 import { publicPullNumber, pullURL } from "./ChangePullRequest";
-import type { ChangelogSnapshot, ChangelogStore } from "./store";
+import type { ChangelogFocus, ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, ReleaseNotes, SheetLayout, SheetLinks, WhatsNewCategory } from "./types";
 
 export function SheetPage({
@@ -44,16 +60,21 @@ export function SheetPage({
   s,
   layout = "inline",
   links = "hover",
+  focus,
 }: {
   store: ChangelogStore;
   strings: Strings;
   s: ChangelogSnapshot;
   layout?: SheetLayout;
   links?: SheetLinks;
+  /** The change to bring into view (the route's `entry=` and `area=`). */
+  focus?: ChangelogFocus;
 }) {
+  const main = useFocusScroll(focus, focusReady(s));
+  const entry = focus?.entry ? titleKey(focus.entry) : undefined;
   return (
     <KeyboardScope className={`cls cls-${layout} cls-prs-${links}`} handleKeyDown={journalKeys}>
-      <main aria-labelledby="cls-title">
+      <main aria-labelledby="cls-title" ref={main}>
         <h1 className="cls-title" id="cls-title">
           {strings.t("changelog.page.title")}
         </h1>
@@ -67,6 +88,7 @@ export function SheetPage({
             s={s}
             store={store}
             strings={strings}
+            entry={entry}
           />
         ))}
       </main>
@@ -80,12 +102,15 @@ function SheetDay({
   s,
   store,
   strings,
+  entry,
 }: {
   day: string;
   builds: IndexEntry[];
   s: ChangelogSnapshot;
   store: ChangelogStore;
   strings: Strings;
+  /** The focused change's title key: its area shows all its rows. */
+  entry?: string;
 }) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
@@ -128,7 +153,7 @@ function SheetDay({
         <Maintenance strings={strings} />
       ) : (
         byArea(rows).map((group) => (
-          <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} />
+          <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} entry={entry} />
         ))
       )}
     </section>
@@ -200,11 +225,23 @@ export function SheetBuilds({
 /** An area shows this many changes, then "Show more" (and how many it hides) for the rest. */
 export const AREA_ROWS = 6;
 
-function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; strings: Strings }) {
+function SheetArea({
+  area,
+  rows,
+  strings,
+  entry,
+}: {
+  area?: AreaKey;
+  rows: SheetRow[];
+  strings: Strings;
+  entry?: string;
+}) {
   const [open, setOpen] = useState(false);
   const label = area ? strings.t(`updates.area.${area}`) : strings.t("changelog.page.otherArea");
+  // The focused change is never folded away: its area shows every row.
+  const focused = entry !== undefined && rows.some((row) => titleKey(row.title) === entry);
   // A fold that would hide one row hides none: the button would take that row's line.
-  const shown = open || rows.length <= AREA_ROWS + 1 ? rows : rows.slice(0, AREA_ROWS);
+  const shown = open || focused || rows.length <= AREA_ROWS + 1 ? rows : rows.slice(0, AREA_ROWS);
   return (
     <section className="cls-area" aria-label={label} data-area={area ?? "other"}>
       <h3 className="cls-area-head">
@@ -216,7 +253,7 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
       </h3>
       <ul className="cls-rows">
         {shown.map((row) => (
-          <li className="cls-row" key={row.key} data-category={row.category}>
+          <li className="cls-row" key={row.key} data-category={row.category} data-entry={titleKey(row.title)}>
             {KIND_GLYPHS[row.category] && (
               <span className="cls-icon cls-kind" aria-hidden="true">
                 <svg viewBox="0 0 20 20" width="14" height="14">
@@ -237,6 +274,7 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
                 #{row.pr}
               </span>
             )}
+            {row.media && <Media media={row.media} className="cls-row-media" strings={strings} />}
           </li>
         ))}
       </ul>
@@ -248,6 +286,59 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
       )}
     </section>
   );
+}
+
+/** How long the focused row or area stays marked (styles.css .cls-row[data-focus]). */
+export const FOCUS_MARK_MS = 1600;
+
+/** Whether the rows a focus may name are on the page: the update's span builds, else the newest
+    day's first build, loaded (or known unavailable). */
+export function focusReady(s: ChangelogSnapshot): boolean {
+  const needed = s.inSpan.length > 0 ? s.inSpan : s.builds.slice(0, 1).map((b) => b.build);
+  return needed.length > 0 && needed.every((build) => !!s.loaded[build] || !!s.unavailable[build]);
+}
+
+/** Scrolls `focus` into view once per click (its `n`), when `ready`: the first row titled
+    `entry` (centered), else the first `area` section (the newest day's, at the top), and marks
+    it with `data-focus` for FOCUS_MARK_MS. Smooth unless the page's motion gate or the system
+    asks for less motion. Other renders scroll nothing. */
+function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
+  const main = useRef<HTMLElement>(null);
+  const handled = useRef<string>(undefined);
+  const mark = useRef<{ el: HTMLElement; timer: ReturnType<typeof setTimeout> }>(undefined);
+  const key = focus ? `${focus.area ?? ""}\n${focus.entry ?? ""}\n${focus.n ?? ""}` : undefined;
+  useEffect(() => {
+    const root = main.current;
+    if (!focus || !key || !ready || !root || handled.current === key) return;
+    handled.current = key;
+    const entry = focus.entry ? titleKey(focus.entry) : undefined;
+    const row = entry
+      ? [...root.querySelectorAll<HTMLElement>(".cls-row[data-entry]")].find((el) => el.dataset.entry === entry)
+      : undefined;
+    const area = row
+      ? undefined
+      : [...root.querySelectorAll<HTMLElement>(".cls-area[data-area]")].find((el) => el.dataset.area === focus.area);
+    const target = row ?? area;
+    if (!target) return;
+    target.scrollIntoView?.({ block: row ? "center" : "start", behavior: lessMotion() ? "auto" : "smooth" });
+    if (mark.current) {
+      clearTimeout(mark.current.timer);
+      mark.current.el.removeAttribute("data-focus");
+    }
+    target.setAttribute("data-focus", "");
+    const timer = setTimeout(() => {
+      target.removeAttribute("data-focus");
+      mark.current = undefined;
+    }, FOCUS_MARK_MS);
+    mark.current = { el: target, timer };
+  }, [focus, key, ready]);
+  useEffect(() => () => clearTimeout(mark.current?.timer), []);
+  return main;
+}
+
+function lessMotion(): boolean {
+  const gate = document.documentElement.dataset.cmuxMotion;
+  return gate === "off" || gate === "reduced" || !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
 /** About how many rows a loading day will have: its highlights as the index counts them, else
@@ -282,6 +373,9 @@ export interface SheetRow {
   area?: AreaKey;
   /** Its public manaflow-ai/cmux pull request; none for a change from a private repository. */
   pr?: number;
+  /** A curated change's before/after pair, shown under its line; a lone picture stays off the
+      sheet, which is one tight line per change. */
+  media?: MediaRef;
 }
 
 /** A day's rows: its curated changes (hero first, then New, Improved, Fixed, Security), each with
@@ -303,8 +397,9 @@ export function sheetRows(view: ReleaseView, _strings?: Strings): SheetRow[] {
         category: item.category,
         title: item.title,
         line,
-        area: areaOf(item.title) ?? (line ? areaOf(line) : undefined),
+        area: curatedArea(item.title, item.summary),
         pr: publicPullNumber(item.pr) ?? pulls.get(words(item.title)),
+        ...(item.media?.before ? { media: item.media } : {}),
       };
     });
   }
@@ -326,6 +421,13 @@ function words(text: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^(?:the|a|an) /, "");
+}
+
+/** A curated change's app area as What's New files it: what its title names, else what its
+    summary's first paragraph adds (the Updated card's list groups by the same rule). */
+export function curatedArea(title: string, summary: string | undefined): AreaKey | undefined {
+  const line = addedLine(title, summary ? firstParagraph(summary) : undefined);
+  return areaOf(title) ?? (line ? areaOf(line) : undefined);
 }
 
 /** What `line` says beyond `title`: undefined when it only repeats it ("Host pressure warning is
@@ -369,16 +471,32 @@ function firstParagraph(text: string): string | undefined {
   return paragraph || undefined;
 }
 
-/** A 16 pt stroke glyph per app area, in the theme's accent (styles.css .cls-icon): the sidebar's
-    column, a tab with a plus, a pencil, a speech bubble, a house, tabs, a prompt, a globe, a
-    search lens, sliders, an update arrow, a keyboard, split panes, a window, a cloud; three dots
-    for Other. */
+/** Each app area's symbol from the app's own SF Symbol set (settings/icons.tsx: 16 pt grid, 1.3
+    stroke, never filled), so What's New, the Updated popover and Settings draw one family. Leo
+    2026-11-14 on the popover's blobby cloud and its blank Other: "theese are kinda crappy looking
+    icons and stuff". Every area has one, Other included (test/updatedNotesIcons.test.tsx). */
+export const AREA_SYMBOLS: Record<AreaKey | "other", string> = {
+  sidebar: "sidebar.left",
+  newTab: "plus.square",
+  composer: "square.and.pencil",
+  cloud: "cloud",
+  agentChat: "bubble.left",
+  home: "house",
+  tabs: "rectangle.tabs",
+  terminal: "terminal",
+  browser: "globe",
+  palette: "command",
+  settings: "gearshape",
+  updates: "update",
+  keyboard: "keyboard",
+  panes: "rectangle.split.2x1",
+  windows: "macwindow",
+  other: "ellipsis.circle",
+};
+
+/** An area's symbol at 16 pt, its 1:1 size, so its strokes land on the pixel grid at 1x and 2x. */
 export function AreaIcon({ area }: { area?: AreaKey }) {
-  return (
-    <svg viewBox="0 0 20 20" width="16" height="16">
-      {AREA_GLYPHS[area ?? "other"]}
-    </svg>
-  );
+  return <Icon name={AREA_SYMBOLS[area ?? "other"]} className="area-symbol" />;
 }
 
 /** A row's kind in the gutter (styles.css .cls-kind); Improved, the most common, shows none. */
@@ -386,77 +504,4 @@ const KIND_GLYPHS: Partial<Record<WhatsNewCategory, ReactNode>> = {
   new: <path d="M10 5v10M5 10h10" />,
   fixed: <path d="M5 10.5l3.2 3.1L15 6.8" />,
   security: <path d="M10 3.5l5.5 2v4.2c0 3.3-2.3 5.6-5.5 6.8-3.2-1.2-5.5-3.5-5.5-6.8V5.5z" />,
-};
-
-const FRAME = <rect x="3" y="4" width="14" height="12" rx="2" />;
-const AREA_GLYPHS: Record<AreaKey | "other", ReactNode> = {
-  sidebar: (
-    <>
-      {FRAME}
-      <path d="M8 4v12" />
-    </>
-  ),
-  newTab: (
-    <>
-      {FRAME}
-      <path d="M10 7.5v5M7.5 10h5" />
-    </>
-  ),
-  composer: <path d="M4.5 15.5l.9-3.6 7.6-7.6 2.7 2.7-7.6 7.6zM11.6 5.7l2.7 2.7" />,
-  agentChat: (
-    <path d="M5.5 4h9A1.5 1.5 0 0 1 16 5.5v6a1.5 1.5 0 0 1-1.5 1.5H9.2L6 15.8V13h-.5A1.5 1.5 0 0 1 4 11.5v-6A1.5 1.5 0 0 1 5.5 4z" />
-  ),
-  home: <path d="M3.5 9.5L10 4l6.5 5.5M5.5 8v7.5h9V8" />,
-  tabs: (
-    <>
-      <rect x="3" y="7" width="14" height="9" rx="1.5" />
-      <path d="M5.5 7V5.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V7" />
-    </>
-  ),
-  terminal: (
-    <>
-      {FRAME}
-      <path d="M6.5 8l2 2-2 2M10.5 12.5h3" />
-    </>
-  ),
-  browser: (
-    <>
-      <circle cx="10" cy="10" r="7" />
-      <path d="M3 10h14M10 3c1.9 2 2.8 4.4 2.8 7s-.9 5-2.8 7M10 3C8.1 5 7.2 7.4 7.2 10s.9 5 2.8 7" />
-    </>
-  ),
-  palette: (
-    <>
-      <circle cx="9" cy="9" r="5" />
-      <path d="M12.7 12.7l3.8 3.8" />
-    </>
-  ),
-  settings: (
-    <>
-      <path d="M4 6.5h12M4 13.5h12" />
-      <circle cx="8" cy="6.5" r="1.8" />
-      <circle cx="12" cy="13.5" r="1.8" />
-    </>
-  ),
-  updates: <path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.8v3.4h-3.4" />,
-  keyboard: (
-    <>
-      <rect x="2.5" y="5.5" width="15" height="9" rx="1.5" />
-      <path d="M5.5 8.5h1M9.5 8.5h1M13.5 8.5h1M6.5 11.5h7" />
-    </>
-  ),
-  panes: (
-    <>
-      {FRAME}
-      <path d="M10 4v12M10 10h7" />
-    </>
-  ),
-  windows: (
-    <>
-      {FRAME}
-      <path d="M3 7.5h14" />
-    </>
-  ),
-  cloud: <path d="M6.2 15.5h8.1a3 3 0 0 0 .4-6A4.6 4.6 0 0 0 5.9 8.7a3.4 3.4 0 0 0 .3 6.8z" />,
-  other: <path d="M5 10h.01M10 10h.01M15 10h.01" />,
 };

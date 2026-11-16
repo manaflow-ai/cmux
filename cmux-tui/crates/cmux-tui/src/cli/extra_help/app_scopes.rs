@@ -36,17 +36,33 @@ fn process_help(args: &[String]) -> Option<i32> {
     }
 }
 
-fn text(args: &[String]) -> Option<String> {
+/// The help words of `args`: the words before `--`, without options or a leading `help`.
+fn help_words(args: &[String]) -> Vec<&str> {
     let words = args
         .iter()
         .take_while(|arg| arg.as_str() != "--")
         .filter(|arg| !arg.starts_with('-'))
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let words = match words.as_slice() {
-        ["help", rest @ ..] => rest,
-        all => all,
-    };
+    match words.as_slice() {
+        ["help", rest @ ..] => rest.to_vec(),
+        all => all.to_vec(),
+    }
+}
+
+/// A scope's whole help (`cmux <scope> --help`) ends with the catalog's app
+/// verbs for it (cli/app_action_help.rs); a verb's or a page's help does not.
+pub(in crate::cli) fn text(args: &[String]) -> Option<String> {
+    let text = scope_text(args)?;
+    match help_words(args).as_slice() {
+        [scope] => Some(super::super::app_action_help::append(scope, &text).unwrap_or(text)),
+        _ => Some(text),
+    }
+}
+
+fn scope_text(args: &[String]) -> Option<String> {
+    let words = help_words(args);
+    let words = words.as_slice();
     let messages = &crate::localization::catalog().app_control;
     let usage = match words {
         ["browser", target, ..]
@@ -78,6 +94,7 @@ fn text(args: &[String]) -> Option<String> {
         ["settings" | "config", ..] => return Some(format!("{}\n", messages.settings_usage)),
         ["live", ..] => return Some(format!("{}\n", messages.live.usage)),
         ["nightly", ..] => return Some(format!("{}\n", messages.nightly.usage)),
+        ["app", "try", ..] => return Some(format!("{}\n", messages.app_try.usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
@@ -119,7 +136,13 @@ const APP_HELP: &str = "\
 usage: cmux app ping | identify | capabilities
        cmux identify | ping | capabilities      (the classic spelling, same answer)
        cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
+       cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
+       cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: phase, first frame ms, fps, round trip, drops)
+       cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
+       cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
+       cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
+       cmux app launch-times [--limit <n>] [--file <path>]  (the last launches' times, from a file; no app needed)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 
@@ -132,8 +155,18 @@ const ACTION_LIST_USAGE: &str =
 
 const EVENTS_HELP: &str = "\
 usage: cmux events [--after <seq>] [--name <name>]... [--category <category>]...
-       [--no-heartbeats]
-Prints one JSON line per app event until interrupted.";
+       [--no-heartbeats] [--timeout <duration>]
+       [--until <name>|<prefix>*] [--match <path>=<value>]...
+Prints one JSON line per app event until interrupted.
+--timeout 30s|5m|1500ms|<seconds>  stop then: exit 124; --json/--jsonl print a
+  last line {\"type\":\"timeout\",\"timed_out\":true,\"waited_ms\":...}.
+--until <name>  wait for one event and print only it, then exit 0: an exact
+  name (action.catalog.changed) or a prefix ending in * (mobile.*). Waits on
+  workspaces and agents: cmux agents events --until workspace.changed.
+--match <path>=<value>  (repeatable, with or without --until) the event's
+  field at a dotted path equals value: payload.state=ready, seq=3.
+A wait has no default timeout: agents pass --timeout. Start the wait before
+the action it waits for, or pass --after <seq> so replayed events count.";
 
 const HISTORY_HELP: &str = "\
 usage: cmux history list [--kind <kind,...>] [--range <range>] [--profile <profile>] [--limit <n>]

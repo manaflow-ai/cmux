@@ -28,6 +28,9 @@ mod browser_devices_data_tests;
 pub(crate) mod browser_devices_ops;
 #[cfg(test)]
 mod churn_tree_events_tests;
+pub(crate) mod classic_import_router;
+#[cfg(test)]
+mod classic_import_tests;
 #[cfg(test)]
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;
@@ -46,6 +49,8 @@ mod closed_pane_split;
 mod closed_relaunch_tests;
 mod closed_screen_layout;
 mod closed_tab_groups;
+#[cfg(test)]
+mod command_clear_until_tests;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
 pub(crate) mod conductor_import_router;
@@ -77,10 +82,14 @@ pub(crate) mod home_store;
 mod home_tests;
 #[cfg(test)]
 mod incognito_terminal_tests;
+#[cfg(test)]
+mod journal_write_budget_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
 mod last_tab_closes_workspace_tests;
+#[cfg(test)]
+mod last_workspace_closes_space_tests;
 pub(crate) mod layout_bulk;
 #[cfg(test)]
 mod layout_bulk_tests;
@@ -88,6 +97,8 @@ mod layout_bulk_tests;
 mod mixed_order_tests;
 #[cfg(test)]
 mod new_group_top_tests;
+#[cfg(test)]
+mod new_workspace_default_top_tests;
 #[cfg(test)]
 mod new_workspace_top_tests;
 pub(crate) mod palette_usage;
@@ -107,6 +118,8 @@ pub(crate) mod project_watch;
 pub(crate) mod projects;
 pub(crate) mod projects_ops;
 pub(crate) mod projects_store;
+#[cfg(test)]
+mod remote_adopt_top_tests;
 pub(crate) mod remote_terminal_tabs;
 pub(crate) mod remote_terminal_tabs_store;
 #[cfg(test)]
@@ -116,11 +129,13 @@ pub(crate) mod room_delete;
 mod room_delete_amendment_tests;
 #[cfg(test)]
 mod room_delete_tests;
+pub(crate) mod room_emptied;
 pub(crate) mod router;
 #[cfg(test)]
 mod screen_group_icon_tests;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
+pub(crate) mod sidebar_doc_create;
 pub(crate) mod sidebar_doc_legacy;
 pub(crate) mod sidebar_doc_ops;
 pub(crate) mod sidebar_doc_order;
@@ -167,6 +182,11 @@ pub(crate) mod workspace_checklist;
 pub(crate) mod workspace_checklist_store;
 #[cfg(test)]
 mod workspace_checklist_tests;
+#[cfg(test)]
+mod workspace_close_values_tests;
+pub(crate) mod workspace_extras;
+#[cfg(test)]
+pub(crate) mod workspace_extras_tests;
 pub(crate) mod workspace_status_store;
 
 pub(crate) use home_store::error_code as home_error_code;

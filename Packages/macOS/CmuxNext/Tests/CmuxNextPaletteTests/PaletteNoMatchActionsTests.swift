@@ -41,15 +41,6 @@ struct PaletteNoMatchActionsTests {
         func closeWorkspace(id: String) {}
     }
 
-    /// Yields to the main actor until `done`, at most 10,000 times (false then, instead of hanging).
-    private static func yield(until done: () -> Bool) async -> Bool {
-        for _ in 0..<10_000 {
-            if done() { return true }
-            await Task.yield()
-        }
-        return done()
-    }
-
     private static func creator(_ log: Log) -> PaletteTargetCreator {
         PaletteTargetCreator(title: { "Create Browser Profile “\($0)”" }, symbol: "person.crop.circle.badge.plus") { name in
             log.created.append(name)
@@ -81,10 +72,14 @@ struct PaletteNoMatchActionsTests {
 
     // MARK: Browser profile pickers
 
-    @Test func anUnknownProfileNameIsCreatedAndTheTabOpensInIt() async throws {
+    @Test(.timeLimit(.minutes(1))) func anUnknownProfileNameIsCreatedAndTheTabOpensInIt() async throws {
         let log = Log()
         let registry = ActionRegistry.standard()
-        registry.bind("browserProfile.newTab", invoke: { log.runs.append($0) })
+        let ran = AsyncStream<Void>.makeStream()
+        registry.bind("browserProfile.newTab", invoke: {
+            log.runs.append($0)
+            ran.continuation.yield()
+        })
         let palette = Self.palette(registry)
         defer { palette.closeForTest() }
         palette.model.reset(to: try Self.profileStep("browserProfile.newTab", registry: registry, log: log))
@@ -95,7 +90,8 @@ struct PaletteNoMatchActionsTests {
         #expect(palette.model.selectedRowID == "create:browser-profile", "Return runs the create row")
 
         _ = palette.model.handle(.submit)
-        #expect(await Self.yield { !log.runs.isEmpty })
+        for await _ in ran.stream { break }
+        #expect(log.runs.count == 1)
         #expect(log.created == ["austin"])
         let profile = try #require(log.runs.first?["browserProfile"])
         #expect((profile.targetValue?.id ?? profile.stringValue) == "p-austin")

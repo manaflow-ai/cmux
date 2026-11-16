@@ -77,3 +77,33 @@
 .acpmux-tray-pull[data-hat="badge"] .acpmux-tray-pull__slot[data-shown] {
   transform: none;
 }
+
+/* Where the pill sits on the card's line (ComposerHatStage `bridge`; Leo, 2026-11-11: "did this line
+   behind the count box get removed yet?"). The app ships `none`: no stubs, the pill 4px lifted, so it
+   sits 2px over the line, which runs up to its rim. */
+/* seated: no lift, the pill centred on the line. */
+.acpmux-dock[data-stage-bridge="seated"] :is(.acpmux-tray-pull__tab, .acpmux-tray-pull + .acpmux-composer) {
+  --acpmux-tray-pull-lift: 0px;
+}
+/* perched: lifted till its foot stands on the line (the tab's 8px over the card's top, plus 12px). */
+.acpmux-dock[data-stage-bridge="perched"] :is(.acpmux-tray-pull__tab, .acpmux-tray-pull + .acpmux-composer) {
+  --acpmux-tray-pull-lift: calc(var(--acpmux-tray-pull-control-height) - var(--ds-space-2));
+}
+/* before: the 8px stubs the pill hung at its middle, 2px over the line (what Leo's capture shows). */
+.acpmux-dock[data-stage-bridge="before"] .acpmux-tray-pull__hat::before,
+.acpmux-dock[data-stage-bridge="before"] .acpmux-tray-pull__hat::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: var(--ds-space-2);
+  height: var(--cmux-hairline);
+  background: var(--glass-edge, color-mix(in srgb, var(--agent-muted) 45%, transparent));
+  transform: translateY(-50%);
+  opacity: 0.85;
+}
+.acpmux-dock[data-stage-bridge="before"] .acpmux-tray-pull__hat::before {
+  right: 100%;
+}
+.acpmux-dock[data-stage-bridge="before"] .acpmux-tray-pull__hat::after {
+  left: 100%;
+}

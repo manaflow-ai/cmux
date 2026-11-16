@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextDaemonService
 import CmuxNextLayout
@@ -19,4 +20,5 @@ extension AppServices: WindowDockHost {
     func chiefMakeHome(in windowID: String) async -> String? { await windowHomes.show(in: windowID)?.id }
     func chiefShowHome() -> Bool { AppActions.showHome(self) }
     func chiefFocusComposer() { AppActions.focusDockComposer(self) }
+    func chiefBringAppForward() -> Bool { defer { NSApp.activate(); windows.active?.window?.makeKeyAndOrderFront(nil) }; return !NSApp.isActive }
 }

@@ -15,6 +15,10 @@ pub(super) fn screen_json(
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
     let presentation = notifications.presentation.screens.screen(screen.public_id.as_str());
+    let panes = pane_ids
+        .iter()
+        .map(|id| pane_json(state, *id, short_ids, notifications))
+        .collect::<Vec<_>>();
     let mut value = json!({
         "id": screen.id,
         "resource_id": screen.public_id,
@@ -25,8 +29,9 @@ pub(super) fn screen_json(
         "pinned": presentation.is_some_and(|presentation| presentation.pinned),
         "group": group,
         "active": active,
-        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
     });
+    // Moved, not copied: `json!` serializes an expression into a new value (see `pane_json`).
+    value.insert("panes", Value::Array(panes));
     if let (Value::Object(value), Value::Object(layout)) =
         (&mut value, screen_layout_json(screen, &state.resource_indexes.split_ids))
     {
@@ -62,6 +67,18 @@ pub(crate) fn screen_layout_json(
         if let Some(width) = screen.viewport_base_width {
             value.insert("viewport_base_width", json!(width));
         }
+    }
+    // `split-divider-visibility-v1`: the splits whose divider is hidden, in
+    // the screen tree, every column tree and every row tree. Only when any.
+    let mut hidden = Vec::new();
+    screen.root.hidden_dividers(&mut hidden);
+    for column in &screen.layout_columns {
+        column.root.hidden_dividers(&mut hidden);
+    }
+    hidden.sort_unstable();
+    hidden.dedup();
+    if !hidden.is_empty() {
+        value.insert("hidden_dividers", json!(hidden));
     }
     if screen.layout_columns_active() {
         value.insert(

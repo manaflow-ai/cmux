@@ -1,3 +1,4 @@
+public import CmuxNextPages
 public import Foundation
 
 /// A cmux page's generated file, as its tab's ``CEFTab/pageResources`` answers it. The shim adds
@@ -31,4 +32,11 @@ public nonisolated struct CEFPageResponse: Sendable, Equatable {
 
     /// No such file.
     public static let notFound = CEFPageResponse(status: 404, mimeType: "text/plain", body: Data())
+}
+
+public extension CEFPageResponse {
+    /// The page host's answer (``PageChromiumResponse``) as the shim takes it.
+    init(_ answer: PageChromiumResponse) {
+        self.init(status: answer.status, mimeType: answer.mimeType, body: answer.body, rangeHeaders: answer.rangeHeaders, csp: answer.csp)
+    }
 }

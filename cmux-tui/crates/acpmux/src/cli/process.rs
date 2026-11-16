@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use clap::Subcommand;
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
@@ -83,18 +84,34 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
     let client = crate::daemon::connect(false).await?;
     match cmd {
         ProcessCmd::List { session } => {
-            let v = list(&client, session.as_deref()).await?;
+            // A chat's list is read whole, page by page. Every chat's at once cannot page: the
+            // daemon sends the newest that fit one reply, and how many older it left out.
+            let (v, omitted) = match session.as_deref() {
+                Some(s) => (list(&client, Some(s)).await?, 0),
+                None => {
+                    let reply = client.request(method::MUX_PROCESS_LIST, json!({})).await?;
+                    let omitted = reply.get("omitted").and_then(Value::as_u64).unwrap_or(0);
+                    (rows(&reply), omitted)
+                }
+            };
             if json_out {
-                print_json(&json!({"processes": v}));
+                let mut out = json!({"processes": v});
+                if omitted > 0 {
+                    out.set("omitted", json!(omitted));
+                }
+                print_json(&out);
                 return Ok(());
+            }
+            if omitted > 0 {
+                eprintln!("{omitted} older processes not shown");
             }
             let now = now_ms();
             for p in &v {
                 println!(
                     "{}  {}  {}",
-                    text(p, "id"),
+                    p.get_str("id").unwrap_or(""),
                     state_word(p, now),
-                    one_line(text(p, "command"))
+                    one_line(p.get_str("command").unwrap_or(""))
                 );
             }
             Ok(())
@@ -126,7 +143,7 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
                 return Err(anyhow!("name a process id, or --session and --tool-call"));
             }
             let source = DaemonSource { client, session: session.clone() };
-            let all = source.list_all().await?;
+            let all = source.list_all(process.as_deref()).await?;
             let found =
                 find_process(&all, process.as_deref(), session.as_deref(), tool_call.as_deref())
                     .cloned()
@@ -136,13 +153,13 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
                             process.or(tool_call).unwrap_or_default()
                         )
                     })?;
-            let id = text(&found, "id").to_owned();
+            let id = found.get_str("id").unwrap_or("").to_owned();
             let style = Style::detect();
             let interactive = follow && style.terminal;
             let mut out = std::io::stdout();
             if interactive {
-                // OSC 2: the tab is titled with the command.
-                let _ = write!(out, "\x1b]2;{}\x07", one_line(text(&found, "command")));
+                // OSC 2: the tab is titled with what the process is for (`title`).
+                let _ = write!(out, "\x1b]2;{}\x07", one_line(&title(&found)));
             }
             let _ = out.write_all(header(&found, style).as_bytes());
             let _ = out.flush();
@@ -171,13 +188,35 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
     }
 }
 
+/// A process list reply's rows.
+fn rows(reply: &Value) -> Vec<Value> {
+    reply.get("processes").and_then(Value::as_array).cloned().unwrap_or_default()
+}
+
+/// Rows a page of a chat's process list asks for: the daemon's most (`process_page_params`).
+const LIST_PAGE: u64 = 1_000;
+
+/// The processes of `session`, every one, read page by page with `limit` and the `nextCursor`
+/// of the rest; with no session, the newest of every chat that fit one reply (that list does
+/// not page). One unpaged reply of a chat holds only its newest processes, so an older one was
+/// "no background process" to `process show`.
 async fn list(client: &Client, session: Option<&str>) -> Result<Vec<Value>> {
-    let params = match session {
-        Some(s) => json!({"sessionId": s}),
-        None => json!({}),
+    let Some(session) = session else {
+        return Ok(rows(&client.request(method::MUX_PROCESS_LIST, json!({})).await?));
     };
-    let v = client.request(method::MUX_PROCESS_LIST, params).await?;
-    Ok(v.get("processes").and_then(Value::as_array).cloned().unwrap_or_default())
+    let mut params = json!({"sessionId": session, "limit": LIST_PAGE});
+    let (mut all, mut read) = (Vec::new(), std::collections::HashSet::new());
+    loop {
+        let page = client.request(method::MUX_PROCESS_LIST, params.clone()).await?;
+        all.extend(rows(&page));
+        let Some(cursor) = page.get("nextCursor").and_then(Value::as_str) else {
+            return Ok(all);
+        };
+        if !read.insert(cursor.to_owned()) {
+            return Err(anyhow!("process list: the daemon gave cursor {cursor:?} twice"));
+        }
+        params.set("cursor", json!(cursor));
+    }
 }
 
 /// The daemon as a [`Source`]: `session` (the chat) makes the daemon read
@@ -188,13 +227,22 @@ struct DaemonSource {
 }
 
 impl DaemonSource {
-    /// The chat's processes, then every process this daemon has read: a
-    /// subagent's process is recorded under its parent chat.
-    async fn list_all(&self) -> Result<Vec<Value>> {
-        let mut all = match &self.session {
-            Some(s) => list(&self.client, Some(s)).await.unwrap_or_default(),
-            None => Vec::new(),
-        };
+    /// The chat's processes, those of the chat `process` (`<sessionId>/<taskId>`) names, then
+    /// every process this daemon has read: a subagent's process is recorded under its parent
+    /// chat. The chats' lists are read whole, page by page; the last holds only the newest.
+    async fn list_all(&self, process: Option<&str>) -> Result<Vec<Value>> {
+        let owner = process.and_then(|id| id.split_once('/')).map(|(sid, _)| sid);
+        let mut all = Vec::new();
+        for chat in [self.session.as_deref(), owner.filter(|o| Some(*o) != self.session.as_deref())]
+            .into_iter()
+            .flatten()
+        {
+            for p in list(&self.client, Some(chat)).await.unwrap_or_default() {
+                if !all.iter().any(|q: &Value| q.get("id") == p.get("id")) {
+                    all.push(p);
+                }
+            }
+        }
         for p in list(&self.client, None).await? {
             if !all.iter().any(|q| q.get("id") == p.get("id")) {
                 all.push(p);
@@ -237,7 +285,7 @@ impl Source for DaemonSource {
     }
 
     async fn get(&self, id: &str) -> Result<Option<Value>> {
-        Ok(self.list_all().await?.into_iter().find(|p| text(p, "id") == id))
+        Ok(self.list_all(Some(id)).await?.into_iter().find(|p| p.get_str("id").unwrap_or("") == id))
     }
 
     async fn kill(&self, id: &str) -> Result<()> {
@@ -319,14 +367,14 @@ pub(crate) async fn replay<S: Source>(
     opts: ReplayOpts,
     keys: &mut mpsc::Receiver<Input>,
 ) -> Result<Outcome> {
-    let id = text(p, "id").to_owned();
+    let id = p.get_str("id").unwrap_or("").to_owned();
     let mut from = 0u64;
     let mut pause = opts.pause_min;
     let mut asking = false;
     let mut told_unsupported = false;
     let mut keys_open = true;
     let style = Style { color: false, terminal: opts.interactive };
-    if opts.interactive && text(p, "state") == "running" {
+    if opts.interactive && p.get_str("state").unwrap_or("") == "running" {
         write_now(out, style.dim("k stop · q close\r\n").as_bytes())?;
     }
     loop {
@@ -361,7 +409,10 @@ pub(crate) async fn replay<S: Source>(
                         b"This agent does not share a background process's output yet.\r\n",
                     )?;
                 }
-                let running = src.get(&id).await?.is_some_and(|q| text(&q, "state") == "running");
+                let running = src
+                    .get(&id)
+                    .await?
+                    .is_some_and(|q| q.get_str("state").unwrap_or("") == "running");
                 if !running {
                     return Ok(Outcome::Ended);
                 }
@@ -421,15 +472,18 @@ pub(crate) fn find_process<'a>(
     tool_call: Option<&str>,
 ) -> Option<&'a Value> {
     if let Some(id) = id {
-        return list.iter().find(|p| text(p, "id") == id);
+        return list.iter().find(|p| p.get_str("id").unwrap_or("") == id);
     }
     let tool_call = tool_call?;
     let in_session = |p: &Value| match session {
         None => true,
-        Some(s) => text(p, "sessionId") == s || text(p, "subagentSessionId") == s,
+        Some(s) => {
+            p.get_str("sessionId").unwrap_or("") == s
+                || p.get_str("subagentSessionId").unwrap_or("") == s
+        }
     };
     list.iter()
-        .filter(|p| text(p, "toolCallId") == tool_call && in_session(p))
+        .filter(|p| p.get_str("toolCallId").unwrap_or("") == tool_call && in_session(p))
         .max_by_key(|p| p.get("startedAt").and_then(Value::as_u64).unwrap_or(0))
 }
 
@@ -458,11 +512,13 @@ impl Style {
     }
 }
 
-/// The lines above the output: the command, its folder, its start, the
-/// harness and how it went to the background, and its output file.
+/// The lines above the output: the command, the agent's name for it, what a
+/// timer waits for, its folder, its start, the harness and how it went to the
+/// background, and its output file.
 pub(crate) fn header(p: &Value, style: Style) -> String {
     let mut s = String::new();
-    s.push_str(&style.bold(&format!("$ {}", text(p, "command"))));
+    let command = p.get_str("command").unwrap_or("");
+    s.push_str(&style.bold(&format!("$ {command}")));
     s.push('\n');
     let row = |s: &mut String, label: &str, value: &str| {
         if !value.is_empty() {
@@ -471,14 +527,31 @@ pub(crate) fn header(p: &Value, style: Style) -> String {
             s.push('\n');
         }
     };
-    row(&mut s, "folder", &tilde(text(p, "cwd")));
+    // The agent's own name for it (Claude's `description`, "hold"), when the
+    // command is not just that name again.
+    let description = p.get_str("description").unwrap_or("").trim();
+    if description != command.trim() {
+        row(&mut s, "named", description);
+    }
+    // A timer an agent set to wake itself (`sleep 840; echo t`) prints
+    // nothing until it ends: say so (Leo, 2026-11-05, on a view reading only
+    // "$ hold": "what are you even holding for?"). No end time: `startedAt`
+    // is when it reached the background, which may be after its launch.
+    if let Some(secs) = timer_secs(command) {
+        row(
+            &mut s,
+            "waits",
+            &format!("{}, then wakes the agent; it runs nothing else", span(secs)),
+        );
+    }
+    row(&mut s, "folder", &tilde(p.get_str("cwd").unwrap_or("")));
     let started = p.get("startedAt").and_then(Value::as_u64).map(local_time).unwrap_or_default();
-    let harness = match text(p, "harness") {
+    let harness = match p.get_str("harness").unwrap_or("") {
         "claude" => "Claude Code",
         "codex" => "Codex",
         other => other,
     };
-    let origin = match text(p, "origin") {
+    let origin = match p.get_str("origin").unwrap_or("") {
         "auto_backgrounded" => "moved to the background",
         "user_backgrounded" => "sent to the background by you",
         "background" => "background",
@@ -487,7 +560,7 @@ pub(crate) fn header(p: &Value, style: Style) -> String {
     let when: Vec<&str> =
         [started.as_str(), harness, origin].into_iter().filter(|x| !x.is_empty()).collect();
     row(&mut s, "started", &when.join(" · "));
-    row(&mut s, "log", &tilde(text(p, "outputFile")));
+    row(&mut s, "log", &tilde(p.get_str("outputFile").unwrap_or("")));
     s.push_str(&style.dim(&"─".repeat(48)));
     s.push('\n');
     lines(s, style)
@@ -500,11 +573,11 @@ pub(crate) fn footer(p: &Value, now: u64, style: Style, outcome: Outcome) -> Str
     let ended = p.get("endedAt").and_then(Value::as_u64);
     let took = human(ended.unwrap_or(now).saturating_sub(started));
     let exit = p.get("exitCode").and_then(Value::as_i64);
-    let signal = match text(p, "signal") {
+    let signal = match p.get_str("signal").unwrap_or("") {
         "" => String::new(),
         s => format!(" (signal {s})"),
     };
-    let line = match text(p, "state") {
+    let line = match p.get_str("state").unwrap_or("") {
         "running" => match outcome {
             Outcome::Closed => format!("● Still running after {took}; closed the view"),
             _ => format!("● Running for {took}"),
@@ -515,7 +588,7 @@ pub(crate) fn footer(p: &Value, now: u64, style: Style, outcome: Outcome) -> Str
             None => format!("✗ Failed after {took}{signal}"),
         },
         "killed" => {
-            let by = match text(p, "reason") {
+            let by = match p.get_str("reason").unwrap_or("") {
                 "person" => "Stopped by you",
                 "agent" => "Stopped by the agent",
                 "harness_time_limit" => "Stopped at its time limit",
@@ -533,12 +606,68 @@ pub(crate) fn footer(p: &Value, now: u64, style: Style, outcome: Outcome) -> Str
     s.push('\n');
     s.push_str(&style.bold(&line));
     s.push('\n');
-    let detail = text(p, "detail");
+    let detail = p.get_str("detail").unwrap_or("");
     if !detail.is_empty() {
         s.push_str(&style.dim(&format!("  {}", one_line(detail))));
         s.push('\n');
     }
     lines(s, style)
+}
+
+/// The tab's title: a timer as "Waiting 14m · hold", else the agent's name
+/// for the process, else its command.
+pub(crate) fn title(p: &Value) -> String {
+    let command = p.get_str("command").unwrap_or("");
+    let description = p.get_str("description").unwrap_or("").trim();
+    match timer_secs(command) {
+        Some(secs) if description.is_empty() || description == command.trim() => {
+            format!("Waiting {}", span(secs))
+        }
+        Some(secs) => format!("Waiting {} · {description}", span(secs)),
+        None if !description.is_empty() => description.to_owned(),
+        None => command.to_owned(),
+    }
+}
+
+/// How long a command that only waits sleeps, in seconds: `sleep N` (with
+/// an `s`, `m`, `h` or `d` unit), then at most `echo`, `printf`, `true` or
+/// `:` steps joined by `;` or `&&`. None for a command that does anything else.
+pub(crate) fn timer_secs(command: &str) -> Option<u64> {
+    let mut steps = command.split([';', '\n']).flat_map(|s| s.split("&&")).map(str::trim);
+    let mut sleep = steps.next()?.split_whitespace();
+    if sleep.next()? != "sleep" {
+        return None;
+    }
+    let arg = sleep.next()?;
+    if sleep.next().is_some() {
+        return None;
+    }
+    let (digits, unit) = arg.split_at(arg.find(|c: char| !c.is_ascii_digit()).unwrap_or(arg.len()));
+    let n: u64 = digits.parse().ok()?;
+    let secs = match unit {
+        "" | "s" => n,
+        "m" => n * 60,
+        "h" => n * 3600,
+        "d" => n * 86_400,
+        _ => return None,
+    };
+    steps
+        .filter(|step| !step.is_empty())
+        .all(|step| {
+            matches!(step.split_whitespace().next(), Some("echo" | "printf" | "true" | ":"))
+                && !step.contains(['|', '&', '>', '<', '`', '$'])
+        })
+        .then_some(secs)
+}
+
+/// A timer's length as written: `14m`, `2h`, `90s`, else as `human` reads it.
+fn span(secs: u64) -> String {
+    match secs {
+        0..60 => format!("{secs}s"),
+        _ if secs.is_multiple_of(3600) => format!("{}h", secs / 3600),
+        _ if secs.is_multiple_of(60) => format!("{}m", secs / 60),
+        _ => human(secs * 1000),
+    }
 }
 
 /// LF as CR LF for a terminal whose newline handling may be off.
@@ -549,11 +678,7 @@ fn lines(s: String, style: Style) -> String {
 fn state_word(p: &Value, now: u64) -> String {
     let started = p.get("startedAt").and_then(Value::as_u64).unwrap_or(now);
     let ended = p.get("endedAt").and_then(Value::as_u64).unwrap_or(now);
-    format!("{} {}", text(p, "state"), human(ended.saturating_sub(started)))
-}
-
-fn text<'a>(p: &'a Value, key: &str) -> &'a str {
-    p.get(key).and_then(Value::as_str).unwrap_or("")
+    format!("{} {}", p.get_str("state").unwrap_or(""), human(ended.saturating_sub(started)))
 }
 
 fn one_line(s: &str) -> String {

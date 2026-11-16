@@ -207,6 +207,7 @@ final class SSHPTYRun: Sendable {
             var offset = 0
             while offset < raw.count {
                 guard !Task.isCancelled, !self.running.withLock({ $0.stopped }) else { return false }
+                // concurrency-allow: @concurrent, and the descriptor is O_NONBLOCK with a poll deadline: never the main thread, never unbounded
                 let wrote = Darwin.write(fd, base + offset, raw.count - offset)
                 if wrote > 0 { offset += wrote; continue }
                 guard wrote < 0, errno == EINTR || errno == EAGAIN else { return false }

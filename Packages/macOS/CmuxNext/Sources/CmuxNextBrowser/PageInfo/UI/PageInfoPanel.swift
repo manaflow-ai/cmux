@@ -21,7 +21,7 @@ final class PageInfoPanel: NativePopupPanel {
     override func cancelOperation(_ sender: Any?) {}
 }
 
-/// Glass card under the bubble's React page. The host draws the popup shadow
+/// Glass card that hosts one page and reports the size it needs. The host draws the popup shadow
 /// around it (``PopupHostView``).
 final class PageInfoCardView: NSView {
     private let body: OverlayBackingView
@@ -56,15 +56,26 @@ final class PageInfoCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Shows the page's web view over the glass, filling the card; the page reports the height
-    /// it needs (``PageInfoController``).
-    func setContent(_ view: NSView?) {
+    /// The card holds focus when the bubble opens (no row ring until Tab).
+    override var acceptsFirstResponder: Bool { true }
+
+    /// Replaces the page; returns the card size it needs at the bubble width.
+    func setContent(_ view: NSView) -> CGSize {
         content?.removeFromSuperview()
         content = view
-        guard let view else { return }
-        view.translatesAutoresizingMaskIntoConstraints = true
-        view.autoresizingMask = [.width, .height]
-        view.frame = body.bounds
+        view.translatesAutoresizingMaskIntoConstraints = false
         body.addSubview(view)
+        let inset = PageInfoStyle.inset
+        let width = PageInfoStyle.bubbleWidth
+        NSLayoutConstraint.activate([
+            // No trailing pin: the card is still zero-sized on a controller's first page, and a
+            // trailing pin plus the fixed width broke a required constraint there.
+            view.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: inset / 2),
+            view.topAnchor.constraint(equalTo: body.topAnchor, constant: inset / 2),
+            view.widthAnchor.constraint(equalToConstant: width - inset),
+        ])
+        view.layoutSubtreeIfNeeded()
+        let height = view.fittingSize.height + inset
+        return CGSize(width: width, height: ceil(height))
     }
 }

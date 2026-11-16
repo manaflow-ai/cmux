@@ -53,6 +53,41 @@ extension ScreenContentView {
         return apply(scrollState.reduce(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
     }
 
+    /// Lands every camera of the screen (the strip's, each row column's, each scroll area's, the canvas's) at its
+    /// target now. A screen a switch hides gets no frames while hidden, and a switch shows a screen at rest: a camera
+    /// left mid-spring went on from the middle of its way after the screen showed again. Not ``settleMotion()``'s
+    /// job: a workspace that hides keeps its camera springs (Lucas 2026-10-19). A camera a gesture holds is the
+    /// person's and stays.
+    func settleCameras() {
+        settleCanvasCamera()
+        var landed = false
+        if !isUserScrolling, scroll.value != scroll.target || scroll.velocity != 0 {
+            scroll.snap()
+            landed = true
+        }
+        for id in Array(rowScrolls.keys) {
+            guard let state = rowScrolls[id]?.state, !state.isGestureActive,
+                  state.spring.value != state.spring.target || state.spring.velocity != 0 else { continue }
+            rowScrolls[id]?.state.spring.snap()
+            landed = true
+        }
+        for id in Array(areaScrolls.keys) {
+            guard let state = areaScrolls[id]?.state, !state.isGestureActive,
+                  state.spring.value != state.spring.target || state.spring.velocity != 0 else { continue }
+            areaScrolls[id]?.state.spring.snap()
+            landed = true
+        }
+        guard landed else { return }
+        scrollRidesFrames = false
+        if !rowScrolls.isEmpty || !areaScrolls.isEmpty { refreshRowShift() }
+        applyPresentation()
+        // A scroll that came to rest tells the model its leading column, as from the frame it lands in (`step`).
+        if reportScrollOnSettle, !isUserScrolling {
+            reportScrollOnSettle = false
+            reportLeadingColumn()
+        }
+    }
+
     var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }
 
     /// A horizontal scroll at `localPoint` scrolls the strip only over its

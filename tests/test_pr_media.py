@@ -15,6 +15,13 @@ from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("pr_media", ROOT / "scripts/pr-media.py")
@@ -79,7 +86,7 @@ class Origin:
         api = mock.patch.object(MODULE, "API_RUNNER", self.api)
         api.start()
         case.addCleanup(api.stop)
-        subprocess.run(["git", "init", "-q", "--bare", str(self.bare)], check=True)
+        git_fixture_env.init_repo(self.bare, "--bare")
         git(self.bare, "config", "uploadpack.allowFilter", "true")
         git(self.bare, "config", "uploadpack.allowAnySHA1InWant", "true")
         self.writer = self.root / "writer"
@@ -735,9 +742,11 @@ class UploadTests(unittest.TestCase):
             return tip
 
         with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.MediaBranch, "fetch", fetch), \
-                mock.patch.object(MODULE.time, "sleep"), self.assertRaises(MODULE.MediaError) as raised:
+                mock.patch.object(MODULE.time, "sleep"), self.assertRaises(MODULE.MediaConflict) as raised:
             MODULE.put_files("o/r", "pr-media", {"7/shot.png": written(scratch, "shot.png", PNG)}, "m",
                              checked=True, expect={"7/shot.png": None})
+        # Its own class, so a create-only caller keeps the other copy and still stops on any other failure.
+        self.assertIsInstance(raised.exception, MODULE.MediaError)
         self.assertIn("changed on pr-media", str(raised.exception))
         self.assertEqual(len(fetches), 2)
         self.assertEqual(origin.files()["7/shot.png"], b"theirs")
@@ -815,9 +824,9 @@ class UploadTests(unittest.TestCase):
         # Review of #28265: the token helper was appended after the host's own, and git stops at the first
         # helper that answers, so a cached account (one without push access, say) was used instead of GH_TOKEN.
         cached = '!f() { test "$1" = get || exit 0; echo username=cached; echo password=CACHED; }; f'
-        env = {"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CONFIG_NOSYSTEM": "1",
+        env = git_fixture_env.fixture_env({"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CONFIG_NOSYSTEM": "1",
                "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": "1",
-               "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": cached, "GH_TOKEN": "t0ken"}
+               "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": cached, "GH_TOKEN": "t0ken"})
         with mock.patch.dict(os.environ, env, clear=True):
             args = MODULE.credential_args()
             filled = subprocess.run(["git", *args, "credential", "fill"], input="url=https://github.com/o/r.git\n\n",
@@ -973,6 +982,24 @@ class ApiFallbackUploadTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("another upload got there first", err.getvalue())
         self.assertEqual(origin.files()["7/shot.png"], b"theirs")
+
+    def test_a_lost_create_only_race_through_the_api_fallback_stays_a_conflict(self):
+        # whats-new-gallery.py publish keeps the other copy on a MediaConflict and stops on any other error.
+        def by_git(store):
+            raise MODULE.GitTransportError("git could not reach the remote")
+
+        def by_api(api, error):
+            raise error
+
+        for error, kind in ((MODULE.MediaConflict("9/shot.png changed"), MODULE.MediaConflict),
+                            (MODULE.MediaError("no pr-media branch"), MODULE.MediaError)):
+            with self.subTest(error=str(error)):
+                MODULE._GIT_FAILED.pop(("o/r", "pr-media"), None)
+                with self.assertRaises(MODULE.MediaError) as raised:
+                    MODULE.with_fallback("o/r", "pr-media", object(), by_git, lambda api: by_api(api, error))
+                self.assertIs(type(raised.exception), kind)
+                self.assertIn("the GitHub API fallback failed too", str(raised.exception))
+        MODULE._GIT_FAILED.pop(("o/r", "pr-media"), None)
 
     def test_a_lost_race_is_built_again_on_the_new_tip(self):
         origin = self.unreachable()
@@ -1195,8 +1222,8 @@ class PrivacyTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.scratch = temporary.name
         # A CI step inside .github/actions/pr-media-publish (PR_MEDIA_PUBLISH_GATE).
-        self.env = {"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
-                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"}
+        self.env = git_fixture_env.fixture_env({"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
+                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"})
         self.authors = {7: "bot-a", 8: "teammate"}
         self.ocr_calls = []
         self.lookups = []
@@ -1307,7 +1334,7 @@ class PrivacyTests(unittest.TestCase):
         self.assertIn("8/shot.png", err)
 
     def test_off_ci_a_hit_is_refused_too(self):
-        self.env = {"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'}
+        self.env = git_fixture_env.fixture_env({"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'})
         frame = written(self.scratch, "shot.png", PNG + b"TERM")
         gh = FakeGh()
         code, _, err = self.run_main(["--pr", "8", str(frame)], runner=gh)

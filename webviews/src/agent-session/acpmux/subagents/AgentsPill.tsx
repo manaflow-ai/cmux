@@ -17,6 +17,7 @@ import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentDisplayName } from "./subsessions";
 import { nestAgents } from "./agentsPillModel";
+import { namedAction } from "./trayDetail";
 /// Memoized: App.tsx keeps its props the same while text streams.
 export const AgentsPill = memo(function AgentsPill({
   agents,
@@ -73,7 +74,8 @@ export const AgentsPill = memo(function AgentsPill({
                 {nestAgents(section.agents).map(({ agent, depth }) => {
                   const status = subagentStatus(agent, waiting);
                   const state =
-                    status === "running" && agent.action ? agent.action : t(subagentStatusLabel(agent, waiting));
+                    (status === "running" && namedAction(t, agent.action, agent.actionShell)) ||
+                    t(subagentStatusLabel(agent, waiting));
                   return (
                     <li key={agent.id}>
                       <button

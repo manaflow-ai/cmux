@@ -17,7 +17,11 @@ public final class RemoteDesktopPaneView: NSView {
     private var state: RemotePaneState?
     private var settings = RemoteDesktopSettings()
     private var shownOverlay: RemotePaneOverlay?
+    /// The connecting reason the card shows (``RemoteViewStatus/connectingReason``).
+    private var shownReason: String?
     private var isHovering = false
+    /// One cursor: the overlay and the local pointer's shape (cap `cursor`).
+    private(set) lazy var cursor = RemoteCursorCoordinator(video: video, capture: capture)
 
     static let toolbarInset: CGFloat = 8
 
@@ -31,11 +35,11 @@ public final class RemoteDesktopPaneView: NSView {
             addSubview(view)
         }
         toolbar.alphaValue = 0
-        toolbar.isHidden = true
         banner.isHidden = true
         card.isHidden = true
         upstreamIndicator.isHidden = true
         capture.geometry = { [weak self] in self?.video.geometry }
+        _ = cursor
         setAccessibilityRole(.group)
     }
 
@@ -50,17 +54,19 @@ public final class RemoteDesktopPaneView: NSView {
         self.settings = settings
         capture.controller.settings = settings
         capture.controlMode = state.effectiveMode == .control
-        video.showsRemoteCursor = state.effectiveMode == .view
+        cursor.update()
         toolbar.update(state: state, settings: settings, colors: colors)
         banner.isHidden = !state.showsLatencyBanner
         if state.showsLatencyBanner { banner.update(state: state, colors: colors) }
         upstreamIndicator.update(kinds: state.upstreamIndicator, colors: colors)
-        if state.overlay != shownOverlay || state.overlay == nil {
+        let reason = state.status?.connectingReason
+        if state.overlay != shownOverlay || state.overlay == nil || reason != shownReason {
             shownOverlay = state.overlay
+            shownReason = reason
             card.isHidden = state.overlay == nil
             if let overlay = state.overlay {
                 card.configure(overlay: overlay, host: state.hostName, viaCloudTunnel: state.viaCloudTunnel, reconnecting: state.reconnecting,
-                               colors: colors)
+                               reason: reason, colors: colors)
             }
         }
         setAccessibilityLabel(RemoteViewStrings.accessibilityPane(state.hostName))
@@ -112,18 +118,17 @@ public final class RemoteDesktopPaneView: NSView {
     private func updateToolbarVisibility(animated: Bool) {
         let visible = isHovering || (state?.pinsToolbar ?? true)
         let target: CGFloat = visible ? 1 : 0
-        guard toolbar.alphaValue != target || toolbar.isHidden == visible else { return }
-        // A transparent toolbar must not take clicks meant for the host.
-        if visible { toolbar.isHidden = false }
+        // A transparent toolbar must not take clicks meant for the host, but it is never hidden:
+        // a hidden view leaves the Accessibility tree, and VoiceOver could not reach Take over.
+        // A faded toolbar's controls refuse focus; one that holds it (a Take over click) hands it to the capture view.
+        if !visible, toolbar.holdsFocus { window?.makeFirstResponder(capture) }
+        toolbar.isRevealed = visible
+        guard toolbar.alphaValue != target else { return }
         guard animated else {
             toolbar.alphaValue = target
-            toolbar.isHidden = !visible
             return
         }
-        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target }, completion: { [weak self] in
-            guard let self, !self.isHovering, self.state?.pinsToolbar == false else { return }
-            self.toolbar.isHidden = true
-        })
+        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target })
     }
 
     // MARK: Layout
@@ -132,6 +137,7 @@ public final class RemoteDesktopPaneView: NSView {
         super.layout()
         video.frame = bounds
         capture.frame = bounds
+        cursor.update()
         let inset = Self.toolbarInset
         let toolbarWidth = min(toolbar.fittingWidth, bounds.width - inset * 2)
         toolbar.frame = CGRect(

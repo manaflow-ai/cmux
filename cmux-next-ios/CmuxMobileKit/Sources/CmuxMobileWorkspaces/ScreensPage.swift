@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -75,6 +76,11 @@ struct ScreensPage: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
+        } else if source.awaitsMacList {
+            // The Mac's list is on its way: loading, never "No Screens Yet".
+            CmuxSpinner(label: Text("Loading screens from \(source.macName)…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("screens.loading")
         } else {
             ContentUnavailableView("No Screens Yet", systemImage: "rectangle.stack",
                                    description: Text("\(source.macName) hasn't listed this workspace's screens."))

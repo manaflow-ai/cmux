@@ -336,7 +336,7 @@ body {
 .proto-row-levels label.is-on {
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
-.proto-row-levels label:focus-within {
+.proto-row-levels label:is(:focus-visible, :has(:focus-visible)) {
   outline: 2px solid color-mix(in srgb, var(--agent-accent) 60%, transparent);
 }
 .proto-row-levels input {

@@ -73,6 +73,11 @@ pub struct Entry {
     /// of them, or its digits (`612`), ranks the row first, above every text match.
     #[serde(default, deserialize_with = "null_as_default")]
     pub handles: Vec<String>,
+    /// Phrases that name this row (the catalog's built-in aliases, `palette::ALIASES`): a query
+    /// that is one of them, ignoring case and spacing, ranks the row like the user's own
+    /// `palette.aliases` match does, first among enabled rows after a handle.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub aliases: Vec<String>,
 }
 
 /// One frecency record.

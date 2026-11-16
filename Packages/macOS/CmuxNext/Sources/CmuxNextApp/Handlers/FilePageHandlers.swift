@@ -36,7 +36,7 @@ enum FilePageHandlers {
                 pages.open(restore.url, in: pane, focus: true, recoveredText: restore.text)
                 // The file changed after the draft: say so; the draft stays unsaved changes.
                 if restore.conflict, let window = services.windowController(showing: pane)?.window ?? pane.view.window {
-                    _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery-conflict:\(restore.url.path)",
+                    _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery-conflict:\(restore.url.path)", kind: "file-recovery-conflict",
                                                               message: FilePageStrings.restoreConflict(restore.url.lastPathComponent),
                                                               duration: .seconds(12)), in: window)
                 }
@@ -84,7 +84,7 @@ enum FilePageHandlers {
                     }
                     return nil
                 } catch {
-                    return ActionWorkFailure(error.localizedDescription)
+                    return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))
                 }
             })
         })
@@ -95,7 +95,7 @@ enum FilePageHandlers {
                 let look = services.viewers.editorPages.look, writer = SettingWriter(invocation.origin)
                 let value = toggle.next(in: look.current()["settings"])
                 return .applied(result: {
-                    do { try await look.setPreference(key: toggle.key, value: value, by: writer); return .success([:]) } catch { return .failure(ActionWorkFailure(error.localizedDescription)) }
+                    do { try await look.setPreference(key: toggle.key, value: value, by: writer); return .success([:]) } catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
                 })
             })
         }

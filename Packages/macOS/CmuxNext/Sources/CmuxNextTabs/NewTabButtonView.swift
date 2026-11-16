@@ -2,49 +2,59 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The "+" after the last tab. Mouse handling lives in the strip.
+/// The "+" after the last tab: the window's standard + (``PlusButtonLook``), which every other + copies. Mouse
+/// handling lives in the strip.
 final class NewTabButtonView: NSView {
     var showsChevron = false {
         didSet {
             setAccessibilityRole(showsChevron ? .popUpButton : .button)
-            needsLayout = true
+            look.showsChevron = showsChevron
         }
     }
     var isHovered = false {
         didSet {
             guard oldValue != isHovered else { return }
-            updateColors(animated: true)
+            applyState(animated: true)
+            onHoverChange?(isHovered)
             if isHovered {
                 if themedToolTip != nil { themedToolTipShortcut = shortcut?() }
             }
         }
     }
-    var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
+    var isPressed = false { didSet { if oldValue != isPressed { applyState(animated: false) } } }
     /// Held only by this button's menu, including accessibility invocation without hover.
-    var isMenuOpen = false { didSet { if oldValue != isMenuOpen { updateColors(animated: false) } } }
+    var isMenuOpen = false { didSet { if oldValue != isMenuOpen { applyState(animated: false) } } }
     var onPress: (() -> Void)?
+    /// The trailing controls' shared hover look (``TabTrailingButtons/hoverStyle``).
+    var hoverStyle: ChromeHoverStyle {
+        get { look.hoverStyle }
+        set { look.hoverStyle = newValue }
+    }
+    /// The + is the leading segment of the split look's `+ ⌄` (``TabTrailingButtons/split``): its fill spans its
+    /// frame with the group's leading corners rounded, and shows softly while the ⌄ is hovered.
+    var splitSegment: Bool {
+        get { look.segment == .leading }
+        set { look.segment = newValue ? .leading : .alone }
+    }
+    /// The ⌄ beside it is under the pointer (the split look's shared hover).
+    var siblingHovered = false {
+        didSet { if oldValue != siblingHovered { applyState(animated: true) } }
+    }
+    /// The pointer came onto (true) or left (false) the +.
+    var onHoverChange: ((Bool) -> Void)?
     /// The new tab action's shortcut as the person sees it ("⌘T"), read on hover so a rebinding
     /// shows at once; the tooltip draws it after its text.
     var shortcut: (() -> String?)?
     /// VoiceOver moved its focus onto (true) or off (false) the plus.
     var onAccessibilityFocus: ((Bool) -> Void)?
 
-    private let fillLayer = CALayer()
-    private let glyphLayer = CAShapeLayer()
+    private(set) lazy var look = PlusButtonLook(host: self)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
-        fillLayer.cornerRadius = Metrics.tabCornerRadius
-        fillLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
-        fillLayer.actions = ["bounds": NSNull(), "position": NSNull()]
-        glyphLayer.fillColor = nil
-        glyphLayer.lineWidth = Metrics.addGlyphLineWidth
-        glyphLayer.lineCap = .round
-        glyphLayer.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "lineWidth": NSNull()]
-        layer?.addSublayer(fillLayer)
-        layer?.addSublayer(glyphLayer)
+        _ = look
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(Strings.axNewTab)
@@ -69,33 +79,11 @@ final class NewTabButtonView: NSView {
 
     override func layout() {
         super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        let side = min(bounds.width, bounds.height)
-        let square = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-        fillLayer.frame = showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
-        // The tabs' shape (`Metrics.tabCornerRadius`), so the + reads as one of the strip's pills.
-        fillLayer.cornerRadius = Metrics.tabCornerRadius
-        glyphLayer.frame = bounds
-        // The add buttons' one + (`Metrics.addGlyphExtent`), the sidebar's New Workspace size.
-        let arm = Metrics.addGlyphExtent / 2
-        let scale = window?.backingScaleFactor ?? 2
-        glyphLayer.contentsScale = scale
-        let center = CGPoint(x: ((square.midX - (showsChevron ? Metrics.space2 : 0)) * scale).rounded() / scale, y: (square.midY * scale).rounded() / scale)
-        let path = CGMutablePath()
-        path.addPath(CGPath.addGlyph(center: center, scale: scale))
-        if showsChevron {
-            let x = center.x + arm + Metrics.space3
-            path.move(to: CGPoint(x: x - Metrics.space1, y: center.y - Metrics.space1 / 2))
-            path.addLine(to: CGPoint(x: x, y: center.y + Metrics.space1 / 2))
-            path.addLine(to: CGPoint(x: x + Metrics.space1, y: center.y - Metrics.space1 / 2))
-        }
-        glyphLayer.path = path
-        CATransaction.commit()
+        look.layout(in: bounds, scale: window?.backingScaleFactor ?? 2)
     }
 
     override func updateLayer() {
-        updateColors(animated: false)
+        look.refresh()
     }
 
     override func viewDidChangeBackingProperties() {
@@ -105,26 +93,11 @@ final class NewTabButtonView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        updateColors(animated: false)
+        look.refresh()
     }
 
-    private func updateColors(animated: Bool) {
-        let hovering = isHovered || isMenuOpen
-        let pressed = isPressed || isMenuOpen
-        let token = animated ? ChromeHover.fade(showing: hovering || pressed, pressed: pressed) : nil
-        // An instant change also ends a fill still easing in.
-        if (token.map(Motion.tabs.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
-        Motion.tabs.transaction(token) {
-            performWithTheme {
-                // New-tab is a plain glyph action. Its hover/press state is carried by the glyph,
-                // never by a rounded plate behind the +. Its own menu holds the pressed state.
-                fillLayer.backgroundColor = nil
-                glyphLayer.strokeColor = (pressed ? Palette.litGlyph : (hovering ? Palette.textPrimary : Palette.textSecondary)).cgColor
-                // Neutral themes can use the same ink for hover and selection. A heavier
-                // stroke keeps a held press visible there too, without a background.
-                glyphLayer.lineWidth = pressed ? Metrics.addGlyphPressedLineWidth : Metrics.addGlyphLineWidth
-            }
-        }
+    private func applyState(animated: Bool) {
+        look.apply(.init(hovering: isHovered, pressed: isPressed, menuOpen: isMenuOpen, siblingHovered: siblingHovered), animated: animated)
     }
 
     override func accessibilityPerformShowMenu() -> Bool {
@@ -137,6 +110,14 @@ final class NewTabButtonView: NSView {
         onPress?()
         return true
     }
+
+    /// The split control's corner: a tab's (``Metrics/tabCornerRadius``), on a tab's height (``frameHeight``), so the
+    /// `+ ⌄` hover reads as a tab, not a pill (Lucas 2026-11-12: "same height and roundness as tabs").
+    static var splitCornerRadius: CGFloat { Metrics.tabCornerRadius }
+
+    /// The + button's height in the tab strip: the split look's `+ ⌄` is a tab's height, so its hover fill is a tab's
+    /// band; every other look keeps the square button (`side`), centered on the tabs.
+    static func frameHeight(split: Bool, side: CGFloat, tabHeight: CGFloat) -> CGFloat { split ? tabHeight : side }
 }
 
 /// Flipped container with no event handling of its own.

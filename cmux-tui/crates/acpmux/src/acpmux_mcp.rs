@@ -20,7 +20,9 @@
 //! as that session's (`session_message`, `prompt_provenance.rs`), never as the person's words.
 //! `pr_state` alone is not a daemon request: it runs the agent's own `gh` (one `gh pr view`),
 //! with this server's environment, which the agent gave it.
-//! A remote-origin session gets no tools at all (`agent_tools::left_out`).
+//! A remote-origin session gets no tools at all (`agent_tools::left_out`). An app outside
+//! acpmux (Claude desktop, Claude Code, Codex) linked with `acpmux desktop link` runs it in guest
+//! mode (`acpmux_mcp_guest.rs`): the tools that need no session, plus `machines` and `new`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,9 +34,7 @@ use crate::secret_mcp::error_result;
 use anyhow::Result;
 use serde_json::{Value, json};
 
-pub const SERVER_NAME: &str = "acpmux";
-/// The session the tools act for, set in this server's env with its caller token.
-pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
+pub use crate::acpmux_mcp_names::{SERVER_NAME, SESSION_ENV};
 /// How long `send` asks the outbox to wait for the delivery to settle before it answers that the
 /// message is on its way: well under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 /// The daemon's outbox (`server/outbox.rs`) goes on delivering after that, retrying a peer that
@@ -69,8 +69,12 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_bridge.rs"]
+pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
 mod goal;
+#[path = "acpmux_mcp_guest.rs"]
+mod guest;
 #[path = "acpmux_mcp_pr.rs"]
 mod pr;
 #[path = "acpmux_mcp_send.rs"]
@@ -83,6 +87,8 @@ mod watch;
 mod who_else;
 #[path = "acpmux_mcp_wrap_up.rs"]
 mod wrap_up;
+/// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
+pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
 fn tools() -> Value {
     let mut all = base_tools();
@@ -271,6 +277,27 @@ fn instructions(tools: &Value) -> Option<String> {
 pub async fn run() -> Result<()> {
     // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
     let artifacts = artifacts::from_config();
+    // An app outside acpmux that `acpmux desktop link` gave this server (`acpmux_mcp_guest.rs`).
+    if let Some(app) = std::env::var(crate::desktop_link::GUEST_ENV)
+        .ok()
+        .map(|a| a.trim().to_owned())
+        .filter(|a| !a.is_empty())
+    {
+        return guest::run(app, artifacts).await;
+    }
+    crate::tools_mcp::serve(vec![served_with(&Arc::default(), artifacts)?]).await
+}
+
+/// The server for the session in its env, its calls on `daemon`'s connection
+/// (`tools_mcp.rs`: one process serves it with acpmux's other servers).
+pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {
+    served_with(daemon, artifacts::from_config())
+}
+
+fn served_with(
+    daemon: &Arc<crate::tools_mcp::Daemon>,
+    artifacts: Option<Arc<artifacts::Artifacts>>,
+) -> Result<crate::tools_mcp::Served> {
     let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
     let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
     // Under an allowlist, a call outside it is refused like an unknown tool.
@@ -279,11 +306,12 @@ pub async fn run() -> Result<()> {
         .then(|| Arc::new(crate::mcp_hint::names(&tools).map(str::to_owned).collect()));
     // The background steer only where the background tools are listed.
     let steer = instructions(&tools);
-    crate::secret_mcp::serve(
+    crate::tools_mcp::served(
         SERVER_NAME,
         SESSION_ENV,
         tools,
         steer,
+        daemon,
         move |daemon, session, params| {
             let artifacts = artifacts.clone();
             let names = names.clone();
@@ -307,7 +335,28 @@ pub async fn run() -> Result<()> {
                         ),
                     };
                 }
+                // The Claude Code subagent whose tool call this is, by its tool use id
+                // (`subagent_call.rs`): a `send` names it, a `bg_start` or `run_wait` task runs as
+                // it and brings its end to it. Else the subagent this server runs as: a workflow
+                // runner a subagent started marks it (`cli::sender::SUBAGENT_ENV`, set by the
+                // daemon in `hub/workflow_runs.rs`), as the Bash hook marks its commands. An
+                // agent's own server never has it: the daemon removes every `ACPMUX_*` variable
+                // of its own env from a harness's, and the mark from the harness profile's env
+                // too (`agent/command.rs`), so only the runner's server can.
+                let sub = crate::subagent_call::of_call(&crate::config::home(), &session, &params)
+                    .or_else(|| {
+                        crate::cli::sender::subagent_of_this_process().map(|s| s.to_value())
+                    });
                 if bg::TOOLS.contains(&name) {
+                    let mut args = args;
+                    // Every bg call names its caller: a start runs as it, and a list or stop
+                    // acts on its own tasks (`hub::BgScope`). Never the agent's own value.
+                    if let Some(fields) = args.as_object_mut() {
+                        fields.remove("callerSubagent");
+                        if let Some(sub) = &sub {
+                            fields.insert("callerSubagent".to_owned(), sub.clone());
+                        }
+                    }
                     return bg::call(&daemon, &session, name, &args).await;
                 }
                 if name == pr::NAME {
@@ -339,11 +388,10 @@ pub async fn run() -> Result<()> {
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;
                 }
-                call(&daemon, &params).await
+                call_as(&daemon, &params, sub.as_ref()).await
             }
         },
     )
-    .await
 }
 
 async fn machine_info(daemon: &Arc<Client>, session: &str) -> Value {
@@ -367,13 +415,20 @@ fn arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
 }
 
+#[cfg(test)]
 pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
+    call_as(daemon, params, None).await
+}
+
+/// A tool call of the acpmux tools below; `sub` is the subagent that makes it
+/// (`subagent_call.rs`), which its `send` names.
+async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> Value {
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     if !args.is_object() {
         return error_result("arguments must be an object".to_owned());
     }
     match params["name"].as_str().unwrap_or_default() {
-        "send" => send::send(daemon, &args).await,
+        "send" => send::send(daemon, &args, sub).await,
         "team_send" => team_send(daemon, &args).await,
         "team_inbox" => team_inbox(daemon, &args).await,
         "team_ack" => team_ack(daemon, &args).await,
@@ -554,12 +609,44 @@ fn send_class(args: &Value) -> Result<Option<String>, String> {
 
 /// `ls`: `acpmux ls` as one line per session.
 async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
+    ls_via(daemon, args, crate::cli::list_read::Via::daemon()).await
+}
+
+/// [`ls`], read `via` the v2 list (the live view's rows, or with `status: closed` the closed
+/// rows of the whole view, each fetched as the list writes it) or the v1 list.
+pub(crate) async fn ls_via(
+    daemon: &Arc<Client>,
+    args: &Value,
+    via: crate::cli::list_read::Via,
+) -> Value {
+    use crate::cli::list_read;
     // Closed sessions are most of a fleet's list; the daemon leaves them out unless asked for.
-    let params = match arg(args, "status") {
-        Some("closed") => json!({}),
-        _ => json!({"excludeStatus": ["closed"]}),
+    let closed = arg(args, "status") == Some("closed");
+    let params = if closed { json!({}) } else { json!({"excludeStatus": ["closed"]}) };
+    // The closed rows are of the whole view, which holds no other machine's closed row: v1 while
+    // one is listed (decision 213).
+    let remote_closed = closed
+        && list_read::closed_remote_listed(
+            daemon.request(method::MUX_STATUS, json!({})).await.ok().as_ref(),
+        );
+    let source = if remote_closed { Ok(None) } else { via.open(daemon).await };
+    let source = match source {
+        Ok(source) => source,
+        Err(e) => return refusal(e),
     };
-    match daemon.whole_list(method::MUX_SESSIONS, params).await {
+    let listed = match source {
+        Some(mut source) => {
+            let view = if closed {
+                acpmux_client::wire::ListView::All
+            } else {
+                acpmux_client::wire::ListView::Live
+            };
+            let may_keep = |s: &acpmux_book::index::Summary| !closed || list_read::closed(s);
+            source.rows(view, &may_keep).await.map(|rows| json!({"sessions": rows}))
+        }
+        None => daemon.whole_list(method::MUX_SESSIONS, params).await,
+    };
+    match listed {
         Ok(mut all) => {
             // The other machines' sessions a host with no peer to them lists through its send
             // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does.

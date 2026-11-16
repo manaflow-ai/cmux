@@ -55,7 +55,7 @@ extension DaemonStore {
     /// The surface `event` names (a title, an exit, an agent's state, a tab delta).
     func stageSurface(of event: DaemonEvent) -> SurfaceID? {
         switch event {
-        case .titleChanged(let surface, _), .surfaceResized(let surface, _), .surfaceExited(let surface),
+        case .titleChanged(let surface, _, _), .surfaceResized(let surface, _), .surfaceExited(let surface),
              .scrollChanged(let surface, _, _), .bell(let surface):
             return surface
         case .tabAdded(let d), .tabClosed(let d), .tabRenamed(let d), .tabChanged(let d):
@@ -101,9 +101,10 @@ extension DaemonStore {
             return ofSurface(surface).map { [$0] }
         case .renameWorkspace(let key, _), .setWorkspaceColor(let key, _), .moveWorkspace(let key, _), .setWorkspaceGroup(let key, _), .placeWorkspace(let key, _, _):
             return workspace(key: key).map { [$0.handle] }
-        case .renamePane(let pane, _):
+        case .renamePane(let pane, _), .zoomPane(let pane, _), .swapPanes(let pane, _):
             return workspace(containing: pane).map { [$0.handle] }
-        case .renameScreen(let screen, _), .setScreenColor(let screen, _), .setScreenIcon(let screen, _), .setScreenPinned(let screen, _):
+        case .renameScreen(let screen, _), .setScreenColor(let screen, _), .setScreenIcon(let screen, _), .setScreenPinned(let screen, _),
+             .setDividerVisible(let screen, _, _):
             return self.screen(screen).flatMap { index.workspace(holding: $0) }.map { [$0.handle] }
         case .setWorkspaceGroupCollapsed, .setTabGroupCollapsed, .setRowHeights, .createTab, .bindAgentSession, .splitPane,
              .createWorkspace, .closeTabs, .dockTab, .closeStandInPane:
@@ -131,7 +132,7 @@ extension DaemonStore {
             return Set([d.workspace]).union(ofSurface(d.surface))
         case .layoutChanged(let screen, _, _):
             return self.screen(screen).flatMap { index.workspace(holding: $0) }.map { [$0.handle] } ?? []
-        case .titleChanged(let surface, _), .surfaceResized(let surface, _), .surfaceExited(let surface),
+        case .titleChanged(let surface, _, _), .surfaceResized(let surface, _), .surfaceExited(let surface),
              .scrollChanged(let surface, _, _), .bell(let surface):
             return ofSurface(surface)
         default:

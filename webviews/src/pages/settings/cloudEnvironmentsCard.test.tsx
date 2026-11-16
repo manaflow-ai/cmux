@@ -1,6 +1,6 @@
 // Settings > Accounts > Cloud Environments: the page reads the host's environments when the card
-// opens, draws each with its localized status (a failed build with its log), and sends Add, Build,
-// Delete and Refresh as `cmux.settings.environments.run`. Off the cmux-next Cloud path the card
+// opens, draws each with its localized status (a failed build with its log), and sends Add, Edit,
+// Build, Delete and Refresh as `cmux.settings.environments.run`. Off the cmux-next Cloud path the card
 // explains instead of listing.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
@@ -66,7 +66,7 @@ test("Add Environment saves the typed name, repository and setup command", async
   const form = () => card(page.container).querySelector<HTMLElement>("[data-environments-form]")!;
   await changeValue(form().querySelector<HTMLInputElement>('[data-environment-field="name"]')!, "docs");
   await changeValue(form().querySelector<HTMLInputElement>('[data-environment-field="repo"]')!, "octo/docs");
-  await changeValue(form().querySelector<HTMLInputElement>('[data-environment-field="setup"]')!, "npm ci");
+  await changeValue(form().querySelector<HTMLTextAreaElement>('[data-environment-field="setup"]')!, "npm ci");
   await click(form().querySelector<HTMLButtonElement>('[data-environments="save"]')!);
   await settle();
   expect(page.provider.environmentRuns).toContainEqual({
@@ -77,6 +77,172 @@ test("Add Environment saves the typed name, repository and setup command", async
   });
   expect(card(page.container).textContent).toContain("docs");
   expect(card(page.container).querySelector("[data-environments-form]")).toBeNull();
+  page.unmount();
+});
+
+test("Edit opens the environment with its script and variables and saves only what changed", async () => {
+  const page = await open();
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  const form = () => row().querySelector<HTMLElement>("[data-environments-form]")!;
+  expect(form().querySelector<HTMLInputElement>('[data-environment-field="name"]')!.value).toBe("web");
+  expect(form().querySelector<HTMLTextAreaElement>('[data-environment-field="setup"]')!.value).toBe(
+    "cd web && bun install",
+  );
+  const values = () =>
+    [...form().querySelectorAll<HTMLInputElement>('[data-variable-field="value"]')].map((input) => input.value);
+  expect(values()).toEqual(["development", "openai"]);
+  // A two-line script and one more plain variable.
+  await changeValue(
+    form().querySelector<HTMLTextAreaElement>('[data-environment-field="setup"]')!,
+    "cd web\nbun install",
+  );
+  await click(form().querySelector<HTMLButtonElement>('[data-environment-action="add-variable"]')!);
+  const added = form().querySelector<HTMLElement>('[data-environment-variable="2"]')!;
+  await changeValue(added.querySelector<HTMLInputElement>('[data-variable-field="name"]')!, "PORT");
+  await changeValue(added.querySelector<HTMLInputElement>('[data-variable-field="value"]')!, "3000");
+  await click(form().querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns).toContainEqual({
+    action: "save",
+    id: "env_00000000000000000001",
+    setup_script: "cd web\nbun install",
+    env: [
+      { name: "NODE_ENV", value: "development" },
+      { name: "OPENAI_API_KEY", secret: "openai" },
+      { name: "PORT", value: "3000" },
+    ],
+  });
+  // The edited inputs made the built snapshot stale, and the form closed.
+  expect(row().querySelector("[data-environment-status]")!.textContent).toContain("Changed since the last build");
+  expect(row().querySelector("[data-environments-form]")).toBeNull();
+  page.unmount();
+});
+
+test("a rename alone sends only the name, and Cancel sends nothing", async () => {
+  const page = await open();
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  await click(row().querySelector<HTMLButtonElement>('[data-environments="cancel"]')!);
+  expect(row().querySelector("[data-environments-form]")).toBeNull();
+  const runs = page.provider.environmentRuns.length;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  const form = row().querySelector<HTMLElement>("[data-environments-form]")!;
+  await changeValue(form.querySelector<HTMLInputElement>('[data-environment-field="name"]')!, "web app");
+  await click(form.querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns.slice(runs)[0]).toEqual({
+    action: "save",
+    id: "env_00000000000000000001",
+    name: "web app",
+  });
+  expect(row().querySelector("[data-environment-status]")!.textContent).toContain("Ready");
+  page.unmount();
+});
+
+test("a refresh while Edit is open never sends a teammate's newer fields back", async () => {
+  // Both ways: the teammate edits the script and this person renames, then the reverse below.
+  const page = await open();
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  // A teammate changes the script; the list reads it again under the open form.
+  page.provider.environments = {
+    ...page.provider.environments,
+    environments: page.provider.environments.environments.map((entry) =>
+      entry.id === "env_00000000000000000001" ? { ...entry, setup_script: "pnpm install" } : entry,
+    ),
+  };
+  await click(card(page.container).querySelector<HTMLButtonElement>('[data-environments="refresh"]')!);
+  await settle();
+  const runs = page.provider.environmentRuns.length;
+  const form = row().querySelector<HTMLElement>("[data-environments-form]")!;
+  await changeValue(form.querySelector<HTMLInputElement>('[data-environment-field="name"]')!, "web app");
+  await click(form.querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns.slice(runs)[0]).toEqual({
+    action: "save",
+    id: "env_00000000000000000001",
+    name: "web app",
+  });
+  page.unmount();
+});
+
+test("a script edit under a teammate's rename never sends the old name", async () => {
+  const page = await open();
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  page.provider.environments = {
+    ...page.provider.environments,
+    environments: page.provider.environments.environments.map((entry) =>
+      entry.id === "env_00000000000000000001" ? { ...entry, name: "frontend" } : entry,
+    ),
+  };
+  await click(card(page.container).querySelector<HTMLButtonElement>('[data-environments="refresh"]')!);
+  await settle();
+  const runs = page.provider.environmentRuns.length;
+  const form = row().querySelector<HTMLElement>("[data-environments-form]")!;
+  await changeValue(form.querySelector<HTMLTextAreaElement>('[data-environment-field="setup"]')!, "bun ci");
+  await click(form.querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns.slice(runs)[0]).toEqual({
+    action: "save",
+    id: "env_00000000000000000001",
+    setup_script: "bun ci",
+  });
+  expect(row().querySelector(".row-title")!.textContent).toBe("frontend");
+  page.unmount();
+});
+
+test("a variable edited and restored is unchanged, whatever the host's key order", async () => {
+  const id = "env_00000000000000000001";
+  // The host may send a variable's keys in either order.
+  const page = await open((provider) => {
+    provider.environments = {
+      ...provider.environments,
+      environments: provider.environments.environments.map((entry) =>
+        entry.id === id
+          ? {
+              ...entry,
+              env: [
+                { value: "development", name: "NODE_ENV" },
+                { secret: "openai", name: "OPENAI_API_KEY" },
+              ],
+            }
+          : entry,
+      ),
+    };
+  });
+  const row = () => card(page.container).querySelector<HTMLElement>(`[data-environment="${id}"]`)!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  const value = () =>
+    row()
+      .querySelector<HTMLElement>('[data-environment-variable="0"]')!
+      .querySelector<HTMLInputElement>('[data-variable-field="value"]')!;
+  await changeValue(value(), "production");
+  await changeValue(value(), "development");
+  // A teammate changes the secret's vault item; the list reads it again under the open form.
+  page.provider.environments = {
+    ...page.provider.environments,
+    environments: page.provider.environments.environments.map((entry) =>
+      entry.id === id
+        ? {
+            ...entry,
+            env: [
+              { name: "NODE_ENV", value: "development" },
+              { name: "OPENAI_API_KEY", secret: "openai-team" },
+            ],
+          }
+        : entry,
+    ),
+  };
+  await click(card(page.container).querySelector<HTMLButtonElement>('[data-environments="refresh"]')!);
+  await settle();
+  const runs = page.provider.environmentRuns.length;
+  const form = row().querySelector<HTMLElement>("[data-environments-form]")!;
+  await changeValue(form.querySelector<HTMLInputElement>('[data-environment-field="name"]')!, "web app");
+  await click(form.querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns.slice(runs)[0]).toEqual({ action: "save", id, name: "web app" });
   page.unmount();
 });
 

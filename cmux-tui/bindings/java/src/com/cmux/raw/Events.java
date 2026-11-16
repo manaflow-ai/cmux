@@ -13,6 +13,7 @@ public final class Events {
 
     public static final EventMetadata ACTIVITY_CHANGED = new EventMetadata("activity-changed", 12, "vm-activity-v1", List.of("control"), true);
     public static final EventMetadata AGENT_CHANGED = new EventMetadata("agent-changed", 11, null, List.of("subscribe"), true);
+    public static final EventMetadata AGENT_CLI_FRAME = new EventMetadata("agent-cli-frame", 12, "agent-cli-hybrid-v1", List.of("attach-byte"), true);
     public static final EventMetadata AGENT_INVENTORY_CHANGED = new EventMetadata("agent-inventory-changed", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_INVENTORY_WATCH_ENDED = new EventMetadata("agent-inventory-watch-ended", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_PRESENCE_CHANGED = new EventMetadata("agent-presence-changed", 12, "agent-presence-v1", List.of("subscribe"), true);
@@ -48,6 +49,8 @@ public final class Events {
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata EMPTY = new EventMetadata("empty", 5, null, List.of("subscribe"), true);
+    public static final EventMetadata FEED_REPORTS_CHANGED = new EventMetadata("feed-reports-changed", 12, "feed-client-v1", List.of("subscribe"), true);
+    public static final EventMetadata FEED_VIEW_CHANGED = new EventMetadata("feed-view-changed", 12, "feed-client-v1", List.of("subscribe"), true);
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
@@ -71,6 +74,7 @@ public final class Events {
     public static final EventMetadata SCREEN_ADDED = new EventMetadata("screen-added", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_CHANGED = new EventMetadata("screen-changed", 12, "screen-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_CLOSED = new EventMetadata("screen-closed", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata SCREEN_DEVICE_CHANGED = new EventMetadata("screen-device-changed", 12, "screen-device-identity-v1", List.of("subscribe"), true);
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata SELECTION_CHANGED = new EventMetadata("selection-changed", 12, "tree-selection-deltas-v1", List.of("subscribe-deltas"), true);
@@ -108,6 +112,7 @@ public final class Events {
         LinkedHashMap<String, EventMetadata> values = new LinkedHashMap<>();
         values.put("activity-changed", ACTIVITY_CHANGED);
         values.put("agent-changed", AGENT_CHANGED);
+        values.put("agent-cli-frame", AGENT_CLI_FRAME);
         values.put("agent-inventory-changed", AGENT_INVENTORY_CHANGED);
         values.put("agent-inventory-watch-ended", AGENT_INVENTORY_WATCH_ENDED);
         values.put("agent-presence-changed", AGENT_PRESENCE_CHANGED);
@@ -143,6 +148,8 @@ public final class Events {
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
         values.put("empty", EMPTY);
+        values.put("feed-reports-changed", FEED_REPORTS_CHANGED);
+        values.put("feed-view-changed", FEED_VIEW_CHANGED);
         values.put("frame", FRAME);
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
@@ -166,6 +173,7 @@ public final class Events {
         values.put("screen-added", SCREEN_ADDED);
         values.put("screen-changed", SCREEN_CHANGED);
         values.put("screen-closed", SCREEN_CLOSED);
+        values.put("screen-device-changed", SCREEN_DEVICE_CHANGED);
         values.put("screen-renamed", SCREEN_RENAMED);
         values.put("scroll-changed", SCROLL_CHANGED);
         values.put("selection-changed", SELECTION_CHANGED);

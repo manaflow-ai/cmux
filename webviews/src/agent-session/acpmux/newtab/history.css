@@ -4,3 +4,5 @@
 .nt-history .nt-all{margin-top:var(--ds-space-2)}
 .nt-all-row[data-selected]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent);color:var(--agent-text)}
 .nt-all-row[data-selected] .nt-all-glyph{filter:none;opacity:1}
+.nt-history-tabs{flex:none;margin:0 0 var(--ds-space-3) var(--ds-space-1)}
+.nt-history>.wq,.nt-history>.cst{flex:1;min-height:0}

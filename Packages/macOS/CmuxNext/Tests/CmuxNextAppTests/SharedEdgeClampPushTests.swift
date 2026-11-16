@@ -4,9 +4,10 @@ import CmuxNextDesignTokens
 import CmuxNextTestSupport
 import Testing
 
-/// FRAME OWNER REFACTOR S2B, rule D's clamp push (`SharedEdgeClamp.push`), with the springs set up by hand: a bouncy
-/// anchor (`ui.animations.bounce` subtle) can overshoot its target, and the push must never carry the line past its own
-/// target (the clamp), nor give it a speed there (#35775 follow-up, Codex review of the push).
+/// FRAME OWNER REFACTOR S2B, rule D's clamp push (`SharedEdgeClamp.push`), with the springs set up by hand: an anchor
+/// set past its target with a speed (no setting makes one now; a hand-set spring or a retarget can), and the push must
+/// never carry the line past its own target (the clamp), nor give it a speed there (#35775 follow-up, Codex review of
+/// the push).
 @MainActor
 @Suite(.closesItsWindows)
 struct SharedEdgeClampPushTests {

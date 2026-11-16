@@ -91,7 +91,9 @@ stop_mount_processes() {
   local pids pid alive grace survivors
   pids="$(mount_pids)"
   [ -n "$pids" ] || return 0
-  echo "SIGTERM to the processes still running from the DMG mount: $(echo $pids)"
+  # Each message before a kill runs in a subshell that ignores SIGPIPE: an echo to an output nobody reads
+  # would otherwise end this script before the kill (tests/test_guard_logs_survive_closed_pipe.py).
+  ( trap '' PIPE; echo "SIGTERM to the processes still running from the DMG mount: $(echo $pids)" ) || true
   # shellcheck disable=SC2086 # one PID per word
   kill -TERM $pids 2>/dev/null || true
   grace=$((SECONDS + 5))
@@ -106,7 +108,7 @@ stop_mount_processes() {
     case " $(echo $pids) " in *" $pid "*) survivors="$survivors $pid" ;; esac
   done
   if [ -n "$survivors" ]; then
-    echo "SIGKILL to the processes that outlived SIGTERM:$survivors"
+    ( trap '' PIPE; echo "SIGKILL to the processes that outlived SIGTERM:$survivors" ) || true
     # shellcheck disable=SC2086
     kill -KILL $survivors 2>/dev/null || true
   fi

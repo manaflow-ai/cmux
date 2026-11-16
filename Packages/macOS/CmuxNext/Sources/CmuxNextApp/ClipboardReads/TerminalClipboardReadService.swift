@@ -1,15 +1,16 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTerminal
-import Observation
 
 /// The Mac side of the OSC 52 clipboard-read broker (decision
 /// CLIPBOARD-READ-BROKER, layer 4) on the local daemon connection only:
 /// remote and Cloud connections never subscribe in this landing (S3), so
 /// their reads are refused by their daemons. Keeps the subscription equal to
-/// the local store's terminals by observing the store (re-armed after each
-/// change, no polling) and answers each read from the user's Ghostty
+/// the local store's terminals by observing the store (the connection, and each
+/// workspace's terminals on their own: no polling, and a tab that comes or goes
+/// re-reads its workspace only) and answers each read from the user's Ghostty
 /// `clipboard-read` setting or a cmux dialog in that terminal's tab. A local
 /// PTY may contain SSH or another nested transport, so its program origin is
 /// deliberately unproven: `allow` degrades to `ask` and the dialog does not
@@ -22,7 +23,11 @@ final class TerminalClipboardReadService {
     private weak var services: AppServices?
     private var broker: TerminalClipboardBroker?
     private var sideEvents: UInt64?
-    private var stopped = false
+    /// Each workspace's terminals, one observation per workspace: a new tab used to cancel and re-arm one tracking
+    /// of every tab of the session in the key's turn (CMD-T BUDGET 2026-11-10).
+    private var terminals: ObservedItemsFeed<WorkspaceModel, [String]>?
+    /// Follows the connection and the feed's items (three cells); ends with the service.
+    private var observation: Task<Void, Never>?
 
     init(services: AppServices) {
         self.services = services
@@ -48,61 +53,38 @@ final class TerminalClipboardReadService {
                 _ = try await connection.request(TerminalClipboardReplyRequest(requestID: requestID, text: text))
             }))
         sideEvents = daemon.store.sideEvents.subscribe { [weak self] event in self?.broker?.handle(event) }
-        observe()
+        let store = daemon.store
+        let terminals = ObservedItemsFeed<WorkspaceModel, [String]>(
+            list: { [weak store] in store?.workspaces },
+            // By object: a workspace the store replaced is a new model.
+            id: { "\(ObjectIdentifier($0))" }, item: { $0.terminalResourceIDs })
+        self.terminals = terminals
+        terminals.start()
+        observation = Task { [weak self] in
+            for await (connected, ids) in ObservationStream({
+                (TerminalClipboardReadService.isConnected(store.connectionState) && store.supports(capability), terminals.observedItems)
+            }) {
+                guard let broker = self?.broker else { return }
+                // The epoch changes on every reconnect, which resubscribes.
+                broker.setConnection(connected ? store.connectionEpoch : nil)
+                if let ids { broker.setTerminals(ids.joined()) } // nil: the workspaces are not read yet
+            }
+        }
     }
 
     func stop() {
-        stopped = true
+        observation?.cancel()
+        observation = nil
+        terminals?.stop()
+        terminals = nil
         broker?.stop()
         if let sideEvents { services?.daemon.store.sideEvents.unsubscribe(sideEvents) }
         sideEvents = nil
     }
 
-    /// Hands the broker the connection and the terminal set, then re-arms.
-    private func observe() {
-        guard !stopped, let broker, let store = services?.daemon.store else { return }
-        let capability = DaemonCapability.terminalClipboardRead.rawValue
-        let (connected, terminals) = withObservationTracking {
-            (Self.isConnected(store.connectionState) && store.supports(capability), Self.terminalIDs(store))
-        } onChange: { [weak self] in
-            // task-owner: one hop per observed change, re-arms itself; ends with the service
-            Task { @MainActor [weak self] in self?.observe() }
-        }
-        // The epoch changes on every reconnect, which resubscribes.
-        broker.setConnection(connected ? store.connectionEpoch : nil)
-        broker.setTerminals(terminals)
-    }
-
     private static func isConnected(_ state: DaemonConnectionState) -> Bool {
         if case .connected = state { return true }
         return false
-    }
-
-    /// Public ids of the terminals this Mac shows from the local daemon.
-    /// Remote-terminal tabs live on another session and are not included.
-    private static func terminalIDs(_ store: DaemonStore) -> [String] {
-        var ids: [String] = []
-        for workspace in store.workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    for tab in pane.tabs where tab.kind == .pty {
-                        if let id = tab.terminalResourceID?.rawValue { ids.append(id) }
-                    }
-                }
-            }
-        }
-        return ids
-    }
-
-    private func tab(terminal id: String) -> TabModel? {
-        for workspace in services?.daemon.store.workspaces ?? [] {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    if let tab = pane.tabs.first(where: { $0.terminalResourceID?.rawValue == id }) { return tab }
-                }
-            }
-        }
-        return nil
     }
 
     // MARK: Asking
@@ -139,7 +121,7 @@ final class TerminalClipboardReadService {
     }
 
     private func placement(for prompt: ClipboardReadPrompt) -> Placement {
-        let tab = tab(terminal: prompt.terminalID)
+        let tab = services?.daemon.store.tab(terminalResource: ResourceID(rawValue: prompt.terminalID))
         return Placement(terminalTitle: tab?.displayTitle, scope: scope(for: tab))
     }
 

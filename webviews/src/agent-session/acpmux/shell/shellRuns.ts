@@ -166,6 +166,20 @@ export class ShellRuns {
   }
 }
 
+/// Shell mode of a chat's composer: every chat has it, on the machine the chat runs on. The host
+/// runs a chat of this Mac's command here, and a Cloud or SSH chat's on that machine, in its folder
+/// there (`cwd` is the chat's folder as that machine names it); never one on the other (cx-k21v).
+export function composerShell(
+  runs: ShellRuns,
+  chat: { cwd?: string; sessionId?: string },
+): (command: string) => ShellRun {
+  return (command) =>
+    runs.start(command, {
+      ...(chat.cwd ? { cwd: chat.cwd } : {}),
+      ...(chat.sessionId ? { sessionId: chat.sessionId } : {}),
+    });
+}
+
 /// Output as text: CSI and OSC escape sequences removed, and a carriage return (a progress bar)
 /// keeps only what the line ended with.
 export function cleanShellOutput(raw: string): string {

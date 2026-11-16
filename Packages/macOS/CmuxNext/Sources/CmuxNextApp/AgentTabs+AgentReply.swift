@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextTabs
 import Foundation
 
 /// The agent pane's reply in place to another agent's message (``AgentPaneAgentReply``): the
@@ -6,9 +7,9 @@ import Foundation
 /// credential for the replying chat on the app's own connection and sends it as that chat. The
 /// relay never calls it for a chat on another machine.
 extension AgentTabStore {
-    func wireAgentReply(_ model: AgentPaneModel, key provisional: String) {
+    func wireAgentReply(_ model: AgentPaneModel, key provisional: String, machine: String? = nil) {
         model.transport.sendAgentReply = { [weak self] reply in
-            guard let self, let daemon = daemonForTab(resolve(provisional)) else { throw AgentPaneAgentReply.Failure.unavailable }
+            guard let self, let daemon = daemonForTabScoped(self.resolvedKey(AgentTabKey(machine: machine ?? "", key: provisional))) else { throw AgentPaneAgentReply.Failure.unavailable }
             return try await daemon.sendAgentReply(reply)
         }
     }

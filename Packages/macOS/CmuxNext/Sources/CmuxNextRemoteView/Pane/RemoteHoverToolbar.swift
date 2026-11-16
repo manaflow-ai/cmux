@@ -66,6 +66,7 @@ final class RemoteHoverToolbar: NSView {
         for (kind, button) in upstreamButtons {
             button.onPress = { [weak self] in self?.onUpstream?(kind) }
         }
+        for control in Self.controls(in: self) { control.refusesFirstResponder = true }
     }
 
     @available(*, unavailable)
@@ -132,8 +133,33 @@ final class RemoteHoverToolbar: NSView {
         takeOverButton.themedToolTip = help
     }
 
+    /// Whether the pane shows the toolbar. A faded toolbar stays in the view tree, so Accessibility
+    /// still reaches Take over, but takes no clicks and no keyboard focus: they belong to the host.
+    var isRevealed = false {
+        didSet {
+            guard isRevealed != oldValue else { return }
+            for control in Self.controls(in: self) { control.refusesFirstResponder = !isRevealed }
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isRevealed ? super.hitTest(point) : nil
+    }
+
+    /// Whether the window's keyboard focus is on one of the toolbar's controls.
+    var holdsFocus: Bool {
+        (window?.firstResponder as? NSView)?.isDescendant(of: self) ?? false
+    }
+
+    private static func controls(in view: NSView) -> [NSControl] {
+        view.subviews.flatMap { ($0 as? NSControl).map { [$0] } ?? controls(in: $0) }
+    }
+
     /// The take-over button's title (tests).
     var takeOverTitle: String? { takeOverButton.isHidden ? nil : takeOverButton.title }
+
+    /// Whether the take-over button takes keyboard focus (tests).
+    var takeOverTakesFocus: Bool { !takeOverButton.refusesFirstResponder }
 
     /// Presses the take-over button (tests).
     func pressTakeOver() { takeOverButton.onPress?() }

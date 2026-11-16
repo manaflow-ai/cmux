@@ -63,11 +63,11 @@ const SWIFT_MONOKAI: &str = "
   elevated_background #363730
   strip_background #272822
   text_primary #FDFFF1
-  text_secondary #B2B4A9
-  text_tertiary #92938A
-  hover_fill #FDFFF1@0.06
-  selection_fill #FDFFF1@0.10
-  pressed_fill #FDFFF1@0.14
+  text_secondary #ACADA2
+  text_tertiary #8C8D83
+  hover_fill #FDFFF1@0.05
+  selection_fill #FDFFF1@0.08
+  pressed_fill #FDFFF1@0.12
   separator #FDFFF1@0.08
   pane_border #FDFFF1@0.07
   focus_ring #FDFFF1@0.40
@@ -85,11 +85,11 @@ const SWIFT_LATTE: &str = "
   elevated_background #ECEEF2
   strip_background #EFF1F5
   text_primary #4C4F69
-  text_secondary #5E6178
+  text_secondary #60627A
   text_tertiary #7B7E92
-  hover_fill #4C4F69@0.05
-  selection_fill #4C4F69@0.08
-  pressed_fill #4C4F69@0.11
+  hover_fill #4C4F69@0.04
+  selection_fill #4C4F69@0.06
+  pressed_fill #4C4F69@0.10
   separator #4C4F69@0.07
   pane_border #4C4F69@0.09
   focus_ring #4C4F69@0.40
@@ -107,10 +107,10 @@ const SWIFT_DEFAULT: &str = "
   elevated_background #373B42
   strip_background #282C34
   text_primary #FFFFFF
-  text_secondary #B8B9BC
-  text_tertiary #93969A
-  hover_fill #FFFFFF@0.06
-  selection_fill #FFFFFF@0.10
+  text_secondary #B2B3B6
+  text_tertiary #8F9195
+  hover_fill #FFFFFF@0.05
+  selection_fill #FFFFFF@0.08
   separator #FFFFFF@0.08
   text_selection #575A61
   attention #F0C674

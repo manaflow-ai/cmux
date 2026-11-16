@@ -19,6 +19,14 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from blacksmith_linux_sizes import entry  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+import workflow_jobs  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -258,7 +266,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         self.assertNotIn("needs", self.job())
         self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
         self.assertEqual(
-            self.job()["runs-on"],
+            workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
             " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
             " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"

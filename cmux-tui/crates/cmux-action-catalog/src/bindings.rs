@@ -76,6 +76,8 @@ pub static ZOOM_ALIASES: &[Binding] = &[
 
 #[rustfmt::skip]
 pub static SPACE_ALIASES: &[Binding] = &[
+    Binding { keys: &[Shortcut { key: "\u{f702}", modifiers: CTRL | OPT | CMD }], command: "space.previous", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
+    Binding { keys: &[Shortcut { key: "\u{f703}", modifiers: CTRL | OPT | CMD }], command: "space.next", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "[", modifiers: OPT | CMD }], command: "space.previous", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "]", modifiers: OPT | CMD }], command: "space.next", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "1", modifiers: CTRL | OPT | CMD }], command: "space.selectByNumber", argument: Some("1"), arguments: &[], when: None, source: "default" },

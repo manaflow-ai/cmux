@@ -1,7 +1,8 @@
 //! What a peer daemon reads of a session's own words (hq#2509). A summary
 //! carries what the person typed and what the agent said (`title`,
 //! `lastPrompt`, `preview`, `lastMessage`, the running turn's and queued
-//! prompts, the last turn's error), and a peer shows it on another screen,
+//! prompts, the last turn's error, a cold-archived chat's last messages in
+//! `coldArchive.last`), and a peer shows it on another screen,
 //! so a connection proven a peer (`peer_auth.rs`) gets those fields masked
 //! (`secret_scan`): a pasted token reads `[GitHub Personal Access Token]`.
 //! So do a chat's title and preview. The unix socket, the local app and the
@@ -84,6 +85,15 @@ fn mask_text(v: &mut Value) -> bool {
                 if let Some(Value::Array(queue)) = map.get_mut("queue") {
                     for queued in queue {
                         changed |= mask_field(queued.get_mut("prompt"));
+                    }
+                }
+                // A cold-archived chat's last messages (`hub/cold_archive.rs`): each cut there
+                // after masking, so a secret the cut split is masked already.
+                if let Some(Value::Array(last)) =
+                    map.get_mut("coldArchive").and_then(|cold| cold.get_mut("last"))
+                {
+                    for message in last {
+                        changed |= mask_field(message.get_mut("text"));
                     }
                 }
             } else if map.contains_key("attention") || map.contains_key("turns") {

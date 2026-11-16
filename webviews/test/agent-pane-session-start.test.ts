@@ -280,10 +280,11 @@ test("an older page landing late never takes the summary back to an older versio
     "claude-sr2",
     1,
   );
-  const { client, summary } = await connect(daemon);
+  const { client, rows, summary } = await connect(daemon);
   expect(summary()?.sessionStart?.version).toBe("2.1.312");
+  // The page lands, and its snapshot is out, before `loadOlder` resolves.
   await client.loadOlder();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(rows().some((row) => row.kind === "user")).toBe(true);
   expect(summary()?.sessionStart?.version).toBe("2.1.312");
 });
 
@@ -307,8 +308,8 @@ test("an older page that moves a change point back leaves one line, at the earli
       .filter((row) => row.kind === "sessionStart")
       .map((row) => row.seq);
   expect(lines()).toEqual([4]);
+  // The page lands, and its snapshot is out, before `loadOlder` resolves.
   await client.loadOlder();
-  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(lines()).toEqual([2]);
 });
 

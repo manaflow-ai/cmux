@@ -39,6 +39,8 @@ impl Fixture {
         let pages = dir.join("pages");
         fs::create_dir_all(pages.join("home-channels")).unwrap();
         fs::write(pages.join("home-channels/index.html"), PAGE_HTML).unwrap();
+        fs::create_dir_all(pages.join("__shared")).unwrap();
+        fs::write(pages.join("__shared/runtime.js"), "export const ready = true;").unwrap();
         fs::write(dir.join("secret.txt"), "not a page").unwrap();
         Self { socket: dir.join("mux.sock"), session: format!("apl-{name}"), pages, dir }
     }
@@ -168,6 +170,11 @@ fn the_apps_daemon_mints_its_websocket_credential_and_serves_its_pages() {
     assert!(lower.contains(&format!("connect-src 'self' ws://{addr}")), "{page}");
     assert!(lower.contains("x-content-type-options: nosniff"), "{page}");
     assert_eq!(status(&http_get(&addr, "/pages/home-channels/index.html", &addr)), "200");
+    // Relative ../__shared imports from a page resolve under the same pages tree.
+    let shared = http_get(&addr, "/pages/__shared/runtime.js", &addr);
+    assert_eq!(status(&shared), "200", "{shared}");
+    assert!(shared.ends_with("export const ready = true;"), "{shared}");
+    assert!(shared.to_ascii_lowercase().contains("content-type: text/javascript"), "{shared}");
     // The Host rule (DNS rebinding) holds for files too.
     assert_eq!(status(&http_get(&addr, "/pages/home-channels/", "evil.example")), "403");
     // Nothing outside the page bundle.
@@ -202,7 +209,10 @@ fn an_owner_started_from_the_app_bundle_serves_its_pages_without_the_pages_env()
     fs::write(pages.join("home-channels/index.html"), PAGE_HTML).unwrap();
     fs::create_dir_all(resources.join("bin")).unwrap();
     let binary = resources.join("bin/cmux-tui");
-    fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &binary).unwrap();
+    // The binary is copied by `cp`, not `fs::copy`: a write descriptor held here would pass to the child of any test thread that starts a process meanwhile, and exec of the copy then fails with ETXTBSY.
+    let copied =
+        Command::new("cp").arg(env!("CARGO_BIN_EXE_cmux-tui")).arg(&binary).status().unwrap();
+    assert!(copied.success(), "cp cmux-tui {}", binary.display());
 
     let mut command = Command::new(&binary);
     command

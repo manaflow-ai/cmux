@@ -4,7 +4,7 @@
 // gallery's Updates page and holds it to design/settings.md: a group title never repeats its page's
 // title (the page read "Updates", then "Updates" again over its first group, then "Updates:
 // Advanced"). With FAST_CHECKS_OUT set it writes 2x light and dark stills of the page's top and of
-// its Advanced group.
+// its More Options row.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
@@ -44,7 +44,7 @@ await requireBrowserLane("settings-group-titles-browser.test.ts", async () => {
   });
 
   for (const colorScheme of ["light", "dark"] as const) {
-    test(`Updates draws its title once and its advanced group as Advanced (${colorScheme})`, async () => {
+    test(`Updates draws its title once and its one card untitled (${colorScheme})`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;
       const page = await browser!.newPage({
         viewport: { width: 900, height: 640 },
@@ -73,11 +73,13 @@ await requireBrowserLane("settings-group-titles-browser.test.ts", async () => {
         // The stills first, so a red run still shows what it drew.
         if (out) {
           await page.screenshot({ path: path.join(out, `settings-updates-top-${colorScheme}-chromium.png`) });
-          await page.locator('[data-row-key="updates.idleInstallMaxWaitSeconds"]').scrollIntoViewIfNeeded();
-          await page.screenshot({ path: path.join(out, `settings-updates-advanced-${colorScheme}-chromium.png`) });
+          await page.locator('[data-section="updates"] .more-options').scrollIntoViewIfNeeded();
+          await page.screenshot({ path: path.join(out, `settings-updates-more-${colorScheme}-chromium.png`) });
         }
         expect(drawn.page).toBe("Updates");
-        expect(drawn.groups).toEqual(["Advanced"]);
+        // The settings overhaul (2026-11-11) folds Updates into one card: its common rows, the rest
+        // behind More Options, and the idle-install timings off the page (rowLevelsData.ts).
+        expect(drawn.groups).toEqual([]);
       } finally {
         await page.close();
       }

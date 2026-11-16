@@ -99,6 +99,14 @@ public struct WindowPlacement {
 
     // MARK: AppKit
 
+    /// Whether a shell window's frame is constrained to a screen: not while no display is connected.
+    ///
+    /// With no display, AppKit constrains a frame to an empty screen, so a window ordered in or
+    /// resized drops to its minimum size below y 0, and that size is saved to its record. Shell
+    /// windows keep the frame as given then, as ``restoredFrame(_:display:screens:)`` does with
+    /// no screen.
+    public static var constrainsToScreen: Bool { !NSScreen.screens.isEmpty }
+
     /// `frame` kept on the test screen in an agent screenshot launch
     /// (unchanged otherwise). Shell windows apply it to every frame they
     /// are given, so no creation or move path (tear-off, new window,

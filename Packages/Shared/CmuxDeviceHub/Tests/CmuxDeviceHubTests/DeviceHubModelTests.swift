@@ -198,7 +198,7 @@ import Testing
         await hub.start()
         #expect(hub.status == .ready)
         #expect(hub.identity.id == fresh.id)
-        let registrations = stub.requests.filter { $0.url.path == "/v1/devices" }
+        let registrations = stub.requests.filter { $0.method == "POST" && $0.url.path == "/v1/devices" }
         #expect(registrations.map { $0.header("X-Device-Id") } == [me.id, fresh.id])
         #expect(registrations.last?.jsonBody?["signingKey"] as? String == fresh.signingKey)
         hub.stop()
@@ -213,6 +213,50 @@ import Testing
             Issue.record("expected failed, got \(hub.status)")
             return
         }
+    }
+
+    /// CMUX-13: starting reads the device list over HTTP, so the list is answered even when
+    /// the socket never connects (no Macs spinner forever).
+    @Test func startListsTheDevicesWithoutTheSocket() async {
+        let me = self.me, phone = self.phone
+        let stub = StubHub { request in
+            switch (request.method, request.url.path) {
+            case (_, "/v1/auth/stack"): return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#)
+            case ("POST", "/v1/devices"): return (200, #"{"device":{"id":"\#(me.id)","name":"Studio"}}"#)
+            case ("GET", "/v1/devices"): return (200, devicesJSON([(me, "Studio"), (phone, "Phone")]))
+            default: return (200, "{}")
+            }
+        }
+        let hub = DeviceHub(client: makeClient(stub, identity: me), socket: DeviceHubSocket(connector: FakeConnector([])),
+                            secrets: MemoryRelaySecretStore(), deviceName: "Studio", now: fixedNow)
+        await hub.start()
+        #expect(hub.status == .ready)
+        #expect(hub.devicesListed && hub.devicesListError == nil)
+        #expect(hub.otherDevices.map(\.id) == [phone.id])
+        hub.stop()
+    }
+
+    /// CMUX-13: `devices` empty before the first read is not "no devices". The list says it was
+    /// read only after a read succeeds, records why a read failed, and forgets both on sign-out.
+    @Test func theDeviceListSaysWhetherItWasRead() async {
+        let me = self.me, phone = self.phone
+        let failing = Locked(true)
+        let stub = StubHub { request in
+            if request.url.path == "/v1/auth/stack" { return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#) }
+            if failing.value { return (503, #"{"error":{"code":"unavailable","message":"down"}}"#) }
+            return (200, devicesJSON([(me, "Studio"), (phone, "Phone")]))
+        }
+        let hub = makeHub(stub)
+        #expect(!hub.devicesListed && hub.devicesListError == nil)
+        await hub.refreshDevices()
+        #expect(!hub.devicesListed)
+        #expect(hub.devicesListError != nil)
+        failing.set(false)
+        await hub.refreshDevices()
+        #expect(hub.devicesListed && hub.devicesListError == nil)
+        #expect(hub.otherDevices.map(\.id) == [phone.id])
+        hub.stop()
+        #expect(!hub.devicesListed && hub.devicesListError == nil && hub.devices.isEmpty)
     }
 }
 

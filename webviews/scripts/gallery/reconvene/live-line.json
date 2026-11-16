@@ -1,0 +1,88 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "live-line-now",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "now",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "live-line-now-command",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "now-command",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "live-line-quiet",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "quiet",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "live-line-quiet-command",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "quiet-command",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "live-line-shimmer-verb",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "shimmer-verb",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "live-line-shimmer-verb-command",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "shimmer-verb-command",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "live-line-glyph",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "glyph",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "live-line-glyph-command",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "glyph-command",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "live-line-thinking-block",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "thinking-block",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "live-line-thinking-block-command",
+      "entry": "agent-pane.reconvene-live-line",
+      "variant": "thinking-block-command",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    }
+  ]
+}

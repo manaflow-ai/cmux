@@ -36,7 +36,13 @@ function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false }:
       return Promise.resolve(midTurn ? { restarted: 0, after_turn: 1 } : { restarted: 1, after_turn: 0 });
     if (updater === "pending") return new Promise<never>(() => undefined);
     return Promise.resolve(
-      updater === "fails" ? { ok: false, error: "npm exited with status 1" } : { ok: true, version: health.latest },
+      updater === "fails"
+        ? {
+            ok: false,
+            error:
+              "npm error code EACCES\nnpm error syscall rename\nnpm error path /usr/local/lib/node_modules/@openai/codex\nnpm error errno -13",
+          }
+        : { ok: true, version: health.latest },
     );
   };
   return (
@@ -198,7 +204,7 @@ export default componentEntry<Props>({
       play: runRestartAfterTurn,
     },
     "update-failed": {
-      note: "A failed update shows the updater's error inline with Try Again and Not Now.",
+      note: "A failed update says so in one plain line, with Update in Terminal and Try Again; npm's own words wait under Details with Copy error.",
       props: { health: outdated, updater: "fails" },
       play: runFailed,
     },

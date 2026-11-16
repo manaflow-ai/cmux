@@ -57,6 +57,7 @@ const SILENT_FOR: Duration = Duration::from_secs(70);
 const MAX_CALLS: usize = 32;
 /// All calls' request bodies held at once, from the first body frame until the provider call ends.
 const MAX_HELD_BYTES: usize = 64 * 1024 * 1024;
+// timeout: a WebSocket upgrade that never completes fails the connect.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 /// The backend refuses a frame over 1 MiB; answer chunks stay well under it once base64'd.
 const CHUNK_BYTES: usize = 192 * 1024;
@@ -1022,6 +1023,7 @@ async fn refresh_codex(
 ) -> Result<CodexLogin, String> {
     let response = http
         .post(CODEX_TOKEN_URL)
+        // timeout: a token endpoint that never answers fails this refresh.
         .timeout(Duration::from_secs(20))
         .form(&[
             ("grant_type", "refresh_token"),
@@ -1296,6 +1298,26 @@ mod tests {
             "/v1/models/x",
             "/v1/responses#x",
             "//evil.example/v1/responses",
+        ] {
+            assert!(proxy_url("https://h", path).is_none(), "{path}");
+        }
+    }
+
+    /// The Worker serves Gemini (`/v1beta/...`) and Grok (`/xai/v1/...`) itself, with the team's
+    /// key; the person-run relay never carries them, so its key never reaches those providers
+    /// (hq#11225).
+    #[test]
+    fn the_relay_never_carries_gemini_or_grok_paths() {
+        for path in PROXY_PATHS {
+            assert!(!path.starts_with("/xai/") && !path.starts_with("/v1beta/"), "{path}");
+        }
+        for path in [
+            "/xai/v1/chat/completions",
+            "/xai/v1/responses",
+            "/xai/v1/models",
+            "/v1beta/models/gemini-2.5-pro:generateContent",
+            "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+            "/v1beta/models/gemini-2.5-pro:countTokens",
         ] {
             assert!(proxy_url("https://h", path).is_none(), "{path}");
         }

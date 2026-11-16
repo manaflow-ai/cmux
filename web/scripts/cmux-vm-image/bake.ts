@@ -127,6 +127,7 @@ import { aptUpdateCommand } from "./apt-update";
 import {
   baseInputTree,
   cachedInstallCommand,
+  imageInputsSha256,
   imagePackagesCommand,
   layerLabel,
   isAppProgram,
@@ -196,7 +197,42 @@ const PGDG_KEY = "/usr/share/keyrings/cmux-pgdg.asc";
 const DAEMON_UNIT = HOST_UNIT;
 const DISABLED_TIMERS = ["apt-daily.timer", "apt-daily-upgrade.timer", "man-db.timer", "motd-news.timer"];
 /** Temp files left in the image; the provider's exec agent keeps its own per-exec scratch (.freestyle-exec-*). */
-export const TMP_LEFTOVERS = "find /tmp /var/tmp -mindepth 1 -maxdepth 1 ! -name '.freestyle-exec-*'";
+export const TMP_LEFTOVERS = tmpLeftovers(["/tmp", "/var/tmp"]);
+
+function tmpLeftovers(dirs: readonly string[]): string {
+  return `find ${dirs.map(sq).join(" ")} -mindepth 1 -maxdepth 1 ! -name '.freestyle-exec-*'`;
+}
+
+/**
+ * The last step before snapshot-ready: anything under /tmp or /var/tmp now was written after clean and tmp-empty
+ * (image roll 42888042827: /tmp/opencode), and would ship in every clone. Fail, naming the writer: for each
+ * leftover its owner and mtime, the processes that hold it open (fuser, /proc/<pid>/fd) or name it on their
+ * command line, then every process of the daemon user. `dirs` is for tests.
+ */
+export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]): string {
+  const script = [
+    `left="$(${tmpLeftovers(dirs)})"`,
+    'if [ -z "$left" ]; then echo tmp-no-writer; exit 0; fi',
+    'printf \'%s\\n\' "$left" | while IFS= read -r p; do',
+    '  echo "written after clean: $p $(stat -c \'owner=%U:%G mtime=%y\' -- "$p" 2>&1)"',
+    '  if command -v fuser >/dev/null 2>&1; then fuser -v -- "$p" 2>&1 | sed \'s/^/  fuser: /\'; fi',
+    '  for fd in /proc/[0-9]*/fd/*; do',
+    '    t="$(readlink "$fd" 2>/dev/null)" || continue',
+    '    case "$t" in "$p"|"$p"/*) pid="${fd#/proc/}"; pid="${pid%%/*}"; [ "$pid" = "$$" ] || echo "  open by pid $pid: $(tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)";; esac',
+    "  done | sort -u",
+    '  for c in /proc/[0-9]*/cmdline; do',
+    '    pid="${c#/proc/}"; pid="${pid%%/*}"; [ "$pid" = "$$" ] && continue',
+    '    cmd="$(tr \'\\0\' \' \' < "$c" 2>/dev/null)" || continue',
+    '    case "$cmd" in *"$p"*) echo "  named by pid $pid: $cmd";; esac',
+    "  done",
+    "done",
+    'echo "processes of $CMUX_TUI_USER:"',
+    'ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" 2>&1 | sed \'s/^/  /\'',
+    'echo "files under /tmp or /var/tmp were written after clean (see above)" >&2',
+    "exit 1",
+  ].join("\n");
+  return `${cmuxTuiLayoutSelector()} && { ${script}\n} 2>&1`;
+}
 // The gh shim (github-auth.ts) comes first so plain `gh` gets a repo-scoped token.
 const STORE_PATH = `${GITHUB_SHIM_DIR}:${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
 
@@ -207,8 +243,8 @@ export type BakeOptions = {
   updateLock: boolean;
   keepBuilder: boolean;
   promotion: boolean;
-  /** Bake the agent tools (agent-tools.ts); off by default. */
-  agentTools?: boolean;
+  /** Bake the required Cloud desktop closure (agent-tools.ts); on for Cloud Native bakes. */
+  agentTools: boolean;
   /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
@@ -432,7 +468,7 @@ export function snapshotReadyCommand(root = ""): string {
 }
 
 /** Agent CLIs a first session starts; their entry files are read back into the snapshot's page cache. */
-const WARM_AGENT_BINS = ["claude", "codex", "opencode", "pi", "gh", "git"] as const;
+const WARM_AGENT_BINS = ["claude", "codex", "opencode", "pi", "cursor-agent", "gh", "git"] as const;
 
 /** Drop the page cache, then read back what a clone's bind path touches first, then the agent CLIs. */
 function warmBindPathCommand(): string {
@@ -848,6 +884,7 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
+  await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());
 }
 
 /**
@@ -863,12 +900,33 @@ export function acpmuxLoginEnvRefreshCommand(): string {
     cmuxTuiLayoutSelector(),
     'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-login-env-no-service; exit 0; fi',
     'cache="$CMUX_TUI_HOME/.acpmux/login-env.json"',
-    'rm -f "$cache"',
+    // acpmuxHarnessChecksDoneCommand waits for this start's harness check to write it again.
+    'health="$CMUX_TUI_HOME/.acpmux/harness-health.json"',
+    'rm -f "$cache" "$health"',
     `${user} systemctl --user restart acpmux.service`,
     'i=0; while [ "$i" -lt 60 ] && [ ! -s "$cache" ]; do i=$((i + 1)); sleep 1; done',
     'test -s "$cache" || { echo "acpmux did not read the login shell after its restart" >&2; exit 1; }',
     'grep -q OPENAI_API_KEY "$cache" || { echo "acpmux login environment lacks OPENAI_API_KEY" >&2; exit 1; }',
     "echo acpmux-login-env-fresh",
+  ].join(" && ");
+}
+
+/**
+ * acpmux's restart (acpmuxLoginEnvRefreshCommand) starts its harness check once it has read the login shell
+ * (hub/health_view.rs run_health): every harness's `--version` and sign-in check, run by the daemon (probe.rs).
+ * Those programs may write under /tmp, and a write that lands after clean ships in the snapshot (image roll
+ * 42888042827: /tmp/opencode). The check saves `<acpmux home>/harness-health.json` once every probe has exited
+ * (harness_health/mod.rs check, save), and the refresh removed that file before the restart, so its return is this
+ * start's finished check. acpmux keeps running for the snapshot (snapshotReadyCommand).
+ */
+export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
+  return [
+    cmuxTuiLayoutSelector(),
+    'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-harness-checks-no-service; exit 0; fi',
+    'health="$CMUX_TUI_HOME/.acpmux/harness-health.json"',
+    `i=0; while [ "$i" -lt ${limitSeconds} ] && [ ! -s "$health" ]; do i=$((i + 1)); sleep 1; done`,
+    `if [ ! -s "$health" ]; then echo "acpmux's harness check did not finish in ${limitSeconds}s (no $health); its processes:" >&2; ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" >&2; exit 1; fi`,
+    'echo "acpmux-harness-checks-done after ${i}s"',
   ].join(" && ");
 }
 
@@ -890,6 +948,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
+  await L.step(vm, "tmp-no-writer", tmpWritersCommand());
   await L.step(vm, "snapshot-ready", snapshotReadyCommand());
   await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
 }
@@ -1016,6 +1075,17 @@ export function layerFlags(options: BakeOptions): string[] {
   return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree"].filter((f): f is string => Boolean(f));
 }
 
+/**
+ * The image's inputs_sha256 (layers.ts imageInputsSha256) from the lock, this bake's layerFlags and the input
+ * tree. The full and the layered bake both call this, so one lock gives one value. Undefined where the key would
+ * not cover the image: --dev-tree carries a checkout of this commit, and --update-lock can rewrite the lock
+ * mid-bake. The platform then falls back to the image's id@revision.
+ */
+export function bakeInputsSha256(options: BakeOptions, lockText: string, inputTree: string): string | undefined {
+  if (options.devTree || options.updateLock) return undefined;
+  return imageInputsSha256(lockText, layerFlags(options), inputTree);
+}
+
 /** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
 async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Array<{ id: string; slug?: string | null }>> {
   const all: Array<{ id: string; slug?: string | null }> = [];
@@ -1085,10 +1155,19 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       agentToolsFiles(lock);
       result.desktop = desktopRecord(lock);
     }
+    // The full bake records the key too, but needs no git for it: without the tree it records none.
+    let inputTree: string | undefined;
+    try {
+      inputTree = baseInputTree(REPO_ROOT);
+    } catch (error) {
+      if (options.layered) throw error;
+      L.log(`no inputs_sha256: ${String(error)}`);
+    }
+    if (inputTree !== undefined) result.inputsSha256 = bakeInputsSha256(options, lockText, inputTree);
     if (options.layered) {
       // layers.ts: system -> agents -> app. A cached layer is reused by its slug; a missing one is built on its
       // parent and kept (its builder is on a ledger of its own, which the run's cleanup never reads).
-      const keys = layerKeys(lockText, layerFlags(options), baseInputTree(REPO_ROOT));
+      const keys = layerKeys(lockText, layerFlags(options), inputTree!);
       const layerLedger = new Ledger(path.join(options.outDir, "layers", "resources.tsv"));
       const snapshots = await allSnapshots(fs);
       const layers: Array<Record<string, unknown>> = [];
@@ -1143,14 +1222,17 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
+  const promotion = hasFlag("--promotion", argv);
   return {
     tag,
     outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`),
     lockPath: path.resolve(argValue("--lock", argv) ?? DEFAULT_LOCK_PATH),
     updateLock: hasFlag("--update-lock", argv),
     keepBuilder: hasFlag("--keep-builder", argv),
-    promotion: hasFlag("--promotion", argv),
-    agentTools: hasFlag("--agent-tools", argv),
+    promotion,
+    // Cloud Native images always carry the desktop closure. The legacy promotion
+    // path is the only image bake that intentionally keeps it off.
+    agentTools: !promotion,
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
     prodCopy: hasFlag("--prod-copy", argv),

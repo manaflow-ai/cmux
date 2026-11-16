@@ -67,6 +67,29 @@ export const githubRepoAllowed = (c: Connection, policy: TeamIntegrationPolicy, 
   return allow === null || allow.some((p) => repoMatches(p, repo))
 }
 
+/** The App installation id of a GitHub connection's account key (`github:installation:<id>`), or undefined. */
+export const githubInstallationOf = (c: Connection): number | undefined => {
+  const id = Number(/^github:installation:(\d+)$/.exec(c.account?.key ?? "")?.[1])
+  return Number.isSafeInteger(id) && id > 0 ? id : undefined
+}
+
+/**
+ * Does this active GitHub connection let a token be minted for `repo`: the repository's owner is the
+ * installation's account and the scope and allowlist include it? One predicate for the token route and
+ * for Connect's reuse, so Connect never answers "connected" for a repository the next mint refuses.
+ */
+export const githubCovers = (c: Connection, policy: TeamIntegrationPolicy, repo: string): boolean =>
+  c.provider === "github" && c.status === "active" && c.account?.name.toLowerCase() === repo.split("/")[0]!.toLowerCase() && githubInstallationOf(c) !== undefined && githubRepoAllowed(c, policy, repo)
+
+/** A GitHub connection this principal may use that already covers `repo` (Connect then has nothing to open). */
+export const githubConnectionFor = (state: ConnectionsState, p: Principal, repo: string): Connection | undefined => {
+  const policy = policyOf(state)
+  if (!providerAllowed(policy, "github")) return undefined
+  return Object.values(state.connections)
+    .filter((c) => mayUse(c, p) && githubCovers(c, policy, repo))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
+}
+
 type PolicyFields = { allowed_providers?: TeamIntegrationPolicy["allowed_providers"]; github?: Partial<TeamIntegrationPolicy["github"]> }
 const merged = (base: TeamIntegrationPolicy, f: PolicyFields, source: TeamIntegrationPolicy["source"], by: string, now: number): TeamIntegrationPolicy => ({
   allowed_providers: f.allowed_providers !== undefined ? f.allowed_providers : base.allowed_providers,
@@ -114,6 +137,10 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         if (allowed !== null && !allowed.includes(d.value.provider)) return reject("policy.denied", `the team policy does not allow ${d.value.provider}`)
         // A mailbox is personal: a team-shared Gmail connection would let teammates' agents read one person's mail (plan decision I4).
         if (d.value.provider === "gmail" && d.value.sharing === "team") return reject("validation.invalid", "a Gmail connection is always private")
+        if (d.value.repo !== undefined && d.value.provider !== "github") return reject("validation.invalid", "repo applies only to GitHub")
+        // Reuse before asking: a connection this person may use already covers the repository, so there is nothing to approve.
+        const reused = d.value.repo === undefined ? undefined : githubConnectionFor(state, p, d.value.repo)
+        if (reused) return { ok: true, state, value: reused, changed: false }
         if (Object.values(state.connections).filter((c) => c.status !== "revoked" && c.status !== "expired").length >= MAX_CONNECTIONS) {
           return reject("integration.limit", `at most ${MAX_CONNECTIONS} connections per team`)
         }

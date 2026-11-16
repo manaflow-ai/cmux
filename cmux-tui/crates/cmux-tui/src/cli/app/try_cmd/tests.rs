@@ -1,0 +1,443 @@
+use std::cell::Cell;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use base64::Engine as _;
+use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
+
+use super::live::{self, Daemon, Phases, Store};
+use super::resolve::{self, Spec, Unresolved};
+use super::{Command, Live, Plan, choose, parse, try_live, undo_live};
+
+const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+const APP_COMMIT: &str = "89abcde";
+
+fn words(list: &[&str]) -> Vec<String> {
+    list.iter().map(|word| (*word).to_owned()).collect()
+}
+
+fn key() -> ring::signature::Ed25519KeyPair {
+    ring::signature::Ed25519KeyPair::from_seed_unchecked(&[9u8; 32]).unwrap()
+}
+
+fn keys() -> Vec<(String, [u8; 32])> {
+    use ring::signature::KeyPair as _;
+    let raw: [u8; 32] = key().public_key().as_ref().try_into().unwrap();
+    vec![("test".to_owned(), raw)]
+}
+
+fn sha(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn binary(name: &str, bytes: &[u8]) -> Value {
+    json!({
+        "url": format!("https://files.cmux.com/cmux-tui/{COMMIT}/{name}-aarch64-apple-darwin"),
+        "sha256": sha(bytes), "size": bytes.len(),
+    })
+}
+
+fn payload(purpose: &str, commit: &str, targets: Value) -> Value {
+    json!({
+        "schema": 1, "purpose": purpose, "channel": "nightly-live", "commit": commit,
+        "committed_at": 1_000, "published_at": 1_100, "expires_at": 2_000,
+        "tree_key": "k", "live_from": [COMMIT, "89abcdef0123456789abcdef0123456789abcdef"],
+        "targets": {"aarch64-apple-darwin": targets},
+    })
+}
+
+fn envelope(payload: &Value) -> Vec<u8> {
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let bytes = serde_json::to_vec(payload).unwrap();
+    let sig = key().sign(&bytes);
+    serde_json::to_vec(&json!({
+        "schema": 1, "payload": b64.encode(&bytes),
+        "signatures": [{"key_id": "test", "sig": b64.encode(sig.as_ref())}],
+    }))
+    .unwrap()
+}
+
+/// A fixture app (`App.app`, CMUXCommit APP_COMMIT, bin/cmux, bin/cmux-app-host, bin/cmux-tui
+/// linked to cmux) and a published commit folder under `files/` with the new binaries.
+struct Fixture {
+    _dir: tempfile::TempDir,
+    app: PathBuf,
+    base: String,
+    store: Store,
+}
+
+const OLD_CMUX: &[u8] = b"old cmux";
+const OLD_HOST: &[u8] = b"old app host";
+const OLD_HOLDER: &[u8] = b"old holder";
+const NEW_CMUX: &[u8] = b"new cmux, a little longer";
+const NEW_HOST: &[u8] = b"new app host";
+
+fn fixture() -> Fixture {
+    let dir = tempfile::tempdir().unwrap();
+    let app = dir.path().join("App.app");
+    let bin = app.join(live::BIN);
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(
+        app.join("Contents/Info.plist"),
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>\
+             <key>CFBundleIdentifier</key><string>com.cmuxterm.app.nightly</string>\
+             <key>CMUXCommit</key><string>{APP_COMMIT}</string></dict></plist>\n"
+        ),
+    )
+    .unwrap();
+    fs::write(bin.join("cmux"), OLD_CMUX).unwrap();
+    fs::write(bin.join("cmux-app-host"), OLD_HOST).unwrap();
+    // The new build has no holder: the try removes the app's, and undo puts it back.
+    fs::write(bin.join("cmux-holder"), OLD_HOLDER).unwrap();
+    std::os::unix::fs::symlink("cmux", bin.join("cmux-tui")).unwrap();
+    let files = dir.path().join("files").join(COMMIT);
+    fs::create_dir_all(&files).unwrap();
+    fs::write(files.join("cmux-tui-aarch64-apple-darwin"), NEW_CMUX).unwrap();
+    fs::write(files.join("cmux-tui-app-host-aarch64-apple-darwin"), NEW_HOST).unwrap();
+    let base = format!("file://{}/", dir.path().join("files").display());
+    let store = Store { root: dir.path().join("state") };
+    Fixture { _dir: dir, app, base, store }
+}
+
+fn good_targets() -> Value {
+    json!({"cmux-tui": binary("cmux-tui", NEW_CMUX), "cmux-tui-app-host": binary("cmux-tui-app-host", NEW_HOST)})
+}
+
+fn found(targets: Value) -> Live {
+    Live::Found(
+        live::verify(&envelope(&payload(live::PURPOSE, COMMIT, targets)), &keys(), COMMIT).unwrap(),
+    )
+}
+
+/// `server status` of an app's daemon: it runs `exe`; SIGTERM makes the app start the next
+/// owner from the same file (`respawn`), or none comes back.
+struct FakeDaemon {
+    pid: Cell<i32>,
+    exe: PathBuf,
+    respawn: bool,
+    terminated: Cell<u32>,
+    /// `server status` cannot tell (it timed out, or the daemon is wedged).
+    probe_fails: Cell<bool>,
+}
+
+impl FakeDaemon {
+    fn new(exe: PathBuf, respawn: bool) -> Self {
+        Self {
+            pid: Cell::new(100),
+            exe,
+            respawn,
+            terminated: Cell::new(0),
+            probe_fails: Cell::new(false),
+        }
+    }
+}
+
+impl Daemon for FakeDaemon {
+    fn owner(&self) -> Result<Option<(i32, PathBuf)>, String> {
+        if self.probe_fails.get() {
+            return Err("server status gave no answer in 10 s".to_owned());
+        }
+        Ok((self.pid.get() > 0).then(|| (self.pid.get(), self.exe.clone())))
+    }
+    fn terminate(&self, pid: i32) {
+        assert_eq!(pid, self.pid.get(), "only the current owner is signalled");
+        self.terminated.set(self.terminated.get() + 1);
+        self.pid.set(if self.respawn { pid + 1 } else { 0 });
+    }
+    fn owner_wait(&self) -> Duration {
+        Duration::from_millis(200)
+    }
+}
+
+fn read(app: &Path, file: &str) -> Option<Vec<u8>> {
+    fs::read(app.join(live::BIN).join(file)).ok()
+}
+
+fn live_files(fixture: &Fixture, live: &Live) -> Vec<live::Wanted> {
+    match choose(COMMIT, Some(APP_COMMIT), live, None, &fixture.base) {
+        Plan::Live { files } => files,
+        other => panic!("expected the live path, got {other:?}"),
+    }
+}
+
+#[test]
+fn app_try_parse_reads_try_undo_status_and_dry_run() {
+    assert_eq!(
+        parse(&words(&["43455"])).unwrap(),
+        Command::Try { target: "43455".into(), dry_run: false, app: None }
+    );
+    assert_eq!(
+        parse(&words(&["--dry-run", "lane/app-try", "--app", "/A.app"])).unwrap(),
+        Command::Try { target: "lane/app-try".into(), dry_run: true, app: Some("/A.app".into()) }
+    );
+    assert_eq!(parse(&words(&["undo"])).unwrap(), Command::Undo { dry_run: false });
+    assert_eq!(parse(&words(&["undo", "--dry-run"])).unwrap(), Command::Undo { dry_run: true });
+    assert_eq!(parse(&words(&["status"])).unwrap(), Command::Status);
+    assert_eq!(parse(&words(&["--help"])).unwrap(), Command::Help);
+    assert!(parse(&words(&[])).is_err());
+    assert!(parse(&words(&["a", "b"])).is_err());
+    assert!(parse(&words(&["--bogus", "abc1234"])).is_err());
+    assert!(parse(&words(&["../x"])).is_err());
+    assert!(parse(&words(&["status", "--dry-run"])).is_err());
+}
+
+#[test]
+fn app_try_classify_and_resolve_answers() {
+    assert_eq!(resolve::classify("43455"), Some(Spec::Pull(43455)));
+    assert_eq!(resolve::classify("#7"), Some(Spec::Pull(7)));
+    assert_eq!(
+        resolve::classify("https://github.com/manaflow-ai/cmux/pull/43463"),
+        Some(Spec::Pull(43463))
+    );
+    assert_eq!(resolve::classify("ABCDEF1"), Some(Spec::Commit("abcdef1".into())));
+    assert_eq!(resolve::classify(COMMIT), Some(Spec::Commit(COMMIT.into())));
+    assert_eq!(resolve::classify("feat-cmux-next"), Some(Spec::Branch("feat-cmux-next".into())));
+    assert_eq!(resolve::classify("-x"), None);
+    assert_eq!(resolve::classify("a..b"), None);
+    assert_eq!(resolve::classify("has space"), None);
+    // A full sha needs no network; a short one, a PR and a branch ask GitHub.
+    assert_eq!(resolve::api_path(&Spec::Commit(COMMIT.into())), None);
+    assert_eq!(
+        resolve::api_path(&Spec::Pull(5)).as_deref(),
+        Some("/repos/manaflow-ai/cmux/pulls/5")
+    );
+    let pull = Spec::Pull(5);
+    let head = json!({"head": {"sha": COMMIT}}).to_string();
+    assert_eq!(resolve::commit_in(&pull, 200, head.as_bytes()), Ok(COMMIT.to_owned()));
+    let limited = br#"{"message":"API rate limit exceeded for 1.2.3.4."}"#;
+    assert_eq!(resolve::commit_in(&pull, 403, limited), Err(Unresolved::RateLimited));
+    assert_eq!(resolve::commit_in(&pull, 404, b"{}"), Err(Unresolved::NotFound));
+    let short = Spec::Commit("0123456".into());
+    let other = json!({"sha": "f".repeat(40)}).to_string();
+    assert_eq!(resolve::commit_in(&short, 200, other.as_bytes()), Err(Unresolved::NotFound));
+}
+
+#[test]
+fn app_try_verify_checks_signature_purpose_and_commit() {
+    let good = envelope(&payload(live::PURPOSE, COMMIT, good_targets()));
+    assert_eq!(live::verify(&good, &keys(), COMMIT).unwrap().commit, COMMIT);
+    // A Cloud machine channel file is signed with the same key: its purpose keeps it out.
+    let cloud = envelope(&payload("cmux-cloud-machine-update", COMMIT, good_targets()));
+    assert!(live::verify(&cloud, &keys(), COMMIT).unwrap_err().contains("not a Mac live update"));
+    let other = "f".repeat(40);
+    assert!(live::verify(&good, &keys(), &other).unwrap_err().contains("not"));
+    let unsigned = cmux_host::updater::channel::trusted_keys();
+    assert!(live::verify(&good, &unsigned, COMMIT).unwrap_err().contains("signature"));
+}
+
+#[test]
+fn app_try_plan_picks_live_full_and_none() {
+    let fixture = fixture();
+    let base = fixture.base.as_str();
+    // Live: the app's short CMUXCommit is in live_from.
+    let plan = choose(COMMIT, Some(APP_COMMIT), &found(good_targets()), None, base);
+    let Plan::Live { files } = plan else { panic!("expected live, got {plan:?}") };
+    let cmux = files.iter().find(|w| w.file == "cmux").unwrap();
+    assert_eq!(
+        cmux.fetch_url.as_deref(),
+        Some(format!("{base}{COMMIT}/cmux-tui-aarch64-apple-darwin").as_str())
+    );
+    assert!(files.iter().any(|w| w.file == "cmux-holder" && w.binary.is_none()));
+
+    // Full: the app is not in live_from, and the feed has the commit's build.
+    let listing = json!({"installed": "400", "switches": true, "builds": [
+        {"build": "500", "commit": &COMMIT[..10], "installed": false, "switchable": true, "health": "pending"},
+        {"build": "400", "commit": "aaaaaaaaaa", "installed": true, "switchable": false},
+    ]});
+    let plan = choose(COMMIT, Some("fedcba9"), &found(good_targets()), Some(Ok(&listing)), base);
+    let Plan::Full { build, from } = plan else { panic!("expected full, got {plan:?}") };
+    assert_eq!((build["build"].as_str(), from.as_str()), (Some("500"), "400"));
+
+    // Full too when there is no live file at all.
+    let plan = choose(COMMIT, Some(APP_COMMIT), &Live::Missing, Some(Ok(&listing)), base);
+    assert!(matches!(plan, Plan::Full { .. }), "{plan:?}");
+
+    // None: no live file and no build in the feed, with each reason.
+    let empty = json!({"installed": "400", "switches": true, "builds": []});
+    let plan = choose(COMMIT, Some(APP_COMMIT), &Live::Missing, Some(Ok(&empty)), base);
+    let Plan::None { why } = plan else { panic!("expected none, got {plan:?}") };
+    assert_eq!(why.len(), 2, "{why:?}");
+    // A binary this CLI does not know where to put refuses the live path.
+    let odd = json!({"cmux-tui": binary("cmux-tui", NEW_CMUX), "cmux-tui-mystery": binary("cmux-tui-mystery", b"x")});
+    let plan = choose(COMMIT, Some(APP_COMMIT), &found(odd), Some(Err("no app")), base);
+    let Plan::None { why } = plan else { panic!("expected none, got {plan:?}") };
+    assert!(why[0].contains("cmux-tui-mystery"), "{why:?}");
+    // A url outside the commit's own publication is refused.
+    let mut moved = good_targets();
+    moved["cmux-tui"]["url"] =
+        json!("https://files.cmux.com/cmux-tui/other/cmux-tui-aarch64-apple-darwin");
+    assert!(matches!(
+        choose(COMMIT, Some(APP_COMMIT), &found(moved), None, base),
+        Plan::None { .. }
+    ));
+    // A DEV build (no CMUXCommit) never takes a live build.
+    assert!(matches!(choose(COMMIT, None, &found(good_targets()), None, base), Plan::None { .. }));
+}
+
+#[test]
+fn app_try_sha256_mismatch_refuses_and_changes_nothing() {
+    let fixture = fixture();
+    let mut targets = good_targets();
+    targets["cmux-tui-app-host"]["sha256"] = json!(sha(b"something else"));
+    targets["cmux-tui-app-host"]["size"] = json!(NEW_HOST.len());
+    let files = live_files(&fixture, &found(targets));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let error = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default())
+        .unwrap_err();
+    assert!(error.contains("hashes to"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
+    assert_eq!(read(&fixture.app, "cmux-holder").as_deref(), Some(OLD_HOLDER));
+    assert_eq!(daemon.terminated.get(), 0, "the daemon is never touched");
+    assert!(fixture.store.last().is_none());
+}
+
+#[test]
+fn app_try_live_swaps_hands_off_and_undo_restores_the_bytes() {
+    let fixture = fixture();
+    let files = live_files(&fixture, &found(good_targets()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let mut phases = Phases::default();
+    let applied = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut phases).unwrap();
+    assert!(applied.changed);
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-tui").as_deref(), Some(NEW_CMUX), "the link follows");
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(NEW_HOST));
+    assert_eq!(read(&fixture.app, "cmux-holder"), None);
+    assert_eq!(daemon.terminated.get(), 1);
+    assert_eq!(applied.steps["daemon"], "app handoff");
+    assert_eq!(
+        (applied.steps["old_pid"].as_i64(), applied.steps["new_pid"].as_i64()),
+        (Some(100), Some(101))
+    );
+    let phases = phases.json();
+    for phase in ["fetch", "find", "backup", "swap", "reload"] {
+        assert!(phases.get(phase).is_some(), "{phase} in {phases}");
+    }
+    fixture
+        .store
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
+                        "steps": applied.steps, "undo": {"files": applied.prior}}))
+        .unwrap();
+
+    // The same try again changes nothing and leaves the daemon alone.
+    let again =
+        try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default()).unwrap();
+    assert!(!again.changed);
+    assert_eq!(daemon.terminated.get(), 1);
+
+    let undone = undo_live(&fixture.store, &daemon).unwrap();
+    assert!(undone.changed);
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
+    assert_eq!(read(&fixture.app, "cmux-holder").as_deref(), Some(OLD_HOLDER));
+    assert_eq!(daemon.terminated.get(), 2, "undo hands the daemon over too");
+}
+
+#[test]
+fn app_try_undo_refuses_after_an_update_replaced_the_files() {
+    let fixture = fixture();
+    let files = live_files(&fixture, &found(good_targets()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let applied =
+        try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default()).unwrap();
+    fixture
+        .store
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
+                        "steps": applied.steps, "undo": {"files": applied.prior}}))
+        .unwrap();
+    // The next nightly replaced the bundle: undo must not put the files from before the try back.
+    fs::write(fixture.app.join(live::BIN).join("cmux"), b"next nightly").unwrap();
+    let error = undo_live(&fixture.store, &daemon).unwrap_err();
+    assert!(error.contains("changed since the try"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(&b"next nightly"[..]));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(NEW_HOST));
+}
+
+#[test]
+fn app_try_failed_handoff_puts_every_file_back() {
+    let fixture = fixture();
+    let files = live_files(&fixture, &found(good_targets()));
+    // SIGTERM and no new owner answers.
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), false);
+    let error = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default())
+        .unwrap_err();
+    assert!(error.contains("every file is back"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
+    assert_eq!(read(&fixture.app, "cmux-holder").as_deref(), Some(OLD_HOLDER));
+}
+
+#[test]
+fn app_try_refuses_a_daemon_that_is_not_this_apps() {
+    let fixture = fixture();
+    let files = live_files(&fixture, &found(good_targets()));
+    let elsewhere = fixture.store.root.join("other-cmux");
+    fs::create_dir_all(&fixture.store.root).unwrap();
+    fs::write(&elsewhere, b"x").unwrap();
+    let daemon = FakeDaemon::new(elsewhere, true);
+    let error = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default())
+        .unwrap_err();
+    assert!(error.contains("not this app's"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(daemon.terminated.get(), 0);
+}
+
+#[test]
+fn app_try_reads_the_short_commit_and_status_pid() {
+    let fixture = fixture();
+    assert_eq!(super::app_commit(&fixture.app).as_deref(), Some(APP_COMMIT));
+    assert!(live::takes(&[COMMIT.to_owned()], "0123456"));
+    assert!(!live::takes(&[COMMIT.to_owned()], "0123"));
+    assert!(!live::takes(&[COMMIT.to_owned()], "fedcba9"));
+    assert_eq!(live::status_pid(r#"{"pid": 4242, "socket": "/tmp/s"}"#), Some(4242));
+    assert_eq!(live::status_pid(r#"{"result": {"pid": 7}}"#), Some(7));
+    assert_eq!(live::status_pid("not json"), None);
+    let absent = r#"{"code": "server.unavailable", "message": "x", "details": null}"#;
+    assert_eq!(live::status_error(absent).as_deref(), Some("server.unavailable"));
+    assert_eq!(
+        live::status_error(r#"{"error": {"code": "server.wedged"}}"#).as_deref(),
+        Some("server.wedged")
+    );
+    assert_eq!(live::status_error("cmux: boom"), None);
+}
+
+#[test]
+fn app_try_refuses_to_swap_under_a_daemon_it_cannot_name() {
+    let fixture = fixture();
+    let files = live_files(&fixture, &found(good_targets()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    daemon.probe_fails.set(true);
+    let error = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default())
+        .unwrap_err();
+    assert!(error.contains("the daemon is unknown; nothing changed"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
+    assert_eq!(read(&fixture.app, "cmux-holder").as_deref(), Some(OLD_HOLDER));
+    assert_eq!(daemon.terminated.get(), 0);
+}
+
+#[test]
+fn app_try_undo_refuses_into_another_build_with_the_same_rust_bytes() {
+    let fixture = fixture();
+    let files = live_files(&fixture, &found(good_targets()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let applied =
+        try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default()).unwrap();
+    fixture
+        .store
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
+                        "steps": applied.steps, "undo": {"files": applied.prior}}))
+        .unwrap();
+    // A full update to another commit that ships the very Rust files the try put in.
+    let plist = fixture.app.join("Contents/Info.plist");
+    let text = fs::read_to_string(&plist).unwrap().replace(APP_COMMIT, "fedcba9");
+    fs::write(&plist, text).unwrap();
+    let error = undo_live(&fixture.store, &daemon).unwrap_err();
+    assert!(error.contains("at fedcba9 now, not 89abcde"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-holder"), None);
+}

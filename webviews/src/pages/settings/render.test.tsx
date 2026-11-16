@@ -24,6 +24,10 @@ const allowedFills = new Set([
   "var(--row-focus)",
   // A floating bar over the content (Appearance's Undo, Redo and Reset) is a popup surface.
   "var(--surface-popup)",
+  // The pinned jump bar is liquid glass: the popup surface at the chrome tint over a blur.
+  "var(--surface-glass)",
+  // The scroll edge's tint is the page's own background, easing out under the jump bar.
+  "var(--scroll-edge-tint)",
 ]);
 const containerTags = new Set([
   "HTML",

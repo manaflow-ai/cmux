@@ -26,6 +26,16 @@ extension CEFEngine {
         set { CEFRuntime.shared.spareWindow.onNeeded = newValue }
     }
 
+    /// A page the person waits for is still on its way to its first document (`CEFArrivingPages`): the next spare
+    /// window or page waits, so neither lands in that page's load.
+    public var pagesArriving: Bool { !CEFRuntime.shared.arriving.isEmpty }
+
+    /// Runs when the last page the person waited for arrived, closed or ran out of time (`pagesArriving` false).
+    public var onPagesArrived: (@MainActor () -> Void)? {
+        get { CEFRuntime.shared.arriving.onSettled }
+        set { CEFRuntime.shared.arriving.onSettled = newValue }
+    }
+
     /// Memory pressure holds the spare page (`CEFSpareWindow.holdPages`): true closes the waiting one
     /// and makes none; false lets the next idle moment make it again.
     public func holdSparePages(_ held: Bool) {

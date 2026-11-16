@@ -126,21 +126,6 @@ final class AgentHarnessCenter {
         }
     }
 
-    /// Stores `value` in the Keychain for harness `id` under `key` (`_acpmux/harness/secret/set`)
-    /// and answers the item name the profile reads (`keychain:NAME`). The value goes only into
-    /// this one request: never a log, a state Settings draws, or a profile.
-    func setSecret(id: String, key: String, value: String) async throws -> String {
-        let answer: JSONValue
-        do {
-            answer = try await call(.secretSet, ["id": id, "key": key, "value": value])
-        } catch let error as AcpmuxRPCError where error.isMethodMissing {
-            // An acpmux without the Keychain write: the endpoint cannot be added from the app. The
-            // other harness buttons in Settings still work, so this does not switch them off.
-            throw AgentHarnessFailure.unsupported
-        }
-        return answer["item"]?.stringValue ?? "cmux-harness/\(id)/\(key)"
-    }
-
     /// `_acpmux/models`: every harness's probed models, with their efforts.
     func models() async throws -> JSONValue {
         try await call(.models)
@@ -204,7 +189,7 @@ final class AgentHarnessCenter {
         var state: [String: JSONValue] = [
             "status": .string(status),
             "manages": .bool(manages),
-            "harnesses": .array(AgentHarnessRows.rows(list)),
+            "harnesses": .array(AgentHarnessRows(list).rows),
             "doctor": .object(doctors),
         ]
         if let message { state["message"] = .string(message) }

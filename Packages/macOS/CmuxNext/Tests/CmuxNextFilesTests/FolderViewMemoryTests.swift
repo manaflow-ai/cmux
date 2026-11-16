@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextFiles
@@ -6,7 +7,7 @@ import Testing
 @MainActor
 struct FolderViewMemoryTests {
     private func scratchDefaults() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "cmux-files-tests-\(UUID().uuidString)"))
+        try #require(UserDefaults(testSuiteName: "cmux-files-tests-\(UUID().uuidString)"))
     }
 
     @Test func foldersComeBackInTheirOwnViewAndOrder() async throws {

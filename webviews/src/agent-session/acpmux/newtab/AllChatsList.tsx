@@ -144,7 +144,7 @@ export function AllChatsList({
   // The shared clock (clock.ts), as the New Tab cards: one age for one chat on every page.
   const clock = useMinuteClock();
   const now = fixedNow ?? clock;
-  const { state, fetchPage } = useChatPages(load);
+  const { state, fetchPage, search } = useChatPages(load);
   const openFeedback = useChatOpenFeedback(onOpen, onBring);
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
@@ -420,7 +420,7 @@ export function AllChatsList({
             value={state.query}
             placeholder={t("sidebar.searchPlaceholder")}
             aria-label={t("sidebar.search")}
-            onChange={(event) => fetchPage(event.currentTarget.value, undefined)}
+            onChange={(event) => search(event.currentTarget.value)}
           />
         </label>
       </header>

@@ -190,8 +190,12 @@ class Pool:
 
     @property
     def unreserved_available(self) -> int:
-        """Slots a new run can use without delaying queued release/nightly jobs."""
-        return max(0, self.available - self.reserved)
+        """Slots a new run can use without delaying queued release/nightly jobs: none while any is queued here.
+
+        A reservation holds the whole label, not one slot: subtracting the reserved count left a label with ten
+        slots and one queued app FFI release build open to pull request runs, which then queued ahead of the
+        build as before (2026-11-10, run 42833220418 waited 66 minutes on blacksmith-6vcpu-macos-26)."""
+        return 0 if self.reserved > 0 else self.available
 
 
 @dataclasses.dataclass(frozen=True)
@@ -316,8 +320,14 @@ def _pick_blacksmith(state: State) -> Choice:
     for pool in eligible:
         if pool.unreserved_available >= state.jobs:
             return Choice(pool.label, "first Blacksmith label with enough free slots", pool.xcode_app)
-    # A stalled label is the last resort: least loaded among the moving ones first.
+    # A stalled or dead label (Pool.stalled) is the last resort: least loaded among the moving ones first. This
+    # comes before the reservation filter so that, with every moving label held, a run queues on a held moving
+    # label rather than on a dead one.
     eligible = [pool for pool in eligible if not pool.stalled] or eligible
+    # A label holding queued release, nightly or app FFI release work is never the overflow either: the
+    # least-loaded choice below used to ignore the reservation. Only when every moving label is held does a run
+    # queue on one, as it would on any full label.
+    eligible = [pool for pool in eligible if pool.reserved == 0] or eligible
     if eligible:
         winner = min(eligible, key=lambda pool: ((pool.queued + pool.running) / max(1, pool.capacity),
                                                   BLACKSMITH.index(pool.label)))

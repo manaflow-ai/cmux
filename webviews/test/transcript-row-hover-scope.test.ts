@@ -4,8 +4,11 @@
 // "this thing appears/lights up on hover for no reason!?"
 //
 // - An activity row (TranscriptActivityRow: background updates, subagent, messaging and inbox
-//   lines; DisclosureRow's lines on its shell) keeps its words at their rest tone; only its
-//   chevron lifts, and only when the line is a button that opens something.
+//   lines; DisclosureRow's lines on its shell) lights nothing of its own in TranscriptActivityRow.css
+//   but its chevron, and only when the line is a button that opens something. Its words light with
+//   the tool rows' rule in conversation.css, all the way through, as a tool row's do (Leo,
+//   2026-11-09: "this scheduled check thing isn't highlighted all the way through like other tool
+//   calls are"; transcript-row-word-lift-browser.test.ts).
 // - A line with no action behind it (the live "Thinking" line, a `div.cv-worked`) never lifts: only
 //   the "Worked for" button's own hover may.
 // - The live line's counts ("Ran cat x 0s · 39s · 1K tokens") read in one dim tone, and no word

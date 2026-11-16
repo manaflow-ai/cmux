@@ -15,6 +15,13 @@
 //! ends `failed`, never `needs_github`: connecting GitHub would not help it. A checkout cloned
 //! through a cmux helper keeps that helper in its own config, so the agent's push works there.
 //!
+//! The default branch is cloned head first when the machine's cmux has `repo hold`: the step
+//! clones one commit's trees with the root files and harness folders, and fills the rest in the
+//! background under the repository sync barrier (`cmux repo hold`, cmux-tui
+//! `cli/repo_hold.rs`), so a Claude start goes ahead at the head while every tool waits for the
+//! whole tree. `repo-status.json` says how in `fill`: `background`, `done` (filled in the step
+//! when the background start failed) or `none` (a whole clone, or an update).
+//!
 //! Prior art: #21028's `cmux vm clone` spec parser and its idempotent clone-or-fetch.
 
 use serde::{Deserialize, Serialize};

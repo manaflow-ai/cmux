@@ -79,6 +79,11 @@ struct PasswordManagerRouteTests {
             // the launch's first workspace (`FirstWorkspaceLaunch.land`), which takes the window
             // off any top page a test showed before then. Wait until restore has run to the end.
             try await until({ !services.windows.registry.isLaunching }, within: .seconds(30))
+            // And one of the panes is focused: about 15 bodies start with `#require(services.windows.active?.focusedPane)`,
+            // and on a busy runner the panes attach before the focus lands (MarkdownPageFindTests read nil at
+            // line 30 on cmux#39135's daemon tests, 2026-11-09). `PinnedPageTests.withApp` waits the same way.
+            try await until({ services.windows.active?.focusedPane != nil }, within: .seconds(30),
+                            report: { "the active window's panes attached but none is focused" })
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         reaped = await owner.stop(services)

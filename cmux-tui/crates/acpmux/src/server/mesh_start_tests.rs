@@ -497,3 +497,72 @@ async fn a_start_whose_trust_mark_cannot_be_saved_is_refused_and_leaves_no_chat(
     assert!(b.resolve("unsaved").is_err(), "the chat whose mark was not saved is still there");
     b.shutdown_all().await;
 }
+
+/// The hub as a start sees it: keeps each `start` body it is sent and refuses it, so the start
+/// ends there and the body is what the machine would have run.
+#[derive(Default)]
+struct Recorder(Mutex<Vec<Value>>);
+
+impl MeshHub for Recorder {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("unused")) })
+    }
+
+    fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            self.0.lock().unwrap().push(serde_json::from_str(&m.body).unwrap());
+            Err(HubError::refused("recorded"))
+        })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async { Err(HubError::refused("none")) })
+    }
+}
+
+/// The app's new chat on a machine only the hub reaches starts at the person's own start level,
+/// as one through an ssh peer or `acpmux session start --machine` does: full access goes as
+/// approve-all, `standard` and `ask` go with no policy (the machine starts it asking), and a start
+/// that names its own policy or a mode keeps it.
+#[tokio::test]
+async fn a_hub_machine_start_carries_the_persons_start_level() {
+    for (level, want) in
+        [("fullAccess", json!("approve-all")), ("standard", Value::Null), ("ask", Value::Null)]
+    {
+        let mut config: Config =
+            serde_json::from_value(json!({"defaultPermissionMode": level})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let a = Hub::new(config, store);
+        let mesh = Arc::new(Recorder::default());
+        let _ = a.mesh.set(mesh.clone());
+        a.set_mesh_book(std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]), vec![]);
+        let mut app = Client::app(&a);
+        for (key, meta, want) in [
+            ("plain", json!({"harness": "claude"}), want.clone()),
+            ("named", json!({"harness": "claude", "policy": "ask"}), json!("ask")),
+            ("mode", json!({"harness": "claude", "mode": "default"}), Value::Null),
+        ] {
+            let mut meta = meta;
+            meta["peer"] = json!("machine-b");
+            meta["name"] = json!(format!("{level}-{key}"));
+            let params = json!({"cwd": "/remote", "mcpServers": [], "_meta": {"acpmux": meta}});
+            let reply = app.call("session/new", params, &mut Vec::new()).await;
+            assert!(reply.get("error").is_some(), "{level} {key}: {reply}");
+            let body = mesh.0.lock().unwrap().last().cloned().expect("a start was sent");
+            assert_eq!(body["params"]["_meta"]["acpmux"]["policy"], want, "{level} {key}: {body}");
+        }
+    }
+}

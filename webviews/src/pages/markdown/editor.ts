@@ -59,6 +59,8 @@ import {
   type ViewerComment,
 } from "./comments";
 import { NearCodeBlocks } from "./nearCode";
+import { NearRunBlocks, runControls, type RunButtonHost } from "./runButtons";
+import { isRunnableLanguage, runbookSteps, runnableCommand, type RunbookBlock, type RunbookStep } from "./runbook";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
 import { paddingSelectPlugin } from "./paddingSelect";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
@@ -101,6 +103,8 @@ export interface MarkdownEditorHost {
   tableWidths?: TableWidths;
   /** Delete on a comment card: the host forgets comment `id` and sends the list again. */
   deleteComment?(id: string): void;
+  /** The Run button of shell code blocks (runButtons.ts); none without it. */
+  run?: RunButtonHost;
 }
 
 export type EditorLabel =
@@ -130,6 +134,8 @@ export interface MarkdownEditorOptions {
   onUserEdit?(): void;
   /** Where the link bubble's state goes (the page renders it: LinkOverlayHost). */
   overlays?: LinkOverlays;
+  /** After each load: whether the document has a runnable shell block (the toolbar's Run all). */
+  onRunnable?(runnable: boolean): void;
 }
 
 /** The languages a diagram node view renders. */
@@ -563,6 +569,18 @@ export class MarkdownEditor {
     }
     // The lines moved with the new text: the markers go where their lines are now.
     if (this.comments.length) this.setComments(this.comments);
+    if (this.options.onRunnable) {
+      let runnable = false;
+      view.state.doc.descendants((node) => {
+        if (runnable) return false;
+        if (node.type.name !== "code_block") return true;
+        runnable =
+          isRunnableLanguage(String(node.attrs.language ?? "")) &&
+          !!runnableCommand(String(node.attrs.language), node.textContent);
+        return false;
+      });
+      this.options.onRunnable(runnable);
+    }
   }
 
   /** The markdown for the current document, and its source map (the next baseline after a save). */
@@ -616,6 +634,75 @@ export class MarkdownEditor {
       host,
     );
     view.dispatch(view.state.tr.setMeta(commentMarkersKey, set).setMeta("addToHistory", false));
+  }
+
+  /**
+   * The document's runnable steps (Run all, runbook.ts): its shell code blocks as the viewer holds
+   * them, inside lists and quotes too, each with the heading and paragraph above it and its fence's
+   * source line. The same blocks show a Run button; an HTML comment's fences are raw text, not
+   * steps. Walks the document once, on a click.
+   */
+  runbookSteps(): RunbookStep[] {
+    const view = this.view;
+    if (!view || !this.serializeDoc) return [];
+    const map = this.snapshot();
+    // Each top-level node's start offset in the current text.
+    const starts: number[] = [];
+    for (const block of map.blocks) for (const _ of block.nodes) starts.push(block.start);
+    // Offsets only grow (blocks come in document order), so lines are counted once, not per block.
+    let counted = 0;
+    let lines = 1;
+    const lineAt = (offset: number) => {
+      for (let at = map.text.indexOf("\n", counted); at >= 0 && at < offset; at = map.text.indexOf("\n", at + 1))
+        lines++;
+      counted = Math.max(counted, offset);
+      return lines;
+    };
+    // Where the next block's fence is searched from: its top-level node's start, then past the last block.
+    let from = 0;
+    // A fence's opening line, after any container prefix (`> `, `- `, `1. `, indentation).
+    const FENCE = /^(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)])(?=[ \t]|$))*[ \t]*(`{3,}|~{3,})[ \t]*([^\n]*)$/gm;
+    // The opening fence of a block from `from` on: its language matches and, with code, the next line
+    // ends with the code's first line. Null when the source does not show one (then the search start).
+    const fenceAt = (language: string, text: string): number | null => {
+      const first = text.split("\n", 1)[0]!;
+      FENCE.lastIndex = from;
+      for (let match = FENCE.exec(map.text); match; match = FENCE.exec(map.text)) {
+        const info = match[2]!.trim().split(/\s/, 1)[0] ?? "";
+        const end = match.index + match[0].length;
+        const close = map.text.indexOf("\n", end + 1);
+        const next = map.text.slice(end + 1, close < 0 ? undefined : close).replace(/\r$/, "");
+        if (info === language.split(/\s/, 1)[0] && (!first || next.endsWith(first))) {
+          // The code is at least this long in the source (container prefixes only add to it).
+          from = end + text.length;
+          return match.index;
+        }
+      }
+      return null;
+    };
+    const blocks: RunbookBlock[] = [];
+    let section = "";
+    let lead = "";
+    // Visits one node in document order; true goes into its children.
+    const visit = (node: ProseNode): boolean => {
+      if (node.type.name === "heading") {
+        section = node.textContent;
+        lead = "";
+      } else if (node.type.name === "paragraph") lead = node.textContent;
+      else if (node.type.name === "code_block") {
+        const text = node.textContent;
+        const language = String(node.attrs.language ?? "");
+        const at = fenceAt(language, text);
+        blocks.push({ section, lead, language, text, line: lineAt(at ?? from) });
+        lead = "";
+      } else return true;
+      return false;
+    };
+    view.state.doc.forEach((top, _offset, index) => {
+      from = Math.max(from, starts[index] ?? 0);
+      if (visit(top)) top.descendants(visit);
+    });
+    return runbookSteps(blocks);
   }
 
   /** The baseline text: what the file held at the last load or save. */
@@ -846,6 +933,17 @@ function nearCodeBlocks(view: EditorView): NearCodeBlocks | null {
   return watcher;
 }
 
+/** The editor's Run button watcher (runButtons.ts), made by its first shell block. */
+const runWatchers = new WeakMap<EditorView, NearRunBlocks>();
+function nearRunBlocks(view: EditorView): NearRunBlocks {
+  let watcher = runWatchers.get(view);
+  if (!watcher) {
+    watcher = new NearRunBlocks(view.dom);
+    runWatchers.set(view, watcher);
+  }
+  return watcher;
+}
+
 /** Whether the code block at `pos` is colored now (near the viewport, or every block is). */
 function codeBlockNear(state: EditorState, pos: number | undefined): boolean {
   const near = highlightKey.getState(state)?.near;
@@ -910,6 +1008,8 @@ function codeHighlightPlugin(host: MarkdownEditorHost) {
           destroy: () => {
             nearWatchers.get(editorView)?.disconnect();
             nearWatchers.delete(editorView);
+            runWatchers.get(editorView)?.disconnect();
+            runWatchers.delete(editorView);
             view = null;
           },
         };
@@ -1015,6 +1115,9 @@ class CodeBlockView {
   private language = "";
   private source = "";
   private renderTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The Run controls of a shell block, once it came near the viewport. */
+  private run: HTMLElement | null = null;
+  private runWatched = false;
 
   constructor(
     private node: ProseNode,
@@ -1049,6 +1152,7 @@ class CodeBlockView {
     this.dom.classList.toggle("md-code-diagram", diagram);
     this.label.textContent = language || this.host.label("plainText");
     this.dom.dataset.language = language;
+    this.applyRun(language);
     if (!diagram) {
       this.preview.replaceChildren();
       this.language = language;
@@ -1066,6 +1170,26 @@ class CodeBlockView {
     else this.renderTimer = setTimeout(render, 300);
   }
 
+  /** A shell block gets its Run controls when it first comes near the viewport; another language none. */
+  private applyRun(language: string): void {
+    const runnable = !!this.host.run && isRunnableLanguage(language);
+    if (runnable && !this.run && !this.runWatched) {
+      this.runWatched = true;
+      nearRunBlocks(this.view).watch(this.dom, () => {
+        const host = this.host.run;
+        const language = () => String(this.node.attrs.language ?? "");
+        if (!host || this.run || !isRunnableLanguage(language())) return;
+        this.run = runControls(host, () => ({ language: language(), text: this.node.textContent }));
+        this.dom.prepend(this.run);
+      });
+    } else if (!runnable) {
+      if (this.runWatched) runWatchers.get(this.view)?.forget(this.dom);
+      this.runWatched = false;
+      this.run?.remove();
+      this.run = null;
+    }
+  }
+
   update(node: ProseNode): boolean {
     if (node.type !== this.node.type) return false;
     this.node = node;
@@ -1076,7 +1200,8 @@ class CodeBlockView {
   }
 
   stopEvent(event: Event): boolean {
-    return this.preview.contains(event.target as Node) || this.label.contains(event.target as Node);
+    const target = event.target as Node;
+    return this.preview.contains(target) || this.label.contains(target) || !!this.run?.contains(target);
   }
 
   ignoreMutation(mutation: MutationRecord | { type: string; target: Node }): boolean {
@@ -1086,6 +1211,7 @@ class CodeBlockView {
   destroy(): void {
     if (this.renderTimer) clearTimeout(this.renderTimer);
     nearWatchers.get(this.view)?.forget(this.dom);
+    runWatchers.get(this.view)?.forget(this.dom);
   }
 }
 

@@ -145,6 +145,30 @@ pub fn codex_args(args: Vec<String>, configs: &[toml::Table]) -> Vec<String> {
     lifted
 }
 
+/// Whether a `codex app-server` launch of `args` in `cwd` (`home`: the profile's `CODEX_HOME`)
+/// already has the dotted config `key`: from its command line, or from codex's own config
+/// (`config.toml`, its active profile, the project's), as [`codex_args`] reads them.
+pub fn codex_sets(
+    args: &[String],
+    cwd: &std::path::Path,
+    home: Option<std::path::PathBuf>,
+    key: &str,
+) -> bool {
+    if sets_codex_key(args, key) {
+        return true;
+    }
+    let configs = codex_configs(cwd, home);
+    let profile = codex_profile(args, &configs);
+    configs.iter().any(|c| {
+        toml_has(c, key)
+            || profile.as_ref().is_some_and(|p| {
+                c.get("profiles")
+                    .and_then(|ps| ps.get(p.as_str()))
+                    .is_some_and(|t| t.as_table().is_some_and(|t| toml_has(t, key)))
+            })
+    })
+}
+
 /// Codex's config files that apply in `cwd`: `.codex/config.toml` in `cwd`
 /// and the directories above it, nearest first (a project's wins), then
 /// `config.toml` in `home` (the profile's `CODEX_HOME`, else the daemon's,
@@ -185,12 +209,15 @@ fn toml_has(table: &toml::Table, key: &str) -> bool {
     value.is_some()
 }
 
-/// Whether `args` sets `key` with `-c key=…`, `--config key=…` or
+/// Whether `args` sets `key` with `-c key=…`, `-ckey=…`, `--config key=…` or
 /// `--config=key=…`.
 fn sets_codex_key(args: &[String], key: &str) -> bool {
     let sets = |value: &str| value.split_once('=').is_some_and(|(k, _)| k.trim() == key);
     args.iter().enumerate().any(|(i, a)| match a.as_str() {
         "-c" | "--config" => args.get(i + 1).is_some_and(|v| sets(v)),
-        _ => a.strip_prefix("--config=").is_some_and(sets),
+        _ => a
+            .strip_prefix("--config=")
+            .or_else(|| a.strip_prefix("-c").filter(|rest| !rest.is_empty()))
+            .is_some_and(sets),
     })
 }

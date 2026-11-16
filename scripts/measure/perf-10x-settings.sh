@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 bash scripts/ci/ensure-web-bundles.sh
-bun_pin="$(python3 -c 'import json; print(json.load(open("webviews/package.json"))["devEngines"]["packageManager"]["version"])')"
+bun_pin="$(python3 -I scripts/webviews_bun_version.py webviews/package.json)"
 bun_dir="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/tools/bun-$bun_pin/bin"
 if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ] && [ -x "$bun_dir/bun" ]; then
   export PATH="$bun_dir:$PATH"

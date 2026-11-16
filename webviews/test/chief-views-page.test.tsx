@@ -35,6 +35,7 @@ import {
 import { CHIEF_VIEWS, viewById } from "../src/pages/chief-views/registry";
 import { ChiefViewsStore, LAYOUT_KEY, defaultLayout } from "../src/pages/chief-views/store";
 import { ChiefViewsOps, type ChiefAgent } from "../src/pages/chief-views/types";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "localStorage", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -55,12 +56,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const agent = (over: Partial<ChiefAgent>): ChiefAgent => ({

@@ -12,7 +12,7 @@ struct TrailingOverflowFade: ViewModifier {
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.x + geometry.containerSize.width < geometry.contentSize.width - 1
             } action: { _, overflow in
-                if more != overflow { withAnimation(.easeOut(duration: 0.15)) { more = overflow } }
+                if more != overflow { withAnimation(.easeOut(duration: 0.15).unlessReduceMotion) { more = overflow } }
             }
             .mask {
                 HStack(spacing: 0) {

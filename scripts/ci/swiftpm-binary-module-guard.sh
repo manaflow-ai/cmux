@@ -6,8 +6,7 @@
 #
 # Why: a fleet step-warm slot (hq build-fleet cmd/worker/step_warm.go), a
 # GitHub runner's kept checkout or an nx-remote tree builds many commits in one
-# .build. A binary target (CCmuxAppFFI, GhosttyNextKit, CmuxTerminalClientFFI,
-# iroh-ffi) gives its headers to the build at a fixed path
+# .build. A binary target (CCmuxAppFFI, GhosttyNextKit, iroh-ffi) gives its headers to the build at a fixed path
 # (.build/out/Products/<config>/include/... under Xcode 27). Its explicit
 # precompiled module (.pcm) is keyed by the compile arguments, which do not
 # change when a pin moves, so the build reuses the old .pcm against the new

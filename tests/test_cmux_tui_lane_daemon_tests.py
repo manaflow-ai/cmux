@@ -21,6 +21,13 @@ import sys
 import tempfile
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
@@ -159,8 +166,8 @@ def run_policy(event, ref, message):
         subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", message], check=True)
         output = os.path.join(tmp, "github-output")
         open(output, "w").close()
-        env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": output,
-               "EVENT_NAME": event, "REF": ref}
+        env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": output,
+               "EVENT_NAME": event, "REF": ref})
         result = subprocess.run(["bash", "-c", policy_step()], cwd=tmp, env=env,
                                 capture_output=True, text=True)
         if result.returncode != 0:

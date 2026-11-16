@@ -64,6 +64,8 @@ export class AgentProgressStore {
       agent.startedAt,
       agent.background,
       agent.command,
+      // The tray line says the agent's last words when its step is only a tool's name (trayDetail.ts).
+      agent.lastMessage,
       retryKey(agent),
       // Idle (idle.ts) reads `quietSince`: a call opening or closing changes it at once, a line of
       // text only past the next 30 s step, so streaming text never re-renders the lists per token.

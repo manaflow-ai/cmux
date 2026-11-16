@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
 import {
+  docsZoneSelfRewrites,
   isDocsZoneDeployment,
   nightlyDocsOrigin as configuredNightlyDocsOrigin,
   releaseDocsOrigin as configuredReleaseDocsOrigin,
@@ -117,6 +118,7 @@ const nextConfig: NextConfig = {
             source: `/_docs-assets/${docsChannel}/_next/:path*`,
             destination: "/_next/:path*",
           },
+          ...docsZoneSelfRewrites(docsChannel === "nightly" ? "nightly" : "release"),
         ],
       };
     }

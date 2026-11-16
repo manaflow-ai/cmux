@@ -237,7 +237,11 @@ final class SidebarNowPlayingCardView: NSView {
         levels.frame = levelsX < controlsEnd ? .zero
             : NSRect(x: levelsX, y: y + (play - levelsSize.height) / 2, width: levelsSize.width, height: levelsSize.height).integral
         let close = Self.closeSide
-        closeButton.frame = NSRect(x: b.width - Metrics.space1 - close, y: Metrics.space1, width: close, height: close).integral
+        // In the card's top trailing corner, concentric with it (Lawrence 2026-11-15): the same inset from the top and
+        // the side, its hover the corner less it.
+        let corner = Metrics.cornerControl(outerRadius: surface.cornerRadius, side: close)
+        closeButton.frame = corner.topTrailingFrame(side: close, in: b, flipped: true)
+        closeButton.concentricRadius = corner.childRadius
     }
 
     private static let closeSide: CGFloat = 18
@@ -356,7 +360,7 @@ final class SidebarNowPlayingScrubber: NSView {
         fill.bounds = CGRect(x: 0, y: 0, width: width * position / duration, height: bar)
         guard dragged == nil, nowPlaying.isPlaying, nowPlaying.rate > 0, window != nil, width > 0, position < duration else { return }
         let remaining = (duration - position) / nowPlaying.rate
-        let glides = reduceMotionOverride.map { !$0 } ?? Motion.overlays.animatesMovement
+        let glides = reduceMotionOverride.map { !$0 } ?? Motion.overlays.animatesMovement(in: window)
         fill.add(Self.progress(from: fill.bounds.width, to: width, over: remaining, glides: glides), forKey: Self.progressKey)
     }
 

@@ -5,7 +5,7 @@ import Foundation
 /// (`_acpmux/agent_login/start`, which takes the click's gesture), and that same start opens the
 /// page the login names, once, with no second click (``AgentPaneTransport/takeSignInPage(_:)``).
 /// Only a provider's own sign-in page over https may be opened this way: the hosts of acpmux's
-/// `agent_login::parse::ALLOWED_HOSTS` and the page's `SIGN_IN_HOSTS`.
+/// `agent_login::parse::ALLOWED_HOSTS` and `CURSOR_HOSTS`, and the page's `SIGN_IN_HOSTS`.
 enum AgentPaneSignInPage {
     static let hosts: Set<String> = [
         "claude.com",
@@ -14,6 +14,11 @@ enum AgentPaneSignInPage {
         "console.anthropic.com",
         "auth.anthropic.com",
         "auth.openai.com",
+        // The Grok CLI device flow (`grok login --device-auth`).
+        "accounts.x.ai",
+        "auth.x.ai",
+        // Cursor's sign-in (`cursor-agent login`, acpmux `agent_login::parse::CURSOR_HOSTS`).
+        "cursor.com",
     ]
 
     /// How long after the start the open may come: the machine reads its CLI's link for up to

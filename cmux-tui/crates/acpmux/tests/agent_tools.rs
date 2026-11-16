@@ -371,6 +371,11 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let acpmux_skill = std::fs::read_to_string(plugin.join("skills/acpmux/SKILL.md")).unwrap();
     assert!(acpmux_skill.contains("name: acpmux"), "{acpmux_skill}");
     assert!(acpmux_skill.contains("cmux-subsessions") && acpmux_skill.contains("start_session"));
+    // It names the send tool before any `acpmux send`: chats ran `acpmux send` in Bash 15,810
+    // times to 188 send tool calls (2026-11-09 audit, cmuxterm-hq#8104).
+    let tool = acpmux_skill.find("mcp__acpmux__send").expect("the skill names the send tool");
+    let cli = acpmux_skill.find("acpmux send").unwrap();
+    assert!(tool < cli, "the skill teaches `acpmux send` (byte {cli}) before the tool ({tool})");
     let manifest: Value = serde_json::from_str(
         &std::fs::read_to_string(plugin.join(".claude-plugin/plugin.json")).unwrap(),
     )
@@ -382,10 +387,13 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
             .unwrap();
     let bash = &hooks["hooks"]["PreToolUse"][0];
     assert_eq!(bash["matcher"], "Bash", "{hooks}");
-    // With the daemon's home, which the harness's env does not carry.
-    // A hook binary that fails (version skew) lets the call run: `|| true` (`hook_command`).
-    let with_home = format!("'__bg-hook' '{}' || true", acpmux::config::home().display());
-    assert!(bash["hooks"][0]["command"].as_str().unwrap().ends_with(&with_home), "{hooks}");
+    // With the daemon's home, which the harness's env does not carry. The shell starts it only
+    // for a call it may answer, and a hook binary that fails (version skew) lets the call run:
+    // the command ends `true` (`hook_command`).
+    let command = bash["hooks"][0]["command"].as_str().unwrap();
+    let with_home = format!("'__bg-hook' '{}' ;; esac; true", acpmux::config::home().display());
+    assert!(command.starts_with("input=$(cat); case ") && command.ends_with(&with_home), "{hooks}");
+    assert!(command.contains(r#"*'"run_in_background":true'*"#), "{hooks}");
 
     // `agents.memory.enabled` adds the memory server for the next session,
     // with the session as its provenance.

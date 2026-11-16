@@ -53,7 +53,7 @@ impl PluginKind {
         }
     }
 
-    fn command_prefix(self) -> &'static str {
+    pub(crate) fn command_prefix(self) -> &'static str {
         match self {
             Self::Sidebar => "cmux sidebar plugin",
             Self::Agent => "cmux agent plugin",

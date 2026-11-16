@@ -1375,3 +1375,66 @@ fn resource_stream_server_capacity_survives_disconnect_until_workers_exit() {
     assert!(disconnect_client(&mux, extra, false));
     assert_eq!(mux.control_clients.resource_stream_admission.active(), 0);
 }
+
+/// `screen wait --pattern '^READY$'` (bench round 3, T2): a wait pattern is
+/// matched line by line, so `^` and `$` anchor at each line without `(?m)`;
+/// `(?-m)` still asks for the whole text.
+#[test]
+fn w4j_connection_terminal_wait_pattern_anchors_match_at_each_line() {
+    let mux = test_mux();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let create = resource_request(
+        "create-for-line-wait",
+        "workspace.create",
+        json!({"machine":"current", "session":"current", "initial_content":"terminal"}),
+        Some("create-for-line-wait"),
+    );
+    assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+    let created = pop_json(&outbound);
+    let terminal_id =
+        TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+            .unwrap();
+    let surface = mux
+        .resource_surface_for_terminal(&terminal_id)
+        .and_then(|surface| mux.surface(surface))
+        .expect("created terminal surface");
+    surface.apply_stream_output_for_test(b"step 1\r\nREADY\r\nstep 3\r\n$ ").unwrap();
+    let wait = |id: &str, pattern: &str| {
+        resource_request(
+            id,
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":pattern,
+                "timeout_ms":"300",
+            }),
+            None,
+        )
+    };
+    assert!(handle_connection_message(
+        &mux,
+        client,
+        &wait("line-wait", "^READY$"),
+        &writer,
+        &scheduler
+    ));
+    let response = pop_json(&outbound);
+    assert_eq!(response["id"], "line-wait");
+    assert_eq!(response["result"]["matched"], true, "{response}");
+    assert!(handle_connection_message(
+        &mux,
+        client,
+        &wait("whole-wait", "(?-m)^READY$"),
+        &writer,
+        &scheduler
+    ));
+    let response = pop_json(&outbound);
+    assert_eq!(response["id"], "whole-wait");
+    assert_ne!(response["result"]["matched"], true, "(?-m) is the whole text: {response}");
+    disconnect_client(&mux, client, false);
+}

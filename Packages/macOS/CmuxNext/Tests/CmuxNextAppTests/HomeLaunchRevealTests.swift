@@ -59,6 +59,24 @@ struct HomeLaunchRevealTests {
         #expect(home.alphaValue == 1, "a Home whose conversation never came stayed clear past its own deadline")
     }
 
+    /// The launch marks say whether Home showed by its data or by its deadline (goal next-launch-instant):
+    /// `reveal.home` alone cannot, since a deadline 1.5 s after the hold looks like a slow first page.
+    @Test func aRegionShownByItsDeadlineIsToldApartFromOneShownByItsData() async throws {
+        let clock = ManualClock()
+        let reveal = LaunchReveal(clock: clock, deadline: .milliseconds(1500))
+        let sidebar = NSView(), home = NSView()
+        reveal.hold(sidebar, until: .sidebar)
+        reveal.markReady(.sidebar)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1500))
+        await Self.yield(until: { reveal.isReady(.pane) })
+        reveal.hold(home, until: .home)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1500))
+        await Self.yield(until: { reveal.isReady(.home) })
+        #expect(reveal.shownByDeadline == [.home, .pane, .tabs], "only the regions whose data never came count as shown by deadline")
+    }
+
     /// A Home closed before its page came (a fresh Home replaced it) leaves its deadline behind:
     /// the Home that replaced it waits its own, never the closed one's remainder.
     @Test func aHomeThatReplacesAClosedOneWaitsItsOwnDeadline() async throws {

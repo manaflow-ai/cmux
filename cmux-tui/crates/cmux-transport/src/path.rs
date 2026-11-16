@@ -28,6 +28,12 @@ pub enum PathClass {
     Relayed,
 }
 
+impl PathClass {
+    pub fn is_direct(self) -> bool {
+        self == PathClass::Direct
+    }
+}
+
 impl PathKind {
     pub const ALL: [PathKind; 5] = [
         PathKind::DirectLan,

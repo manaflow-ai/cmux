@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -27,12 +28,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("the popup names the full build, lists the highlights and has See all changes once", async () => {
@@ -126,8 +124,9 @@ test("the Updated card says what it updated to, What's new in this build and has
   expect(host.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
   expect(host.querySelector(".wn-card-note")?.textContent).toBe("What's new in this build");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  // The title's version is the copy button (CopyVersion), What's New on the title line, the x.
-  expect(buttons).toEqual(["Nightly", "What's New ↗", "Close"]);
+  // The title's version is the copy button (CopyVersion), then the x. The title line is "Updated to …"
+  // alone; What's New leads the open preview (8d5626228).
+  expect(buttons).toEqual(["Nightly", "Close"]);
 });
 
 // Notes published before the pipeline's readable rules (#21873) reach the card and popup as they

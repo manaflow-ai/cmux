@@ -68,7 +68,7 @@ extension AnyTransition {
         return
     }
     guard let key, let disclosures else {
-        withAnimation(.cmuxMobileSmooth, completionCriteria: .logicallyComplete, change) { hold.end() }
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion, completionCriteria: .logicallyComplete, change) { hold.end() }
         return
     }
     disclosures.settle(key, true)
@@ -76,7 +76,7 @@ extension AnyTransition {
     // After the swapped row drew its current state: a view inserted and changed in one update
     // has no "before" to animate from.
     Task { @MainActor in
-        withAnimation(.cmuxMobileSmooth, completionCriteria: .logicallyComplete, change) {
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion, completionCriteria: .logicallyComplete, change) {
             disclosures.settle(key, false)
             hold.end()
         }

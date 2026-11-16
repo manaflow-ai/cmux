@@ -127,6 +127,11 @@ export default agentPaneEntry({
       note: 'Leo\'s capture: "Report from Fix live working line in transcript" right under its "Subagent finished" line, no clock, closed.',
       snapshot: chat(reported(), views(REPORT)),
     },
+    "report-hover": {
+      note: '"Report from …" under the pointer: its words light all the way through, as a tool row\'s do (Leo, 2026-11-09).',
+      snapshot: chat(reported(), views(REPORT)),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-subagent-report__head .cv-subagent-report__sentence" }),
+    },
     "report-open": {
       note: "Opened: the report in the reply's Markdown, then the agent's own reply to it.",
       snapshot: chat(reported(), views(REPORT)),

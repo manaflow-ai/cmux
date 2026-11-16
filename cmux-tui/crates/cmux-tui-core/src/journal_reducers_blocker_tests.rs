@@ -211,3 +211,113 @@ fn a_visible_prompt_seen_before_the_block_does_not_clear_it() {
     apply_screen_seen(&mut roster, 3, 12_100, "idle", true);
     assert_eq!(state(&roster), "blocked");
 }
+
+/// One screen-detection report from the plugin child `generation`.
+fn apply_screen_from(
+    roster: &mut AgentRoster,
+    sequence: u64,
+    at_ms: u64,
+    state: &str,
+    generation: &str,
+) {
+    let subjects = vec![JournalSubject { kind: "terminal".into(), id: TERMINAL.into() }];
+    let mut payload = plugin_payload(state, at_ms);
+    payload["normalized"]["plugin_generation"] = json!(generation);
+    let kind = format!("plugin.{PLUGIN}.agent.state.changed");
+    roster.apply(&RosterEvent {
+        producer_id: PLUGIN,
+        kind: &kind,
+        subjects: &subjects,
+        payload: &payload,
+        sequence,
+        committed_at_ms: at_ms,
+    });
+}
+
+/// The supervisor's `agent.plugin.exited` for the plugin child `generation`.
+fn apply_plugin_exit(roster: &mut AgentRoster, sequence: u64, at_ms: u64, generation: &str) {
+    let payload = json!({
+        "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+        "adapter": {"id": "cmux", "version": 1},
+        "native_event": crate::agent_hooks::JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
+        "normalized": {
+            "plugin_id": PLUGIN,
+            "plugin_generation": generation,
+            "observed_at_ms": at_ms.to_string(),
+        },
+        "native": {},
+    });
+    roster.apply(&RosterEvent {
+        producer_id: AGENT_HOOK_PRODUCER_ID,
+        kind: "agent.plugin.exited",
+        subjects: &[],
+        payload: &payload,
+        sequence,
+        committed_at_ms: at_ms,
+    });
+}
+
+/// The plugin saw a dialog that the hook then reported answered; the plugin
+/// stopped before it saw the dialog go, and the agent later blocks on a
+/// question the screen rules do not recognize.
+fn later_block_after_the_plugin_stopped(exit: bool) -> AgentRoster {
+    let mut roster = AgentRoster::default();
+    apply_hook(&mut roster, 1, 10_000, "UserPromptSubmit", "");
+    apply_screen_from(&mut roster, 2, 12_000, "blocked", "1");
+    apply_hook(&mut roster, 3, 12_150, "PermissionRequest", "Bash");
+    apply_hook(&mut roster, 4, 13_000, "PostToolUse", "Bash");
+    assert_eq!(state(&roster), "working");
+    if exit {
+        apply_plugin_exit(&mut roster, 5, 14_000, "1");
+    }
+    apply_hook(&mut roster, 6, 15_000, "StopFailure", "");
+    assert_eq!(state(&roster), "blocked");
+    roster
+}
+
+#[test]
+fn a_restarted_plugins_first_idle_does_not_clear_a_later_hook_block() {
+    let mut roster = later_block_after_the_plugin_stopped(true);
+    // The new child never saw a blocker: its idle proves nothing.
+    apply_screen_from(&mut roster, 7, 16_000, "idle", "2");
+    assert_eq!(state(&roster), "blocked");
+    assert_eq!(roster.entries[TERMINAL].source, "hook");
+}
+
+#[test]
+fn a_plugin_exit_drops_that_childs_screen_evidence() {
+    let roster = later_block_after_the_plugin_stopped(true);
+    assert!(roster.screen_evidence.is_empty(), "{:?}", roster.screen_evidence);
+}
+
+#[test]
+fn a_new_plugin_child_without_a_journaled_exit_does_not_clear_a_later_hook_block() {
+    // The supervisor's exit record never reached the journal (a crash).
+    let mut roster = later_block_after_the_plugin_stopped(false);
+    apply_screen_from(&mut roster, 7, 16_000, "idle", "2");
+    assert_eq!(state(&roster), "blocked");
+}
+
+#[test]
+fn the_same_plugin_child_still_clears_the_blocker_it_saw() {
+    let mut roster = AgentRoster::default();
+    apply_hook(&mut roster, 1, 10_000, "UserPromptSubmit", "");
+    apply_screen_from(&mut roster, 2, 12_000, "blocked", "2");
+    apply_hook(&mut roster, 3, 12_150, "PermissionRequest", "Bash");
+    apply_screen_from(&mut roster, 4, 15_000, "idle", "2");
+    assert_eq!(state(&roster), "idle");
+}
+
+#[test]
+fn a_late_report_of_an_older_plugin_child_keeps_the_newer_childs_blocker() {
+    let mut roster = AgentRoster::default();
+    apply_hook(&mut roster, 1, 10_000, "UserPromptSubmit", "");
+    apply_screen_from(&mut roster, 2, 12_000, "blocked", "3");
+    apply_hook(&mut roster, 3, 12_150, "PermissionRequest", "Bash");
+    // Child 2 crashed with no journaled exit; its last report arrives late.
+    apply_screen_from(&mut roster, 4, 12_500, "working", "2");
+    assert_eq!(state(&roster), "blocked");
+    // Esc: child 3, which saw the dialog, sees it gone.
+    apply_screen_from(&mut roster, 5, 15_000, "idle", "3");
+    assert_eq!(state(&roster), "idle");
+}

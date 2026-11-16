@@ -41,6 +41,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from blacksmith_linux_sizes import failover_label, size_label  # noqa: E402
 from runs_on_labels import pool_members, resolve_labels  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 BIG = "blacksmith-32vcpu-ubuntu-2404"
@@ -107,13 +108,16 @@ LINUX_RUNNER_VALUES = (
 TRUSTED_RUNNER_VALUES = ("", "ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404")
 
 
-def linux_routes() -> dict[str, str]:
-    jobs = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
-    return {
-        name: job["runs-on"]
-        for name, job in jobs.items()
-        if "runs-on" in job and "ubuntu" in job["runs-on"]
-    }
+def linux_routes() -> list[tuple[str, str]]:
+    """(job, route) for every Linux route: each matrix cell of a runs-on (`${{ matrix.runner }}` read as its
+    values) is a route of its own. A runs-on with a matrix value nothing resolves fails, never drops out."""
+    routes = []
+    for name, job in yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"].items():
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is None:
+            raise AssertionError(f"{WORKFLOW.name}#{name}: runs-on has a matrix value nothing resolves")
+        routes.extend((name, runs_on) for runs_on in cells if "ubuntu" in runs_on)
+    return routes
 
 
 def context(owner: str, linux_runner: str, overflow: str, trusted: str, darwin_cross: str = "") -> dict:
@@ -132,15 +136,15 @@ def context(owner: str, linux_runner: str, overflow: str, trusted: str, darwin_c
 
 class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
     def test_the_short_jobs_are_linux_jobs_of_this_workflow(self) -> None:
-        routes = linux_routes()
+        names = {name for name, _ in linux_routes()}
         for name in SHORT_JOBS:
             with self.subTest(job=name):
-                self.assertIn(name, routes)
+                self.assertIn(name, names)
 
     def test_every_linux_job_resolves_into_the_shared_set(self) -> None:
         routes = linux_routes()
         for (name, runs_on), linux_runner, overflow, trusted in itertools.product(
-            routes.items(), LINUX_RUNNER_VALUES, ("", OVERFLOW_RECORD), TRUSTED_RUNNER_VALUES
+            routes, LINUX_RUNNER_VALUES, ("", OVERFLOW_RECORD), TRUSTED_RUNNER_VALUES
         ):
             labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, trusted)
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
@@ -150,7 +154,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
     def test_the_overflow_switch_moves_every_linux_job_to_the_other_size(self) -> None:
-        for name, runs_on in linux_routes().items():
+        for name, runs_on in linux_routes():
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
                     size = size_label(WORKFLOW.name, name)
@@ -165,7 +169,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                     self.assertEqual(pool_members(failover_pool)[0], failover)
 
     def test_only_the_darwin_cross_shadow_reads_its_override(self) -> None:
-        for name, runs_on in linux_routes().items():
+        for name, runs_on in linux_routes():
             for linux_runner in ("", POOL):
                 with self.subTest(job=name, linux_runner=linux_runner):
                     labels = resolved(runs_on, "manaflow-ai", linux_runner, "", "", DARWIN_CROSS)
@@ -175,7 +179,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                         self.assertNotIn(DARWIN_CROSS, labels)
 
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
-        for name, runs_on in linux_routes().items():
+        for name, runs_on in linux_routes():
             with self.subTest(job=name):
                 self.assertEqual(resolved(runs_on, "someone-else", "", "", ""), {"ubuntu-24.04"})
 

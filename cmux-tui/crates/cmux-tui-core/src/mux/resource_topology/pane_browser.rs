@@ -29,6 +29,9 @@ pub(crate) struct TabSplit {
     pub(crate) split_id: Option<String>,
     /// The new pane's share of the split (default one half).
     pub(crate) ratio: Option<f32>,
+    /// `split-around-v1`: the split whose whole subtree the new split wraps;
+    /// `pane` must be its last leaf.
+    pub(crate) around: Option<SplitId>,
 }
 
 /// Fields that only a terminal pane can use.
@@ -183,8 +186,11 @@ impl Mux {
         mut fields: Map<String, Value>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let TabSplit { pane, direction, pane_id, split_id, ratio } = split;
+        let TabSplit { pane, direction, pane_id, split_id, ratio, around } = split;
         fields.insert(PANE_BROWSER_URL_FIELD.into(), Value::String(url));
+        if let Some(around) = around {
+            fields.insert(AROUND_SPLIT_FIELD.into(), Value::from(around));
+        }
         if let Some(ratio) = ratio {
             fields.insert("ratio".into(), Value::from(f64::from(ratio)));
         }

@@ -190,6 +190,29 @@ describe("team routes", () => {
     expect((await response.json() as { error: { code: string } }).error.code).toBe("team_has_active_subscription");
     expect(stack.teams.has(TEAM_ID)).toBe(true);
   });
+
+  // Leo deleted a team that carried its own operator Cloud grant (2026-11-09): the grant lives on the
+  // team record (client read-only cmuxVmPlan), so the delete took it with it. A delete refuses instead.
+  test("DELETE refuses a team that carries its own Cloud operator grant", async () => {
+    stack.teams.get(TEAM_ID)!.metadata = { cmuxVmPlan: "pro" };
+    const response = await teamRoute.DELETE(
+      browserRequest(`/api/teams/${TEAM_ID}`, { method: "DELETE" }),
+      params({ teamId: TEAM_ID }),
+    );
+    expect(response.status).toBe(409);
+    expect((await response.json() as { error: { code: string } }).error.code).toBe("team_has_cloud_grant");
+    expect(stack.teams.has(TEAM_ID)).toBe(true);
+  });
+
+  test("DELETE still deletes a team whose metadata names no Cloud grant", async () => {
+    stack.teams.get(TEAM_ID)!.metadata = { cmuxPlan: "free" };
+    const response = await teamRoute.DELETE(
+      browserRequest(`/api/teams/${TEAM_ID}`, { method: "DELETE" }),
+      params({ teamId: TEAM_ID }),
+    );
+    expect(response.status).toBe(200);
+    expect(stack.teams.has(TEAM_ID)).toBe(false);
+  });
 });
 
 type TeamListBody = {

@@ -31,11 +31,9 @@ import Testing
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct TabStripFollowsPaneTickTests {
-    /// A pane's content view: every size it takes. It answers a pane spring's start with `anchor`, the edge its held
-    /// content rides: content that still keeps one size through a key resize (a page until S5, an agent chat). With
-    /// `motion.frameOwner.terminals` on, a terminal does not hold: it follows its pane in every frame (cmux-ad m6,
-    /// ``aKeyResizeKeepsEachStripAndTerminalOnItsPaneInEveryFrame(direction:)``); with it off (the default until the
-    /// flip), it keeps one size per press.
+    /// A pane's content view: every size it takes. It answers a pane spring's start with `anchor`, the edge its content
+    /// rides. All content follows its pane in every frame of a key resize (Lawrence 2026-11-11: "all must have smooth
+    /// transition"; every kind: `PaneContentFollowsPaneAllKindsTests`).
     final class Content: NSView, PaneMotionTargeting {
         var sizes: [CGSize] = []
         var anchor = PaneMotionAnchor.top
@@ -191,8 +189,8 @@ struct TabStripFollowsPaneTickTests {
     ]
 
     /// In every frame of a key resize spring, and at the landing's release, each strip's leading, trailing and top
-    /// edges are its pane's, and its tabs are laid out at that width. The content below each strip stays held (RESIZE
-    /// KEYS K3): it takes a new size at most once per press, and it never shows under the strip.
+    /// edges are its pane's, and its tabs are laid out at that width. The content below each strip follows its pane
+    /// too: it takes a size in each frame, ends at its area's size, and never shows under the strip.
     @Test(arguments: keyPresses)
     func aKeyResizeKeepsEachStripOnItsPaneInEveryFrame(_ press: KeyPress) throws {
         let (axis, direction) = (press.axis, press.direction)
@@ -212,7 +210,8 @@ struct TabStripFollowsPaneTickTests {
         #expect(rig.root.context.hosts["p1"]?.frame != before.0 && rig.root.context.hosts["p2"]?.frame != before.1, "the press moved nothing")
         #expect(strays.isEmpty, "\(strays.count) strip frames off their pane in \(frames) frames: \(strays.prefix(6))")
         for (pane, content) in rig.provider.contents {
-            #expect(content.sizes.count <= 1, "\(pane.rawValue)'s content resized \(content.sizes.count) times in one key press: \(content.sizes.prefix(4))")
+            #expect(content.sizes.count > 3, "\(pane.rawValue)'s content did not follow its pane: it took \(content.sizes.count) sizes in one key press")
+            #expect(content.frame == rig.provider.views[pane]?.contentHost.bounds, "\(pane.rawValue)'s content is at \(content.frame) after the landing")
         }
     }
 
@@ -221,7 +220,7 @@ struct TabStripFollowsPaneTickTests {
 
     /// A held key (film px-5fe33a3 P9: the repeats keep the first press's hold through every retarget, 762 px for 1.7 s):
     /// three presses 4 frames apart (a key repeat at about 30 Hz) retarget one spring. In every frame of the chain, and at
-    /// its landing's release, each strip is on its pane; the content below each strip lays out at most once for the chain.
+    /// its landing's release, each strip is on its pane; the content below each strip follows its pane through the chain.
     @Test(arguments: heldKeyPresses)
     func aHeldKeyKeepsEachStripOnItsPaneThroughEveryRetarget(_ press: KeyPress) throws {
         let rig = Rig(.split("x", axis: press.axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")), focused: "p2")
@@ -247,7 +246,8 @@ struct TabStripFollowsPaneTickTests {
         strays += landing.map { "press 3 \($0)" }
         #expect(strays.isEmpty, "\(strays.count) strip frames off their pane in a held key: \(strays.prefix(6))")
         for (pane, content) in rig.provider.contents {
-            #expect(content.sizes.count <= 1, "\(pane.rawValue)'s content resized \(content.sizes.count) times in one held key: \(content.sizes.prefix(4))")
+            #expect(content.sizes.count > 3, "\(pane.rawValue)'s content did not follow its pane: it took \(content.sizes.count) sizes in one held key")
+            #expect(content.frame == rig.provider.views[pane]?.contentHost.bounds, "\(pane.rawValue)'s content is at \(content.frame) after the landing")
         }
     }
 

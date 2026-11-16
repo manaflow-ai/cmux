@@ -43,6 +43,7 @@ use cmux_cloud_wire::hands::tracker::{Change, Tracker};
 use cmux_cloud_wire::hands::{
     self, HandApproval, HandLevel, HandOutcome, HandSummary, LevelPlan, Target,
 };
+use cmux_json::JsonGet as _;
 use reqwest::Method;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
@@ -175,10 +176,6 @@ async fn token(internal: &mpsc::UnboundedSender<Internal>) -> Option<String> {
     tokio::time::timeout(TOKEN_WAIT, receiver).await.ok()?.ok().flatten()
 }
 
-fn text<'a>(object: &'a Value, key: &str) -> Option<&'a str> {
-    object.get(key).and_then(Value::as_str)
-}
-
 impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
     fn now(&self) -> u64 {
         u64::try_from(self.origin.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -218,10 +215,10 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
 
     fn command(&mut self, line: &str) {
         let Ok(command) = serde_json::from_str::<Value>(line) else { return };
-        match text(&command, "t") {
-            Some("start") => match text(&command, "api").map(|api| secure_origin(api.trim())) {
+        match command.get_str("t") {
+            Some("start") => match command.get_str("api").map(|api| secure_origin(api.trim())) {
                 Some(Ok(api)) => {
-                    self.app_version = text(&command, "app_version").map(str::to_owned);
+                    self.app_version = command.get_str("app_version").map(str::to_owned);
                     self.start(api);
                 }
                 Some(Err(message)) => self.log(format!("start refused: {message}")),
@@ -231,7 +228,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
             Some("token") => {
                 let id = command.get("id").and_then(Value::as_u64).unwrap_or(u64::MAX);
                 if let Some(sender) = self.tokens.remove(&id) {
-                    let _ = sender.send(text(&command, "credential").map(str::to_owned));
+                    let _ = sender.send(command.get_str("credential").map(str::to_owned));
                 }
             }
             Some("call") => {
@@ -421,10 +418,10 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
     }
 
     fn call(&mut self, id: u64, request: &Value) {
-        let op = text(request, "op").unwrap_or_default();
+        let op = request.get_str("op").unwrap_or_default();
         let invalid = |message: &str| Err(Failure::new("invalid", message));
-        let level = text(request, "level").and_then(HandLevel::parse);
-        let environment = text(request, "environment").unwrap_or_default();
+        let level = request.get_str("level").and_then(HandLevel::parse);
+        let environment = request.get_str("environment").unwrap_or_default();
         match op {
             "refresh" => {
                 if self.api.is_none() {
@@ -434,19 +431,20 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                 self.refresh();
             }
             "allow_text" => {
-                let result = match text(request, "key").and_then(|key| self.tracker.approval(key)) {
+                let result = match request.get_str("key").and_then(|key| self.tracker.approval(key))
+                {
                     Some(a) => {
                         Ok(json!({ "text": hands::proof::approval(environment, &a.hand, &a.id) }))
                     }
                     None => Err(Failure::new(
                         "unknown_approval",
-                        text(request, "key").unwrap_or_default(),
+                        request.get_str("key").unwrap_or_default(),
                     )),
                 };
                 self.reply(id, result);
             }
             "presence_text" => {
-                let field = |key| text(request, key).unwrap_or_default();
+                let field = |key| request.get_str(key).unwrap_or_default();
                 let made = hands::proof::presence_registration(
                     environment,
                     field("install"),
@@ -461,20 +459,20 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
             }
             "answer" => {
                 let Some(approval) =
-                    text(request, "key").and_then(|key| self.tracker.approval(key)).cloned()
+                    request.get_str("key").and_then(|key| self.tracker.approval(key)).cloned()
                 else {
                     return self.reply(
                         id,
                         Err(Failure::new(
                             "unknown_approval",
-                            text(request, "key").unwrap_or_default(),
+                            request.get_str("key").unwrap_or_default(),
                         )),
                     );
                 };
                 let allow = request.get("allow").and_then(Value::as_bool).unwrap_or(false);
                 let mut body = json!({ "allow": allow });
                 if let (Some(install), Some(signature)) =
-                    (text(request, "install"), text(request, "signature"))
+                    (request.get_str("install"), request.get_str("signature"))
                     && let Some(fields) = body.as_object_mut()
                 {
                     fields.insert("install".into(), json!(install));
@@ -513,7 +511,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
             }
             "challenge" => {
                 let (Some(target), Some(level)) =
-                    (text(request, "target").and_then(Target::parse), level)
+                    (request.get_str("target").and_then(Target::parse), level)
                 else {
                     return self.reply(id, invalid("not a hand id"));
                 };
@@ -522,7 +520,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                 self.spawn_call(
                     id,
                     move |answered: Result<Value, Failure>| {
-                        let nonce = answered.map(|value| text(&value, "nonce").map(str::to_owned));
+                        let nonce = answered.map(|value| value.get_str("nonce").map(str::to_owned));
                         let result = match nonce {
                             Ok(Some(nonce)) if hands::is_nonce(&nonce) => {
                                 let signed =
@@ -543,7 +541,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
             }
             "set_level" => {
                 let (Some(target), Some(level)) =
-                    (text(request, "target").and_then(Target::parse), level)
+                    (request.get_str("target").and_then(Target::parse), level)
                 else {
                     return self.reply(id, invalid("not a hand id"));
                 };
@@ -552,12 +550,13 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                 if let Some(proof) = proof {
                     for key in ["install", "nonce", "signature"] {
                         if let Some(fields) = body.as_object_mut() {
-                            fields.insert(key.into(), json!(text(proof, key).unwrap_or_default()));
+                            fields
+                                .insert(key.into(), json!(proof.get_str(key).unwrap_or_default()));
                         }
                     }
                 } else if hands::level_plan(
                     &target,
-                    text(request, "known").and_then(HandLevel::parse),
+                    request.get_str("known").and_then(HandLevel::parse),
                     level,
                 ) == LevelPlan::Proof
                 {
@@ -580,7 +579,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                 );
             }
             "register_presence_key" => {
-                let field = |key| text(request, key).unwrap_or_default();
+                let field = |key| request.get_str(key).unwrap_or_default();
                 let body = json!({
                     "install": field("install"),
                     "public_jwk": { "crv": "P-256", "kty": "EC", "x": field("x"), "y": field("y") },

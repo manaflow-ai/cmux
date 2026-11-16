@@ -72,6 +72,7 @@ public final class ReduceTransparency {
     private let surfaces = NSHashTable<OverlaySurfaceView>.weakObjects()
     private let cards = NSHashTable<CardSurfaceView>.weakObjects()
     private let painted = NSHashTable<NSView>.weakObjects()
+    private let followers = NSHashTable<AnyObject>.weakObjects()
     private var observer: (any NSObjectProtocol)?
 
     /// `system` reads the setting; `changes` posts
@@ -101,6 +102,13 @@ public final class ReduceTransparency {
         observeChanges()
     }
 
+    /// Makes `follower`, which paints layers of its own rather than drawing (a tab group chip), recolor when this
+    /// state changes, until it is deallocated.
+    public func register(following follower: any ReduceTransparencyFollower) {
+        followers.add(follower)
+        observeChanges()
+    }
+
     private func observeChanges() {
         guard observer == nil else { return }
         observer = changes.addObserver(
@@ -115,7 +123,15 @@ public final class ReduceTransparency {
         for surface in surfaces.allObjects { surface.refreshMaterial() }
         for card in cards.allObjects { card.needsDisplay = true }
         for view in painted.allObjects { view.needsDisplay = true }
+        for case let follower as any ReduceTransparencyFollower in followers.allObjects { follower.reduceTransparencyChanged() }
     }
+}
+
+/// An object that paints its own layers from `ReduceTransparency.isEnabled` and recolors when it changes
+/// (`ReduceTransparency.register(following:)`).
+@MainActor
+public protocol ReduceTransparencyFollower: AnyObject {
+    func reduceTransparencyChanged()
 }
 
 extension ThemeTokens {

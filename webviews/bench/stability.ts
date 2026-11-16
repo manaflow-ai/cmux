@@ -7,7 +7,8 @@
 //                 no such entries, so there it is a frame-by-frame box diff (the gallery's shift.ts score).
 //   idle wakeups  after settling, IDLE_MS of nothing: the timer, interval, idle and animation-frame callbacks that
 //                 still ran, plus the CSS and Web animations still running at the end. A still page wakes 0 times.
-//   idle cpu ms   Chromium only: the renderer's task time over the same window (CDP Performance TaskDuration).
+//   idle cpu ms   Chromium only: the renderer main thread's CPU time over the same window (CDP Performance ThreadTime,
+//                 threadTicks). Not TaskDuration: that is wall time and grows while a task waits on a busy host.
 // `installStabilityProbe` is a page init script (Playwright `addInitScript`): it wraps the timer and frame APIs
 // before the page's own code runs and samples element boxes on every frame until `settled()` stops it. Its own
 // frames use the unwrapped requestAnimationFrame, so they never count as the page's wakeups.
@@ -82,7 +83,9 @@ export function installStabilityProbe(options: {
         (line) =>
           line && line !== "Error" && !line.includes("installStabilityProbe") && !/^at (w\.|window\.)/.test(line),
       )
-      .slice(1, 3)
+      // The caller that registered the callback first, then two of its callers (the wrapper's own frame is
+      // filtered above; slicing from 1 dropped the caller itself, naming only its caller's caller).
+      .slice(0, 3)
       .join(" < ") || "unknown";
   const note = (kind: keyof typeof counts, error: Error | undefined) => {
     counts[kind] += 1;
@@ -279,19 +282,23 @@ export async function settledAt(page: Page): Promise<Settled> {
 
 export type Idle = IdleCount & { wakeups: number; cpuMs: number | null };
 
-/** The task time (ms) the page's renderer has spent so far, or null without CDP (WebKit). */
+/** The CPU time (ms) the page's renderer main thread has used so far, or null without CDP (WebKit). */
 async function taskMs(cdp: CDPSession | null): Promise<number | null> {
   if (!cdp) return null;
   const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
-  const task = metrics.find((metric) => metric.name === "TaskDuration");
-  return task ? task.value * 1000 : null;
+  const thread = metrics.find((metric) => metric.name === "ThreadTime");
+  return thread ? thread.value * 1000 : null;
 }
 
-/** The CDP session for a Chromium page's task time, with its metrics on; null in WebKit. */
+/**
+ * The CDP session for a Chromium page's CPU time, with its metrics in thread time (threadTicks, the latency
+ * harness's scripts/latency/run.ts reader); null in WebKit. Its own session, so another session's wall-clock
+ * metrics on the same page keep their time domain.
+ */
 export async function cpuSession(page: Page, chromium: boolean): Promise<CDPSession | null> {
   if (!chromium) return null;
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send("Performance.enable");
+  await cdp.send("Performance.enable", { timeDomain: "threadTicks" });
   return cdp;
 }
 

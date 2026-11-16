@@ -2,8 +2,10 @@
 // pane's queue (its `queued` record, an edit, a reorder or send-now, acpmux's own list, and the
 // rows read again once a sender's chat is listed), so its row never offers the person an action
 // acpmux refuses with `queue.not_author` (ComposerQueue.tsx).
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
+import { resetKeptTailsForTests } from "./tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -17,7 +19,11 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+// Each test is a fresh page on the mock's one chat, whose journal starts over: a tail an earlier
+// test's client kept of that chat id would stand in front of it (session ids are never reused in the app).
+beforeEach(() => resetKeptTailsForTests());
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];

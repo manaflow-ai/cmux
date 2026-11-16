@@ -22,12 +22,15 @@ import {
   whoamiOverFetch,
 } from "./redeem";
 import { followBrowserTheme } from "./theme";
+import { installFocusModality } from "../../ui/focusModality";
 
 // The built page loads its strings from locales/ before this module (the build script's loader);
 // the dev server has none and reads the whole table.
 if (import.meta.env.DEV) globalThis.__cmuxPaneStrings ??= (await import("../acpmux/generated/strings.json")).default;
 
 document.documentElement.dataset.cmuxWebviewKind = "guest-page";
+// FOCUS-RING: rings only for focus a key moved, as in the app (ui/focusModality.ts).
+installFocusModality();
 followBrowserTheme();
 
 const storage = window.sessionStorage;

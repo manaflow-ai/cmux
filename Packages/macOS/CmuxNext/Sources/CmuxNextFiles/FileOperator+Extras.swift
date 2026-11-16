@@ -109,8 +109,17 @@ extension FileOperator {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
         process.arguments = arguments
         process.standardOutput = FileHandle.nullDevice
-        let errors = Pipe()
-        process.standardError = errors
+        // ditto's messages go to a file, never a pipe: nothing reads a pipe while ditto runs, and
+        // a full one (64 KB of warnings) would stop ditto in a write for good. The file is removed
+        // on every way out.
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ditto-\(UUID().uuidString).log")
+        FileManager.default.createFile(atPath: log.path, contents: nil)
+        let errors = try? FileHandle(forWritingTo: log)
+        defer {
+            try? errors?.close()
+            try? FileManager.default.removeItem(at: log)
+        }
+        process.standardError = errors ?? FileHandle.nullDevice
         let status: Int32 = try await withCheckedThrowingContinuation { continuation in
             // The handler runs once, after exit; it is the only resume after a successful run().
             process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
@@ -122,8 +131,9 @@ extension FileOperator {
             }
         }
         guard status == 0 else {
-            // concurrency-allow: @concurrent, after ditto exited; ditto starts no children, so EOF is immediate.
-            let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            // The first 64 KB say what went wrong; a missing file leaves the status alone.
+            let text = (try? FileHandle(forReadingFrom: log)).flatMap { try? $0.read(upToCount: 64 * 1024) } ?? Data()
+            let message = String(decoding: text, as: UTF8.self)
             throw FileBrowserError.failed(message.isEmpty ? "ditto exited with \(status)" : message)
         }
     }

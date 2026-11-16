@@ -656,15 +656,13 @@ fn inferred_note(id: &str) -> String {
 fn paused_note(row: &Value) -> Option<String> {
     let id = row["id"].as_str().unwrap_or_default();
     (row["status"] == "paused").then(|| {
-        format!(
-            "The machine is paused: `cmux cloud resume-machine --target machine:{id}` resumes it"
-        )
+        format!("The machine is paused: `cmux vm resume-machine --target vm:{id}` resumes it")
     })
 }
 
 /// Kills machine `id`, then drops setup's record of it.
 fn undo(id: &str) -> String {
-    format!("cmux cloud kill-machine --target machine:{id} --confirm && {FORGET}")
+    format!("cmux vm kill-machine --target vm:{id} --confirm && {FORGET}")
 }
 
 /// The creation is on its way, or the person has not answered yet.

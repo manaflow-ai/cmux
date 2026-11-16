@@ -48,7 +48,7 @@ public final class TerminalRecord implements WireValue {
         Object rawExit = Wire.required(object, "exit");
         builder.exit(rawExit == null ? null : TerminalExit.fromWire(rawExit));
         Object rawLaunchSpec = Wire.required(object, "launch_spec");
-        builder.launchSpec(Wire.immutableJson(rawLaunchSpec));
+        builder.launchSpec(Wire.immutableJson(ProtocolSupport.nonNull(rawLaunchSpec, "TerminalRecord.launch_spec")));
         Object rawLifecycle = Wire.required(object, "lifecycle");
         builder.lifecycle(TerminalLifecycle.fromWire(rawLifecycle));
         Object rawTerminalId = Wire.required(object, "terminal_id");

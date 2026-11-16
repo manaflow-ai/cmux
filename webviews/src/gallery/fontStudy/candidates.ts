@@ -107,10 +107,15 @@ export interface Pairing {
 const CMUX_SANS_TRACKING = { caption: 0.012, detail: 0.006, body: 0, field: -0.004, title: -0.008, heading: -0.016 };
 
 export const PAIRINGS: readonly Pairing[] = [
-  { id: "inter-tuned", label: "cmux Inter (today)", why: "Today's default, the baseline.", ui: "inter-tuned" },
+  {
+    id: "inter-tuned",
+    label: "System (today)",
+    why: "Today's default, the system font, the baseline.",
+    ui: "inter-tuned",
+  },
   {
     id: "inter-newsreader",
-    label: "Inter + Newsreader",
+    label: "System + Newsreader",
     why: "Today's chrome with a text serif for replies.",
     ui: "inter-tuned",
     prose: "newsreader",

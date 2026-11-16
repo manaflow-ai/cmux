@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -14,8 +15,11 @@ import CmuxNextWakeups
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
-        DebugTimings.markLaunch("main_start")
+        if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld
         announceBenchHooksBuild()
+        // Before anything reads NSScroller.preferredScrollerStyle (AppKit reads it once): every
+        // scroll view is an overlay one, also with a mouse attached or "Always" (ScrollerStylePin).
+        ScrollerStylePin().apply(to: .standard)
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
@@ -41,7 +45,7 @@ public struct CmuxNextApp {
             SingleInstanceGuard.handOff(activates: activates)
         }
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
-        LaunchWarmup.start()
+        LaunchWarmup.start(); AcpmuxEnvironment.startBuildHomeAdoption() // the old homes' adoption, before anything awaits it
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true
@@ -52,6 +56,8 @@ public struct CmuxNextApp {
                 build: UpdateBuildIdentity.main().build,
                 reopenedBehind: ProcessInfo.processInfo.arguments.contains(UpdateRelaunchFocus.reopenArgument))
         }
+        // concurrency-allow: one lstat, and once one rename of the folder older builds kept in classic's cmux, before anything reads it
+        StateFolderMove().run(build: environment.launch.build)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
@@ -61,12 +67,13 @@ public struct CmuxNextApp {
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
+        let launchSnapshot = LaunchSnapshot.readAtLaunch(work: work, build: environment.launch.build) // first on the lane: the launch window is drawn from it
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work, mark: { DebugTimings.markLaunch($0) }, markAt: { DebugTimings.markLaunch($0, at: $1) })
         relaunchWake.begin(on: work)
-        // The daemon starts after the bundled CLI resolves this launch's Cloud environment,
-        // so its share room and credential-bearing services agree with the native app.
+        // The bundled CLI's Cloud environment read, off the main thread while AppKit starts; the daemon starts after it.
+        let cloudEnvironment = CloudEnvironmentBootstrap.startAtLaunch(work: work)
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
@@ -74,7 +81,7 @@ public struct CmuxNextApp {
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment, daemonPrestart: nil,
-                                   launchReads: (work, launchImages, relaunchWake))
+                                   launchReads: (work, launchImages, relaunchWake), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")

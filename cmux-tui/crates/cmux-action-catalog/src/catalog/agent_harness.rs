@@ -69,6 +69,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "agent.harness.setIcon",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.harness.setIcon", "Set Agent Icon…"),
+        keywords: &["agent", "harness", "acp", "icon", "emoji", "symbol", "logo", "mark", "profile"],
+        category: "agents",
+        symbol: "face.smiling",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::HARNESS_PROFILE, args::HARNESS_ICON],
+        cli_name: "action agent-harness-set-icon",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "agent.harness.updateAll",
         group: GROUP,
         title: t("ActionCatalog", "action.agent.harness.updateAll", "Update Agent CLIs"),

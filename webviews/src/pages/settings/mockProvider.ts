@@ -22,6 +22,7 @@ import {
   type AccountsRun,
   type AgentsRun,
   type AgentsState,
+  type ChannelsProgress,
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
@@ -29,7 +30,10 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
+  type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -49,6 +53,8 @@ import {
   type SnapshotResult,
   type ThemeOverride,
   type WorkspaceBackground,
+  type KeysState,
+  type CustomizeTryOn,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -56,7 +62,9 @@ import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
+import { mockLibrary, runLibrary } from "./mockLibrary";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 export type MockOptions = {
   chatFolders?: ListRow["folders"];
@@ -82,9 +90,15 @@ export type MockOptions = {
   themeOverrides?: ThemeOverride[];
   /** This Mac joined to a team (the host lists' `devices_join`); absent: not joined. */
   devicesJoin?: DevicesJoinState;
+  /** The customize library (`cmux customize library`); default a few entries with one conflict. */
+  library?: LibraryListing;
+  /** The CLI refuses every library change with this message (a preview is open). */
+  libraryRefusal?: string;
+  /** A customization being tried on (`cmux customize try`); absent: none. */
+  tryOn?: CustomizeTryOn;
 };
 
-/** This Mac joined to a team with the one-line join, both consent switches off. */
+/** This Mac joined to a team with the one-line join, every consent switch off. */
 export const mockDevicesJoin: DevicesJoinState = {
   title: "This Mac on Your Team",
   joined: "Joined to Example Team as studio",
@@ -99,6 +113,12 @@ export const mockDevicesJoin: DevicesJoinState = {
       surface: "control",
       title: "Control",
       help: "Your team's machines can move the pointer and type here",
+      on: false,
+    },
+    {
+      surface: "signedInMachines",
+      title: "Your other Macs",
+      help: "Your other Macs signed in to this account can open workspaces and terminals here",
       on: false,
     },
   ],
@@ -167,6 +187,15 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
   },
 };
 
+/** A project of the mock session host: its repository's recipe files and the saved override. */
+export type MockWorktreeProject = {
+  path: string;
+  name: string;
+  repository: WorktreeRecipe;
+  saved?: WorktreeRecipe;
+  files: string[];
+};
+
 export class MockSettingsProvider {
   readonly log: Array<{ op: string; params: unknown }> = [];
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
@@ -191,6 +220,11 @@ export class MockSettingsProvider {
   private connected: boolean;
   private museumArt: MuseumArtResult[];
   readonly workspaceBackgrounds = new Map<string, WorkspaceBackground>();
+  /** Holds `cmux.settings.host.lists` until it settles: a test's host that answers after the values. */
+  holdHost: Promise<void> | null = null;
+
+  /** Every catalog action the page ran, with its arguments, in order (tests). */
+  readonly actionsRun: Array<{ action: string; args: Params }> = [];
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
@@ -207,9 +241,12 @@ export class MockSettingsProvider {
     this.failing = options.failing ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
+    this.tryOn = options.tryOn ?? null;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
+    if (options.library) this.library = options.library;
+    if (options.libraryRefusal) this.libraryRefusal = options.libraryRefusal;
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -231,7 +268,10 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
-      "cmux.settings.host.lists": () => this.host,
+      "cmux.settings.host.lists": async () => {
+        if (this.holdHost) await this.holdHost;
+        return this.host;
+      },
       "cmux.settings.accounts.state": () => this.accountsState(),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
@@ -307,13 +347,15 @@ export class MockSettingsProvider {
         if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
         return { ...this.channels, switch: this.channelSwitch };
       },
-      "cmux.settings.channels.go_back": (params) => {
+      "cmux.settings.channels.go_back": async (params) => {
         this.wentBack = params.build as string;
+        if (this.switchHold) await this.switchHold;
         return {};
       },
-      "cmux.settings.channels.switch_build": (params) => {
-        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
+      "cmux.settings.channels.switch_build": async (params) => {
         this.switchedTo = params.build as string;
+        if (this.switchHold) await this.switchHold;
+        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
         return {};
       },
       "cmux.settings.channels.update_machine": (params) => {
@@ -321,7 +363,10 @@ export class MockSettingsProvider {
         return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
-      "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.agents.run": async (params) => {
+        if ((params as { action?: string }).action === "remove") await this.agents.endpoint.holdRemove;
+        return this.agents.run(params as unknown as AgentsRun);
+      },
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
         if (menus)
@@ -386,25 +431,45 @@ export class MockSettingsProvider {
         this.chiefs.push(made);
         return { value: made };
       },
-      "cmux.chief.backend.list": () => ({
-        harnesses: {
-          defaultHarness: "claude",
-          harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
-        },
-        // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
-        models: {
-          harnesses: [
-            {
-              harness: "codex",
-              models: [
-                { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
-                { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
-              ],
+      "cmux.chief.backend.list": async () => {
+        await this.agents.endpoint.holdList;
+        return {
+          harnesses: {
+            defaultHarness: "claude",
+            harnesses: {
+              claude: { displayName: "Claude Code" },
+              codex: { displayName: "Codex" },
+              ...this.agents.endpointHarnesses(),
+              ...this.agents.terminalHarnesses(),
             },
-          ],
-        },
-      }),
-      "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
+          },
+          // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
+          models: {
+            harnesses: [
+              {
+                harness: "codex",
+                models: [
+                  { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
+                  { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
+                ],
+              },
+            ],
+          },
+        };
+      },
+      "cmux.chief.backend.add": async (params) => {
+        await this.agents.endpoint.holdAdd;
+        const before = this.agents.endpoint.addFails;
+        if (before) throw new ProtocolError(before, "the endpoint's model list could not be read");
+        const added = this.agents.addEndpoint(params);
+        const fail = this.agents.endpoint.addThenFail;
+        if (fail) throw new ProtocolError(fail, "the add did not answer in time");
+        return added;
+      },
+      "cmux.chief.backend.doctor": async () => {
+        await this.agents.endpoint.holdDoctor;
+        return this.agents.endpoint.doctor;
+      },
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
@@ -441,6 +506,10 @@ export class MockSettingsProvider {
         return { files };
       },
       "cmux.settings.theme.overrides.open": () => ({}),
+      "cmux.settings.theme.file.open": () => {
+        if (this.themeFileRefusal) throw new ProtocolError("cmux.settings.theme.file_failed", this.themeFileRefusal);
+        return {};
+      },
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
@@ -503,11 +572,58 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
+      "cmux.settings.tailnet.state": () => {
+        this.onTailnetRead?.();
+        if (this.tailnetDropReads > 0) {
+          this.tailnetDropReads -= 1;
+          return null;
+        }
+        return this.tailnet;
+      },
+      "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
+      "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
+      "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
+      "cmux.settings.customize.run": (params) => {
+        const verb = String((params as { verb?: unknown }).verb ?? "");
+        if (verb === "status") return { try_on: this.tryOn };
+        this.customizeVerbs.push(verb);
+        this.tryOn = null;
+        return { settled: [] };
+      },
       "cmux.settings.shares.list": () => this.shares,
+      "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.keys.list": () => this.keys,
+      "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
+      "cmux.settings.keys.decline": (params) =>
+        this.declineKey(String((params as { request_id?: unknown }).request_id ?? "")),
+      "cmux.settings.keys.revoke": (params) => this.revokeKey(String((params as { id?: unknown }).id ?? "")),
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
       "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
+      // Settings > Agents > Worktree Setup: the session host's ops through the page relay.
+      "cmux.settings.worktree.list": () => ({
+        projects: this.worktreeProjects.map((project) => ({
+          path: project.path,
+          name: project.name,
+          state: "present",
+          overlay: project.saved ? { worktree: project.saved } : {},
+        })),
+        sources: [],
+      }),
+      "cmux.settings.worktree.save": (params) => {
+        const { path, worktree } = params as { path: string; worktree: WorktreeRecipe | null };
+        this.worktreeProjects = this.worktreeProjects.map((project) => {
+          if (project.path !== path) return project;
+          const { saved: _saved, ...rest } = project;
+          return worktree ? { ...rest, saved: worktree } : rest;
+        });
+        return { value: { path }, replayed: false };
+      },
+      "cmux.settings.worktree.read": (params) =>
+        this.worktreeReadHold
+          ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
+          : this.readWorktree(params as { path: string }),
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -563,6 +679,7 @@ export class MockSettingsProvider {
         ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
+        this.actionsRun.push({ action: String(params.action), args: (params.args ?? {}) as Params });
         if (!this.actionRan) return { ran: false };
         this.runProfileAction(
           params.action as string,
@@ -595,6 +712,7 @@ export class MockSettingsProvider {
       "cmux.chief.profile.update",
       "cmux.chief.profile.create",
       "cmux.chief.backend.list",
+      "cmux.chief.backend.add",
       "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
@@ -602,8 +720,18 @@ export class MockSettingsProvider {
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
       "cmux.settings.environments.run",
+      "cmux.settings.customize.run",
       "cmux.settings.shares.list",
+      "cmux.settings.customize.library",
       "cmux.settings.shares.revoke",
+      "cmux.settings.keys.list",
+      "cmux.settings.keys.answer",
+      "cmux.settings.keys.decline",
+      "cmux.settings.keys.revoke",
+      "cmux.settings.tailnet.state",
+      "cmux.settings.tailnet.start",
+      "cmux.settings.tailnet.login",
+      "cmux.settings.tailnet.logout",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.theme.set",
@@ -661,7 +789,9 @@ export class MockSettingsProvider {
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
+    provide("cmux.settings.keys.changed", (ctx) => this.track(this.keysChanged, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
+    provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
 
   /** Settings > Devices as the app serves it (texts already localized). */
@@ -675,6 +805,119 @@ export class MockSettingsProvider {
     this.devices = devices;
     for (const ctx of this.devicesChanged) ctx.emit(devices);
   }
+
+  /** What `cmux customize library` lists (Personalization > Customization Library). */
+  library: LibraryListing = mockLibrary();
+  /** The CLI's refusal of every library change (a preview is open); null: changes run. */
+  libraryRefusal: string | null = null;
+  /** Every library change the page ran, in order (tests). */
+  readonly libraryRuns: LibraryRun[] = [];
+  /** Holds each `customize library list` until it settles; the read answers the library as it was
+   * when the read began (a test's slow read that a change overtakes). */
+  libraryReadHold: Promise<void> | null = null;
+
+  /** `cmux --json customize library VERB`: the listing, or the CLI's error envelope as the host
+   * answers it (a refusal is an answer, not a failed call). */
+  private runLibrary(
+    run: LibraryRun,
+  ):
+    | { library?: LibraryListing; code?: string; message?: string }
+    | Promise<{ library?: LibraryListing; code?: string; message?: string }> {
+    if (run.verb === "list") {
+      const listed = this.library;
+      return this.libraryReadHold ? this.libraryReadHold.then(() => ({ library: listed })) : { library: listed };
+    }
+    this.libraryRuns.push(run);
+    if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
+    const next = runLibrary(this.library, run);
+    if (!next) return { code: "customize.library", message: `there is no library entry "${run.name}"` };
+    this.library = next;
+    return { library: next };
+  }
+
+  /** Settings > Keys as the app answers it: one request waiting and three keys (live, expired,
+   * revoked). */
+  keys: KeysState = mockKeys(Date.now());
+  /** Every answer the page sent, value included, so tests can check it went to the host once (the
+   * real host pipes it to `cmux keys put` and keeps nothing). */
+  keyAnswers: { request_id: string; value: string }[] = [];
+  keyDeclines: string[] = [];
+  keyRevokes: string[] = [];
+  /** The host's refusal of the next Store (tests), else null. */
+  keyAnswerRefusal: string | null = null;
+  private keysRevision = 0;
+  private readonly keysChanged = new Set<EventSourceContext>();
+
+  /** Replaces the Keys part and tells the page, as the app does when a request arrives. */
+  setKeys(keys: KeysState): void {
+    this.keys = keys;
+    this.keysRevision += 1;
+    for (const ctx of this.keysChanged) ctx.emit({ revision: this.keysRevision });
+  }
+
+  private answerKey(params: { request_id?: unknown; value?: unknown }): { stored: boolean; name: string } {
+    const id = String(params.request_id ?? "");
+    const value = typeof params.value === "string" ? params.value : "";
+    const request = this.keys.requests.find((row) => row.id === id);
+    if (!request) throw new ProtocolError(ProtocolErrorCode.invalidParams, "keys.request_not_found");
+    if (!value) throw new ProtocolError(ProtocolErrorCode.invalidParams, "keys.value_required");
+    if (this.keyAnswerRefusal) {
+      const refusal = this.keyAnswerRefusal;
+      this.keyAnswerRefusal = null;
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, refusal);
+    }
+    this.keyAnswers.push({ request_id: id, value });
+    const at = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    this.keys = {
+      ...this.keys,
+      requests: this.keys.requests.filter((row) => row.id !== id),
+      keys: [
+        {
+          id: `local-${request.name.toLowerCase()}`,
+          label: request.name,
+          name: request.name,
+          provider: "local",
+          kind: "secret",
+          source: "person",
+          purpose: request.purpose,
+          hosts: request.hosts,
+          stores: [],
+          uses: [],
+          by: "user=you",
+          asked_by: request.requester,
+          created_at: at,
+          expires_at: null,
+          state: "live",
+        },
+        ...this.keys.keys.filter((key) => key.name !== request.name),
+      ],
+    };
+    return { stored: true, name: request.name };
+  }
+
+  private declineKey(id: string): Record<string, never> {
+    if (!this.keys.requests.some((row) => row.id === id))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "keys.request_not_found");
+    this.keyDeclines.push(id);
+    this.keys = { ...this.keys, requests: this.keys.requests.filter((row) => row.id !== id) };
+    return {};
+  }
+
+  private revokeKey(id: string): { revoked: string } {
+    if (!this.keys.keys.some((key) => key.id === id))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "keys.not_found");
+    this.keyRevokes.push(id);
+    this.keys = {
+      ...this.keys,
+      keys: this.keys.keys.map((key) => (key.id === id ? { ...key, state: "revoked" } : key)),
+    };
+    return { revoked: id };
+  }
+
+  /** What `cmux customize` is trying on; Keep and Revert Now end it. */
+  tryOn: CustomizeTryOn | null = null;
+  /** Every try-on verb the page ran but status, in order (tests). */
+  customizeVerbs: string[] = [];
 
   /** Settings > Privacy and Security > Shared Links as this Mac's daemon answers it: a guest link with
    * a guest in it, an invite share, and an ended link the card leaves out. */
@@ -696,6 +939,75 @@ export class MockSettingsProvider {
     };
     return { share_id: id, state: "revoked" };
   }
+  private readWorktree(params: { path: string }) {
+    const project = this.worktreeProjects.find((row) => row.path === params.path);
+    const repository = project?.repository ?? {};
+    const saved = project?.saved;
+    const pick = (key: "setup" | "run" | "teardown") => {
+      const value = saved?.[key] ?? repository[key];
+      return value ? value : null;
+    };
+    return {
+      root: project?.path ?? "",
+      recipe: {
+        setup: pick("setup"),
+        run: pick("run"),
+        teardown: pick("teardown"),
+        include: [...(repository.include ?? []), ...(saved?.include ?? [])],
+        repository,
+        ...(saved ? { saved } : {}),
+        files: project?.files ?? [],
+      },
+      run: { state: "none", output: "", output_start: "0", output_end: "0" },
+    };
+  }
+  /** While set, `cmux.settings.worktree.read` answers only once it resolves (a slow host). */
+  worktreeReadHold: Promise<void> | null = null;
+  /** Settings > Agents > Worktree Setup: the session host's projects and each one's recipe files. */
+  worktreeProjects: MockWorktreeProject[] = [
+    {
+      path: "/Users/you/src/cmux",
+      name: "cmux",
+      repository: { setup: "bun install", run: "bun run dev --port $CMUX_PORT", include: [".env", ".env.local"] },
+      files: [".worktreeinclude", ".cmux/worktree.toml"],
+    },
+    {
+      path: "/Users/you/src/website",
+      name: "website",
+      repository: { setup: "npm ci" },
+      saved: { setup: "pnpm install", include: ["config/local.json"] },
+      files: [".cmux/worktree.toml"],
+    },
+  ];
+
+  /** Settings > Server > This Mac on Your Tailnet as acpmux answers the app's relay: signed out; null is
+   * an acpmux with no tailnet. */
+  tailnet: TailnetState | null = { state: "stopped" };
+  /** Every tailnet step the page asked for, in order (tests). */
+  tailnetSteps: string[] = [];
+
+  /** Start, Login and Logout answer null while true (the relay got no answer); state still reads. */
+  tailnetRefuses = false;
+  /** Called on every tailnet state read, so a test can wait for the card's next read. */
+  onTailnetRead: (() => void) | null = null;
+  /** The next this many state reads answer null (the relay dropped them), then reads answer again. */
+  tailnetDropReads = 0;
+  /** Start and Login fail with this text (acpmux keeps it in its state; the step itself answers null). */
+  tailnetFails: string | null = null;
+
+  /** As acpmux does: Start and Login answer `starting` at once and the node publishes its sign-in page
+   * on the next read; Logout signs out. */
+  private stepTailnet(verb: "start" | "login" | "logout"): TailnetState | null {
+    this.tailnetSteps.push(verb);
+    if (this.tailnet === null || this.tailnetRefuses) return null;
+    if (this.tailnetFails) {
+      this.tailnet = { state: "error", error: this.tailnetFails };
+      return null;
+    }
+    if (verb === "logout") return (this.tailnet = { state: "stopped" });
+    this.tailnet = { state: "needs_login", browse_to_url: "https://login.tailscale.com/a/1a2b3c4d5e" };
+    return { state: "starting" };
+  }
 
   /** Settings > Accounts > Cloud Environments as the app's model serves it. */
   environments: CloudEnvironmentsState = {
@@ -708,6 +1020,10 @@ export class MockSettingsProvider {
         name: "web",
         repo: "manaflow-ai/cmux@feat-cmux-next",
         setup_script: "cd web && bun install",
+        env: [
+          { name: "NODE_ENV", value: "development" },
+          { name: "OPENAI_API_KEY", secret: "openai" },
+        ],
         status: "ready",
         error: null,
         log_tail: null,
@@ -717,6 +1033,7 @@ export class MockSettingsProvider {
         name: "api",
         repo: "octo/api",
         setup_script: "make deps",
+        env: [],
         status: "failed",
         error: "setup exited 3",
         log_tail: "lockfile mismatch",
@@ -733,16 +1050,37 @@ export class MockSettingsProvider {
       case "refresh":
         return {};
       case "save":
-        if (!run.name.trim()) return { error: "Name must be 1-80 characters." };
+        if (run.name !== undefined ? !run.name.trim() : !run.id) return { error: "Name must be 1-80 characters." };
+        if (run.id) {
+          // Like CloudDO: a rename alone keeps the snapshot; a repo, script or variable edit makes it stale.
+          const builds = run.repo !== undefined || run.setup_script !== undefined || run.env !== undefined;
+          this.environments = {
+            ...this.environments,
+            environments: rows.map((row) =>
+              row.id === run.id
+                ? {
+                    ...row,
+                    name: run.name ?? row.name,
+                    repo: run.repo === undefined ? row.repo : run.repo || null,
+                    setup_script: run.setup_script ?? row.setup_script,
+                    env: run.env ?? row.env,
+                    status: builds && row.status === "ready" ? "stale" : row.status,
+                  }
+                : row,
+            ),
+          };
+          return {};
+        }
         this.environments = {
           ...this.environments,
           environments: [
             ...rows,
             {
               id: `env_${String(rows.length + 1).padStart(20, "0")}`,
-              name: run.name,
+              name: run.name ?? "",
               repo: run.repo || null,
               setup_script: run.setup_script ?? "",
+              env: run.env ?? [],
               status: "unbuilt",
               error: null,
               log_tail: null,
@@ -774,6 +1112,8 @@ export class MockSettingsProvider {
     switch (run.action) {
       case "refresh":
       case "openPermission":
+      case "openScreen":
+      case "shareThisMac":
         return result;
       case "signIn":
         this.setDevices({ ...state, signIn: null, status: { text: "Connecting…", tone: "attention" } });
@@ -864,6 +1204,17 @@ export class MockSettingsProvider {
     if (this.channels) this.channels = { ...this.channels, machines };
     for (const ctx of this.machinesChanged) ctx.emit(machines ?? null);
   }
+  private readonly switchChanged = new Set<EventSourceContext>();
+
+  /** Moves the running Switch or Go Back to its next stage (null: it ended) and tells the page,
+   * like the app's push; a later read of the card answers it too. */
+  setSwitchProgress(progress: ChannelsProgress | null): void {
+    if (this.channels) this.channels = { ...this.channels, progress };
+    for (const ctx of this.switchChanged) ctx.emit(progress);
+  }
+  /** Holds every Switch and Go Back reply until it resolves, as a host that answers only once
+   * the switch ends would; null: they answer at once. */
+  switchHold: Promise<void> | null = null;
   /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
@@ -872,6 +1223,8 @@ export class MockSettingsProvider {
   switchedTo: string | null = null;
   /** The host's refusal of every Switch; null: Switch runs. */
   switchRefusal: string | null = null;
+  /** Why Open Theme File's export failed (the CLI's last stderr line); null: the file opens. */
+  themeFileRefusal: string | null = null;
   /** The machines the card's Update buttons asked for, in order. */
   updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
@@ -1591,6 +1944,7 @@ export function mockDevicesState(): DevicesState {
       thisDevice: true,
       sharesText: "Shares Mac Screen",
       access: null,
+      screenAction: { kind: "share", title: "Share" },
       removeConfirm: {
         title: "Remove this Mac?",
         body: "This Mac leaves your devices. You can sign in again later.",
@@ -1622,6 +1976,7 @@ export function mockDevicesState(): DevicesState {
         thisDevice: false,
         sharesText: "Shares Mac Screen",
         access: "ask",
+        screenAction: { kind: "view", title: "View screen", disabled: true },
         removeConfirm: removeConfirm("MacBook Pro"),
       },
     ],
@@ -1705,6 +2060,79 @@ export function mockDevicesState(): DevicesState {
         scope: "View only",
         detail: "Declined on this Mac",
         duration: "",
+      },
+    ],
+  };
+}
+
+/** Settings > Keys at `now`: Claude Code asks for a deploy token for two sites; a live key it
+ * stored and wrote to a repository secret, an expired provider key, and a revoked key the person typed. */
+export function mockKeys(now: number): KeysState {
+  const day = 86_400_000;
+  const at = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+  return {
+    available: true,
+    requests: [
+      {
+        id: "kr_0001",
+        name: "DEPLOY_TOKEN",
+        purpose: "Deploy the preview build to the staging site",
+        hosts: ["api.example.com"],
+        requester: "CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0-4d1a-9e3b-0c5d6e7f8a9b",
+        asked_at: at(now - 2 * 60_000),
+      },
+    ],
+    keys: [
+      {
+        id: "local-search_api_key",
+        label: "SEARCH_API_KEY",
+        name: "SEARCH_API_KEY",
+        provider: "local",
+        kind: "secret",
+        source: "stdin",
+        purpose: "Embeddings for the search index",
+        hosts: ["search.example.com"],
+        stores: ["gh-secret:example/search:SEARCH_API_KEY"],
+        uses: [{ target: "search.example.com", last_used_at: at(now - 3_600_000), count: 12 }],
+        by: "CLAUDE_CODE_SESSION_ID=9b1c2d3e-0000-4000-8000-000000000001",
+        asked_by: null,
+        created_at: at(now - 3 * day),
+        expires_at: at(now + 87 * day),
+        state: "live",
+      },
+      {
+        id: "cf-7d1e",
+        label: "Bucket handoff (read and write)",
+        provider: "cloudflare",
+        kind: "r2",
+        source: "cloudflare",
+        bucket: "handoff",
+        purpose: null,
+        hosts: [],
+        stores: ["keychain:handoff"],
+        uses: [],
+        by: "CODEX_SESSION_ID=0c9d8e7f-1111-4000-8000-000000000002",
+        asked_by: null,
+        created_at: at(now - 10 * day),
+        expires_at: at(now - day),
+        state: "expired",
+      },
+      {
+        id: "local-publish_token",
+        label: "PUBLISH_TOKEN",
+        name: "PUBLISH_TOKEN",
+        provider: "local",
+        kind: "secret",
+        source: "person",
+        purpose: "Publish the CLI package",
+        hosts: ["registry.example.com"],
+        stores: [],
+        uses: [],
+        by: "user=you",
+        asked_by: "CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0-4d1a-9e3b-0c5d6e7f8a9b",
+        created_at: at(now - 20 * day),
+        expires_at: null,
+        state: "revoked",
       },
     ],
   };

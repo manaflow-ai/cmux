@@ -84,6 +84,7 @@ impl ImagePasteFile {
 
     /// Creates the private file and its durable receipt, which lets a
     /// recovery sweep in any daemon remove the file after `expires`.
+    #[cfg(test)]
     pub(crate) fn create_in(
         storage: &crate::image_paste_storage::ImagePasteStorage,
         extension: &str,
@@ -95,6 +96,25 @@ impl ImagePasteFile {
                 "invalid image extension",
             ));
         }
+        Self::create_named_in(storage, &format!("clipboard.{extension}"), expires)
+    }
+
+    pub(crate) fn valid_filename(name: &str) -> bool {
+        !name.is_empty()
+            && name.len() <= 255
+            && !name.contains(['/', '\\', '\0'])
+            && !name.chars().any(char::is_control)
+            && ![".", "..", ".receipt", ".receipt-next", ".cleanup-image"].contains(&name)
+    }
+
+    pub(crate) fn create_named_in(
+        storage: &crate::image_paste_storage::ImagePasteStorage,
+        filename: &str,
+        expires: u64,
+    ) -> std::io::Result<Self> {
+        if !Self::valid_filename(filename) {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid filename"));
+        }
         let mut random = [0u8; 16];
         getrandom::fill(&mut random)
             .map_err(|_| std::io::Error::other("temporary image randomness unavailable"))?;
@@ -102,7 +122,7 @@ impl ImagePasteFile {
         let (directory, directory_handle) =
             storage.create_directory(&format!("cmux-image-{name}"))?;
         let result = (|| {
-            let name = CString::new(format!("clipboard.{extension}")).unwrap();
+            let name = CString::new(filename).map_err(std::io::Error::other)?;
             // The directory descriptor pins the newly created private directory.
             let fd = unsafe {
                 libc::openat(
@@ -363,8 +383,7 @@ impl ImagePasteFile {
         if record.version != 2
             || record.directory_device != dir.dev()
             || record.directory_inode != dir.ino()
-            || !["clipboard.png", "clipboard.jpg", "clipboard.gif", "clipboard.webp"]
-                .contains(&record.name.as_str())
+            || !Self::valid_filename(&record.name)
         {
             return None;
         }
@@ -431,8 +450,9 @@ impl ImagePasteFile {
 }
 
 /// Takes the file's exclusive advisory lock without waiting. A daemon holds it
-/// on every upload it owns (from creation until the upload is dropped); the
-/// kernel releases it when that daemon's descriptor closes, a crash included.
+/// on every upload it owns (from creation until the upload is dropped, whose
+/// drop unlocks it); the kernel releases it when that daemon's descriptor
+/// closes, a crash included.
 fn try_lock(file: &File) -> bool {
     // The descriptor is live for the duration of this call.
     unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
@@ -476,6 +496,12 @@ impl Drop for ImagePasteFile {
         if self.cleanup {
             let _ = self.remove_owned();
         }
+        // Unlocked, not only closed: a child the daemon forked meanwhile shares this open file
+        // description until it execs, and a close alone leaves the upload's lease (or a sweep's
+        // claim) held through that copy, so the next sweep could not claim the file. A handle
+        // that never locked (a recovered one that did not claim) holds nothing, and its own
+        // description is not the owner's: the unlock never frees another holder's lock.
+        let _ = self.file.unlock();
     }
 }
 

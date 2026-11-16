@@ -4,7 +4,7 @@ extension MachineSectionPageProvider {
     /// The right sidebar's Machines section: the page `cmux-page://cmux.machines/`
     /// (webviews/src/pages/machines) in a ``PageSectionHost``, served by this provider. While the section
     /// shows, this provider streams changes to the page and `joined` re-checks its online rows once their
-    /// heartbeat would pass the hub's 90 s window (``JoinedMachineStore/startAging(_:visible:)``); hidden
+    /// heartbeat would pass the hub's 30 s window (``JoinedMachineStore/startAging(_:visible:)``); hidden
     /// or out of the window, both stop. A covered window coming back into view restarts the aging at
     /// once; covering it stops it.
     public func makeSection(joined: JoinedMachineStore) -> PageSectionHost {

@@ -1,3 +1,4 @@
+import { PrefixFlatCache } from "../conversation/prefixFlatMap";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { type StringKey, type Translate } from "../i18n";
 import { running, STATE_LABEL } from "../subagents/subagentGroupModel";
@@ -79,10 +80,16 @@ export function pendingToolCalls(
             (request.subject?.type === "tool_call" ? request.subject.toolCall?.toolCallId : undefined),
         );
       }
-  for (const row of snapshot.rows)
-    if (row.kind === "permission" && row.permission?.pending) add(row.permission.toolCallId);
+  // Only the rows the snapshot changed are read again (prefixFlatMap.ts).
+  for (const id of pendingAsks.read(snapshot.rows).items) add(id);
   return calls;
 }
+const NO_IDS: readonly string[] = [];
+const pendingAsks = new PrefixFlatCache<AcpmuxRow, string>((row) =>
+  row.kind === "permission" && row.permission?.pending && row.permission.toolCallId
+    ? [row.permission.toolCallId]
+    : NO_IDS,
+);
 
 /// The subagents that wait on the user: an open ask about one of their own tool calls (their
 /// view's tool calls).

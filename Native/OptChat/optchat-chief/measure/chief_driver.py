@@ -40,7 +40,7 @@ sys.path.insert(0, HERE)
 import scenario  # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20", "chiefux", "coordinator"])
+ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20", "chiefux", "coordinator", "mcp"])
 ap.add_argument("--out", required=True)
 ap.add_argument("--bins", required=True)
 ap.add_argument("--login-env", default="")
@@ -326,10 +326,16 @@ try:
         host_name = acpmux_machine_name()
         json.dump({"contact": f"{host_name}/synthetic-coord", "trace": {"full": True}},
                   open(os.path.join(MUX, "optchat", "settings.json"), "w"))
+    if opts.scenario == "mcp":
+        # Full trace text, so the hub's wake notes ("[mcp task tN] ...") show.
+        os.makedirs(os.path.join(MUX, "optchat"), exist_ok=True)
+        json.dump({"trace": {"full": True}}, open(os.path.join(MUX, "optchat", "settings.json"), "w"))
     daemon_log = open(os.path.join(OUT, "daemon.log"), "w")
     daemon_env = dict(base_env, CMUX_TUI_STATE_DIR=os.path.join(BRAIN, "daemon", "state"),
                       CMUX_TUI_CHIEF_TOOLS_SOCKET=TOOLS, ACPMUX_HOME=ACPMUX_HOME)
-    if opts.scenario == "coordinator":
+    if opts.scenario in ("coordinator", "mcp"):
+        # The daemon starts acpmux, whose Claude sessions run the Chief's
+        # turns: without the route they have no model and end empty.
         daemon_env.update(dict(kv.split("=", 1) for kv in opts.env))
     d = subprocess.Popen([os.path.join(BINS, "cmux-tui"), "--headless", "--socket", SOCK], stdout=daemon_log, stderr=subprocess.STDOUT,
                          env=daemon_env)
@@ -742,6 +748,84 @@ try:
                    ("owner_reply_posted", "ping_readback", "provenance_sender", "ask_refused")):
             raise SystemExit("coordinator proof failed")
         raise SystemExit(0)
+
+    if opts.scenario == "mcp":
+        # The MCP hub end to end on the real model (docs/chief-mcp-hub.md):
+        # plain chat sentences make the Chief add servers itself, call a
+        # public one in code mode, run a task and get an event, each result
+        # arriving as a wake note it reports.
+        fake = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "tests", "fixtures", "mcp", "fake_mcp.py"))
+        servers_json = os.path.join(MUX, "optchat", "mcp", "servers.json")
+        seq_all = last_seq()
+        proof = {}
+
+        def say_and_wait(text, key, want, seconds):
+            seq0 = last_seq()
+            started = now_ms()
+            send(text, f"{key}-{started}")
+            wait_turn(seq0, started)
+            deadline = time.time() + seconds
+            texts = []
+            while time.time() < deadline:
+                texts = [t for _, _m, t in agent_texts(poll_messages(seq0))]
+                if want(" ".join(texts)) and idle(started):
+                    break
+                time.sleep(1)
+            joined = " ".join(texts)
+            log(f"MCP reply to {key}: {joined[:600]!r}")
+            return joined
+
+        def saved():
+            try:
+                return {x["name"]: x for x in json.load(open(servers_json)).get("servers", [])}
+            except (OSError, ValueError):
+                return {}
+
+        def notes(prefix):
+            return [e for e in trace_events() if prefix in json.dumps(e)]
+
+        r1 = say_and_wait("Connect to the DeepWiki MCP server and tell me the titles of the first two sections of the wiki of the GitHub repo modelcontextprotocol/modelcontextprotocol.",
+                          "mcp-deepwiki", lambda t: len(t) > 40, 600)
+        dw = saved().get("deepwiki", {})
+        proof["deepwiki_added"] = bool(dw) and dw.get("state") == "connected"
+        proof["deepwiki_answered"] = len(r1) > 40
+        r2 = say_and_wait(f"Connect to the local MCP server `python3 {fake} --era session` and name it fake. Run its slow_sum tool with a=20, b=22, seconds=8 as a task, and tell me the sum when the task finishes.",
+                          "mcp-task", lambda t: "42" in t, 600)
+        proof["fake_added"] = "fake" in saved()
+        proof["task_note"] = bool(notes("[mcp task t"))
+        proof["task_reported"] = "42" in r2
+        r3 = say_and_wait("Subscribe to the resource memo://counter on fake, then call fake's touch tool, and tell me when the change event arrives.",
+                          "mcp-event", lambda t: "event" in t.lower() or "changed" in t.lower(), 600)
+        proof["event_note"] = bool(notes("[mcp event e"))
+        proof["event_reported"] = bool(proof["event_note"]) and len(r3) > 0
+        mcp_calls = [e.get("name") for e in trace_events() if e.get("ev") == "tool" and "mcp" in str(e.get("name", ""))]
+        log(f"MCP tool calls: {json.dumps(mcp_calls)[:800]}")
+        for k, v in proof.items():
+            log(f"MCP-PROOF {k}={'PASS' if v else 'FAIL'}")
+        if not all(proof.values()):
+            # What the step log needs to say why: turn ends, tool errors, the
+            # hub's saved state and the host's last error lines.
+            ends = [{k: e.get(k) for k in ("ts", "outcome", "error", "stop_reason", "usage") if k in e}
+                    for e in trace_events() if e.get("ev") == "turn.end"]
+            log(f"MCP diag turn.end: {json.dumps(ends)[:1500]}")
+            errs = [{"name": e.get("name"), "error": e.get("error")} for e in trace_events()
+                    if e.get("ev") == "tool" and not e.get("ok", True)]
+            log(f"MCP diag tool errors: {json.dumps(errs)[:1500]}")
+            try:
+                log(f"MCP diag servers.json: {open(servers_json).read()[:1500]!r}")
+            except OSError as e:
+                log(f"MCP diag servers.json: {e}")
+            for name in ("host.log", "daemon.log"):
+                try:
+                    lines = open(os.path.join(OUT, name), errors="replace").read().splitlines()
+                except OSError:
+                    continue
+                bad = [l for l in lines if any(w in l.lower() for w in ("error", "fail", "refus", "401", "403", "502", "panic"))]
+                for l in (bad or lines)[-12:]:
+                    log(f"MCP diag {name}: {l[:300]}")
+        run["mcp"] = dict(proof, replies=[r1[:2000], r2[:2000], r3[:2000]], tool_calls=mcp_calls)
+        json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
+        raise SystemExit(0 if all(proof.values()) else 1)
 
     turns = scenario.turns(opts.scenario)
     if opts.only:

@@ -111,11 +111,17 @@ extension ActionRegistry {
     }
 
     /// Binds every agent pane action. `openNewChat` opens an agent tab in
-    /// the invocation's pane (the focused pane when it has no target).
+    /// the invocation's pane (the focused pane when it has no target); Customize…
+    /// runs it too, with a `draft` argument.
     /// Returns false when a descriptor is missing from the catalog.
     @discardableResult
     public func bindAgentPane(openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
-        bind(.newAgentChat, invoke: openNewChat)
+        // Customize… opens the same new chat with `/customize ` in its composer (AgentPaneCustomize.swift).
+        let customize = bindEffect(.customizeOpen) { invocation in
+            openNewChat(invocation.customizing)
+            return .done
+        }
+        return bind(.newAgentChat, invoke: openNewChat) && customize
     }
 
     /// Binds Show ACP Inspector. `toggle` toggles the inspector of the agent
@@ -134,6 +140,17 @@ extension ActionRegistry {
 }
 
 extension ActionRegistry {
+    /// Runs a page's `action.run` as the person's. A refusal goes back to the page, whose toast says it beside the
+    /// click (Move to Cloud on a chat with no first message), never dropped for a generic "couldn't start". One that
+    /// `showsInApp` (a sign-in reason, whose app toast carries Sign In) is refused again here, for the app's toast.
+    public func runPageAction(_ id: ActionID, invocation: ActionInvocation, showsInApp: (String) -> Bool) -> AgentPaneActionRun {
+        var ran = false
+        guard let reason = reportingRefusal({ ran = perform(id, invocation: invocation) }), !reason.isEmpty else { return ran ? .ran : .notRun }
+        guard showsInApp(reason) else { return .refused(reason) }
+        refuse(reason)
+        return .ran
+    }
+
     /// Opens an agent tab's changed file through `file.open` on `pane`, the
     /// path the palette and `cmux file open` take. False when the handler
     /// refused, so the page shows its notice instead of the app's beep; an

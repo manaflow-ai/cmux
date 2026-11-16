@@ -9,7 +9,7 @@ extension ActionFeature {
     public init?(controlMethod method: String) {
         switch method {
         // A new sandboxed run is Cloud (and Add Device's join line, a hub mint); waiting on or cancelling one that exists is its cleanup.
-        case "auth.token", "cloud.machines", "cloud.automation", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create",
+        case "auth.token", "cloud.machines", "cloud.automation", "cloud.machine_stream", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create",
              "device.join_line": self = .cloud
         case "remote.machines": self = .remoteHosts
         default:

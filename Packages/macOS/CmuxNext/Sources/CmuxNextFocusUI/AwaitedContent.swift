@@ -5,7 +5,8 @@ public struct AwaitedContent: Equatable, Sendable {
     /// What the focus names.
     public enum Kind: Equatable, Sendable {
         case terminal
-        /// A browser tab: Chromium makes its page after the window shows (an async start at a relaunch).
+        /// A page: a browser tab's (Chromium makes it after the window shows, an async start at a relaunch), or an
+        /// agent chat's or an internal page tab's, whose view comes on a later frame than its selection.
         case browser
     }
 
@@ -31,6 +32,11 @@ public struct AwaitedContent: Equatable, Sendable {
         public var selectedIsLiveTerminal: Bool
         /// The shown browser content's page is ready for keys (``BrowserTab/pageReady``): only then does a key reach it.
         public var shownPageReady: Bool
+
+        /// Whether a key typed now reaches the shown page (``shownPageReady``): a browser tab's page (`browser`), or the Chromium
+        /// page window of a cmux page or an agent chat (`pageWindow`: Markdown, the chat pane), each only once its focus grant
+        /// came (`BrowserTab.pageReady`). Nil and nil: the content has no Chromium page (a native page).
+        public static func pageReady(browser: Bool?, pageWindow: Bool?) -> Bool { browser ?? pageWindow ?? true }
 
         public init(selectedTab: String?, shownTab: String?, shownKind: Kind?, selectedIsLiveTerminal: Bool, shownPageReady: Bool = true) {
             (self.selectedTab, self.shownTab, self.shownKind, self.selectedIsLiveTerminal) = (selectedTab, shownTab, shownKind, selectedIsLiveTerminal)

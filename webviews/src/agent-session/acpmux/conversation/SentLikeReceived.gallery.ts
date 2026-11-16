@@ -21,7 +21,7 @@ const received = user("", 6, {
   incoming: {
     kind: "message",
     message: {
-      name: "lane-vm-09/acpmux-client-rust",
+      name: "dev-box/acpmux-client-rust",
       sessionId: "sub-acpmux-client-rust",
       text: RECEIVED,
       raw: RECEIVED,
@@ -60,8 +60,8 @@ const drawn = async (ctx: PlayContext) => {
 
 /// Both messages open, the received one first, as Leo's capture shows them. A message already open
 /// stays open, so the experiment's script can run after a variant's play.
-const RECEIVED_TOGGLE = ".cv-received:not(.cv-sent-msg) .cv-disclosure__toggle[aria-expanded=false]";
-const SENT_TOGGLE = ".cv-sent-msg .cv-disclosure__toggle[aria-expanded=false]";
+const RECEIVED_TOGGLE = ".cv-received:not(.cv-sent-msg) .cv-agentmsg__toggle[aria-expanded=false]";
+const SENT_TOGGLE = ".cv-sent-msg .cv-agentmsg__toggle[aria-expanded=false]";
 const opened = async (ctx: PlayContext) => {
   await drawn(ctx);
   if (ctx.document.querySelector(RECEIVED_TOGGLE)) await ctx.click({ selector: RECEIVED_TOGGLE });

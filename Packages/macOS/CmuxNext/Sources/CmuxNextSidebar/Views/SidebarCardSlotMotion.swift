@@ -51,7 +51,7 @@ final class SidebarCardSlotMotion: MotionAnimating {
             return height.value
         }
         height.target = target
-        let animates = policy().animatesMovement && view.window != nil && !view.inLiveResize
+        let animates = policy().animatesMovement && view.window != nil && !Motion.isLiveResizing(view.window)
             && !view.isHiddenOrHasHiddenAncestor && Motion.canAnimate(in: view)
         if !animates { height.snap() }
         self.height = height
@@ -69,7 +69,7 @@ final class SidebarCardSlotMotion: MotionAnimating {
         self.view = view
         var height = SpringValue(target)
         height.value = value
-        let animates = value != target && policy().animatesMovement && view.window != nil && !view.inLiveResize
+        let animates = value != target && policy().animatesMovement && view.window != nil && !Motion.isLiveResizing(view.window)
             && !view.isHiddenOrHasHiddenAncestor && Motion.canAnimate(in: view)
         if !animates { height.snap() }
         self.height = height

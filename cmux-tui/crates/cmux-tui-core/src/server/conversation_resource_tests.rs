@@ -470,3 +470,36 @@ fn snapshots_say_who_is_typing() {
     let page = ok(&v2(&mux, &user, "conversation.get", json!({"conversation":mine}), None));
     assert_eq!(page["typing"], json!([]));
 }
+
+/// A `conversation.events` stream reads only conversation events, but it took every daemon event into its
+/// bounded mailbox. While its reader was slow (the stream thread waits on a full outbound stream), unrelated
+/// events (tree, selection, notification changes of a busy session) filled the mailbox to its bound, the
+/// mailbox closed, and the stream ended with a gap although it had missed no conversation change.
+#[test]
+fn a_slow_events_stream_outlives_a_burst_of_unrelated_daemon_events() {
+    let (mux, user, mine, _other) = setup("conv-v2-unrelated-burst");
+    let watcher = conn(&mux);
+    ok(&v2(
+        &mux,
+        &watcher,
+        "conversation.events",
+        json!({"conversation":mine,"stream_id":"stream_22222222222222222222222222222222","tail":10}),
+        None,
+    ));
+    // The watcher reads nothing yet: its stream's queue fills and the stream thread waits.
+    for index in 0..4 {
+        ok(&send(&mux, &user, &mine, &format!("slow-{index}"), "while the reader is slow"));
+    }
+    for _ in 0..5_000 {
+        mux.emit(MuxEvent::TreeSelectionChanged(None));
+    }
+
+    assert_eq!(stream_line(&watcher)["item"]["type"], "snapshot");
+    for _ in 0..4 {
+        assert_eq!(stream_line(&watcher)["item"]["type"], "message");
+    }
+    ok(&send(&mux, &user, &mine, "after-burst", "after the burst"));
+    let next = stream_line(&watcher);
+    assert_eq!(next["type"], "stream_item", "the stream ended: {next}");
+    assert_eq!(next["item"]["type"], "message");
+}

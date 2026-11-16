@@ -149,7 +149,7 @@ public struct CodeBoxes: View {
                 RoundedRectangle(cornerRadius: theme.metrics.codeBoxRadius, style: .continuous)
                     .strokeBorder(theme.colors.label, lineWidth: isCurrent ? 2 : 0)
             }
-            .animation(theme.motion.snap.animation, value: isCurrent)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: isCurrent)
     }
 }
 #endif

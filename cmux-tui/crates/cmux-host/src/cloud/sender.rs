@@ -201,7 +201,7 @@ pub enum Answer {
 }
 
 impl Answer {
-    fn ok(&self) -> bool {
+    pub(crate) fn ok(&self) -> bool {
         matches!(self, Answer::Http { status: 200, body } if *body.field("ok") == true)
     }
 }
@@ -215,7 +215,7 @@ pub enum MachineState {
 }
 
 impl MachineState {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             MachineState::Running => "running",
             MachineState::Degraded => "degraded",
@@ -233,6 +233,8 @@ pub struct Reporter {
     machine: String,
     daemon: DaemonInfo,
     activity: Activity,
+    /// The updater's block (`updater/look.rs`), when this machine's updater checked.
+    updater: Option<Value>,
     state: MachineState,
     dirty: bool,
     pending: Vec<String>,
@@ -252,6 +254,7 @@ impl Reporter {
             machine: machine.to_owned(),
             daemon,
             activity: Activity::default(),
+            updater: None,
             state: MachineState::Running,
             dirty: false,
             pending: Vec::new(),
@@ -304,6 +307,22 @@ impl Reporter {
         if report { self.trigger("change", now) } else { None }
     }
 
+    /// The updater block the next report carries.
+    pub fn updater(&self) -> Option<&Value> {
+        self.updater.as_ref()
+    }
+
+    /// Replaces the updater block; a report is due only with `report`.
+    pub fn set_updater(
+        &mut self,
+        updater: Option<Value>,
+        report: bool,
+        now: u64,
+    ) -> Option<OpRequest> {
+        self.updater = updater;
+        if report { self.trigger("updater", now) } else { None }
+    }
+
     /// The daemon block changed (`activity` on while the stream is live).
     pub fn set_daemon(&mut self, daemon: DaemonInfo, now: u64) -> Option<OpRequest> {
         self.daemon = daemon;
@@ -320,6 +339,17 @@ impl Reporter {
     pub fn set_state(&mut self, state: MachineState, now: u64) -> Option<OpRequest> {
         self.state = state;
         self.trigger("state", now)
+    }
+
+    /// The state the next report names.
+    pub fn state(&self) -> MachineState {
+        self.state
+    }
+
+    /// Replaces the state the next report names without making one due: the start report a
+    /// restarted service makes due next names it ([`super::session::Session::after_restart`]).
+    pub fn replace_state(&mut self, state: MachineState) {
+        self.state = state;
     }
 
     /// The answer to the request in flight. Returns the next request when
@@ -409,16 +439,16 @@ impl Reporter {
         let reasons = std::mem::take(&mut self.pending);
         let reason = if reasons.is_empty() { "retry".to_owned() } else { reasons.join("+") };
         self.in_flight = Some(reasons);
-        OpRequest {
-            op: STATUS_REPORT_OP,
-            params: json!({
-                "machine": self.machine,
-                "state": self.state.as_str(),
-                "daemon": self.daemon.to_json(),
-                "activity": self.activity.to_json(),
-            }),
-            reason,
+        let mut params = json!({
+            "machine": self.machine,
+            "state": self.state.as_str(),
+            "daemon": self.daemon.to_json(),
+            "activity": self.activity.to_json(),
+        });
+        if let (Some(updater), Some(map)) = (&self.updater, params.as_object_mut()) {
+            map.insert("updater".to_owned(), updater.clone());
         }
+        OpRequest { op: STATUS_REPORT_OP, params, reason }
     }
 }
 

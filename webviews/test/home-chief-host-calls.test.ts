@@ -4,7 +4,13 @@
 // `chief.profile.undo {chief, expected_rev, to_rev?}`; History reads `chief.profile.history`; a
 // brought backend is `cmux.chief.backend.add`, its check `cmux.chief.backend.doctor {id, prompt}`.
 import { expect, test } from "bun:test";
-import { ChiefHost, HostChiefEditor, parseBackends, parseHistory } from "../src/pages/home-channels/chiefEditing";
+import {
+  ChiefHost,
+  HostChiefEditor,
+  parseBackends,
+  parseHarnessIds,
+  parseHistory,
+} from "../src/pages/home-channels/chiefEditing";
 import { chief } from "../src/pages/home-channels/daemonPeople";
 import { HomeSheets } from "../src/pages/home-channels/sheets";
 import { HomeOps, type HomeChief } from "../src/pages/home-channels/types";
@@ -135,6 +141,19 @@ test("History reads chief.profile.history, newest first, who made each revision"
   expect(parseHistory({})).toEqual([]);
 });
 
+test("Settings' Chief editor removes an unsaved brought backend through Settings' own remove; Home's has none", async () => {
+  const { client: host, sent } = client({ "cmux.settings.agents.run": { id: "acme", backup: "acme-1.toml" } });
+  const editor = new HostChiefEditor(
+    new ChiefHost(host),
+    () => {},
+    () => {},
+  );
+  await editor.removeBackend("acme");
+  expect(sent).toEqual([{ op: "cmux.settings.agents.run", params: { action: "remove", id: "acme" } }]);
+  const { sheets } = await homeSheets();
+  expect("removeBackend" in sheets.chiefEditor()).toBe(false);
+});
+
 test("a brought backend is added through the host and checked with a real hello turn", async () => {
   const { client: host, sent } = client({
     "cmux.chief.backend.add": { id: "acme" },
@@ -190,6 +209,42 @@ test("the backend list is every chat harness acpmux lists, with its models' effo
     { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "high"] },
   ]);
   expect(list.find((backend) => backend.id === "acme")!.unavailable).toBe("acme-agent is not on PATH");
+});
+
+test("the ids a new endpoint must go past are every harness listed, terminal ones included", async () => {
+  const answer = {
+    harnesses: { harnesses: { claude: {}, muse: { kind: "terminal" }, acme: { displayName: "Acme" } } },
+    models: { harnesses: [] },
+  };
+  expect(parseHarnessIds(answer).sort()).toEqual(["acme", "claude", "muse"]);
+  expect(parseBackends(answer).map((backend) => backend.id)).not.toContain("muse");
+  const { client: host } = client({ "cmux.chief.backend.list": answer });
+  expect((await new ChiefHost(host).harnessIds()).sort()).toEqual(["acme", "claude", "muse"]);
+});
+
+test("an endpoint's declared models are read as acpmux serializes them: id strings or {id, name}", () => {
+  // `_acpmux/harnesses` as acpmux sends an endpoint profile's `[models] list` (DeclaredModel::Id is a string).
+  const list = parseBackends({
+    harnesses: {
+      harnesses: {
+        "local-models": { displayName: "Local Models", models: ["byo/model-large", "byo/model-small"] },
+        named: { displayName: "Named", models: [{ id: "n-1", name: "N One" }, "n-2"] },
+        blank: { displayName: "Blank", models: [""] },
+      },
+    },
+    models: { harnesses: [{ harness: "blank", models: [{ id: "probed", efforts: [] }] }] },
+  });
+  const models = (id: string) => list.find((backend) => backend.id === id)!.models;
+  expect(models("local-models")).toEqual([
+    { id: "byo/model-large", name: "byo/model-large", efforts: [] },
+    { id: "byo/model-small", name: "byo/model-small", efforts: [] },
+  ]);
+  expect(models("named").map((model) => [model.id, model.name])).toEqual([
+    ["n-1", "N One"],
+    ["n-2", "n-2"],
+  ]);
+  // No usable declared id: the probed `_acpmux/models` list.
+  expect(models("blank").map((model) => model.id)).toEqual(["probed"]);
 });
 
 test("Settings' editor sends every change through the host, the name and the lock included", async () => {

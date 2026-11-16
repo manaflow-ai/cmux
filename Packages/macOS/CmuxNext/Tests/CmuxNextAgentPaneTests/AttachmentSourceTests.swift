@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -240,7 +241,7 @@ struct AttachmentSourceTests {
 
     @Test func onlyAnAppThisMacNamedAsASourceHasAnIcon() throws {
         let suite = "attachment-source-icons-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let icons = AttachmentSourceIcons(defaults: defaults, ownBundleId: Self.own)
         // Finder is installed on every Mac, but no source named it: no icon, so a page can't ask.

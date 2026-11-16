@@ -42,10 +42,20 @@ struct SplitDuringSplitCrossAxisTests {
             root.syncWithModel()
         }
 
-        // Cmd-D on p2 (even sizing: p2 shrinks and p3 grows in from the right), then 16 frames of it.
+        // Cmd-D on p2 (even sizing: p2 shrinks and p3 grows in from the right). In the film the Shift-Cmd-D came 16
+        // frames later, with a tenth of p3's travel left on the 0.23 s split spring. Since #38430 (883a1740, splits
+        // land in 113 ms) the spring is at rest by frame 16, so the Shift-Cmd-D now comes when p3 has a fifth of its
+        // travel left, on any split spring.
         _ = model.showSplitSizing(model.splitSizingChanges(splitting: "p2", axis: .horizontal))
         show(Self.three)
-        for _ in 0..<16 { root.advanceFrame(1.0 / 120) }
+        _ = root.advanceFrame(1.0 / 120)
+        let first = try #require(screen.paneFrames["p3"])
+        let travel = abs(first.rect.minX - first.targetRect.minX)
+        for _ in 0..<120 {
+            let p3 = try #require(screen.paneFrames["p3"])
+            if abs(p3.rect.minX - p3.targetRect.minX) <= travel / 5 { break }
+            _ = root.advanceFrame(1.0 / 120)
+        }
         let moving = try #require(screen.paneFrames["p3"])
         #expect(abs(moving.rect.minX - moving.targetRect.minX) > 10, "p3 still moves sideways (\(moving.rect.minX) -> \(moving.targetRect.minX))")
 

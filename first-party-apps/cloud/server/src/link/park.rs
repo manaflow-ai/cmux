@@ -17,10 +17,10 @@
 //! [`PUSHED_READ_DELAY`], at most [`MAX_PUSHED_READS`].
 
 use super::ops::{LINK_UNAVAILABLE, link_failure_for, starting};
-use crate::api::models::MachineStatus;
 use crate::api::{CloudError, ControlPlane, Request};
 use crate::clock::Timer;
 use crate::ops::Server;
+use cmux_cloud_wire::CloudMachineStatus;
 use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -194,7 +194,7 @@ impl<C: ControlPlane> Server<C> {
                 let runs = self
                     .projection()
                     .get(&op.machine)
-                    .is_some_and(|m| m.status == MachineStatus::Running);
+                    .is_some_and(|m| m.record.status == CloudMachineStatus::Running);
                 if !runs && !due {
                     self.attach_mut().parked_ops.push(op);
                     continue;

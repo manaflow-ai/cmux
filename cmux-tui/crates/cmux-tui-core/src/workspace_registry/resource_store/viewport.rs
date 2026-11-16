@@ -169,6 +169,7 @@ pub(super) fn validate_registry_viewport(
     let mut width_before = viewport.columns[0].width;
     for column in viewport.columns.iter().skip(1) {
         projected = RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: column.id.clone(),
             direction: "right".into(),
             ratio: width_before / (width_before + column.width),

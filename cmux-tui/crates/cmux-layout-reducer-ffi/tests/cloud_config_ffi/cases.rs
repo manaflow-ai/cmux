@@ -102,6 +102,29 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"requested": null, "activeStackTeam": null, "managedStackTeam": "t", "stackProjectId": "p"}),
     );
     assert_eq!(team["refusal"], "managed");
+    // The backend's ids (backend `domains/user.ts`, pinned in cmux-cloud-config's identity tests).
+    let (project, user) =
+        ("9790718f-14cd-4f7e-824d-eaf527a82b82", "0b6c2f1e-8d0a-4a51-9a4e-5f3c7d1e2a90");
+    let (_, ids) = call(
+        c"cloud_identity_team_ids",
+        &json!({"project": project, "stackUser": user, "team": "4c1d9e7a-2b3f-4e68-8a0c-6d5e9f1b3a27"}),
+    );
+    assert_eq!(ids["personalTeam"], "team_249f328cf8ed89fd792e");
+    assert_eq!(ids["teamHeader"], "team_18b8d7083ab4a1e6dd3e");
+    assert!(ids["workerUser"].as_str().unwrap().starts_with("user_"));
+    let (_, personal) = call(
+        c"cloud_identity_team_ids",
+        &json!({"project": project, "team": "team_249f328cf8ed89fd792e"}),
+    );
+    assert_eq!(
+        personal,
+        json!({"workerUser": null, "personalTeam": null, "teamHeader": "team_249f328cf8ed89fd792e"})
+    );
+    let (_, team) = call(
+        c"cloud_identity_mint_team",
+        &json!({"requested": null, "activeStackTeam": "team_249f328cf8ed89fd792e", "managedStackTeam": null, "stackProjectId": project}),
+    );
+    assert_eq!(team["team"], "team_249f328cf8ed89fd792e");
     let (_, check) =
         call(c"cloud_identity_check", &json!({"team": "personal", "refusalCode": "http_503"}));
     assert_eq!(check, json!({"isTeam": false, "transient": true}));
@@ -121,6 +144,21 @@ fn launch_sign_in_and_identity_rules_answer_here() {
     assert_eq!(own["user"], "u");
     let (_, key) = call(c"cloud_identity_install_key", &json!({"user": "u"}));
     assert!(key["account"].as_str().unwrap().starts_with("install-key-"));
+    let (_, slots) = call(
+        c"cloud_identity_install_key_slots",
+        &json!({"account": "install-key-a", "accounts": ["install-key-a.2", "install-key-b", "install-key-a"]}),
+    );
+    assert_eq!(
+        slots,
+        json!({"slots": ["install-key-a", "install-key-a.2"], "current": "install-key-a.2",
+               "next": "install-key-a.3", "replacement": null})
+    );
+    let (_, rotated) = call(
+        c"cloud_identity_install_key_slots",
+        &json!({"account": "install-key-a", "deletes": [
+            {"account": "install-key-a", "status": -25244}, {"account": "install-key-a.2", "status": 0}]}),
+    );
+    assert_eq!(rotated["replacement"], "install-key-a.2");
     let (_, share) = call(
         c"cloud_identity_share_origin",
         &json!({"url": "https://Cloud-API.cmux.dev/x", "folders": ["install-share-h.example", "x"]}),
@@ -142,6 +180,23 @@ fn auth_rules_answer_from_what_the_app_read() {
         &json!({"requested": "b", "resolved": "a", "available": ["a", "b"], "managed": null}),
     );
     assert_eq!(team, json!({"active": "a", "refusal": "notActive", "allowed": ["a", "b"]}));
+    let (_, rows) = call(
+        c"cloud_auth_team_rows",
+        &json!({"teams": [{"id": "a", "name": "cmux", "plan": "Team"}, {"id": "p", "name": "Personal"}], "active": "a"}),
+    );
+    assert_eq!(
+        rows,
+        json!({"rows": [
+            {"id": "a", "title": "cmux", "kind": "team", "active": true, "plan": "team"},
+            {"id": "p", "title": "Personal", "kind": "personal", "active": false, "plan": null},
+        ]})
+    );
+    let (_, own) = call(
+        c"cloud_auth_team_rows",
+        &json!({"teams": [{"id": "d", "name": "leo@cmux.com's Team"}], "active": "d", "ownEmail": "leo@cmux.com"}),
+    );
+    assert_eq!(own["rows"][0]["title"], "Personal");
+    assert_eq!(own["rows"][0]["kind"], "personal");
     let (_, keys) = call(
         c"cloud_auth_launch_keys",
         &json!({"environment": {"CMUX_DEV_AUTH_PROFILE": "agent", "HOME": "/h"}}),
@@ -178,7 +233,65 @@ fn the_agent_key_mint_is_planned_and_read_here() {
 }
 
 #[test]
+fn the_device_identity_items_answer_here() {
+    let (code, found) = call(
+        c"cloud_identity_device_slots",
+        &json!({"accounts": ["device-id.2", "capture-lease", "device-id", "device-signing-key"]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        found,
+        json!({"accounts": ["device-id", "device-signing-key", "device-id.2"],
+               "current": {"id": "device-id.2", "signingKey": "device-signing-key.2",
+                           "agreementKey": "device-agreement-key.2"},
+               "replacement": {"id": "device-id", "signingKey": "device-signing-key",
+                               "agreementKey": "device-agreement-key"}})
+    );
+    let (_, renewed) = call(
+        c"cloud_identity_device_slots",
+        &json!({"deletes": [{"account": "device-id", "status": -25244},
+                            {"account": "device-id.2", "status": 0}]}),
+    );
+    assert_eq!(renewed["current"], Value::Null);
+    assert_eq!(renewed["replacement"]["agreementKey"], "device-agreement-key.2");
+}
+
+#[test]
+fn the_device_list_answers_here() {
+    let (code, listed) = call(
+        c"cloud_identity_device_list",
+        &json!({"this": {"id": "nightly"},
+                "devices": [{"id": "dev", "name": "Desk Mac", "platform": "macos"},
+                            {"id": "nightly", "name": "Desk Mac", "platform": "macos"},
+                            {"id": "air", "name": "Laptop", "platform": "macos", "online": true}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        listed,
+        json!({"thisDevice": ["nightly", "dev"], "others": [{"id": "air", "ids": ["air"]}]})
+    );
+}
+
+#[test]
 fn an_unknown_op_or_a_bad_request_is_refused() {
     assert_eq!(call(c"cloud_config_nope", &json!({})).0, ERR_INVALID);
     assert_eq!(call(c"cloud_config_from_selection", &json!({"isDebugBuild": "no"})).0, ERR_INVALID);
+}
+
+#[test]
+fn capture_auth_invalid_lease_refuses_before_platform_io() {
+    let (status, reply) = call(
+        c"cloud_auth_capture_next",
+        &json!({
+            "phase": "cleanup", "preflight": true, "leaseId": "wrong", "bundleId": "test.capture",
+            "configuredBundleId": "test.capture", "home": "/private/capture",
+            "storage": {"keychainService": "test.auth", "credentialsSubpath": ["test"], "defaultsKeySuffix": null},
+            "legacy": null, "stackProjectId": "staging", "facts": []
+        }),
+    );
+    assert_eq!(status, OK);
+    assert_eq!(reply["action"], Value::Null);
+    assert_eq!(reply["result"]["code"], "invalid_lease");
+    assert_eq!(reply["result"]["ok"], false);
+    assert_eq!(reply["result"]["verifiedAbsent"], false);
 }

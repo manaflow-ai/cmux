@@ -1,0 +1,15 @@
+{"prompt":"make the upload retry on failure"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"no, retry only on 5xx, not 4xx"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"still wrong, use the backoff helper in lib/retry.ts"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"I meant exponential backoff with a cap of 30 seconds"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"it still retries forever, stop after 5 tries"}
+{"turn_end":"cancelled","expect_offer":false}
+{"prompt":"ok good, ship it"}
+{"turn_end":"cancelled","expect_offer":false}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"go on"}
+{"turn_end":"completed","expect_offer":true,"expect_corrections":4}

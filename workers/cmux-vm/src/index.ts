@@ -27,8 +27,9 @@ import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment, parseReceiverPolicyLease } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
-import { recordedVmIds } from "./db/orphans.ts";
-import { sweepOrphanVms } from "./upstream/orphan-sweep.ts";
+import { deletedVmIds, recordedVmIds, sweepableTunnelDevices } from "./db/orphans.ts";
+import { sweepOrphanTunnels, sweepOrphanVms } from "./upstream/orphan-sweep.ts";
+import { cronPlan } from "./cron-plan.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -65,6 +66,8 @@ export interface Env {
   readonly CMUX_VM_RECEIVER_POLICY_LEASE_MS?: string;
   /** Stack Auth webhook signing secret (whsec_...); optional, the webhook answers 503 without it (G1, cx-0op.6). */
   readonly STACK_WEBHOOK_SECRET?: string;
+  /** The commit this Worker was deployed from (scripts/deploy.sh `--var COMMIT_SHA:$GITHUB_SHA`); /healthz names it. */
+  readonly COMMIT_SHA?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
   /** JSON object of service key id to extra scopes, limited to acl:read and acl:write. See src/auth/service-keys.ts. */
@@ -135,9 +138,9 @@ const meshServices = (env: Env) =>
 
 interface Served {
   readonly handler: (request: Request) => Promise<Response>;
-  /** One agent reaper run, or nothing when the service is not configured or its schema is not applied. */
+  /** One agent reaper run, or nothing when the service is not configured, its schema is not applied, or the environment does not reap (src/cron-plan.ts). */
   readonly reap: () => Promise<void>;
-  /** One orphan sweep run (cmux#35013), or nothing outside staging and production or when the schema is not applied. */
+  /** One run of the orphan sweeps this environment runs (src/cron-plan.ts), or nothing when the schema is not applied. */
   readonly sweep: () => Promise<void>;
 }
 
@@ -152,26 +155,46 @@ const notConfigured = (): Promise<Response> =>
 const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resolve(), sweep: () => Promise.resolve() };
 
 /**
- * Deletes provider VMs of this environment that no ownership row records (src/upstream/orphan-sweep.ts). Staging and
- * production only: each is one Worker with its own database, while every preview Worker shares the environment name
- * "preview" (and its slugs) with the others, so one preview's sweep could see another's VMs as orphans.
+ * One cron run of the orphan sweeps (src/upstream/orphan-sweep.ts) this environment runs (src/cron-plan.ts): provider
+ * VMs no ownership row protects, and device tunnels nothing can use. Each is its own run, so a failure of one never
+ * skips the other.
  */
 const runOrphanSweep = async (env: Env) => {
-  // The exact configured value: parseEnvironment reads a missing or unknown one as production.
-  const raw = env.ENVIRONMENT;
-  if (raw !== "staging" && raw !== "production") return;
-  const environment = parseEnvironment(raw);
-  const config = { baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY), environment };
-  const report = await Effect.runPromise(
-    withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds })).pipe(
-      Effect.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
-    ),
-  );
-  if (report.orphans.length > 0 || !report.complete) {
-    console.log(JSON.stringify({
-      event: "cmux_vm_orphan_sweep", listed: report.listed, complete: report.complete, orphans: report.orphans.length,
-      deleted: report.deleted, failed: report.failed,
-    }));
+  const plan = cronPlan(env.ENVIRONMENT);
+  if (!plan.sweepVms && !plan.sweepTunnels) return;
+  const config = { baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY), environment: parseEnvironment(env.ENVIRONMENT) };
+  const tunnels = !plan.sweepTunnels
+    ? Promise.resolve()
+    : Effect.runPromise(
+      withRequestConnection(sweepOrphanTunnels(config, { dryRun: false, sweepable: sweepableTunnelDevices })).pipe(
+        Effect.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
+      ),
+    ).then(
+      (report) => {
+        if (report.orphans.length > 0 || report.skipped.length > 0) {
+          console.log(JSON.stringify({
+            event: "cmux_vm_tunnel_sweep", listed: report.listed, orphans: report.orphans.length, skipped: report.skipped,
+            deleted: report.deleted, failed: report.failed,
+          }));
+        }
+      },
+      () => console.error(JSON.stringify({ event: "cmux_vm_tunnel_sweep_failed" })),
+    );
+  try {
+    if (!plan.sweepVms) return;
+    const report = await Effect.runPromise(
+      withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds, deletedRows: deletedVmIds })).pipe(
+        Effect.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
+      ),
+    );
+    if (report.orphans.length > 0 || !report.complete) {
+      console.log(JSON.stringify({
+        event: "cmux_vm_orphan_sweep", listed: report.listed, complete: report.complete, orphans: report.orphans.length,
+        deleted_row: report.orphans.filter((vm) => vm.reason === "deleted_row").length, deleted: report.deleted, failed: report.failed,
+      }));
+    }
+  } finally {
+    await tunnels;
   }
 };
 
@@ -192,6 +215,7 @@ const makeServed = (env: Env): Served => {
       handler: makeSchemaGate(check, (incoming) => handler(incoming)),
       // The reaper deletes VMs: it runs only against the schema this build was written for.
       reap: async () => {
+        if (!cronPlan(env.ENVIRONMENT).reap) return;
         const problems = await check();
         if (problems.length > 0) {
           console.error(JSON.stringify({ event: "cmux_vm_reaper_skipped", reason: "schema", problems }));
@@ -220,9 +244,22 @@ const served = (env: Env): Served => {
   return cached;
 };
 
+/**
+ * /healthz names the commit it serves in `x-cmux-commit`, so NOW's cloud_deploy_gate can pair the live Worker with a
+ * journey verdict on that same commit (cmuxterm-hq goals/cloud-deploy-checked.md). No commit set: no header.
+ */
+export const withCommit = (response: Response, env: Pick<Env, "COMMIT_SHA">): Response => {
+  const commit = env.COMMIT_SHA ?? "";
+  if (!/^[0-9a-f]{40}$/.test(commit)) return response;
+  const named = new Response(response.body, response);
+  named.headers.set("x-cmux-commit", commit);
+  return named;
+};
+
 export default {
-  fetch(request: Request, env: Env): Promise<Response> {
-    return served(env).handler(request);
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const response = await served(env).handler(request);
+    return new URL(request.url).pathname === "/healthz" ? withCommit(response, env) : response;
   },
   /** Cron (wrangler.jsonc triggers): the agent reaper and the orphan sweep. */
   scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): void {

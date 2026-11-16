@@ -31,6 +31,7 @@
 use std::process::{Command, Stdio};
 
 use acpmux::peer::{SSH_PEER_PORT, ssh_target};
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 
 use super::{Outcome, Refusal};
@@ -113,8 +114,8 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     });
     let same_host =
         found.is_some_and(|peer| destination(peer).as_deref() == Some(request.target.as_str()));
-    let connected = found.is_some_and(|peer| flag(peer, "connected"));
-    let outdated = found.is_some_and(|peer| flag(peer, "outdated"));
+    let connected = found.is_some_and(|peer| peer.get_bool("connected") == Some(true));
+    let outdated = found.is_some_and(|peer| peer.get_bool("outdated") == Some(true));
     if same_host && connected && !outdated {
         report.set("state", json!("ok"));
         report.set("after", report["before"].clone());
@@ -230,7 +231,8 @@ pub(super) fn status() -> Result<Value, Refusal> {
         .iter()
         .map(|peer| {
             let mut row = summary(peer);
-            let healthy = flag(peer, "connected") && !flag(peer, "outdated");
+            let healthy =
+                peer.get_bool("connected") == Some(true) && peer.get_bool("outdated") != Some(true);
             row.set(
                 "fix",
                 match (healthy, destination(peer), peer.get("name").and_then(Value::as_str)) {
@@ -390,17 +392,13 @@ fn destination(peer: &Value) -> Option<String> {
     ssh_target(url).ok().map(|target| target.destination)
 }
 
-fn flag(peer: &Value, key: &str) -> bool {
-    peer.get(key).and_then(Value::as_bool).unwrap_or(false)
-}
-
 /// The part of a peer summary (`_acpmux/peers`) a person needs to see.
 fn summary(peer: &Value) -> Value {
     json!({
         "name": peer.get("name"),
         "url": peer.get("url"),
-        "connected": flag(peer, "connected"),
-        "outdated": flag(peer, "outdated"),
+        "connected": peer.get_bool("connected") == Some(true),
+        "outdated": peer.get_bool("outdated") == Some(true),
         "remote_build": peer.get("remoteBuild"),
         "error": peer.get("error"),
     })

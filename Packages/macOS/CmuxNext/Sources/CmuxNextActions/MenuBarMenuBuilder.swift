@@ -70,6 +70,15 @@ public import AppKit
                 row.image = Self.symbol(symbol, label: row.title)
                 if id == "showMainWindow", state.showsGlobalKey { showGlobalKey(on: row) }
                 menu.addItem(row)
+            case .setting(let title, let key, let symbol):
+                guard let row = registry.makeMenuItem(for: "openSettings") else { continue }
+                row.title = title
+                row.image = Self.symbol(symbol, label: title)
+                row.representedObject = ActionMenuPayload(id: "openSettings", target: nil, arguments: ["setting": .string(key)])
+                row.keyEquivalent = ""
+                // Its own id: Settings… keeps `cmux.action.openSettings` for accessibility clients.
+                row.identifier = NSUserInterfaceItemIdentifier("cmux.setting.\(key)")
+                menu.addItem(row)
             }
         }
     }

@@ -15,7 +15,7 @@ import CmuxNextSettings
 ///
 /// Params: `window` (id; default the first window); a point as `x`,`y`
 /// (window-local points from the top-left, as the journal records them) or
-/// `pane` (the center of that pane's content) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
+/// `pane` (the center of that pane's content; `focused` names the focused pane) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
 /// divider's center, `DebugMouse+Rows`); `action`: `click` (default),
 /// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y`
 /// or `to_edge` of the shown workspace, in `steps`), `move` (pointer motion with no button, for hover: tab and workspace
@@ -34,7 +34,7 @@ import CmuxNextSettings
 /// `hover: false` leaves the synthesized pointer as it is, so a perf
 /// gesture measures the scroll, not a hover recompute per event (set the
 /// pointer once with the gesture's first event). `target: "page"`
-/// clicks Chromium's page view instead (`DebugMouse+Page`).
+/// clicks Chromium's page view instead (`DebugMouse+Page`); `target: "chief-launcher"` posts to the floating Chief's own window.
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["target"]?.stringValue == "page" {
@@ -43,7 +43,7 @@ enum DebugMouse {
         if params["target"]?.stringValue == "hover-card" { return hoverCard(params, services: services) }
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
-              let window = controller.window else { return .object(["error": .string("no window")]) }
+              let window = params["target"]?.stringValue == "chief-launcher" ? controller.chiefPanelView?.launcher : controller.window else { return .object(["error": .string("no window")]) }
         guard let point = point(params, controller: controller, window: window) else {
             return .object(["error": .string("pass x and y, a pane shown in the window, or a workspace row in its sidebar")])
         }
@@ -177,7 +177,7 @@ enum DebugMouse {
         if let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue { return NSPoint(x: x, y: y) }
         if let row = params["row"]?.stringValue { return rowPoint(row, controller: controller, window: window) }
         if let divider = params["divider"]?.stringValue { return dividerPoint(divider, controller: controller, window: window) }
-        guard let key = params["pane"]?.stringValue, let pane = controller.content?.paneController(key: key) else { return nil }
+        guard let named = params["pane"]?.stringValue, let key = named == "focused" ? controller.focus.state.pane : named, let pane = controller.content?.paneController(key: key) else { return nil }
         let view: NSView = pane.view.content ?? pane.view
         let center = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)

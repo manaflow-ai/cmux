@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -75,7 +76,12 @@ public struct AgentChatPreview: View {
     }
 
     @ViewBuilder private var content: some View {
-        if turns.map(\.isEmpty) ?? !store.hasTurns {
+        if turns == nil, store.isLoadingHistory, !store.hasTurns {
+            // An existing chat still loading: not the new-chat prompt.
+            CmuxSpinner()
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 240)
+        } else if turns.map(\.isEmpty) ?? !store.hasTurns {
             VStack(spacing: 12) {
                 Image(systemName: "sparkle")
                     .font(.system(size: 22))

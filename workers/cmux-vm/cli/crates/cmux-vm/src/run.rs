@@ -108,8 +108,9 @@ const CREDENTIAL_DIRS: &[&str] = &[
 ];
 
 /// Directories whose `auth.json` is a coding agent's auth store
-/// (`~/.codex/auth.json`, `~/.local/share/opencode/auth.json`).
-const AGENT_AUTH_DIRS: &[&str] = &[".codex", "opencode"];
+/// (`~/.codex/auth.json`, `~/.local/share/opencode/auth.json`, xAI's grok CLI
+/// `~/.grok/auth.json`).
+const AGENT_AUTH_DIRS: &[&str] = &[".codex", "opencode", ".grok"];
 
 /// Credential directories under `.config` (`.config/gcloud`, `.config/gh`).
 const CREDENTIAL_CONFIG_DIRS: &[&str] = &["gcloud", "gh", "op", "doctl", "hub"];
@@ -1104,7 +1105,7 @@ pub(crate) fn credential_path(path: &Path) -> bool {
                 .collect()
         })
         .unwrap_or_default();
-    // Codex's and opencode's auth stores have a generic name; their
+    // Codex's, opencode's and grok's auth stores have a generic name; their
     // directory makes them credentials.
     let agent_auth = name.eq_ignore_ascii_case("auth.json")
         && parts
@@ -2344,6 +2345,7 @@ mod tests {
             "agents/.CODEX/auth.json",
             ".local/share/opencode/auth.json",
             ".gemini/oauth_creds.json",
+            ".grok/auth.json",
         ] {
             assert!(credential_path(Path::new(path)), "{path}");
         }

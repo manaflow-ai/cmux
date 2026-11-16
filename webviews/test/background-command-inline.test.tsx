@@ -41,6 +41,7 @@ test("a running background command is a normal row in the opened run, with no co
   expect(row).toMatch(/class="cv-tool cv-command is-toggle is-live"/);
   expect(row).toContain("bun run dev:api");
   expect(row).toContain("cv-row-shimmer");
-  // The steps end on the last call's row: nothing is drawn after them.
-  expect(html).toMatch(/bun run migrate[\s\S]*<\/button><\/div><\/div><\/div>$/);
+  // The steps end on the last call's row: nothing is drawn after them, only the closing boxes (the
+  // run's scroll box, RunScroll.tsx, among them).
+  expect(html).toMatch(/bun run migrate[\s\S]*<\/button>(<\/div>)+$/);
 });

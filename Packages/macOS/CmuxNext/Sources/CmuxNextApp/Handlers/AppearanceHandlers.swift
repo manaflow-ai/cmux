@@ -2,6 +2,7 @@ import CmuxNextActions
 import CoreGraphics
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 
 /// Animation speed, titlebar style, interface size (the chrome body
 /// font; terminal fonts come from the Ghostty config) and pane chrome
@@ -16,17 +17,16 @@ enum AppearanceHandlers {
         registry.bind("appearance.customize", run: { invocation in
             try context.services.settingsWindow.show(section: .appearance, focus: invocation.allowsViewChange)
         })
-        // Change Background… (the window's or a chat's empty-space menu) opens Settings on the art
-        // picker, which can also set the clicked (else the shown) workspace's own background.
+        // Personalization… (the profile menu) opens Settings > Personalization; Change Background… (the
+        // window's or a chat's empty-space menu) opens it on its art picker, which can also set the
+        // clicked (else the shown) workspace's own background.
+        registry.bindEffect("appearance.personalize", requires: nil, effect: { invocation in
+            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: SettingsDeepLink.personalizationRoute())
+            return .done
+        })
         registry.bind("appearance.changeBackground", run: { invocation in
-            let settings = context.services.settingsWindow
-            let workspace = context.scope(invocation).workspace?.id
-            do {
-                try settings.show(section: .appearance, setting: "appearance.background", focus: invocation.allowsViewChange,
-                                  route: SettingsWindowService.backgroundRoute(workspace: workspace))
-            } catch {
-                try settings.show(section: .appearance, focus: invocation.allowsViewChange)
-            }
+            let route = SettingsDeepLink.personalizationRoute(part: "background", workspace: context.scope(invocation).workspace?.id)
+            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: route)
         })
         let save: SettingChoiceActions.Save = { path, value in
             if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }

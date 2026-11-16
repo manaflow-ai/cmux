@@ -14,6 +14,7 @@ Usage: home-polish.py --tag <tag> [--out DIR] [--size 818x1060] [--app PATH]
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -96,14 +97,14 @@ try:
         env.pop("CMUX_NEXT_NO_ACTIVATE")
     log = open(os.path.join(opts.out, f"app-{opts.tag}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 180):
         sys.exit("the tagged app did not come up")
     if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
         sys.exit(2)
     time.sleep(2)
     shot("01-chief-tab")
-    print("fixture:", rpc("debug.home_native_fixture.open", {"attachments": True, "new": True}), flush=True)
+    safe_print("fixture:", rpc("debug.home_native_fixture.open", {"attachments": True, "new": True}), flush=True)
     time.sleep(6)
     shot("02-conversation-attachments")
     drive("focus")
@@ -131,8 +132,8 @@ try:
     shot("08-scrolled")
     drive("scroll", dy=500)
     time.sleep(1)
-    print("done", flush=True)
+    safe_print("done", flush=True)
 finally:
     if app and app.poll() is None:
         app.send_signal(signal.SIGKILL)
-        print(f"killed {app.pid}", flush=True)
+        safe_print(f"killed {app.pid}", flush=True)

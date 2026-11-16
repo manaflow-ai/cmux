@@ -66,6 +66,8 @@ import Testing
             let dark = scope.tokens.isDark
             for color in Self.order + [.blue, .grey] {
                 let chip = TabGroupChipCell(group: TabGroupItem(id: "g", name: "API", colorToken: color), memberCount: 2)
+                // The solid chip; the glass chip is pinned in `TabGroupChipGlassTests`.
+                chip.look.background = .solid
                 chip.themeScope = scope
                 let fill = try Self.rgb(chip.pill.backgroundColor), want = try Self.lawrence(color, fill: true, dark: dark)
                 #expect(Self.same(fill, want), "\(name) \(color) chip: \(fill), want \(want)")

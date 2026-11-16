@@ -1,0 +1,12 @@
+{"prompt":"add a dark mode toggle to the settings page"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"no, not in the general tab, it goes under Appearance in src/settings/Appearance.tsx"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"actually it should follow the system theme by default, the toggle only overrides it"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"that's not what I meant, keep the existing ThemeContext and don't add a new store"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"great, now add a test for the toggle"}
+{"turn_end":"completed","expect_offer":true,"expect_corrections":3}
+{"prompt":"thanks, one more: update the changelog"}
+{"turn_end":"completed","expect_offer":false}

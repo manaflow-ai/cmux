@@ -161,23 +161,27 @@ public struct ScrubberDenylists: Sendable {
         // MUST stop at `&`/`,`/`}` (`?token=X&page=2` has to keep `&page=2`),
         // but those same characters can legitimately appear INSIDE a quoted JSON
         // value (`"password":"a&b"`), where stopping early would leak the
-        // suffix. The quoted rule captures the opening value quote in its prefix
-        // group and consumes `[^"']*` (everything up to the closing quote); the
-        // unquoted rule keeps the delimiter-bounded `[^\s"'&,}]+`. It does not
-        // attempt to model escaped quotes inside a quoted value (a regex JSON
-        // parser); the structured dict-key layer plus the wholesale Data/user/
-        // cookie drops are the real boundary, this free-text pass is best-effort
+        // suffix. The quoted rules capture the opening value quote in their prefix
+        // group and consume up to the SAME quote, past backslash escapes: one rule
+        // per quote character, since `password="a'b"` must not end at the `'`
+        // (cmux#38555 review F1); the unquoted rule keeps the delimiter-bounded
+        // `[^\s"'&,}]+`. The structured dict-key layer plus the wholesale Data/
+        // user/cookie drops are the real boundary; this free-text pass is
         // defense-in-depth for raw event messages / stack lines / breadcrumbs.
-        // Quoted-value form: redact through the closing quote.
+        // Quoted-value forms: redact through the matching closing quote.
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["'])[^"']*"#
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*")(?:[^"\\]|\\[\s\S])*"#
+        ),
+        SentryRegexPattern(
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*')(?:[^'\\]|\\[\s\S])*"#
         ),
         // The bare `sid` session alias (`?sid=…`, `&sid=…`, `sid:…`) carries a
         // session credential but is too short to embed in the marker set above
         // without matching innocuous substrings (`inside=`, `aside=`). A `\b`
         // word boundary anchors it so only a standalone `sid` key is redacted.
         // Quoted-value form (same quote-context split as the marker rule above).
-        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*["'])[^"']*"#),
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*")(?:[^"\\]|\\[\s\S])*"#),
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*')(?:[^'\\]|\\[\s\S])*"#),
         // Unquoted-value form of the marker rule: delimiter-bounded value.
         SentryRegexPattern(
             #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*)[^\s"'&,}]+"#
@@ -187,6 +191,13 @@ public struct ScrubberDenylists: Sendable {
         // Provider-style keys: sk-..., pk-..., ghp_..., xoxb-..., and similar
         // prefixes. No relay equivalent — cmux-specific add for dev secrets.
         SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),
+        // More provider tokens a developer's machine holds, by their fixed prefix: GitHub fine-grained PATs,
+        // GitLab PATs, npm tokens, Hugging Face tokens and Google API keys. No relay equivalent.
+        // Case-sensitive: the prefixes are fixed-case. `SeededSecretTests` seeds one of each.
+        SentryRegexPattern(
+            #"\b(?:github_pat_[A-Za-z0-9_]{22,}|glpat-[A-Za-z0-9_\-]{20,}|npm_[A-Za-z0-9]{36,}|hf_[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_\-]{35,})"#,
+            options: []
+        ),
         // JSON Web Tokens: three base64url segments separated by dots. No relay
         // equivalent. Case-sensitive (`eyJ` header is fixed-case base64).
         SentryRegexPattern(

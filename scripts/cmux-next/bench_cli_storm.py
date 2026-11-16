@@ -39,6 +39,7 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from daemon_teardown import daemon_env, end_terminals, recorded_hosts  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 DEADLINE_S = 2.0
 CLIENT_TIMEOUT_S = DEADLINE_S + 3.0
@@ -618,8 +619,8 @@ def main():
     profile.tag = tag
     pty_baseline = profile.pty_holders(pid)
     reap_limit = args.reap_grace + args.reap_margin
-    print(f"bench: profile {profile.name} pid {pid} tag {tag} socket {socket_path} pty holders {len(pty_baseline)} "
-          f"ptys in use {in_use}")
+    safe_print(f"bench: profile {profile.name} pid {pid} tag {tag} socket {socket_path} pty holders {len(pty_baseline)} "
+               f"ptys in use {in_use}")
 
     profile.setup(control, pid)
     time.sleep(1.0)
@@ -641,7 +642,7 @@ def main():
         control = Client(socket_path)  # a fresh one: the wait left it idle
         warmup = {"storm_seconds": warm_seconds, "closed_by_daemon": warm_closed_by_daemon,
                   "pty_holders_left": len(warm_left)}
-        print(f"bench: warm-up {json.dumps(warmup)}")
+        safe_print(f"bench: warm-up {json.dumps(warmup)}")
         time.sleep(2.0)
     baseline_rss = rss_kb(pid)
     baseline_footprint = footprint_mb(pid)
@@ -649,7 +650,7 @@ def main():
         pty_guard("measured storm")
     except SystemExit:
         if profile.name == "next" and not args.keep_daemon:
-            print(f"bench: teardown {json.dumps(end_terminals(profile.tui_binary, tag))}")
+            safe_print(f"bench: teardown {json.dumps(end_terminals(profile.tui_binary, tag))}")
         raise
 
     def begin():
@@ -695,7 +696,7 @@ def main():
     teardown = None
     if profile.name == "next" and not args.keep_daemon:
         teardown = end_terminals(profile.tui_binary, tag)
-        print(f"bench: teardown {json.dumps(teardown)}")
+        safe_print(f"bench: teardown {json.dumps(teardown)}")
 
     report = summarize(storm.samples)
     lost = sum(n for c in report.values() if "outcomes" in c
@@ -763,9 +764,9 @@ def main():
     out_path = os.path.join(out_dir, f"{args.sha}-{args.label}.json")
     with open(out_path, "w") as handle:
         json.dump(output, handle, indent=2)
-    print(json.dumps({k: output[k] for k in ("storm_seconds", "throughput_rps", "criteria", "failures")}, indent=2))
-    print("latency: " + ", ".join(f"{c} p50 {v['p50_ms']:.1f} p99 {v['p99_ms']:.1f} max {v['max_ms']:.1f}" for c, v in report.items()))
-    print(f"wrote {out_path}")
+    safe_print(json.dumps({k: output[k] for k in ("storm_seconds", "throughput_rps", "criteria", "failures")}, indent=2))
+    safe_print("latency: " + ", ".join(f"{c} p50 {v['p50_ms']:.1f} p99 {v['p99_ms']:.1f} max {v['max_ms']:.1f}" for c, v in report.items()))
+    safe_print(f"wrote {out_path}")
     if failures and not args.no_fail:
         sys.exit(1)
 

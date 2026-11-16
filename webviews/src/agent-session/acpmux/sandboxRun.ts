@@ -1,3 +1,4 @@
+import type { CloudEnvironmentPick } from "./cloudEnvironmentChoice";
 import type { StringKey } from "./i18n";
 
 /// A Sandboxed send (hq#3367, preview): the composer's environment picker can run a new chat's
@@ -10,7 +11,12 @@ import type { StringKey } from "./i18n";
 export type RunMode = "persistent" | "sandboxed" | "cloud";
 
 /// The picker's Run as rows (EnvironmentPicker `runMode`).
-export type RunModeRows = { mode: RunMode; onMode(mode: RunMode): void };
+export type RunModeRows = {
+  mode: RunMode;
+  onMode(mode: RunMode): void;
+  /// The new chat's Cloud environment (CloudEnvironmentChip.tsx), held per chat with its mode.
+  environment?: CloudEnvironmentPick;
+};
 
 /// The parts of a receipt the chat shows; every field may be missing from an older server.
 export type SandboxReceipt = {

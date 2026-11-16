@@ -41,4 +41,6 @@ export const COMPOSER_LABELS = {
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
   scrollToBottomOnSend: "composer.menu.scrollToBottomOnSend",
+  attachmentsInline: "composer.menu.attachmentsInline",
+  attachmentsTop: "composer.menu.attachmentsTop",
 } as const satisfies Record<string, StringKey>;

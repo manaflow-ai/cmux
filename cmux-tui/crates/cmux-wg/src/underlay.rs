@@ -164,6 +164,15 @@ pub trait Underlay: Send + 'static {
     fn peer_hint(&self) -> Option<SocketAddr> {
         None
     }
+
+    /// Whether the carrier moved the session to another route since the last
+    /// call (a switch, datagrams going on every path after the current one
+    /// went quiet, or the peer roaming to a new address). The driver then has
+    /// the tunnel's TCP resend what was in flight at once, instead of waiting
+    /// out a timer that backed off while the old route lost it.
+    fn take_path_change(&mut self) -> bool {
+        false
+    }
 }
 
 /// A datagram socket: Tokio's UDP socket, or a simulated one in tests.
@@ -251,7 +260,18 @@ pub struct SocketPath<S> {
     retry: Option<Pin<Box<Sleep>>>,
     retry_after: Duration,
     refusals: u32,
+    /// The peer roamed to a new address after a silence, since the last
+    /// `take_path_change`.
+    roamed: bool,
+    /// When the peer last sent an authenticated datagram, from any address.
+    heard: Option<Instant>,
 }
+
+/// How long the peer must have been silent before a datagram from a new
+/// address counts as the peer moving off a lost path: the multipath
+/// selector's shortest silence window, so a path cut under a stream counts and
+/// paths that alternate while both answer do not.
+const ROAM_QUIET: Duration = Duration::from_millis(100);
 
 /// The default underlay: one UDP socket, one peer address.
 pub type UdpUnderlay = SocketPath<UdpSocket>;
@@ -266,6 +286,8 @@ impl<S: DatagramSocket> SocketPath<S> {
             retry: None,
             retry_after: INTERFACE_RETRY_MIN,
             refusals: 0,
+            roamed: false,
+            heard: None,
         }
     }
 
@@ -390,7 +412,15 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
 
     fn authenticated(&mut self, origin: Origin) {
         if let Some(addr) = origin.addr {
+            // Learning the first address is not a move, and neither is a peer
+            // whose datagrams alternate between live paths (probes on one,
+            // data on another). A new address after the peer went silent is:
+            // whatever was sent to the old one in that silence is lost.
+            let now = Instant::now();
+            let quiet = self.heard.is_none_or(|heard| now - heard >= ROAM_QUIET);
+            self.roamed |= quiet && self.peer.is_some_and(|peer| peer != addr);
             self.peer = Some(addr);
+            self.heard = Some(now);
         }
     }
 
@@ -400,6 +430,10 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
 
     fn peer_hint(&self) -> Option<SocketAddr> {
         self.peer
+    }
+
+    fn take_path_change(&mut self) -> bool {
+        std::mem::take(&mut self.roamed)
     }
 }
 

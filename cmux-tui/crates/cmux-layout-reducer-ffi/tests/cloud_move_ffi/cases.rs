@@ -81,7 +81,8 @@ fn a_call_names_its_arguments() {
             "c"
         ])
     );
-    assert_eq!(body["timeoutSeconds"], Value::Null);
+    // A ledger verb: a minute (cmux-cloud-start-core START_CHAT_LEDGER_TIMEOUT_SECONDS).
+    assert_eq!(body["timeoutSeconds"], json!(60));
     assert_eq!(call(c"cloud_move_cli_invocation", &json!({"verb": "rm"})).0, ERR_INVALID);
 }
 
@@ -174,6 +175,15 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
         json!({"taskKind": "build"})
     );
     assert_eq!(ok(c"cloud_move_deadlines", json!({}))["startRedialInitialMs"], 1000);
+    assert_eq!(
+        ok(c"cloud_move_start_redial", json!({"ended": true, "running": true, "redials": 0})),
+        json!({"redial": "connect"})
+    );
+    assert_eq!(
+        ok(c"cloud_move_start_redial", json!({"paused": true, "resumed": false})),
+        json!({"redial": "resume"})
+    );
+    assert_eq!(ok(c"cloud_move_start_redial", json!({})), json!({"redial": "nothing"}));
     assert_eq!(
         ok(c"cloud_move_new_workspace_route", json!({"signedIn": false, "hasWindow": true})),
         json!({"route": "thisMac", "refusal": {"kind": "signedOut"}})

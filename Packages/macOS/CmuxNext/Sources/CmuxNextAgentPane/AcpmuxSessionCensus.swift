@@ -84,8 +84,8 @@ public nonisolated struct AcpmuxQuit {
         // and disk, so it must not consume the quit census deadline.
         let rows = try await AcpmuxStatusClient.sessionPages(
             socketPath: socketPath,
-            params: ["localOnly": true, "excludeStatus": ["closed"], "orderBy": "sessionId"],
-            requiredCapability: "session-list-filters-v1",
+            params: AcpmuxSessionListGate.localLiveCensus,
+            requiredCapability: AcpmuxSessionListGate.requiredCapability(fields: AcpmuxSessionListGate.localLiveCensus.keys),
             deadline: deadline
         )
         return rows.filter {
@@ -163,7 +163,8 @@ public nonisolated struct AcpmuxQuit {
                 ? keptSessions(result(try await activeSessions(socketPath: socket, deadline: .seconds(2))), keep: keep)
                 : []
             if keep == .chief { AcpmuxQuitProof.remember(chief: Set(chief), home: environment.home) }
-            try await AcpmuxStatusClient.shutdown(socketPath: socket, home: environment.home, endAgents: true, keepSessions: chief)
+            try await AcpmuxStatusClient.shutdown(socketPath: socket, home: environment.home, reason: "quit: end agents",
+                                                  endAgents: true, keepSessions: chief)
         } catch AcpmuxStatusClient.Failure.unreachable {
             // A socket file nobody answers on (a crash leaves one): the locks
             // decide, and a free lock is no daemon. The sighting is spent.

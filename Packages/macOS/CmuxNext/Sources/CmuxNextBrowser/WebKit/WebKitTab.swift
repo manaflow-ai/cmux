@@ -132,6 +132,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         WebKitNotificationBridge.install(on: self, into: controller)
         WebKitFirstPaintHandler.install(on: self, into: controller)
         WebKitScrollReportHandler.install(on: self, into: controller)
+        WebKitPageKeyHandler.install(on: self, into: controller)
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)

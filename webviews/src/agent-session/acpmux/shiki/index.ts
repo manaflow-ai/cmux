@@ -10,9 +10,7 @@ import { createJavaScriptRegexEngine } from "@shikijs/engine-javascript";
 export * from "@shikijs/core";
 export { createJavaScriptRegexEngine };
 
-export function createOnigurumaEngine(): never {
-  throw new Error("The agent pane highlights with the JavaScript regex engine only");
-}
+export { createOnigurumaEngine } from "./engine/oniguruma";
 
 import { HIGHLIGHTED_LANGUAGES } from "../shikiLanguages";
 

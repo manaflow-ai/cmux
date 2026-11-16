@@ -11,8 +11,10 @@ import CmuxNextSignposts
 /// submit, the echo's decode on the attach reader, the session taking it for its
 /// output lane (`output_received_ms`: off the main actor since G4, so rows before 04237873b23
 /// named this column `output_main_ms` and do not compare),
-/// its parse on the output lane, and the first `layer.contents` set after
-/// that parse (the frame Core Animation commits). The row is appended when
+/// its parse on the output lane, and the first frame Ghostty reports shown on
+/// the layer after that parse (its present callback: after the GPU thread's own
+/// transaction committed, so rows before the callback marked the `setContents:`
+/// call and read a little earlier). The row is appended when
 /// that frame lands. Drive it with keys paced wider than one round trip;
 /// a key that arrives while a sample is open closes the old one unfinished.
 /// Times are milliseconds after the event's own timestamp (seconds since

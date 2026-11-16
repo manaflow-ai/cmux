@@ -95,8 +95,8 @@ enum AgentChatMenuHandlers {
             NSWorkspace.shared.revealInBackground([URL(fileURLWithPath: cwd)])
         })
         registry.bind("agentPane.openCwdInTerminal", run: { invocation in
-            guard let cwd = localFolder("agentPane.openCwdInTerminal", context, invocation),
-                  let pane = context.paneController(invocation) ?? context.registry.refuse(.noChat, "agentPane.openCwdInTerminal") else { return }
+            guard let pane = context.paneController(invocation) ?? context.registry.refuse(.noChat, "agentPane.openCwdInTerminal"),
+                  let cwd = localFolder("agentPane.openCwdInTerminal", context, invocation, shellOn: pane) else { return }
             pane.newTerminalTab(cwd: cwd)
         })
     }
@@ -110,9 +110,9 @@ enum AgentChatMenuHandlers {
         return view.model.sessionId == nil ? context.registry.refuse(.notStarted, id) : view
     }
 
-    /// The project folder of the chat `id` runs on, which must be on this Mac; else nil after refusing with why.
-    private static func localFolder(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> String? {
+    /// The project folder of the chat `id` runs on, on this Mac or, for a shell in `pane` on the chat's own machine, there; else nil after refusing with why.
+    private static func localFolder(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation, shellOn pane: PaneController? = nil) -> String? {
         guard let view = chatView(id, context, invocation) else { return nil }
-        return view.model.remoteChat ? context.registry.refuse(.remote, id) : view.model.terminalFolder ?? context.registry.refuse(.noFolder, id)
+        return !view.model.remoteChat ? view.model.terminalFolder ?? context.registry.refuse(.noFolder, id) : pane.flatMap { pane in (context.scope(invocation).tab?.id.rawValue ?? pane.currentTabKey).flatMap { context.services.agentTabs.terminalFolder(of: $0, on: pane.daemon) } } ?? context.registry.refuse(.remote, id)
     }
 }

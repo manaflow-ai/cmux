@@ -109,8 +109,10 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
         Some(end) => (&args[..end], &args[end + 1..]),
         None => (args, &[][..]),
     };
-    let confirm = options.iter().any(|arg| arg == "--confirm");
-    let mut words: Vec<&String> = options.iter().filter(|arg| *arg != "--confirm").collect();
+    // `--yes` is the CLI's confirm word; `--confirm` is its old spelling.
+    let confirm_word = |arg: &String| matches!(arg.as_str(), "--confirm" | "--yes");
+    let confirm = options.iter().any(confirm_word);
+    let mut words: Vec<&String> = options.iter().filter(|arg| !confirm_word(arg)).collect();
     if let Some(flag) = words.iter().find(|word| word.starts_with("--")) {
         return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
     }

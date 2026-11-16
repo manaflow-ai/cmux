@@ -33,8 +33,10 @@ final class InputVerificationService {
         let monitor = InputInvariantMonitor(tag: tag)
         monitor.services = services
         self.monitor = monitor
+        let focusLog = services.focusLog
         (NSApp as? CmuxApplication)?.inputObserver = { event in
             journal.record(event)
+            focusLog.noteInput(event)
             switch event.type {
             case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp: monitor.noteChange()
             default: break
@@ -97,6 +99,7 @@ final class InputVerificationService {
             // Chips shown for a held modifier follow the new focus (pane navigation while held).
             controller.shortcutHints?.focusDidSettle()
             services?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
+            controller.state.selection.focus(state.pane, in: state.topology.workspace) // the sidebar row's icon follows it
             let key = state.settleKey
             if key != notified {
                 notified = key

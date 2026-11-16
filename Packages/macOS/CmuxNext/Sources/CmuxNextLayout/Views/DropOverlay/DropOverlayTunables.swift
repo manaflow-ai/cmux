@@ -132,7 +132,7 @@ public nonisolated enum LayoutTunables {
     /// Opt-in motion prototypes; this changes presentation only and requires pane animations to be enabled.
     public static let paneMotionVariant = Tunable<PaneMotionVariant>.choice(
         "motion.pane.variant", .springs, "Pane close and expand",
-        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Pane chrome resizes live on every frame; Reduce Motion still snaps.",
+        help: "Compare current pane close/expand movement with a faster crisp preset. Enable Pane Animations first. Pane chrome resizes live on every frame; Reduce Motion still snaps.",
         default: .standard, code: "LayoutTunables.paneMotionVariant")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",

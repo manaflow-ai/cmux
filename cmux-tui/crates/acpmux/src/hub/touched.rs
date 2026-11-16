@@ -34,6 +34,7 @@ const NOTICE_SENDER: &str = "acpmux who-else";
 /// (an agent's message waits for that turn to end, `turns.rs` `persons_held`).
 pub const NOTICE_KIND: &str = "who_else";
 /// How long a peer may take to answer before the answer goes on without it.
+// timeout: a peer that does not answer is left out; the answer goes on without it.
 const PEER_DEADLINE: Duration = Duration::from_secs(5);
 /// The most rows one answer carries.
 const MAX_ROWS: usize = 50;

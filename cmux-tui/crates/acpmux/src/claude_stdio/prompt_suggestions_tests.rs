@@ -167,3 +167,17 @@ fn a_saved_chat_pick_is_on_unless_it_says_off() {
     assert!(prompt_suggestions::chat_pick(Some("on".into())));
     assert!(!prompt_suggestions::chat_pick(Some("off".into())));
 }
+
+/// A value MDM or the team policy forces beats the settings file both ways; with nothing forced
+/// the file decides, on when unset (review of cmux#33097: a forced off still started suggestions,
+/// and the file could undo a forced on).
+#[test]
+fn a_forced_value_beats_the_file_and_nothing_forced_keeps_the_file() {
+    for file in [None, Some(true), Some(false)] {
+        assert!(!prompt_suggestions::effective(Some(false), file), "forced off, file {file:?}");
+        assert!(prompt_suggestions::effective(Some(true), file), "forced on, file {file:?}");
+    }
+    assert!(prompt_suggestions::effective(None, None));
+    assert!(prompt_suggestions::effective(None, Some(true)));
+    assert!(!prompt_suggestions::effective(None, Some(false)));
+}

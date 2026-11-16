@@ -38,12 +38,12 @@ extension AgentPaneTransport {
                     batch.outcomes.append(.sent)
                     continue
                 }
-                // task-owner: one read per socket, ending within two seconds; its slot is released
-                // on every exit. A closed socket drops the result through the normal inbound path.
+                // task-owner: one read per socket, ending within ``statusReadLimit``; its slot is
+                // released on every exit. A closed socket drops the result through the normal inbound path.
                 Task.detached(priority: .utility) {
                     defer { socket.statusRead.end() }
                     let result = try? await AcpmuxStatusClient.call(socketPath: path, method: "_acpmux/status",
-                                                                   deadline: .seconds(2))
+                                                                   deadline: Self.statusReadLimit)
                     let reply = result.flatMap {
                         AcpmuxRequestIds.encode(["jsonrpc": "2.0", "id": relayID, "result": $0])
                     } ?? Self.statusError(relayID: relayID)
@@ -56,6 +56,11 @@ extension AgentPaneTransport {
         }
         return batch
     }
+
+    /// The page's relayed `_acpmux/status` (its machines, so the Cloud destinations it can start on).
+    /// A loaded daemon answers after 2 s (Austin, 2026-10-29: about 80 agents), and a 2 s read then
+    /// left the page with no peers, so no Cloud machine to start on; the answer still ends the wait.
+    nonisolated static let statusReadLimit: Duration = .seconds(15)
 
     nonisolated private static func statusError(relayID: Int) -> String {
         "{\"jsonrpc\":\"2.0\",\"id\":\(relayID),\"error\":{\"code\":-32000,\"message\":\"status unavailable\"}}"
@@ -241,14 +246,15 @@ extension AgentPaneTransport {
     /// The refusal of a session-scoped frame for a session that is not this pane's.
     nonisolated static func sessionRefusal(_ object: [String: Any], sessions: AcpmuxPaneSessions) -> AcpmuxPaneMethods.Decision? {
         guard let method = object["method"] as? String else { return nil }
-        let named = (object["params"] as? [String: Any])?["sessionId"]
+        let params = object["params"] as? [String: Any]
+        let primaryKey = AcpmuxPaneMethods.primarySessionParams[method] ?? "sessionId"
+        let named = params?[primaryKey]
         // A frame that may name a session and names none is not session-scoped.
         if AcpmuxPaneMethods.optionallySessionScoped.contains(method), named == nil { return nil }
         guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)
         else { return nil }
         let session = named as? String
         // Other params that name a session must name one of the pane's too (`_acpmux/side`'s chat).
-        let params = object["params"] as? [String: Any]
         let othersHeld = AcpmuxPaneMethods.scopedSessionParams[method, default: []]
             .allSatisfy { (params?[$0] as? String).map(sessions.contains) == true }
         // Ones that may name a session (an accepted offer's child): none is fine, a named one

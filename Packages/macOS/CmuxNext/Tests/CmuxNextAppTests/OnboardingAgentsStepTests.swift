@@ -1,6 +1,7 @@
 @testable import CmuxNextAccounts
 @testable import CmuxNextAgentPane
 @testable import CmuxNextOnboarding
+import CmuxNextTestSupport
 import Foundation
 import os
 import Testing
@@ -309,6 +310,25 @@ import Testing
         #expect(model.agents.signingIn == "claude")
     }
 
+    /// The cards share one agents model: a focus refresh from another card that supersedes the read after an
+    /// install still ends that install with its Sign In (manaflow-ai/cmux#39388 review F1).
+    @Test func anInstallsSignInSurvivesARefreshThatSupersedesItsRead() async {
+        let (model, services) = model([OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false)])
+        model.stepDidAppear()
+        await Self.until { model.agents.loaded }
+        #expect(model.agents.installable.map(\.id) == ["claude"])
+        services.holdNextRead = true
+        model.agents.install("claude")
+        await Self.until { services.heldRead != nil }
+        model.agents.refresh(recheck: true)
+        await Self.until { services.signIns == ["claude"] }
+        #expect(services.signIns == ["claude"], "the refresh's read ends the install with its Sign In")
+        #expect(model.agents.installs["claude"] == nil)
+        services.heldRead?.resume()
+        await Self.until { services.reads.count == 3 && !model.agents.loading }
+        #expect(services.signIns == ["claude"], "the superseded read starts no second Sign In")
+    }
+
     @Test func aFailedInstallStaysBesideItsButton() async {
         let (model, services) = model(Self.missingClaude)
         services.installFails = "Claude Code did not install: offline. Install it from https://docs.anthropic.com/en/docs/claude-code/setup"
@@ -372,7 +392,7 @@ import Testing
         }
         func defaults() throws -> UserDefaults {
             let suite = "cmux-agents-first-run-\(UUID().uuidString)"
-            let defaults = try #require(UserDefaults(suiteName: suite))
+            let defaults = try #require(UserDefaults(testSuiteName: suite))
             defaults.removePersistentDomain(forName: suite)
             return defaults
         }
@@ -408,13 +428,13 @@ import Testing
         let none = Order()
         let empty = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
                                               activeLook: nil, present: { _ in })
-        await empty.showFirstRunSteps(isFirstRun: true, source: MockAgentSignInSource(), defaults: try #require(UserDefaults(suiteName: "cmux-no-agents-\(UUID().uuidString)"))) {
+        await empty.showFirstRunSteps(isFirstRun: true, source: MockAgentSignInSource(), defaults: try #require(UserDefaults(testSuiteName: "cmux-no-agents-\(UUID().uuidString)"))) {
             none.steps.append("history")
         }
         #expect(none.steps == ["history"])
 
         let suite = "cmux-agents-then-history-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let presenter = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
                                                   activeLook: nil, present: { _ in })

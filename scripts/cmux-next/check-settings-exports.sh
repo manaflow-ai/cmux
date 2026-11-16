@@ -23,8 +23,16 @@
 #   - the daemon-test job runs its suites with `swift test --skip-build` AFTER this step, so the
 #     base export's own `swift build` would leave them testing base settings binaries;
 #   - a base export that fails must not skip the restore either.
-# So the restore re-exports from HEAD's sources, which rewrites every export and rebuilds the
-# package, it runs from a trap as well as in line, and if it cannot run it falls back to the
+# So when the calling job built HEAD's package itself (CMUX_NEXT_JOB_BUILT=plain, the three CI
+# jobs that run this), the script keeps HEAD's built package aside before the base export: a clone
+# of the package's .build (`cp -c` on macOS, APFS copy-on-write: seconds, and only what the base
+# build rewrites takes disk) and HEAD's fresh exports. The base export builds in place on the
+# original, so it rebuilds only what the base's settings sources change. The restore puts HEAD's
+# sources, exports and .build back without building anything (cmuxterm-hq#9678: re-exporting from
+# HEAD's sources was one more build, and with the job's cold build it ran past the 40 min cap). It
+# runs from a trap as well as in line. Without that, or when the clone cannot be made or put back,
+# the restore re-exports from HEAD's sources, which rewrites every export and rebuilds the
+# package, and if that cannot run it falls back to the
 # committed exports: collecting nothing is right, collecting the base's bytes is not. When even a
 # plain build cannot put HEAD's products back, it removes the built products, so a later
 # `--skip-build` suite fails instead of passing against the base export's binaries.
@@ -77,6 +85,10 @@ restore_absent() {
   git reset -q HEAD -- "$1" 2>/dev/null || true
 }
 
+pkg_build="$root/Packages/macOS/CmuxNext/.build"
+head_build="$root/Packages/macOS/CmuxNext/.build-cmux-settings-head"
+head_exports="$temp/settings-head-fresh"
+kept=0
 restored=0
 restore() {
   (( restored )) && return 0
@@ -87,6 +99,19 @@ restore() {
   for path in "${inputs[@]}"; do
     if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
   done
+  # HEAD's own build and fresh exports, kept before the base export: nothing to rebuild. The
+  # sources' new mtimes only make a later build recompile what they feed, which is correct.
+  if (( kept )); then
+    local ok=1
+    for file in "${exports[@]}"; do
+      if [[ -f "$head_exports/$file" ]]; then cp -p "$head_exports/$file" "$file" || ok=0; fi
+    done
+    if (( ok )) && rm -rf "$pkg_build" && mv "$head_build" "$pkg_build"; then
+      return 0
+    fi
+    echo "::warning::HEAD's kept build could not be put back; re-exporting from HEAD's sources instead" >&2
+    rm -rf "$head_build"
+  fi
   # From HEAD's sources again: this rewrites every export and rebuilds the package's test
   # products, so both the checkout and the built binaries are HEAD's.
   if scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-head-exports" > "$temp/settings-head-exported.txt" 2>&1; then
@@ -112,6 +137,25 @@ restore() {
   return 1
 }
 trap 'restore || true' EXIT
+
+# HEAD's fresh exports (the export above left them in the checkout) and a clone of HEAD's build,
+# for the restore. No clone (kept=0): the restore rebuilds instead.
+for file in "${exports[@]}"; do
+  [[ -f "$file" ]] || continue
+  mkdir -p "$head_exports/${file%/*}" && cp -p "$file" "$head_exports/$file"
+done
+clone_build() {
+  if [[ "$(uname -s)" == Darwin ]]; then cp -c -R -p "$1" "$2"; else cp -a --reflink=auto "$1" "$2"; fi
+}
+rm -rf "$head_build"
+if [[ "${CMUX_NEXT_JOB_BUILT:-}" == plain && -d "$pkg_build" ]]; then
+  if clone_build "$pkg_build" "$head_build" 2>"$temp/settings-head-clone.txt"; then
+    kept=1
+  else
+    echo "::notice::HEAD's package build could not be cloned ($(head -c 300 "$temp/settings-head-clone.txt" 2>/dev/null)); the restore rebuilds from HEAD's sources"
+    rm -rf "$head_build"
+  fi
+fi
 
 for path in "${inputs[@]}"; do
   if git cat-file -e "HEAD^1:$path" 2>/dev/null; then git checkout -q HEAD^1 -- "$path"; else rm -f "$path"; fi

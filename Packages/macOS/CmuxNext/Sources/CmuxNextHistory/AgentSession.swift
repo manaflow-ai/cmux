@@ -79,16 +79,39 @@ public nonisolated struct AgentJournalRecord: Hashable, Sendable, Decodable {
     public struct Payload: Hashable, Sendable, Decodable {
         public struct Adapter: Hashable, Sendable, Decodable { public var id: String }
         public struct Normalized: Hashable, Sendable, Decodable {
+            /// One session's newest report time in the daemon's coalesced activity row
+            /// (`native_event` `AgentActivityObserved`): the daemon writes one such row for the
+            /// whole session at most each 5 minutes, not a row per tool report.
+            public struct ActivityStamp: Hashable, Sendable, Decodable {
+                public var adapter: String?
+                public var agentSessionID: String?
+                public var observedAtMs: String?
+
+                public init(adapter: String?, agentSessionID: String?, observedAtMs: String?) {
+                    self.adapter = adapter
+                    self.agentSessionID = agentSessionID
+                    self.observedAtMs = observedAtMs
+                }
+
+                enum CodingKeys: String, CodingKey {
+                    case adapter
+                    case agentSessionID = "agent_session_id"
+                    case observedAtMs = "observed_at_ms"
+                }
+            }
+
             public var agentSessionID: String?
             public var rootAgentSessionID: String?
             public var cwd: String?
             public var observedAtMs: String?
+            public var activity: [ActivityStamp]?
 
             enum CodingKeys: String, CodingKey {
                 case agentSessionID = "agent_session_id"
                 case rootAgentSessionID = "root_agent_session_id"
                 case cwd
                 case observedAtMs = "observed_at_ms"
+                case activity
             }
         }
 
@@ -133,6 +156,19 @@ public nonisolated struct AgentJournalRecord: Hashable, Sendable, Decodable {
         self.subjects = subjects
         self.payload = Payload(adapter: provider.map(Payload.Adapter.init(id:)),
                                normalized: Payload.Normalized(agentSessionID: sessionID, cwd: cwd))
+    }
+
+    /// The daemon's coalesced activity row with `stamps` (provider, session id, time in Unix ms).
+    public init(sequence: UInt64, activity stamps: [(provider: String, sessionID: String, atMs: Int64)]) {
+        self.sequence = sequence
+        self.kind = "agent.state.changed"
+        self.occurredAtMs = stamps.map(\.atMs).max()
+        self.subjects = []
+        var normalized = Payload.Normalized()
+        normalized.activity = stamps.map {
+            Payload.Normalized.ActivityStamp(adapter: $0.provider, agentSessionID: $0.sessionID, observedAtMs: String($0.atMs))
+        }
+        self.payload = Payload(adapter: Payload.Adapter(id: "cmux"), normalized: normalized)
     }
 
     func subject(_ kind: String) -> String? {

@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextWakeups
+import Foundation
 public import Observation
 import os
 
@@ -40,6 +41,17 @@ public final class DaemonRecovery {
     public private(set) var daemonNotAnswering = false
     /// The `server ensure` a not-answering daemon's heartbeat started (``noteDaemonAnswering(_:)``); nil when none runs.
     @ObservationIgnored private var ownerProbe: Task<Void, Never>?
+    /// The session owner is restoring while the app waits for it (``EnsureOutcome/restoring``), with
+    /// `waitedMs` counted from the first report of this restore: a later ensure on the same owner reports
+    /// from its own start, and the time shown never steps back. Nil once an ensure ends.
+    public private(set) var restoring: RestoreProgressReport?
+    /// ``restoring`` is set: changes only when a restore starts or ends, not at each progress line, so the sidebar's rows
+    /// (stale while it restores) and the startup deadline (it waits a restore out) follow it without a redraw per line.
+    public private(set) var isRestoring = false
+    /// ``restoring`` in the person's words ("Restoring sessions… 4m 12s"); nil while none.
+    public var restoringText: String? { restoring.map { RefusalStrings.restoringSessions(waitedMs: $0.waitedMs) } }
+    /// When the restore ``restoring`` reports began, and its owner; nil after a start that worked.
+    @ObservationIgnored private var restoreBegan: (pid: Int32?, at: Date)?
     /// A Restart runs (up to 20 s of probe and stop, then the new owner's start).
     public private(set) var isRestarting = false
     /// Why the last Restart did not work (the refusal code or error, for Copy
@@ -54,6 +66,9 @@ public final class DaemonRecovery {
     @ObservationIgnored private var watch: UnresponsiveOwnerWatch?
     @ObservationIgnored private var wake: RetryWake?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
+    /// App health holds replacements (``AppHealth/holdsReplace``: the owner is restoring and still
+    /// makes progress): the watch's automatic restart waits; a person's Restart still runs.
+    @ObservationIgnored public var holdsReplace: @Sendable () -> Bool = { false }
 
     /// When failed starts count as cmux-tui being down (``startFailurePersists``): a full disk at once, because only
     /// the person can free space; any other failure once at least ``failedStarts`` starts in a row failed over at
@@ -81,8 +96,8 @@ public final class DaemonRecovery {
     /// Whether an owner that stays unresponsive restarts without asking (default on). Read before
     /// each automatic restart, off the main actor; the App sets it to its Debug Settings toggle.
     public nonisolated var restartsUnresponsiveOwner: @Sendable () -> Bool {
-        get { restartsUnresponsive.withLock { $0 } }
-        set { restartsUnresponsive.withLock { $0 = newValue } }
+        get { restartsUnresponsive.load() }
+        set { restartsUnresponsive.store(newValue) }
     }
 
     /// Follows `launcher`'s ensure outcomes; `wake` is the service's retry wake.
@@ -105,6 +120,27 @@ public final class DaemonRecovery {
             noteStart(outcome.failure, failedInARow: outcome.failedInARow)
         }
         noteStart(outcome.failure, failedInARow: outcome.failedInARow)
+        outcome.observeRestoring { [weak self] in self?.noteRestoring(outcome.restoring) }
+        noteRestoring(outcome.restoring)
+    }
+
+    /// The running ensure's restore progress changed (nil: it ended).
+    func noteRestoring(_ report: RestoreProgressReport?) {
+        if isRestoring != (report != nil) { isRestoring = report != nil }
+        guard var report else {
+            if restoring != nil { restoring = nil }
+            return
+        }
+        let began = report.updatedAt.addingTimeInterval(-Double(report.waitedMs) / 1000)
+        if let earlier = restoreBegan, earlier.pid == report.pid {
+            restoreBegan = (report.pid, min(earlier.at, began))
+        } else {
+            restoreBegan = (report.pid, began)
+            let pid = report.pid.map { String($0) } ?? "unknown"
+            logger.notice("cmux-tui is restoring sessions (pid \(pid, privacy: .public)); the app waits for it")
+        }
+        report.waitedMs = UInt64(max(0, report.updatedAt.timeIntervalSince(restoreBegan?.at ?? began)) * 1000)
+        if restoring != report { restoring = report }
     }
 
     /// The connected daemon answers its heartbeat (true) or left one more ask unanswered while its connection stays
@@ -146,6 +182,7 @@ public final class DaemonRecovery {
         if startFailure != failure { startFailure = failure }
         if failure == nil {
             failingSince = nil
+            restoreBegan = nil
         } else if failingSince == nil {
             failingSince = now()
         }
@@ -185,7 +222,13 @@ public final class DaemonRecovery {
     /// claims it (the toggle on, the same owner still stuck), then the button's restart with no
     /// confirm. No suspension between the claim and `restart` setting ``isRestarting``.
     private func restartUnresponsive(_ claim: @Sendable () -> Bool) async -> Bool {
-        guard launcher != nil, !isRestarting, claim() else { return false }
+        guard launcher != nil, !isRestarting else { return false }
+        // Before the claim, which spends the watch's allowance for this owner.
+        if holdsReplace() {
+            logger.notice("cmux-tui automatic restart held: the owner is restoring and still makes progress")
+            return false
+        }
+        guard claim() else { return false }
         return await restart(automatic: true)
     }
 
@@ -209,9 +252,12 @@ public final class DaemonRecovery {
         let source = automatic ? "automatic" : "requested"
         var replaced = false
         do {
-            let result = try await launcher.replaceUnresponsive()
+            // The automatic restart asks app health again just before the replace starts; a person's Restart runs regardless.
+            let result = try await launcher.replaceUnresponsive(unlessHeld: automatic ? holdsReplace : nil)
             replaced = true
             logger.notice("cmux-tui restart (\(source, privacy: .public)): \(result.status, privacy: .public), pid \(result.pid)")
+        } catch let refusal as DaemonLauncher.ReplaceRefusal where refusal.code == DaemonLauncher.ReplaceRefusal.heldCode {
+            logger.notice("cmux-tui automatic restart held at its start: the owner is restoring and still makes progress")
         } catch {
             restartFailure = String(describing: error)
             requestedRestartFailed = !automatic

@@ -104,7 +104,8 @@ struct ReduceMotionPaneCloseFrameTests {
         var ios: [ScriptedTerminalIO] = []
         private let drew: Bool
 
-        init() async throws {
+        /// `reduceMotion`: false pins pane springs on (a key press animates), for the same three terminals.
+        init(reduceMotion: Bool = true) async throws {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
@@ -116,7 +117,7 @@ struct ReduceMotionPaneCloseFrameTests {
                                 activeScreenID: "s", focusedPane: "p2")
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider)
-            root.context.reduceMotionOverride = true
+            root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1200, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

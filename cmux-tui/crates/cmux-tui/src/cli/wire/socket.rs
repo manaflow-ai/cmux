@@ -141,6 +141,38 @@ pub(in crate::cli) fn resolve_socket_with_env(
     Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
 
+/// Whether this call reaches the session of the caller's own terminal, so
+/// `caller` and `current` name the caller's objects (cli/resolve.rs): no
+/// `--socket` or `--session`, or one that names the socket the caller's
+/// terminal belongs to (`CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`). A route to any
+/// other session is never the caller's.
+pub(in crate::cli) fn routes_to_caller_session(global: &GlobalArgs) -> bool {
+    routes_to_caller_session_with(global, |name| std::env::var_os(name))
+}
+
+/// [`routes_to_caller_session`] with the environment `env`.
+pub(in crate::cli) fn routes_to_caller_session_with(
+    global: &GlobalArgs,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> bool {
+    if global.socket.is_none() && global.session.is_none() {
+        return true;
+    }
+    let Some(own) = ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"]
+        .into_iter()
+        .find_map(|name| env(name).filter(|path| !path.is_empty()))
+        .map(PathBuf::from)
+    else {
+        return false;
+    };
+    let Ok((target, _)) = resolve_socket_with_env(global, &env) else { return false };
+    own == target
+        || matches!(
+            (std::fs::canonicalize(&own), std::fs::canonicalize(&target)),
+            (Ok(own), Ok(target)) if own == target
+        )
+}
+
 /// `CMUX_SOCKET_PATH` names an app socket and nothing names that app's
 /// session: the typed `socket.no_daemon` failure (wire.rs), never a default.
 #[derive(Debug)]

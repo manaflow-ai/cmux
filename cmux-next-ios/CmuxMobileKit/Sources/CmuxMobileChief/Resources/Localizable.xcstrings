@@ -1,6 +1,76 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.chief.slash.source.chief": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chief"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Chief"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chief"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief"}}
+      }
+    },
+    "mobile.chief.slash.source.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Claude"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Claude"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Claude"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Claude"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Claude"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Claude"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Claude"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Claude"}}
+      }
+    },
+    "mobile.chief.slash.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Loading skills…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Skills werden geladen …"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chargement des compétences…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جارٍ تحميل المهارات…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cargando habilidades…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在載入技能⋯"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在加载技能…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스킬 불러오는 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スキルを読み込み中…"}}
+      }
+    },
+    "mobile.chief.slash.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't load skills from your Mac"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Skills konnten nicht vom Mac geladen werden"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de charger les compétences depuis votre Mac"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تحميل المهارات من جهاز Mac"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron cargar las habilidades desde tu Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法從你的 Mac 載入技能"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法从你的 Mac 加载技能"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac에서 스킬을 불러올 수 없습니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac からスキルを読み込めませんでした"}}
+      }
+    },
+    "mobile.chief.slash.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chief has no skills yet"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief hat noch keine Skills"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chief n’a pas encore de compétences"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لا توجد مهارات لدى Chief بعد"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chief aún no tiene habilidades"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 尚無技能"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 还没有技能"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief에 아직 스킬이 없습니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief にはまだスキルがありません"}}
+      }
+    },
     "mobile.chief.menu.chatColors": {
       "extractionState": "manual",
       "localizations": {

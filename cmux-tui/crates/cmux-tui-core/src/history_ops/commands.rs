@@ -16,8 +16,8 @@ use crate::workspace_registry::unix_epoch_ms;
 
 pub(super) enum Selection {
     Ids(Vec<u64>),
-    StartedSince(u64),
-    All,
+    /// Started at or after the first time and at or before the second.
+    StartedWithin(u64, u64),
 }
 
 /// The row id of `command:local/<row id>`.
@@ -73,8 +73,7 @@ pub(super) fn delete(mux: &Arc<Mux>, selection: Selection) -> anyhow::Result<u64
             ids.truncate(crate::state::command_history_store::MAX_COMMAND_DELETE_IDS);
             CommandDeletion::Ids(ids)
         }
-        Selection::StartedSince(since) => CommandDeletion::StartedSince(since),
-        Selection::All => CommandDeletion::All,
+        Selection::StartedWithin(since, until) => CommandDeletion::StartedWithin(since, until),
     };
     let answer = mux.delete_terminal_commands(deletion)?;
     Ok(answer["deleted"].as_u64().unwrap_or(0))

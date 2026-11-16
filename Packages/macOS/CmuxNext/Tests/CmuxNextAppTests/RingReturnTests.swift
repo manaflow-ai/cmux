@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import CmuxUpdater
 import Foundation
@@ -82,7 +83,7 @@ import Testing
         <item><title>dev</title><sparkle:version>500</sparkle:version><sparkle:channel>cmux-next-dev</sparkle:channel></item>
         </channel></rss>
         """
-        let defaults = try #require(UserDefaults(suiteName: "RingReturnTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "RingReturnTests.\(UUID().uuidString)"))
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.ring-return", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",

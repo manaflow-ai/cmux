@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -24,7 +25,7 @@ import Testing
                                            build: build, minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
                                            hasPublicKey: false)
-        let defaults = UserDefaults(suiteName: "UpdatedCardCurrentBuildNotesTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "UpdatedCardCurrentBuildNotesTests.\(UUID().uuidString)")!
         defaults.set("1.0.0-nightly.3938998689001", forKey: "cmux.next.whatsNew.lastSeenVersion")
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false)

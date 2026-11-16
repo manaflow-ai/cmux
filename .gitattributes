@@ -46,6 +46,13 @@ cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 # 7-day replay of every base merge on cmux PRs (2026-10-31..11-07) this left
 # 196 fewer conflicted merges. Same trusted registration as xcstrings-v2; the
 # generated-file lines below still win for the paths they name.
+#
+# TypeScript too: there the driver also merges the leading imports per name, so
+# two branches that each import a new name from one module (one changed line,
+# which no union settles) both keep theirs. A quarter of the agent pane App.tsx's
+# conflicted merges in a 10-day replay were only that.
+*.ts merge=cmux-insertions-v1
+*.tsx merge=cmux-insertions-v1
 plans/**/*.md merge=cmux-insertions-v1
 cmux-next-ios/verify/*.md merge=cmux-insertions-v1
 cmux-tui/crates/**/*.rs merge=cmux-insertions-v1

@@ -167,7 +167,12 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         "agents.max_depth=2",
         "app-server"
     ]);
-    assert!(starts.contains(&lifted), "{starts:?}");
+    assert!(starts.iter().map(without_rules).any(|s| s == lifted), "{starts:?}");
+    // The chat's own start carries cmux's rules as Codex's developer instructions.
+    assert!(
+        starts.iter().any(|s| s.to_string().contains(acpmux::agent_tools::CONCURRENT_WORK_RULE)),
+        "{starts:?}"
+    );
 
     // A key the project's codex config sets wins too.
     let project = d.join("project");
@@ -200,8 +205,22 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         .collect();
     let lifted =
         json!(["-c", "agents.max_depth=16", "-c", "tools.update_plan.enabled=true", "app-server"]);
-    assert!(starts.contains(&lifted), "{starts:?}");
+    assert!(starts.iter().map(without_rules).any(|s| s == lifted), "{starts:?}");
     let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A start's arguments without the `-c developer_instructions=...` a chat's start ends with
+/// (`context_inventory::launch_args`): cmux's rules, which the limits leave alone.
+fn without_rules(start: &Value) -> Value {
+    let mut words = start.as_array().cloned().unwrap_or_default();
+    let n = words.len();
+    if n >= 2
+        && words[n - 2] == "-c"
+        && words[n - 1].as_str().is_some_and(|w| w.starts_with("developer_instructions="))
+    {
+        words.truncate(n - 2);
+    }
+    Value::Array(words)
 }
 
 #[tokio::test]

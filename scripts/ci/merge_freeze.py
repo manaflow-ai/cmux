@@ -185,10 +185,14 @@ def repo_role(repo: str, login: str) -> str | None:
 
 
 def last_edited(repo: str, number: int) -> str | None:
+    """When the issue body was last edited. Read as `issueOrPullRequest(number:) { ... on Issue { lastEditedAt } }`:
+    the lane-gh broker refuses Repository.issue, and REST has no body-edit time (`updated_at` also moves on a
+    comment or on the label itself, which would read every fresh freeze as edited after its label)."""
     owner, name = repo.split("/", 1)
-    query = "query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i){lastEditedAt}}}"
-    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}")
-    return json.loads(out)["data"]["repository"]["issue"]["lastEditedAt"]
+    query = ("query($owner:String!,$name:String!,$i:Int!){repository(owner:$owner,name:$name)"
+             "{issueOrPullRequest(number:$i){... on Issue{lastEditedAt}}}}")
+    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"i={number}")
+    return ((json.loads(out)["data"]["repository"]["issueOrPullRequest"]) or {}).get("lastEditedAt")
 
 
 def check_authority(freeze: Freeze, labeler: str | None, role: str | None, labeled_at: str | None,
@@ -204,8 +208,9 @@ def check_authority(freeze: Freeze, labeler: str | None, role: str | None, label
 
 
 # The gh error text of a spent or throttled quota: a primary or secondary rate limit, GraphQL's
-# RATE_LIMITED, or the HTTP 403/429 GitHub answers them with.
-RATE_LIMIT = re.compile(r"rate.?limit|RATE_LIMITED|secondary|HTTP 4(?:03|29)", re.I)
+# RATE_LIMITED, the HTTP 403/429 GitHub answers them with, or the gh quota shim's own refusal of a
+# tool's hourly budget ("gh-quota: refused for tool:..."), which names no rate limit.
+RATE_LIMIT = re.compile(r"rate.?limit|RATE_LIMITED|secondary|HTTP 4(?:03|29)|gh-quota: refused", re.I)
 
 ISSUES_QUERY = (
     "query($owner:String!,$name:String!,$label:String!){repository(owner:$owner,name:$name){"

@@ -24,6 +24,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import detect_linux_guard_changes  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 WORKFLOWS = ROOT / ".github" / "workflows"
 REGISTRY = ROOT / ".github" / "nightly-step-coverage.json"
@@ -391,15 +393,15 @@ def counterpart(on=None, job=None, step_if=None, pr="pull_request") -> dict:
     step = {"name": "Dry run", "run": "true"}
     if step_if is not None:
         step["if"] = step_if
-    return {"on": on or {pr: None}, "jobs": {"check": dict(job or {}, steps=[step])}}
+    return {"on": on or {pr: None}, "jobs": {"check": workflow_jobs.copy_job(job or {}, {"steps": [step]})}}
 
 
 def caller(job: dict) -> dict:
-    return {"on": {"pull_request": None}, "jobs": {"call": dict(job, uses="./.github/workflows/pr.yml")}}
+    return {"on": {"pull_request": None}, "jobs": {"call": workflow_jobs.copy_job(job, {"uses": "./.github/workflows/pr.yml"})}}
 
 
 def needing_preflight(job: dict, step_if=None) -> dict:
-    workflow = counterpart(job=dict(job, needs=["preflight"]), step_if=step_if)
+    workflow = counterpart(job=workflow_jobs.copy_job(job, {"needs": ["preflight"]}), step_if=step_if)
     workflow["jobs"]["preflight"] = {"if": "github.event_name == 'push'", "steps": [{"name": "Plan", "run": "true"}]}
     return workflow
 

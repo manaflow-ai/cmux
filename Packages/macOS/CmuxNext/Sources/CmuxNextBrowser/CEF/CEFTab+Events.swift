@@ -16,7 +16,7 @@ extension CEFTab {
             machine.apply(.titleChanged(waiting.title))
         }
         switch event {
-        case .loadingState(_, let loading, let back, let forward):
+        case .loadingState(_, let loading, let back, let forward, let visible):
             nativeHistory = (back, forward)
             restored.applyAvailability()
             restored.dropForwardIfLeftFirstEntry()
@@ -25,7 +25,9 @@ extension CEFTab {
                 let id = makeNavigationID()
                 navigation = id
                 capturesTitleBeforeCommit = true
-                machine.apply(.started(id, url: nil))
+                // The address Chrome's omnibox shows from the load's start (Chromium's visible
+                // entry): a tab a page opened shows where it goes, not an empty field, until commit.
+                machine.apply(.started(id, url: visible.isEmpty ? nil : URL(string: visible)))
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
@@ -145,6 +147,13 @@ extension CEFTab {
         default:
             break
         }
+    }
+
+    /// A tab cmux adopted from Chromium (target=_blank, window.open) takes the load Chromium began
+    /// before the adoption: its address and loading state show from the first frame, as in Chrome.
+    func replayEarlyEvents() {
+        guard let browserID else { return }
+        for event in runtime.orphans.takeEarlyEvents(browserID) { handle(event) }
     }
 
     /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,

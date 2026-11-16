@@ -137,6 +137,11 @@ pub enum Service {
     /// every open. Only a session whose carrier grant marks the machine's
     /// owner holds this service (the Cloud desktop, `/run/cmux-rd/desktop.sock`).
     LocalSocket,
+    /// acpmux's JSON-RPC, one message per line, bridged by the daemon to
+    /// acpmux's carrier socket. Only a session whose carrier grant names
+    /// `acpmux` holds it; the daemon tells acpmux who the person is from that
+    /// grant, never from the stream.
+    Acpmux,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

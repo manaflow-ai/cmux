@@ -3,9 +3,16 @@
 
 from __future__ import annotations
 
+import atexit
 import importlib.util
 import pathlib
+import shutil
 import sys
+import tempfile
+
+# The fake context's files go in a private folder, never a fixed name in the shared /tmp.
+_TEMP_DIR = pathlib.Path(tempfile.mkdtemp(prefix="stress-cli-test-"))
+atexit.register(shutil.rmtree, _TEMP_DIR, True)
 
 
 def load_stress_module():
@@ -27,9 +34,9 @@ class FakeContext:
         self.surface_id = "surface-current"
         self.second_surface_id = "surface-second"
         self.browser_surface_id = None
-        self.markdown_path = pathlib.Path("/tmp/stress.md")
-        self.text_path = pathlib.Path("/tmp/stress.txt")
-        self.temp_dir = pathlib.Path("/tmp")
+        self.markdown_path = _TEMP_DIR / "stress.md"
+        self.text_path = _TEMP_DIR / "stress.txt"
+        self.temp_dir = _TEMP_DIR
         self.run_id = "test-run"
         self.browser_url = "data:text/html,ok"
         self.ensure_calls = 0

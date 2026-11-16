@@ -1,15 +1,15 @@
 public import CmuxNextDesignTokens
 
 extension HomeTunables {
-    /// The Home transcript header's top-right panel toggles (Memory, Right Sidebar; Leo
-    /// 2026-10-20: "Use top-right toggle buttons (like Claude desktop) ... Nothing opens by
-    /// default"). Off by default (Lawrence 2026-10-22: "fix it so it's simple, like tf are these
-    /// buttons for"): the header keeps no second row of buttons; Memory opens from the pane's ⋮
-    /// (Chief Actions), the palette and Show Memory in the Chief settings, and the right sidebar from
-    /// View > Toggle Right Sidebar (Option-Command-B). On shows the cluster again.
+    /// The Home transcript header's top-right Memory Inspector toggle (Leo 2026-10-20: "Use
+    /// top-right toggle buttons (like Claude desktop) ... Nothing opens by default"; the right
+    /// sidebar toggle went with the right sidebar, #41025). Off by default (Lawrence 2026-10-22:
+    /// "fix it so it's simple, like tf are these buttons for"): Memory opens from the pane's ⋮
+    /// (Chief Actions), the palette and Show Memory in the Chief settings. On shows the toggle
+    /// again. Share Screen with Chief always shows, whatever this says.
     public static let headerPanelToggles = Tunable<Bool>.toggle(
         "home.headerPanelToggles", section, "Home header panel toggles",
-        help: "The Home conversation header shows toggles at its top right that open and close the Memory Inspector and the right sidebar. Off (the default) hides them.",
+        help: "A Chief conversation's Home header shows a toggle at its top right that opens and closes the Memory Inspector. Off (the default) hides it. Share Screen with Chief shows either way.",
         default: false, code: "HomeTunables.headerPanelToggles")
 
     /// The header panel tunables, registered beside ``all`` (DebugSettingsService).

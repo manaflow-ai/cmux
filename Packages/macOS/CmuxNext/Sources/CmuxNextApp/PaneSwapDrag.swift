@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextLayout
 import CmuxNextTabs
@@ -33,13 +34,13 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         strip.addGestureRecognizer(recognizer)
     }
 
-    /// A pane's drag: a drop sends `swap-pane` to its daemon.
+    /// A pane's drag: a drop runs Swap with Session with the pane under the pointer, the swap's one path (shown in the drop's turn).
     convenience init(pane: PaneController) {
         self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, layout: { [weak pane] in pane?.workspace?.layoutView },
-                  swap: { [weak pane] from, to in
-                      guard let pane, let content = pane.workspace, let from = content.handles.panes[from],
-                            let to = content.handles.panes[to] else { return }
-                      pane.daemon.send("swap-pane") { try await $0.swapPane(from, with: .pane(to)) }
+                  swap: { [weak pane] _, to in
+                      guard let pane, let other = pane.workspace?.panes[to] else { return }
+                      let swap = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), arguments: ["pane": .target(ActionTargetRef(kind: .pane, id: other.paneKey))])
+                      _ = pane.services.registry.perform("palette.swapWithSession", invocation: swap.onMachine(pane.daemon.machineID))
                   })
     }
 

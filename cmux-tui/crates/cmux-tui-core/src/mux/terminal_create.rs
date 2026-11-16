@@ -354,6 +354,7 @@ impl Mux {
                             entity,
                             workspace_revision: None,
                             transaction: None,
+                            mutation: None,
                         },
                         true,
                         created_path,
@@ -406,6 +407,7 @@ impl Mux {
                             entity,
                             workspace_revision: None,
                             transaction: None,
+                            mutation: None,
                         },
                         false,
                         created_path,
@@ -515,6 +517,7 @@ impl Mux {
                     entity,
                     workspace_revision: None,
                     transaction: None,
+                    mutation: None,
                 },
                 false,
             ));

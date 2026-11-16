@@ -263,7 +263,9 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
             Ok(Status::Run(RunPlan { key, label, target, badge_ttl, argv }))
         }
         (["run"], _) => Err(UsageError::new("status run needs a command after --")),
-        _ => Err(UsageError::new("status takes set, clear, list, run or wait")),
+        _ => Err(UsageError::new(
+            "status takes set, clear, list, run or wait; run `cmux status --help`",
+        )),
     }
 }
 

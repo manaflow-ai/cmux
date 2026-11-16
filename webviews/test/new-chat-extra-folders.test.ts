@@ -15,10 +15,14 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     fedMode: false,
     disposed: false,
     rows: new OrderedRows(),
+    // The rail's indexed prompt slots, which every row publish reads (#42298).
+    indexedPlaceholders: new Map(),
+    supersededRowIds: new Set<string>(),
     sessions: [],
     askedSessions: [],
-    asks: { sessions: () => undefined, list: () => [] },
+    asks: { sessions: () => undefined, list: () => [], listGrouped: () => [] },
     extensions: [],
+    features: new Set<string>(),
     handoff: { state: {} },
     permissions: {
       state: { supported: false, ready: false, groups: [], chatAllowance: false, loading: false, busy: false },
@@ -27,6 +31,8 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     queueWithdrawn: [],
     waitingSteers: [],
     listener: () => undefined,
+    // Where the chat's rows come from, which every publish reads: v1, no chat on the store.
+    chatRows: { view: () => undefined, holds: () => false, asks: () => false },
     subagents: {
       progressSource: { structureVersion: 0, takeChangedProgress: () => ({}) },
       views: () => [],

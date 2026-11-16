@@ -58,11 +58,13 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
       rows.map((row) => `${getComputedStyle(row).animationName} ${getComputedStyle(row).animationDuration}`),
     );
     await p.close();
-    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.36s", "cv-enter-fade 0.12s"]);
+    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s"]);
   });
 
   test("a new message fades at final size and appears instantly under Reduce Motion", async () => {
-    const style = `:root{--agent-motion-in:180ms}${desktop}${conversation}`;
+    // The message fades on the arrival step (--agent-motion-arrive, the quick step in the app), set
+    // long here so the half-way frame is a real one.
+    const style = `:root{--agent-motion-arrive:180ms}${desktop}${conversation}`;
     const message = `<div class="acpmux-row__message-presentation" style="width:440px;height:72px">message</div>`;
     const normal = await page(style, message, "no-preference");
     const normalMotion = await normal.$eval(".acpmux-row__message-presentation", (row) => {

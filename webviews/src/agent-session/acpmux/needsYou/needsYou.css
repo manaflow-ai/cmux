@@ -45,9 +45,10 @@
 .acpmux-needs-you {
   display: flex;
   flex-direction: column;
-  width: 360px;
+  /* Its frame follows Text Size as its rows do (--ui-px, ui/popupSurface.css). */
+  width: calc(360 * var(--ui-px, 1px));
   max-width: calc(100vw - 24px);
-  max-height: min(520px, 75vh);
+  max-height: min(calc(520 * var(--ui-px, 1px)), 75vh);
   overflow: hidden;
   box-sizing: border-box;
   padding: 0;
@@ -418,7 +419,7 @@
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
-.acpmux-needs-you-side-field:focus {
+.acpmux-needs-you-side-field:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);
 }
 
@@ -580,4 +581,12 @@
 }
 .acpmux-needs-you-form .acpmux-needs-you-error {
   margin: 0;
+}
+/* An approval's answer letter (y, n) at the row's end, as the permission card's keycaps. */
+.acpmux-needs-you-answer[data-answer-key] {
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+}
+.acpmux-needs-you-answer .acpmux-keycap {
+  margin: 0;
+  color: var(--agent-muted);
 }

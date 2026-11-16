@@ -88,7 +88,16 @@ pub enum WireRecv {
 pub trait CloudWire: Send {
     fn send(&mut self, text: &str) -> Result<(), TransportError>;
     fn recv(&mut self, timeout: Duration) -> WireRecv;
+    /// Ends a `recv` that waits now (or the next one) early with `Idle`, from
+    /// any thread, so a writer never waits out a receive timeout; `None`
+    /// when this wire cannot (its reader then sends once per receive).
+    fn interrupter(&self) -> Option<WireInterrupt> {
+        None
+    }
 }
+
+/// Wakes one wire's pending receive ([`CloudWire::interrupter`]).
+pub type WireInterrupt = Arc<dyn Fn() + Send + Sync>;
 
 /// The HTTP and WebSocket seam. Calls block; the daemon runs them off the
 /// connection's request loop.
@@ -1683,6 +1692,10 @@ fn valid_selfhost_user(user: &str) -> bool {
         && user.starts_with("user_")
         && user.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
 }
+
+#[path = "owner_wire.rs"]
+mod owner_wire;
+pub use owner_wire::{OwnerWire, OwnerWireError};
 
 #[cfg(test)]
 mod presence_order_tests {

@@ -16,6 +16,8 @@ public protocol SidebarGroupEditorSurface: AnyObject {
     func refresh(_ group: SidebarGroup)
     /// Closes the bubble; its last typed name commits, then `events.close` runs.
     func dismiss()
+    /// Makes what draws the bubble ahead of the first open (a hover over a group header), so that open is warm.
+    func prepare()
 }
 
 /// What the person did in the editor, in the order it happened.
@@ -65,12 +67,12 @@ public final class SidebarGroupEditor {
     private(set) weak var shownParent: NSWindow?
 
     /// The page's width in CSS pixels at 100% page zoom (webviews/src/pages/group-editor). Its controls are fixed CSS
-    /// sizes that scale only by the Interface Size (`Typography.userScale`, its `--cmux-interface-scale`), not by the
-    /// density, so the width is this times that, at every density: the eleven dots, their gaps and the insets need about
-    /// 234 of it.
+    /// sizes times the page's `--cmux-interface-scale` (`Typography.pageScale`: the chrome body size over the Default
+    /// density's, never below 1), so the width is this times that: the eleven dots, their gaps and the insets need
+    /// about 234 of it.
     static let pageWidth: CGFloat = 240
-    /// The editor's width at 100% page zoom, at the Interface Size.
-    public static var width: CGFloat { pageWidth * Typography.userScale }
+    /// The editor's width at 100% page zoom, at its page's scale.
+    public static var width: CGFloat { pageWidth * Typography.pageScale }
 
     /// The card's frame on screen for a card `height` tall opened at `anchor` over `parent`: under the
     /// control that opened it, on the anchor's edge, above it when there is no room below, inside the window.
@@ -87,6 +89,13 @@ public final class SidebarGroupEditor {
     }
 
     public var isVisible: Bool { shownGroup != nil }
+
+    /// Makes the surface's bubble ahead of an open, on each hover over a group header: the bubble is a web page, made
+    /// on this sign of intent and not at launch, and freed again after it goes unused (`GroupEditorService.idleLimit`).
+    /// On a surface that already has its bubble the call costs a check.
+    func prepareSurface() {
+        surface?.prepare()
+    }
     /// False in tests: the bubble is laid out but never put on screen.
     var ordersFront = true
 
@@ -163,6 +172,10 @@ public final class SidebarGroupEditor {
         }
         hide()
     }
+
+    /// A scripted open (`debug.overlay_open_bench`) is a new click: the last close was no click of it, though AppKit's
+    /// current event (no new input between scripted calls) still says so.
+    func forgetLastClose() { lastClosed = nil }
 
     /// Whether the editor of `group` closed during the click that is
     /// happening now (the click made the sidebar's window key, which closes

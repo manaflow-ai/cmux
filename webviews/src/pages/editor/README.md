@@ -93,7 +93,6 @@ The editor page sets `codeEditorFocused` (the focused page is `cmux.editor`, or,
 | Opt-Cmd-F                  | `globalSearch` (yields)                                  | Monaco: replace                                                                    |
 | Cmd-I                      | `palette.newAgentChat` (yields)                          | Monaco: trigger suggest                                                            |
 | Cmd-L                      | `focusLocation` (yields)                                 | Monaco: expand line selection                                                      |
-| Shift-Cmd-I                | `feed.show`                                              | the app's (Monaco binds nothing there)                                             |
 | Cmd-Enter, Shift-Cmd-Enter | `toggleChecklistItemComplete`, `toggleSplitZoom` (yield) | Monaco: insert line below, above                                                   |
 | Opt-Z                      | (none: not a Command chord)                              | the page's `editor.action.toggleWordWrap` (VS Code's id): writes `editor.wordWrap` |
 | Shift-Cmd-O, Shift-Cmd-,   | `reopenPreviousSession`, `reloadConfiguration`           | the app's (no symbol providers in the editor)                                      |

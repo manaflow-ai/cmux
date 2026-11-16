@@ -53,11 +53,11 @@ public extension NSWindow {
         guard Motion.canAnimate(in: content) else { return showPopupAtOnce() }
         Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(1)), fade: .fadeIn,
                    from: fresh ? NSNumber(value: Float(0)) : nil)
-        if Motion.overlays.animatesMovement {
+        if Motion.overlays.animatesMovement(in: self) {
             Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
                        from: fresh ? NSValue(caTransform3D: Motion.scale(Motion.popupOpenScale, about: pivot, in: layer)) : nil)
         } else {
-            // Reduce Motion: at the tooltip's size, whatever a close left on screen.
+            // Reduce Motion, or a live resize of this popup's window: at the tooltip's size, whatever a close left on screen.
             layer.removeAnimation(forKey: "sublayerTransform")
             setPopupLayer(layer, opacity: nil, transform: CATransform3DIdentity)
         }
@@ -88,7 +88,10 @@ public extension NSWindow {
             alphaValue = 0
             return completion()
         }
-        let duration = Motion.overlays.animatesMovement ? Motion.overlays.duration(.popoverClose) : Motion.overlays.duration(.fadeOut)
+        // The shrink is movement in this popup's window: it snaps while the window, or the window this popup is a
+        // child of, is in a live resize or a full screen transition (`Motion.isLiveResizing`). The fade stays.
+        let shrinks = Motion.overlays.animatesMovement(in: self)
+        let duration = shrinks ? Motion.overlays.duration(.popoverClose) : Motion.overlays.duration(.fadeOut)
         guard duration > 0 else {
             layer.removeAnimation(forKey: "opacity")
             layer.removeAnimation(forKey: "sublayerTransform")
@@ -98,7 +101,7 @@ public extension NSWindow {
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(0)), duration: duration)
-        if Motion.overlays.animatesMovement {
+        if shrinks {
             Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: Motion.scale(Motion.popupCloseScale, about: pivot, in: layer)),
                        duration: duration)
         } else {

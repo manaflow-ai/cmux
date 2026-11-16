@@ -23,6 +23,7 @@ import {
   pageReleaseHold,
   takeWebSwapFocus,
 } from "../src/pages/shared/webSwap";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -92,12 +93,8 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// What the host answers when it asks this page whether a web update may reload it now.

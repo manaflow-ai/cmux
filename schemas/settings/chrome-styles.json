@@ -205,7 +205,7 @@
       "implies": {
         "chrome.mainPane.curved": true,
         "layout.paneSeparation": "dividers",
-        "sidebar.border": false,
+        "sidebar.border": true,
         "appearance.sidebarSurface": "separate",
         "chrome.mainPane.shadeDark": 0.12,
         "chrome.mainPane.shadeLight": 0.02

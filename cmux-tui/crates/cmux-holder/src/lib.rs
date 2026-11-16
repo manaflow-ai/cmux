@@ -175,10 +175,30 @@ pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 /// The environment variable that gives a holder an orphan grace in
 /// milliseconds: once no daemon was linked for that long it ends every
 /// terminal (a DEV build's, debug build's or test's daemon sets it, as it
-/// gives its terminal hosts one; normal installs never do). An environment
-/// variable, not an argument, so an older holder that does not know it
-/// still starts.
+/// gives its terminal hosts one). Without it a holder takes
+/// [`ABANDONED_GRACE`]. An environment variable, not an argument, so an
+/// older holder that does not know it still starts.
 pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
+
+/// How long a holder or terminal host goes with no daemon before it ends its
+/// terminals in every build, normal installs included: no cmux has shown
+/// them for a week, so no daemon will adopt them again (a renamed tag's or
+/// a deleted build's). A running daemon stays linked, so this never ends a
+/// terminal of a running cmux, and quitting or updating for less than a
+/// week keeps every terminal. Leo, 2026-11-09, on 35 terminal processes,
+/// some weeks old: "well those need to get auto cleaned up...".
+pub const ABANDONED_GRACE: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+
+/// The orphan grace of a holder: [`ORPHAN_GRACE_ENV`] when set, at most
+/// [`ABANDONED_GRACE`].
+fn orphan_grace_from(value: Option<&str>) -> std::time::Duration {
+    value
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|millis| *millis > 0)
+        .map_or(ABANDONED_GRACE, |millis| {
+            std::time::Duration::from_millis(millis).min(ABANDONED_GRACE)
+        })
+}
 
 /// What `cmux-holder --version` prints: the program and the wire versions
 /// it serves. A daemon starts a holder binary only when it reports this
@@ -245,11 +265,7 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     }
     let child_open_file_limit =
         std::env::var(NOFILE_SOFT_ENV).ok().and_then(|value| value.parse::<u64>().ok());
-    let orphan_grace = std::env::var(ORPHAN_GRACE_ENV)
-        .ok()
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .filter(|millis| *millis > 0)
-        .map(|millis| std::time::Duration::from_millis(millis.min(30 * 24 * 3600 * 1000)));
+    let orphan_grace = orphan_grace_from(std::env::var(ORPHAN_GRACE_ENV).ok().as_deref());
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
@@ -274,7 +290,7 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let listener = UnixListener::bind(&socket)?;
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
-    holder.set_orphan_grace(orphan_grace);
+    holder.set_orphan_grace(Some(orphan_grace));
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }
@@ -347,6 +363,14 @@ mod tests {
         assert_eq!(parse_version_line("cmux-holder wire 2-3\n"), Some((2, 3)));
         assert_eq!(parse_version_line("cmux-tui-host 1.2.3"), None);
         assert_eq!(parse_version_line("cmux-holder wire 4-3"), None);
+    }
+
+    #[test]
+    fn a_holder_ends_terminals_no_daemon_linked_for_a_week() {
+        assert_eq!(orphan_grace_from(None), ABANDONED_GRACE);
+        assert_eq!(orphan_grace_from(Some("0")), ABANDONED_GRACE);
+        assert_eq!(orphan_grace_from(Some("600000")), std::time::Duration::from_secs(600));
+        assert_eq!(orphan_grace_from(Some(&u64::MAX.to_string())), ABANDONED_GRACE);
     }
 
     #[test]

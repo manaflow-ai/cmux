@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import CmuxNextCompat
 
 /// Chief teleport's state for every surface that shows it (the Home header's location chip, the
 /// Chief card's row): where this Mac's Chief runs (``location``, from its home's `moved.json`), the
@@ -24,6 +25,17 @@ public final class ChiefTeleportModel {
     public var whereabouts: ChiefWhereabouts { marks.whereabouts }
     /// Where the Chief runs.
     public var location: ChiefLocation { whereabouts.location }
+    /// The teleport event the Chief chat shows once (``ChiefTeleportAnnouncement``); nil until the app
+    /// sees a move or fork happen, and again after ``dismissAnnouncement()``.
+    public private(set) var announcement: ChiefTeleportAnnouncement?
+    /// Whether the first read answered: its marks are the start, never an event.
+    @ObservationIgnored private var hasRead = false
+    /// The Chief chat's newest message seq (``endAnnouncementOnNewerMessage(newestSeq:)``); nil until Home wires it.
+    @ObservationIgnored private var newestSeq: (@MainActor () -> UInt64)?
+    /// The chat's newest seq when ``announcement`` came: the message the row shows under.
+    @ObservationIgnored private var announcedAt: UInt64 = 0
+    /// Ends ``announcement`` once the Chief chat gets a newer message.
+    @ObservationIgnored private var announcementWatch: Task<Void, Never>?
     /// The running or last move started from this app.
     public var phase: ChiefTeleportPhase = .idle
     /// The move the chip, menu and chat row show: this app's while one runs, else a move the
@@ -68,6 +80,8 @@ public final class ChiefTeleportModel {
         home = URL(fileURLWithPath: "/dev/null")
         reader = nil
         marks = ChiefHomeMarks(whereabouts: ChiefWhereabouts(location: location, cloudAgentID: nil), movedAt: movedAt, moving: moving, fork: fork)
+        // The playground shows each state's row as the moment it happens.
+        announcement = phase == .rolledBack ? .movedBack : ChiefTeleportAnnouncement(from: .none, to: marks)
         self.phase = phase
         self.destinations = { destinations }
     }
@@ -83,8 +97,16 @@ public final class ChiefTeleportModel {
         // task-owner: this model (a newer refresh cancels it); one file read, then one assignment.
         let task = Task { [weak self] in
             let marks = await reader.marks(home: home)
-            guard !Task.isCancelled, let self, self.marks != marks else { return }
+            guard !Task.isCancelled, let self else { return }
+            let first = !hasRead
+            hasRead = true
+            // The first read on a home already marked moved still starts the engine's watch (onMoved).
+            guard first || self.marks != marks else { return }
             let moved = marks.whereabouts != self.whereabouts
+            if !first, let event = ChiefTeleportAnnouncement(from: self.marks, to: marks) {
+            announcement = event
+            announcedAt = newestSeq?() ?? 0
+        }
             self.marks = marks
             if moved, marks.whereabouts.location != .thisMac { onMoved(marks.whereabouts) }
         }
@@ -112,11 +134,35 @@ public final class ChiefTeleportModel {
         ChiefTeleportMenu(location: location, destinations: destinations(), phase: shownPhase)
     }
 
-    /// The row in the chat for the Chief's place now (``ChiefTeleportNotice``); nil when there is none.
+    /// The row in the chat now (``ChiefTeleportNotice``): a running or failed move, else the event
+    /// ``announcement`` until it is dismissed; nil when there is none.
     public func notice(timeZone: TimeZone = .current) -> String? {
         let destinations = destinations()
-        return ChiefTeleportNotice(marks: marks, phase: shownPhase, placeName: { Self.placeName($0, destinations: destinations) })
+        return ChiefTeleportNotice(phase: shownPhase, announcement: announcement, placeName: { Self.placeName($0, destinations: destinations) })
             .text(timeZone: timeZone)
+    }
+
+    /// Ends the event's row (``endAnnouncementOnNewerMessage(newestSeq:)`` calls it when the Chief
+    /// chat moves past it: a newer message).
+    public func dismissAnnouncement() {
+        if announcement != nil { announcement = nil }
+    }
+
+    /// Ends each ``announcement`` once the Chief chat gets a message newer than the one it showed
+    /// under, so the row shows once, at the moment of the move or fork, and never again.
+    ///
+    /// - Parameter newestSeq: the newest message's seq in the chats that show the row (Home reads
+    ///   it from its store, an `@Observable` read, so a new message wakes the watch).
+    public func endAnnouncementOnNewerMessage(newestSeq: @escaping @MainActor () -> UInt64) {
+        self.newestSeq = newestSeq
+        announcementWatch?.cancel()
+        // task-owner: the model (app lifetime); event-driven (Observation of the chat's newest seq).
+        announcementWatch = Task { [weak self] in
+            for await newest in ObservationStream({ newestSeq() }) {
+                guard let self, announcement != nil, newest > announcedAt else { continue }
+                dismissAnnouncement()
+            }
+        }
     }
 
     /// A place's name as the menu says it (a host's group name), else the chip's own words.

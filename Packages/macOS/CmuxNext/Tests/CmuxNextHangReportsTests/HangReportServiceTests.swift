@@ -1,5 +1,6 @@
 @testable import CmuxNextHangReports
 import CmuxNextCompat
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -27,8 +28,8 @@ struct HangReportServiceTests {
     }
 
     private let directory = FileManager().temporaryDirectory.appending(path: "hang-reports-\(UUID().uuidString)")
-    private let suite = "hang-reports-\(UUID().uuidString)"
-    private var defaults: UserDefaults { UserDefaults(suiteName: suite) ?? .standard }
+    private let suite = TestDefaults.removeAtExit("hang-reports-\(UUID().uuidString)")
+    private var defaults: UserDefaults { UserDefaults(testSuiteName: suite) ?? .standard }
     private let clock = TestClock()
 
     /// A transport whose sends wait until the test lets them go.

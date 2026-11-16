@@ -11,12 +11,14 @@ extension NSMenu {
     /// A native row's image goes in the menu grid's icon box (`MenuMetrics.iconSize`, its shape
     /// kept), so AppKit's one image column is the grid's in every menu and every row's text starts
     /// on `MenuMetrics.textX(iconColumn:)`: an avatar or a wide symbol no longer moves it.
-    /// Call it last, once the menu is built.
+    /// AppKit's checkmark column shows only in a menu with a checked or mixed row
+    /// (``fitStateColumn()``). Call it last, once the menu is built.
     ///
     /// `runsInPlace` is kept for callers: a native row always runs as the menu closes.
     @discardableResult
     public func themeRows(in scope: ThemeScope, runsInPlace: @escaping @MainActor (NSMenuItem) -> Bool = { _ in false }) -> NSMenu {
         appearance = scope.appearance
+        fitStateColumn()
         for item in items where !item.isSeparatorItem {
             (item.view as? any ThemedMenuItemView)?.adoptMenuScope(scope)
             if item.view == nil, let image = item.image { item.image = image.fittedToMenuIconBox() }
@@ -30,6 +32,15 @@ extension NSMenu {
     /// changes an icon's size. Rows already fitted are left as they are.
     public func themeAddedRows() {
         fitRowIcons()
+        fitStateColumn()
+    }
+
+    /// AppKit keeps an empty checkmark column at a menu's leading edge unless told otherwise, so a
+    /// menu with no checked or mixed row opened with every icon and title pushed right (Leo,
+    /// 2026-11-02, on the chat's right-click menu: "why IS THERE SO MUCH ... SPACE AT THE LEFT").
+    /// The column stays in a menu that has such a row (`MenuMetrics.stateIconX`).
+    public func fitStateColumn() {
+        showsStateColumn = items.contains { !$0.isSeparatorItem && !$0.isHidden && $0.state != .off }
     }
 
     /// Every native row's image, its submenus' too, in the grid's icon box.

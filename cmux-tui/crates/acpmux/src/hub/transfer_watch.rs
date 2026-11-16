@@ -69,10 +69,12 @@ fn marker_is_uncommitted(marker: Option<u64>, durable_epoch: u64) -> bool {
 /// The client heard from the move in `dir`: begin, or a page read (`path` to its end with `eof`).
 pub(super) fn note_activity(dir: &Path, eof_of: Option<&str>) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-    let _ = std::fs::write(dir.join("alive"), now.unwrap_or_default().as_millis().to_string());
+    let _ =
+        crate::home_fs::write(dir.join("alive"), now.unwrap_or_default().as_millis().to_string());
     if let Some(path) = eof_of {
         use std::io::Write;
-        let file = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("read"));
+        let file =
+            crate::home_fs::OpenOptions::new().create(true).append(true).open(dir.join("read"));
         if let Ok(mut file) = file {
             let _ = writeln!(file, "{path}");
         }
@@ -151,7 +153,7 @@ impl Hub {
                     )
                 {
                     tracing::warn!(session = %session.id, transfer_id, "discarding transfer marker without durable transfer_out");
-                    let _ = std::fs::remove_dir_all(entry.path());
+                    let _ = crate::home_fs::remove_dir_all(entry.path());
                     break;
                 }
                 // Under the `moving` lock: an abort logs `transfer_aborted` before it ends the

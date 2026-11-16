@@ -38,6 +38,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from blacksmith_linux_sizes import size_label  # noqa: E402
 
 from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
@@ -66,6 +67,13 @@ def shadow_workflow() -> dict:
     return yaml.load(SHADOW_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+def sole_runs_on(job: dict) -> str:
+    """The one runs-on a job without a matrix writes, as written (workflow_jobs.runs_on_cells)."""
+    cells = workflow_jobs.runs_on_cells(job)
+    assert cells is not None and len(cells) == 1, cells
+    return cells[0]
+
+
 def step(job: dict, name: str) -> dict:
     return next(s for s in job["steps"] if s.get("name") == name)
 
@@ -76,7 +84,7 @@ def flat(text: str) -> str:
 
 class DaemonTestsGateTests(unittest.TestCase):
     def test_the_gate_runs_on_its_blacksmith_size_whatever_the_pool_variables_say(self) -> None:
-        runs_on = jobs()["cmux-next-daemon-tests"]["runs-on"]
+        runs_on = sole_runs_on(jobs()["cmux-next-daemon-tests"])
         for overrides in ({}, {"CI_NEXT_DAEMON_POOL": DAEMON_LABEL}, {"CI_PIN_DAEMON_POOL": PIN_LABEL},
                           {"CI_PR_POOL_OWNED": ""}, {"CI_NEXT_PROMOTE_POOL": ""}):
             for context in contexts(**overrides):
@@ -135,7 +143,7 @@ class DaemonTestsGateTests(unittest.TestCase):
             self.assertIn(f"--test {test}", run)
 
     def test_the_shadow_never_takes_an_owned_pool(self) -> None:
-        runs_on = shadow_workflow()["jobs"][SHADOW]["runs-on"]
+        runs_on = sole_runs_on(shadow_workflow()["jobs"][SHADOW])
         self.assertNotIn("vars.MACOS_RUNNER", runs_on)
         self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", runs_on)
         self.assertNotIn("inputs.", runs_on)

@@ -46,6 +46,11 @@ impl Outbound {
     /// mapped addresses).
     pub(crate) fn send(&mut self, route: Option<PeerRoute>, datagram: &[u8]) {
         let Some(PeerRoute::Udp(target)) = route else { return };
+        self.send_to(target, datagram);
+    }
+
+    /// Send `datagram` to one UDP address of a peer.
+    pub(crate) fn send_to(&mut self, target: SocketAddr, datagram: &[u8]) {
         let target = match (self.local, target) {
             (SocketAddr::V6(_), SocketAddr::V4(v4)) => {
                 SocketAddr::new(IpAddr::V6(v4.ip().to_ipv6_mapped()), v4.port())

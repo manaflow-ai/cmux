@@ -155,6 +155,10 @@ pub(super) fn handle_resource_connection_message(
         operation if super::cloud_api::handles(operation) => {
             super::cloud_api::handle(mux, client, request, writer)
         }
+        // Git runs a child process: never on this reader thread (server/git_lane.rs).
+        operation if crate::git_ops::handles(operation) => {
+            super::git_lane::submit(mux, client, request, writer)
+        }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
         }
@@ -330,6 +334,11 @@ pub(super) fn handle_resource_connection_message(
                     activity::note_resource_input(mux, client, operation, &response);
                     // A remote device's reply leaves out incognito rows (#31210).
                     super::incognito_remote::prune_reply(mux, client, &mut response);
+                    let code = response.get("error").and_then(|error| error.get("code"));
+                    crate::diagnostics::request_log::reply_follows(
+                        super::incognito_orphans::answered_ok(&response),
+                        code.and_then(Value::as_str),
+                    );
                     writer.send_control(&response).is_ok()
                 }
                 // Only a response that cannot be encoded fails here.

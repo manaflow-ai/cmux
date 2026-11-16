@@ -36,7 +36,7 @@ fn hub() -> Arc<Hub> {
             "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
             // A family whose adapter reports no modes, so none that asks.
-            "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1"}},
+            "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1", "FAKE_ASK_CLAIM": "0"}},
             // A family whose default policy is wider than an asking starter's.
             "lax": {"argv": ["python3", FAKE], "family": "lax", "env": {"FAKE_FULL_ACCESS": "1"}},
             // The starter's family, with a session/new that takes a while.
@@ -310,6 +310,25 @@ async fn an_asking_starter_never_starts_a_child_of_a_family_with_no_mode_that_as
     agent.ok("session/new", new_params(json!({"harness": "bare"}))).await;
 }
 
+/// Lead, 2026-11-08: an inherited policy holds or the child does not start. A review starter's
+/// child on a family that can keep no policy is refused and closed; on its own family it starts
+/// under review.
+#[tokio::test]
+async fn an_inherited_policy_that_cannot_hold_starts_no_child() {
+    let hub = hub();
+    let mut app = Client::new(&hub);
+    let parent = starter(&mut app, Some("review"), None).await;
+    let mut agent = Client::as_session(&hub, &parent).await;
+    let before = app.ok("_acpmux/sessions", json!({})).await["sessions"].as_array().unwrap().len();
+    let r = agent.call("session/new", new_params(json!({"harness": "bare"}))).await;
+    assert!(r.get("error").is_some(), "{r}");
+    let after = app.ok("_acpmux/sessions", json!({})).await["sessions"].as_array().unwrap().len();
+    assert_eq!(after, before, "the refused child is closed");
+    let child = id(&agent.ok("session/new", new_params(json!({"harness": "fake"}))).await);
+    let info = app.ok("_acpmux/info", json!({"sessionId": child})).await;
+    assert_eq!(info["policy"], "review", "{info}");
+}
+
 #[tokio::test]
 async fn a_family_default_policy_wider_than_its_starter_is_not_inherited() {
     let hub = hub();
@@ -365,10 +384,11 @@ async fn a_starter_that_narrows_while_its_child_starts_holds_the_child_to_it() {
         agent.ok("session/new", new_params(json!({"harness": "slow"}))).await
     });
     tokio::time::sleep(Duration::from_millis(500)).await;
-    // The person narrows the starter, and its harness leaves full access (this stand-in has no
-    // mode `policy_mode.rs` would move it to on its own).
-    app.ok("_acpmux/set_policy", json!({"sessionId": parent, "policy": "ask"})).await;
+    // The starter's harness leaves full access, and the person narrows it (this stand-in has no
+    // mode `policy_mode.rs` would move it to on its own; narrowed first, in full access, its
+    // agent would be stopped: `policy_mode.rs` `stop_unheld`).
     app.prompt(&parent, "set-mode: strict").await;
+    app.ok("_acpmux/set_policy", json!({"sessionId": parent, "policy": "ask"})).await;
     assert_eq!(app.level(&parent).await, ("strict".to_owned(), json!("ask")));
     let child = id(&start.await.unwrap());
     let (mode, policy) = app.level(&child).await;
@@ -408,11 +428,13 @@ fn hub_yolo() -> Arc<Hub> {
         "harnesses": {
             "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
+            // A family with a plan mode that asks, as Claude's: "default", "plan" and full access.
+            "planner": {"argv": ["python3", FAKE], "family": "planner", "env": {"FAKE_PLAN_MODE": "claude", "FAKE_FULL_ACCESS": "1"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "defaultPermissionMode": "fullAccess",
-        "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"]},
+        "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"], "planner": ["default", "plan"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -457,4 +479,21 @@ async fn an_agent_with_a_narrower_policy_starts_a_chat_with_the_default_policy()
             "a chat a {policy} agent starts runs the configured default"
         );
     }
+}
+
+/// A plan mode is a toggle a sub-session never inherits (`start_mode.rs`): a chat still planning
+/// that starts a sub-session (a plan's build from its approval card, `plan_build.rs`) gets a
+/// child that can build. Started at full access, the child is held to its planning parent
+/// (`hold_mode`): to the family's asking mode, not to the parent's plan mode.
+#[tokio::test]
+async fn a_sub_session_of_a_planning_chat_does_not_start_in_plan_mode() {
+    let hub = hub_yolo();
+    let mut app = Client::new(&hub);
+    let parent = id(&app.ok("session/new", new_params(json!({"harness": "planner"}))).await);
+    app.prompt(&parent, "set-mode: plan").await;
+    assert_eq!(app.level(&parent).await.0, "plan", "the parent is planning");
+    let mut agent = Client::as_session(&hub, &parent).await;
+    let started = agent.ok("_acpmux/subsession/start", json!({"prompt": "build it"})).await;
+    let child = id(&started);
+    assert_eq!(app.level(&child).await.0, "default", "the child builds: {started}");
 }

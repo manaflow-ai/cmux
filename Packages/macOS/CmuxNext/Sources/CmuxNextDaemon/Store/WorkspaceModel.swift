@@ -138,7 +138,8 @@ public final class WorkspaceModel: Identifiable {
     /// rollup while its tree is not mirrored), or 1 when it has none and is marked unread by hand.
     var unreadContribution: UnreadTotals {
         let tabs = screens.isEmpty ? daemonUnreadCount ?? 0 : unread.tabs
-        return UnreadTotals(tabs: tabs == 0 && markedUnread ? 1 : tabs, conversations: screens.isEmpty ? [:] : unread.conversations)
+        return UnreadTotals(tabs: tabs == 0 && markedUnread ? 1 : tabs, conversations: screens.isEmpty ? [:] : unread.conversations,
+                            markedWorkspaces: markedUnread ? 1 : 0)
     }
 
     /// The screens changed: they report to this workspace, which recounts.

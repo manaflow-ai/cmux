@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextFloating
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 @MainActor @Suite(.serialized) struct ChiefPetScreenTests {
     static func defaults() -> UserDefaults {
         let name = "ChiefPetScreenTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }

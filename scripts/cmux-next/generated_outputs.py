@@ -35,9 +35,12 @@ from pathlib import Path
 # The Swift exports compile their module and its dependencies: a setting can be
 # declared in CmuxNextDesign (SidebarNavigationSettings, AttentionSettings), so
 # any CmuxNext source is an input, not only CmuxNextSettings or CmuxNextActions.
+# The Rust action catalog (cmux-action-catalog) is one too: the app reads its catalog from it, and the
+# crate's swift_parity test holds action-surfaces.json to it, so a catalog change carries the export.
 ACTIONS_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift"
+    r"|cmux-tui/crates/cmux-action-catalog/"
     r"|scripts/cmux-next/regenerate-action-exports\.sh"
 )
 SETTINGS_INPUTS = (
@@ -80,7 +83,8 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      "scripts/cmux-next/ci-target-graph.py; only the base autofix writes it"),
     (("plans/cmux-next/daemon-capabilities.json",), CAPABILITY_INPUTS,
      "scripts/cmux-next/check-daemon-capabilities-fresh.py --write (the autofix)"),
-    (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
+    (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/action-catalog.json",
+      "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
      ACTIONS_INPUTS, "scripts/cmux-next/regenerate-action-exports.sh (a Mac; the autofix)"),
     (SETTINGS_EXPORTS,
      SETTINGS_INPUTS, "scripts/cmux-next/regenerate-settings-exports.sh (a Mac; the autofix)"),

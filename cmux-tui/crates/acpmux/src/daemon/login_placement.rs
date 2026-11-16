@@ -46,11 +46,80 @@ pub(crate) fn daemon_env(
 /// The launchd job label for the daemon of `home`: one per home, however it is spelled (it is
 /// resolved first: `..`, links, a relative path), so one home never gets two jobs.
 pub(crate) fn job_label(home: &Path) -> String {
+    let home = canonical(home);
+    // The path's own bytes on Unix (the only place launchd runs it); any fixed bytes elsewhere.
+    #[cfg(unix)]
+    let bytes = std::os::unix::ffi::OsStrExt::as_bytes(home.as_os_str());
+    #[cfg(not(unix))]
+    let bytes = home.as_os_str().as_encoded_bytes();
+    label_for_bytes(bytes)
+}
+
+/// Every daemon job's label starts so: the sweep ([`stale_daemon_labels`]) knows them by it.
+pub(crate) const LABEL_PREFIX: &str = "com.cmux.acpmux.daemon.";
+
+/// The label of a canonical home's bytes: FNV-1a 64, fixed by this code, so a toolchain bump
+/// never gives one home a second label (std's `DefaultHasher` may change between releases).
+pub(crate) fn label_for_bytes(bytes: &[u8]) -> String {
+    let h = bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    format!("{LABEL_PREFIX}{h:016x}")
+}
+
+/// The label builds before the FNV one gave `home` (std's `DefaultHasher`), so a start finds
+/// the job such a build left: running, it is the daemon; ended, it is booted out.
+pub(crate) fn legacy_job_label(home: &Path) -> String {
     use std::hash::{Hash, Hasher};
-    let home = std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    home.hash(&mut h);
-    format!("com.cmux.acpmux.daemon.{:016x}", h.finish())
+    canonical(home).hash(&mut h);
+    format!("{LABEL_PREFIX}{:016x}", h.finish())
+}
+
+fn canonical(home: &Path) -> std::path::PathBuf {
+    std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf())
+}
+
+/// At most this many stale jobs are looked at per start: each costs two `launchctl` calls.
+pub(crate) const STALE_SWEEP_MAX: usize = 16;
+
+/// From `launchctl print gui/<uid>`: the daemon jobs listed with no process (pid 0 or `-`),
+/// at most [`STALE_SWEEP_MAX`]. Only candidates: each one's own print decides
+/// ([`stale_job_program`]).
+pub(crate) fn stale_daemon_labels(domain_print: &str) -> Vec<String> {
+    let mut lines = domain_print.lines();
+    // The `services = {` block only: other blocks name labels too (endpoints, disabled).
+    lines.by_ref().find(|l| l.trim() == "services = {");
+    lines
+        .take_while(|l| l.trim() != "}")
+        .filter_map(|l| {
+            let mut fields = l.split_whitespace();
+            let (pid, _status, label) = (fields.next()?, fields.next()?, fields.next()?);
+            ((pid == "0" || pid == "-") && label.starts_with(LABEL_PREFIX))
+                .then(|| label.to_owned())
+        })
+        .take(STALE_SWEEP_MAX)
+        .collect()
+}
+
+/// From `launchctl print gui/<uid>/<label>`: the program of a job that has ended (`state =
+/// not running`) and whose program no longer exists (`exists`), the app copy it ran from
+/// deleted. Such a job never runs again and only sits loaded. None for any other job: one
+/// running, one whose program is there, one whose program cannot be read.
+pub(crate) fn stale_job_program(
+    job_print: &str,
+    exists: impl Fn(&Path) -> bool,
+) -> Option<std::path::PathBuf> {
+    let lines: Vec<&str> = job_print.lines().map(str::trim).collect();
+    if !lines.contains(&"state = not running") {
+        return None;
+    }
+    let program = lines.iter().find_map(|l| l.strip_prefix("program = ")).or_else(|| {
+        let at = lines.iter().position(|l| *l == "arguments = {")?;
+        lines.get(at + 1).filter(|l| **l != "}").copied()
+    })?;
+    let program = Path::new(program);
+    (program.is_absolute() && !exists(program)).then(|| program.to_path_buf())
 }
 
 /// What a `launchctl bootstrap` left: the job, or nothing.
@@ -169,6 +238,16 @@ pub(crate) fn keyed_in_place_warning() -> String {
     )
 }
 
+/// The home of a daemon job from its `launchctl print`: the folder of its plist (`path = `),
+/// which a start writes as `<home>/daemon-login-session.plist`. None for any other plist.
+pub(crate) fn job_home(job_print: &str) -> Option<std::path::PathBuf> {
+    let plist = job_print.lines().find_map(|l| l.trim().strip_prefix("path = "))?;
+    let plist = Path::new(plist);
+    (plist.is_absolute() && plist.file_name()? == "daemon-login-session.plist")
+        .then(|| plist.parent().map(Path::to_path_buf))
+        .flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,7 +317,96 @@ mod tests {
         std::fs::create_dir_all(dir.join("x")).unwrap();
         assert_eq!(job_label(&dir.join("h")), job_label(&dir.join("x/../h")));
         assert_ne!(job_label(&dir.join("h")), job_label(&dir.join("x")));
+        assert_eq!(legacy_job_label(&dir.join("h")), legacy_job_label(&dir.join("x/../h")));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_homes_label_is_fixed_by_this_code_not_the_toolchain() {
+        // FNV-1a 64 reference values: a std hasher change cannot move them.
+        assert_eq!(label_for_bytes(b""), "com.cmux.acpmux.daemon.cbf29ce484222325");
+        assert_eq!(label_for_bytes(b"a"), "com.cmux.acpmux.daemon.af63dc4c8601ec8c");
+        assert_eq!(label_for_bytes(b"/Users/a/home"), "com.cmux.acpmux.daemon.3af804ca21d020f0");
+        // A home that cannot be resolved is labelled as spelled.
+        assert_eq!(
+            job_label(Path::new("/nonexistent-acpmux-home/a")),
+            label_for_bytes(b"/nonexistent-acpmux-home/a")
+        );
+        let legacy = legacy_job_label(Path::new("/nonexistent-acpmux-home/a"));
+        assert!(legacy.starts_with(LABEL_PREFIX) && legacy.len() == LABEL_PREFIX.len() + 16);
+    }
+
+    const DOMAIN_PRINT: &str = "gui/501 = {
+\ttype = gui
+\tservices = {
+\t\t       0      0 \tai.leo-workspace.memory-sync
+\t\t       0     75 \tcom.cmux.acpmux.daemon.4ae0f8d39eeff3d2
+\t\t   12345      - \tcom.cmux.acpmux.daemon.1111111111111111
+\t\t       -      - \tcom.cmux.acpmux.daemon.2222222222222222
+\t}
+
+\tendpoints = {
+\t\t       0      0 \tcom.cmux.acpmux.daemon.3333333333333333
+\t}
+}
+";
+
+    #[test]
+    fn only_listed_daemon_jobs_with_no_process_are_sweep_candidates() {
+        assert_eq!(
+            stale_daemon_labels(DOMAIN_PRINT),
+            ["com.cmux.acpmux.daemon.4ae0f8d39eeff3d2", "com.cmux.acpmux.daemon.2222222222222222"]
+        );
+        assert!(stale_daemon_labels("").is_empty());
+        let many: String =
+            (0..40).map(|i| format!("\t\t       0      0 \t{LABEL_PREFIX}{i:016x}\n")).collect();
+        let print = format!("\tservices = {{\n{many}\t}}\n");
+        assert_eq!(stale_daemon_labels(&print).len(), STALE_SWEEP_MAX);
+    }
+
+    #[cfg(unix)]
+    const JOB_PRINT: &str = "gui/501/com.cmux.acpmux.daemon.x = {
+\tactive count = 0
+\tpath = /Users/a/home/dev/daemon-login-session.plist
+\ttype = LaunchAgent
+\tstate = not running
+
+\tprogram = /Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux
+\targuments = {
+\t\t/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux
+\t\tdaemon
+\t\trun
+\t}
+\tlast exit code = 75: EX_TEMPFAIL
+}
+";
+
+    // Unix paths: on Windows they are not absolute (no drive), and launchd is macOS-only.
+    #[cfg(unix)]
+    #[test]
+    fn only_an_ended_job_whose_program_is_gone_is_stale() {
+        let app = Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux");
+        assert_eq!(stale_job_program(JOB_PRINT, |_| false).as_deref(), Some(app));
+        // Its program is there: kept.
+        assert_eq!(stale_job_program(JOB_PRINT, |p| p == app), None);
+        // Running: kept, whatever its program.
+        let running = JOB_PRINT.replace("state = not running", "state = running");
+        assert_eq!(stale_job_program(&running, |_| false), None);
+        // No `program = ` line: the first argument is the program.
+        let no_program = JOB_PRINT.replace("\tprogram = ", "\tprogram_was = ");
+        assert_eq!(stale_job_program(&no_program, |_| false).as_deref(), Some(app));
+        // Nothing to read the program from: kept.
+        assert_eq!(stale_job_program("state = not running\n", |_| false), None);
+    }
+
+    // Unix paths: on Windows they are not absolute (no drive), and launchd is macOS-only.
+    #[cfg(unix)]
+    #[test]
+    fn a_jobs_home_is_the_folder_of_the_plist_a_start_wrote() {
+        assert_eq!(job_home(JOB_PRINT).as_deref(), Some(Path::new("/Users/a/home/dev")));
+        let other = JOB_PRINT.replace("daemon-login-session.plist", "other.plist");
+        assert_eq!(job_home(&other), None);
+        assert_eq!(job_home("state = not running\n"), None);
     }
 
     #[test]

@@ -32,3 +32,11 @@ public enum ControlValue: Sendable, Hashable {
         }
     }
 }
+
+/// A tab id (`tab_…`), or the surface UUID the cmux CLI prints (the same 32 hex digits, with
+/// dashes), as the tab id (`resources`, `agent.chat.perf`).
+public func normalizedControlTabID(_ raw: String) -> String {
+    let hex = raw.replacingOccurrences(of: "-", with: "").lowercased()
+    guard !raw.hasPrefix("tab_"), hex.count == 32, hex.allSatisfy(\.isHexDigit) else { return raw }
+    return "tab_" + hex
+}

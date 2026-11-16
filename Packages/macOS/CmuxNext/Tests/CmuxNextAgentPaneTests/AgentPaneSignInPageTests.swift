@@ -57,6 +57,10 @@ struct AgentPaneSignInPageTests {
     @Test func onlyProviderSignInPagesAreAllowed() {
         #expect(AgentPaneSignInPage.allowed(Self.page))
         #expect(AgentPaneSignInPage.allowed(URL(string: "https://auth.openai.com/codex/device")!))
+        #expect(AgentPaneSignInPage.allowed(URL(string: "https://accounts.x.ai/device")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://evil.x.ai/device")!))
+        #expect(AgentPaneSignInPage.allowed(URL(string: "https://cursor.com/loginDeepControl?challenge=c")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://cursor.com.evil.example/login")!))
         #expect(!AgentPaneSignInPage.allowed(URL(string: "https://claude.ai.evil.example/oauth")!))
         #expect(!AgentPaneSignInPage.allowed(URL(string: "https://user:pass@claude.ai/oauth")!))
         #expect(!AgentPaneSignInPage.allowed(URL(string: "javascript:alert(1)")!))

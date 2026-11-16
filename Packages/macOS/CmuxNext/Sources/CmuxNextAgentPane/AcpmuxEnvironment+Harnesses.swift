@@ -54,6 +54,10 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// `{prompt, harness?, model?, maxTokens?, timeoutMs?}` answers `{text, harness, model}`. The
     /// unix socket only; the harness CLI runs headless with no tools, MCP, hooks or session.
     case complete = "_acpmux/complete"
+    /// One plain sentence for one diff hunk, kept by its content hash (acpmux `hunk_summary.rs`):
+    /// `{path, patch, sessionId?}` answers `{text, key, cached}`; `{check: true, sessionId?}`
+    /// answers `{ready, harness}` and runs nothing. The unix socket only.
+    case hunkSummary = "_acpmux/hunk_summary"
     /// The probed models of every harness, with each model's efforts (the Chief editor's picker).
     case models = "_acpmux/models"
     /// Stores one secret in the Keychain (`cmux harness secret set ID KEY`): `{id, key, value}`
@@ -86,8 +90,12 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .doctor: .seconds(150)
         // The daemon's own limit is at most 60 s (`timeoutMs`).
         case .complete: .seconds(65)
+        // A miss is one completion of at most 30 s; a kept sentence answers at once.
+        case .hunkSummary: .seconds(35)
         case .registry, .health, .models: .seconds(40)
-        case .list, .add, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet: .seconds(10)
+        // An endpoint add may read its models (10 s), wait on the add lock and the Keychain store (60 s).
+        case .add: .seconds(90)
+        case .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet: .seconds(10)
         case .routeAdd: .seconds(20)
         // The daemon's own limit for one read is 15 s, after a wait for a free read.
         case .accountUsage: .seconds(40)

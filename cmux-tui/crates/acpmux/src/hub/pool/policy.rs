@@ -42,10 +42,21 @@ pub struct PoolKey {
     pub auth: String,
     /// Fingerprint of the logged-in account, where a login file names one.
     pub account: Option<String>,
-    /// The delivered machine files' metadata stamp (`login_env::machine_stamp`,
+    /// The delivered machine files' metadata stamp (`vault::machine_stamp`,
     /// never a value) when the key was made: a claim checks it again, so a
     /// host from before a delivery or revocation never reaches a chat.
     pub machine: Option<String>,
+    /// The `agents.promptSuggestions` switch a Claude or Codex agent reads once as its host
+    /// starts (`suggestions_at_start`); `None` for a harness that reads none. A change since
+    /// leaves the key unmatched, so the entry is discarded, never served under the old switch.
+    pub prompt_suggestions: Option<bool>,
+    /// The model a Claude Code agent was started on (its `--model`, `started_on`); `None` for
+    /// its own default or a harness whose model is in `args` or set after start. A chat that
+    /// asked for another model never takes it: Claude Code cannot switch a new session's model
+    /// without a slow check (`profile_takes_model_at_spawn`), so a mismatch ran the older model.
+    pub model: Option<String>,
+    /// The effort a Claude Code agent was started on (its `--effort`), as `model`.
+    pub effort: Option<String>,
 }
 
 impl PoolKey {

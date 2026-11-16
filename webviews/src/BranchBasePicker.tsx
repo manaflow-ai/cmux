@@ -1,7 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { LastKnown } from "./lastKnown";
 import { createPortal } from "react-dom";
 import { useScrollEdges } from "./ui/scrollEdges";
 import "./ui/popupSurface.css";
+import { onInterfaceScaleChange } from "./ui/interfaceScale";
+import { computePopoverStyle, type PopoverStyle } from "./branchBasePopover";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 import type { DiffTransport } from "./diff/transport";
@@ -30,6 +33,31 @@ export type BranchPickerPayload = {
 
 export function branchPickerStateKey(picker: BranchPickerPayload): string {
   return `${picker.repoRoot}\u0000${picker.capabilityToken ?? ""}\u0000${picker.currentRef}`;
+}
+
+/** The refs each repository listed last, for the picker's next mount in this page (the picker
+    mounts again for every base it moves to): it draws them at once and lists again behind them. */
+const lastRefs = new LastKnown<BranchPickerGroup[]>(8);
+
+/** By repository only: a base change can open a new session with a new capability token, and the
+    refs shown are the same repository's. */
+function refsCacheKey(picker: BranchPickerPayload): string {
+  return picker.repoRoot;
+}
+
+/** Last-known groups with the old base's `current` mark dropped: the picker's own `currentRef` marks the base. */
+function lastKnownRefs(picker: BranchPickerPayload): BranchPickerGroup[] | null {
+  const groups = lastRefs.get(refsCacheKey(picker));
+  if (!groups) return null;
+  return groups.map((group) => ({
+    ...group,
+    rows: group.rows.map((row) => (row.current ? { ...row, current: row.ref === picker.currentRef } : row)),
+  }));
+}
+
+/** Drops every repository's last-known refs (tests). */
+export function resetLastKnownRefsForTests(): void {
+  lastRefs.clear();
 }
 
 // Strip a leading `scheme://host[:port]` so the URL becomes root-relative and
@@ -95,60 +123,6 @@ const GROUP_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
   recent: "branchPickerGroupRecent",
 };
 
-// Inline `position: fixed` style for the popover, recomputed from the Base
-// button's viewport rect. Only the fields the popover needs to override. When
-// flipped above the button, `top` is `auto` and `bottom` anchors it to just
-// above the button so a short popover stays glued to the button, not the
-// viewport top.
-type PopoverStyle = Pick<React.CSSProperties, "top" | "bottom" | "left" | "maxHeight">;
-
-// Popover sizing constants. Width matches `.base-picker-popover` (320px) so the
-// right-edge clamp is correct; the gap matches the CSS `top: calc(100% + 6px)`.
-const POPOVER_WIDTH = 320;
-const POPOVER_GAP = 6;
-// Keep at least this much breathing room from each viewport edge.
-const VIEWPORT_MARGIN = 8;
-// Don't bother flipping above unless the popover can be at least this tall there.
-const POPOVER_MIN_HEIGHT = 160;
-
-// Anchor the fixed popover under (or above) the Base button, clamped to the
-// viewport. Horizontal: align to the button's left edge, but shift left so the
-// 320px popover never overruns the right edge. Vertical: prefer below the
-// button; flip above when there is more room there, and cap max-height to the
-// space available on the chosen side so the list scrolls instead of overflowing
-// the viewport. The popover is portaled to `document.body`, so this fixed
-// element resolves against the viewport, escaping the toolbar cell's
-// container-query containing block and its `overflow-x: clip`.
-function computePopoverStyle(rect: DOMRect): PopoverStyle {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-
-  const maxLeft = viewportWidth - POPOVER_WIDTH - VIEWPORT_MARGIN;
-  const left = Math.max(VIEWPORT_MARGIN, Math.min(rect.left, maxLeft));
-
-  const spaceBelow = viewportHeight - rect.bottom - POPOVER_GAP - VIEWPORT_MARGIN;
-  const spaceAbove = rect.top - POPOVER_GAP - VIEWPORT_MARGIN;
-  // Flip above only when below is too cramped AND above is genuinely roomier.
-  const flipAbove = spaceBelow < POPOVER_MIN_HEIGHT && spaceAbove > spaceBelow;
-
-  if (flipAbove) {
-    return {
-      top: "auto",
-      // Anchor the popover's bottom POPOVER_GAP above the button top; it grows
-      // upward and a short popover stays glued just above the button.
-      bottom: viewportHeight - rect.top + POPOVER_GAP,
-      left,
-      maxHeight: Math.max(0, spaceAbove),
-    };
-  }
-  return {
-    top: rect.bottom + POPOVER_GAP,
-    bottom: "auto",
-    left,
-    maxHeight: Math.max(0, spaceBelow),
-  };
-}
-
 export function BranchBasePicker({
   ignoreWhitespace = false,
   label,
@@ -171,7 +145,9 @@ export function BranchBasePicker({
   const [open, setOpen] = useState(false);
   const listEdges = useScrollEdges();
   const [query, setQuery] = useState("");
-  const [groups, setGroups] = useState<BranchPickerGroup[] | null>(null);
+  const [groups, setGroups] = useState<BranchPickerGroup[] | null>(() => lastKnownRefs(picker));
+  /** This mount listed the refs once already: a last-known list is read again on the first open only. */
+  const listedHere = useRef(false);
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle");
   const [highlight, setHighlight] = useState(0);
   const [generatingRef, setGeneratingRef] = useState<string | null>(null);
@@ -199,6 +175,9 @@ export function BranchBasePicker({
 
   const flat = buildFlatRows(groups, query, label);
   const clampedHighlight = flat.length === 0 ? 0 : Math.min(highlight, flat.length - 1);
+  /** What is highlighted now, read when a quiet refresh swaps the rows under it. */
+  const shownRows = useRef({ flat, highlight: clampedHighlight, query });
+  shownRows.current = { flat, highlight: clampedHighlight, query };
 
   const openPopover = () => {
     setOpen(true);
@@ -206,8 +185,10 @@ export function BranchBasePicker({
     setHighlight(0);
     if (groups == null && loadState !== "loading") {
       setLoadState("loading");
+      listedHere.current = true;
       loadRefs(picker, transport)
         .then((response) => {
+          lastRefs.set(refsCacheKey(picker), response.groups);
           setGroups(response.groups);
           setLoadState("idle");
         })
@@ -215,6 +196,23 @@ export function BranchBasePicker({
           console.warn("cmux diff branch picker refs load failed", error);
           setLoadState("error");
         });
+    } else if (groups != null && !listedHere.current) {
+      // Last-known refs are on screen: list again quietly and swap the answer in.
+      listedHere.current = true;
+      loadRefs(picker, transport)
+        .then((response) => {
+          lastRefs.set(refsCacheKey(picker), response.groups);
+          // Keep the highlight on the same ref: the refreshed rows can sit at other indexes.
+          const shown = shownRows.current;
+          const was = shown.flat[shown.highlight];
+          const next = buildFlatRows(response.groups, shown.query, label);
+          const same = (entry: FlatRow) => !!was && entry.raw === was.raw && entry.row.ref === was.row.ref;
+          const inGroup = next.findIndex((entry) => same(entry) && entry.groupId === was?.groupId);
+          const index = inGroup >= 0 ? inGroup : next.findIndex(same);
+          setGroups(response.groups);
+          setHighlight(index >= 0 ? index : 0);
+        })
+        .catch((error) => console.warn("cmux diff branch picker refs refresh failed", error));
     }
   };
 
@@ -330,7 +328,10 @@ export function BranchBasePicker({
     window.addEventListener("resize", reposition);
     // Capture phase so scrolling ANY ancestor (not just window) repositions it.
     window.addEventListener("scroll", reposition, true);
+    // Text Size changes the popover's width and gaps (branchBasePopover.ts) without a resize.
+    const stopScale = onInterfaceScaleChange(reposition);
     return () => {
+      stopScale();
       window.removeEventListener("resize", reposition);
       window.removeEventListener("scroll", reposition, true);
     };

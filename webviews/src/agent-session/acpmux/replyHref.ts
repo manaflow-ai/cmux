@@ -19,16 +19,19 @@ export function safeHref(href: string): string | undefined {
 }
 
 /// A cmux app link (`cmux://workspace/ws_…`, `pane/pane_…`, `tab/tab_…`, `session/<id>`,
-/// `chief/<home>/session/<id>`, `agent/<harness>/<session>?host=&name=`) in this build's scheme or the plain `cmux` one: drawn as a link,
-/// and a click goes to the host, which opens it inside the app (`link.open`) and never in another
-/// app. The host checks the ids again (DeepLink.parse); this only keeps every other scheme
-/// (`javascript:`, `file:`, `data:`, `ssh:`...) as text.
+/// `chief/<home>/session/<id>`, `group/grp_…[/workspace/ws_…]`, `agent/<harness>/<session>?host=&name=`)
+/// in this build's scheme or the plain `cmux` one: drawn as a link, and a click goes to the host,
+/// which opens it inside the app (`link.open`) and never in another app. The host checks the ids
+/// again (DeepLink.parse); this only keeps every other scheme (`javascript:`, `file:`, `data:`,
+/// `ssh:`...) as text. An agent link's query may carry a percent-encoded or malformed hint
+/// (`?host=a%20b`): the agent link schema drops only that hint, never the link, so it stays a link.
 export function appHref(href: string): string | undefined {
   const text = href.trim();
   const authority = /^cmux(-[a-z0-9-]+)?:\/\//;
   const rest = text.slice(text.indexOf("://") + 3);
-  const ordinary = /^(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/;
-  const agent = /^agent\/[a-z0-9-]{1,64}\/([^/?#]+)(\?[A-Za-z0-9._~=&-]+)?$/;
+  const ordinary =
+    /^(workspace|pane|tab|session|chief|group)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/;
+  const agent = /^agent\/[a-z0-9-]{1,64}\/([^/?#]+)(\?[A-Za-z0-9._~=&%-]+)?$/;
   const agentMatch = rest.match(agent);
   const isAgent = agentMatch !== null && AGENT_SESSION_TOKEN.test(agentMatch[1]);
   if (!authority.test(text) || !(ordinary.test(rest) || isAgent)) return undefined;

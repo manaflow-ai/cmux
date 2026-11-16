@@ -2,7 +2,7 @@
 // (Schema/SettingsSchema+HoverCards.generated.swift); this file only parses.
 
 /// `sidebar.hoverCards.*` in cmux.json (cx-23e1f): the hover cards of sidebar
-/// workspace rows and tabs are on, and wait `HoverCardTiming.showDelay`, unless the user
+/// workspace rows and tabs are on, and wait `HoverCardTiming.showDelay` (Chrome's), unless the user
 /// turns them off or sets another delay. The workspace card's layout, sections and history
 /// length (u3320) too.
 public nonisolated struct HoverCardSettings: Sendable, Equatable {

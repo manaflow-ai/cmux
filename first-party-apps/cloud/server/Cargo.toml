@@ -17,6 +17,9 @@ path = "src/main.rs"
 
 [dependencies]
 base64 = "0.22"
+# The generated cmux.wire/1 records and op markers (backend/catalog), the one
+# machine type, by path only.
+cmux-cloud-wire = { path = "../../../cmux-tui/crates/cmux-cloud-wire" }
 # The terminal interfaces (cmux.terminal.backend/1 and connector/1), shared
 # with the cmux-tui daemon, by path only.
 cmux-terminal-iface = { path = "../../../cmux-tui/crates/cmux-terminal-iface" }
@@ -28,6 +31,15 @@ sha2 = "0.10"
 [dev-dependencies]
 # The one manifest validator (cmux-tui/crates/cmux-app-manifest), by path only.
 cmux-app-manifest = { path = "../../../cmux-tui/crates/cmux-app-manifest" }
+
+# The cmux-next app ships this binary as Contents/Resources/bin/cmux-cloud, so it is
+# built for size like cmux-tui's release profile: fat LTO, one codegen unit. No
+# `strip` here: the release bundle strip step keeps a helper's global symbols so
+# its crash reports name functions. panic stays "unwind": the server recovers
+# poisoned locks and reports a reader thread's panic.
+[profile.release]
+lto = "fat"
+codegen-units = 1
 
 [lints.rust]
 unsafe_code = "forbid"

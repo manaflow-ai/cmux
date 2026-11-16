@@ -2,6 +2,7 @@
 import AuthenticationServices
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxMobileBilling
 import CmuxMobileModel
 import Foundation
 import Observation
@@ -55,6 +56,9 @@ public final class CmuxMobileAuthModel {
     @ObservationIgnored let teamCreationRoute: TeamCreationRoute
     /// Mock mode (DEBUG `CMUX_MOBILE_MOCK_AUTH=1`): signed in as a local user, no network.
     public let isMock: Bool
+    /// The Stack project this build signs in to: the Cloud derives its user and team ids from it
+    /// (`CloudIdentity.workerUserID` on the Mac). Nil in mock mode.
+    public let stackProjectID: String?
     private var mockSignedIn: Bool
 
     /// The provider whose flow is in flight (its button shows a spinner).
@@ -63,7 +67,8 @@ public final class CmuxMobileAuthModel {
     public var errorMessage: String?
 
     init(coordinator: AuthCoordinator?, stack: StackClientApp? = nil, apiBase: URL? = nil,
-         teamCreationRoute: TeamCreationRoute? = nil, isMock: Bool) {
+         teamCreationRoute: TeamCreationRoute? = nil, isMock: Bool, stackProjectID: String? = nil) {
+        self.stackProjectID = stackProjectID
         self.coordinator = coordinator
         self.stack = stack
         self.apiBase = apiBase
@@ -166,7 +171,7 @@ public final class CmuxMobileAuthModel {
             mobileServiceBase: apiBase
         )
         return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase,
-                                   teamCreationRoute: teamCreationRoute, isMock: false)
+                                   teamCreationRoute: teamCreationRoute, isMock: false, stackProjectID: config.stack.projectId)
     }
 
     /// The `cmux-mobile-api` base URL: the `CMUX_MOBILE_API_BASE` launch override (DEBUG
@@ -436,6 +441,42 @@ public final class CmuxMobileAuthModel {
 
     /// The `cmux-mobile-api` base URL for live data (nil in mock mode or when unconfigured).
     public var apiBaseURL: URL? { isMock ? nil : apiBase }
+
+    /// The cmux web origin that sells and verifies App Store plans
+    /// (`<origin>/api/billing/apple/*`, `docs/billing/ios-in-app-purchases.md`):
+    /// only for accounts of the production Stack project, the one cmux.com
+    /// signs in to. Nil (no Plan row) in mock, DEBUG and staging builds.
+    public var billingAPIBase: URL? {
+        isMock ? nil : teamCreationRoute.billingOrigin
+    }
+
+    /// Builds the app's one App Store billing model over this account's Stack
+    /// session, or nil when the build has no billing origin (``billingAPIBase``)
+    /// or bundle id. The server derives each StoreKit product id from the
+    /// bundle id and offers none to a bundle it does not sell in, so the plans
+    /// screen then says plans are unavailable instead of showing a fake offer.
+    /// - Parameter bundleIdentifier: The app bundle id (`x-cmux-bundle-id`).
+    /// - Returns: The model; the caller starts it.
+    public func makeBillingModel(bundleIdentifier: String?) -> BillingModel? {
+        guard let origin = billingAPIBase, let coordinator,
+              let bundleIdentifier, !bundleIdentifier.isEmpty else { return nil }
+        let api = HTTPBillingAPI(
+            baseURL: origin.absoluteString,
+            bundleID: bundleIdentifier,
+            credentials: {
+                guard await coordinator.isAuthenticated else { return nil }
+                do {
+                    let pair = try await coordinator.coherentTokenPair()
+                    return BillingAPICredentials(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
+                } catch AuthError.unauthorized {
+                    return nil
+                }
+            },
+            storeKitEnvironment: { await LiveStoreKitClient.appStoreEnvironment() },
+            session: URLSession(configuration: .default)
+        )
+        return BillingModel(api: api, store: LiveStoreKitClient(), analytics: nil)
+    }
 
     /// A current Stack access token (refreshed by the runtime when needed).
     /// `forceRefresh` mints a new one after the service rejected the last (401).

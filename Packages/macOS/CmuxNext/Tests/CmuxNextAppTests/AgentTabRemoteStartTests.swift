@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextTabs
 import Darwin
 import Foundation
 import Testing
@@ -20,7 +21,7 @@ struct AgentTabRemoteStartTests {
         tabs.onRemoteChatStarted = { host, session, cwd, harness in
             ledger.started(host: host, session: session, remoteChat: cwd, harness: harness)
         }
-        tabs.sessions[key] = "remote-session"
+        tabs.sessions[AgentTabKey(machine: "Cloud fixture", key: key)] = "remote-session"
         let existing = try await tabs.existingRemoteChat(key)
         #expect(existing?.session == "remote-session")
         #expect(ledger.entry(host: "registry:cloud-fixture", session: "remote-session")?.localRoot == "/local/project")
@@ -141,8 +142,8 @@ struct AgentTabRemoteStartTests {
             AgentPaneSource.devURLVariable: "http://127.0.0.1:9",
             "CMUX_NEXT_AGENT_PANE_MOCK": "1",
         ], showcase: true)
-        tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
-        tabs.remoteSeeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: seedCwd, harness: "claude", model: "claude-seed-model"))
+        tabs.lookupScoped = { scoped in store.tab(id: scoped.key)?.agentSession.map { ($0, store) } }
+        tabs.remoteSeeds[AgentTabKey(machine: "Cloud fixture", key: key)] = AgentPaneSeedSource(AgentPaneSeed(cwd: seedCwd, harness: "claude", model: "claude-seed-model"))
         return (tabs, key)
     }
 

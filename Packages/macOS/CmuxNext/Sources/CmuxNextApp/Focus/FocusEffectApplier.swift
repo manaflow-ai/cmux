@@ -418,7 +418,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         }
         // A web view has the keyboard (or had it below the palette): the Developer Tools set shows.
         next.remove(.webViewFocused)
-        if WebInspectorTargets().target(in: controller) != nil { next.insert(.webViewFocused) }
+        if WebInspectorTargets(appPages: DesignSettings.shared.pageDeveloperTools).target(in: controller) != nil { next.insert(.webViewFocused) }
         // The same rule as `KeyRouter.keyContext`: a terminal's TextBox has the keyboard.
         if controller.window?.firstResponder is TextBoxTextView { next.insert(.textBoxFocused) }
         // The same rule as `KeyRouter.keyContext`: a phone tab has the keyboard (the Simulator shortcuts).

@@ -43,6 +43,11 @@ struct ReviewVerdict {
     end: usize,
 }
 
+/// Whether `reply` carries a review verdict (its receipt), which is always news.
+pub(super) fn has_verdict(reply: &str) -> bool {
+    verdict(reply).is_some()
+}
+
 pub(super) fn headline(reply: &str) -> String {
     let Some(verdict) = verdict(reply) else {
         let one_line = reply.split_whitespace().collect::<Vec<_>>().join(" ");

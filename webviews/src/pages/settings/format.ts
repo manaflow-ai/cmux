@@ -1,4 +1,5 @@
 // Display text for values: choice titles, numbers with units, percent for fractions.
+import type { CSSProperties } from "react";
 import { locale, t, text, unitSuffix } from "./strings";
 import type { HostLists } from "./ops";
 import type { NumberRange, SchemaRow } from "./schema";
@@ -117,4 +118,11 @@ export function soundTitle(name: string): string {
   if (name === "default") return t("settingsPage.soundDefault");
   if (name === "none") return t("settingsPage.soundNone");
   return name;
+}
+
+/** A settings slider's `--range-p`: where `value` sits between `min` and `max` (0 to 1), so its
+ * track fills up to the knob (refined.css). */
+export function rangeFill(value: number, min: number, max: number): CSSProperties {
+  const p = max > min ? Math.min(Math.max((value - min) / (max - min), 0), 1) : 0;
+  return { "--range-p": String(p) } as CSSProperties;
 }

@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dev_account_guard  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -128,7 +129,7 @@ try:
         env["CMUX_AUTH_CREDENTIALS_FILE"] = opts.credentials_file
     log = open(os.path.join(opts.out, f"app-{opts.tag}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("ok"), 180):
         sys.exit("the tagged app did not come up")
     if not home_classic.require(lambda m: rpc(m).get("result") or {}):  # classic Home: these checks drive the native transcript
@@ -138,7 +139,7 @@ try:
         wait(lambda: (rpc("debug.surfaces").get("result") or {}).get("windows"), 30)
     if opts.expected_account:
         account = dev_account_guard.require_account(lambda m, p: rpc(m, p).get("result") or {}, opts.expected_account, timeout=120)
-        print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
+        safe_print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
     wait(lambda: home().get("available"), 90)
 
     # 1. The channels Home as a tab in the first pane.
@@ -151,7 +152,7 @@ try:
     step("splitRight", ran(run("splitRight")))
     # The CLI's path (`cmux home tab` sends action.run with the CLI name).
     first = rpc("action.run", {"action": "home tab", "cli": True, "focus": True, "wait": True}, timeout=90)
-    print("cli home tab ->", json.dumps(first)[:400], flush=True)
+    safe_print("cli home tab ->", json.dumps(first)[:400], flush=True)
     opened = wait(lambda: len(tabs()) >= 1, 30)
     step("home.tab opens a Home tab", ran(first) and opened, {"reply": first, "tabs": tabs()})
     if not opened:
@@ -202,5 +203,5 @@ finally:
             app.wait(20)
         except subprocess.TimeoutExpired:
             app.kill()
-    print("RESULT", "FAIL" if failed else "PASS", flush=True)
+    safe_print("RESULT", "FAIL" if failed else "PASS", flush=True)
     sys.exit(1 if failed else 0)

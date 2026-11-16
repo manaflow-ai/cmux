@@ -94,7 +94,7 @@ function inbox(minutes: number) {
     : user(text, minutes);
 }
 
-const RECEIVED_LINE = ".cv-received .cv-disclosure__toggle";
+const RECEIVED_LINE = ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
 
 /// Opens the line, then its Details: the prompt as the agent got it, label and all.
 const openDetails: Play = async (ctx) => {

@@ -5,6 +5,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, ConversationLayout } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -41,13 +42,9 @@ const { UserBubble } = await import("../src/agent-session/acpmux/conversation/Us
 const { PromptActions } = await import("../src/agent-session/acpmux/conversation/MessageActions");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 
-afterAll(() => {
+afterAll(async () => {
   setBookmarkTransport(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });

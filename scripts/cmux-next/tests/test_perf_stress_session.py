@@ -12,7 +12,7 @@ stress = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(stress)
 
 AREA = (1600.0, 1000.0)  # the fake layout area, window points
-SCREEN = [0, 0, 1920, 1080]  # the fake main screen (the fleet's 1920 x 1080 virtual display)
+SCREEN = [0, 0, 1920, 1080]  # the fake main screen: a 1920 x 1080 display (the fleet's virtual display is 1920 x 1200)
 VISIBLE = [0, 0, 1920, 1050]  # its visible frame: a menu bar, the Dock hidden
 BOTTOM_DOCK = [0, 70, 1920, 986]  # the default Dock at the bottom: under 1000 pt of visible height
 SIDE_DOCK = [70, 0, 1850, 1056]  # the Dock on the left
@@ -480,7 +480,7 @@ class WindowPlacementTests(Case):
         return session.summary()
 
     def test_a_bottom_dock_leaves_the_window_on_its_screen(self):
-        # The default Dock on the fleet's 1920 x 1080 main display: 986 pt of visible height.
+        # The default Dock on a 1920 x 1080 main display: 986 pt of visible height.
         app = FakeApp(visible=BOTTOM_DOCK)
         summary = self.measured(app)
         self.assertIsNone(summary["window_problem"])

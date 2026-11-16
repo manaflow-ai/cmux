@@ -121,7 +121,8 @@
 //!   `ACPMUX_SESSION_TOKEN_SOCKET`, this daemon's socket, and the CLI sends
 //!   the token only to that socket ([`caller_env`], `client.rs`). A
 //!   profile's, preset's or request's env never sets either variable: the
-//!   spawn drops them from every env it layers after `caller_env`; adoption: `adopted_callers`.
+//!   spawn drops them from every env it layers after `caller_env`; adoption: `adopted_callers`;
+//!   earlier runs' tokens: `caller_registry.rs`.
 //! - No start mode that does not ask applies to an adopt without the
 //!   person: an adopt may find a session already running
 //!   (`hub/adoption.rs`, `ifLive: "open"`), and only the person widens a
@@ -250,8 +251,10 @@
 //!   process still has to run somewhere: an agent of a session that asks
 //!   needs an allowed command or read to get there. Binding the token to the
 //!   connecting process's ancestry (peer pid) is a later hardening.
-//! - A token dies with its daemon run: a harness that outlives a restart
-//!   (an agent host) inherits nothing until the next spawn.
+//! - A token outlives its daemon run while the session's host does: the next
+//!   run knows it by the host's record and by `caller-tokens.json`, which keeps
+//!   only digests of the tokens each session still accepts
+//!   (`caller_registry.rs`); a new host of the session ends the earlier ones.
 //! - `session/new` with a `policy` other than ask or deny-all is open to the
 //!   unix socket (it predates this check); a mode is not. A proven caller
 //!   session below full access names none wider than its own
@@ -367,6 +370,10 @@ pub struct Answerer<'a> {
     pub(crate) fence: Option<&'a crate::agent::Fence>,
     /// The person who answered (`author.rs`), recorded in `answeredBy`: it proves nothing.
     pub author: Option<&'a crate::author::Author>,
+    /// The paired device whose credential the answering connection presented
+    /// (`server/remote_guard.rs` `sending_device`), from the handshake only: what D13 reads
+    /// (`Hub::local_claude_refusal`).
+    pub device: Option<&'a str>,
 }
 
 impl<'a> Answerer<'a> {
@@ -385,7 +392,7 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(signed)) => Some((nonce, signed)),
             _ => None,
         };
-        Self { person, decision, approver, ancestor: None, fence: None, author: None }
+        Self { person, decision, approver, ancestor: None, fence: None, author: None, device: None }
     }
 }
 
@@ -792,34 +799,7 @@ impl PersonGate {
     }
 }
 
-/// The transport a unix socket connection proves on (`transport` of [`person_proof`]).
-pub const TRANSPORT_UNIX: &str = "unix";
-/// The transport a proven LocalApp WebSocket connection proves on.
-pub const TRANSPORT_APP: &str = "app";
-
-/// The bytes a person proof covers.
-fn proof_message(transport: &str, nonce: &str, connection: &str) -> Vec<u8> {
-    let mut message = b"acpmux-person-v1\0".to_vec();
-    for part in [transport, nonce, connection] {
-        message.extend_from_slice(part.as_bytes());
-        message.push(0);
-    }
-    message.pop();
-    message
-}
-
-/// The proof for one connection's challenge, as lowercase hex; None when
-/// `key` is not a person key. `transport` is the one the CLIENT knows it
-/// uses ([`TRANSPORT_UNIX`] or [`TRANSPORT_APP`]), never a value from the
-/// challenge: a relay that hands a unix connection's challenge to the app's
-/// WebSocket gets a proof for the other transport.
-pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -> Option<String> {
-    let key = cmux_local_auth::frontend_proof::unhex::<32>(key).filter(|_| valid_key(key))?;
-    Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
-        &key,
-        &proof_message(transport, nonce, connection),
-    )))
-}
+pub use crate::person_proof::{TRANSPORT_APP, TRANSPORT_UNIX, person_proof, valid_key};
 
 mod decision_answers;
 pub mod policy_grant;
@@ -859,11 +839,6 @@ pub fn new_nonce() -> String {
     // No randomness means no safe challenge: the daemon cannot serve.
     getrandom::fill(&mut bytes).expect("the OS random generator for a connection nonce"); // crash-allow: no randomness, no safe challenge
     cmux_local_auth::frontend_proof::hex(&bytes)
-}
-
-/// 32 bytes as lowercase hex.
-pub fn valid_key(key: &str) -> bool {
-    key.len() == 64 && key.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// The declared refusal.
@@ -910,13 +885,13 @@ pub(crate) fn asks(policy: PermissionPolicy) -> bool {
     matches!(policy, PermissionPolicy::Ask | PermissionPolicy::DenyAll)
 }
 
-/// How much a policy runs without asking: deny-all 0, ask 1, approve-reads 2,
+/// How much a policy runs without asking: deny-all 0, ask 1, approve-reads and review 2,
 /// approve-edits 3, approve-all 4. A higher number is wider.
 pub(crate) fn breadth(policy: PermissionPolicy) -> u8 {
     match policy {
         PermissionPolicy::DenyAll => 0,
         PermissionPolicy::Ask => 1,
-        PermissionPolicy::ApproveReads => 2,
+        PermissionPolicy::ApproveReads | PermissionPolicy::Review => 2,
         PermissionPolicy::ApproveEdits => 3,
         PermissionPolicy::ApproveAll => 4,
     }
@@ -1140,7 +1115,10 @@ impl Hub {
                 else {
                     return Ok(());
                 };
-                let family = crate::web_modes::family_of(&s.meta());
+                // The family whose modes the configured harness offers: a launcher profile of
+                // Claude Code (`claude-sr2`) asks in Claude's `default` and `plan` too; an agent
+                // that only names itself Claude Code does not (`Hub::trusted_mode_family`).
+                let family = self.trusted_mode_family(&s.meta());
                 if remote_authenticated && self.any_mode_for_web(&s.meta()) {
                     return Ok(());
                 }

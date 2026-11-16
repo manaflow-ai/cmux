@@ -42,12 +42,14 @@ public nonisolated struct CloudStartCore: Sendable {
         (account.last ?? nil) == nil && (platform != nil || !production)
     }
 
-    /// Why no Cloud chat can start at all now (`cloud_disabled`, `not_signed_in`), else nil. An FFI
+    /// Why no Cloud chat can start at all now (`cloud_disabled`, `not_signed_in`), or not yet in the team
+    /// the send asked for (`cloud_team_switching`: `requestedTeam` is not `activeTeam`), else nil. An FFI
     /// that does not answer refuses as Cloud off, never a start that goes on unchecked.
-    public func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? {
-        struct Request: Encodable { var cloudDisabled: Bool, signedIn: Bool }
+    public func refusal(cloudDisabled: Bool, signedIn: Bool, requestedTeam: String? = nil, activeTeam: String? = nil) -> String? {
+        struct Request: Encodable { var cloudDisabled: Bool, signedIn: Bool, requestedTeam: String?, activeTeam: String? }
         struct Reply: Decodable { var refusal: String? }
-        guard let reply = call("cloud_start_refusal", Request(cloudDisabled: cloudDisabled, signedIn: signedIn), as: Reply.self) else {
+        let request = Request(cloudDisabled: cloudDisabled, signedIn: signedIn, requestedTeam: requestedTeam, activeTeam: activeTeam)
+        guard let reply = call("cloud_start_refusal", request, as: Reply.self) else {
             return "cloud_disabled"
         }
         return reply.refusal
@@ -77,6 +79,31 @@ public nonisolated struct CloudStartCore: Sendable {
             return .listUnread
         }
         return reply.check
+    }
+
+    /// What a start does with the machine list it read while it waits for the app's first one.
+    public enum ListWait: Sendable, Equatable {
+        /// Go on: the list is loaded, or nobody is signed in (that refuses at once).
+        case proceed
+        /// Pause `ms`, then read the list again when `readAfter`, and ask again.
+        case pause(ms: Int, readAfter: Bool)
+        /// Still not loaded once the wait is over: the account check refuses it as unread.
+        case unread
+    }
+
+    /// The step of the wait for the app's first machine list (`list_wait`, the same wait as `cmux cloud
+    /// start-chat`'s): `elapsedMs` into the wait, `deadlineLeftMs` of the start's own deadline. An FFI that
+    /// does not answer waits no more.
+    public func listWait(elapsedMs: Int, deadlineLeftMs: Int? = nil, loaded: Bool, signedIn: Bool) -> ListWait {
+        struct Request: Encodable { var elapsedMs: Int, deadlineLeftMs: Int?, loaded: Bool, signedIn: Bool }
+        struct Reply: Decodable { var next: String, pauseMs: Int?, readAfter: Bool? }
+        let request = Request(elapsedMs: max(elapsedMs, 0), deadlineLeftMs: deadlineLeftMs.map { max($0, 0) }, loaded: loaded, signedIn: signedIn)
+        guard let reply = call("cloud_start_list_wait", request, as: Reply.self) else { return .unread }
+        switch (reply.next, reply.pauseMs) {
+        case ("proceed", _): return .proceed
+        case ("pause", let ms?) where ms > 0: return .pause(ms: ms, readAfter: reply.readAfter ?? false)
+        default: return .unread
+        }
     }
 
     /// Whether `root` is the disk's root or the home folder `home` (each as `standardizedFileURL`

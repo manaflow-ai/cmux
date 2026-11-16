@@ -2,6 +2,7 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxNextUpdater
 import Foundation
 import Testing
@@ -22,7 +23,7 @@ struct WhatsNewPlacementTests {
          "entries": [{"id": "one", "category": "new", "title": {"en": "One"}, "summary": {"en": "One thing."},
                       "platforms": ["macos"], "audience": "all"}]}
         """#.utf8).write(to: directory.appending(path: "1.0.0.json"))
-        let defaults = try #require(UserDefaults(suiteName: "cnc-whatsnew-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "cnc-whatsnew-\(UUID().uuidString)"))
         let source = BundledWhatsNewSource(directory: directory)
 
         let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [source])

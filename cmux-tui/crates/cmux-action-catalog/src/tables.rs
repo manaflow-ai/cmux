@@ -22,7 +22,6 @@ pub static DEBUG_BUILD_ONLY_CASES: &[(&str, &str, &str)] = &[];
 /// cmux.json `shortcuts`).
 #[rustfmt::skip]
 pub static LEGACY_ALIASES: &[(&str, &str)] = &[
-    ("agentInbox", "feed.show"),
     ("app.quit", "quit"),
     ("browserNewProfile", "browserProfile.new"),
     ("browserProfile.clearRoomDefault", "browserProfile.clearSpaceDefault"),

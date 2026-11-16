@@ -241,8 +241,8 @@ impl RelayCircuit {
             .filter(|candidate| candidate != socket)
             .find_map(|candidate| {
                 let attachment = Self::attachment(&candidate).ok()?;
-                let shares_ready_deadline = current.phase == CircuitPhase::Ready
-                    && attachment.phase == CircuitPhase::Ready;
+                let shares_ready_deadline =
+                    current.phase == CircuitPhase::Ready && attachment.phase == CircuitPhase::Ready;
                 let effective_deadline = if shares_ready_deadline {
                     current.idle_deadline_ms.max(attachment.idle_deadline_ms)
                 } else {
@@ -306,7 +306,7 @@ impl RelayCircuit {
                 now_ms,
             ) && attachment.phase != CircuitPhase::Pending
                 && attachment.relay.as_ref().is_some_and(|relay| relay.role == role))
-                .then_some(candidate)
+            .then_some(candidate)
         })
     }
 

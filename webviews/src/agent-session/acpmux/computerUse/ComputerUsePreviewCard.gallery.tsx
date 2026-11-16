@@ -160,7 +160,7 @@ export default componentEntry<Props>({
       props: { preview: running },
     },
     done: {
-      note: "After the session ended: the window dims, the app's icon (40px) scales in at its center and a 16px green check pops in on the icon's corner. The host hides it 30 s later, with a short fade and scale down.",
+      note: "After the session ended: the window dims, the app's icon (40px) scales in at its center and a 16px green check scales in on the icon's corner, neither past its size. The host hides it 30 s later, with a short fade and scale down.",
       props: { preview: done },
     },
     "done-no-icon": {

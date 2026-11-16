@@ -1,16 +1,27 @@
 // l10n-allow-file: the browser dev loop's stand-in host, not shipped UI.
 // An in-memory server card host for the browser dev loop (`/server-cards/?mock#/pair-invite`): the
 // invite mints a moment after the card opens and a machine arrives a few seconds later. Confirm is
-// the app panel's native button, so the dev loop stops at the review.
+// the app panel's native button, so the dev loop stops at the review. The server surfaces' ops
+// (`#/server-panel`, `#/add-server`) go to MockServerOwner; `#/add-machine` runs on add-machine/mock.ts.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
+import { MockAddMachineHost } from "./add-machine/mock";
+import { AddMachineOps } from "./add-machine/types";
 import { CardOps } from "./host";
 import { arrivedStatus, mintingStatus, showingStatus } from "./pairInvite/fixtures";
 import { PairInviteOps, type PairInviteStatus } from "./pairInvite/types";
+import { MockServerOwner } from "./server/mockOwner";
+import { ServerOps } from "./server/types";
 
 export class MockServerCardsHost implements PageClient {
   private status: PairInviteStatus = mintingStatus();
   private listeners = new Set<() => void>();
   private timers: ReturnType<typeof setTimeout>[] = [];
+  private addMachineListeners = new Set<() => void>();
+  /** `#/add-machine`'s stand-in (add-machine/mock.ts). */
+  readonly addMachine = new MockAddMachineHost(() => {
+    for (const listener of this.addMachineListeners) listener();
+  });
+  readonly server = new MockServerOwner();
 
   constructor(initial?: PairInviteStatus) {
     if (initial) this.status = initial;
@@ -18,6 +29,8 @@ export class MockServerCardsHost implements PageClient {
   }
 
   async call<R>(op: string, params: unknown): Promise<R> {
+    if (op.startsWith("cmux.addMachine.")) return this.addMachine.call(op, params) as R;
+    if (this.server.handles(op)) return (await this.server.call(op, params)) as R;
     switch (op) {
       case PairInviteOps.status:
         return this.status as R;
@@ -44,6 +57,16 @@ export class MockServerCardsHost implements PageClient {
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
     if (stream === CardOps.commands) return () => {};
+    if (stream === AddMachineOps.changes) {
+      let seq = 0;
+      const listener = () => onEvent({} as E, ++seq);
+      this.addMachineListeners.add(listener);
+      return () => void this.addMachineListeners.delete(listener);
+    }
+    if (stream === ServerOps.changes) {
+      let seq = 0;
+      return this.server.onChange(() => onEvent({} as E, ++seq));
+    }
     if (stream !== PairInviteOps.changes) throw pageError("cmux.op.unknown", stream);
     let seq = 0;
     const listener = () => onEvent({} as E, ++seq);

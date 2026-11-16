@@ -11,6 +11,7 @@ Usage: home-snapshot.py --tag <tag> [--out DIR] [--size 1100x720]
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -71,24 +72,24 @@ try:
            "CMUX_NEXT_TEST_WINDOW_FRAME": f"40,40,{WIDTH},{HEIGHT}", **home_classic.ENV}
     log = open(os.path.join(opts.out, f"app-{opts.tag}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
     if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
         sys.exit(2)
     time.sleep(2)
-    print("fixture:", rpc("debug.home_native_fixture.open", {"new": True}), flush=True)
+    safe_print("fixture:", rpc("debug.home_native_fixture.open", {"new": True}), flush=True)
     time.sleep(4)
-    print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}.png")}), flush=True)
+    safe_print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}.png")}), flush=True)
     time.sleep(2)
-    print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}-2.png")}), flush=True)
+    safe_print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}-2.png")}), flush=True)
     # Close the fixture tab: the home workspace's Chief tab shows.
     rpc("debug.key", {"key": "w", "modifiers": ["cmd"]})
     rpc("debug.key", {"key": "1", "modifiers": ["cmd"]})
     time.sleep(5)
-    print("home:", json.dumps(rpc("debug.home"))[:400], flush=True)
-    print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-chief-{opts.tag}.png")}), flush=True)
+    safe_print("home:", json.dumps(rpc("debug.home"))[:400], flush=True)
+    safe_print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-chief-{opts.tag}.png")}), flush=True)
 finally:
     if app and app.poll() is None:
         app.send_signal(signal.SIGKILL)
-        print(f"killed {app.pid}", flush=True)
+        safe_print(f"killed {app.pid}", flush=True)

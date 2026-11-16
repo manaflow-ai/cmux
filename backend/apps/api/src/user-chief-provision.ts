@@ -88,3 +88,34 @@ export const deliverSignupChief = async (entity: string, source: string, items: 
   }
   return { done }
 }
+
+export type RebindReply = { ok: true; changed: boolean; binding: ChiefCloudMachine } | { ok: false; code: string; retryable: boolean }
+
+/**
+ * The platform moved the default Chief's logical machine to a new VM (a shrink, a rewind, a fresh machine), so
+ * the stored carrier and its install no longer answer. Ask the platform for the current carrier of the same fixed
+ * workspace and follow it, keeping the logical machine; never a caller-chosen machine, never another one.
+ */
+export const rebindDefaultChief = async (
+  platform: DefaultMachinePlatform | undefined,
+  user: string,
+  agent: string,
+  current: () => UserState | undefined,
+  rebind: (machine: ChiefCloudMachine, key: string) => SubmitResult,
+  now: () => number = Date.now
+): Promise<RebindReply> => {
+  const state = current()
+  const chief = state?.user?.id === user && state.hosted_default === agent ? state.chiefs?.[agent] : undefined
+  if (!chief || chief.archived_at !== null || chief.brain_place || !chief.cloud_machine) return { ok: false, code: "chief.machine.not_default", retryable: false }
+  let machine: ChiefCloudMachine
+  try { machine = await ensureChiefMachine(platform, user, () => current()!, now) } catch (error) {
+    return { ok: false, code: error instanceof Error ? error.message : "chief.provision.failed", retryable: (error as { retryable?: unknown })?.retryable === true }
+  }
+  const was = chief.cloud_machine
+  if (machine.machine !== was.machine) return { ok: false, code: "chief.machine.binding_changed", retryable: false }
+  if (machine.connection_machine === was.connection_machine && machine.install === was.install) return { ok: true, changed: false, binding: was }
+  const reply = rebind(machine, `chief-default-rebind:${agent}:${machine.connection_machine}:${machine.install}`).frames.find((f) => f.t === "reject" || f.t === "result")
+  if (!reply) return { ok: false, code: "chief.provision.bind_unanswered", retryable: true }
+  if (reply.t === "reject") return { ok: false, code: reply.code, retryable: reply.retryable === true }
+  return { ok: true, changed: true, binding: machine }
+}

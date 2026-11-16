@@ -7,7 +7,7 @@ import Testing
 struct SessionInfoActionKeywordTests {
     @Test("no Session Info action answers to inspector")
     func sessionInfoActionsAreNotInspectors() {
-        let sessionInfo = AgentActionCatalog.descriptors().filter { $0.keywords.contains("session info") }
+        let sessionInfo = ActionCatalog.descriptors(inGroup: "AgentActionCatalog").filter { $0.keywords.contains("session info") }
         #expect(!sessionInfo.isEmpty)
         for descriptor in sessionInfo {
             #expect(!descriptor.keywords.contains("inspector"), "\(descriptor.id) still lists inspector")

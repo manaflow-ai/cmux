@@ -13,7 +13,7 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct ScreenshotsRememberedAccessTests {
     private static func defaults() throws -> UserDefaults {
         let name = "ScreenshotsRememberedAccessTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: name))
+        let defaults = try #require(UserDefaults(testSuiteName: name))
         defaults.removePersistentDomain(forName: name)
         return defaults
     }

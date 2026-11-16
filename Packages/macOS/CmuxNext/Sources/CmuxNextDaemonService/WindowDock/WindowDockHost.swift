@@ -34,4 +34,6 @@ public protocol WindowDockHost: AnyObject {
     func chiefShowHome() -> Bool
     /// The docked Chief's message box takes the keys.
     func chiefFocusComposer()
+    /// Brings cmux and its active window in front of the other apps; whether cmux was behind another app.
+    func chiefBringAppForward() -> Bool
 }

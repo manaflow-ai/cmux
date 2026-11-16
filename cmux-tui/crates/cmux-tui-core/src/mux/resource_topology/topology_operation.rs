@@ -17,12 +17,35 @@ impl Mux {
             self.workspace_registry.lock().unwrap().interrupted_resource_creation_recoveries()?;
         let mut pending = false;
         for recovery in recoveries {
+            // A creation whose terminal waits for a late terminal holder
+            // stays pending and does not count here: the start does not wait
+            // for that holder, and the late thread settles the creation when
+            // the terminal re-attached or ended (mux/holder_late.rs). So
+            // does a creation whose terminal is kept for the next start,
+            // which settles it.
+            let late = self.creation_waits_on_late_holder(&recovery.intent);
             pending |= matches!(
                 self.settle_resource_creation(recovery, None)?,
                 ResourceCreationSettlement::Pending
-            );
+            ) && !late;
         }
         Ok(pending)
+    }
+
+    /// Whether the terminal that the creation `intent` reserved is one the
+    /// start kept, for a late terminal holder or for the next start.
+    fn creation_waits_on_late_holder(&self, intent: &Value) -> bool {
+        let Some(terminal_id) = intent
+            .get("terminal_reservation")
+            .and_then(|reservation| reservation.get("terminal_id"))
+            .and_then(Value::as_str)
+        else {
+            return false;
+        };
+        self.late_holder_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(terminal_id)
     }
 
     pub(super) fn reconcile_interrupted_resource_creation(
@@ -103,6 +126,11 @@ impl Mux {
                 });
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 return Err(anyhow::Error::new(resource_effect_indeterminate(
                     &idempotency_key,
                     &operation,
@@ -284,6 +312,7 @@ impl Mux {
                 entity,
                 workspace_revision,
                 transaction: None,
+                mutation: None,
             },
             index > 0,
         );
@@ -431,6 +460,7 @@ impl Mux {
         {
             selectors.pane = Some(pane.as_str().to_string());
         }
+        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?
@@ -469,6 +499,13 @@ impl Mux {
                 mutation,
                 &fingerprint,
             )?,
+            ResourceOperation::PaneMove => self.resource_move_pane(
+                selectors,
+                &fields,
+                expected_revision,
+                mutation,
+                &fingerprint,
+            )?,
             ResourceOperation::PaneZoom => self.resource_zoom_pane(
                 selectors,
                 fields.get("enabled").and_then(Value::as_bool),
@@ -476,6 +513,23 @@ impl Mux {
                 mutation,
                 &fingerprint,
             )?,
+            // `set-divider-visible`: the internal field replaces the ratio.
+            ResourceOperation::PaneSplitRatioSet if fields.contains_key(DIVIDER_HIDDEN_FIELD) => {
+                self.resource_set_split_divider_hidden(
+                    selectors,
+                    required_str(&fields, "split_id")?,
+                    fields
+                        .get(DIVIDER_HIDDEN_FIELD)
+                        .and_then(Value::as_bool)
+                        .context("field \"divider_hidden\" must be a boolean")?,
+                    LayoutMutationContext {
+                        coalesce: None,
+                        expected_revision,
+                        mutation,
+                        fingerprint: &fingerprint,
+                    },
+                )?
+            }
             ResourceOperation::PaneSplitRatioSet => self.resource_set_split_ratio(
                 selectors,
                 required_str(&fields, "split_id")?,
@@ -533,6 +587,9 @@ impl Mux {
             )?,
             _ => anyhow::bail!("unsupported topology operation {}", operation_name(operation)),
         };
+        if let Some(at) = agent_layout {
+            self.narrow_agent_layout_marks(at, &commit.result);
+        }
         Ok(commit)
     }
 
@@ -562,6 +619,7 @@ impl Mux {
         if matches!(
             operation,
             ResourceOperation::PaneSwap
+                | ResourceOperation::PaneMove
                 | ResourceOperation::PaneZoom
                 | ResourceOperation::PaneSplitRatioSet
                 | ResourceOperation::PaneViewportWidthSet

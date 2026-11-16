@@ -84,7 +84,9 @@ struct PaneMotionVariantTests {
         #expect(!screen.step())
     }
 
-    @Test func crispExpandAndCloseMoveFartherInTheFirstFrameThanCurrent() throws {
+    /// Crisp's expand moves farther in the first frame than the current zoom spring. Its close does not: the current
+    /// close is the `paneClose` spring, which is quicker than crisp's (`disappear`).
+    @Test func crispExpandMovesFartherInTheFirstFrameThanCurrentAndTheCurrentCloseKeepsUp() throws {
         for zooming in [true, false] {
             let current = Screen(Self.split, variant: .standard)
             let crisp = Screen(Self.split, variant: .crisp)
@@ -93,7 +95,7 @@ struct PaneMotionVariantTests {
             crisp.step()
             let currentWidth = try #require(current.view.paneFrames["p1"]?.width.value)
             let crispWidth = try #require(crisp.view.paneFrames["p1"]?.width.value)
-            #expect(crispWidth > currentWidth)
+            if zooming { #expect(crispWidth > currentWidth) } else { #expect(currentWidth >= crispWidth) }
         }
     }
 
@@ -105,6 +107,16 @@ struct PaneMotionVariantTests {
             #expect(screen.view.paneFrames["p1"]?.rect == screen.view.geometry.panes["p1"])
             #expect(!screen.step())
         }
+    }
+
+    /// The standard variant runs the tokens of the motion pairs, so what `MotionCapTests` proves for a
+    /// pair (its exit ends sooner than its enter, at every speed) is what a pane does.
+    @Test func theStandardVariantRunsTheTokensOfTheMotionPairs() {
+        let standard = PaneMotionVariant.standard
+        #expect(MotionPair.pane.enter == .spring(standard.splitSpring), "a split does not run the enter of the pane pair")
+        #expect(MotionPair.pane.exit == .spring(standard.closeSpring), "a close does not run the exit of the pane pair")
+        #expect(MotionPair.zoom.enter == .spring(standard.expandSpring), "a zoom does not run the enter of the zoom pair")
+        #expect(MotionPair.zoom.exit == .spring(standard.restoreSpring), "an unzoom does not run the exit of the zoom pair")
     }
 
     @Test func debugChoiceIsInertUntilItsStoreIsActivatedAndResetsToCurrent() {

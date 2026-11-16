@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -355,7 +356,7 @@ import CmuxNextWakeupsTestSupport
         let clock = ManualClock()
         let feed = MovingFeed(pubDate: UpdateStagedYieldsToNewerTests.pubDate(minutesAgo: 1))
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: feed, architecture: .arm64),
-                                     defaults: UserDefaults(suiteName: "ReleasePushListenerTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "ReleasePushListenerTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false, now: { UpdateStagedYieldsToNewerTests.now }, clock: clock)
         updater.announcementsFetch = false
         updater.notesLoader = { _ in nil }

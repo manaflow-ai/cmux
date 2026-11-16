@@ -255,10 +255,7 @@ final class SessionTransferService {
     func hasConversationTab(_ workspace: String) async throws -> Bool {
         guard let store = services?.daemon.store else { throw Failure.unavailable }
         let listed = Task { @MainActor () -> Bool in
-            let opened = ObservationStream({
-                store.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens
-                    .flatMap(\.panes).flatMap(\.tabs).contains(where: { $0.kind == .conversation }) ?? false
-            })
+            let opened = ObservationStream({ store.listsConversationTab(inWorkspace: workspace) })
             for await found in opened where found { return true }
             return false
         }

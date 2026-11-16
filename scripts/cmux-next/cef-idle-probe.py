@@ -82,9 +82,10 @@ def main():
                    env={"CMUX_NEXT_CEF_EXTRA_SWITCHES": f"remote-debugging-port={port}:remote-allow-origins=*"})
     report = {"port": port}
     try:
-        state = os.path.join(os.path.expanduser("~"), "Library/Application Support/cmux/tags", app.tag, "tui")
         import shutil
-        shutil.rmtree(state, ignore_errors=True)
+        for parent in ("cmux-next", "cmux"):  # NEXT's own folder and an older build's (a new build adopts that one)
+            shutil.rmtree(os.path.join(os.path.expanduser("~"), "Library/Application Support", parent, "tags", app.tag,
+                                       "tui"), ignore_errors=True)
         app.launch()
         time.sleep(opts.settle)
         report["targets"] = cdp.target_infos(port)

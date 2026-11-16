@@ -1,0 +1,37 @@
+/* Gallery only: a plain slot in each treatment's place (a sidebar footer, a titlebar's trailing
+   edge, a line in content), so the indicator is seen at its size; the popover sits under it. */
+.ah-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-4);
+  padding: var(--ds-space-3);
+}
+.ah-gallery-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 1px dashed var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+}
+.ah-gallery-slot[data-slot="footer"] {
+  width: 240px;
+}
+.ah-gallery-slot[data-slot="titlebar"] {
+  justify-content: flex-end;
+}
+.ah-gallery-title {
+  flex: 1;
+  color: var(--ds-color-faint);
+  font-size: var(--text-detail);
+}
+.ah-gallery-popover {
+  align-self: flex-start;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-popup);
+}
+.ah-gallery-popover:empty {
+  display: none;
+}

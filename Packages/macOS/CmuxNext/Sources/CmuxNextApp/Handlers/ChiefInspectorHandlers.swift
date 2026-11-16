@@ -189,7 +189,9 @@ enum ChiefInspectorHandlers {
     /// Shows and selects the tab of `surface` once the mirror reports it.
     private static func reveal(_ surface: SurfaceID, context: AppActionContext) async {
         let located = try? await ControlDeadline.shared.run(method: "chief-inspector.reveal", deadline: .now + .seconds(5)) { @MainActor in
-            for await tab in ObservationStream({ context.allTabs.first { $0.tab.surface == surface } }) {
+            for await tab in ObservationStream({
+                context.daemon.store.locatedTab(surface: surface).map { LocatedTab(tab: $0.tab, pane: $0.pane, workspace: $0.workspace) }
+            }) {
                 if let tab { return tab }
             }
             return nil as LocatedTab?

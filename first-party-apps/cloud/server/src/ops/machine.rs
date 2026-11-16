@@ -1,10 +1,10 @@
 //! `cloud.machine.*` over `cmux.wire/1` (contract 1.3): list (paged),
 //! watch, get, create, rename, start, pause, resize, delete,
-//! idle_policy.set, connect_info. Each op sends the checked params to the
+//! idle_policy.set, keep, archive_delete, connect_info. Each op sends the checked params to the
 //! backend op of the same name.
 
 use crate::api::args;
-use crate::api::models::{ConnectInfo, Machine, MachinePage, Revision};
+use crate::api::models::{Machine, Revision, decode_connect_info};
 use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -22,6 +22,16 @@ struct MachineAnswer {
 #[derive(Deserialize)]
 struct MadeRoom {
     machine: Machine,
+}
+
+/// `cloud.machine.list`: one page (`CloudMachineListResult`, with each
+/// record's extra fields kept).
+#[derive(Deserialize)]
+struct MachinePage {
+    machines: Vec<Machine>,
+    next_cursor: Option<String>,
+    /// The team's registry revision when the page was read.
+    revision: Revision,
 }
 
 pub(super) fn run<C: ControlPlane>(
@@ -91,6 +101,21 @@ pub(super) fn run<C: ControlPlane>(
                 .ok_or_else(|| CloudError::invalid("idle_seconds is required"))?;
             machine_mutation(ctx, name, args::params(map, &["machine", "idle_seconds"]))
         }
+        "cloud.machine.keep" => {
+            let map = args::object(raw, &["machine", "keep"])?;
+            args::id(map, "machine")?;
+            if !map.get("keep").is_some_and(Value::is_boolean) {
+                return Err(CloudError::invalid("keep is required: true or false"));
+            }
+            machine_mutation(ctx, name, args::params(map, &["machine", "keep"]))
+        }
+        "cloud.machine.archive_delete" => {
+            // The machine stays (paused, `delete_reason: requested`) until its
+            // archive is ready; the platform's `cloud.machine.removed` follows.
+            let map = args::object(raw, &["machine"])?;
+            args::id(map, "machine")?;
+            machine_mutation(ctx, name, args::params(map, &["machine"]))
+        }
         "cloud.machine.delete" => {
             let map = args::object(raw, &["machine"])?;
             let id = args::id(map, "machine")?;
@@ -126,8 +151,7 @@ pub(super) fn run<C: ControlPlane>(
                     "cloud.machine.connect_info answered a credential; a read never carries one",
                 ));
             }
-            let info: ConnectInfo = decode_answer(name, answer.value)?;
-            Ok(json!(info))
+            Ok(json!(decode_connect_info(name, answer.value)?))
         }
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
@@ -194,7 +218,7 @@ fn list<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Value, Clo
         cursor,
         page.machines.clone(),
         page.next_cursor.as_deref(),
-        page.revision.clone(),
+        Some(page.revision),
     );
     Ok(json!({
         "machines": page.machines,

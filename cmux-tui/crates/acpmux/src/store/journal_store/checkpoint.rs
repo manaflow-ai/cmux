@@ -33,7 +33,7 @@ pub(super) fn read_checkpoint(home: &Path) -> Result<Lsn> {
 /// Whether the freeze marker (`<home>/journal-frozen`) is there: a previous run's freeze whose
 /// `frozen` record may not have reached the journal.
 pub(super) fn frozen_marker(home: &Path) -> bool {
-    std::fs::symlink_metadata(home.join(FROZEN_NAME)).is_ok()
+    crate::home_fs::symlink_metadata(home.join(FROZEN_NAME)).is_ok()
 }
 
 /// Removes the temporary files of checkpoints and freeze markers a crash interrupted
@@ -49,7 +49,7 @@ pub(super) fn remove_checkpoint_temporaries(home: &Path) {
         }
         let path = entry.path();
         if let Err(error) = crate::config::refuse_lost_home(&path)
-            .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+            .and_then(|()| crate::home_fs::remove_file(&path).map_err(anyhow::Error::from))
         {
             tracing::warn!("remove {}: {error:#}", path.display());
         }
@@ -70,20 +70,19 @@ fn write_checkpoint(home: &Path, lsn: Lsn) -> Result<()> {
 /// folder synced; an error at any step is returned.
 fn write_home_file(home: &Path, name: &str, bytes: &[u8]) -> Result<()> {
     let path = home.join(name);
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file.
     crate::config::refuse_lost_home(&path)?;
     let tmp = home.join(format!("{name}.tmp-{}", std::process::id()));
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    let mut options = crate::home_fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true).mode(0o600);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
+    options.custom_flags(libc::O_NOFOLLOW);
     let mut file = options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
     file.write_all(bytes)?;
     log_sync::sync_full(&file)?;
     drop(file);
-    std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
+    crate::home_fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
     sync_directory(home)
 }
 
@@ -133,6 +132,8 @@ impl Inner {
         let mut order = self.order.lock_or_recover();
         match &result {
             Ok(()) => order.failures = 0,
+            // Slow, not failing: neither a failure in a row nor a success.
+            Err(error) if error.is::<SlowJournal>() => {}
             Err(error) if !order.frozen => {
                 order.failures = order.failures.saturating_add(1);
                 if order.failures >= CHECKPOINT_FAILURES_TO_STOP {
@@ -181,6 +182,13 @@ impl Inner {
             && let Err(error) = self.journal.wait_durable(lsn, SEAL_WAIT)
         {
             self.order.lock_or_recover().dirty.extend(dirty);
+            // A slow disk (the wait timed out and the writer reports no failure) is not a failure:
+            // the next checkpoint tries again, and it never counts toward the stop.
+            if matches!(error, cmux_journal::WaitError::Timeout)
+                && self.journal.stats().failing.is_none()
+            {
+                return Err(anyhow::Error::new(SlowJournal { lsn }));
+            }
             anyhow::bail!("the event journal did not sync through {lsn}: {error}");
         }
         // Each chat's newest image through `lsn` (the overlay held it when `lsn` was read): the
@@ -418,7 +426,7 @@ impl Inner {
             order.marker = false;
             let path = self.home.join(FROZEN_NAME);
             crate::config::refuse_lost_home(&path)
-                .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+                .and_then(|()| crate::home_fs::remove_file(&path).map_err(anyhow::Error::from))
         };
         match removed {
             Ok(()) => {
@@ -634,3 +642,24 @@ fn frozen_reason(why: &str) -> &[u8] {
     }
     why.get(..end).unwrap_or_default().as_bytes()
 }
+
+/// A checkpoint that waited [`SEAL_WAIT`] for the journal to sync while its writer reported no
+/// failure: a slow disk (huge-blue, 2026-11-08: a 10.4 s fdatasync at 35-50% iowait). It is retried
+/// at the next checkpoint and never counts toward [`CHECKPOINT_FAILURES_TO_STOP`]: a slow disk
+/// makes the daemon slower, never makes it restart.
+#[derive(Debug)]
+pub(super) struct SlowJournal {
+    lsn: u64,
+}
+
+impl std::fmt::Display for SlowJournal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the event journal did not sync through {} within {SEAL_WAIT:?} on a slow disk; the next checkpoint tries again",
+            self.lsn
+        )
+    }
+}
+
+impl std::error::Error for SlowJournal {}

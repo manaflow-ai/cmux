@@ -92,6 +92,12 @@ nonisolated enum AcpmuxPermissionPrompt {
         return matches.count == 1 ? matches[0]["optionId"] as? String : nil
     }
 
+    /// The one option of kind `allow_always` (a banner's Always allow), else nil.
+    static func alwaysOption(offered: [[String: Any]]) -> String? {
+        let matches = offered.filter { $0["kind"] as? String == "allow_always" }
+        return matches.count == 1 ? matches[0]["optionId"] as? String : nil
+    }
+
     static func option(allow: Bool, offered: [[String: Any]]) -> String? {
         let kinds = allow ? ["allow_once"] : ["reject_once", "reject_always"]
         for kind in kinds {

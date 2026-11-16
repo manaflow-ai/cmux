@@ -5,6 +5,7 @@ import { act } from "react";
 import type { PageClient } from "../src/pages/shared/pageClient";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { settleReact } from "./support/domTeardown";
 
 // Leo 2026-11-04: "i feel like the restarted after nightly update does too many layout shifts/flicker
 // renderings". The relaunch bench at 7ed8d1ffedd: the Updated card's span read the build list from the
@@ -87,13 +88,16 @@ test("the Updated card reports its span's notes from the cached build list witho
     const { mountUpdateSurface } = await import("../src/pages/changelog/surface");
     const host = dom.window.document.getElementById("root")!;
     await act(async () => mountUpdateSurface(host, "updated", client));
+    // The page reports at once with its title and a loading change line (Leo 2026-11-09: no blank
+    // glass card); the cached list's notes then take the line's place at the same height.
     await act(async () => {
-      await until(() => sizes.length > 0);
+      await until(() => sizes.length > 0 && host.querySelector(".wn-card-note-loading") === null);
     });
     expect(lists[0]).toEqual({ cached: true });
     expect(sizes.length).toBe(1);
     expect((host.textContent ?? "").toLowerCase()).toContain("click never drags");
   } finally {
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;

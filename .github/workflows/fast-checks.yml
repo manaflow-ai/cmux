@@ -154,15 +154,15 @@ jobs:
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
         id: bun-pin
         run: |
-          python3 - <<'PY'
-          import json, os, re
-          # Older source branches use the ci-web.yml pin without devEngines.
-          pin = json.load(open('webviews/package.json')).get('devEngines', {}).get(
-              'packageManager', {'name': 'bun', 'version': '1.3.14'})
-          assert pin['name'] == 'bun' and re.fullmatch(r'\d+\.\d+\.\d+', pin['version'])
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              print('version=' + pin['version'], file=output)
-          PY
+          # webviews/package.json devEngines, read by the one shared reader (the
+          # pre-commit hook and check-webviews-bun-version.sh use it too).
+          if [ -f scripts/webviews_bun_version.py ]; then
+            version="$(python3 -I scripts/webviews_bun_version.py webviews/package.json)"
+          else
+            # Older source branches: their devEngines object, or the ci-web.yml pin without devEngines.
+            version="$(python3 -I -c "import json, re; p = json.load(open('webviews/package.json')).get('devEngines', {}).get('packageManager', {'name': 'bun', 'version': '1.3.14'}); assert p['name'] == 'bun' and re.fullmatch(r'\d+\.\d+\.\d+', p['version']); print(p['version'])")"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Bun
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'

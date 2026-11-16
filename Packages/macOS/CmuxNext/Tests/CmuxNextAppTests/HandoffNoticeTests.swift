@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -38,7 +39,7 @@ struct HandoffNoticeTests {
     }
 
     private func defaults() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "HandoffNoticeTests.\(UUID().uuidString)"))
+        try #require(UserDefaults(testSuiteName: "HandoffNoticeTests.\(UUID().uuidString)"))
     }
 
     private func follower(_ store: Store, defaults: UserDefaults) -> (SandboxRunFollower, SandboxRunNoticeTests.Ends) {

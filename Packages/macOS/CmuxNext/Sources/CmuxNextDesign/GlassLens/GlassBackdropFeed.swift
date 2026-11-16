@@ -30,6 +30,8 @@ public final class GlassBackdropFeed {
     private weak var source: WindowMaterialView?
     /// The views whose frame or bounds move the page in the window, and their observers.
     private var watched: [ObjectIdentifier] = []
+    /// The host registered as a frame-notice reader while watched.
+    private weak var watchedHost: NSView?
     private var observers: [MainActorObservation] = []
     /// The one-shot frame that runs the next ``update()``; made on first use.
     private var nextFrame: FrameClient?
@@ -125,6 +127,10 @@ public final class GlassBackdropFeed {
         guard ids != watched else { return }
         unwatch()
         watched = ids
+        // A resize drag keeps the pane views' frame notices for its end (`FrameNoticeHold`): it tells this
+        // feed of the host's moves in the window instead, and never holds the host's own notices.
+        host.enclosingFrameNoticeReaders?.add(host) { [weak self] in self?.setNeedsUpdate() }
+        watchedHost = host
         let center = NotificationCenter.default
         for watchedView in views {
             for name in [NSView.frameDidChangeNotification, NSView.boundsDidChangeNotification] {
@@ -138,5 +144,7 @@ public final class GlassBackdropFeed {
     private func unwatch() {
         observers = []
         watched = []
+        if let watchedHost { watchedHost.enclosingFrameNoticeReaders?.remove(watchedHost) }
+        watchedHost = nil
     }
 }

@@ -17,6 +17,17 @@ struct ChatOpenTraceTests {
         #expect(abs(record.longestEmptyMilliseconds - 310) < 0.5)
     }
 
+    /// A chat's copy drawn before its bundle reveals the page on the page's own report, with Blink's
+    /// contentful paint in: that is content, not an empty page waiting for the paint probe, whose
+    /// report reached the host about 600 ms later on the fleet's restores (4 "flashes" at 71daaae9).
+    @Test func aRevealedPageWithAContentfulPaintIsContent() {
+        #expect(ChatOpenTrace.Surface.shownPage(probed: false, pageReported: true, contentfulPaint: true) == .page)
+        #expect(ChatOpenTrace.Surface.shownPage(probed: true, pageReported: false, contentfulPaint: false) == .page)
+        // The watchdog's reveal has no page report, and a reveal before any contentful paint shows nothing yet.
+        #expect(ChatOpenTrace.Surface.shownPage(probed: false, pageReported: false, contentfulPaint: true) == .pageEmpty)
+        #expect(ChatOpenTrace.Surface.shownPage(probed: false, pageReported: true, contentfulPaint: false) == .pageEmpty)
+    }
+
     @Test func anEmptyStretchStillOnScreenAtTheEndCounts() {
         var record = ChatOpenTrace.Record(id: 1, launch: false, armedAt: 0)
         record.marks[ChatOpenTrace.Mark.action.rawValue] = 0

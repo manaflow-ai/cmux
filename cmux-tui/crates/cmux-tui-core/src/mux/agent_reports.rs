@@ -11,6 +11,13 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
+        // A socket report that changes no durable state is answered from
+        // memory: no registry lock, no commit (`agent_reports_at_rest.rs`).
+        if let Some(record) =
+            self.answer_agent_report_at_rest(surface, state, source, session.as_deref())
+        {
+            return Ok(record);
+        }
         self.report_agent_with_sequence_lock(
             surface,
             state,
@@ -524,5 +531,45 @@ impl Mux {
             })
             .filter(|record| state.is_none_or(|state| record.state == state))
             .collect()
+    }
+
+    /// The status the person sees for a listed agent: `done` while a
+    /// finished turn's unread marker is still on its terminal
+    /// ([`crate::AgentStatus`]). A read: it never clears the marker. `None`
+    /// for an ended session.
+    pub fn agent_status(&self, record: &AgentRecord) -> Option<crate::AgentStatus> {
+        let unseen =
+            self.terminal_notification(&record.terminal_id).is_some_and(|marker| marker.unread);
+        crate::AgentStatus::from_state(record.state, unseen)
+    }
+}
+
+impl Mux {
+    /// The adapter (`claude`, `codex`, ...) of the agent `terminal` runs now, from its live
+    /// agent record: `None` when no agent reported, its report named no adapter, or it ended.
+    pub(crate) fn running_agent_adapter(&self, terminal: &TerminalPublicId) -> Option<String> {
+        let records = self.agent_records.lock().unwrap_or_else(PoisonError::into_inner);
+        records
+            .get(terminal)
+            .filter(|record| record.state != AgentState::Done)
+            .and_then(|record| record.agent.clone())
+    }
+
+    /// Test only: `terminal` runs the agent `adapter`, as its hook would report.
+    #[cfg(test)]
+    pub(crate) fn note_running_agent_for_test(&self, terminal: &TerminalPublicId, adapter: &str) {
+        let now = now_ms();
+        self.agent_records.lock().unwrap_or_else(PoisonError::into_inner).insert(
+            terminal.clone(),
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Hook,
+                session: None,
+                agent: Some(adapter.to_owned()),
+                agent_session_id: None,
+                updated_at_ms: now,
+                since_ms: now,
+            },
+        );
     }
 }

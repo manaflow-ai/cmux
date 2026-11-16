@@ -24,7 +24,7 @@ check cannot excuse it.
 
 Two kinds of check are never compared with the base that way (2026-10-30: 22 pull requests merged webview
 test reds that broke the base, and this line called most of them base reds):
-  - web / react-apps-base-check (N) is already the base comparison: it replays the head's red webview test
+  - web / react-apps-base-check is already the base comparison: it replays the head's red webview test
     files on the merge parent and fails only on tests red on the change alone. A push never runs it, so the
     base has no run of it. Its red line names those tests, read from its "Webview test red on this
     change" annotations.
@@ -67,14 +67,16 @@ LEGACY_MARKER = "<!-- cmux-red-checks -->"
 # (kind, value): "prefix" matches the start of a check name, "name" the whole name.
 TRACKED = (
     ("prefix", "web / "),                            # ci-web.yml jobs (ci.yml `web` caller)
-    ("name", "cmux-next CmuxNextApp size cap"),       # cmux-next-guards.yml app-size job (hq-11)
-    ("name", "cmux-next crash ratchet"),              # cmux-next-guards.yml crash-ratchet job
-    ("name", "cmux-next page strings generate"),      # cmux-next-guards.yml page-strings job
+    # cmux-next-guards.yml own-change-checks job: the CmuxNextApp size cap (hq-11) and the crash ratchet among its steps
+    ("name", "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files"),
+    # cmux-next-guards.yml static-checks job: page strings among its steps. GitHub reports a name past 100
+    # characters cut to 97 and "...", and this one's `name:` is 101: the full name never matched its red.
+    ("name", "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page stri..."),
     ("name", "cmux-next checks (god files, concurrency, crash safety, l10n)"),  # cmux-next.yml checks job
 )
 RED = {"failure", "timed_out", "action_required", "startup_failure"}
 # The webview tests' own base comparison (ci-web.yml), and its annotations' title for each new red test.
-BASE_CHECK = re.compile(r"^web / react-apps-base-check \(\d+\)$")
+BASE_CHECK = re.compile(r"^web / react-apps-base-check(?: \(\d+\))?$")  # one job since #42540, (N) a shard before
 NEW_TEST_TITLE = "Webview test red on this change"
 NAMED = 3  # new red tests a line names before "(+N more)"
 # Jobs that only gather other jobs' verdicts, each with the jobs it gathers (its `needs`, as check names): never

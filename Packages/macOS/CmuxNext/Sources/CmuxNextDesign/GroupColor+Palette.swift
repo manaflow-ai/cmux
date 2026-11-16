@@ -35,7 +35,8 @@ extension GroupColor {
         case .glass, .vibrant: return swatchRGB(tokens)
         case .theme: color = themeRGB(tokens) ?? swatchRGB(tokens)
         case .grayscale: color = grayscaleRGB(dark: tokens.isDark)
-        case .wallpaper: color = wallpaper.flatMap { wallpaperRGB($0, dark: tokens.isDark) } ?? swatchRGB(tokens)
+        // A token drawn on its own under the pictorial palette (no place in a list) takes the wallpaper palette's color.
+        case .wallpaper, .pictorial: color = wallpaper.flatMap { wallpaperRGB($0, dark: tokens.isDark) } ?? swatchRGB(tokens)
         case .gradient:
             let order = Self.paletteOrder + [.blue, .grey]
             color = gradient.rgb(at: GroupGradient.place(order.firstIndex(of: self) ?? 0, of: order.count))
@@ -47,6 +48,12 @@ extension GroupColor {
     /// gradient palette's are eight steps down its gradient.
     nonisolated public static func marble(_ palette: GroupPalette, tokens: ThemeTokens, wallpaper: WallpaperTint?,
                                           gradient: GroupGradient = .sunset) -> [ThemeRGB] {
+        if palette == .pictorial, let bands = wallpaper?.bands, !bands.isEmpty {
+            return (0 ..< 8).map { step in
+                ThemeTokens.readable(pictorialRGB(bands, at: GroupGradient.place(step, of: 8)), over: tokens.sidebarBackground,
+                                     minimum: ThemeTokens.minimumMarkContrast)
+            }
+        }
         guard palette != .gradient else {
             return (0 ..< 8).map { step in
                 ThemeTokens.readable(gradient.rgb(at: GroupGradient.place(step, of: 8)), over: tokens.sidebarBackground,
@@ -93,5 +100,19 @@ extension GroupColor {
         guard let color = NSColor(hue: hue, saturation: saturation, brightness: dark ? 0.95 : 0.78, alpha: 1).usingColorSpace(.sRGB)
         else { return nil }
         return ThemeRGB(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent)
+    }
+
+    /// The pictorial palette's color at `place` (0 the top of the picture, 1 the bottom): the band there, its hue kept,
+    /// lifted to the lightness and chroma group colors draw at, so a dark or dull stretch of the picture still reads as
+    /// that stretch's color. A band with almost no color stays a grey.
+    /// - Parameters:
+    ///   - bands: The picture's bands, top first (`WallpaperTint.bands`).
+    ///   - place: Where the group sits in the list, 0...1.
+    nonisolated public static func pictorialRGB(_ bands: [WallpaperTint], at place: Double) -> ThemeRGB {
+        guard !bands.isEmpty else { return .white }
+        let band = bands[min(Int((min(max(place, 0), 1) * Double(bands.count)).rounded(.down)), bands.count - 1)]
+        let lch = ThemeRGB(red: band.red, green: band.green, blue: band.blue).oklch
+        let chroma = lch.chroma < 0.02 ? lch.chroma : min(max(lch.chroma * 1.4, 0.08), 0.18)
+        return ThemeRGB(oklchLightness: 0.72, chroma: chroma, hue: lch.hue)
     }
 }

@@ -1,7 +1,7 @@
 import CmuxFeedPushCore
-import CmuxNextFeed
 import CryptoKit
 import Foundation
+import CmuxNextFeedClient
 
 /// The check of a phone's signed approve answer (cx-aocz, the chief-approved
 /// App-Attested presence key design). The bridge answers an agent's
@@ -97,7 +97,7 @@ enum FeedApproveProofCheck {
     }
 
     /// Checks `decision`'s proof for `item`, answered by `by`.
-    static func check(_ decision: FeedAnswerValue.Decision, by: String, item: String, shownSHA256: String,
+    static func check(_ decision: FeedApproveDecision, by: String, item: String, shownSHA256: String,
                       context: Context, keys: [String: Key], now: Date) -> Result<Void, Failure> {
         guard let proof = decision.proof else { return .failure(.noProof) }
         guard proof.install == by else { return .failure(.otherInstall) }

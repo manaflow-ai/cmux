@@ -11,6 +11,7 @@ import { useNow } from "../subagents/subagentGroupModel";
 import { WorkflowAgentRow } from "../session-info/WorkflowTasks";
 import { StopButton } from "../session-info/TasksSection";
 import "./WorkflowSideTab.css";
+import { Clock } from "../../../ui/Typography";
 
 export type WorkflowSideTabLayout = "timeline" | "lanes" | "table";
 
@@ -234,7 +235,11 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
             )}
             {stateLabel(t, workflow.state)}
           </span>
-          {elapsed !== undefined && <time>{formatDuration(elapsed)}</time>}
+          {elapsed !== undefined && (
+            <time>
+              <Clock text={formatDuration(elapsed)} />
+            </time>
+          )}
           <span>
             {counts.done}/{counts.total} {t("subagents.pill", { n: counts.total })}
           </span>

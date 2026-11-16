@@ -115,6 +115,7 @@ impl App {
         if let Some(id) = self.selected_id() {
             f(self.viewport.entry(id).or_default());
         }
+        self.load_older_if_needed();
     }
 
     /// The session's agent takes a prompt mid-turn: acpmux's `steering` on its list row.

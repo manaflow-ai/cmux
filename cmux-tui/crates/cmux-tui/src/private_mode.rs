@@ -4,6 +4,9 @@
 
 use crate::client_log;
 
+#[cfg(unix)]
+use crate::terminal_paste;
+
 /// Runs the mode `args` names and returns its exit code; nil for
 /// every other invocation.
 pub(crate) fn run(args: &[String]) -> Option<i32> {
@@ -26,6 +29,8 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         // app before it starts acpmux or the Chief owner (build_adopt.rs).
         #[cfg(unix)]
         Some("__adopt-build-homes") => Some(crate::build_adopt::run(&args[1..])),
+        #[cfg(unix)]
+        Some(terminal_paste::MODE) => Some(terminal_paste::run()),
         // The machine side of `cmux link machine update` (cx-rppd.13).
         #[cfg(unix)]
         Some(crate::link::machine_update::apply::MODE) => {

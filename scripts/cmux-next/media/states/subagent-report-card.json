@@ -1,0 +1,116 @@
+{
+  "title": "Subagent finished: its report card shows the whole message, or whole blocks with Show more (Leo, 2026-11-09: \"whoa this isn't rendering the full message nor having a show more as it shuold\"). Debug seed_rows fixture \"subagent-report\" (webviews subagentReportFixture.ts): one subagent with its whole result, one with only acpmux's 240-character preview cut inside a bold span. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/subagent-report-card.json",
+  "launch_args": [
+    "--showcase"
+  ],
+  "steps": [
+    {
+      "title": "Open a main workspace",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "Subagent report capture",
+        "--focus",
+        "--cwd",
+        "/tmp"
+      ]
+    },
+    {
+      "title": "Open a chat",
+      "cmux": [
+        "agent",
+        "new-chat",
+        "--cwd",
+        "/tmp"
+      ]
+    },
+    {
+      "title": "Wait for the chat page",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      }
+    },
+    {
+      "title": "Start the chat's session (the showcase mock answers)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Clean old repos"
+        }
+      },
+      "wait": 4
+    },
+    {
+      "title": "Two finished subagents",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "seed_rows",
+          "fixture": "subagent-report"
+        }
+      },
+      "record": true,
+      "wait": 2
+    },
+    {
+      "title": "Closed: two Subagent finished lines",
+      "shot": {
+        "name": "closed"
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "Open the first report (its whole result)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".cv-subagent-report-row .cv-agentmsg__toggle[aria-expanded=\"false\"]"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "Open the second report (preview only)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".cv-subagent-report-row .cv-agentmsg__toggle[aria-expanded=\"false\"]"
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Open: the whole report, and the preview's whole blocks with Show more (no raw **)",
+      "shot": {
+        "name": "open"
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "Press Show more under the preview's whole blocks",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".cv-subagent-done__more-row"
+        }
+      },
+      "wait": 1.5,
+      "optional": "no Show more: the reply was read whole"
+    },
+    {
+      "title": "After Show more",
+      "shot": {
+        "name": "more"
+      }
+    }
+  ]
+}

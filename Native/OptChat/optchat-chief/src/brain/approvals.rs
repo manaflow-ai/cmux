@@ -251,6 +251,13 @@ impl Brain {
             "mcp__optchat__cloud_workspace" => return false,
             // Nor run a command on the owner's machine: only list and cancel.
             "mcp__optchat__watch" => return field("command").is_none_or(|c| c.trim().is_empty()),
+            // Nor add servers or call tools with the owner's accounts: only look.
+            "mcp__optchat__mcp" => {
+                return matches!(
+                    field("action").unwrap_or("list"),
+                    "list" | "servers" | "search" | "describe" | "tasks" | "events" | "prompts"
+                );
+            }
             _ => return true,
         }
         let Some(id) = field("id") else {

@@ -6,11 +6,10 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
 
-/// The React update surfaces in the sidebar (cx-urd.61.2): the changelog
-/// page's bundle, opened on `#/surface/ready` (the staged update's
-/// highlights in the card's popover) or `#/surface/updated` (the "cmux
-/// Updated!" card). The page reads ``UpdateHighlights`` and sends its
-/// buttons back through `cmux.changelog.surface.*`.
+/// The React update surfaces in the sidebar (cx-urd.61.2): the changelog page's bundle, opened on
+/// `#/surface/ready` (the staged update's highlights), `#/surface/updated` (the "cmux Updated!"
+/// card) or `#/surface/updated-notes` (its changes in a popover). The page reads
+/// ``UpdateHighlights`` and sends its buttons back through `cmux.changelog.surface.*`.
 @MainActor
 final class UpdateSurfaceIslands: SidebarUpdateSurfaces {
     private weak var services: AppServices?
@@ -79,11 +78,11 @@ final class UpdateSurfaceProvider: PageProvider {
         self.services = services
     }
 
-    private var highlights: UpdateHighlights? { services?.updater.surfaceHighlights(updated: kind == .updated) }
+    private var highlights: UpdateHighlights? { services?.updater.surfaceHighlights(updated: kind.showsLastUpdate) }
 
     /// The Updated card after an automatic install that relaunched cmux behind another app says so.
     private func json(_ highlights: UpdateHighlights?) throws -> JSONValue {
-        try highlights?.surfaceJSON(background: kind == .updated && services?.environment.relaunchBehind != nil) ?? .null
+        try highlights?.surfaceJSON(background: kind.showsLastUpdate && services?.environment.relaunchBehind != nil) ?? .null
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -102,7 +101,8 @@ final class UpdateSurfaceProvider: PageProvider {
             onSize?(CGFloat(height), number("width"), number("overlay"), number("preview"))
             return .null
         case "cmux.changelog.surface.openChangelog":
-            _ = kind == .ready ? services.updater.openStagedChangelog() : services.updater.openWhatsNewForLastUpdate()
+            let focus = ChangelogFocus(area: params["area"]?.stringValue, entry: params["title"]?.stringValue)
+            _ = !kind.showsLastUpdate ? services.updater.openStagedChangelog(focus: focus) : services.updater.openWhatsNewForLastUpdate(focus: focus)
             onAction?()
             return .null
         default:
@@ -139,8 +139,7 @@ extension PageFactory {
         let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: provider.card.prefix, provider: provider.card), PageRoute(prefix: "cmux.changelog.", provider: notes), PageRoute(prefix: "cmux.app.", provider: native)]
         // The island floats over the window's backdrop: a Chromium page cannot be transparent.
         // Window chrome: a first click on See What's New acts while a Chromium page's window has the key.
-        let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
-                               options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true, keepsLoadedWeb: true))
+        let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)", options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true, keepsLoadedWeb: true), overlayProcess: services.overlayProcess)
         native.anchor = { [weak page] in page }
         notes.anchor = { [weak page] in page }
         return page

@@ -33,7 +33,7 @@ use cmux_cloud_api::session::{
     redact, valid_machine,
 };
 
-const USAGE: &str = "usage: cmux machine access new --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux machine access exec --target machine:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
+const USAGE: &str = "usage: cmux vm access new --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux vm access exec --target vm:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
 const API_ENV: &str = "CMUX_CLOUD_API_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const EXEC_TIMEOUT_DEFAULT_MS: u64 = 30_000;
@@ -119,7 +119,7 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         let ttl_error = || UsageError::new("--ttl takes whole seconds from 60 to 900");
         match name {
             "--target" => {
-                command.machine = value.strip_prefix("machine:").unwrap_or(&value).to_owned();
+                command.machine = super::vm_words::bare_id(&value).to_owned();
             }
             "--ttl" => command.ttl = Some(value.parse().map_err(|_| ttl_error())?),
             "--cloud-api" => command.api = Some(value),

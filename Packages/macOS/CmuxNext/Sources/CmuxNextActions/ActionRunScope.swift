@@ -50,6 +50,13 @@ public extension ActionRunScope {
         ActionRunScope.current?.allowsViewChange ?? true
     }
 
+    /// Whether the code running now is a person's own action in this app (a key, a menu, the
+    /// palette, a click; no run: a direct gesture), not the CLI, the socket, MCP, a script,
+    /// another client or a page.
+    nonisolated static func isPersonsAction() -> Bool {
+        (ActionRunScope.current?.origin ?? .user) == .user
+    }
+
     /// Runs `body` with `scope` bound. For a callback stored by a run and
     /// called later outside its task tree (a store waiter, a placement
     /// continuation): it keeps the permission of the run that stored it.

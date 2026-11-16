@@ -47,6 +47,8 @@ public final class AgentPaneTailCache {
         set { configuredDisk = .some(newValue) }
     }
     private var configuredDisk: AgentPaneTailDisk??
+    /// The chats' drawn copies, kept beside their tails and cleared with them (``AgentPaneChatSnapshots``).
+    public let snapshots = AgentPaneChatSnapshots()
     /// Chats whose tail is kept, as the page keeps the same number.
     public nonisolated static let chats = 20
     /// Most records one chat's tail may carry, as many as an attach page holds. A tail over this
@@ -206,6 +208,8 @@ public final class AgentPaneTailCache {
         entries.removeAll()
         reads.removeAll()
         disk?.clear()
+        // The chats' drawn copies go with their tails (AgentPaneChatSnapshots).
+        snapshots.clear()
     }
 
     /// A new signed-in lifecycle may hand tails to the host again.

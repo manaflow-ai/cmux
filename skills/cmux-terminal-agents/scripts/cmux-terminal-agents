@@ -659,7 +659,7 @@ def wait_turn(rec, timeout, idle_seconds):
                         seen_running = True
                         if upd >= sent - 1000:
                             hook_running_ms = max(hook_running_ms or 0, upd)
-                    elif hook_running_ms and upd > hook_running_ms and st in ("idle", "done", "needs_input", "blocked", "waiting"):
+                    elif hook_running_ms and upd > hook_running_ms and st in ("idle", "done", "ended", "needs_input", "blocked", "waiting"):
                         return ended("hook", start, sent, state=st, signal_ms=upd)
                 app = [r for r in got.get("status") or [] if r.get("app") in ("claude-code", "codex")]
                 if any(r.get("state") == "working" for r in app):

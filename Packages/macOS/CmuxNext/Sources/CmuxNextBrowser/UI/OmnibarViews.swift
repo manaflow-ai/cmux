@@ -127,7 +127,10 @@ final class OmnibarPillView: NSView {
     }
 
     private func applyShape() {
-        let radius = look.resolvedCornerRadius(barHeight: bounds.height > 0 ? bounds.height : OmnibarStyle.barHeight)
+        // Open, the pill is the card's top: it takes the card's corner, so its fill does not square off the card's
+        // rounder top corners (`OmnibarStyle.cardCornerRadius`).
+        let radius = state == .card ? OmnibarStyle.cardCornerRadius
+            : look.resolvedCornerRadius(barHeight: bounds.height > 0 ? bounds.height : OmnibarStyle.barHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.cornerRadius = radius

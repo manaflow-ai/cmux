@@ -56,18 +56,6 @@ import Testing
         #expect(arguments[2].contains("zip:/not-picked.zip"))
     }
 
-    /// The line about another tool's import goes to the page with the moment it ends, so a page
-    /// left open past it (Import from Conductor's deadline) drops it without a new detection.
-    @Test func detectionSendsTheNoticeWithItsEnd() async throws {
-        let provider = ImportHistoryPageProvider(muxHome: "/test/mux", personOnlyMessage: "Click Import") { _, _ in ["sources": []] }
-        let reply = try await provider.call("cmux.importHistory.detect", params: [:], context: passive)
-        #expect(reply["notice"] == .null && reply["noticeUntil"] == .null)
-        provider.notice = { (text: "Import them", until: Date(timeIntervalSince1970: 1_795_161_600)) }
-        let noticed = try await provider.call("cmux.importHistory.detect", params: [:], context: passive)
-        #expect(noticed["notice"] == "Import them")
-        #expect(noticed["noticeUntil"] == .number(1_795_161_600_000))
-    }
-
     @Test func pageScriptCannotBeginOrImportWithoutARealClick() async throws {
         var calls = 0
         let provider = ImportHistoryPageProvider(muxHome: "/test/mux", personOnlyMessage: "Click Import") { _, _ in

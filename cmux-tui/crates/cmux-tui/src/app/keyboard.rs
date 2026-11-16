@@ -93,6 +93,11 @@ impl App {
                 prefix: KeyEvent::new(prefix.code, prefix.mods),
             });
         }
+        if self.copy_mode_active()
+            && let Some(action) = self.copy_mode_key(&input)
+        {
+            return KeyboardIngress::Handled(action);
+        }
         KeyboardIngress::Routed(TerminalInput::Keyboard(input))
     }
 

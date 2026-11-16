@@ -1,6 +1,8 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import CmuxAgentBrands
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import Observation
 import SwiftUI
@@ -139,6 +141,7 @@ struct SessionInfoScreen: View {
                 .confirmationDialog("Revoke Allow for This Chat?", isPresented: $confirmsRevoke, titleVisibility: .visible) {
                     Button("Revoke", role: .destructive) { revoke() }
                         .accessibilityIdentifier("chat.info.revokeConfirm")
+                    Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("\(store.summary.agentName) asks again before each change in this chat.")
                 }
@@ -226,7 +229,7 @@ struct SessionInfoScreen: View {
     }
 
     static func message(_ error: any Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        UserFacingError.message(error)
     }
 }
 
@@ -316,9 +319,8 @@ struct EventInspectorDetail: View {
                 if let total = json.total {
                     Text("Cut at \(json.text.count) of \(total) characters").font(.footnote).foregroundStyle(.secondary)
                 }
-                Text(json.text)
-                    .font(.footnote.monospaced())
-                    .textSelection(.enabled)
+                // Range-selectable (CMUX-33): `.textSelection` grabbed the whole document.
+                SelectableTextView(json.text, textStyle: .footnote, monospaced: true, scrolls: false, identifier: "chat.inspector.json")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("chat.inspector.json")
             }

@@ -151,6 +151,7 @@ fn key_only_peer(allowed: &[IpNetwork]) -> WgPeer {
         preshared_key: None,
         allowed_ips: allowed.to_vec(),
         route: None,
+        candidates: Vec::new(),
         persistent_keepalive: None,
     }
 }

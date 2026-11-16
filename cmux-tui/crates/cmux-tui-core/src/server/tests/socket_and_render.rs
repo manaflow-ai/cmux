@@ -896,3 +896,97 @@ fn browser_provider_is_owner_only_loopback_and_released_on_disconnect() {
     assert!(disconnect_client(&mux, local, false));
     assert!(mux.browser_provider_snapshot().is_none());
 }
+
+/// W3-H: `daemon stop` removes the start lock. A removal leaves no file, and
+/// a second one finds none.
+#[cfg(unix)]
+#[test]
+fn w3h_socket_start_lock_removal_unlinks_the_lock_file() {
+    let dir = TestSocketDir::create("start-lock-remove");
+    let socket = dir.path().join("mux.sock");
+    let lock = dir.path().join("mux.sock.spawn-lock");
+    drop(SocketStartLock::acquire(&socket, Instant::now()).unwrap());
+    assert!(lock.is_file());
+
+    let deadline = Instant::now() + Duration::from_secs(1);
+    assert!(remove_socket_start_lock(&socket, deadline).unwrap());
+    assert!(!lock.exists());
+    assert!(!remove_socket_start_lock(&socket, deadline).unwrap());
+    // The next start makes a new lock file.
+    drop(SocketStartLock::acquire(&socket, Instant::now()).unwrap());
+    assert!(lock.is_file());
+}
+
+/// A starter that waited on a lock file that was unlinked meanwhile does not
+/// take the unlinked file's lock: it locks the file now at the path, so it
+/// still waits for the starter that holds that one. The race happens at a
+/// known step (before the waiter's first lock), not after a sleep.
+#[cfg(unix)]
+#[test]
+fn w3h_socket_start_lock_waiter_follows_an_unlinked_lock_file() {
+    let dir = TestSocketDir::create("start-lock-unlinked");
+    let socket = dir.path().join("mux.sock");
+    let lock = dir.path().join("mux.sock.spawn-lock");
+    let mut first = Some(SocketStartLock::acquire(&socket, Instant::now()).unwrap());
+    let mut newer = None;
+    let mut opens = 0;
+    let mut race = || {
+        opens += 1;
+        if opens == 1 {
+            // The waiter opened and checked the first file; a stop unlinks
+            // it, a newer start locks a new file, and the first starter ends.
+            std::fs::remove_file(&lock).unwrap();
+            newer = Some(SocketStartLock::acquire(&socket, Instant::now()).unwrap());
+            first = None;
+        }
+    };
+    let outcome = SocketStartLock::acquire_with(
+        &lock,
+        Instant::now() + Duration::from_millis(300),
+        &mut race,
+        &still_at_path,
+    );
+    let error = outcome.map(drop).expect_err("the waiter must wait for the newer starter");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(first.is_none() && newer.is_some());
+    drop(newer);
+    SocketStartLock::acquire(&socket, Instant::now()).map(drop).unwrap();
+}
+
+/// W3-H review: a lock file that is unlinked between the open and its checks
+/// (no link left) is a replaced file, not a refused one: the check asks for a
+/// new open instead of an "unexpected hard links" error.
+#[cfg(unix)]
+#[test]
+fn w3h_socket_start_lock_check_asks_for_a_new_open_of_an_unlinked_file() {
+    let dir = TestSocketDir::create("start-lock-nlink-zero");
+    let lock = dir.path().join("mux.sock.spawn-lock");
+    drop(SocketStartLock::acquire_with(&lock, Instant::now(), &mut || {}, &still_at_path).unwrap());
+    let opened = std::fs::OpenOptions::new().append(true).open(&lock).unwrap();
+    std::fs::remove_file(&lock).unwrap();
+    let checked = SocketStartLock::checked_lock_file(opened);
+    assert!(matches!(checked, Ok(None)), "an unlinked file was refused: {:?}", checked.err());
+}
+
+/// W3-H review: when the locked file is never the one at the path, the start
+/// opens it again only after a pause, so it does not spin until its deadline.
+#[cfg(unix)]
+#[test]
+fn w3h_socket_start_lock_pauses_between_reopens_of_a_changing_path() {
+    let dir = TestSocketDir::create("start-lock-backoff");
+    let lock = dir.path().join("mux.sock.spawn-lock");
+    let checks = std::cell::Cell::new(0_u32);
+    let outcome = SocketStartLock::acquire_with(
+        &lock,
+        Instant::now() + Duration::from_millis(200),
+        &mut || {},
+        &|_, _| {
+            checks.set(checks.get() + 1);
+            false
+        },
+    );
+    let error = outcome.map(drop).expect_err("a path that keeps changing must time out");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    // 200 ms at one reopen per 25 ms, plus the first reopen at once.
+    assert!(checks.get() <= 12, "{} reopens in 200 ms", checks.get());
+}

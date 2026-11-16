@@ -26,6 +26,8 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     private final Field<ConversationTabSplit> split;
     private final Field<String> title;
     private final String url;
+    /** Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split. */
+    private final Field<UInt64> workspace;
 
     private NewFrontendBrowserTabRequest(Builder builder) {
         this.activate = builder.activate;
@@ -43,6 +45,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         this.title = builder.title;
         if (!builder.urlSet) throw new IllegalArgumentException("url is required");
         this.url = Wire.nonNull(builder.url, "url");
+        this.workspace = builder.workspace;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -60,6 +63,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     public Field<ConversationTabSplit> split() { return split; }
     public Field<String> title() { return title; }
     public String url() { return url; }
+    public Field<UInt64> workspace() { return workspace; }
 
     public static NewFrontendBrowserTabRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewFrontendBrowserTabRequest");
@@ -112,6 +116,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         }
         Object rawUrl = Wire.required(object, "url");
         builder.url(Wire.string(rawUrl, "NewFrontendBrowserTabRequest.url"));
+        Object rawWorkspace = Wire.optional(object, "workspace");
+        if (!Wire.isMissing(rawWorkspace)) {
+            builder.workspace(rawWorkspace == null ? null : Wire.uint64(rawWorkspace, "NewFrontendBrowserTabRequest.workspace"));
+        }
         return builder.build();
     }
 
@@ -131,17 +139,18 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         Wire.put(object, "split", split);
         Wire.put(object, "title", title);
         Wire.put(object, "url", url);
+        Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewFrontendBrowserTabRequest that)) return false;
-        return Objects.equals(activate, that.activate) && Objects.equals(after, that.after) && Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(split, that.split) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
+        return Objects.equals(activate, that.activate) && Objects.equals(after, that.after) && Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(split, that.split) && Objects.equals(title, that.title) && Objects.equals(url, that.url) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activate, after, cols, engine, faviconUrl, idempotencyKey, owner, pane, profileId, rows, split, title, url); }
+    public int hashCode() { return Objects.hash(activate, after, cols, engine, faviconUrl, idempotencyKey, owner, pane, profileId, rows, split, title, url, workspace); }
 
     @Override
     public String toString() { return "NewFrontendBrowserTabRequest" + toWire(); }
@@ -162,6 +171,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         private Field<String> title = Field.omitted();
         private String url;
         private boolean urlSet;
+        private Field<UInt64> workspace = Field.omitted();
 
         public Builder activate(Boolean value) {
             this.activate = Field.of(value);
@@ -215,6 +225,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         public Builder url(String value) {
             this.url = value;
             this.urlSet = true;
+            return this;
+        }
+        public Builder workspace(UInt64 value) {
+            this.workspace = Field.ofNullable(value);
             return this;
         }
         public NewFrontendBrowserTabRequest build() { return new NewFrontendBrowserTabRequest(this); }

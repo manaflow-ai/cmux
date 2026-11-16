@@ -68,7 +68,7 @@ impl Hub {
             && let Some(sid) = agent_sid.filter(|s| crate::adopt::is_bare_id(s))
             && let Some(file) =
                 crate::adopt::find_claude(&self.harness_homes().with_env(&[&env]).claude, &sid)
-            && let Err(e) = std::fs::remove_file(&file)
+            && let Err(e) = crate::home_fs::remove_file(&file)
         {
             tracing::warn!(session = %aside.id, "side question transcript: {e}");
         }

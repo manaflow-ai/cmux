@@ -1,21 +1,33 @@
-//! `--serve`: one remote tab over `cmux.rd/1` (service `rb/1`) on the rd
-//! stream carrier (remote-tab-r2.md section 1, steps 3 and 5). macOS only.
+//! `--serve`: remote tabs over `cmux.rd/1` (service `rb/1`) on the rd stream
+//! carrier (remote-tab-r2.md section 1, steps 3 and 5). macOS only.
 //!
-//! Threads: the CEF UI thread (the process main thread) owns the tab, the
-//! pump and the encoder, and runs every shim call. A network thread accepts
-//! callers and admits each on its own thread (`launch::accept_viewers`), then
-//! serves the admitted viewers one at a time; a reader thread per
-//! viewer posts its frames to the UI thread with `rb_shim_post`; a writer
-//! thread per viewer writes what the UI thread sends, so a slow socket never
-//! blocks the UI thread. Captured IOSurfaces are encoded on the UI thread
-//! inside the frame callback (VideoToolbox, no CPU copy); the pump keeps the
-//! latest lease for gated and recovery encodes.
+//! Two shapes, one code path:
+//! - one tab (`--serve`): the tab opens when its viewer joins; the viewer's
+//!   hello carries the per-launch secret (the lifeline's first line);
+//! - a shared host (`--serve --shared`, started by `--supervise`,
+//!   src/supervise.rs): N tabs, each a CefBrowser with its own request context
+//!   and cache directory (its own cookies and storage), opened and closed by
+//!   the supervisor's lines on stdin. A tab's page opens at once (a hidden
+//!   keeper viewer holds it, so a restarted host reloads every tab before its
+//!   viewer is back); a viewer's hello token picks its tab, and viewers of
+//!   different tabs stream at the same time.
+//!
+//! Threads: the CEF UI thread (the process main thread) owns the tabs, the
+//! pumps and the encoders, and runs every shim call. A network thread accepts
+//! callers and admits each on its own thread (`launch::accept_viewers_with`);
+//! a reader thread per viewer posts its frames to the UI thread with
+//! `rb_shim_post`; a writer thread per viewer writes what the UI thread sends,
+//! so a slow socket never blocks the UI thread. Captured IOSurfaces are
+//! encoded on the UI thread inside the frame callback (VideoToolbox, no CPU
+//! copy); the pump keeps the latest lease for gated and recovery encodes.
 
+use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
-use std::io::{Read, Write};
+use std::io::{BufRead, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Mutex, TryLockError};
+use std::sync::{Arc, Mutex, PoisonError, TryLockError};
 use std::time::Instant;
 
 use cmux_encode::videotoolbox::{
@@ -29,11 +41,13 @@ use cmux_rd_proto::{
     encode_stream_frame,
 };
 use cmux_remote_browser::proto::{Control, InputEvent, PointerKind, ScreenInfo, ViewerCaps};
+use serde_json::{Value, json};
 
 use crate::ffi::{
-    RbCallbacks, RbFrame, ShimPresentation, rb_shim_capture_refresh, rb_shim_context_menu_result,
-    rb_shim_dialog_result, rb_shim_frame_release, rb_shim_popup_menu_result, rb_shim_post,
-    rb_shim_post_delayed, rb_shim_quit, rb_shim_run, rb_shim_surface_close,
+    RbCallbacks, RbFrame, ShimPresentation, rb_shim_capture_refresh, rb_shim_close_tab,
+    rb_shim_context_menu_result, rb_shim_dialog_result, rb_shim_frame_release,
+    rb_shim_popup_menu_result, rb_shim_post, rb_shim_post_delayed, rb_shim_quit, rb_shim_run,
+    rb_shim_surface_close,
 };
 use crate::meter::Meter;
 use crate::pump::{FrameEncoder, Pump, PumpOut};
@@ -46,11 +60,19 @@ const START_KBPS: u32 = 8000;
 const POPUP_KBPS: u32 = 600;
 /// The viewer id of the stream carrier's single viewer.
 const VIEWER: &str = "rd-viewer";
+/// The hidden viewer that holds a shared host's page open while no viewer
+/// streams it (never visible: it never sets the screen or starts capture).
+const KEEPER: &str = "host-keeper";
+/// The tab key of the one-tab host.
+const ONE_TAB: u32 = 1;
 
 /// `--serve` options.
 #[derive(Debug, Clone)]
 pub struct Options {
     pub listen: SocketAddr,
+    /// Serve on this inherited listener instead of binding `listen`
+    /// (`--listen-fd`: the supervisor's, kept across hosts).
+    pub listen_fd: Option<i32>,
     pub url: String,
     /// Exit after the first viewer leaves.
     pub once: bool,
@@ -58,8 +80,11 @@ pub struct Options {
     /// contract in `launch.rs`).
     pub lifeline: bool,
     /// The per-launch secret a viewer's rd hello must carry as its token (the first
-    /// lifeline line). `main` refuses to start without one; `None` admits nobody.
+    /// lifeline line). `main` refuses to start a one-tab host without one; `None`
+    /// admits nobody.
     pub secret: Option<String>,
+    /// A shared host: the tabs come from the supervisor's lines on stdin.
+    pub shared: bool,
 }
 
 /// One capture lease; dropping it gives the frame back to Viz (UI thread).
@@ -115,15 +140,27 @@ impl FrameEncoder for Vt {
     }
 }
 
-/// What the network threads hand the UI thread.
+/// What the network threads hand the UI thread, for tab `key` and viewer
+/// connection `conn`.
 enum Net {
-    Joined { writer: Sender<Vec<u8>>, max_datagram: usize },
+    Joined { writer: Sender<Vec<u8>>, max_datagram: usize, stream: Option<TcpStream> },
     Frame(u8, Vec<u8>),
     Left,
 }
 
+/// A line the supervisor sent a shared host.
+enum Command {
+    Open { id: String, url: String, token: String, cache: String },
+    Close { id: String },
+    Serve,
+}
+
 struct Viewer {
+    /// The connection (a reconnect replaces it; a stale one's `Left` is ignored).
+    conn: u64,
     writer: Sender<Vec<u8>>,
+    /// To end the connection when the tab closes.
+    stream: Option<TcpStream>,
     pump: Pump<Vt>,
     /// Media numbers for the host log (`serve: stats`).
     meter: Meter,
@@ -131,18 +168,39 @@ struct Viewer {
     seen: (u64, u64),
 }
 
-struct Host {
-    opts: Options,
+/// One tab and its viewer.
+struct Slot {
+    /// The app's tab id (`tab-1` on a one-tab host).
+    id: String,
+    /// The tab's own cache directory (a shared host's tabs each have one).
+    cache: Option<CString>,
     tab: HostTab,
     viewer: Option<Viewer>,
     t0: Instant,
-    /// The tick already posted for this deadline (microseconds).
-    timer: Option<u64>,
     first_frame_seen: bool,
     refresh_wanted: bool,
 }
 
+struct Host {
+    opts: Options,
+    slots: BTreeMap<u32, Slot>,
+    next_key: u32,
+    /// Browsers of closed tabs, until CEF closed them (then the supervisor
+    /// may remove the tab's directory).
+    closing: BTreeMap<i32, String>,
+    /// Closed tabs whose browser was not created yet, by request.
+    closing_requests: BTreeMap<u32, String>,
+    t0: Instant,
+    /// The tick already posted for this deadline (microseconds).
+    timer: Option<u64>,
+    listening: bool,
+}
+
 static HOST: Mutex<Option<Host>> = Mutex::new(None);
+
+/// The tokens viewers may join with, and their tabs (read by the admission
+/// threads; written on the UI thread).
+static TOKENS: Mutex<Vec<(String, u32)>> = Mutex::new(Vec::new());
 
 type Work = Box<dyn FnOnce(&mut Host)>;
 
@@ -171,7 +229,32 @@ unsafe extern "C" fn on_work(ctx: *mut c_void) {
     dispatch(*work);
 }
 
-impl Host {
+/// One stdout line for the supervisor (a short line to a reader that always
+/// reads: the supervisor's poll loop).
+fn emit(value: Value) {
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{value}").and_then(|()| stdout.flush());
+}
+
+impl Slot {
+    fn new(key: u32, id: &str, url: &str, cache: Option<CString>, t0: Instant) -> Self {
+        let request = i32::try_from(key).unwrap_or(i32::MAX);
+        Self {
+            id: id.to_string(),
+            cache,
+            tab: HostTab::new(request, u64::from(key), url),
+            viewer: None,
+            t0,
+            first_frame_seen: false,
+            refresh_wanted: false,
+        }
+    }
+
+    /// The shim for this tab: its window and its request context.
+    fn shim(&self) -> ShimPresentation {
+        ShimPresentation { browser: self.tab.browser, cache: self.cache.clone() }
+    }
+
     fn now(&self) -> u64 {
         u64::try_from(self.t0.elapsed().as_micros()).unwrap_or(u64::MAX)
     }
@@ -208,7 +291,7 @@ impl Host {
             self.send_frame(STREAM_DATAGRAM, d);
         }
         self.meter(&out, call_us);
-        let mut p = ShimPresentation;
+        let mut p = self.shim();
         // The input skipped a gap (a lost release may be in it): release
         // what the viewer holds before the events after the gap apply.
         if out.release_all {
@@ -297,28 +380,42 @@ impl Host {
         }
     }
 
-    /// Posts a tick for the pump's next deadline (none while idle).
-    fn arm(&mut self) {
-        // The pump's deadline, or the stats window's (so a page that went
-        // still logs its last window now, not at its next frame).
-        let Some(due) = self.viewer.as_ref().and_then(|v| {
-            match (v.pump.next_deadline_us(), v.meter.deadline_us()) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            }
-        }) else {
-            return;
-        };
-        if self.timer.is_some_and(|t| t <= due) {
-            return;
+    /// When this tab's viewer needs a tick: the pump's deadline, or the
+    /// stats window's (so a page that went still logs its last window now,
+    /// not at its next frame).
+    fn deadline(&self) -> Option<u64> {
+        let v = self.viewer.as_ref()?;
+        match (v.pump.next_deadline_us(), v.meter.deadline_us()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
         }
-        self.timer = Some(due);
-        let ms = i64::try_from(due.saturating_sub(self.now()).div_ceil(1000)).unwrap_or(1);
-        // SAFETY: a plain function; no context.
-        unsafe { rb_shim_post_delayed(on_timer, std::ptr::null_mut(), ms) }
     }
 
-    fn joined(&mut self, writer: Sender<Vec<u8>>, max_datagram: usize) {
+    fn tick(&mut self) {
+        let now = self.now();
+        let out = self.viewer.as_mut().map(|v| v.pump.tick(true, now)).unwrap_or_default();
+        self.apply(out);
+    }
+
+    /// The tab's page opens now, held by the hidden keeper viewer (a shared
+    /// host's tab: its viewer joins later, or comes back after a restart).
+    fn keep_open(&mut self) {
+        let mut p = self.shim();
+        drop(self.tab.control(KEEPER, &open_control(DEFAULT_SCREEN), &mut p));
+        drop(self.tab.control(KEEPER, &Control::Visibility { visible: false }, &mut p));
+    }
+
+    fn joined(
+        &mut self,
+        conn: u64,
+        writer: Sender<Vec<u8>>,
+        max_datagram: usize,
+        stream: Option<TcpStream>,
+    ) {
+        // A viewer that reconnects replaces the one before it.
+        if self.viewer.is_some() {
+            self.left(None);
+        }
         let screen = self.tab.session.canonical_screen().unwrap_or(DEFAULT_SCREEN);
         let width = (f64::from(screen.css_width) * screen.scale).ceil() as u32;
         let height = (f64::from(screen.css_height) * screen.scale).ceil() as u32;
@@ -333,7 +430,9 @@ impl Host {
             EngineConfig { width, height, max_fps: FPS, max_datagram, ..EngineConfig::default() };
         let now = self.now();
         self.viewer = Some(Viewer {
+            conn,
             writer,
+            stream,
             pump: Pump::new(cfg, encoder, now),
             meter: Meter::default(),
             seen: (0, 0),
@@ -342,30 +441,22 @@ impl Host {
         // The stream carrier's viewer opens the tab by joining (the rd
         // hello named the service); an explicit rb.open later only updates
         // its screen.
-        let open = Control::Open {
-            tab: "tab-1".into(),
-            profile: "remote".into(),
-            viewer: VIEWER.into(),
-            screen: ScreenInfo {
-                css_width: screen.css_width,
-                css_height: screen.css_height,
-                scale: screen.scale,
-                refresh_hz: FPS,
-                color_space: "srgb".into(),
-            },
-            caps: ViewerCaps { codecs: vec!["h264".into()], tile_codecs: vec![], max_fps: FPS },
-        };
-        let replies = self.tab.control(VIEWER, &open, &mut ShimPresentation);
+        let replies = self.tab.control(VIEWER, &open_control(screen), &mut self.shim());
         self.send_rb(replies);
         let out = self.viewer.as_mut().map(|v| v.pump.start(now)).unwrap_or_default();
         self.apply(out);
         // Popups still open from an earlier viewer: the new pump has none
         // of their streams.
-        let outs = self.tab.rejoin_surfaces(&mut ShimPresentation);
+        let outs = self.tab.rejoin_surfaces(&mut self.shim());
         self.surface_outs(outs);
     }
 
-    fn left(&mut self) {
+    /// The viewer on `conn` left (`None`: whichever viewer is there).
+    /// Returns whether a viewer left.
+    fn left(&mut self, conn: Option<u64>) -> bool {
+        if conn.is_some_and(|c| self.viewer.as_ref().is_none_or(|v| v.conn != c)) {
+            return false;
+        }
         let now = self.now();
         if let Some(v) = self.viewer.as_mut() {
             let kbps = v.pump.encoder().kbps();
@@ -373,15 +464,13 @@ impl Host {
                 eprintln!("serve: stats {}", serde_json::to_string(&line).unwrap_or_default());
             }
         }
-        let replies = self.tab.control(VIEWER, &Control::Close, &mut ShimPresentation);
-        drop(replies);
+        drop(self.tab.control(VIEWER, &Control::Close, &mut self.shim()));
         // Dropping the pump gives its held lease back.
-        self.viewer = None;
-        self.refresh_wanted = false;
-        if self.opts.once {
-            // SAFETY: UI thread.
-            unsafe { rb_shim_quit() }
+        if let Some(stream) = self.viewer.take().and_then(|v| v.stream) {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
         }
+        self.refresh_wanted = false;
+        true
     }
 
     fn net_frame(&mut self, kind: u8, payload: &[u8]) {
@@ -404,7 +493,7 @@ impl Host {
                     return;
                 }
                 let Ok(msg) = serde_json::from_value::<Control>(body) else { return };
-                let replies = self.tab.control(VIEWER, &msg, &mut ShimPresentation);
+                let replies = self.tab.control(VIEWER, &msg, &mut self.shim());
                 self.send_rb(replies);
             }
             Ok(RdControl::Stop) => {
@@ -415,31 +504,166 @@ impl Host {
     }
 }
 
+fn open_control(screen: cmux_remote_browser::session::ScreenSize) -> Control {
+    Control::Open {
+        tab: "tab-1".into(),
+        profile: "remote".into(),
+        viewer: VIEWER.into(),
+        screen: ScreenInfo {
+            css_width: screen.css_width,
+            css_height: screen.css_height,
+            scale: screen.scale,
+            refresh_hz: FPS,
+            color_space: "srgb".into(),
+        },
+        caps: ViewerCaps { codecs: vec!["h264".into()], tile_codecs: vec![], max_fps: FPS },
+    }
+}
+
+impl Host {
+    fn now(&self) -> u64 {
+        u64::try_from(self.t0.elapsed().as_micros()).unwrap_or(u64::MAX)
+    }
+
+    fn slot_of_browser(&mut self, browser: c_int) -> Option<&mut Slot> {
+        self.slots.values_mut().find(|s| s.tab.browser == Some(browser))
+    }
+
+    fn slot_of_surface(&mut self, surface: u32) -> Option<&mut Slot> {
+        self.slots.values_mut().find(|s| s.tab.has_surface(surface))
+    }
+
+    /// Posts a tick for the earliest viewer deadline (none while idle).
+    fn arm(&mut self) {
+        let Some(due) = self.slots.values().filter_map(Slot::deadline).min() else { return };
+        if self.timer.is_some_and(|t| t <= due) {
+            return;
+        }
+        self.timer = Some(due);
+        let ms = i64::try_from(due.saturating_sub(self.now()).div_ceil(1000)).unwrap_or(1);
+        // SAFETY: a plain function; no context.
+        unsafe { rb_shim_post_delayed(on_timer, std::ptr::null_mut(), ms) }
+    }
+
+    fn net(&mut self, key: u32, conn: u64, event: Net) {
+        let once = self.opts.once;
+        let Some(slot) = self.slots.get_mut(&key) else { return };
+        match event {
+            Net::Joined { writer, max_datagram, stream } => {
+                slot.joined(conn, writer, max_datagram, stream);
+            }
+            Net::Frame(kind, payload) => {
+                if slot.viewer.as_ref().is_some_and(|v| v.conn == conn) {
+                    slot.net_frame(kind, &payload);
+                }
+            }
+            Net::Left => {
+                if slot.left(Some(conn)) && once {
+                    // SAFETY: UI thread.
+                    unsafe { rb_shim_quit() }
+                }
+            }
+        }
+    }
+
+    fn command(&mut self, command: Command) {
+        match command {
+            Command::Open { id, url, token, cache } => {
+                if self.slots.values().any(|s| s.id == id) || token.is_empty() {
+                    return;
+                }
+                let key = self.next_key;
+                self.next_key += 1;
+                let cache = (!cache.is_empty()).then(|| CString::new(cache).unwrap_or_default());
+                let mut slot = Slot::new(key, &id, &url, cache, self.t0);
+                slot.keep_open();
+                self.slots.insert(key, slot);
+                TOKENS.lock().unwrap_or_else(PoisonError::into_inner).push((token, key));
+                emit(json!({"tab": id, "ready": true}));
+            }
+            Command::Close { id } => {
+                let Some(key) = self.slots.iter().find(|(_, s)| s.id == id).map(|(k, _)| *k) else {
+                    return;
+                };
+                TOKENS.lock().unwrap_or_else(PoisonError::into_inner).retain(|(_, k)| *k != key);
+                let Some(mut slot) = self.slots.remove(&key) else { return };
+                slot.left(None);
+                match slot.tab.browser {
+                    Some(browser) => {
+                        self.closing.insert(browser, id);
+                        // SAFETY: plain value; UI thread.
+                        unsafe { rb_shim_close_tab(browser) };
+                    }
+                    None => {
+                        self.closing_requests.insert(key, id);
+                    }
+                }
+            }
+            Command::Serve => {
+                if !self.listening {
+                    self.listening = true;
+                    start_listening(&self.opts);
+                }
+            }
+        }
+    }
+}
+
 unsafe extern "C" fn on_net(ctx: *mut c_void) {
     // SAFETY: `post_net` leaked this box for exactly this call.
-    let event = unsafe { Box::from_raw(ctx.cast::<Net>()) };
+    let event = unsafe { Box::from_raw(ctx.cast::<(u32, u64, Net)>()) };
     dispatch(move |h| {
-        match *event {
-            Net::Joined { writer, max_datagram } => h.joined(writer, max_datagram),
-            Net::Frame(kind, payload) => h.net_frame(kind, &payload),
-            Net::Left => h.left(),
-        }
+        let (key, conn, event) = *event;
+        h.net(key, conn, event);
         h.arm();
     });
 }
 
-fn post_net(event: Net) {
-    let ctx = Box::into_raw(Box::new(event)).cast::<c_void>();
+fn post_net(key: u32, conn: u64, event: Net) {
+    let ctx = Box::into_raw(Box::new((key, conn, event))).cast::<c_void>();
     // SAFETY: `on_net` takes the box back on the UI thread.
     unsafe { rb_shim_post(on_net, ctx) }
+}
+
+unsafe extern "C" fn on_command(ctx: *mut c_void) {
+    // SAFETY: `post_command` leaked this box for exactly this call.
+    let command = unsafe { Box::from_raw(ctx.cast::<Command>()) };
+    dispatch(move |h| h.command(*command));
+}
+
+fn post_command(command: Command) {
+    let ctx = Box::into_raw(Box::new(command)).cast::<c_void>();
+    // SAFETY: `on_command` takes the box back on the UI thread.
+    unsafe { rb_shim_post(on_command, ctx) }
+}
+
+/// A supervisor line (src/supervise.rs, "Wire with the host").
+fn parse_command(line: &str) -> Option<Command> {
+    let v: Value = serde_json::from_str(line).ok()?;
+    let s = |o: &Value, k: &str| o.get(k).and_then(Value::as_str).map(str::to_string);
+    if let Some(o) = v.get("open") {
+        return Some(Command::Open {
+            id: s(o, "tab")?,
+            url: s(o, "url")?,
+            token: s(o, "token")?,
+            cache: s(o, "cache").unwrap_or_default(),
+        });
+    }
+    if let Some(o) = v.get("close") {
+        return Some(Command::Close { id: s(o, "tab")? });
+    }
+    v.get("serve").map(|_| Command::Serve)
 }
 
 unsafe extern "C" fn on_timer(_: *mut c_void) {
     dispatch(|h| {
         h.timer = None;
         let now = h.now();
-        let out = h.viewer.as_mut().map(|v| v.pump.tick(true, now)).unwrap_or_default();
-        h.apply(out);
+        for slot in h.slots.values_mut() {
+            if slot.deadline().is_some_and(|d| d <= now) {
+                slot.tick();
+            }
+        }
         h.arm();
     });
 }
@@ -449,74 +673,126 @@ unsafe extern "C" fn on_quit(_: *mut c_void) {
     unsafe { rb_shim_quit() }
 }
 
+fn quit_soon() {
+    // SAFETY: `on_quit` runs on the UI thread and takes no context.
+    unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
+}
+
 unsafe extern "C" fn on_ready(_: *mut c_void) {
-    let Some((addr, lifeline)) =
-        HOST.lock().ok().and_then(|g| g.as_ref().map(|h| (h.opts.listen, h.opts.lifeline)))
-    else {
+    let Some(opts) = HOST.lock().ok().and_then(|g| g.as_ref().map(|h| h.opts.clone())) else {
         return;
     };
-    if lifeline {
-        std::thread::spawn(|| {
-            crate::launch::watch_lifeline(std::io::stdin().lock(), || {
-                eprintln!("serve: lifeline closed, quitting");
-                // SAFETY: `on_quit` runs on the UI thread and takes no context.
-                unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
-            });
+    if opts.lifeline || opts.shared {
+        let shared = opts.shared;
+        // The lifeline; on a shared host it also carries the supervisor's lines.
+        std::thread::spawn(move || {
+            let stdin = std::io::stdin().lock();
+            if shared {
+                for line in stdin.lines() {
+                    let Ok(line) = line else { break };
+                    if let Some(command) = parse_command(&line) {
+                        post_command(command);
+                    }
+                }
+            } else {
+                crate::launch::watch_lifeline(stdin, || {});
+            }
+            eprintln!("serve: lifeline closed, quitting");
+            quit_soon();
         });
     }
+    if opts.shared {
+        // It listens once the supervisor's first lines are in (`serve`).
+        return;
+    }
+    dispatch(|h| {
+        h.listening = true;
+        start_listening(&h.opts);
+    });
+}
+
+fn start_listening(opts: &Options) {
+    let (addr, fd, shared) = (opts.listen, opts.listen_fd, opts.shared);
     std::thread::spawn(move || {
-        if let Err(e) = listen(addr) {
+        if let Err(e) = listen(addr, fd, shared) {
             eprintln!("serve: {e}");
         }
     });
 }
 
-unsafe extern "C" fn on_tab_created(_: *mut c_void, _request: c_int, browser: c_int) {
+unsafe extern "C" fn on_tab_created(_: *mut c_void, request: c_int, browser: c_int) {
     dispatch(move |h| {
-        h.tab.tab_created(browser, &mut ShimPresentation);
-        h.refresh();
+        let key = u32::try_from(request).unwrap_or(0);
+        let Some(slot) = h.slots.get_mut(&key) else {
+            // Its tab closed before the browser came: close the browser now.
+            if let Some(id) = h.closing_requests.remove(&key) {
+                h.closing.insert(browser, id);
+            }
+            // SAFETY: plain value; UI thread.
+            unsafe { rb_shim_close_tab(browser) };
+            return;
+        };
+        slot.tab.tab_created(browser, &mut slot.shim());
+        slot.refresh();
+    });
+}
+
+unsafe extern "C" fn on_tab_closed(_: *mut c_void, browser: c_int) {
+    dispatch(move |h| {
+        if let Some(id) = h.closing.remove(&browser) {
+            emit(json!({"tab": id, "closed": true}));
+        }
     });
 }
 
 /// A page fact for the viewer (`rb.page`). Title and URL changes come once
 /// the tab has its view: a capture the shim refused before starts now.
-fn page_changed(change: PageChange) {
+fn page_changed(browser: c_int, change: PageChange) {
     dispatch(move |h| {
-        h.tab.retry_capture(&mut ShimPresentation);
-        h.refresh();
-        let out = h.tab.page_changed(change);
-        h.send_rb(out.into_iter().collect());
+        let shared = h.opts.shared;
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        if shared && let PageChange::Url(url) = &change {
+            emit(json!({"tab": slot.id, "url": url}));
+        }
+        slot.tab.retry_capture(&mut slot.shim());
+        slot.refresh();
+        let out = slot.tab.page_changed(change);
+        slot.send_rb(out.into_iter().collect());
     });
 }
 
-unsafe extern "C" fn on_title(_: *mut c_void, _browser: c_int, title: *const c_char) {
-    page_changed(PageChange::Title(text(title).unwrap_or_default()));
+unsafe extern "C" fn on_title(_: *mut c_void, browser: c_int, title: *const c_char) {
+    page_changed(browser, PageChange::Title(text(title).unwrap_or_default()));
 }
 
-unsafe extern "C" fn on_url(_: *mut c_void, _browser: c_int, url: *const c_char) {
+unsafe extern "C" fn on_url(_: *mut c_void, browser: c_int, url: *const c_char) {
     let url = text(url).unwrap_or_default();
     eprintln!("serve: page {url}");
-    page_changed(PageChange::Url(url));
+    page_changed(browser, PageChange::Url(url));
 }
 
 unsafe extern "C" fn on_loading_state(
     _: *mut c_void,
-    _browser: c_int,
+    browser: c_int,
     loading: c_int,
     can_go_back: c_int,
     can_go_forward: c_int,
 ) {
-    page_changed(PageChange::Loading {
-        loading: loading != 0,
-        can_go_back: can_go_back != 0,
-        can_go_forward: can_go_forward != 0,
-    });
+    page_changed(
+        browser,
+        PageChange::Loading {
+            loading: loading != 0,
+            can_go_back: can_go_back != 0,
+            can_go_forward: can_go_forward != 0,
+        },
+    );
 }
 
-unsafe extern "C" fn on_cursor(_: *mut c_void, _browser: c_int, cef_type: c_int) {
+unsafe extern "C" fn on_cursor(_: *mut c_void, browser: c_int, cef_type: c_int) {
     dispatch(move |h| {
-        let out = h.tab.cursor_changed(cef_type);
-        h.send_rb(out.into_iter().collect());
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        let out = slot.tab.cursor_changed(cef_type);
+        slot.send_rb(out.into_iter().collect());
     });
 }
 
@@ -524,13 +800,14 @@ unsafe extern "C" fn on_cursor(_: *mut c_void, _browser: c_int, cef_type: c_int)
 /// (`rb.key_unhandled` names the last key-down's input seq).
 unsafe extern "C" fn on_key_unhandled(
     _: *mut c_void,
-    _browser: c_int,
+    browser: c_int,
     _code: *const c_char,
     _modifiers: c_int,
 ) {
-    dispatch(|h| {
-        let out = h.tab.key_unhandled();
-        h.send_rb(out.into_iter().collect());
+    dispatch(move |h| {
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        let out = slot.tab.key_unhandled();
+        slot.send_rb(out.into_iter().collect());
     });
 }
 
@@ -538,18 +815,19 @@ unsafe extern "C" fn on_key_unhandled(
 /// popup): the App opens it as a remote tab of its own (`rb.open_tab`).
 unsafe extern "C" fn on_open_tab(
     _: *mut c_void,
-    _browser: c_int,
+    browser: c_int,
     url: *const c_char,
     disposition: c_int,
     user_gesture: c_int,
 ) {
     let url = text(url).unwrap_or_default();
     dispatch(move |h| {
-        let out = h.tab.popup_requested(&url, disposition, user_gesture != 0);
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        let out = slot.tab.popup_requested(&url, disposition, user_gesture != 0);
         if out.is_none() {
             eprintln!("serve: page open with disposition {disposition} opens no tab");
         }
-        h.send_rb(out.into_iter().collect());
+        slot.send_rb(out.into_iter().collect());
     });
 }
 
@@ -568,7 +846,7 @@ unsafe extern "C" fn on_file_load(_: *mut c_void, url: *const c_char) -> c_int {
 /// caret in view (`rb.text_input`).
 unsafe extern "C" fn on_text_input(
     _: *mut c_void,
-    _browser: c_int,
+    browser: c_int,
     input_type: c_int,
     rects: *const c_int,
     rect_count: c_int,
@@ -591,7 +869,8 @@ unsafe extern "C" fn on_text_input(
     });
     let body = crate::file_policy::text_input(input_type, &rects, caret);
     dispatch(move |h| {
-        h.send_rd(&RdControl::Service { service: SERVICE_REMOTE_BROWSER.into(), body });
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        slot.send_rd(&RdControl::Service { service: SERVICE_REMOTE_BROWSER.into(), body });
     });
 }
 
@@ -605,22 +884,27 @@ fn text(p: *const c_char) -> Option<String> {
 /// in Chromium when the menu is refused).
 unsafe extern "C" fn on_context_menu(
     _: *mut c_void,
-    _browser: c_int,
+    browser: c_int,
     token: i64,
     x: c_int,
     y: c_int,
     items: *const c_char,
 ) {
     let menu = shim_ui::context_menu(x, y, &text(items).unwrap_or_default());
-    dispatch(move |h| match menu {
-        Ok(menu) => {
-            let out = h.tab.menu_opened(token, menu, &mut ShimPresentation);
-            h.send_rb(out);
-        }
-        Err(e) => {
-            eprintln!("serve: context menu JSON: {e}");
-            // SAFETY: plain values; UI thread. Cancels so Chromium does not wait.
-            unsafe { rb_shim_context_menu_result(token, -1) };
+    dispatch(move |h| {
+        let slot = h.slot_of_browser(browser);
+        match (menu, slot) {
+            (Ok(menu), Some(slot)) => {
+                let out = slot.tab.menu_opened(token, menu, &mut slot.shim());
+                slot.send_rb(out);
+            }
+            (menu, _) => {
+                if let Err(e) = menu {
+                    eprintln!("serve: context menu JSON: {e}");
+                }
+                // SAFETY: plain values; UI thread. Cancels so Chromium does not wait.
+                unsafe { rb_shim_context_menu_result(token, -1) };
+            }
         }
     });
 }
@@ -629,7 +913,7 @@ unsafe extern "C" fn on_context_menu(
 #[allow(clippy::too_many_arguments)]
 unsafe extern "C" fn on_popup_menu(
     _: *mut c_void,
-    _browser: c_int,
+    browser: c_int,
     token: i64,
     x: c_int,
     y: c_int,
@@ -641,21 +925,27 @@ unsafe extern "C" fn on_popup_menu(
 ) {
     let Some(items) = text(items) else {
         dispatch(move |h| {
-            let out = h.tab.menu_closed_by_page(token);
-            h.send_rb(out);
+            let Some(slot) = h.slot_of_browser(browser) else { return };
+            let out = slot.tab.menu_closed_by_page(token);
+            slot.send_rb(out);
         });
         return;
     };
     let menu = shim_ui::select_menu(x, y, width, height, &items, selected, multiple != 0);
-    dispatch(move |h| match menu {
-        Ok(menu) => {
-            let out = h.tab.menu_opened(token, menu, &mut ShimPresentation);
-            h.send_rb(out);
-        }
-        Err(e) => {
-            eprintln!("serve: popup menu JSON: {e}");
-            // SAFETY: a null array with a negative count cancels; UI thread.
-            unsafe { rb_shim_popup_menu_result(token, std::ptr::null(), -1) };
+    dispatch(move |h| {
+        let slot = h.slot_of_browser(browser);
+        match (menu, slot) {
+            (Ok(menu), Some(slot)) => {
+                let out = slot.tab.menu_opened(token, menu, &mut slot.shim());
+                slot.send_rb(out);
+            }
+            (menu, _) => {
+                if let Err(e) = menu {
+                    eprintln!("serve: popup menu JSON: {e}");
+                }
+                // SAFETY: a null array with a negative count cancels; UI thread.
+                unsafe { rb_shim_popup_menu_result(token, std::ptr::null(), -1) };
+            }
         }
     });
 }
@@ -665,7 +955,7 @@ unsafe extern "C" fn on_popup_menu(
 #[allow(clippy::too_many_arguments)]
 unsafe extern "C" fn on_dialog(
     _: *mut c_void,
-    _browser: c_int,
+    browser: c_int,
     token: i64,
     kind: *const c_char,
     origin: *const c_char,
@@ -680,50 +970,56 @@ unsafe extern "C" fn on_dialog(
         text(default_text).as_deref(),
         is_reload != 0,
     );
-    dispatch(move |h| match dialog {
-        Some(dialog) => {
-            let out = h.tab.dialog_opened(token, dialog, &mut ShimPresentation);
-            h.send_rb(out);
-        }
-        None => {
-            // SAFETY: plain values; UI thread.
-            unsafe { rb_shim_dialog_result(token, 0, std::ptr::null()) };
+    dispatch(move |h| {
+        let slot = h.slot_of_browser(browser);
+        match (dialog, slot) {
+            (Some(dialog), Some(slot)) => {
+                let out = slot.tab.dialog_opened(token, dialog, &mut slot.shim());
+                slot.send_rb(out);
+            }
+            _ => {
+                // SAFETY: plain values; UI thread.
+                unsafe { rb_shim_dialog_result(token, 0, std::ptr::null()) };
+            }
         }
     });
 }
 
-unsafe extern "C" fn on_dialog_reset(_: *mut c_void, _browser: c_int) {
-    dispatch(|h| {
-        let out = h.tab.dialog_reset();
-        h.send_rb(out);
+unsafe extern "C" fn on_dialog_reset(_: *mut c_void, browser: c_int) {
+    dispatch(move |h| {
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        let out = slot.tab.dialog_reset();
+        slot.send_rb(out);
     });
 }
 
 /// Chromium dropped one dialog without an answer (its frame went away, or
 /// the tab closed): the viewers close it (`rb.dialog.cancel`).
-unsafe extern "C" fn on_dialog_dropped(_: *mut c_void, _browser: c_int, token: i64) {
+unsafe extern "C" fn on_dialog_dropped(_: *mut c_void, browser: c_int, token: i64) {
     eprintln!("serve: dialog {token} dropped by the page");
     dispatch(move |h| {
-        let out = h.tab.dialog_dropped(token);
-        h.send_rb(out);
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        let out = slot.tab.dialog_dropped(token);
+        slot.send_rb(out);
     });
 }
 
 /// A find result of the running search (`rb.find.result` when it moved).
 unsafe extern "C" fn on_find_result(
     _: *mut c_void,
-    _browser: c_int,
+    browser: c_int,
     count: c_int,
     active: c_int,
     _final_update: c_int,
 ) {
     dispatch(move |h| {
-        let out = h.tab.find_result(count, active);
-        h.send_rb(out.into_iter().collect());
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        let out = slot.tab.find_result(count, active);
+        slot.send_rb(out.into_iter().collect());
     });
 }
 
-unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame) {
+unsafe extern "C" fn on_frame(_: *mut c_void, browser: c_int, f: *const RbFrame) {
     // SAFETY: valid for the call.
     let f = unsafe { &*f };
     let lease = Lease {
@@ -737,18 +1033,19 @@ unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame
     }
     let damage = frame_damage(f, lease.width, lease.height);
     dispatch(move |h| {
-        if !h.first_frame_seen {
-            h.first_frame_seen = true;
-            let replies = h.tab.first_frame(&mut ShimPresentation);
-            h.send_rb(replies);
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        if !slot.first_frame_seen {
+            slot.first_frame_seen = true;
+            let replies = slot.tab.first_frame(&mut slot.shim());
+            slot.send_rb(replies);
         }
-        let now = h.now();
-        let Some(v) = h.viewer.as_mut() else { return };
-        h.refresh_wanted = false;
+        let now = slot.now();
+        let Some(v) = slot.viewer.as_mut() else { return };
+        slot.refresh_wanted = false;
         let call = Instant::now();
         let out = v.pump.frame(lease, damage, now, now);
         let call_us = u64::try_from(call.elapsed().as_micros()).unwrap_or(u64::MAX);
-        h.apply_timed(out, Some(call_us));
+        slot.apply_timed(out, Some(call_us));
         h.arm();
     });
 }
@@ -757,7 +1054,7 @@ unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame
 #[allow(clippy::too_many_arguments)]
 unsafe extern "C" fn on_surface(
     _: *mut c_void,
-    _browser: c_int,
+    browser: c_int,
     surface: c_int,
     kind: c_int,
     visible: c_int,
@@ -774,9 +1071,9 @@ unsafe extern "C" fn on_surface(
     let anchor = HostTab::anchor(x, y, width, height);
     eprintln!("serve: surface {surface} visible {visible} at {x},{y} {width}x{height}");
     dispatch(move |h| {
-        let outs =
-            h.tab.surface_changed(surface, kind, visible != 0, anchor, &mut ShimPresentation);
-        h.surface_outs(outs);
+        let Some(slot) = h.slot_of_browser(browser) else { return };
+        let outs = slot.tab.surface_changed(surface, kind, visible != 0, anchor, &mut slot.shim());
+        slot.surface_outs(outs);
     });
 }
 
@@ -797,15 +1094,16 @@ unsafe extern "C" fn on_surface_frame(_: *mut c_void, surface: c_int, f: *const 
     }
     let damage = frame_damage(f, lease.width, lease.height);
     dispatch(move |h| {
-        let outs = h.tab.surface_frame(surface, lease.width, lease.height);
-        h.surface_outs(outs);
-        let Some(stream) = h.tab.surface_stream(surface) else { return };
-        let now = h.now();
-        let Some(v) = h.viewer.as_mut() else { return };
+        let Some(slot) = h.slot_of_surface(surface) else { return };
+        let outs = slot.tab.surface_frame(surface, lease.width, lease.height);
+        slot.surface_outs(outs);
+        let Some(stream) = slot.tab.surface_stream(surface) else { return };
+        let now = slot.now();
+        let Some(v) = slot.viewer.as_mut() else { return };
         let call = Instant::now();
         let out = v.pump.frame_on(stream, lease, damage, now, now);
         let call_us = u64::try_from(call.elapsed().as_micros()).unwrap_or(u64::MAX);
-        h.apply_timed(out, Some(call_us));
+        slot.apply_timed(out, Some(call_us));
         h.arm();
     });
 }
@@ -833,24 +1131,42 @@ fn frame_damage(f: &RbFrame, width: u32, height: u32) -> Rect {
     }
 }
 
-fn listen(addr: SocketAddr) -> std::io::Result<()> {
-    let listener = TcpListener::bind(addr)?;
+fn listen(addr: SocketAddr, fd: Option<i32>, shared: bool) -> std::io::Result<()> {
+    let listener = match fd {
+        Some(fd) => {
+            use std::os::fd::FromRawFd;
+            // SAFETY: the supervisor put its listening socket on this fd
+            // (src/supervise.rs `LISTEN_FD`) and nothing else here owns it.
+            unsafe { TcpListener::from_raw_fd(fd) }
+        }
+        None => TcpListener::bind(addr)?,
+    };
     let bound = listener.local_addr()?;
     eprintln!("serve: listening on {bound} (service {SERVICE_REMOTE_BROWSER})");
     // The readiness line the app waits for (launch.rs): one flushed stdout line.
-    let mut stdout = std::io::stdout().lock();
-    writeln!(stdout, "{}", crate::launch::listening_line(bound))?;
-    stdout.flush()?;
-    drop(stdout);
-    // The viewer is admitted (its hello carries the secret) before the
-    // welcome: a refused viewer never opens the tab or sends input.
-    let secret = HOST.lock().ok().and_then(|g| g.as_ref().and_then(|h| h.opts.secret.clone()));
-    crate::launch::accept_viewers(listener, secret, crate::launch::HELLO_DEADLINE, |viewer| {
-        match session(viewer) {
+    emit(serde_json::from_str(&crate::launch::listening_line(bound)).unwrap_or(Value::Null));
+    // The viewer is admitted (its hello carries its tab's token) before the
+    // welcome: a refused viewer never opens a tab or sends input.
+    let check: crate::launch::HelloCheck<u32> = Arc::new(|hello| {
+        let tokens = TOKENS.lock().unwrap_or_else(PoisonError::into_inner);
+        crate::launch::authorize_tab(&tokens, hello)
+    });
+    // A viewer connection's number: a reconnect replaces the viewer before it.
+    let conns = Arc::new(AtomicU64::new(0));
+    let run = move |viewer: crate::launch::Admitted, key: u32| {
+        let conn = conns.fetch_add(1, Ordering::Relaxed) + 1;
+        match session(viewer, key, conn) {
             Ok(reason) => eprintln!("serve: session ended: {reason}"),
             Err(e) => eprintln!("serve: session failed: {e}"),
         }
-    });
+    };
+    let deadline = crate::launch::HELLO_DEADLINE;
+    if shared {
+        // Each tab's viewer streams at the same time as the others.
+        crate::launch::accept_viewers_each(listener, deadline, check, Arc::new(run));
+    } else {
+        crate::launch::accept_viewers_with(listener, deadline, check, run);
+    }
     Ok(())
 }
 
@@ -858,8 +1174,9 @@ fn write_rd(stream: &mut TcpStream, control: &RdControl) -> std::io::Result<()> 
     crate::launch::write_control(stream, control)
 }
 
-/// One viewer: the rd handshake here, then frames to the UI thread until EOF.
-fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
+/// One viewer of tab `key`: the rd handshake here, then frames to the UI
+/// thread until EOF.
+fn session(viewer: crate::launch::Admitted, key: u32, conn: u64) -> std::io::Result<String> {
     let crate::launch::Admitted { mut stream, hello, mut deframer } = viewer;
     let mut buf = vec![0u8; 64 * 1024];
     let RdControl::Hello { service, caps, max_datagram, .. } = hello else {
@@ -899,10 +1216,10 @@ fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
             }
         }
     });
-    post_net(Net::Joined { writer: tx, max_datagram });
+    post_net(key, conn, Net::Joined { writer: tx, max_datagram, stream: stream.try_clone().ok() });
     let reason = loop {
         while let Ok(Some((kind, payload))) = deframer.next_frame() {
-            post_net(Net::Frame(kind, payload));
+            post_net(key, conn, Net::Frame(kind, payload));
         }
         match stream.read(&mut buf) {
             Ok(0) => break "viewer left".to_string(),
@@ -911,7 +1228,7 @@ fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
         }
     };
     let _ = stream.shutdown(std::net::Shutdown::Both);
-    post_net(Net::Left);
+    post_net(key, conn, Net::Left);
     let _ = writer.join();
     Ok(reason)
 }
@@ -920,23 +1237,32 @@ fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
 pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
     let cache = std::env::var("CMUX_RB_CACHE_DIR").unwrap_or_else(|_| "/tmp/cmux-rb-host".into());
     let cache = CString::new(cache).unwrap_or_default();
-    let url = opts.url.clone();
+    let t0 = Instant::now();
+    let mut slots = BTreeMap::new();
+    if !opts.shared {
+        // The one tab, opened when its viewer joins; its viewer's token is the secret.
+        slots.insert(ONE_TAB, Slot::new(ONE_TAB, "tab-1", &opts.url, None, t0));
+        if let Some(secret) = opts.secret.clone().filter(|s| !s.is_empty()) {
+            TOKENS.lock().unwrap_or_else(PoisonError::into_inner).push((secret, ONE_TAB));
+        }
+    }
     if let Ok(mut guard) = HOST.lock() {
         *guard = Some(Host {
             opts,
-            tab: HostTab::new(1, 1, &url),
-            viewer: None,
-            t0: Instant::now(),
+            slots,
+            next_key: ONE_TAB + 1,
+            closing: BTreeMap::new(),
+            closing_requests: BTreeMap::new(),
+            t0,
             timer: None,
-            first_frame_seen: false,
-            refresh_wanted: false,
+            listening: false,
         });
     }
     let callbacks = RbCallbacks {
         context: std::ptr::null_mut(),
         on_ready: Some(on_ready),
         on_tab_created: Some(on_tab_created),
-        on_tab_closed: None,
+        on_tab_closed: Some(on_tab_closed),
         on_title: Some(on_title),
         on_url: Some(on_url),
         on_frame: Some(on_frame),

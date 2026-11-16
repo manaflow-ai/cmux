@@ -28,6 +28,7 @@ pub enum Action {
     SidebarWiden,
     Send,
     Steer,
+    Queue,
     Cancel,
     Retry,
     Stop,
@@ -77,6 +78,19 @@ pub struct ActionDef {
 pub fn find(name: &str) -> Option<&'static ActionDef> {
     let n = name.trim_start_matches('/');
     ACTIONS.iter().find(|d| d.name == n || d.aliases.contains(&n))
+}
+
+impl ActionDef {
+    /// The keys help and the palette show: the keymap's bindings, or, for Send and Steer, which
+    /// the composer's Enter runs directly rather than through the keymap, the table's keys.
+    pub fn shown_keys(&self, keymap: &super::keymap::Keymap) -> String {
+        let bound = keymap.hints(self.name);
+        if bound.is_empty() && matches!(self.action, Action::Send | Action::Steer) {
+            self.keys.to_owned()
+        } else {
+            bound
+        }
+    }
 }
 
 pub fn def(action: Action) -> &'static ActionDef {
@@ -274,7 +288,7 @@ impl App {
                     note: String::new(),
                 });
             }
-            let keys = self.keymap.hints(d.name);
+            let keys = d.shown_keys(&self.keymap);
             let label = format!("{}{:<14} {}   {}", self.palette_prefix, d.name, d.label, keys);
             rows.push(PickRow {
                 value: d.name.to_owned(),
@@ -334,6 +348,7 @@ impl App {
             }
             Action::Send => self.send_prompt(false),
             Action::Steer => self.send_prompt(true),
+            Action::Queue => self.send_prompt(false),
             Action::Cancel => self.cancel(),
             Action::Retry => {
                 if let Some(id) = sid {

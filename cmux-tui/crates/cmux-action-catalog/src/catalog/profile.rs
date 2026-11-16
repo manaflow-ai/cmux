@@ -14,6 +14,7 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ProfileActions", "action.space.new", "New Space"),
         keywords: &["room", "profile", "space", "create"],
+        default_shortcut: Some(Shortcut { key: "n", modifiers: CTRL | OPT | CMD }),
         category: "workspace",
         symbol: "circle.badge.plus",
         surfaces: PALETTE | KEYBOARD | MENU | CONTEXT_MENU,
@@ -406,7 +407,7 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ProfileActions", "action.space.next", "Next Space"),
         keywords: &["room", "profile", "space", "switch"],
-        default_shortcut: Some(Shortcut { key: "\u{f703}", modifiers: CTRL | OPT | CMD }),
+        default_shortcut: Some(Shortcut { key: "l", modifiers: CTRL | OPT | CMD }),
         category: "workspace",
         symbol: "chevron.right.circle",
         surfaces: PALETTE | KEYBOARD | MENU,
@@ -421,7 +422,7 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ProfileActions", "action.space.previous", "Previous Space"),
         keywords: &["room", "profile", "space", "switch"],
-        default_shortcut: Some(Shortcut { key: "\u{f702}", modifiers: CTRL | OPT | CMD }),
+        default_shortcut: Some(Shortcut { key: "h", modifiers: CTRL | OPT | CMD }),
         category: "workspace",
         symbol: "chevron.left.circle",
         surfaces: PALETTE | KEYBOARD | MENU,
@@ -475,6 +476,21 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::SPACE_2],
         targets: &["workspace"],
         cli_name: "workspace move-to-space",
+        ..Action::DEFAULT
+    },
+    // A catalog request row (`Action::request`): the app sends the daemon's `room.unpin`, no handler of its own.
+    Action {
+        id: "workspace.unpinFromSpace",
+        group: GROUP,
+        title: t("ProfileActions", "action.workspace.unpinFromSpace", "Unpin Workspace from Space"),
+        keywords: &["room", "profile", "space", "unpin", "remove"],
+        category: "workspace",
+        symbol: "pin.slash",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        targets: &["workspace"],
+        cli_name: "room unpin",
+        request: Some(Request { lane: RequestLane::Session, operation: "room.unpin", params: &[RequestParam { name: "workspace", source: ParamSource::Target("workspace") }] }),
         ..Action::DEFAULT
     },
     Action {

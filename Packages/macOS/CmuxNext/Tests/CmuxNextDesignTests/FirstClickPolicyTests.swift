@@ -101,7 +101,50 @@ struct FirstClickPolicyTests {
         #expect(!press(window, key: nil, modal: true))
     }
 
-    @Test func anAttachedSheetKeepsTheKeys() throws {
+    /// The rule under a sheet, asked with the two values the policy reads (`attachedSheet` of the pressed window,
+    /// `sheetParent` of the key window) set by the test, so it runs the same on each host: a worker with no window
+    /// session attaches no real sheet (`anAttachedSheetKeepsTheKeys`).
+    @Test func aWindowUnderASheetKeepsTheKeys() {
+        let window = SheetedWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled, .resizable],
+                                   backing: .buffered, defer: true)
+        let sheet = SheetPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered,
+                               defer: true)
+        let page = pageWindow(of: window)
+        defer { close(page, sheet, window) }
+        defer { window.removeChildWindow(page) }
+        // With no sheet the same press acts, so each `false` below comes from the sheet and not from these windows.
+        #expect(press(window, key: page))
+        (window.stubbedSheet, sheet.stubbedParent) = (sheet, window)
+        defer { (window.stubbedSheet, sheet.stubbedParent) = (nil, nil) }
+        #expect(!press(window, key: page))
+        #expect(!press(window, key: sheet))
+        #expect(!press(window, key: nil))
+    }
+
+    /// The `keyWindow.sheetParent` clause alone: the key window reports that it is the sheet of another window, one
+    /// that is not the pressed window or the main one. The test sets `sheetParent`; it begins no real sheet, so it
+    /// does not show which windows AppKit puts in this state. A press in this window does not take the keys.
+    @Test func aSheetOnAnotherWindowKeepsTheKeys() {
+        let window = mainWindow()
+        let owner = panel()
+        let sheet = SheetPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered,
+                               defer: true)
+        defer { close(sheet, owner, window) }
+        // The same panel as no window's sheet is a free panel: one press acts.
+        #expect(press(window, key: sheet))
+        sheet.stubbedParent = owner
+        defer { sheet.stubbedParent = nil }
+        #expect(!press(window, key: sheet))
+        #expect(!press(window, key: sheet, main: .some(nil)))
+    }
+
+    /// The rule with a real AppKit sheet: it is the one test that fails if a macOS stops setting `attachedSheet`,
+    /// the value the policy reads. It needs a window session. On a worker with none (no screen, the window gets no
+    /// window number) `beginSheet` shows the sheet and sets its `sheetParent` but leaves the window's
+    /// `attachedSheet` nil, so the `#require` below fails before the policy is asked. There it is skipped, and a
+    /// skip is no pass; `aWindowUnderASheetKeepsTheKeys` asks the rule on each host.
+    @Test(.enabled(if: !NSScreen.screens.isEmpty, "needs a window session: with no screen AppKit attaches no sheet"))
+    func anAttachedSheetKeepsTheKeys() throws {
         let window = mainWindow()
         window.orderFront(nil)
         let sheet = panel()
@@ -143,4 +186,18 @@ struct FirstClickPolicyTests {
         defer { close(borderless) }
         #expect(!press(borderless, key: nil))
     }
+}
+
+/// A window whose `attachedSheet` the test sets: what AppKit reports while a sheet is on the window.
+private final class SheetedWindow: NSWindow {
+    var stubbedSheet: NSWindow?
+
+    override var attachedSheet: NSWindow? { stubbedSheet }
+}
+
+/// A panel whose `sheetParent` the test sets: what AppKit reports for a sheet on that window.
+private final class SheetPanel: NSPanel {
+    weak var stubbedParent: NSWindow?
+
+    override var sheetParent: NSWindow? { stubbedParent }
 }

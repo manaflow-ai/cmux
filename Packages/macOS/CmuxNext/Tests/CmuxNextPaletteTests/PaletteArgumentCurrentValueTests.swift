@@ -16,7 +16,8 @@ struct PaletteArgumentCurrentValueTests {
         let registry = ActionRegistry.standard()
         registry.argumentSuggestions = { source in
             source == ActionSuggestions.cloudTeams
-                ? [ActionEnumCase(value: "team_1", title: "Manaflow"), ActionEnumCase(value: "team_2", title: "Personal")] : []
+                ? [ActionEnumCase(value: "team_1", title: "Manaflow", subtitle: "Team · Team plan", symbol: "person.2"),
+                   ActionEnumCase(value: "team_2", title: "Personal", subtitle: "leo@example.com", symbol: "person")] : []
         }
         registry.choiceState = { id, _ in id == "openTeamPicker" ? "team_2" : nil }
         let flow = PaletteArgumentFlow(registry: registry, descriptor: try Self.descriptor("openTeamPicker"), targets: nil)
@@ -26,8 +27,13 @@ struct PaletteArgumentCurrentValueTests {
         let step = try #require(page, "Team Picker does not list teams inline")
         let items = try #require(step.providers.first as? StaticPaletteProvider).itemsList
         #expect(items.map(\.title) == ["Manaflow", "Personal"])
-        #expect(items.first { $0.id == "option:team_2" }?.accessory == PaletteStrings.current)
-        #expect(items.first { $0.id == "option:team_1" }?.accessory == nil)
+        // One checkmark, on the active team, never a bare "Current" (Leo, 2026-11-09: "what is this?").
+        #expect(items.filter { $0.accessory == PaletteStrings.chosenMark }.map(\.id) == ["option:team_2"])
+        #expect(!items.contains { $0.accessory == PaletteStrings.current })
+        // The person's own team reads as Personal with a person icon; a shared team with people.
+        #expect(items.map(\.symbol) == ["person.2", "person"])
+        // Every row has its second line when the data has one.
+        #expect(items.map(\.subtitle) == ["Team · Team plan", "leo@example.com"])
         #expect(step.emptyQuerySelectionID == "option:team_2")
     }
 

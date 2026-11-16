@@ -113,13 +113,13 @@ extension LayoutRootView {
 }
 
 /// The floating panes' cards (`MainPaneChromeShadeView`): every displayed
-/// pane of the shown screens, cut to what this view shows (a column
-/// scrolled past its edge, a screen sliding in).
+/// pane of the shown screen, cut to what this view shows (a column
+/// scrolled past its edge).
 extension LayoutRootView: PaneCardSource {
     public var paneCardsInWindow: [PaneCard] {
         guard window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor else { return [] }
         let visible = convert(bounds, to: nil)
-        return screenViews.values.filter { !$0.isHidden && $0.alphaValue > 0.01 }.flatMap { screen in
+        return screenViews.values.filter { !$0.isHidden }.flatMap { screen in
             screen.displayedHosts.filter { !$0.isHidden && $0.alphaValue > 0.01 }.compactMap { host in
                 let rect = host.cardInWindow.intersection(visible)
                 return rect.isEmpty ? nil : PaneCard(rect: rect, radius: PaneChromeGeometry.cornerRadius(for: host.contentRect, style: context.style))

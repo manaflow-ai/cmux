@@ -1,6 +1,7 @@
 #if os(iOS)
 import AVFoundation
 public import CmuxMobileRealtime
+import CmuxVNCWebRTC
 import Foundation
 import OSLog
 import WebRTC
@@ -127,6 +128,8 @@ public final class WebRTCVoiceCallLink: VoiceCallLink {
 private final class Peer: NSObject, @unchecked Sendable, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
     // crash-allow: a `let` made once (lazy static init is atomic); libwebrtc's factory is thread-safe.
     nonisolated(unsafe) private static let factory: RTCPeerConnectionFactory = {
+        // The app's one set of libwebrtc field trials, before any factory exists.
+        WebRTCFieldTrials.prepare()
         RTCInitializeSSL()
         return RTCPeerConnectionFactory()
     }()

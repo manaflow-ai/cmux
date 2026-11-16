@@ -13,7 +13,7 @@ import Testing
 /// Codex "Needs permission" card from the second Mac said "Not connected to
 /// your Mac. Nothing was sent." while both Macs read "Connected").
 @MainActor
-@Suite(.serialized) struct MultiMacFeedTests {
+@Suite(.serialized, .timeLimit(.minutes(2))) struct MultiMacFeedTests {
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
     static let teamKey = "cmuxMobile.live.mac.t-multimac-feed"
@@ -77,7 +77,9 @@ import Testing
     }
 
     func settle(_ done: () -> Bool) async {
-        for _ in 0..<3000 where !done() { try? await Task.sleep(for: .milliseconds(1)) }
+        // No deadline of its own: 3000 sleeps ended before a busy kit run's main actor had
+        // applied the state waited for (cmux#40635). The suite's time limit bounds a hang.
+        while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
     }
 
     func deny(_ feed: FeedStore, _ id: String) throws {

@@ -7,8 +7,11 @@
 //! renaming never wait for a disk sync. A kept change's records are `Stream` records, which the
 //! journal writes in its next batch: a line that shows the change waits for that write (a kill
 //! -9 of every process then keeps it). They are appended as kept records
-//! (`cmux_journal::Journal::append_kept`), which the journal syncs in its idle time (10 ms with no
-//! record), with the next acknowledged batch, or the stream sync delay (1 s) later, whichever
+//! (`cmux_journal::Journal::append_kept`), which the journal syncs in its idle time (500 ms with no
+//! record: longer than the gap between two typed keys, so typing costs about two syncs a second, a
+//! barrier and a full one,
+//! rather than one per key, cmuxterm-hq#11322), with the next acknowledged batch (a send), or the
+//! stream sync delay (1 s) later, whichever
 //! comes first; so an OS crash or a power loss takes back at most that last second of drafts and
 //! names, always a suffix, and the next acknowledged change (a prompt) does not sync a burst of
 //! them in its turn (probe job 01189fd6: 316 records, 1.17 MB, 7.3 ms). Before (journal on,
@@ -42,9 +45,12 @@ pub struct Durability {
     pub kept: Arc<AtomicU64>,
     /// The journal's written LSN (`cmux_journal::Journal::on_written`); closed with `durable`.
     pub written: tokio::sync::watch::Receiver<u64>,
-    /// Called when a line waited past the stall limit for the journal (a hung or failing disk:
-    /// its writer retries without end): the store asks the daemon to stop for a restart.
-    pub stalled: Arc<dyn Fn(String) + Send + Sync>,
+    /// Called with how long a line has waited each time it waits another stall interval for the
+    /// journal (`server/durable_gate.rs`). When the journal's writer is failing (a write or sync
+    /// returned an error: it retries without end) the store asks the daemon to stop for a restart
+    /// and this returns true; when the writer is only slow (a sync under way on a saturated disk)
+    /// it logs the wait and returns false, and the line keeps waiting.
+    pub stalled: Arc<dyn Fn(std::time::Duration) -> bool + Send + Sync>,
 }
 
 /// A streamed agent line: a `Stream` record, synced with the next acked batch or a second later,

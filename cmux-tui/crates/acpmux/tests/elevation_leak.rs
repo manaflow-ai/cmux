@@ -146,8 +146,7 @@ impl Daemon {
         std::fs::set_permissions(dir.join("config.json"), std::fs::Permissions::from_mode(0o600))
             .unwrap();
         let socket = dir.join("s.sock");
-        let mut cmd = std::process::Command::new(daemon_env::bin());
-        daemon_env::apply(&mut cmd, dir, daemon_env::Agents::StandIn, &[]);
+        let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
         // On disk, not --memory: the store is what the scan reads. The most verbose log.
         cmd.args(["daemon", "run", "--ready-fd", "1", "--log", "trace", "--person-key-fd", "3"])
             .env("ACPMUX_HOME", dir)

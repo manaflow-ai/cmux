@@ -85,9 +85,14 @@ export const unavailable = (cause?: unknown): ServiceUnavailable => {
 };
 
 /** The request conflicts with the resource's current state (for example, starting a VM that is being deleted). */
+/** Machine-readable reasons a 409 can carry; most conflicts carry none. */
+export const ConflictCode = Schema.Literal("mesh.device.intent_revoked").annotations({
+  description: "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.",
+});
+
 export class Conflict extends Schema.TaggedError<Conflict>()(
   "Conflict",
-  { message: Schema.String, ...CreationRecovery },
+  { message: Schema.String, code: Schema.optional(ConflictCode), ...CreationRecovery },
   HttpApiSchema.annotations({ status: 409 }),
 ) {}
 

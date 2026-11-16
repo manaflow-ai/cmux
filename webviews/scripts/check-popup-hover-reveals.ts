@@ -34,6 +34,11 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ],
   ["agent-session/acpmux/conversation/conversation.css|.cv-message:hover .cv-sent-actions", "copy affordance"],
   ["agent-session/acpmux/conversation/conversation.css|.cv-sent:hover .cv-sent-actions", "copy affordance"],
+  // EditedFilesCard's aggregate opens the turn diff directly; its alternate label owns no popup.
+  [
+    "agent-session/acpmux/conversation/EditedFilesCard.css|.acpmux-edited-summary:hover .acpmux-edited-summary-link",
+    "direct diff navigation label",
+  ],
   ["agent-session/acpmux/conversation/CardCopy.css|.cv-disclosure__panel:hover > .cv-card-copy", "copy affordance"],
   [
     "agent-session/acpmux/conversation/conversation.css|.cv-tool-output__box:hover .cv-tool-output__actions",
@@ -87,7 +92,7 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "look affordance",
   ],
   ["agent-session/acpmux/composerLook.css|.acpmux-composer-under:hover .acpmux-look-dots", "look affordance"],
-  ["pages/changelog/updateSurfaces.css|.wn-card:is(:hover, :focus-within) .wn-card-close", "close affordance"],
+  ["pages/changelog/updateSurfaces.css|.wn-card:is(:hover, :has(:focus-visible)) .wn-card-close", "close affordance"],
   [
     "agent-session/acpmux/needsYou/needsYou.css|.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools",
     "needs-you actions",

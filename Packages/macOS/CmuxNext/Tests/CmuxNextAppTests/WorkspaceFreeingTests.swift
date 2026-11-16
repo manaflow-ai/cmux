@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextHibernation
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -171,7 +172,7 @@ import Testing
     static func make(_ ids: [String]) -> (WorkspaceHibernation, Host, Clock) {
         let host = Host(ids)
         let clock = Clock()
-        let defaults = UserDefaults(suiteName: "WorkspaceFreeingTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "WorkspaceFreeingTests.\(UUID().uuidString)")!
         let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: Deadline(),
                                                now: { clock.now }, terminals: host)
         return (hibernation, host, clock)

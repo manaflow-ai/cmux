@@ -179,19 +179,21 @@ test("a Chief with its own picture keeps it; the others wear the character", asy
 // Mac's optchat-chief while it runs, else the Hosted Chief; This Mac and Hosted force one. It leads
 // the Chiefs card for everyone, and each Chief's own harness stays in its editor.
 const engine = (scope: ParentNode) => scope.querySelector<HTMLElement>('[data-row-key="home.chiefEngine"]');
-const segments = (row: HTMLElement) =>
-  [...row.querySelectorAll<HTMLInputElement>('input[type="radio"]')].map((input) => ({
-    value: input.value,
-    title: input.getAttribute("aria-label"),
-    checked: input.checked,
+const choices = (row: HTMLElement) => {
+  const select = row.querySelector<HTMLSelectElement>("select.ui-select-native")!;
+  return [...select.options].map((option) => ({
+    value: option.value,
+    title: option.textContent,
+    checked: option.value === select.value,
   }));
+};
 
 test("the Chiefs card leads with an Engine row: Auto, This Mac or Hosted, Auto by default", async () => {
   const page = await renderPage({ path: "/settings/chief" });
   const row = engine(card(page.container));
   expect(row).not.toBeNull();
   expect(row!.textContent).toContain("Engine");
-  expect(segments(row!)).toEqual([
+  expect(choices(row!)).toEqual([
     { value: "auto", title: "Auto", checked: true },
     { value: "local", title: "This Mac", checked: false },
     { value: "hosted", title: "Hosted", checked: false },
@@ -205,9 +207,8 @@ test("the Chiefs card leads with an Engine row: Auto, This Mac or Hosted, Auto b
 
 test("picking Hosted writes home.chiefEngine", async () => {
   const page = await renderPage({ path: "/settings/chief" });
-  const hosted = engine(card(page.container))!.querySelector<HTMLInputElement>('input[value="hosted"]')!;
-  await act(async () => hosted.click());
-  await settle();
+  const select = engine(card(page.container))!.querySelector<HTMLSelectElement>("select.ui-select-native")!;
+  await changeValue(select, "hosted");
   expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "home.chiefEngine", value: "hosted" }]);
   page.unmount();
 });

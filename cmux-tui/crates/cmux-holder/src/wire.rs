@@ -596,7 +596,7 @@ const RECV_FLAGS: libc::c_int = 0;
 /// every descriptor that is not close-on-exec. Nothing on the receiving
 /// side can close that window on macOS; only the spawning side can (every
 /// daemon child started with `POSIX_SPAWN_CLOEXEC_DEFAULT` and explicit
-/// `dup2` actions, as `cmux-mux2`'s `spawn_pty` does): `cmux-process`'s
+/// `dup2` actions): `cmux-process`'s
 /// `Command` (review 1 of pl-holder-11, major), which every daemon spawn
 /// moves to. `tests/spawn_race.rs` spawns inside this window.
 ///

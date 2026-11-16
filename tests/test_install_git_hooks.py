@@ -5,17 +5,22 @@ setup.sh runs the installer last under `set -e`, so a non-zero exit reports the
 whole setup as failed. Existing hooks (a global core.hooksPath, or Git LFS's
 hooks in .git/hooks) are left alone with a warning; real errors still fail.
 """
+import errno
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import shlex
 import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 import unittest
+from unittest import mock
 
 
 def _load_git_fixture_env():
@@ -76,8 +81,14 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/cmux-next/prepush-gate.py",
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
+            "scripts/ci/deadline_http.py",
+            "scripts/webviews_bun_version.py",
+            "scripts/check-webviews-bun-version.sh",
         ):
             source, target = SOURCE / relative, root / relative
+            if not source.exists():
+                continue  # a tree from before the file; the installer then fails on it if it needs it
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.is_dir():
                 shutil.copytree(source, target)
@@ -260,7 +271,7 @@ class InstallGitHooksTests(unittest.TestCase):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
         bin_dir = self.root / ("bin-rustfmt" if with_rustfmt else "bin-plain")
         bin_dir.mkdir(exist_ok=True)
-        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mv", "mkdir", "rmdir", "find"):
+        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mv", "mkdir", "rmdir", "find", "tail", "sleep"):
             found = shutil.which(tool)
             if found and not (bin_dir / tool).exists():
                 (bin_dir / tool).symlink_to(found)
@@ -494,9 +505,11 @@ done
         self.stage_web_file("webviews")
         (web / "node_modules/.bin/vp").unlink()
         (web / "bun.lock").write_text("{}\n")
+        (web / "package.json").write_text('{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n')
         env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log))
         bun = Path(env["PATH"]) / "bun"
         bun.write_text(f"""#!/bin/sh
+[ "$1" = --version ] && {{ echo 1.4.4; exit 0; }}
 cat > node_modules/.bin/vp <<'VP'
 {self.FAKE_VP}VP
 {shutil.which("chmod")} +x node_modules/.bin/vp
@@ -515,6 +528,235 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertNotIn("another agent is installing", result.stderr)
         self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
         self.assertFalse(lock.exists(), "the hook releases the lock it took over")
+
+    # A bun that breaks the way bun 1.4 does when BUN_OPTIONS holds `--preload PATH`:
+    # bun prepends the options, and every subcommand but `bun run` then reads as a
+    # script name. `--version` still answers. `install` records its argv[0] and
+    # writes the recording vp.
+    def fake_bun(self, path, version, install_body=None):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        install_body = install_body or f"""printf '%s\\n' "$0" >> {shlex.quote(str(self.root / "bun.log"))}
+cat > node_modules/.bin/vp <<'VP'
+{self.FAKE_VP}VP
+{shutil.which("chmod")} +x node_modules/.bin/vp"""
+        path.write_text(f"""#!/bin/sh
+[ "$1" = --version ] && {{ echo {version}; exit 0; }}
+if [ -n "$BUN_OPTIONS" ]; then echo "error: Script not found \\"$1\\"" >&2; exit 1; fi
+[ "$1" = install ] || exit 0
+mkdir -p node_modules/.bin
+{install_body}
+""")
+        path.chmod(0o755)
+        return path
+
+    def bootstrap_env(self, pin="1.4.4", **extra):
+        """An agent commit (a missing vp is fatal) whose webviews has a bun.lock and no vp."""
+        self.stage_web_file("webviews")
+        web = self.repo / "webviews"
+        (web / "node_modules/.bin/vp").unlink()
+        (web / "bun.lock").write_text("{}\n")
+        (web / "package.json").write_text(
+            '{\n  "devEngines": {\n    "packageManager": {\n      "name": "bun",\n'
+            f'      "version": "{pin}",\n      "onFail": "error"\n    }}\n  }}\n}}\n')
+        env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(self.root / "vp.log"), CMUX_AGENT="1",
+                                 MISE_DATA_DIR=str(self.root / "mise"), ASDF_DATA_DIR=str(self.root / "asdf"),
+                                 BUN_INSTALL=str(self.root / "bun-home"), **extra)
+        env.pop("XDG_DATA_HOME", None)
+        return env
+
+    def test_pre_commit_installs_vp_when_bun_options_carry_a_preload(self):
+        """BUN_OPTIONS=--preload PATH (a shell profile's preload) made `bun install` fail with
+        'Script not found "install"', so every agent commit to webviews stopped at "vp is unavailable"."""
+        self.assertEqual(self.install().returncode, 0)
+        env = self.bootstrap_env(BUN_OPTIONS="--preload /nowhere/preload.js")
+        bun = self.fake_bun(Path(env["PATH"]) / "bun", "1.4.4")
+        try:
+            result = self.run_pre_commit(env)
+        finally:
+            bun.unlink()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
+        self.assertEqual((self.root / "bun.log").read_text().splitlines(), [str(bun)],
+                         "the install runs the bun it resolved, by absolute path")
+
+    def test_pre_commit_installs_with_the_bun_webviews_pins(self):
+        self.assertEqual(self.install().returncode, 0)
+        env = self.bootstrap_env()
+        path_bun = self.fake_bun(Path(env["PATH"]) / "bun", "1.3.0")
+        pinned = self.fake_bun(self.root / "mise/installs/bun/1.4.4/bin/bun", "1.4.4")
+        try:
+            result = self.run_pre_commit(env)
+        finally:
+            path_bun.unlink()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "bun.log").read_text().splitlines(), [str(pinned)], result.stderr)
+
+    def test_a_failed_bootstrap_prints_its_command_tool_version_and_output(self):
+        self.assertEqual(self.install().returncode, 0)
+        env = self.bootstrap_env(BUN_OPTIONS="--preload /nowhere/preload.js", NODE_OPTIONS="--max-old-space-size=512")
+        bun = self.fake_bun(Path(env["PATH"]) / "bun", "1.4.4", install_body=(
+            "echo 'bun install v1.4.4'\n"
+            "echo 'error: lockfile had changes, but lockfile is frozen' >&2\n"
+            "exit 1"))
+        try:
+            result = self.run_pre_commit(env)
+        finally:
+            bun.unlink()
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("vp is unavailable for webviews", result.stderr)
+        for line in (
+            f"command: env -u BUN_OPTIONS {bun} install --frozen-lockfile --ignore-scripts",
+            f"argv[0]: {bun}",
+            f"{bun} --version: 1.4.4",
+            "BUN_OPTIONS: set",
+            "NODE_OPTIONS: set",
+            "bun install v1.4.4",
+            "error: lockfile had changes, but lockfile is frozen",
+        ):
+            self.assertIn(line, result.stderr)
+        self.assertNotIn("/nowhere/preload.js", result.stderr, "only whether BUN_OPTIONS is set, not its value")
+
+    # A bun the checkout carries: any run of it, --version included, leaves the canary.
+    def checkout_payload(self, directory):
+        canary = self.root / "payload-ran"
+        bun = directory / "bin/bun"
+        bun.parent.mkdir(parents=True, exist_ok=True)
+        bun.write_text(f"#!/bin/sh\n: > {shlex.quote(str(canary))}\necho 1.4.4\n")
+        bun.chmod(0o755)
+        return canary
+
+    def test_a_pin_that_walks_out_of_the_install_root_runs_nothing(self):
+        """Codex review of #41001: the pin went unchecked into the mise path, so
+        ../../../repository/payload ran the checkout's payload/bin/bun with no bun on PATH."""
+        self.assertEqual(self.install().returncode, 0)
+        canary = self.checkout_payload(self.repo / "payload")
+        (self.root / "mise/installs/bun").mkdir(parents=True)
+        (self.root / "asdf/installs/bun").mkdir(parents=True)
+        env = self.bootstrap_env(pin="../../../repository/payload")
+        result = self.run_pre_commit(env)
+        self.assertFalse(canary.exists(), result.stderr)
+        self.assertIn("not an exact major.minor.patch version", result.stderr)
+        self.assertNotEqual(result.returncode, 0, "a refused pin refuses the commit")
+        self.assertIn("refusing to install webviews packages", result.stderr)
+
+    def test_a_pinned_install_resolving_into_the_checkout_is_not_run(self):
+        self.assertEqual(self.install().returncode, 0)
+        canary = self.checkout_payload(self.repo / "payload")
+        (self.root / "mise/installs/bun").mkdir(parents=True)
+        (self.root / "mise/installs/bun/1.4.4").symlink_to(self.repo / "payload")
+        env = self.bootstrap_env()
+        result = self.run_pre_commit(env)
+        self.assertFalse(canary.exists(), result.stderr)
+        self.assertIn("outside its install root", result.stderr)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+
+    def test_a_path_bun_inside_the_checkout_is_not_run(self):
+        self.assertEqual(self.install().returncode, 0)
+        canary = self.checkout_payload(self.repo / "tools")
+        env = self.bootstrap_env()
+        env["PATH"] = f"{env['PATH']}{os.pathsep}{self.repo / 'tools/bin'}"
+        result = self.run_pre_commit(env)
+        self.assertFalse(canary.exists(), result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+
+    # devEngines shapes where the first "version" is not bun's (#41001 review, F1): the hook took
+    # the first version inside devEngines, so an npm entry listed first, or a runtime engine before
+    # packageManager, picked the bun it installed with, while check-webviews-bun-version.sh read
+    # another. Both now read scripts/webviews_bun_version.py; on each shape they give one answer.
+    BUN_PIN_SHAPES = {
+        "plain": ({"packageManager": {"name": "bun", "version": "1.4.4", "onFail": "error"}}, "1.4.4"),
+        "npm listed first": ({"packageManager": [
+            {"name": "npm", "version": "10.9.2", "onFail": "ignore"},
+            {"name": "bun", "version": "1.4.4", "onFail": "error"},
+        ]}, "1.4.4"),
+        "runtime engine listed first": ({
+            "runtime": {"name": "node", "version": "24.22.1"},
+            "packageManager": {"name": "bun", "version": "1.4.4", "onFail": "error"},
+        }, "1.4.4"),
+        "no bun entry": ({"packageManager": {"name": "npm", "version": "10.9.2", "onFail": "error"}}, None),
+    }
+
+    def test_a_bun_the_hook_cannot_vouch_for_refuses_the_commit(self):
+        """#41001 review: no trusted reader copy, a refused pin or no bun at the pin used to fall
+        back to PATH's bun by name. Each now refuses with the fix, and the planted PATH bun (outside
+        the checkout, so the resolver alone would let it run) never runs, --version included."""
+        self.assertEqual(self.install().returncode, 0)
+        reader = Path(self.local_hooks_path()) / "webviews_bun_version.py"
+        saved = reader.read_bytes()
+        marker = self.root / "planted-bun-ran"
+        planted = self.root / "planted-bin/bun"
+        planted.parent.mkdir(parents=True, exist_ok=True)
+        planted.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\necho 1.3.0\n")
+        planted.chmod(0o755)
+        no_bun = '{"devEngines": {"packageManager": {"name": "npm", "version": "10.9.2"}}}\n'
+        for case, package_json, remove_reader, says in (
+            ("no trusted reader copy", None, True, "run scripts/install-git-hooks.sh"),
+            ("no bun entry", no_bun, False, "no bun in devEngines.packageManager"),
+            ("no bun at the pin", None, False, "install it: curl -fsSL https://bun.sh/install | bash -s bun-v1.4.4"),
+        ):
+            with self.subTest(case=case):
+                marker.unlink(missing_ok=True)
+                env = self.bootstrap_env()
+                env["PATH"] = f"{planted.parent}{os.pathsep}{env['PATH']}"
+                if package_json is not None:
+                    (self.repo / "webviews/package.json").write_text(package_json)
+                if remove_reader:
+                    reader.unlink()
+                try:
+                    result = self.run_pre_commit(env)
+                finally:
+                    reader.write_bytes(saved)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn(says, result.stderr)
+                self.assertIn("refusing to install webviews packages", result.stderr)
+                self.assertNotIn("PATH's bun", result.stderr)
+                if case == "no bun at the pin":
+                    # Only the pinned candidates are asked their version; none is 1.4.4, so nothing installs.
+                    self.assertFalse((self.root / "bun.log").exists(), result.stderr)
+                else:
+                    self.assertFalse(marker.exists(), f"{case}: the planted PATH bun ran\n{result.stderr}")
+
+    def test_hook_and_version_checker_read_one_bun_pin(self):
+        self.assertEqual(self.install().returncode, 0)
+        old_bun = self.root / "old-bun"
+        old_bun.write_text("#!/bin/sh\necho 0.0.1\n")
+        old_bun.chmod(0o755)
+        for shape, (dev_engines, expected) in self.BUN_PIN_SHAPES.items():
+            with self.subTest(shape=shape):
+                env = self.bootstrap_env()
+                (self.repo / "webviews/package.json").write_text(
+                    json.dumps({"name": "webviews", "devEngines": dev_engines}, indent=2) + "\n")
+                # A bun at every version these shapes name, and an older one on PATH.
+                installed = {version: self.fake_bun(self.root / f"mise/installs/bun/{version}/bin/bun", version)
+                             for version in ("1.4.4", "10.9.2", "24.22.1")}
+                path_bun = self.fake_bun(Path(env["PATH"]) / "bun", "0.0.1")
+                (self.root / "bun.log").unlink(missing_ok=True)
+                try:
+                    result = self.run_pre_commit(env)
+                finally:
+                    path_bun.unlink()
+                ran = (self.root / "bun.log").read_text().splitlines() if (self.root / "bun.log").exists() else []
+                if ran:
+                    self.assertEqual(len(ran), 1, result.stderr)
+                    hook = next(version for version, bun in installed.items() if ran[0] == str(bun))
+                else:
+                    # No pin it accepts: the hook installs with nothing and refuses the commit.
+                    hook = None
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("refusing to install webviews packages", result.stderr)
+                # The checker, on the same package.json, against a bun older than any pin: its
+                # install command names the version it wants, or it refuses the declaration.
+                checked = subprocess.run(["sh", str(self.repo / "scripts/check-webviews-bun-version.sh"), str(old_bun)],
+                                         cwd=self.repo, env=self.env, text=True, capture_output=True)
+                self.assertNotEqual(checked.returncode, 0, checked.stderr)
+                wanted = re.search(r"bun-v([0-9.]+)", checked.stderr)
+                checker = wanted.group(1) if wanted else None
+                self.assertEqual((hook, checker), (expected, expected),
+                                 f"hook stderr: {result.stderr}\nchecker stderr: {checked.stderr}")
+                if expected is None:
+                    self.assertIn("no bun in devEngines.packageManager", result.stderr)
+                    self.assertIn("no bun in devEngines.packageManager", checked.stderr)
 
     def test_skip_variable_commits_without_formatting(self):
         self.assertEqual(self.install().returncode, 0)
@@ -567,6 +809,234 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertIn("rustup toolchain install 1.95.0", result.stderr)
         self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1)
 
+    # A program the checkout carries: any run of it leaves ran-<name>, then it
+    # does the real tool's job (if there is one) so the hook would go on.
+    def plant(self, directory, name):
+        real = shutil.which(name, path=str(self.root / "bin-rustfmt"))
+        marker = self.root / f"ran-{name}"
+        directory.mkdir(parents=True, exist_ok=True)
+        tool = directory / name
+        tool.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n"
+                        + (f'exec {shlex.quote(real)} "$@"\n' if real else "exit 1\n"))
+        tool.chmod(0o755)
+        return marker
+
+    def test_a_checkout_rustup_on_path_never_runs(self):
+        """Codex review of #41001 (F1): rustup was called by name, so a checkout staging Rust
+        files and a rust-toolchain file ran its own rustup put ahead on PATH."""
+        self.assertEqual(self.install().returncode, 0)
+        self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        base = self.formatter_env(with_rustfmt=True)["PATH"]
+        for label, entry, directory in (
+            ("absolute entry", str(self.repo / "tools/bin"), self.repo / "tools/bin"),
+            ("relative entry", "tools/bin", self.repo / "tools/bin"),
+            ("empty entry (the current directory)", "", self.repo),
+        ):
+            with self.subTest(label):
+                marker = self.plant(directory, "rustup")
+                self.rustfmt_log.unlink(missing_ok=True)
+                env = self.formatter_env(with_rustfmt=True)
+                env["PATH"] = f"{entry}{os.pathsep}{base}"
+                result = self.run_pre_commit(env)
+                (directory / "rustup").unlink()
+                self.assertFalse(marker.exists(), result.stderr)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("rustup toolchain install 1.95.0", result.stderr, "PATH's rustfmt formats instead")
+                self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1, result.stderr)
+
+    def test_no_tool_the_checkout_puts_on_path_runs(self):
+        """The whole class: every program the hook runs (git, sed, env, rustfmt, bun...) is
+        resolved outside the checkout, so a checkout's own copy first on PATH never runs."""
+        self.assertEqual(self.install().returncode, 0)
+        self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        env = self.formatter_env(with_rustfmt=True)
+        self.fake_rustup(self.root / "bin-rustfmt", "1.99.0", "/nonexistent")
+        plants = self.repo / "plants/bin"
+        names = ("git", "sed", "grep", "head", "cut", "sort", "awk", "cat", "mkdir", "mv", "rm", "find",
+                 "env", "mktemp", "tail", "sleep", "rustup", "rustfmt", "bun", "npm", "node", "swift-format")
+        markers = [self.plant(plants, name) for name in names]
+        env["PATH"] = f"{plants}{os.pathsep}{env['PATH']}"
+        result = self.run_pre_commit(env)
+        self.assertEqual([marker.name for marker in markers if marker.exists()], [], result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1, result.stderr)
+
+    # A script `sh` runs when the hook's first `git rev-parse` reaches a shell named git.
+    def plant_rev_parse(self):
+        marker = self.root / "checkout-rev-parse-ran"
+        (self.repo / "rev-parse").write_text(f": > {shlex.quote(str(marker))}\n")
+        return marker
+
+    def test_a_checkout_link_named_git_to_an_outside_shell_never_runs(self):
+        """Codex review of #41001 (F1): only the final target was checked, so a tracked
+        tools/bin/git -> /bin/sh passed, and the hook's `git rev-parse` ran the checkout's rev-parse."""
+        self.assertEqual(self.install().returncode, 0)
+        marker = self.plant_rev_parse()
+        tools = self.repo / "tools/bin"
+        tools.mkdir(parents=True)
+        (tools / "git").symlink_to("/bin/sh")
+        self.git("add", "tools/bin/git")
+        env = self.formatter_env(with_rustfmt=False)
+        env["PATH"] = f"{tools}{os.pathsep}{env['PATH']}"
+        result = self.run_pre_commit(env)
+        self.assertFalse(marker.exists(), result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+        self.assertEqual(result.returncode, 0, "PATH's real git runs instead\n" + result.stderr)
+
+    # A webviews package with a package-lock.json and no vp: the hook installs it with the
+    # PATH npm, an outside script whose `#!/usr/bin/env <interpreter>` looks its interpreter up.
+    def npm_bootstrap_env(self, interpreter="node"):
+        env = self.bootstrap_env()
+        web = self.repo / "webviews"
+        (web / "bun.lock").unlink()
+        (web / "package-lock.json").write_text('{"packages": {}}\n')
+        npm = self.root / "npm-bin/npm"
+        npm.parent.mkdir(exist_ok=True)
+        npm.write_text(f"#!/usr/bin/env {interpreter}\nexit 1\n")
+        npm.chmod(0o755)
+        env["PATH"] = f"{npm.parent}{os.pathsep}{env['PATH']}"
+        return env
+
+    def checkout_interpreter(self, name):
+        """A program in the checkout that leaves its marker when it runs."""
+        marker = self.root / f"checkout-{name}-ran"
+        payload = self.repo / "payload-bin" / name
+        payload.parent.mkdir(exist_ok=True)
+        real = shutil.which(name, path=str(self.root / "bin-plain"))
+        payload.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n"
+                           + (f'exec {shlex.quote(real)} "$@"\n' if real else "exit 1\n"))
+        payload.chmod(0o755)
+        return payload, marker
+
+    def test_an_outside_node_linking_into_the_checkout_never_runs_for_npm(self):
+        """Codex review of #41001 (F2): the children's PATH dropped checkout directories but kept an
+        outside directory holding node -> <checkout>/payload, so npm's `#!/usr/bin/env node` ran it."""
+        self.assertEqual(self.install().returncode, 0)
+        payload, marker = self.checkout_interpreter("node")
+        outside = self.root / "outside-bin"
+        outside.mkdir()
+        (outside / "node").symlink_to(payload)
+        env = self.npm_bootstrap_env()
+        env["PATH"] = f"{env['PATH']}{os.pathsep}{outside}"
+        result = self.run_pre_commit(env)
+        self.assertFalse(marker.exists(), result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+        # npm's `env node` finds no checked node, and says so instead of a bare not-found.
+        self.assertIn("node is in CHILD_TOOLS (scripts/git-hooks/pre-commit), but PATH has no copy of it"
+                      " outside this checkout", result.stderr)
+
+    def symlink_layouts(self, name, payload):
+        """(label, PATH entry) for each layout that steers a lookup of name at payload in the checkout."""
+        layouts = []
+
+        def place(label, directory):
+            layouts.append((label, str(directory)))
+            return directory
+
+        d = place("a file in a checkout directory", self.repo / f"lay-file-{name}")
+        d.mkdir()
+        shutil.copy2(payload, d / name)
+        d = place("an outside link to a checkout file", self.root / f"lay-link-{name}")
+        d.mkdir()
+        (d / name).symlink_to(payload)
+        d = place("a relative outside link into the checkout", self.root / f"lay-relative-{name}")
+        d.mkdir()
+        (d / name).symlink_to(os.path.relpath(payload, d))
+        place("an outside directory linking to a checkout directory",
+              self.root / f"lay-dirlink-{name}").symlink_to(payload.parent, target_is_directory=True)
+        hop = self.root / f"lay-dirhop-{name}"
+        hop.symlink_to(payload.parent, target_is_directory=True)
+        place("chained outside directory links into the checkout",
+              self.root / f"lay-dirchain-{name}").symlink_to(hop, target_is_directory=True)
+        d = place("chained file links through the checkout", self.root / f"lay-chain-{name}")
+        d.mkdir()
+        outside_hop = self.root / f"lay-chain-hop2-{name}"
+        outside_hop.symlink_to(payload)
+        checkout_hop = self.repo / f"lay-chain-hop1-{name}"
+        checkout_hop.symlink_to(outside_hop)
+        (d / name).symlink_to(checkout_hop)
+        d = place("an outside directory linking to checkout links",
+                  self.root / f"lay-mixed-{name}")
+        d.symlink_to(self.repo / f"lay-mixed-target-{name}", target_is_directory=True)
+        (self.repo / f"lay-mixed-target-{name}").mkdir()
+        (self.repo / f"lay-mixed-target-{name}" / name).symlink_to(payload)
+        if name == "git":
+            # The F1 class: a link the checkout controls, whose final target is an outside program.
+            d = place("a checkout link to an outside shell", self.repo / "lay-shell")
+            d.mkdir()
+            (d / "git").symlink_to("/bin/sh")
+            d = place("an outside link through a checkout link to an outside shell", self.root / "lay-shell-chain")
+            d.mkdir()
+            (self.repo / "lay-shell-hop").symlink_to("/bin/sh")
+            (d / "git").symlink_to(self.repo / "lay-shell-hop")
+        return layouts
+
+    def test_no_symlink_layout_runs_anything_under_the_checkout(self):
+        """The class behind F1 and F2: every name the hook or its children run goes through one
+        checked resolver that rejects any hop inside the checkout. For git (run by the hook), node
+        and sh (run by an npm's shebang), every layout of links and directories that would steer the
+        name into the checkout runs nothing there."""
+        self.assertEqual(self.install().returncode, 0)
+        self.formatter_env(with_rustfmt=False)  # makes bin-plain for the payloads' real tools
+        rev_parse = self.plant_rev_parse()
+        for name in ("git", "node", "sh"):
+            payload, marker = self.checkout_interpreter(name)
+            for label, entry in self.symlink_layouts(name, payload):
+                with self.subTest(name=name, layout=label):
+                    marker.unlink(missing_ok=True)
+                    rev_parse.unlink(missing_ok=True)
+                    env = self.npm_bootstrap_env(name) if name != "git" else self.formatter_env(with_rustfmt=False)
+                    env["PATH"] = f"{entry}{os.pathsep}{env['PATH']}"
+                    result = self.run_pre_commit(env)
+                    self.assertEqual([m.name for m in (marker, rev_parse) if m.exists()], [], result.stderr)
+                    self.assertIn("inside this checkout", result.stderr)
+                    if name == "git":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_child_running_a_tool_not_in_child_tools_names_it(self):
+        """A child of the hook that needs a tool missing from CHILD_TOOLS got a bare
+        command-not-found; by name, by exec and by shebang it now names the tool and the list.
+        A hidden executable (.hidden-tool) is a tool like any other: the review of #41254
+        found every name starting with "." skipped. Executability decides, not the name."""
+        self.assertEqual(self.install().returncode, 0)
+        marker = self.root / "unlisted-ran"
+        extra = self.root / "extra-bin"
+        extra.mkdir()
+        for tool in ("frobnicate", ".hidden-tool"):
+            unlisted = extra / tool
+            unlisted.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n")
+            unlisted.chmod(0o755)
+            script = self.root / f"child-script{tool}"
+            script.write_text(f"#!/usr/bin/env {tool}\n")
+            script.chmod(0o755)
+            for how, call in (("by name", f"{tool} --version"),
+                              ("by exec", f"exec {tool} --version"),
+                              ("by shebang", shlex.quote(str(script)))):
+                with self.subTest(tool=tool, how=how):
+                    marker.unlink(missing_ok=True)
+                    result = self.run_child_with_extra_path(extra, call)
+                    self.assertFalse(marker.exists(), "an unlisted tool never runs\n" + result.stderr)
+                    self.assertIn(f"{tool} isn't in CHILD_TOOLS (scripts/git-hooks/pre-commit)", result.stderr)
+                    self.assertIn("exit 127", result.stderr)
+        # A file on PATH that is not executable is no tool: no stub claims it is one.
+        inert = extra / "inert-file"
+        inert.write_text("#!/bin/sh\n")
+        inert.chmod(0o644)
+        result = self.run_child_with_extra_path(extra, "inert-file --version")
+        self.assertNotIn("inert-file isn't in CHILD_TOOLS", result.stderr)
+        self.assertIn("exit 127", result.stderr)
+
+    def run_child_with_extra_path(self, extra, call):
+        env = self.bootstrap_env()
+        env["PATH"] = f"{env['PATH']}{os.pathsep}{extra}"
+        bun = self.fake_bun(Path(env["PATH"].split(os.pathsep)[0]) / "bun", "1.4.4", install_body=call)
+        try:
+            return self.run_pre_commit(env)
+        finally:
+            bun.unlink()
+
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -581,10 +1051,6 @@ cat > node_modules/.bin/vp <<'VP'
 
         self.assertEqual(installed_driver.read_bytes(), reviewed)
         self.assertNotEqual(installed_driver.resolve(), (self.repo / "scripts" / "merge-pbxproj.py").resolve())
-
-    def commit_all(self, message):
-        self.git("add", "-A")
-        self.git("commit", "--quiet", "-m", message)
 
     def test_generated_web_bundles_keep_ours_and_sources_still_conflict(self):
         shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
@@ -997,6 +1463,120 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
         self.git("merge", "--abort")
 
+    def test_typescript_imports_merge_per_name(self):
+        """Two branches that each import a new name from one module change that module's one
+        import line; the merge keeps both names. A name either side dropped stays dropped, and
+        a line both sides changed below the imports is still the author's conflict."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        app = self.repo / "webviews/src/demo/App.tsx"
+        app.parent.mkdir(parents=True, exist_ok=True)
+        head = 'import React, { useMemo, useState } from "react";\nimport { a, b } from "./ab";\n'
+        body = "\nexport function App() {\n  return null;\n}\n"
+        app.write_text(head + 'import { old } from "./old";\n' + body)
+        self.commit_all("base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+
+        def branch(name, text):
+            self.git("checkout", "--quiet", "-b", name, base)
+            app.write_text(text)
+            self.commit_all(name)
+
+        # Same line, a name each; a new statement on one side; a name one side dropped.
+        branch("lane", 'import React, { useMemo, useRef, useState } from "react";\nimport { a, b, c } from "./ab";\n'
+                       'import { old } from "./old";\nimport { lane } from "./lane";\n' + body)
+        branch("trunk", 'import React, { useEffect, useMemo, useState } from "react";\nimport { a } from "./ab";\n'
+                       'import { old, other } from "./old";\n' + body)
+        merged = self.git("merge", "--no-edit", "lane", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(app.read_text(), 'import React, { useEffect, useMemo, useState, useRef } from "react";\n'
+                                          'import { a, c } from "./ab";\nimport { old, other } from "./old";\n'
+                                          'import { lane } from "./lane";\n' + body)
+
+        # A statement one side removed whole, while the other left it as it was, goes.
+        branch("drop", head + body)
+        branch("keep", head + 'import { old } from "./old";\nimport { keep } from "./keep";\n' + body)
+        merged = self.git("merge", "--no-edit", "drop", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(app.read_text(), head + 'import { keep } from "./keep";\n' + body)
+
+        # A line past the print width breaks one name per line, as the formatter writes it.
+        long_names = [f"someLongExportedName{index}" for index in range(6)]
+        branch("long-a", head.replace("a, b }", "a, b, " + ", ".join(long_names[:3]) + " }") + 'import { old } from "./old";\n' + body)
+        branch("long-b", head.replace("a, b }", "a, b, " + ", ".join(long_names[3:]) + " }") + 'import { old } from "./old";\n' + body)
+        merged = self.git("merge", "--no-edit", "long-a", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        names = ["a", "b", *long_names[3:], *long_names[:3]]
+        self.assertIn("import {\n" + "".join(f"  {name},\n" for name in names) + '} from "./ab";\n', app.read_text())
+
+        # Both sides changing the default import, or one statement's lines with a comment in
+        # them, leave the file to the line merge: still a conflict.
+        branch("default-a", head.replace("import React,", "import ReactA,") + 'import { old } from "./old";\n' + body)
+        branch("default-b", head.replace("import React,", "import ReactB,") + 'import { old } from "./old";\n' + body)
+        clash = self.git("merge", "--no-edit", "default-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", app.read_text())
+        self.git("merge", "--abort")
+        branch("comment-a", head.replace("{ a, b }", "{ a, b /* why */, x }") + 'import { old } from "./old";\n' + body)
+        branch("comment-b", head.replace("{ a, b }", "{ a, b, y }") + 'import { old } from "./old";\n' + body)
+        clash = self.git("merge", "--no-edit", "comment-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.git("merge", "--abort")
+
+        # The order is merged too: side-effect imports run in it, so theirs moving one wins
+        # over ours leaving it, and a namespace one side renamed is the new name.
+        effects = 'import "./reset.css";\nimport "./polyfill";\nimport * as A from "./a";\n'
+        branch("effects-base", effects + body)
+        effects_base = self.git("rev-parse", "HEAD").stdout.strip()
+        app.write_text('import "./polyfill";\nimport "./reset.css";\nimport * as B from "./a";\n' + body)
+        self.commit_all("reorder and rename")
+        self.git("checkout", "--quiet", "-b", "effects-ours", effects_base)
+        app.write_text(effects + 'import { q } from "./q";\n' + body)
+        self.commit_all("add q")
+        merged = self.git("merge", "--no-edit", "effects-base", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(app.read_text(), 'import "./polyfill";\nimport "./reset.css";\nimport * as B from "./a";\n'
+                                          'import { q } from "./q";\n' + body)
+
+        # Left to the line merge, and so still conflicts: a name added as a value on one side and
+        # a type on the other (declared twice), a statement one side changed and the other
+        # deleted, a line that is not an import put among them (a directive), and CRLF files.
+        for name, ours_text, theirs_text in (
+            ("value-type", head.replace("a, b", "a, b, C"), head.replace("a, b", "a, b, type C")),
+            ("change-delete", head.replace("a, b", "a, b, c"), head.replace('import { a, b } from "./ab";\n', "")),
+            ("directive", head.replace("a, b", "a, b, c"), '"use client";\n' + head.replace("a, b", "a, b, d")),
+        ):
+            branch(name + "-a", ours_text + 'import { old } from "./old";\n' + body)
+            branch(name + "-b", theirs_text + 'import { old } from "./old";\n' + body)
+            clash = self.git("merge", "--no-edit", name + "-a", check=False)
+            self.assertNotEqual(clash.returncode, 0, name)
+            self.git("merge", "--abort")
+        crlf = lambda text: text.replace("\n", "\r\n").encode()
+        self.git("checkout", "--quiet", "-b", "crlf-base", base)
+        app.write_bytes(crlf(head + body))
+        self.commit_all("crlf base")
+        crlf_base = self.git("rev-parse", "HEAD").stdout.strip()
+        app.write_bytes(crlf(head.replace("a, b", "a, b, c") + body))
+        self.commit_all("crlf c")
+        self.git("checkout", "--quiet", "-b", "crlf-d", crlf_base)
+        app.write_bytes(crlf(head.replace("a, b", "a, b, d") + body))
+        self.commit_all("crlf d")
+        clash = self.git("merge", "--no-edit", "crlf-base", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.git("merge", "--abort")
+
+        # The imports merge and a line both sides changed in the body stays a conflict.
+        branch("body-a", head.replace("a, b", "a, b, x") + 'import { old } from "./old";\n' + body.replace("null", "1"))
+        branch("body-b", head.replace("a, b", "a, b, y") + 'import { old } from "./old";\n' + body.replace("null", "2"))
+        clash = self.git("merge", "--no-edit", "body-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertTrue(app.read_text().startswith('import React, { useMemo, useState } from "react";\nimport { a, b, y, x } from "./ab";\n'),
+                        app.read_text())
+        self.assertIn("<<<<<<<", app.read_text())
+        self.git("merge", "--abort")
+
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
         tools.mkdir()
@@ -1048,6 +1628,31 @@ cat > node_modules/.bin/vp <<'VP'
         # Direct pushes land on feat-cmux-next, whose pre-commit formats more
         # than main's; pulling it must install that copy, not keep an old one.
         self.assert_trusted_post_merge_reinstalls("feat-cmux-next")
+
+    def test_post_merge_keeps_legacy_masker_trust_without_copy_manifest(self):
+        """An older trusted branch may have no checks-copy-inputs, but its installer still copies the masker.
+        A dirty masker must stop the auto-install before the legacy trust path is dropped."""
+        hook = self.repo / "scripts/git-hooks/post-merge"
+        manifest = self.repo / "scripts/git-hooks/checks-copy-inputs"
+        manifest.unlink()
+        marker = self.root / "installer-ran"
+        installer = self.repo / INSTALLER
+        installer.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n", encoding="utf-8")
+        installer.chmod(0o755)
+        self.git("add", "-A")
+        self.git("-c", "user.name=Merge Test", "-c", "user.email=merge@example.invalid", "commit", "-qm",
+                 "legacy trusted branch")
+        trusted = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("remote", "add", "upstream", self.CANONICAL)
+        self.git("update-ref", "refs/remotes/upstream/main", trusted)
+        masker = self.repo / "scripts/swift_source_mask.py"
+        masker.write_bytes(masker.read_bytes() + b"\n# dirty candidate\n")
+
+        result = subprocess.run(["/bin/bash", str(hook)], cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "post-merge ran the installer over a dirty legacy masker")
+        self.assertIn("differ from trusted main", result.stderr)
 
     def assert_trusted_post_merge_reinstalls(self, branch):
         hook = self.repo / "scripts/git-hooks/post-merge"
@@ -1121,6 +1726,61 @@ cat > node_modules/.bin/vp <<'VP'
         rule.write_text("RULE = 'from the working tree'\n")
         return old, new
 
+    # 2026-11-10: about nine agents' pre-push hooks ran at once on one Mac (load average 300-770); every gate ran
+    # past its limit and no push finished. The hook now takes a turn: CMUX_PREPUSH_SLOTS at once on the Mac.
+    def queued_hooks(self, count, **settings):
+        """Run COUNT installed pre-push hooks at once, each with a web lint that takes 0.5 s and writes when it
+        started and ended; returns the (start, end) pairs in start order and the hooks' output."""
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        log = self.root / "lint-times"
+        (hook_dir / "web_lint_prepush.py").write_text(
+            "import os, time\n"
+            f"log = {str(log)!r}\n"
+            "started = time.time()\n"
+            "time.sleep(0.5)\n"
+            "with open(log, 'a') as out:\n"
+            "    out.write(f'{started} {time.time()}\\n')\n")
+        (hook_dir / "cmux_next_prepush_gate.py").write_text("")
+        (self.repo / "file").write_text("x\n")
+        head = self.commit_all("a commit to push")
+        queue = self.root / "queue"
+        queue.mkdir()
+        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), **settings)
+        logs = [open(self.root / f"hook-{index}.log", "w+") for index in range(count)]
+        for handle in logs:
+            self.addCleanup(handle.close)
+        # Output goes to files: the hooks are read one after another, and a full pipe would block one.
+        hooks = [subprocess.Popen([str(hook_dir / "pre-push"), "origin", "https://example.invalid/x.git"],
+                                  stdin=subprocess.PIPE, stdout=logs[index], stderr=subprocess.STDOUT, text=True,
+                                  cwd=self.repo, env=env) for index in range(count)]
+        for hook in hooks:
+            hook.stdin.write(f"refs/heads/topic {head} refs/heads/topic {'0' * 40}\n")
+            hook.stdin.close()
+        output = []
+        for hook, handle in zip(hooks, logs):
+            code = hook.wait(timeout=120)
+            handle.seek(0)
+            output.append(handle.read())
+            self.assertEqual(code, 0, output[-1])
+        times = sorted(tuple(float(part) for part in line.split()) for line in log.read_text().splitlines())
+        self.assertEqual(len(times), count)
+        return times, output
+
+    def test_pre_push_hooks_on_one_mac_check_one_after_another(self):
+        times, output = self.queued_hooks(3, CMUX_PREPUSH_SLOTS="1")
+        for (_, ended), (started, _) in zip(times, times[1:]):
+            self.assertLessEqual(ended, started, f"two hooks checked at once: {times}")
+        self.assertTrue(any("waiting for a turn" in text for text in output), output)
+        self.assertTrue(all("hook times: queue " in text for text in output), output)
+
+    def test_pre_push_queue_never_refuses_a_push_it_cannot_seat(self):
+        # Past the wait budget the hook checks anyway: a stuck holder must not stop every push on the Mac.
+        times, output = self.queued_hooks(2, CMUX_PREPUSH_SLOTS="1", CMUX_PREPUSH_QUEUE_WAIT_SECONDS="0")
+        self.assertEqual(len(times), 2)
+        self.assertTrue(all("pre-push: passed" in text for text in output), output)
+
     def test_pre_push_refreshes_a_stale_checks_copy_from_the_fetched_feat_cmux_next(self):
         _old, new = self.stale_install()
         result = self.refresh()
@@ -1149,6 +1809,123 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.installed_checks() / "swift_source_mask.py").read_bytes(),
                          (SOURCE / "scripts/swift_source_mask.py").read_bytes(), "the refreshed copy has no masker")
+
+    def test_installed_and_refreshed_checks_carry_the_shared_workflow_resolver(self):
+        # check-single-host-fallbacks.py reads runs-on through tests/workflow_jobs.py, and the hook runs its copy from
+        # the checks folder (it never reads the pushed one), so both the install and a refresh put it beside it.
+        resolver = self.repo / "tests/workflow_jobs.py"
+        if not resolver.is_file():
+            resolver.parent.mkdir(parents=True, exist_ok=True)
+            resolver.write_bytes((SOURCE / "tests/workflow_jobs.py").read_bytes())
+        self.stale_install()
+        self.assertTrue((self.installed_checks() / "workflow_jobs.py").is_file(), "the install has no resolver")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "workflow_jobs.py").read_bytes(),
+                         (SOURCE / "tests/workflow_jobs.py").read_bytes(), "the refreshed copy has no resolver")
+
+    COPY_INPUTS = "scripts/git-hooks/checks-copy-inputs"
+
+    def copy_sources(self):
+        """The source of every entry of the copy's input list (`source -> destination` names its source first)."""
+        lines = (self.repo / self.COPY_INPUTS).read_text(encoding="utf-8").splitlines()
+        return [line.strip().split(" -> ")[0].strip() for line in lines
+                if line.strip() and not line.strip().startswith("#")]
+
+    def installed_pairs(self):
+        """The (source, destination) pairs the install or refresh says it copied (the copy's .pairs)."""
+        rows = (self.installed_checks() / ".pairs").read_text(encoding="utf-8").splitlines()
+        return [tuple(row.split("\t")) for row in rows if row]
+
+    def test_a_change_to_the_resolver_alone_marks_the_install_stale(self):
+        # Codex on #40894: the install copies tests/workflow_jobs.py beside the checks, but the stamp covered only
+        # scripts/cmux-next, so a feat-cmux-next that changed the resolver alone never reached the installed hooks.
+        resolver = self.repo / "tests/workflow_jobs.py"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_bytes((SOURCE / "tests/workflow_jobs.py").read_bytes())
+        self.stale_install()
+        self.git("checkout", "-q", "--", ".")
+        self.assertEqual(self.refresh().returncode, 0)  # current at the newer rule
+        resolver.write_bytes(resolver.read_bytes() + b"\n# a resolver-only change\n")
+        newer = self.commit_all("resolver only")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newer)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "workflow_jobs.py").read_bytes(), resolver.read_bytes(),
+                         "a resolver-only change on feat-cmux-next did not reach the installed checks")
+        self.assertIn(newer[:12], result.stdout + result.stderr)
+
+    def test_every_file_the_install_copies_is_in_the_stamp_input(self):
+        # The install copies exactly the (source, destination) pairs refresh_checks.py makes of
+        # scripts/git-hooks/checks-copy-inputs, records them (.pairs) and stamps the copy from them, and a refresh does
+        # the same at its commit; post-merge trusts a checkout only when no source differs. A source installed under
+        # another name (`source -> destination`) is one pair like any other.
+        resolver = self.repo / "tests/workflow_jobs.py"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_bytes((SOURCE / "tests/workflow_jobs.py").read_bytes())
+        inputs = self.repo / self.COPY_INPUTS
+        inputs.write_text(inputs.read_text(encoding="utf-8")
+                          + "scripts/ci/base_merge_warning.py -> renamed_merge_warning.py\n", encoding="utf-8")
+        self.git("remote", "add", "origin", self.CANONICAL)
+        head = self.commit_all("trusted")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", head)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        copy = self.installed_checks()
+        pairs = self.installed_pairs()
+        self.assertIn(("scripts/ci/base_merge_warning.py", "renamed_merge_warning.py"), pairs)
+        self.assertIn(("tests/workflow_jobs.py", "workflow_jobs.py"), pairs)
+        installed = sorted(path.relative_to(copy).as_posix() for path in copy.rglob("*")
+                           if path.is_file() and path.name not in (".in-use", ".source", ".pairs"))
+        self.assertEqual(installed, sorted(destination for _, destination in pairs),
+                         "the install copied a file its pairs (the stamp's input) do not name, or the reverse")
+        for source, destination in pairs:
+            self.assertEqual((copy / destination).read_bytes(), (self.repo / source).read_bytes(), destination)
+        # The stamp is the one refresh_checks.py derives from the same pairs at the same commit.
+        python3 = (self.common_dir() / "cmux-git-hooks" / "python3-path").read_text(encoding="utf-8").strip()
+        derived = subprocess.run([python3, "-I", "scripts/git-hooks/refresh_checks.py", "--repo", str(self.repo),
+                                  "--stamp", head], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(derived.returncode, 0, derived.stderr)
+        self.assertEqual((copy / ".source").read_text().split(), derived.stdout.split())
+        self.assertEqual(derived.stdout.split()[0], head)
+        self.assertEqual(self.refresh().stdout + self.refresh().stderr, "", "a current install was refreshed")
+        # A change to the renamed source alone marks the install stale and reaches its destination.
+        warning = self.repo / "scripts/ci/base_merge_warning.py"
+        warning.write_bytes(warning.read_bytes() + b"\n# renamed source only\n")
+        newer = self.commit_all("renamed source only")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newer)
+        refreshed = self.refresh()
+        self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+        self.assertIn(newer[:12], refreshed.stdout + refreshed.stderr)
+        self.assertEqual((copy / "renamed_merge_warning.py").read_bytes(), warning.read_bytes())
+        self.assertEqual(self.installed_pairs(), pairs, "a refresh copied other pairs than the install")
+        # Each source a stamp reads is an input post-merge refuses to trust when it differs from the trusted branch.
+        self.git("update-ref", "refs/remotes/origin/main", newer)
+        for entry in [self.COPY_INPUTS, *self.copy_sources()]:
+            path = self.repo / (entry + "prepush-gate.py" if entry.endswith("/") else entry)
+            reviewed = path.read_bytes()
+            try:
+                path.write_bytes(reviewed + b"\n# dirty candidate\n")
+                hook = subprocess.run(["/bin/bash", "scripts/git-hooks/post-merge"], cwd=self.repo, env=self.env,
+                                      text=True, capture_output=True)
+                self.assertEqual(hook.returncode, 0, hook.stderr)
+                self.assertIn("differ from trusted main", hook.stderr, entry)
+            finally:
+                path.write_bytes(reviewed)
+
+    def test_a_refresh_puts_the_release_download_fallback_beside_the_gate(self):
+        # #38454 review: the gate loads scripts/ci/github_release_download.py from beside itself, so a refresh that
+        # rewrites the gate rewrites the helper from the same feat-cmux-next.
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        self.stale_install()
+        (hook_dir / "github_release_download.py").unlink()  # an install from before the helper
+        helper = self.repo / "scripts/ci/github_release_download.py"
+        helper.write_text(helper.read_text() + "# newer\n")
+        self.commit_all("newer helper")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.git("rev-parse", "HEAD").stdout.strip())
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((hook_dir / "github_release_download.py").read_bytes(), helper.read_bytes())
 
     def test_refresh_leaves_other_pushes_and_lookalike_remotes_alone(self):
         self.stale_install()
@@ -1356,6 +2133,741 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(f"pid {holder.pid}", result.stderr)
         self.assertNotIn("85305", result.stderr)
+
+
+
+def _load_refresh_checks():
+    spec = importlib.util.spec_from_file_location("refresh_checks", SOURCE / "scripts/git-hooks/refresh_checks.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class CopyInputsConfinementTests(unittest.TestCase):
+    """Codex on #40894 (F1, security): checks-copy-inputs names a source in the repository and a destination in the
+    checks copy, and the install (install_copy) and a pre-push refresh (refresh) copy through it. An entry whose
+    source leaves the repository (absolute, `..`, a symlink out) would read any local file into the hook folder, and
+    one whose destination leaves the copy would overwrite any local file. Each form is refused, by name, before any
+    file is written; legitimate entries still copy."""
+
+    INPUTS = "scripts/git-hooks/checks-copy-inputs"
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-copy-inputs-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        # ../../outside from the repository and from the stage both land in OUTSIDE.
+        self.repo = self.root / "r" / "repo"
+        self.hook_dir = self.root / "h"
+        self.stage = self.hook_dir / "stage"
+        self.outside = self.root / "outside"
+        for folder in (self.repo / "scripts/cmux-next", self.repo / "scripts/git-hooks", self.stage, self.outside):
+            folder.mkdir(parents=True)
+        (self.outside / "secret").write_text("SECRET\n")
+        (self.outside / "victim").write_text("VICTIM\n")
+        (self.repo / "scripts/ok.py").write_text("OK = 1\n")
+        (self.repo / "scripts/cmux-next/check.py").write_text("CHECK = 1\n")
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, HOME=str(self.root))
+        git_fixture_env.without_auto_maintenance(self.env)
+        self.git("init", "--quiet", "--initial-branch=main")
+        self.rc = _load_refresh_checks()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, text=True, capture_output=True,
+                              check=True).stdout
+
+    def commit(self, inputs):
+        (self.repo / self.INPUTS).write_text(inputs)
+        self.git("add", "-A")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "--allow-empty", "-qm", "inputs")
+        return self.git("rev-parse", "HEAD").strip()
+
+    def snapshot(self, folder):
+        out = {}
+        for dirpath, dirnames, filenames in os.walk(folder):
+            for name in dirnames + filenames:
+                path = Path(dirpath) / name
+                out[str(path.relative_to(folder))] = (os.readlink(path) if path.is_symlink()
+                                                      else None if path.is_dir() else path.read_bytes())
+        return out
+
+    def assert_install_refused(self, entry, rule, names):
+        before_stage, before_outside = self.snapshot(self.stage), self.snapshot(self.outside)
+        self.commit(f"scripts/cmux-next/\n{entry}\n")
+        with self.assertRaises(ValueError) as caught:
+            self.rc.install_copy(self.repo, self.stage)
+        message = str(caught.exception)
+        self.assertIn(names, message)
+        self.assertIn(rule, message)
+        self.assertEqual(self.snapshot(self.stage), before_stage, "a refused install wrote into the stage")
+        self.assertEqual(self.snapshot(self.outside), before_outside, "a refused install wrote outside")
+
+    def assert_refresh_refused(self, entry, rule, names):
+        commit = self.commit(f"scripts/cmux-next/\n{entry}\n")
+        before_hooks, before_outside = self.snapshot(self.hook_dir), self.snapshot(self.outside)
+        with self.assertRaises(ValueError) as caught:
+            self.rc.refresh(self.repo, self.hook_dir, commit)
+        self.assertIn(names, str(caught.exception))
+        self.assertIn(rule, str(caught.exception))
+        self.assertEqual(self.snapshot(self.hook_dir), before_hooks, "a refused refresh wrote into the hook folder")
+        self.assertEqual(self.snapshot(self.outside), before_outside, "a refused refresh wrote outside")
+
+    def assert_refused(self, entry, rule, refresh=True, names=None):
+        """ENTRY is refused under RULE, by a message naming NAMES (the entry itself by default)."""
+        with self.subTest("install"):
+            self.assert_install_refused(entry, rule, names or entry)
+        if refresh:
+            with self.subTest("refresh"):
+                self.assert_refresh_refused(entry, rule, names or entry)
+
+    # Sources.
+    def test_an_absolute_source_is_refused(self):
+        self.assert_refused(str(self.outside / "secret"), "is an absolute path")
+
+    def test_a_dot_dot_source_is_refused(self):
+        self.assert_refused("../../outside/secret", "has a .. component")
+
+    def test_a_source_through_a_dot_dot_detour_is_refused(self):
+        self.assert_refused("scripts/../../../outside/secret", "has a .. component")
+
+    def test_a_source_under_a_symlinked_folder_that_escapes_is_refused(self):
+        (self.repo / "linked").symlink_to(self.outside, target_is_directory=True)
+        self.assert_refused("linked/secret", "resolves outside")
+
+    def test_a_source_that_is_a_symlink_out_of_the_repository_is_refused(self):
+        (self.repo / "scripts/leak.py").symlink_to(self.outside / "secret")
+        self.assert_refused("scripts/leak.py", "resolves outside")
+
+    def test_a_folder_member_that_is_a_symlink_out_of_the_repository_is_refused(self):
+        (self.repo / "scripts/cmux-next/leak.py").symlink_to(self.outside / "secret")
+        self.assert_refused("scripts/ok.py", "resolves outside", refresh=False, names="scripts/cmux-next/leak.py")
+
+    def test_an_empty_source_is_refused(self):
+        self.assert_refused("-> renamed.py", "is empty")
+
+    # Destinations.
+    def test_an_absolute_destination_is_refused(self):
+        self.assert_refused(f"scripts/ok.py -> {self.outside / 'victim'}", "is an absolute path")
+
+    def test_a_dot_dot_destination_is_refused(self):
+        self.assert_refused("scripts/ok.py -> ../../outside/victim", "has a .. component")
+
+    def test_a_destination_through_a_dot_dot_detour_is_refused(self):
+        self.assert_refused("scripts/ok.py -> a/../../../outside/victim", "has a .. component")
+
+    def test_a_destination_under_a_symlinked_folder_that_escapes_is_refused(self):
+        (self.stage / "linked").symlink_to(self.outside, target_is_directory=True)
+        self.assert_refused("scripts/ok.py -> linked/victim", "resolves outside", refresh=False)
+
+    def test_a_destination_that_is_a_symlink_out_of_the_copy_is_refused(self):
+        (self.stage / "victim.py").symlink_to(self.outside / "victim")
+        self.assert_refused("scripts/ok.py -> victim.py", "resolves outside", refresh=False)
+
+    def test_an_empty_destination_is_refused(self):
+        self.assert_refused("scripts/ok.py ->", "is empty")
+
+    def test_the_cli_names_the_refused_entry_and_exits_non_zero(self):
+        self.commit("scripts/ok.py -> ../../outside/victim\n")
+        result = subprocess.run([sys.executable, "-I", str(SOURCE / "scripts/git-hooks/refresh_checks.py"),
+                                 "--repo", str(self.repo), "--install-copy", str(self.stage)],
+                                env=self.env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scripts/ok.py -> ../../outside/victim", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual((self.outside / "victim").read_text(), "VICTIM\n")
+
+    def test_post_merge_refuses_an_entry_that_leaves_the_repository(self):
+        # post-merge reads the same list (to diff each source against the trusted branch); an entry that leaves the
+        # repository stops it with the helper's refusal before the installer runs.
+        for relative in ("scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py"):
+            shutil.copyfile(SOURCE / relative, self.repo / relative)
+        installer = self.repo / "scripts/install-git-hooks.sh"
+        marker = self.root / "installer-ran"
+        installer.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n")
+        head = self.commit("scripts/cmux-next/\n../../outside/secret\n")
+        self.git("remote", "add", "upstream", "https://github.com/manaflow-ai/cmux.git")
+        self.git("update-ref", "refs/remotes/upstream/main", head)
+        hook = subprocess.run(["/bin/bash", "scripts/git-hooks/post-merge"], cwd=self.repo, env=self.env, text=True,
+                              capture_output=True)
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertIn("../../outside/secret", hook.stderr)
+        self.assertIn("has a .. component", hook.stderr)
+        self.assertFalse(marker.exists(), "post-merge ran the installer over a list that leaves the repository")
+
+    # Legitimate entries.
+    def test_legitimate_entries_still_copy(self):
+        commit = self.commit("scripts/cmux-next/\nscripts/ok.py\nscripts/ok.py -> renamed/ok2.py\n")
+        pairs = self.rc.install_copy(self.repo, self.stage)
+        self.assertEqual(sorted(pairs), sorted([("scripts/cmux-next/check.py", "check.py"), ("scripts/ok.py", "ok.py"),
+                                                ("scripts/ok.py", "renamed/ok2.py")]))
+        self.assertEqual((self.stage / "check.py").read_text(), "CHECK = 1\n")
+        self.assertEqual((self.stage / "ok.py").read_text(), "OK = 1\n")
+        self.assertEqual((self.stage / "renamed/ok2.py").read_text(), "OK = 1\n")
+        self.assertEqual(self.rc.refresh(self.repo, self.hook_dir, commit)[:30], "pre-push: refreshed the cmux-n")
+        copy = self.hook_dir / "cmux-next-checks"
+        self.assertEqual((copy / "renamed/ok2.py").read_text(), "OK = 1\n")
+        self.assertEqual((copy / "check.py").read_text(), "CHECK = 1\n")
+
+
+def load_tool_resolver():
+    """The pre-commit hook's TOOL_RESOLVER (a single-quoted bash string) as a namespace of its
+    functions; its dispatch runs only as __main__."""
+    text = (SOURCE / "scripts/git-hooks/pre-commit").read_text(encoding="utf-8")
+    match = re.search(r"^TOOL_RESOLVER='\n(.*?)\n'\n", text, re.S | re.M)
+    namespace = {"__name__": "pre_commit_tool_resolver"}
+    exec(compile(match.group(1), "scripts/git-hooks/pre-commit (TOOL_RESOLVER)", "exec"), namespace)
+    return namespace
+
+
+class CaseInsensitiveDestination:
+    """os.symlink and os.readlink as on a case- and normalization-insensitive volume (the
+    macOS default for the temporary directory): a name matches an entry of its directory
+    whose NFD casefold is equal, so making a second one fails with FileExistsError."""
+
+    def __init__(self, under):
+        self.under = str(under)
+        self.real_symlink = os.symlink
+        self.real_readlink = os.readlink
+
+    @staticmethod
+    def key(name):
+        return unicodedata.normalize("NFD", name).casefold()
+
+    def existing(self, path):
+        path = os.fspath(path)
+        directory, name = os.path.split(path)
+        if path.startswith(self.under + os.sep) and os.path.isdir(directory):
+            for entry in os.listdir(directory):
+                if self.key(entry) == self.key(name):
+                    return os.path.join(directory, entry)
+        return path
+
+    def symlink(self, target, path, *args, **kwargs):
+        if os.path.lexists(self.existing(path)):
+            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), os.fspath(path))
+        return self.real_symlink(target, path, *args, **kwargs)
+
+    def readlink(self, path, *args, **kwargs):
+        return self.real_readlink(self.existing(path), *args, **kwargs)
+
+    def __enter__(self):
+        self.patches = [mock.patch.object(os, "symlink", self.symlink),
+                        mock.patch.object(os, "readlink", self.readlink)]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        for patch in reversed(self.patches):
+            patch.stop()
+        return False
+
+
+class CaseInsensitiveLookup:
+    """os.path.isfile, os.path.exists, os.path.islink and os.access as on a case- and normalization-insensitive
+    volume (macOS's default): a lookup of a name under UNDER finds the entry whose NFD casefold is equal, so a PATH
+    directory holding NODE answers for node too (cmux#41666 review: the hook found NODE as node there)."""
+
+    def __init__(self, under):
+        self.folding = CaseInsensitiveDestination(under)
+        self.real = {"isfile": os.path.isfile, "exists": os.path.exists, "islink": os.path.islink,
+                     "access": os.access}
+
+    def __enter__(self):
+        fold = self.folding.existing
+        real = self.real
+        self.patches = [
+            mock.patch.object(os.path, "isfile", lambda path: real["isfile"](fold(path))),
+            mock.patch.object(os.path, "exists", lambda path: real["exists"](fold(path))),
+            mock.patch.object(os.path, "islink", lambda path: real["islink"](fold(path))),
+            mock.patch.object(os, "access", lambda path, mode, *a, **k: real["access"](fold(path), mode, *a, **k)),
+        ]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        for patch in reversed(self.patches):
+            patch.stop()
+        return False
+
+
+class ChildPathStubNamesTests(unittest.TestCase):
+    """The stubs for names on PATH that CHILD_TOOLS does not list: names that differ only in
+    case (or Unicode normalization) are one file on a case-insensitive temporary volume, and
+    the hook raised an uncaught FileExistsError there, refusing every commit."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-child-path-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(os.path.realpath(temporary.name))
+        self.temp = self.root / "tmp"
+        self.temp.mkdir()
+        self.resolver = load_tool_resolver()
+        patch = mock.patch.object(tempfile, "tempdir", str(self.temp))
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def path_dir(self, label, *names, mode=0o755):
+        directory = self.root / label
+        directory.mkdir()
+        for name in names:
+            (directory / name).write_text("#!/bin/sh\nexit 0\n")
+            (directory / name).chmod(mode)
+        return str(directory)
+
+    def child_path(self, *entries):
+        return Path(self.resolver["child_path"](os.pathsep.join(entries), [], {}))
+
+    def stub_kind(self, shims, name):
+        stub = CaseInsensitiveDestination(self.temp).existing(shims / self.resolver["NOT_LISTED"] / name)
+        return os.path.basename(os.readlink(stub))
+
+    def folded(self, shims):
+        names = os.listdir(shims / self.resolver["NOT_LISTED"])
+        return sorted(CaseInsensitiveDestination.key(name) for name in names)
+
+    def test_names_differing_only_in_case_get_one_stub(self):
+        entry = self.path_dir("bin", "Probe", "probe")
+        with CaseInsensitiveDestination(self.temp):
+            shims = self.child_path(entry)
+        self.assertEqual(self.folded(shims).count("probe"), 1)
+        self.assertEqual(self.stub_kind(shims, "probe"), "not-listed")
+
+    def test_the_same_name_in_two_path_dirs_gets_one_stub(self):
+        first, second = self.path_dir("one", "Probe", "same"), self.path_dir("two", "probe", "same")
+        with CaseInsensitiveDestination(self.temp):
+            shims = self.child_path(first, second)
+        self.assertEqual(self.folded(shims).count("probe"), 1)
+        self.assertEqual(self.folded(shims).count("same"), 1)
+
+    def test_a_listed_name_keeps_its_own_stub_beside_a_case_variant(self):
+        """node is in CHILD_TOOLS with no copy here; NODE on PATH must not take its stub."""
+        # Not executable: on macOS's case-insensitive volumes an executable NODE is node itself (the same file), and
+        # the hook rightly links it (cmux#41666 review). This test is about the stub name, so the lookups fold too.
+        entry = self.path_dir("bin", "NODE", mode=0o644)
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
+            shims = self.child_path(entry)
+        self.assertEqual(self.folded(shims).count("node"), 1)
+        self.assertEqual(self.stub_kind(shims, "node"), "unresolved")
+
+    def test_on_a_case_insensitive_volume_an_executable_case_variant_is_the_listed_tool(self):
+        """There NODE and node are one file, so the hook links node to it (a NODE stub after it is never reached:
+        the links come first on the children's PATH)."""
+        entry = self.path_dir("bin", "NODE")
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
+            shims = self.child_path(entry)
+        self.assertEqual(os.readlink(shims / "node"), os.path.join(entry, "node"))
+
+    def test_names_differing_only_in_normalization_get_one_stub(self):
+        composed, decomposed = "caf\u00e9", "cafe\u0301"
+        entry = self.path_dir("bin", composed, decomposed)
+        with CaseInsensitiveDestination(self.temp):
+            shims = self.child_path(entry)
+        self.assertEqual(self.folded(shims).count(CaseInsensitiveDestination.key(composed)), 1)
+
+    def test_any_other_filesystem_error_names_the_stub_and_stops(self):
+        entry = self.path_dir("bin", "probe")
+        real_symlink = os.symlink
+
+        def refuse_probe(target, path, *args, **kwargs):
+            if os.path.basename(path) == "probe":
+                raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), path)
+            return real_symlink(target, path, *args, **kwargs)
+
+        stderr = io.StringIO()
+        with mock.patch.object(os, "symlink", refuse_probe), mock.patch.object(sys, "stderr", stderr):
+            with self.assertRaises(SystemExit) as stopped:
+                self.child_path(entry)
+        self.assertEqual(stopped.exception.code, 1)
+        self.assertIn("pre-commit: ", stderr.getvalue())
+        self.assertIn(os.path.join(self.resolver["NOT_LISTED"], "probe"), stderr.getvalue())
+        self.assertIn(os.strerror(errno.EACCES), stderr.getvalue())
+
+# Detector: every command the pre-commit hook runs is a shell builtin, a function
+# the hook defines, or a tool the hook's one resolver (resolve_tool) returned.
+# A bash tokenizer over simple commands, pipelines, lists, compound commands,
+# $(...), backticks and <(...), not a regex over lines.
+SHELL_BUILTINS = frozenset("""
+: [ alias bg bind break builtin caller cd command compgen complete compopt continue declare dirs disown
+echo enable exit export false fc fg getopts hash help history jobs kill let local logout mapfile popd
+printf pushd pwd read readarray readonly return set shift shopt suspend test times trap true type
+typeset ulimit umask unalias unset wait
+""".split())  # eval, exec, source and . run other code: never accepted as plain builtins.
+OPENING_KEYWORDS = frozenset(("if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"))
+CLOSING_KEYWORDS = frozenset(("fi", "done", "}"))
+SEPARATORS = frozenset((";", "&", "&&", "||", "|", "|&", "(", "\n"))
+REDIRECTIONS = ("<<<", ">>", "&>>", "&>", ">&", "<&", "<>", ">|", "<", ">")
+OPERATORS = (";;", "&&", "||", "|&") + REDIRECTIONS + (";", "&", "|", "(", ")")
+ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\[[^]]*\])?\+?=(.*)", re.S)
+# The only right-hand side that makes a variable a resolved tool: one resolve_tool call.
+RESOLVED = re.compile(r'"\$\(resolve_tool [^()`|;&]+?(?: \|\| true)?\)"')
+COPY = re.compile(r'"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"')
+VARIABLE_WORD = re.compile(r'"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?')
+# The resolver's own interpreter: the absolute path the installer wrote beside the
+# hook, read once, then checked by the resolver's boot step.
+RESOLVER_INTERPRETER = "PYTHON3_BIN"
+# Commands that run their argument as a program; env's comes after its options.
+EXEC_WRAPPERS = {"TOOL_ENV"}
+# Unresolved commands the detector lets through. Keep it empty.
+UNRESOLVED_ALLOWLIST: frozenset = frozenset()
+
+
+class BashCommands:
+    """The simple commands a bash script runs, with its functions and assignments."""
+
+    def __init__(self, source):
+        self.source = source
+        self.commands = []  # (line, [raw words])
+        self.functions = set()
+        self.assignments = {}  # name -> [raw right-hand sides]
+        self.dynamic_assignments = []  # raw words of `printf -v "$x"` commands
+        self.parse(self.tokenize(source, 0, closer=False)[0])
+
+    def line(self, position):
+        return self.source.count("\n", 0, position) + 1
+
+    def tokenize(self, s, i, closer):
+        tokens, depth = [], 0
+        while i < len(s):
+            c = s[i]
+            if c in " \t":
+                i += 1
+            elif s.startswith("\\\n", i):
+                i += 2
+            elif c == "\n":
+                tokens.append(("op", "\n", i))
+                i += 1
+            elif c == "#":
+                i = s.find("\n", i) if "\n" in s[i:] else len(s)
+            elif c == ")" and closer and depth == 0:
+                return tokens, i + 1
+            elif s.startswith("((", i):
+                end = self.matching_paren(s, i)
+                tokens.append(("arith", s[i:end], i))
+                i = end
+            elif s[i:i + 2] in ("<(", ">("):
+                inner, end = self.tokenize(s, i + 2, closer=True)
+                self.parse(inner)
+                tokens.append(("word", s[i:end], i))
+                i = end
+            elif s.startswith("<<", i) and not s.startswith("<<<", i):
+                raise ValueError(f"line {self.line(i)}: here-documents are not parsed; use a here-string")
+            else:
+                op = next((op for op in OPERATORS if s.startswith(op, i)), None)
+                if op:
+                    depth += {"(": 1, ")": -1}.get(op, 0)
+                    tokens.append(("op", op, i))
+                    i += len(op)
+                else:
+                    end = self.word_end(s, i)
+                    tokens.append(("word", s[i:end], i))
+                    i = end
+        if closer:
+            raise ValueError("unterminated substitution")
+        return tokens, i
+
+    @staticmethod
+    def matching_paren(s, i):
+        depth = 0
+        for j in range(i, len(s)):
+            depth += {"(": 1, ")": -1}.get(s[j], 0)
+            if depth == 0:
+                return j + 1
+        raise ValueError("unterminated arithmetic")
+
+    def dollar(self, s, i):
+        """s[i] is $: the index after the expansion, parsing any command substitution in it."""
+        if s.startswith("$((", i):
+            return self.matching_paren(s, i + 1)
+        if s.startswith("$(", i):
+            inner, end = self.tokenize(s, i + 2, closer=True)
+            self.parse(inner)
+            return end
+        if s.startswith("${", i):
+            depth, j = 0, i + 1
+            while j < len(s):
+                if s[j] == "\\":
+                    j += 2
+                    continue
+                if s[j] == "$" and j + 1 < len(s) and s[j + 1] in "({":
+                    j = self.dollar(s, j)
+                    continue
+                if s[j] == '"':
+                    j = self.double_quoted(s, j + 1)
+                    continue
+                depth += {"{": 1, "}": -1}.get(s[j], 0)
+                j += 1
+                if depth == 0:
+                    return j
+            raise ValueError("unterminated ${")
+        if s.startswith("$'", i):
+            j = i + 2
+            while s[j] != "'":
+                j += 2 if s[j] == "\\" else 1
+            return j + 1
+        return i + 1
+
+    def backticks(self, s, i):
+        j = i
+        while s[j] != "`":
+            j += 2 if s[j] == "\\" else 1
+        nested = BashCommands(s[i:j].replace("\\`", "`"))
+        self.commands += nested.commands
+        self.functions |= nested.functions
+        for name, values in nested.assignments.items():
+            self.assignments.setdefault(name, []).extend(values)
+        self.dynamic_assignments += nested.dynamic_assignments
+        return j + 1
+
+    def double_quoted(self, s, i):
+        while s[i] != '"':
+            if s[i] == "\\":
+                i += 2
+            elif s[i] == "$":
+                i = self.dollar(s, i)
+            elif s[i] == "`":
+                i = self.backticks(s, i + 1)
+            else:
+                i += 1
+        return i + 1
+
+    def word_end(self, s, i):
+        start = i
+        while i < len(s) and s[i] not in " \t\n;&|()<>":
+            if s[i] == "\\":
+                i += 2
+            elif s[i] == "'":
+                i = s.index("'", i + 1) + 1
+            elif s[i] == '"':
+                i = self.double_quoted(s, i + 1)
+            elif s[i] == "`":
+                i = self.backticks(s, i + 1)
+            elif s[i] == "$":
+                i = self.dollar(s, i)
+            else:
+                i += 1
+        if s.startswith("(", i) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\+?=", s[start:i]):
+            i += 1  # an array assignment: NAME=(words...)
+            while s[i] != ")":
+                if s[i] in " \t\n":
+                    i += 1
+                elif (end := self.word_end(s, i)) > i:
+                    i = end
+                else:
+                    raise ValueError(f"line {self.line(i)}: unparsed array assignment")
+            i += 1
+        return i
+
+    def assign(self, name, value):
+        self.assignments.setdefault(name, []).append(value)
+
+    def parse(self, tokens):
+        i, expect_command, cases = 0, True, []
+        while i < len(tokens):
+            kind, text, position = tokens[i]
+            if kind == "op" and text in SEPARATORS:
+                expect_command, i = True, i + 1
+            elif kind == "op" and text == ";;":
+                cases[-1] = "pattern"
+                expect_command, i = True, i + 1
+            elif kind == "op" and text == ")":
+                expect_command, i = False, i + 1
+            elif kind == "op":  # a redirection and its target
+                i += 2
+            elif cases and cases[-1] == "pattern":
+                if text == "esac":
+                    cases.pop()
+                    expect_command, i = False, i + 1
+                    continue
+                while not (tokens[i][0] == "op" and tokens[i][1] == ")"):
+                    i += 1
+                cases[-1] = "body"
+                expect_command, i = True, i + 1
+            elif not expect_command or kind == "arith":
+                expect_command, i = False, i + 1
+            elif ASSIGNMENT.fullmatch(text):
+                match = ASSIGNMENT.fullmatch(text)
+                self.assign(match.group(1), match.group(3))
+                i += 1
+            elif text in OPENING_KEYWORDS:
+                i += 1
+            elif text in CLOSING_KEYWORDS:
+                expect_command, i = False, i + 1
+            elif text == "esac":
+                cases.pop()
+                expect_command, i = False, i + 1
+            elif text == "case":
+                if tokens[i + 2][1] != "in":
+                    raise ValueError(f"line {self.line(position)}: unparsed case")
+                cases.append("pattern")
+                i += 3
+            elif text in ("for", "select"):
+                if tokens[i + 1][0] == "word":
+                    self.assign(tokens[i + 1][1], "<loop>")
+                while tokens[i][1] not in (";", "\n"):
+                    i += 1
+            elif text == "[[":
+                while tokens[i][1] != "]]":
+                    i += 1
+                expect_command, i = False, i + 1
+            elif text == "function":
+                raise ValueError(f"line {self.line(position)}: write functions as name() {{")
+            elif i + 2 < len(tokens) and tokens[i + 1][1] == "(" and tokens[i + 2][1] == ")":
+                self.functions.add(text)
+                i += 3
+            else:
+                words = []
+                while i < len(tokens) and not (tokens[i][0] == "op" and tokens[i][1] in SEPARATORS | {";;", ")"}):
+                    if tokens[i][0] == "op":
+                        i += 2
+                    else:
+                        words.append(tokens[i][1])
+                        i += 1
+                self.command(position, words)
+                expect_command = False
+
+    def command(self, position, words):
+        self.commands.append((self.line(position), words))
+        name, arguments = words[0], words[1:]
+        if name in ("local", "declare", "typeset", "export", "readonly"):
+            for word in arguments:
+                if ASSIGNMENT.fullmatch(word):
+                    self.assign(ASSIGNMENT.fullmatch(word).group(1), ASSIGNMENT.fullmatch(word).group(3))
+        elif name == "read":
+            skip = False
+            for word in arguments:
+                if skip:
+                    skip = False
+                elif word in ("-a", "-d", "-n", "-N", "-p", "-t", "-u", "-i"):
+                    skip = True
+                elif not word.startswith("-"):
+                    self.assign(word, "<read>")
+        elif name == "printf" and arguments[:1] == ["-v"]:
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", arguments[1]):
+                self.assign(arguments[1], "<printf>")
+            else:
+                self.dynamic_assignments.append(words)
+
+    def resolved_variables(self):
+        resolved, changed = set(), True
+        while changed:
+            changed = False
+            for name, values in self.assignments.items():
+                if name not in resolved and all(
+                        RESOLVED.fullmatch(value) or (COPY.fullmatch(value) and COPY.fullmatch(value).group(1) in resolved)
+                        for value in values):
+                    resolved.add(name)
+                    changed = True
+        return resolved
+
+    def violations(self):
+        """Every command that is neither a builtin, a function here, nor a resolved tool."""
+        resolved = self.resolved_variables()
+        if self.assignments.get(RESOLVER_INTERPRETER) == ["<read>"]:
+            resolved.add(RESOLVER_INTERPRETER)
+
+        def is_resolved(variable):
+            # TOOL_* variables are written only by the resolver's boot loader:
+            # none may be assigned anywhere else.
+            return variable in resolved or (variable.startswith("TOOL_") and variable not in self.assignments)
+
+        found = []
+
+        def check(line, words):
+            word = words[0]
+            if not any(c in word for c in "$\"'`\\"):
+                if word in ("command", "builtin") and len(words) > 1 and words[1] not in ("-v", "-V"):
+                    check(line, words[1:])
+                elif word in SHELL_BUILTINS or word in self.functions:
+                    pass
+                elif word not in UNRESOLVED_ALLOWLIST:
+                    found.append((line, word))
+                return
+            match = VARIABLE_WORD.fullmatch(word)
+            if not match or not is_resolved(match.group(1)):
+                found.append((line, word))
+                return
+            if match.group(1) in EXEC_WRAPPERS:
+                rest = list(words[1:])
+                while rest and (rest[0].startswith("-") or ASSIGNMENT.fullmatch(rest[0])):
+                    rest = rest[2:] if rest[0] in ("-u", "-C", "-S") else rest[1:]
+                if rest:
+                    check(line, rest)
+
+        for line, words in self.commands:
+            check(line, words)
+        return found
+
+
+class PreCommitToolResolutionDetectorTests(unittest.TestCase):
+    HOOK = SOURCE / "scripts/git-hooks/pre-commit"
+
+    def test_every_command_the_pre_commit_hook_runs_is_a_builtin_or_a_resolved_tool(self):
+        """Codex review of #41001 (F1): `rustup which` ran by name, ahead of every check."""
+        hook = BashCommands(self.HOOK.read_text(encoding="utf-8"))
+        self.assertEqual(hook.violations(), [], "run it through resolve_tool, never by name")
+        self.assertEqual(UNRESOLVED_ALLOWLIST, frozenset())
+
+    def test_only_the_boot_loader_writes_tool_variables(self):
+        source = self.HOOK.read_text(encoding="utf-8")
+        hook = BashCommands(source)
+        self.assertEqual(hook.dynamic_assignments, [["printf", "-v", '"$name"', "'%s'", '"$value"']])
+        self.assertIn("tool) [[ \"$name\" =~ ^TOOL_[A-Z0-9_]+$ ]] && printf -v", source)
+        self.assertEqual(hook.assignments.get(RESOLVER_INTERPRETER), ["<read>"])
+        self.assertIn('IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE"', source)
+
+    # The hook defines resolve_tool; a fixture script gets a stand-in.
+    def violations(self, script):
+        return [word for _, word in BashCommands("resolve_tool() { :; }\n" + script).violations()]
+
+    def test_detector_catches_an_unresolved_rustup(self):
+        self.assertEqual(self.violations(
+            'pinned="$(rustup which --toolchain "$toolchain" rustfmt 2>/dev/null || true)"\n'), ["rustup"])
+
+    def test_detector_catches_names_in_every_command_position(self):
+        cases = {
+            "x=`sed -n p file`\n": ["sed"],
+            '"$TOOL_GIT" diff | grep -q x\n': ["grep"],
+            'while read -r line; do :; done < <(git diff --cached)\n': ["git"],
+            'true && rustfmt a.rs\n': ["rustfmt"],
+            'if ! cat f >/dev/null; then echo; fi\n': ["cat"],
+            'f() { local d; d="$(cd / && rustup show)"; }\n': ["rustup"],
+            'case "$1" in a|b) bun install ;; *) : ;; esac\n': ["bun"],
+            '[[ -n "$(head -n 1 f)" ]] && echo\n': ["head"],
+            'echo "$(printf "%s" "$(node -v)")"\n': ["node"],
+            'x="${y:-$(swift-format --version)}"\n': ["swift-format"],
+            '"$TOOL_ENV" -u BUN_OPTIONS rustup which\n': ["rustup"],
+            'X=/tmp/rustup\n"$X" which\n': ['"$X"'],
+            'f() { "$@"; }\n': ['"$@"'],
+            'eval "$cmd"\n': ["eval"],
+            'source ./x.sh\n': ["source"],
+            'command rustup which\n': ["rustup"],
+            'R="$(resolve_tool rustup || echo ./rustup)"\n"$R" which\n': ['"$R"'],
+            'TOOL_RUSTUP=./rustup\n"$TOOL_RUSTUP" which\n': ['"$TOOL_RUSTUP"'],
+        }
+        for script, expected in cases.items():
+            with self.subTest(script=script):
+                self.assertEqual(self.violations(script), expected)
+
+    def test_detector_accepts_builtins_functions_and_resolved_tools(self):
+        script = (
+            'f() { printf "%s\\n" "$1"; }\n'
+            'R="$(resolve_tool rustup || true)"\n'
+            'P="$R"\n'
+            'tool="$(resolve_tool "$1")" || exit 1\n'
+            'if [[ -n "$R" ]] && (( 1 > 0 )); then "$P" which; f x | "$TOOL_GREP" -q x; fi\n'
+            'for ((i = 0; i < 2; i++)); do "$TOOL_SLEEP" 1; done\n'
+            'for p in a b; do case "$p" in a) : ;; esac; done\n'
+            '"$TOOL_ENV" -u BUN_OPTIONS "$tool" install\n'
+            'command -v rustup >/dev/null\n'
+        )
+        self.assertEqual(self.violations(script), [])
+
+    def test_detector_refuses_what_it_cannot_parse(self):
+        with self.assertRaises(ValueError):
+            BashCommands("cat <<EOF\nx\nEOF\n")
 
 
 if __name__ == "__main__":

@@ -189,6 +189,7 @@ fn shared_chat(role: super::shares::Role) -> Config {
         shared_at: grant::now_rfc3339(),
         generation: "boot-1".into(),
         session: "acp_a".to_owned(),
+        person: None,
     });
     config
 }
@@ -346,6 +347,7 @@ fn a_shared_login_on_the_full_access_list_still_goes_through_its_grant() {
         shared_at: "2026-10-26T09:00:00Z".to_owned(),
         generation: "g1".to_owned(),
         session: "acp_a".to_owned(),
+        person: None,
     }];
     match decide_for(&config, PEER, person(LAWRENCE)) {
         Decision::Guest(_, scopes) => assert_eq!(scopes, vec![Scope::Agents]),
@@ -399,6 +401,7 @@ fn a_shared_login_takes_the_proxy_even_with_shell() {
         shared_at: "2026-10-26T09:00:00Z".to_owned(),
         generation: "g1".to_owned(),
         session: "acp_a".to_owned(),
+        person: None,
     }];
     assert!(proxied(&config, Some(LAWRENCE), Some(&shell)), "a shared guest never splices");
 }
@@ -413,6 +416,7 @@ fn a_member_cannot_answer_the_hosts_asks() {
         shared_at: "2026-10-26T09:00:00Z".to_owned(),
         generation: "boot-1".to_owned(),
         session: "acp_a".to_owned(),
+        person: None,
     }];
     let author =
         serde_json::json!({"id": format!("tailnet:{LAWRENCE}"), "login": LAWRENCE, "node": "n"});
@@ -587,10 +591,17 @@ fn every_config_write_goes_through_commit() {
     }
     assert!(scanned >= 10, "read the remote_host sources ({scanned})");
     assert_eq!(callers, 2, "enable and disable each pass Listener::Caller once");
-    // allow/deny, grant, revoke, and share/unshare (`shares::run`) restart a running listener.
+    // allow/deny, grant, revoke, share/unshare (`shares::run`) and the move of local shares to
+    // the cmux platform (`platform_shares::move_here`) restart a running listener.
     assert_eq!(
         restarting.into_iter().collect::<Vec<_>>(),
-        ["mod.rs:edit_allow", "mod.rs:grant_access", "mod.rs:revoke_access", "shares.rs:run"],
+        [
+            "mod.rs:edit_allow",
+            "mod.rs:grant_access",
+            "mod.rs:revoke_access",
+            "platform_shares.rs:move_here",
+            "shares.rs:run"
+        ],
         "every verb but enable and disable commits with Listener::Restart"
     );
     // The scan catches a new verb's plain write, an unlocked write by path, and a moved Caller.

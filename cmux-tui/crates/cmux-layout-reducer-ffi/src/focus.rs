@@ -97,6 +97,10 @@ pub struct CmuxFocusTopology {
     pub column_pane_count: u32,
     pub screen_count: u32,
     pub reserved: u32,
+    /// Null, or `column_pane_count` ids parallel to `column_panes`: each
+    /// pane's close sibling (`Column::siblings`); an empty string is none.
+    /// Last, so a caller that zero-fills the struct sends none.
+    pub column_siblings: *const CmuxFocusStr,
 }
 
 #[repr(C)]

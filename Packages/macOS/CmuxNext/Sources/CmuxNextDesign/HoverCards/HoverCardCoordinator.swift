@@ -11,7 +11,7 @@ public import CmuxNextDesignTokens
 /// (content can move under a still pointer, and tracking areas then send
 /// nothing), dismissals, suppressions and removed targets. Nothing polls
 /// while no card shows (a pointer resting on a card is the one exception,
-/// below): the only timer is a one-shot `DemandTimer`, armed only in a pending,
+/// below): the only timers are one-shot `DemandTimer`s, armed only in a pending,
 /// leaving, grace or pinned phase; the event monitor for dismissals exists only
 /// while a card is pending or shown.
 ///
@@ -29,6 +29,13 @@ public final class HoverCardCoordinator {
     private var owners: [HoverTargetID: WeakSource] = [:]
     private let timer: DemandTimer
     var panel: HoverCardPanel?
+    /// The source (or ``HoverCardGroup`` in a window) `panel` last showed a card for. A card moves only
+    /// within its own source or group (a sidebar row to the next, to the update card, a tab to the next
+    /// in one strip): another's card gets a window of its own, so it never flies across the screen from
+    /// the sidebar to a pane's tabs (user 2026-11-09).
+    private var panelSource: AnyHashable?
+    /// Card windows of a source the pointer left, fading out where they are.
+    var retiring: [HoverCardPanel] = []
     /// A card its owner shows in the one card window (`presentOwned`), nil while none does.
     var owned: HoverCardOwned?
     private var activated: HoverTargetID?
@@ -49,6 +56,13 @@ public final class HoverCardCoordinator {
     var topWindowCache: (point: CGPoint, at: CFTimeInterval, number: Int)?
     /// One frame at 120 Hz: how long a cached top window holds.
     static let topWindowLifetime: CFTimeInterval = 1.0 / 120
+    /// The windows whose sidebar is hidden, held weakly (a new window that reuses a closed one's
+    /// identifier never inherits its hide). No source in one of these windows, or in a window attached
+    /// to one, gives a target a card; every other window's sources still do. A hidden sidebar was an
+    /// app-wide suppression (`HoverSuppression.sidebarHide`): a background or off-screen window with
+    /// its sidebar hidden stopped every card in every window, and one closed while hidden stopped them
+    /// until relaunch.
+    private(set) var hiddenSidebars: [ObjectIdentifier: WeakWindow] = [:]
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
 
@@ -255,6 +269,56 @@ public final class HoverCardCoordinator {
     }
     public func suppress(_ reason: HoverSuppression) { send(.suppress(reason)) }
 
+    /// `window`'s sidebar was hidden or shown. Hidden: no source in that window gives a target a card
+    /// (its edge float's rows and its tab strips included), and a card of that window goes now; a card
+    /// of another window stays. Shown: the pointer's target gets its card again, as after ``unsuppress(_:)``.
+    public func sidebarHidden(_ hidden: Bool, in window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        hiddenSidebars = hiddenSidebars.filter { $0.value.window != nil }
+        guard hidden else {
+            if hiddenSidebars.removeValue(forKey: key) != nil { rehitAfterRelease() }
+            return
+        }
+        hiddenSidebars[key] = WeakWindow(window)
+        if let active = machine.activeTarget, !belongs(active, to: window) { return }
+        send(.dismiss(.action))
+    }
+
+    /// `window` closes (its controller's teardown): what it held here goes with it (its hidden
+    /// sidebar's hold on its cards). The hold is weak too, so a window freed without one never holds.
+    public func windowClosed(_ window: NSWindow) {
+        if hiddenSidebars.removeValue(forKey: ObjectIdentifier(window)) != nil { rehitAfterRelease() }
+    }
+
+    /// `target` is `window`'s: its source's window is that window or attached to it.
+    private func belongs(_ target: HoverTarget, to window: NSWindow) -> Bool {
+        guard let source = owners[target.id]?.source?.hoverCardWindow else { return target.window == window.windowNumber }
+        var next: NSWindow? = source
+        while let current = next {
+            if current === window { return true }
+            next = current.parent
+        }
+        return false
+    }
+
+    /// `window`, or a window it is attached to, has its sidebar hidden.
+    func sidebarIsHidden(over window: NSWindow) -> Bool {
+        guard !hiddenSidebars.isEmpty else { return false }
+        var next: NSWindow? = window
+        while let current = next {
+            if hiddenSidebars[ObjectIdentifier(current)]?.window === current { return true }
+            next = current.parent
+        }
+        return false
+    }
+
+    /// A hold on cards ended: the pointer's target gets its card again, as after ``unsuppress(_:)``.
+    private func rehitAfterRelease() {
+        guard !mouseButtonDown() else { return }
+        let onCard = pointerIsOnCard()
+        send(.hit(onCard ? nil : hitTest(escaping: escapeTarget(at: currentPointer()))?.target, moved: false, bridging: onCard))
+    }
+
     public func unsuppress(_ reason: HoverSuppression) {
         send(.unsuppress(reason))
         guard !mouseButtonDown() else { return }
@@ -271,6 +335,8 @@ public final class HoverCardCoordinator {
     public func pin(_ target: HoverTarget, from source: any HoverCardSource) {
         // An inactive app shows no card (its window would stay hidden).
         guard appIsActive() else { return }
+        // A window with its sidebar hidden pins no card (the app-wide suppression refused it too).
+        if let window = source.hoverCardWindow, sidebarIsHidden(over: window) { return }
         owners[target.id] = WeakSource(source)
         send(.pin(target))
     }
@@ -284,9 +350,11 @@ public final class HoverCardCoordinator {
     }
 
     /// Refits a shown card after a local disclosure changes its height without reconfiguring it.
-    public func refit(_ id: HoverTargetID) {
+    /// - Parameter animated: The card grows or folds to its new size on the hover cards' motion (its fixed
+    ///   corner stays put), as a retarget's resize does; off, it takes the new size at once.
+    public func refit(_ id: HoverTargetID, animated: Bool = false) {
         guard machine.shownTarget?.id == id else { return }
-        panel?.refit()
+        panel?.refit(animated: animated)
         updateCardMouse()
     }
 
@@ -318,6 +386,31 @@ public final class HoverCardCoordinator {
         pruneOwners()
     }
 
+    /// Whose card window `source`'s cards use: its group's in its window, else its own.
+    func cardKey(of source: any HoverCardSource) -> AnyHashable {
+        guard let group = source.hoverCardGroup else { return AnyHashable(ObjectIdentifier(source)) }
+        return cardKey(group, in: source.hoverCardWindow)
+    }
+
+    /// `group`'s card window key in `window` (two windows' sidebars do not share a card).
+    func cardKey(_ group: HoverCardGroup, in window: NSWindow?) -> AnyHashable {
+        AnyHashable([AnyHashable(group), AnyHashable(window.map(ObjectIdentifier.init))])
+    }
+
+    /// The card window for a card of `id` (``cardKey(of:)``): the shown one when it is that key's or
+    /// hidden, else a new one, and the other key's card fades out in place (no slide between sources).
+    func cardWindow(for id: AnyHashable) -> HoverCardPanel {
+        defer { panelSource = id }
+        if let panel, panelSource == id || !panel.isVisible { return panel }
+        if let old = panel {
+            retiring.append(old)
+            old.dismiss { [weak self] in self?.retiring.removeAll { !$0.isVisible } }
+        }
+        let fresh = HoverCardPanel()
+        panel = fresh
+        return fresh
+    }
+
     private var queue: [HoverCardEvent] = []
     private var draining = false
 
@@ -341,8 +434,7 @@ public final class HoverCardCoordinator {
                 send(.targetRemoved(target.id))
                 return
             }
-            let panel = panel ?? HoverCardPanel()
-            self.panel = panel
+            let panel = cardWindow(for: cardKey(of: source))
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                           themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
                           cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
@@ -471,7 +563,7 @@ public final class HoverCardCoordinator {
         let top = topWindowNumber(at: point)
         for entry in sources.values {
             guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,
-                  let hit = source.hoverCardHit(at: point) else { continue }
+                  !sidebarIsHidden(over: window), let hit = source.hoverCardHit(at: point) else { continue }
             owners[hit.target.id] = entry
             return hit
         }
@@ -489,7 +581,7 @@ public final class HoverCardCoordinator {
     /// shows what the machine says.
     public func singleCardViolations() -> [String] {
         var bad: [String] = []
-        if HoverCardPanel.liveInstances > 1 { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
+        if HoverCardPanel.liveInstances > 1 + retiring.count { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
         let showing = panel?.isShowingCard == true
         if showing, machine.shownTarget == nil, owned == nil { bad.append("a card shows while the machine has none") }
         if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
@@ -503,12 +595,14 @@ public final class HoverCardCoordinator {
             "phase": "\(machine.phase)",
             "last_hit": machine.lastHit?.id.rawValue ?? "-",
             "suppressions": machine.suppressions.map(\.rawValue).sorted().joined(separator: ","),
+            "hidden_sidebars": "\(hiddenSidebars.values.filter { $0.window != nil }.count)",
             "enabled": "\(hoverCardsEnabled())",
             "delay_ms": "\(Self.milliseconds(DesignSettings.shared.hoverCardDelay))",
             "pending_target": { if case .pending(let target, _) = machine.phase { target.id.rawValue } else { "-" } }(),
             "shown_target": machine.shownTarget?.id.rawValue ?? "-",
             "quiet": "\(machine.quiet)",
             "card_windows": "\(HoverCardPanel.liveInstances)",
+            "retiring_windows": "\(retiring.count)",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",
@@ -534,4 +628,9 @@ public final class HoverCardCoordinator {
 struct WeakSource {
     weak var source: (any HoverCardSource)?
     init(_ source: any HoverCardSource) { self.source = source }
+}
+
+struct WeakWindow {
+    weak var window: NSWindow?
+    init(_ window: NSWindow) { self.window = window }
 }

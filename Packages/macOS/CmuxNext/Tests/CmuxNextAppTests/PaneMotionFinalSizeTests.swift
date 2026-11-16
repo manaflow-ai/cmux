@@ -12,8 +12,11 @@ import Testing
     /// A terminal-like leaf under a fixed 30 pt header, as a pane's tab strip sits over its terminal.
     final class Leaf: NSView, PaneMotionTargeting {
         var announced: [CGSize] = []
+        /// The size it had when it heard each rest.
+        var heardAt: [CGSize] = []
         func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
             announced.append(CGSize(width: bounds.width + sizeChange.width, height: bounds.height + sizeChange.height))
+            heardAt.append(bounds.size)
             return .top
         }
     }
@@ -60,6 +63,37 @@ import Testing
         let final = before.bounds.size
         let told = try #require(before.announced.first)
         #expect(abs(told.width - final.width) < 1 && abs(told.height - final.height) < 1, "told \(told), landed at \(final)")
+    }
+
+    /// The content hears its rest before the spring's first frame lays it out (#37755). A change whose presentation waits
+    /// for the next frame tick (a frame's input, `LayoutViewContext.holdsPresentations`) is first presented by a stepped
+    /// frame, which also resizes the pane. A Chromium page whose window holds the keys stays attached through the motion;
+    /// it decides that, and lays itself out at its rest, when it hears the rest. Told after that frame's layout, its window
+    /// had already taken the frame's size (one resize the WindowServer makes and Chromium lays out at, before the motion's
+    /// own), and a terminal had already laid out a grid it leaves.
+    @Test func theContentHearsItsRestBeforeTheSpringsFirstFrameLaysItOut() throws {
+        let provider = Panes()
+        let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
+        let root = LayoutRootView(model: model, contentProvider: provider)
+        root.context.reduceMotionOverride = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        let leaf = try #require(provider.leaves[PaneID("p0-0")])
+        let start = leaf.bounds.size
+        leaf.announced.removeAll()
+        leaf.heardAt.removeAll()
+        // The change's presentation waits for the frame tick, as a frame's input holds it.
+        root.context.holdsPresentations = true
+        model.apply(screens: PaneMotionBench.split(2, 1, axis: .horizontal))
+        root.syncWithModel()
+        root.context.holdsPresentations = false
+        try #require(leaf.heardAt.isEmpty && leaf.bounds.size == start, "SETUP: the change presented in its own turn")
+        #expect(root.advanceFrame(1.0 / 120), "the split did not spring")
+        root.layoutSubtreeIfNeeded()
+        try #require(leaf.heardAt.count == 1, "the split pane heard its rest \(leaf.heardAt.count) times by the first frame")
+        #expect(leaf.heardAt.first == start, "the first frame laid the content out at \(leaf.heardAt.first ?? .zero) before it heard its rest (start \(start))")
     }
 
     /// Reduce Motion turned on while a split springs: the next frame shows the final layout and no more

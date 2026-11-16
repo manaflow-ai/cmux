@@ -2,7 +2,7 @@
 
 | App | Contribution | Shows |
 | --- | --- | --- |
-| `github-prs` | two sidebar sections + command | your open pull requests, and "PRs · last 24h" (`recent`, `defaultRegion: bottom`): PRs you authored, were asked to review or are assigned, created or updated in the last 24 hours, open and merged, newest first (integration gateway, else `net:api.github.com`). Manifest v2 has one `cmux.section/1`, so its v2 file keeps only `prs` |
+| `github-prs` | two sidebar sections + command | your open pull requests, and "PRs · last 24h" (`recent`, `defaultRegion: bottom`): PRs you authored, were asked to review or are assigned, created or updated in the last 24 hours, open and merged, newest first. Both sections read the `github.pulls` signal with `cmux.watch` (integration gateway, else `net:api.github.com`; one read per section's params, polled behind the signal, no app timers; see `examples/extensions/pr-list` for the recipe). Manifest v2 has one `cmux.section/1`, so its v2 file keeps only `prs` |
 | `session-prs` | Session Info section (`cmux.session.info.section/1`) | the pull requests whose head is the chat's branch (`head:<branch>`), read from the mount context the render export gets (`{session_id, cwd, branch?, harness?}`); an empty state when the chat has no branch. Manifest v2 only (`cmux-app.v2.json`) |
 | `running-agents` | sidebar section | agents grouped by state; click shows the agent's tab |
 | `agent-status` | status item | "2 working · 1 waiting" with a menu |

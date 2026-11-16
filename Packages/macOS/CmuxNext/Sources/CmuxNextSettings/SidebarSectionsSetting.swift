@@ -56,6 +56,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.sideBySide = flag(root, sideBySidePath, fallback: sideBySideDefault, &diagnostics)
         result.noFade = flag(root, noFadePath, fallback: noFadeDefault, &diagnostics)
         result.controlsOnHover = flag(root, controlsOnHoverPath, fallback: controlsOnHoverDefault, &diagnostics)
+        result.floatOnHover = flag(root, floatOnHoverPath, fallback: floatOnHoverDefault, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: minimalDefault, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: detailedStatusIconsDefault, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: showTimestampsDefault, &diagnostics)
@@ -76,6 +77,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.textSize = ColumnLayoutSettings.choice(root, textSizePath, fallback: textSizeDefault, diagnostics: &diagnostics)
         result.style = ColumnLayoutSettings.choice(root, stylePath, fallback: styleDefault, diagnostics: &diagnostics)
         result.showChats = flag(root, showChatsPath, fallback: showChatsDefault, &diagnostics)
+        result.projection = SidebarProjectionCustomizationResolver.parse(root, diagnostics: &diagnostics)
         return result
     }
 

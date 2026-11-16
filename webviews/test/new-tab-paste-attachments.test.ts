@@ -166,7 +166,9 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       );
       await page.locator(INLINE_IMAGES).waitFor();
       await page.keyboard.press("Enter");
-      await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
+      // An image-only prompt draws its image in the sent row's attachment strip (UserBubble.tsx), or in
+      // the legacy band when acpmux recorded no parts for it.
+      await page.locator(".cv-user__inline-image img, .cv-user__images img").first().waitFor({ timeout: 30_000 });
       await page.close();
     },
   );

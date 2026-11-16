@@ -39,7 +39,12 @@ export const groupTargets = (rows: ReadonlyArray<OutboxRow>): Array<TargetBatch>
   })
 }
 
-/** What the target object returns for one batch: the ids it committed (applied or replayed). */
+/**
+ * What the target object returns for one batch: the ids it committed (applied or replayed), and the ids it is still
+ * running now (`in_flight`, cmux-platform#1172: a duplicate during its run; retried later, not counted toward dead
+ * letter up to OUTBOX_IN_FLIGHT_MAX_MS). A target that predates `in_flight` leaves it out: not done, a counted failure.
+ */
 export interface DeliverResult {
   readonly done: ReadonlyArray<number>
+  readonly in_flight?: ReadonlyArray<number>
 }

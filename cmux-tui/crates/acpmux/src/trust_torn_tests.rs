@@ -18,6 +18,7 @@ fn scratch(tag: &str) -> (PathBuf, Paths, PathBuf) {
         record: root.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let work = root.join("work");
     (root, paths, work)

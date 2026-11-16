@@ -120,6 +120,8 @@ public final class RemoteViewPageSession {
             rdSource.transport.stop()
         }
         pane.handlers.reconnect = { [weak self] in self?.reconnect() }
+        // A Cloud desktop whose path closed comes back by itself (conn-quiet): no Connection lost card first.
+        pane.autoReconnectsLost = record.cloudDesktop
         pane.handlers.close = closeTab
         if record.cloudDesktop {
             pane.handlers.selectMode = { [weak self] mode in self?.switchMode(control: mode == .control) }
@@ -241,7 +243,7 @@ public final class RemoteViewPageSession {
     public var focusTarget: NSView { pane.view.focusView }
 
     /// `debug.remote_view` state of this session: the source, the session
-    /// state and the decode counters.
+    /// state, why it ended (`end_reason`, null while live) and the decode counters.
     public func debugState() async -> JSONValue {
         let stats = await pane.decodeStats()
         let state = pane.state
@@ -262,6 +264,7 @@ public final class RemoteViewPageSession {
             "decode_errors": stats.map { .number(Double($0.decodeErrors)) } ?? .null,
             "hardware": stats.map { .bool($0.hardware) } ?? .null,
             "upstream_offered": .bool(state.status?.upstream.offered ?? false),
+            "end_reason": state.status?.endReason.map { .string($0) } ?? .null,
             "mode": .string(state.requestedMode.rawValue),
         ])
     }

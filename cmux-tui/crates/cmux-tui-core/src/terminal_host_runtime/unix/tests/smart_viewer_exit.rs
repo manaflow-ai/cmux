@@ -198,12 +198,12 @@ fn smart_attach_replays_source_bytes_ahead_of_parser_boundary_exactly_once() {
     let boundary = state.subscribe(7, tap).unwrap();
     assert_eq!(boundary, 0);
     let replayed = receiver.recv().unwrap();
-    assert_eq!((replayed.sequence, replayed.payload), (1, b"unparsed".to_vec()));
+    assert_eq!((replayed.sequence, replayed.payload.clone()), (1, b"unparsed".to_vec()));
 
     state.mark_applied(first);
     state.publish(Frame::new(MessageKind::Output, b"live".to_vec()));
     let live = receiver.recv().unwrap();
-    assert_eq!((live.sequence, live.payload), (2, b"live".to_vec()));
+    assert_eq!((live.sequence, live.payload.clone()), (2, b"live".to_vec()));
     assert!(receiver.try_recv().is_err(), "attach duplicated a retained frame");
 }
 
@@ -425,7 +425,14 @@ fn parser_output_send_failure_closes_published_transition() {
     let (parser_sender, parser_receiver) = sync_channel(1);
     drop(parser_receiver);
 
-    assert!(!enqueue_parser_output(&parser_sender, &budget, &state, vec![1, 2, 3], failed, 3,));
+    assert!(!enqueue_parser_output(
+        &parser_sender,
+        &budget,
+        &state,
+        Arc::new(Frame::new(MessageKind::Output, vec![1, 2, 3])),
+        failed,
+        3,
+    ));
 
     assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
     assert_eq!(tap_receiver.recv().unwrap().kind, MessageKind::Output);

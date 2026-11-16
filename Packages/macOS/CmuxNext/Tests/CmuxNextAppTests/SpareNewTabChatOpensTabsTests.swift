@@ -42,7 +42,7 @@ struct SpareNewTabChatOpensTabsTests {
         let store = Self.store()
         let tabs = Self.agentTabs()
         try #require(tabs.canHostChat, "no agent page source")
-        tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
+        tabs.lookupScoped = { key in store.tab(id: key.key)?.agentSession.map { ($0, store) } }
         var opened: [AgentPaneOpenTab] = []
         tabs.firstPageNewTab = { _, _ in (AgentPaneNewTab(kind: .agent), Self.handler { opened.append($0) }) }
         tabs.blankChatHandler = { _ in Self.handler { opened.append($0) } }

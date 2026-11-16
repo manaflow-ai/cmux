@@ -27,8 +27,17 @@ pub mod caps {
     pub const STREAM_OPEN: &str = "stream.open";
     /// Session clock offset (C8).
     pub const CLOCK: &str = "clock";
+    /// A UDP media link (cmux-rd-link) next to a stream carrier: `link_offer`,
+    /// `link_answer`, `link_candidate` and `link_state` on the control stream.
+    pub const LINK_UDP: &str = "link.udp";
+    /// The remote cursor as metadata (cmux-rd-proto `cursor`): the host captures without
+    /// the cursor and sends `CursorPos` datagrams and `cursor_shape` control messages; the
+    /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
+    /// the picture.
+    pub const CURSOR: &str = "cursor";
     /// Every named cap.
-    pub const ALL: [&str; 6] = [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK];
+    pub const ALL: [&str; 8] =
+        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR];
 }
 
 /// Why a hello is refused.

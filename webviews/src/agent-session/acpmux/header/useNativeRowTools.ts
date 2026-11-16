@@ -3,12 +3,15 @@ import type { NativeMenuBinding } from "./nativeMenuBindings";
 import type { HeaderQuickTool } from "./headerQuickTools";
 import {
   dispatchNativeRowTool,
+  createNativeMenuKeys,
   fitNativeRowMenus,
   nativeRowToolBindings,
   onNativeRowToolInvocation,
+  type NativeRowExtras,
   type NativeRowPanel,
   type RowToolBinding,
 } from "./nativeRowTools";
+import type { Translate } from "../i18n";
 
 export interface NativeRowToolsHost {
   enabled: boolean;
@@ -21,6 +24,9 @@ export interface NativeRowToolsHost {
 export interface NativeRowMenus {
   customize?: ReadonlyMap<string, NativeMenuBinding>;
   extra?: readonly RowToolBinding[];
+  /// The worktree, pull request and Needs You tools the header hands to the native row.
+  extras?: NativeRowExtras;
+  t?: Translate;
 }
 
 export function useNativeRowTools(
@@ -30,7 +36,8 @@ export function useNativeRowTools(
 ): boolean {
   const enabled = host?.enabled === true;
   const callNative = host?.callNative;
-  const baseBindings = nativeRowToolBindings(quick, host?.panel).map((binding) => {
+  const [menuKeys] = useState(createNativeMenuKeys);
+  const baseBindings = nativeRowToolBindings(quick, host?.panel, menus?.extras, menus?.t, menuKeys).map((binding) => {
     const context = menus?.customize?.get(binding.tool.id);
     return context
       ? { ...binding, tool: { ...binding.tool, contextMenu: context.items }, runMenu: context.invoke }

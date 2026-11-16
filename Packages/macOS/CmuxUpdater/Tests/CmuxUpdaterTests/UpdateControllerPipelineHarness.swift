@@ -12,7 +12,7 @@ struct Harness {
 
     init(automaticDownloads: Bool = false) {
         let suiteName = "cmux.updater.pipeline-tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
+        let defaults = UserDefaults(testSuiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         if automaticDownloads {
             defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)

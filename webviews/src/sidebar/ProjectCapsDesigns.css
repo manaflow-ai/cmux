@@ -1,0 +1,321 @@
+/* Project caps gallery (ProjectCapsDesigns.tsx). Geometry follows design/grid.md 5.4: the row
+ * highlight is 6 from both sidebar edges with radius 8; the leading icon box starts at 16 (lead),
+ * text starts at 40 (lead + 24); every trailing mark centres 24 from the sidebar edge. */
+.pcd-sidebar {
+  --pcd-tone: var(--cmux-app-sidebar, var(--cmux-surface-background, Canvas));
+  --pcd-ink: var(--cmux-text, CanvasText);
+  --pcd-ink-2: var(--cmux-text-secondary, color-mix(in srgb, var(--pcd-ink) 62%, transparent));
+  --pcd-ink-3: var(--cmux-text-tertiary, color-mix(in srgb, var(--pcd-ink) 42%, transparent));
+  --pcd-yellow: var(--acpmux-needs-you-mark, var(--cmux-app-warning));
+  --pcd-row: var(--grid-row, 28px);
+  --pcd-inset: 6px;
+  --pcd-pad: 10px;
+  --pcd-box: 16px;
+  --pcd-gap: 8px;
+  /* The sidebar's glass: the chrome level (sidebar and sticky headers); none under Reduce Transparency, where the veil alone stands. */
+  --pcd-blur: var(--ds-glass-chrome-blur);
+  /* The chrome level's fill share too: a veil at 90% reads as solid under its blur (glass-never-opaque). */
+  --pcd-veil: color-mix(in srgb, var(--pcd-tone) var(--ds-glass-chrome-tint), transparent);
+  --pcd-dot: 8px; /* SidebarStyle.unreadDotSize */
+  --pcd-chip: var(--grid-icon-box, 16px);
+  --pcd-fade: 12px;
+  --pcd-pill-inset: var(--grid-pill-inset, 2px);
+  --pcd-lift: var(--elevation-2); /* the raised-surface shadow token (desktop.css) */
+  --pcd-motion: var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+  --pcd-quick: var(--cmux-motion-quick, 80ms) ease;
+  width: 260px;
+  /* The stage frame's height: the sidebar is the one scroll area. */
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--pcd-ink);
+  background: var(--pcd-tone);
+}
+
+/* The one scroll area: projects, headers and revealed rows all live in it. */
+.pcd-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.pcd-project,
+.pcd-needs {
+  position: relative;
+  padding-top: 8px;
+}
+
+.pcd-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--pcd-box) minmax(0, 1fr) auto;
+  column-gap: var(--pcd-gap);
+  align-items: center;
+  height: var(--pcd-row);
+  margin-inline: var(--pcd-inset);
+  padding-inline: var(--pcd-pad);
+  border-radius: 8px;
+}
+/* The highlight is the row less 2 above and below. */
+.pcd-row::before {
+  content: "";
+  position: absolute;
+  inset: var(--pcd-pill-inset) 0;
+  border-radius: 8px;
+  background: transparent;
+}
+.pcd-row > * {
+  position: relative;
+}
+.pcd-row:hover::before {
+  background: color-mix(in srgb, var(--pcd-ink) 6%, transparent);
+}
+.pcd-row[aria-selected="true"]::before {
+  background: color-mix(in srgb, var(--pcd-ink) 11%, transparent);
+}
+.pcd-lead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pcd-box);
+  height: var(--pcd-box);
+  color: var(--pcd-ink-2);
+}
+.pcd-lead svg {
+  width: var(--pcd-box);
+  height: var(--pcd-box);
+}
+.pcd-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pcd-trail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--pcd-box);
+  height: var(--pcd-box);
+}
+.pcd-age {
+  margin-inline-start: auto;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  color: var(--pcd-ink-3);
+}
+.pcd-dot {
+  width: var(--pcd-dot);
+  height: var(--pcd-dot);
+  border-radius: 50%;
+}
+.pcd-dot[data-tone="blue"] {
+  background: var(--pcd-blue);
+}
+.pcd-dot[data-tone="yellow"] {
+  background: var(--pcd-yellow);
+}
+.pcd-chevron {
+  flex: none;
+  transition: transform var(--pcd-motion);
+}
+.pcd-chevron[data-up] {
+  transform: rotate(180deg);
+}
+.pcd-chip {
+  margin-inline-start: auto;
+  min-width: var(--pcd-chip);
+  height: var(--pcd-chip);
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: var(--pcd-chip);
+  text-align: center;
+  color: var(--pcd-ink-2);
+  background: color-mix(in srgb, var(--pcd-ink) 10%, transparent);
+}
+
+/* Show more / Show less rows. */
+button.pcd-row,
+button.pcd-header {
+  width: calc(100% - 2 * var(--pcd-inset));
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.pcd-more {
+  color: var(--pcd-ink-2);
+}
+.pcd-more:hover {
+  color: var(--pcd-ink);
+}
+.pcd-more-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+/* "··· 31 more": the glyph on the icon column, quieter ink. */
+.pcd-more[data-style="dots"] {
+  color: var(--pcd-ink-3);
+}
+.pcd-more[data-style="dots"] .pcd-more-glyph {
+  letter-spacing: -1px;
+  color: inherit;
+}
+/* Claude-style: "Show more" on the lead column, no icon gutter, no count. */
+.pcd-more[data-style="lead"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Project header: the name on the lead column, quiet secondary ink. It sticks while the project's
+ * rows scroll under it. */
+.pcd-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-sticky, 10);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  height: var(--pcd-row);
+  margin-inline: var(--pcd-inset);
+  padding-inline: var(--pcd-pad);
+  font-size: var(--text-detail);
+  font-weight: 600;
+  color: var(--pcd-ink-2);
+  border-radius: 0;
+  transition:
+    background-color var(--pcd-quick),
+    box-shadow var(--pcd-quick);
+}
+.pcd-header-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: background-color var(--pcd-quick);
+}
+.pcd-header-trail {
+  display: flex;
+  justify-content: center;
+  min-width: var(--pcd-box);
+  opacity: 0;
+  transition: opacity var(--pcd-quick);
+}
+.pcd-header:hover .pcd-header-trail,
+.pcd-header:focus-visible .pcd-header-trail,
+.pcd-header:has([data-popup-open]) .pcd-header-trail,
+.pcd-project[data-stuck] .pcd-header-trail,
+.pcd-needs .pcd-header-trail {
+  opacity: 1;
+}
+/* A stuck header spans the sidebar so rows never show beside it. */
+.pcd-project[data-stuck] .pcd-header {
+  width: 100%;
+  margin-inline: 0;
+  padding-inline: calc(var(--pcd-inset) + var(--pcd-pad));
+}
+
+/* veil (pick): the sidebar's own glass, then a 12 px fade into the rows; no line, no shadow. */
+.pcd-project[data-sticky="veil"][data-stuck] .pcd-header {
+  background: var(--pcd-veil);
+  backdrop-filter: var(--pcd-blur);
+  -webkit-backdrop-filter: var(--pcd-blur);
+}
+.pcd-project[data-sticky="veil"] .pcd-header::after {
+  content: "";
+  position: absolute;
+  inset: 100% 0 auto;
+  height: var(--pcd-fade);
+  background: linear-gradient(var(--pcd-veil), transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--pcd-quick);
+}
+.pcd-project[data-sticky="veil"][data-stuck] .pcd-header::after {
+  opacity: 1;
+}
+
+/* shadow: the opaque sidebar tone with a soft shadow below. */
+.pcd-project[data-sticky="shadow"][data-stuck] .pcd-header {
+  background: var(--pcd-tone);
+  box-shadow: var(--pcd-lift);
+}
+
+/* label: only the name gets a small glass capsule; the rows pass beside it. */
+.pcd-project[data-sticky="label"] .pcd-header-text {
+  justify-self: start;
+  margin-inline-start: -8px;
+  padding: 0 8px;
+  line-height: 20px;
+  border-radius: 999px;
+}
+.pcd-project[data-sticky="label"][data-stuck] .pcd-header-text {
+  background: var(--pcd-veil);
+  backdrop-filter: var(--pcd-blur);
+  -webkit-backdrop-filter: var(--pcd-blur);
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--pcd-ink) 8%, transparent);
+}
+
+/* Revealed rows: a grid track opening from 0fr to 1fr, so the rows below slide down together. */
+.pcd-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--pcd-motion);
+}
+.pcd-reveal[data-open] {
+  grid-template-rows: 1fr;
+}
+.pcd-reveal-inner {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--pcd-motion);
+}
+.pcd-reveal[data-open] > .pcd-reveal-inner {
+  opacity: 1;
+}
+
+/* Needs you: at the very top, yellow then blue, at most 3. */
+.pcd-needs .pcd-header {
+  position: static;
+}
+.pcd-needs[data-style="tinted"] {
+  margin: 8px var(--pcd-inset) 0;
+  padding-top: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--pcd-yellow) 7%, transparent);
+}
+.pcd-needs[data-style="tinted"] .pcd-row,
+.pcd-needs[data-style="tinted"] .pcd-header {
+  margin-inline: 0;
+  width: 100%;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .pcd-sidebar {
+    --pcd-blur: none;
+    --pcd-veil: var(--pcd-tone);
+  }
+}
+[data-reduce-transparency] .pcd-sidebar {
+  --pcd-blur: none;
+  --pcd-veil: var(--pcd-tone);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pcd-reveal,
+  .pcd-reveal-inner,
+  .pcd-chevron {
+    transition: none;
+  }
+}

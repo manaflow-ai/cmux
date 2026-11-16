@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from detect_ci_change_areas import classify_files
+from needs_verdict import NO_VERDICT_PREFIX, exit_code, judge
 
 
 def requires_web(paths: list[str]) -> bool:
@@ -55,11 +56,13 @@ def required_for_event(event: str, base: str, head: str) -> bool:
 def failures(needs: dict, event: str = "") -> dict[str, str]:
     changes = needs.get("changes", {})
     required = changes.get("outputs", {}).get("required")
-    if changes.get("result") != "success" or required not in {"true", "false"}:
-        return {"changes": "routing failed or produced no valid decision"}
+    if changes.get("result") != "success":
+        return {"changes": changes.get("result", "")}
+    if required not in {"true", "false"}:
+        return {"changes": f"invalid route required={required!r}"}
     allowed = {"success"} if required == "true" else {"success", "skipped"}
     return {
-        job: needs.get(job, {}).get("result", "missing")
+        job: needs.get(job, {}).get("result", "invalid: not among the needs")
         for job in sorted((set(needs) - {"changes", "portable-placement"}) | {"build", "tests", "database"})
         if needs.get(job, {}).get("result") not in (
             allowed | {"skipped"}
@@ -83,9 +86,15 @@ def main() -> int:
         return 0
     if sys.argv[1:] == ["check"]:
         bad = failures(json.loads(os.environ["WEB_VALIDATION_NEEDS"]), os.environ.get("GITHUB_EVENT_NAME", ""))
-        for name, result in bad.items():
-            print(f"{name}: {result}", file=sys.stderr)
-        return int(bool(bad))
+        # Only a failure (or a broken route) is a red; a job that judged nothing (cancelled, abandoned, skipped
+        # though required) is no verdict, never a pass and never this change's red (scripts/ci/needs_verdict.py).
+        state, failed, unjudged = judge(bad)
+        for name, result in (failed or unjudged).items():
+            print(f"{name}: {result or 'none'}", file=sys.stderr)
+        if not failed and unjudged:
+            named = ", ".join(f"{n} {r or 'none'}" for n, r in unjudged.items())
+            print(f"::error::{NO_VERDICT_PREFIX}web-validation: {named}; nothing it summarizes was judged: re-run the run")
+        return exit_code(state)
     raise SystemExit("usage: web_validation.py route|check")
 
 

@@ -98,7 +98,7 @@ fn a_send_by_host_and_name_reaches_another_machines_session_listed_and_audited_o
 
     // Machine A's relay: the send goes to B's daemon as the broker would deliver it, and the
     // listing is B's live sessions, each with its machine.
-    let exe = env!("CARGO_BIN_EXE_acpmux");
+    let exe = daemon_env::sh_quote(daemon_env::bin().display());
     let (relay, ls) = (a.join("relay"), a.join("relay-ls"));
     script(
         &relay,

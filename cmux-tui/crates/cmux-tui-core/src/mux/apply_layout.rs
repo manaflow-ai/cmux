@@ -130,6 +130,7 @@ impl Mux {
                 entity,
                 workspace_revision: None,
                 transaction: None,
+                mutation: None,
             }
         };
         let projection_result = self.with_state(|state| {
@@ -244,6 +245,7 @@ impl Mux {
                     created,
                     spawned,
                 )?),
+                divider_hidden: false,
             }),
             LayoutSpec::Stack { pane_count, expanded_index } => {
                 if *pane_count == 0 {

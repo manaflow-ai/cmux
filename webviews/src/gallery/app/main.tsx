@@ -13,7 +13,6 @@ import entry from "../scenes/AppWindow.gallery";
 import { DEFAULT_ENV, defaultTheme, frameQuery, type Density, type GalleryEnv } from "../env";
 import { themeTokens, webThemePayload } from "../theme/web";
 import { fitScale, PANE_LAYOUTS, WINDOW_PRESETS, type PaneLayout } from "../window";
-import { installUiFont } from "../frame/uiFont";
 import { APP_ENTRY_ID, APP_ENTRY_SOURCE, appWindow, type AppPane, type AppRow } from "./model";
 import "../../pages/shared/desktop.css";
 import "./app.css";
@@ -268,5 +267,4 @@ function App() {
   );
 }
 
-installUiFont();
 createRoot(document.getElementById("app")!).render(<App />);

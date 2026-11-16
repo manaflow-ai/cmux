@@ -18,10 +18,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "appcast_minimum_system_version.py"
-spec = importlib.util.spec_from_file_location("appcast_floor", SCRIPT)
-floor_tool = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-spec.loader.exec_module(floor_tool)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(SCRIPT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parent))
+import appcast_minimum_system_version as floor_tool  # noqa: E402
 
 
 def appcast(*items: str) -> str:

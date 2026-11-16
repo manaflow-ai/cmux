@@ -14,6 +14,14 @@
 // - `react-commit`: a root that commits more than 120 times in a second (more than one per frame
 //   even at 120 Hz, so commits nobody sees) or spends more than 16 ms rendering one commit, a stream that redraws
 //   every row instead of its own (#34004, #27911). Read from React's devtools hook, every root.
+// - `still-surface`: a surface that holds still while the page around it changes (marked
+//   `data-perf-still`: the agent pane's composer and the hat over it) had its nodes or attributes
+//   rewritten in more than 6 of the last 10 seconds with no key or pointer input: a clock tick, a tool
+//   step or another chat's status drew it again (Leo, 2026-11-09: "im still sometimes seeing a flicker on the
+//   composer/composer hat when scrolling and things are running in background aka time is ticking").
+//   The rate and commit budgets above never saw it: a redraw a second, or four, is far under 120
+//   commits and 16 ms, and nothing moved. A text node that ticks in place (a running time in its own
+//   leaf) is not counted.
 //
 // Each warning is one `console.warn` starting with `[cmux perf budget]`, naming the class, the
 // measured value against the budget, where (a node, a call site, a script, a root) and the fix.
@@ -26,7 +34,13 @@
 // dev server injects perfBudgets.dev.ts into the pages it serves (dev-server/plugins.ts).
 
 export type PerfBudgetMode = "warn" | "collect" | "throw" | "off";
-export type PerfBudgetClass = "layout-shift" | "dom-breadth" | "live-intervals" | "long-frame" | "react-commit";
+export type PerfBudgetClass =
+  | "layout-shift"
+  | "dom-breadth"
+  | "live-intervals"
+  | "long-frame"
+  | "react-commit"
+  | "still-surface";
 
 export type PerfBudgetViolation = {
   kind: PerfBudgetClass;
@@ -54,11 +68,19 @@ export const PERF_BUDGETS = {
   commitsPerSecond: 120,
   /** Render time of one commit (ms): half a frame in development React, about 8 ms in production. */
   commitMs: 16,
+  /** Seconds of the last ten in which a `data-perf-still` surface's nodes or attributes were rewritten
+   *  with no input. Its own events come in bursts (a chat opening draws the composer four times in
+   *  its first second, a turn starting and ending a second each); a redraw per clock second or per
+   *  event elsewhere fills every second, each one rewriting its inputs' attributes (React sets an
+   *  input's name and type on every update). */
+  stillSeconds: 6,
 };
 export type PerfBudgetLimits = typeof PERF_BUDGETS;
 
 export const PERF_BUDGET_PREFIX = "[cmux perf budget]";
 export const PERF_BUDGET_ALLOW = "data-perf-budget-allow";
+/** Marks a surface that holds still while the page around it changes (`still-surface`). */
+export const PERF_BUDGET_STILL = "data-perf-still";
 
 const FIX: Record<PerfBudgetClass, string> = {
   "layout-shift":
@@ -71,6 +93,8 @@ const FIX: Record<PerfBudgetClass, string> = {
     "do less per frame: render only the visible window (VirtualList), defer off-screen work, or split the work across frames",
   "react-commit":
     "re-render only what changed: give a streamed item its own subscription or a memoized row, and batch updates to one commit per frame",
+  "still-surface":
+    "draw the surface only on its own events: memoize it on what it shows (agent-session/acpmux/composer/composerView.ts), and put a ticking value in a leaf of its own (agent-session/acpmux/subagents/Elapsed.tsx)",
 };
 
 /** After a load or a hot update, how long the page is rebuilding and not budgeted (ms). */
@@ -80,6 +104,8 @@ const BREADTH_WALK_LIMIT = 20_000;
 /** Most added subtrees held between checks; past it the next check walks the body. */
 const BREADTH_PENDING_LIMIT = 500;
 const BREADTH_DELAY_MS = 250;
+/** The seconds a still surface's redraws are counted over: its own bursts pass, a 1 Hz redraw does not. */
+const STILL_WINDOW_S = 10;
 const OWN_FILE = "perfBudgets";
 
 export type PerfBudgetsOptions = {
@@ -239,6 +265,55 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
     });
   }
 
+  // still-surface: one observer on every marked surface the breadth walk finds as it is added, counting
+  // its node and attribute changes per second while no key or pointer input explains them.
+  const stillSeen = new WeakSet<Element>();
+  /** Each surface's seconds (page time / 1000, floored) with a redraw, the last ten at most. */
+  const stillRedrawn = new WeakMap<Element, number[]>();
+  let lastInput = Number.NEGATIVE_INFINITY;
+  // One call is one batch of changes, one React commit: each surface it touched counts one redraw.
+  const stillChanged = (records: MutationRecord[]) => {
+    const at = now();
+    if (at - lastInput < 1000 || settling() || doc.visibilityState !== "visible") return;
+    const touched = new Set<Element>();
+    for (const record of records) {
+      // A text node that changes in place (a running time) is the leaf doing its job.
+      if (record.type === "characterData") continue;
+      const target = record.target.nodeType === 1 ? (record.target as Element) : record.target.parentElement;
+      const surface = target?.closest(`[${PERF_BUDGET_STILL}]`);
+      if (surface) touched.add(surface);
+    }
+    const second = Math.floor(at / 1000);
+    for (const surface of touched) {
+      const seconds = stillRedrawn.get(surface) ?? [];
+      if (seconds.at(-1) !== second) seconds.push(second);
+      while (seconds.length > 0 && seconds[0]! <= second - STILL_WINDOW_S) seconds.shift();
+      stillRedrawn.set(surface, seconds);
+      if (seconds.length > budgets.stillSeconds)
+        violate("still-surface", describeNode(surface), seconds.length, budgets.stillSeconds, " of 10 s redrawn");
+    }
+  };
+  const stillObserver = new (win as unknown as { MutationObserver: typeof MutationObserver }).MutationObserver(
+    stillChanged,
+  );
+  function watchStill(element: Element) {
+    if (stillSeen.has(element)) return;
+    stillSeen.add(element);
+    stillObserver.observe(element, { subtree: true, childList: true, attributes: true, characterData: true });
+  }
+  {
+    const input = () => {
+      lastInput = now();
+    };
+    const kinds = ["keydown", "pointerdown", "pointermove", "compositionupdate", "input"] as const;
+    for (const kind of kinds) doc.addEventListener(kind, input, { capture: true, passive: true });
+    flushes.push(() => stillChanged(stillObserver.takeRecords()));
+    stops.push(() => {
+      stillObserver.disconnect();
+      for (const kind of kinds) doc.removeEventListener(kind, input, { capture: true });
+    });
+  }
+
   // dom-breadth: added subtrees and grown parents, checked in one batch a quarter second after a change.
   {
     const pending = new Set<Element>();
@@ -254,6 +329,7 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
       while (stack.length > 0 && budget-- > 0) {
         const element = stack.pop()!;
         if (element.hasAttribute(PERF_BUDGET_ALLOW)) continue;
+        if (element.hasAttribute(PERF_BUDGET_STILL)) watchStill(element);
         const count = element.childElementCount;
         if (count > budgets.domChildren)
           violate("dom-breadth", describeNode(element), count, budgets.domChildren, " children");

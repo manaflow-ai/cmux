@@ -36,7 +36,19 @@ import Testing
         #expect(tints[GroupID("b")] == SidebarGroup.gradientTint(.sunset, at: 1))
     }
 
-    @Test(arguments: GroupPalette.allCases.filter { $0 != .gradient })
+    /// Under the pictorial palette the picture's bands stand in for the gradient, top group from the top band; before
+    /// the picture is sampled, nothing is placed (the groups draw the wallpaper palette).
+    @Test func pictorialPlacesGroupsDownThePicture() {
+        let bands = [WallpaperTint(red: 0.8, green: 0.2, blue: 0.1), WallpaperTint(red: 0.1, green: 0.6, blue: 0.3),
+                     WallpaperTint(red: 0.1, green: 0.2, blue: 0.8)]
+        let tints = SidebarGroup.drawnTints(Self.groups, palette: .pictorial, gradient: .sunset, wallpaper: bands)
+        #expect(tints[GroupID("a")] == SidebarGroup.storedForm(GroupColor.pictorialRGB(bands, at: 0)))
+        #expect(tints[GroupID("c")] == SidebarGroup.storedForm(GroupColor.pictorialRGB(bands, at: 1)))
+        #expect(tints[GroupID("mine")] == nil && tints[GroupID("plain")] == nil)
+        #expect(SidebarGroup.drawnTints(Self.groups, palette: .pictorial, gradient: .sunset).isEmpty)
+    }
+
+    @Test(arguments: GroupPalette.allCases.filter { $0 != .gradient && $0 != .pictorial })
     func anyOtherPaletteDrawsEachGroupsOwnTint(_ palette: GroupPalette) {
         #expect(SidebarGroup.drawnTints(Self.groups, palette: palette, gradient: .sunset).isEmpty)
     }

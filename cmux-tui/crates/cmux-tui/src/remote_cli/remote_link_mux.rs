@@ -45,6 +45,11 @@ pub(super) fn check_binding(
 /// With `state_root` (`remote-link --state-dir`) the owner keeps its
 /// workspace registry under that root, never in the default durable state
 /// root, which can hold an older registry of the same session (cx-0b8z).
+/// The owner reaps a terminal with no tab after the default grace
+/// ([`cmux_tui_core::DEFAULT_TERMINAL_REAP_GRACE`]), as every owner a local
+/// client starts does; without it a remote shell whose tab closed kept
+/// running until the session ended. The owner is this same binary, so it
+/// knows the option.
 pub(super) fn mux_owner_args(
     session: &str,
     mux_socket: &Path,
@@ -53,6 +58,8 @@ pub(super) fn mux_owner_args(
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> =
         ["--headless", "--session", session].into_iter().map(OsString::from).collect();
+    args.push("--terminal-reap-grace-seconds".into());
+    args.push(cmux_tui_core::DEFAULT_TERMINAL_REAP_GRACE.as_secs().to_string().into());
     if !mux_socket_is_derived {
         args.push("--socket".into());
         args.push(mux_socket.into());
@@ -151,12 +158,21 @@ mod tests {
         let socket = Path::new("/tmp/cmux-tui-501/work.sock");
         assert_eq!(
             mux_owner_args("work", socket, true, None),
-            ["--headless", "--session", "work"].map(OsString::from)
+            ["--headless", "--session", "work", "--terminal-reap-grace-seconds", "30"]
+                .map(OsString::from)
         );
         assert_eq!(
             mux_owner_args("work", socket, false, None),
-            ["--headless", "--session", "work", "--socket", "/tmp/cmux-tui-501/work.sock"]
-                .map(OsString::from)
+            [
+                "--headless",
+                "--session",
+                "work",
+                "--terminal-reap-grace-seconds",
+                "30",
+                "--socket",
+                "/tmp/cmux-tui-501/work.sock",
+            ]
+            .map(OsString::from)
         );
     }
 
@@ -169,6 +185,8 @@ mod tests {
                 "--headless",
                 "--session",
                 "work",
+                "--terminal-reap-grace-seconds",
+                "30",
                 "--socket",
                 "/srv/state/sessions/d29yaw/mux.sock",
                 "--state",

@@ -2,7 +2,7 @@
 //! Back Local and a chat start's machine steps. The app runs the cmux-tui CLIs and git, reads its
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
-use cmux_cloud_start_core::moves::{autosize, cli, folder, ledger, pin, seed, wait};
+use cmux_cloud_start_core::moves::{autosize, cli, folder, ledger, pin, seed, targets, wait};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -331,6 +331,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let (done, cleared) = wait::link_look(look);
             json!({ "done": done, "cleared": cleared })
         }
+        b"cloud_move_start_redial" => {
+            let look: wait::RedialLook = read(request)?;
+            json!({ "redial": to_value(wait::start_redial(look))? })
+        }
         b"cloud_move_relinked" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -380,6 +384,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "reusable": wait::run_reusable(request.age_ms) })
+        }
+        // Move to…: where a started chat can go.
+        b"cloud_move_targets" => {
+            let chat: targets::Chat = read(request)?;
+            json!({ "targets": targets::targets(&chat) })
         }
         b"cloud_move_list_current" => {
             #[derive(Deserialize)]

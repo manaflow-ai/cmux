@@ -6,6 +6,8 @@ import datetime as dt
 import importlib.util
 import json
 import re
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -58,6 +60,13 @@ class Pick(unittest.TestCase):
         self.assertEqual(result["run_id"], "2")
         self.assertEqual(result["skip"], "false")
         self.assertEqual(result["verdict"], "none")
+
+    def test_reports_when_the_build_was_published(self):
+        """A feed that stopped moving re-tested one build every night (11-06 to 11-10); the plan warns on its age."""
+        result = stable_next.pick(feed(item(200, date="Tue, 10 Nov 2026 12:44:29 -0800")), None, set(), lambda b: None, None)
+        self.assertEqual(result["published_at"], "2026-11-10T20:44:29Z")
+        undated = feed(item(200)).replace("<pubDate>Fri, 30 Oct 2026 00:34:42 +0000</pubDate>", "")
+        self.assertEqual(stable_next.pick(undated, None, set(), lambda b: None, None)["published_at"], "")
 
     def test_untagged_items_count_as_nightly(self):
         self.assertEqual(stable_next.pick(feed(item(500, None)), None, set(), lambda b: None, None)["build"], "500")
@@ -145,6 +154,59 @@ class MergeAndRollback(unittest.TestCase):
         again = stable_next.record_pulled(first, [30, 40], "crash", "2026-10-30T06:00:00Z")
         self.assertEqual([e["build"] for e in json.loads(again)], ["30", "20", "40"])
         self.assertEqual(stable_next.pulled_builds_text(again), {20, 30, 40})
+
+
+STUB_RATCHET = textwrap.dedent("""
+    import json, os
+    from types import SimpleNamespace
+    WAIVED, COUNTED = "waived", "counted"
+    def scan_tree(root, _quiet):
+        data = json.load(open(os.path.join(root, "scan.json")))
+        return SimpleNamespace(counts=data["counts"], waived={}, banned_files={})
+    def load_baseline(path):
+        return json.load(open(path)) if os.path.exists(path) else None
+    def baseline_rows(data):
+        rows = {}
+        for lang, kinds in data.items():
+            if lang == WAIVED:
+                continue
+            for kind, modules in kinds.items():
+                for module, hits in modules.items():
+                    if hits:
+                        rows[(COUNTED, lang, kind, module)] = hits
+        return rows
+    def proven_moves(_old, _new):
+        return {}
+    def carry_moves(base_rows, risen, _moves):
+        return dict(base_rows), {}
+    def row_label(row):
+        return f"{row[1]} {row[3]}: {row[2]}"
+""")
+
+
+class CrashDelta(unittest.TestCase):
+    def tree(self, root: Path, exits: int, baseline: int | None) -> Path:
+        (root / "scripts/cmux-next").mkdir(parents=True)
+        (root / "scripts/cmux-next/crash_ratchet.py").write_text(STUB_RATCHET)
+        (root / "scan.json").write_text(json.dumps({"counts": {"rust": {"exit": {"acpmux": exits}}}}))
+        if baseline is not None:
+            (root / "scripts/cmux-next/crash-safety-baseline.json").write_text(
+                json.dumps({"rust": {"exit": {"acpmux": baseline}}, "waived": {}}))
+        return root
+
+    def delta(self, stable: int, candidate: int, baseline: int | None) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = self.tree(Path(tmp) / "base", stable, baseline)
+            head = self.tree(Path(tmp) / "head", candidate, baseline)
+            return stable_next.crash_delta(base, head)
+
+    def test_a_rise_within_the_candidates_reviewed_baseline_is_no_new_hit(self):
+        """acpmux exit 4 -> 5 under a baseline of 5 blocked the night (run 42918010143)."""
+        self.assertEqual(self.delta(4, 5, 5), [])
+
+    def test_a_rise_over_the_baseline_and_the_stable_build_fails(self):
+        self.assertEqual(self.delta(4, 6, 5), ["rust acpmux: exit: 4 -> 6"])
+        self.assertEqual(self.delta(4, 5, None), ["rust acpmux: exit: 4 -> 5"])
 
 
 if __name__ == "__main__":

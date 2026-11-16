@@ -11,13 +11,25 @@
 //! know adds that route as a path, as ICE learns peer-reflexive candidates, so
 //! a mapping punched by the peer's own packets is used at once.
 //!
+//! With the machine's interface table ([`Endpoint::set_local_networks`]), a
+//! UDP path also carries its [`Medium`], so a Thunderbolt Bridge beats the
+//! office LAN at once. A current path that stops answering is caught within
+//! a silence window ([`silence_us`]): traffic sent on it with nothing heard
+//! back triggers a probe at once, and a probe unanswered for one window
+//! makes the path suspect, so packets go on every path until it answers or
+//! dies. A dropped fast path costs about two windows, not three probe
+//! timeouts.
+//!
 //! Pure like [`Link`]: the caller owns the sockets and relays, delivers what
 //! arrives with the route it came from, and sends each [`Transmit`] on its
 //! route.
 
 use crate::{Event, KeyPair, Link, LinkError, Role};
-use cmux_transport::{PathId, PathKind, ProbeOutcome, Selector, SelectorConfig};
-use std::collections::HashMap;
+use cmux_transport::selector::default_medium;
+use cmux_transport::{
+    LocalNetwork, Medium, PathId, PathKind, ProbeOutcome, Selector, SelectorConfig, medium_of,
+};
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 
 /// Probe interval of a path that has not answered yet.
@@ -29,6 +41,29 @@ pub const PROBE_TIMEOUT_US: u64 = 1_000_000;
 /// Most paths. Routes learned from unauthenticated handshake packets count,
 /// so forged packets cannot make the endpoint answer to many addresses.
 pub const MAX_PATHS: usize = 16;
+/// The shortest silence window: below it, scheduling jitter alone would
+/// look like a dead path.
+pub const SILENCE_FLOOR_US: u64 = 100_000;
+
+/// While a session is live, the longest the current path goes without a
+/// packet from this side: with nothing else to send (a still screen, no
+/// input), a sealed keep-awake packet goes out. A Wi-Fi station that hears
+/// nothing for a few tens of milliseconds dozes, and the access point then
+/// holds its packets until the next beacon (100 ms and more), so the first
+/// key press after a pause waited for the radio. Both sides send their own,
+/// so both radios stay up. 26 bytes sealed (54 with UDP/IPv4): at most
+/// 2.7 KB/s each way, and none while media or input already flows.
+pub const KEEP_AWAKE_US: u64 = 20_000;
+/// Keep-awake stops once no session traffic (rd datagrams or control) went
+/// either way for this long, and starts again with the next.
+pub const KEEP_AWAKE_IDLE_US: u64 = 300_000_000;
+
+/// How long the current path may stay silent (traffic out, nothing back),
+/// and then leave a probe unanswered, before the endpoint acts: four
+/// smoothed round trips, at least [`SILENCE_FLOOR_US`].
+pub fn silence_us(rtt_us: Option<u64>) -> u64 {
+    rtt_us.map_or(SILENCE_FLOOR_US, |rtt| rtt.saturating_mul(4)).max(SILENCE_FLOOR_US)
+}
 
 /// Where a packet goes: a UDP address, or a relay that forwards to the peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -57,6 +92,8 @@ pub enum EndpointEvent {
     PathChanged {
         route: Option<Route>,
         kind: Option<PathKind>,
+        /// What the path rides (Thunderbolt, LAN, routed).
+        medium: Option<Medium>,
         rtt_us: Option<u64>,
     },
 }
@@ -65,6 +102,10 @@ struct PathEntry {
     route: Route,
     kind: PathKind,
     next_probe_us: u64,
+    /// When an authenticated packet last arrived on this route.
+    heard_us: u64,
+    /// Packets sent on this route since then.
+    unanswered_sends: u64,
 }
 
 pub struct Endpoint {
@@ -77,6 +118,19 @@ pub struct Endpoint {
     /// Probe id -> (path, sent at).
     probes: HashMap<u64, (PathId, u64)>,
     events: Vec<EndpointEvent>,
+    /// This machine's interfaces, for each UDP path's medium (empty: the
+    /// kind's default medium).
+    networks: Vec<LocalNetwork>,
+    /// Probes that already made their path suspect.
+    flagged: HashSet<u64>,
+    /// [`Endpoint::set_keep_awake`]: the longest gap between packets out.
+    keep_awake_us: Option<u64>,
+    /// The newest time the caller gave (`send_datagram` takes none).
+    clock_us: u64,
+    /// When this side last sent anything.
+    sent_us: u64,
+    /// When session traffic (datagrams, control) last went either way.
+    traffic_us: u64,
 }
 
 impl Endpoint {
@@ -96,11 +150,55 @@ impl Endpoint {
             next_probe_id: 1,
             probes: HashMap::new(),
             events: Vec::new(),
+            networks: Vec::new(),
+            flagged: HashSet::new(),
+            keep_awake_us: None,
+            clock_us: now_us,
+            sent_us: now_us,
+            traffic_us: now_us,
         })
+    }
+
+    /// Sends a keep-awake packet on the current path whenever this side has
+    /// sent nothing for `every_us` ([`KEEP_AWAKE_US`]) while the session has
+    /// traffic; `None` (the default) sends none.
+    pub fn set_keep_awake(&mut self, every_us: Option<u64>) {
+        self.keep_awake_us = every_us.filter(|us| *us > 0);
+    }
+
+    /// When the next keep-awake packet is due: established, a path is
+    /// current, and the session was not idle for [`KEEP_AWAKE_IDLE_US`].
+    fn keep_awake_at(&self) -> Option<u64> {
+        let every = self.keep_awake_us?;
+        let active = self.link.is_established()
+            && self.selector.current().is_some_and(|id| self.paths.contains_key(&id));
+        let at = self.sent_us.saturating_add(every);
+        (active && at < self.traffic_us.saturating_add(KEEP_AWAKE_IDLE_US)).then_some(at)
     }
 
     pub fn link(&self) -> &Link {
         &self.link
+    }
+
+    /// This machine's interface table (`cmux_transport::local_networks()`),
+    /// read again on every network change. Paths added from now on carry
+    /// the medium it gives them.
+    pub fn set_local_networks(&mut self, networks: Vec<LocalNetwork>) {
+        self.networks = networks;
+        let media: Vec<(PathId, Medium)> =
+            self.paths.iter().map(|(id, path)| (*id, self.medium(path.route, path.kind))).collect();
+        for (id, medium) in media {
+            let _ = self.selector.set_medium(id, medium);
+        }
+    }
+
+    fn medium(&self, route: Route, kind: PathKind) -> Medium {
+        match route {
+            Route::Udp(addr) if !self.networks.is_empty() && kind.class().is_direct() => {
+                medium_of(addr.ip(), &self.networks)
+            }
+            _ => default_medium(kind),
+        }
     }
 
     /// Adds a candidate route to the peer (from signaling, or learned).
@@ -110,11 +208,19 @@ impl Endpoint {
         }
         let id = PathId(self.next_path);
         self.next_path = self.next_path.wrapping_add(1);
-        if self.selector.add_path(id, kind).is_err() {
+        let medium = self.medium(route, kind);
+        if self.selector.add_path_on(id, kind, medium).is_err() {
             return;
         }
-        self.paths.insert(id, PathEntry { route, kind, next_probe_us: now_us });
+        let entry =
+            PathEntry { route, kind, next_probe_us: now_us, heard_us: now_us, unanswered_sends: 0 };
+        self.paths.insert(id, entry);
         self.by_route.insert(route, id);
+    }
+
+    /// The current path's medium, when one is current.
+    pub fn current_medium(&self) -> Option<Medium> {
+        self.selector.current().and_then(|id| self.selector.path(id)).map(|view| view.medium)
     }
 
     /// The local network changed: every path is probed again from scratch.
@@ -133,17 +239,27 @@ impl Endpoint {
         self.events.push(EndpointEvent::PathChanged {
             route: entry.map(|e| e.route),
             kind: entry.map(|e| e.kind),
+            medium: to.and_then(|id| self.selector.path(id)).map(|view| view.medium),
             rtt_us,
         });
     }
 
     /// The routes a link packet goes out on now: the current path, or every
-    /// path while none answers.
-    fn routes(&self) -> Vec<Route> {
-        match self.selector.current().and_then(|id| self.paths.get(&id)) {
-            Some(path) => vec![path.route],
-            None => self.paths.values().map(|p| p.route).collect(),
+    /// path while none answers (or the current one is suspect). Each send is
+    /// counted against its route's silence.
+    fn routes(&mut self) -> Vec<Route> {
+        let ids: Vec<PathId> = match self.selector.current() {
+            Some(id) if self.paths.contains_key(&id) => vec![id],
+            _ => self.paths.keys().copied().collect(),
+        };
+        let mut routes = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(path) = self.paths.get_mut(&id) {
+                path.unanswered_sends = path.unanswered_sends.saturating_add(1);
+                routes.push(path.route);
+            }
         }
+        routes
     }
 
     /// Feeds a packet that arrived on `route`. Returns the endpoint's events.
@@ -153,11 +269,21 @@ impl Endpoint {
         packet: &[u8],
         now_us: u64,
     ) -> Result<Vec<EndpointEvent>, LinkError> {
+        self.clock_us = self.clock_us.max(now_us);
         let was_established = self.link.is_established();
         let events = self.link.on_packet(packet, now_us)?;
+        if events.iter().any(|e| matches!(e, Event::Datagram(_) | Event::Control(_))) {
+            self.traffic_us = now_us;
+        }
         // Learn the route once the packet authenticated: a sealed packet that
         // opened (any event), or the handshake moving on.
         let authenticated = !events.is_empty() || (!was_established && self.link.is_established());
+        if authenticated
+            && let Some(path) = self.by_route.get(&route).and_then(|id| self.paths.get_mut(id))
+        {
+            path.heard_us = now_us;
+            path.unanswered_sends = 0;
+        }
         if authenticated && !self.by_route.contains_key(&route) {
             let kind = match route {
                 Route::Udp(addr) if is_local(addr) => PathKind::DirectLan,
@@ -190,6 +316,14 @@ impl Endpoint {
 
     fn on_probe_reply(&mut self, id: u64, now_us: u64) {
         let Some((path, sent)) = self.probes.remove(&id) else { return };
+        self.flagged.remove(&id);
+        // An answered probe proves the probed path, whichever route the
+        // reply came back on (the peer may answer on its own choice), so
+        // its silence starts over and it is not probed again at once.
+        if let Some(entry) = self.paths.get_mut(&path) {
+            entry.heard_us = now_us;
+            entry.unanswered_sends = 0;
+        }
         let outcome = ProbeOutcome::Answered { rtt_us: now_us.saturating_sub(sent).max(1) };
         if let Ok(Some(switch)) = self.selector.on_probe(path, outcome) {
             self.report_switch(switch.to);
@@ -199,6 +333,8 @@ impl Endpoint {
     /// Seals one rd datagram for the current path (every path while none answers).
     pub fn send_datagram(&mut self, datagram: &[u8]) -> Result<Vec<Transmit>, LinkError> {
         let packet = self.link.seal_datagram(datagram)?;
+        self.traffic_us = self.clock_us;
+        self.sent_us = self.clock_us;
         Ok(self
             .routes()
             .into_iter()
@@ -208,12 +344,25 @@ impl Endpoint {
 
     /// Queues one control record (ordered, reliable).
     pub fn send_control(&mut self, record: Vec<u8>, now_us: u64) -> Result<(), LinkError> {
+        self.clock_us = self.clock_us.max(now_us);
+        self.traffic_us = now_us;
         self.link.send_control(record, now_us)
     }
 
     /// Packets to send now: link output on the chosen routes, and the probes
     /// that are due, each on its own path.
     pub fn poll_transmit(&mut self, now_us: u64) -> Result<Vec<Transmit>, LinkError> {
+        // Keep handshake/control output queued until signaling has supplied at least one
+        // route. The initiator starts Noise before the viewer's candidate command reaches the
+        // network thread; draining `Link::out` while `routes()` is empty loses that first packet
+        // and makes startup wait for the 250 ms handshake retry. Advance the handshake timer
+        // without queueing another copy so a delayed candidate still gets the original packet
+        // and a route-less session still reaches its normal timeout.
+        self.clock_us = self.clock_us.max(now_us);
+        if self.paths.is_empty() {
+            self.link.poll_handshake_timers(now_us)?;
+            return Ok(Vec::new());
+        }
         // Probes that timed out are lost.
         let lost: Vec<(u64, PathId)> = self
             .probes
@@ -223,13 +372,18 @@ impl Endpoint {
             .collect();
         for (id, path) in lost {
             self.probes.remove(&id);
+            self.flagged.remove(&id);
             if let Ok(Some(switch)) = self.selector.on_probe(path, ProbeOutcome::Lost) {
                 self.report_switch(switch.to);
             }
         }
+        self.watch_silence(now_us);
         let mut out = Vec::new();
-        let routes = self.routes();
-        for packet in self.link.poll_transmit(now_us)? {
+        let packets = self.link.poll_transmit(now_us)?;
+        // Only a poll that sends counts against silence: an idle link
+        // waiting for nothing is not a quiet path.
+        let routes = if packets.is_empty() { Vec::new() } else { self.routes() };
+        for packet in packets {
             for route in &routes {
                 out.push(Transmit { route: *route, packet: packet.clone() });
             }
@@ -242,7 +396,11 @@ impl Endpoint {
                 .map(|(id, _)| *id)
                 .collect();
             for path in due {
-                let alive = self.selector.path(path).is_some_and(|v| v.rtt_us.is_some());
+                // A suspect path is probed as fast as a new one, so it
+                // proves itself alive (or dead) quickly.
+                let alive = self.selector.path(path).is_some_and(|v| {
+                    v.rtt_us.is_some() && v.state != cmux_transport::PathState::Suspect
+                });
                 let id = self.next_probe_id;
                 self.next_probe_id += 1;
                 let packet = self.link.probe(id)?;
@@ -252,7 +410,47 @@ impl Endpoint {
                 out.push(Transmit { route: entry.route, packet });
             }
         }
+        if !out.is_empty() {
+            self.sent_us = now_us;
+        } else if self.keep_awake_at().is_some_and(|at| at <= now_us)
+            && let Some(route) =
+                self.selector.current().and_then(|id| self.paths.get(&id)).map(|p| p.route)
+        {
+            // Not counted against the path's silence: it asks for no answer.
+            out.push(Transmit { route, packet: self.link.keep_awake()? });
+            self.sent_us = now_us;
+        }
         Ok(out)
+    }
+
+    /// The current path went quiet: traffic went out on it for a silence
+    /// window with nothing authenticated back, so probe it now; a probe on
+    /// it unanswered for a window makes it suspect (every path from then).
+    fn watch_silence(&mut self, now_us: u64) {
+        if !self.link.is_established() {
+            return;
+        }
+        let Some(current) = self.selector.chosen() else { return };
+        let window = silence_us(self.selector.path(current).and_then(|view| view.rtt_us));
+        let outstanding = self.probes.iter().find(|(_, (path, _))| *path == current);
+        match outstanding {
+            Some((&id, &(_, sent))) => {
+                if now_us.saturating_sub(sent) > window
+                    && self.flagged.insert(id)
+                    && let Ok(Some(switch)) = self.selector.on_silence(current)
+                {
+                    self.report_switch(switch.to);
+                }
+            }
+            None => {
+                if let Some(path) = self.paths.get_mut(&current)
+                    && path.unanswered_sends > 0
+                    && now_us.saturating_sub(path.heard_us) > window
+                {
+                    path.next_probe_us = path.next_probe_us.min(now_us);
+                }
+            }
+        }
     }
 
     /// The events produced outside `on_packet` (path changes from probe timeouts).
@@ -268,7 +466,22 @@ impl Endpoint {
             None
         };
         let timeout = self.probes.values().map(|(_, sent)| sent + PROBE_TIMEOUT_US).min();
-        [self.link.next_deadline_us(), probe, timeout].into_iter().flatten().min()
+        let established = self.link.is_established();
+        let silence = self.selector.chosen().filter(|_| established).and_then(|current| {
+            let window = silence_us(self.selector.path(current).and_then(|view| view.rtt_us));
+            let path = self.paths.get(&current)?;
+            let probe = self.probes.iter().find(|(_, (p, _))| *p == current);
+            match probe {
+                Some((id, (_, sent))) if !self.flagged.contains(id) => Some(sent + window + 1),
+                Some(_) => None,
+                None if path.unanswered_sends > 0 => Some(path.heard_us + window + 1),
+                None => None,
+            }
+        });
+        [self.link.next_deadline_us(), probe, timeout, silence, self.keep_awake_at()]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// Tells the peer the session ends, on the current routes.

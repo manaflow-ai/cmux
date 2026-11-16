@@ -1,4 +1,7 @@
+public import CmuxNextCompat
+public import CmuxNextWakeups
 public import Foundation
+import os
 
 /// The daemon's launch snapshot (`launch-snapshot-v1`): the last settled
 /// `list-workspaces` tree with its personal state and this app's window
@@ -7,6 +10,9 @@ public import Foundation
 /// it with the live tree after the handshake. It is a cache, never a source
 /// of truth: nothing is written back from it, and a missing or unreadable
 /// file only means the launch shows the connecting state as before.
+///
+/// The file grows with the session (3.3 MB at 826 workspaces), so the app reads and decodes it off the main
+/// thread, from `main` while AppKit starts (``readAtLaunch(work:build:)``); the main thread only applies the result.
 public struct LaunchSnapshot: Sendable {
     /// The tree, with `personal` from the file (`list-personal`) so the
     /// provisional sidebar filters and groups as the live one will.
@@ -68,14 +74,70 @@ public struct LaunchSnapshot: Sendable {
         return LaunchSnapshot(tree: tree, windows: windows, sidebarDoc: sidebarDoc, session: file.session, writtenAtMs: file.writtenAtMs)
     }
 
-    /// Reads the snapshot at `path` (from `LaunchSnapshotLocation`).
-    public static func load(path: String, session: String) throws(Skip) -> LaunchSnapshot {
+    /// The snapshot the last run of `session` left, read and decoded on the calling thread; nil when there is
+    /// none or it cannot be used (logged: the launch then shows the connecting state).
+    ///
+    /// The path comes from the last handshake (`location`), else from the daemon's state directory
+    /// (`stateDirectory`, a tagged build's), so cleared defaults do not lose the snapshot. The read of the file
+    /// is a checked blocking call (the search of the state directory is not), so the blocking detector reports
+    /// this on the main thread: the app runs it on `BackgroundWork`'s files lane
+    /// (``readAtLaunch(work:build:)``) and hands `DaemonService.start` the result.
+    public static func saved(session: String, stateDirectory: URL?,
+                             location: LaunchSnapshotLocation = LaunchSnapshotLocation()) -> LaunchSnapshot? {
+        guard let path = location.path(session: session) ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return nil }
+        do { return try load(path: path, session: session) } catch {
+            logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// ``saved(session:stateDirectory:location:)`` for the app daemon's session of `build`
+    /// (``DaemonLauncher/appNames(build:applicationSupport:log:)``), put on `work`'s files lane before this
+    /// returns, from `main`: the read and the decode overlap AppKit's start, and the launch awaits the task (no
+    /// thread waits) before `DaemonService.start`. The launch mark `daemon.launch_snapshot_read` says when the
+    /// read ended.
+    ///
+    /// ```swift
+    /// let snapshot = LaunchSnapshot.readAtLaunch(work: work, build: build)   // in `main`, before the other launch reads
+    /// daemon.start(..., launchSnapshot: await snapshot.value)
+    /// ```
+    public static func readAtLaunch(work: BackgroundWork, build: BuildIdentity) -> Task<LaunchSnapshot?, Never> {
+        readAtLaunch(work: work) { DaemonLauncher.appNames(build: build) }
+    }
+
+    /// ``readAtLaunch(work:build:)`` for the session `names` gives (called on the lane thread).
+    ///
+    /// The item is posted here, in the caller's turn, so it is first on the lane's slot: the launch window waits
+    /// for this read, and `main` posts the pages' and the terminals' saved frames (megabytes, decoded) on the
+    /// same slot right after it. A read that entered the lane only when its task first ran queued behind them.
+    static func readAtLaunch(work: BackgroundWork, location: LaunchSnapshotLocation = LaunchSnapshotLocation(),
+                             names: @escaping @Sendable () -> (session: String, stateDirectory: URL?)) -> Task<LaunchSnapshot?, Never> {
+        let (results, result) = AsyncStream<LaunchSnapshot?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        // `.blockShutdown`: the launch awaits the result, so a shutdown of `work` must not skip the item.
+        work.post(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) {
+            let daemon = names()
+            result.yield(Self.saved(session: daemon.session, stateDirectory: daemon.stateDirectory, location: location))
+            result.finish()
+            DaemonLaunchTimings.shared.mark("daemon.launch_snapshot_read")
+        }
+        // task-owner: AppDelegate.launchSnapshot; awaited once by its launch task, which then drops it.
+        return Task.detached(priority: .userInitiated) {
+            for await snapshot in results { return snapshot }
+            return nil
+        }
+    }
+
+    // The subsystem and category of `DaemonService.logger`, which wrote this line before the read moved here.
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
+
+    /// Reads the snapshot at `path` (from `LaunchSnapshotLocation`): a blocking read, checked.
+    static func load(path: String, session: String) throws(Skip) -> LaunchSnapshot {
         let url = URL(fileURLWithPath: path)
         let size: Int
-        do { size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0 } catch { throw .unreadable(String(describing: error)) }
+        do { size = try url.blockingResourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0 } catch { throw .unreadable(String(describing: error)) }
         guard size <= maximumBytes else { throw .tooLarge(size) }
         let data: Data
-        do { data = try Data(contentsOf: url) } catch { throw .unreadable(String(describing: error)) }
+        do { data = try Data(blockingContentsOf: url) } catch { throw .unreadable(String(describing: error)) }
         return try read(data, session: session)
     }
 

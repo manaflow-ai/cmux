@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -150,7 +151,7 @@ import Testing
     }
 
     @Test func revealingAnItemOpensEveryFoldAboveIt() {
-        let defaults = UserDefaults(suiteName: "SidebarNeedsYouTests.\(UUID().uuidString)") ?? .standard
+        let defaults = UserDefaults(testSuiteName: "SidebarNeedsYouTests.\(UUID().uuidString)") ?? .standard
         let tree = SidebarSessionTree(defaults: defaults)
         let root = WorkspaceID("root"), mid = WorkspaceID("mid"), leaf = WorkspaceID("leaf")
         let other = WorkspaceID("other"), otherChild = WorkspaceID("other-child")

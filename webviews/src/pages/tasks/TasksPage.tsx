@@ -7,7 +7,9 @@ import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuCheckboxItem, MenuGroup, MenuPopup, MenuSeparator } from "../../ui/Menu";
+import { SplitEdge } from "../../ui/SplitEdge";
 import { VirtualList } from "../../ui/VirtualList";
+import { useLasting } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import {
   agentName,
@@ -55,6 +57,10 @@ export interface TasksPageProps {
 export function TasksPage({ store, strings, layout, copy }: TasksPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const t = strings.t;
+  // An owner that does not answer is said only once that lasts (ui/lasting.ts): a launch or a daemon
+  // restart leaves it unreachable for a few seconds, and the board stays as it was meanwhile. One that
+  // never answered names the command that starts it at once: that is the person's to do.
+  const unreachableLasting = useLasting(state.connection === "unreachable");
   if (!state.everConnected && state.connection === "unreachable") {
     return (
       <main className="tasks-page">
@@ -64,7 +70,7 @@ export function TasksPage({ store, strings, layout, copy }: TasksPageProps) {
   }
   return (
     <main className="tasks-page" data-layout={layout} aria-busy={state.connection === "connecting"}>
-      {state.connection === "unreachable" ? (
+      {unreachableLasting ? (
         <output className="tasks-banner">
           {/* icon-scale-allow: a status dot, not an icon */}
           <Dot size={6} />
@@ -512,7 +518,18 @@ function InboxLayout({ store, state, strings }: LayoutProps) {
         }}
       />
       <div className="tasks-detail-pane">
-        {selected ? <TaskDetail store={store} state={state} strings={strings} task={selected} /> : null}
+        <div className="tasks-detail-scroll">
+          {selected ? <TaskDetail store={store} state={state} strings={strings} task={selected} /> : null}
+        </div>
+        {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
+        <SplitEdge
+          side="start"
+          property="--tasks-detail-width"
+          storageKey="cmux.tasks.detail.width"
+          min={280}
+          max={960}
+          on="parent"
+        />
       </div>
     </div>
   );

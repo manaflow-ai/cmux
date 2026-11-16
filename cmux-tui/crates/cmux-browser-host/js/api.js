@@ -251,8 +251,28 @@
     }
   }
 
+  // What `verifyFlow` returns: a few readable lines for the agent, then one
+  // `cmux.walkthrough {json}` line the chat draws as the walkthrough strip
+  // (webviews conversation/walkthroughModel.ts reads it back).
+  class Walkthrough {
+    constructor(report) {
+      Object.assign(this, report);
+    }
+    toString() {
+      const done = this.steps.filter((s) => s.ok).length;
+      const lines = [`${this.passed ? "PASS" : "FAIL"}: ${done} of ${this.steps.length} steps passed at ${this.url}`];
+      if (this.error) lines.push(this.error);
+      for (const s of this.steps) {
+        lines.push(`${s.ok ? "ok" : s.skipped ? "skipped" : "failed"} ${s.n}. ${s.line}${s.error ? `: ${s.error}` : ""}${s.screenshot ? ` ${s.screenshot}` : ""}`);
+      }
+      lines.push(`cmux.walkthrough ${JSON.stringify({ ...this })}`);
+      return lines.join("\n");
+    }
+  }
+
   function inspect(value, depth = 0, seen = new Set()) {
     const nested = depth > 0;
+    if (value instanceof Walkthrough) return nested ? `[Walkthrough ${value.passed ? "passed" : "failed"}]` : String(value);
     if (typeof value === "string") return nested ? `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n")}'` : value;
     if (value === null || value === undefined || typeof value === "number" || typeof value === "boolean") return String(value);
     if (typeof value === "bigint") return value + "n";
@@ -580,6 +600,140 @@
       }
     }
 
+    // Click through a flow on a local page and return a pass/fail walkthrough:
+    // one screenshot and one line per step. Steps run in order in the REPL's
+    // own background tab and stop at the first failure (the rest are marked
+    // skipped). Step shapes:
+    //   { open: "/path" }                     (or a full URL)
+    //   { click: "text=Save" }                (any locator selector)
+    //   { type: "#name", text: "Ada" }        (fills the field)
+    //   { expect: "Saved" }                   (waits for visible text; `in` scopes it to a selector)
+    // Each may carry `note`, the step's line in the strip. Screenshots are
+    // JPEGs in the session's temp folder under `walkthrough/<session>/`, of
+    // which each session keeps its newest WALKTHROUGH_KEEP: named sessions share
+    // the temp folder, and one must not prune shots another's chat still draws.
+    const WALKTHROUGH_MAX_STEPS = 12;
+    const WALKTHROUGH_KEEP = 96;
+    function walkthroughBase(target) {
+      if (Number.isInteger(target) && target >= 1 && target <= 65535) return `http://127.0.0.1:${target}/`;
+      if (typeof target === "string" && /^https?:\/\//.test(target)) return target;
+      throw new Error(`verifyFlow: target must be a port (1-65535) or an http(s) URL, got ${JSON.stringify(target)}`);
+    }
+    function walkthroughLine(step) {
+      if (typeof step.note === "string" && step.note.trim()) return step.note.trim().slice(0, 140);
+      if (step.open !== undefined) return `Open ${step.open}`;
+      if (step.click !== undefined) return `Click ${step.click}`;
+      if (step.type !== undefined) return `Type "${step.text}" into ${step.type}`;
+      return `See "${step.expect}"${step.in ? ` in ${step.in}` : ""}`;
+    }
+    function checkWalkthroughStep(step, index) {
+      const where = `verifyFlow: step ${index + 1}`;
+      if (step === null || typeof step !== "object" || Array.isArray(step)) throw new Error(`${where}: expected an object, got ${JSON.stringify(step)}`);
+      const kinds = ["open", "click", "type", "expect"].filter((k) => step[k] !== undefined);
+      if (kinds.length !== 1) throw new Error(`${where}: needs exactly one of open, click, type or expect, got ${JSON.stringify(step)}`);
+      if (typeof step[kinds[0]] !== "string" || !step[kinds[0]]) throw new Error(`${where}: ${kinds[0]} must be a non-empty string`);
+      if (kinds[0] === "type" && typeof step.text !== "string") throw new Error(`${where}: type needs text, a string`);
+      return kinds[0];
+    }
+    function pruneWalkthroughShots(dir) {
+      const shots = fs
+        .readdirSync(dir)
+        .filter((name) => name.endsWith(".jpg"))
+        .map((name) => ({ file: path.join(dir, name), at: fs.statSync(path.join(dir, name)).mtimeMs }))
+        .sort((a, b) => b.at - a.at);
+      for (const old of shots.slice(WALKTHROUGH_KEEP)) fs.rmSync(old.file, { force: true });
+    }
+    async function verifyFlow(target, steps, options = {}) {
+      const base = walkthroughBase(target);
+      if (!Array.isArray(steps) || steps.length === 0) throw new Error("verifyFlow: steps must be a non-empty array");
+      if (steps.length > WALKTHROUGH_MAX_STEPS) throw new Error(`verifyFlow: at most ${WALKTHROUGH_MAX_STEPS} steps, got ${steps.length}`);
+      if (options === null || typeof options !== "object" || Array.isArray(options)) throw new Error(`verifyFlow: options must be an object, got ${JSON.stringify(options)}`);
+      const timeout = options.timeout === undefined ? 5000 : options.timeout;
+      if (!Number.isFinite(timeout) || timeout < 0) throw new Error("verifyFlow: timeout must be a finite nonnegative number");
+      // A page load gets 30 s unless the caller bounded the flow: then its timeout bounds loads too.
+      const loadTimeout = options.timeout === undefined ? 30000 : timeout;
+      const kinds = steps.map(checkWalkthroughStep);
+      // The page opens first: a flow that starts with a click opens the target itself.
+      const plan = kinds[0] === "open" ? steps.map((s, i) => ({ s, k: kinds[i] })) : [{ s: { open: base }, k: "open", implied: true }, ...steps.map((s, i) => ({ s, k: kinds[i] }))];
+      // A session may be named anything, `..` included: the folder keeps letters, digits, `_` and `-`
+      // under a prefix, so no name can be `.` or `..` and reach the folder above.
+      const owner = `s-${String(host.sessionId || "default").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64)}`;
+      const dir = path.join(host.tmpdir, "walkthrough", owner);
+      fs.mkdirSync(dir, { recursive: true });
+      const run = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+      const page = await session.newPage(undefined, { background: true });
+      const out = [];
+      let error;
+      let reached = base;
+      try {
+        let failed = false;
+        for (const [index, { s, k, implied }] of plan.entries()) {
+          const row = { n: index + 1, kind: k, line: implied ? `Open ${base}` : walkthroughLine(s), ok: false };
+          out.push(row);
+          if (failed) {
+            row.skipped = true;
+            continue;
+          }
+          const started = Date.now();
+          try {
+            if (k === "open") {
+              const url = new core.URL(s.open, base).href;
+              try {
+                await page.goto(url, { waitUntil: "load", timeout: loadTimeout });
+              } catch (e) {
+                // Nothing listens there: say so plainly instead of a driver code.
+                if (/ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ERR_EMPTY_RESPONSE|ECONNREFUSED/.test(String(e && e.message))) {
+                  error = `No dev server answers at ${new core.URL(url).origin}. Start it (bg_start) and run verifyFlow again.`;
+                  row.noServer = true;
+                  throw new Error(error);
+                }
+                throw e;
+              }
+            } else if (k === "click") {
+              await page.locator(s.click).first().click({ timeout });
+            } else if (k === "type") {
+              await page.locator(s.type).first().fill(s.text, { timeout });
+            } else {
+              const scope = s.in ? page.locator(s.in).first() : page;
+              await scope.getByText(s.expect).first().waitFor({ state: "visible", timeout });
+            }
+            row.ok = true;
+          } catch (e) {
+            row.error = String(e && e.message ? e.message : e).split("\n")[0].slice(0, 240);
+            failed = true;
+          }
+          row.ms = Date.now() - started;
+          if (!row.noServer) {
+            try {
+              const shot = await screenshot(page, { type: "jpeg", quality: 70 });
+              const file = path.join(dir, `${run}-${row.n}.jpg`);
+              fs.writeFileSync(file, shot.buffer);
+              row.screenshot = `[${shot}: ${file}]`;
+            } catch (e) {
+              // A step with no picture proves nothing: it fails, and the flow stops there.
+              if (row.ok) {
+                row.ok = false;
+                row.error = `No screenshot: ${String(e && e.message ? e.message : e).split("\n")[0].slice(0, 200)}`;
+                failed = true;
+              }
+            }
+            const now = page.url();
+            if (/^https?:/.test(now)) reached = now;
+          }
+        }
+      } finally {
+        await page.close();
+        try {
+          pruneWalkthroughShots(dir);
+        } catch {
+          // Pruning is best effort; the next run tries again.
+        }
+      }
+      const passed = out.every((s) => s.ok);
+      // The address the flow last reached (`/settings` after an open), not only where it started.
+      return new Walkthrough({ walkthrough: 1, url: reached, passed, ...(error && { error }), steps: out });
+    }
+
     class Headers {
       constructor(init) {
         this._map = new Map();
@@ -818,6 +972,7 @@
       snapshot,
       screenshot,
       previewProof,
+      verifyFlow,
       fetch: fetchWithCookies,
       fs,
       path,

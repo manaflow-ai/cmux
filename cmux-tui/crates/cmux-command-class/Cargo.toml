@@ -1,0 +1,11 @@
+[package]
+name = "cmux-command-class"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Classifies a shell command by what it needs to run (file read, network, git, file write, git hooks, machine) for the agent home"
+
+[lints]
+workspace = true

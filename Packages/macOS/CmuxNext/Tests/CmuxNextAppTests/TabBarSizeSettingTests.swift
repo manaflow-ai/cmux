@@ -53,7 +53,7 @@ import Testing
         let harness = Harness()
         defer { harness.window.close() }
         let body = Typography.body.pointSize
-        #expect(try harness.cell().titleFont.pointSize == body, "unset, a tab title is the chrome's body size")
+        #expect(try harness.cell().titleFont.pointSize == 12, "unset, a tab title is Chrome's 12 pt")
 
         load(["tabFontSize": 16])
         harness.refresh()
@@ -74,8 +74,8 @@ import Testing
         load(["chromeFontSize": 15])
         let harness = Harness()
         defer { harness.window.close() }
-        #expect(try harness.cell().titleFont.pointSize == Typography.body.pointSize)
         #expect(Typography.body.pointSize > 13, "the interface size reached the body size")
+        #expect(try harness.cell().titleFont.pointSize > 12, "unset, a tab title grows with the interface size from Chrome's 12 pt")
     }
 
     @Test func tabBarHeightGrowsTheBarAndItsTabs() throws {

@@ -5,7 +5,7 @@ import CmuxNextComputerUse
 import CmuxNextSettings
 
 extension AppServices: MenuBarExtraHost {
-    var menuBarAccount: MenuBarMenuState.Account? { SidebarAccount(cloud.auth)?.menuBarAccount }
+    var menuBarAccount: MenuBarMenuState.Account? { SidebarAccount(cloud.auth)?.menuBarAccount(teamSymbol: TeamRowText.symbol(cloud.auth)) }
     var menuBarAvatar: NSImage? { SidebarAccount(cloud.auth)?.avatar.image(diameter: 16) }
     var menuBarAgentsWorking: Int { AgentNeedsInputJump.workingCount(AgentNeedsInputJump.tabs(of: daemon.store)) }
     var menuBarAgentsNeedingInput: Int { AgentNeedsInputJump.targets(chats: .app, tabs: AgentNeedsInputJump.tabs(of: daemon.store)).count }

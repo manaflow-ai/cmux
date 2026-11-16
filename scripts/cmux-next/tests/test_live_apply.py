@@ -13,6 +13,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import live_apply  # noqa: E402
+import importlib.util  # noqa: E402
+import os  # noqa: E402
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
 # A module the app's live code build does not patch (docs/cmux-next/live-code.md: CmuxNextApp only).
@@ -27,6 +37,13 @@ class ClassifyTests(unittest.TestCase):
     def test_tests_docs_and_ci_change_nothing_in_the_app(self):
         self.assertEqual(self.verdict([("M", "docs/x.md"), ("M", ".github/workflows/a.yml"),
                                        ("A", "scripts/cmux-next/tests/test_x.py")]), "no-app")
+        self.assertEqual(self.verdict([("M", "images/cmux-vm/inputs.lock.json")]), "no-app")
+        self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/ci-target-graph.json")]), "no-app")
+        self.assertEqual(self.verdict([("M", "examples/extensions/activity/src/main.ts")]), "no-app")
+        self.assertEqual(self.verdict([("M", "design/terminal-chat-toggle-gallery.html")]), "no-app")
+        # The screen detector under cmux-tui/bindings/examples/ ships in the app: a daemon restart, not no-app.
+        self.assertEqual(self.verdict([("M", "cmux-tui/bindings/examples/rust-agent-screen-detection/src/lib.rs")]),
+                         "daemon")
 
     def test_a_web_change_is_live(self):
         self.assertEqual(self.verdict([("M", "webviews/src/agent-pane/Composer.tsx"), ("M", "docs/a.md")]), "web-live")
@@ -62,6 +79,13 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", "Resources/Localizable.xcstrings")]), "rebuild")
         self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/Package.swift")]), "rebuild")
 
+    def test_native_sources_need_a_rebuild_except_the_ones_cmux_tui_builds(self):
+        self.assertEqual(self.verdict([("M", "cmux-tui/crates/cmux-remote-browser-host/csrc/rb_shim.mm")]), "daemon")
+        self.assertEqual(self.verdict([("M", "cmux-tui/bindings/zig/src/raw/generated/protocol.zig")]), "daemon")
+        self.assertEqual(self.verdict([("M", "ghostty/src/main.zig")]), "rebuild")
+        self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/CEFShim/src/shim_client.mm")]), "rebuild")
+        self.assertEqual(self.verdict([("M", "Sources/CmuxNextApp/Bridge.m")]), "rebuild")
+
     def test_a_new_swift_file_is_live_unless_it_is_an_entry_point(self):
         new = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Chip.swift"
         diffs = {new: [("+", "struct Chip: View {"), ("+", "    let title: String"), ("+", "    var body: some View { Text(title) }"), ("+", "}")],
@@ -75,12 +99,14 @@ class ClassifyTests(unittest.TestCase):
 
     def test_swift_outside_the_live_code_modules_needs_a_rebuild(self):
         body = [("-", "        Text(\"old\")"), ("+", "        Text(\"new\")")]
-        result = live_apply.classify([("M", PANE)], {PANE: body})
+        kit = "Packages/Shared/CmuxKit/Sources/CmuxKit/A.swift"
+        result = live_apply.classify([("M", kit)], {kit: body})
         self.assertEqual(result["verdict"], "rebuild")
-        self.assertEqual(result["reasons"], {"outside the live code modules (CmuxNextAgentPane)": [PANE]})
-        new = "Packages/macOS/CmuxNext/Sources/CmuxNextUI/Chip.swift"
+        self.assertEqual(result["reasons"], {"outside the live code modules (CmuxKit)": [kit]})
+        new = "Packages/Shared/CmuxKit/Sources/CmuxKit/Chip.swift"
         self.assertEqual(self.verdict([("A", new)], {new: [("+", "struct Chip {}")]}), "rebuild")
-        self.assertEqual(self.verdict([("M", "Packages/Shared/CmuxKit/Sources/CmuxKit/A.swift")], {}), "rebuild")
+        # Every CmuxNext module is patchable (#36522).
+        self.assertEqual(self.verdict([("M", PANE)], {PANE: body}), "swift-live")
         # The view shell's inject.sh patches its own module.
         self.assertEqual(self.verdict([("M", SHELL)], {SHELL: body}), "swift-live")
         # A deleted file leaves its code in the binary unused, whatever its module.

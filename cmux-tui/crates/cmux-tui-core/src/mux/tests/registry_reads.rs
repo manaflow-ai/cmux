@@ -47,8 +47,10 @@ fn the_terminal_revision_read_does_not_wait_for_the_registry_lock() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-/// A terminal's progress report (OSC 9;4, program status) republishes that
-/// one terminal. It read the whole session topology (every screen, pane,
+/// A terminal's durable edge (a command, a prompt, a program status record's
+/// state or kind) republishes that one terminal with one commit; an OSC 9;4
+/// progress or a repeated report commits nothing (`terminal_live.rs`). The
+/// commit read the whole session topology (every screen, pane,
 /// tab and browser) under the registry lock to find the terminal's own
 /// tabs (`terminal_progress.rs:18`: 9.6 % of the registry hold time on
 /// Austin's day, mean 5.4 ms, max 2 s).
@@ -363,4 +365,176 @@ fn a_progress_report_keeps_the_registry_connection_until_its_commit() {
         Some(true),
         "another thread could take the registry connection between the publish's reads and its commit"
     );
+}
+
+/// A committed read that runs inside `read_committed` until `release`; it
+/// reports on `entered` when it is inside.
+fn hold_committed_read(
+    mux: &Arc<Mux>,
+    entered: SyncSender<()>,
+    release: Receiver<()>,
+) -> std::thread::JoinHandle<u64> {
+    let mux = mux.clone();
+    std::thread::spawn(move || {
+        mux.registry_connection
+            .read_committed(|connection| {
+                entered.send(()).unwrap();
+                release.recv_timeout(Duration::from_secs(10)).unwrap();
+                crate::workspace_registry::current_terminal_revision(connection)
+            })
+            .expect("a file registry has a reader")
+            .unwrap()
+    })
+}
+
+fn read_revision_on_a_thread(mux: &Arc<Mux>) -> Receiver<u64> {
+    let (answer, answered) = std::sync::mpsc::channel();
+    let mux = mux.clone();
+    std::thread::spawn(move || {
+        let revision = mux
+            .registry_connection
+            .read_committed(crate::workspace_registry::current_terminal_revision)
+            .expect("a file registry has a reader")
+            .unwrap();
+        let _ = answer.send(revision);
+    });
+    answered
+}
+
+/// Committed reads ran one at a time on one connection: with nine clients
+/// listing tabs (3.4 ms each), `identify`'s terminal revision read (0.08 ms)
+/// waited 27 ms behind them. A read must not wait for another read.
+#[test]
+fn a_committed_read_does_not_wait_for_another_committed_read() {
+    let (mux, root) = persistent_mux("reads-side-by-side");
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let expected = mux.terminal_registry_revision().unwrap();
+    let (entered, inside) = std::sync::mpsc::sync_channel(1);
+    let (release, released) = std::sync::mpsc::sync_channel(1);
+    let holder = hold_committed_read(&mux, entered, released);
+    inside.recv_timeout(Duration::from_secs(10)).unwrap();
+
+    let during = read_revision_on_a_thread(&mux).recv_timeout(Duration::from_secs(5));
+    release.send(()).unwrap();
+    assert_eq!(holder.join().unwrap(), expected);
+    assert_eq!(during.expect("a committed read waited for another committed read"), expected);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// The pool opens at most `COMMITTED_READERS` connections: one more read
+/// waits for one to come back, and then runs on it.
+#[test]
+fn committed_reads_past_the_pool_wait_for_a_connection_and_open_no_more() {
+    use crate::workspace_registry::registry_connection::COMMITTED_READERS;
+    let (mux, root) = persistent_mux("reads-bounded");
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let expected = mux.terminal_registry_revision().unwrap();
+    let (entered, inside) = std::sync::mpsc::sync_channel(COMMITTED_READERS);
+    let mut releases = Vec::new();
+    let mut holders = Vec::new();
+    for _ in 0..COMMITTED_READERS {
+        let (release, released) = std::sync::mpsc::sync_channel(1);
+        holders.push(hold_committed_read(&mux, entered.clone(), released));
+        releases.push(release);
+    }
+    for _ in 0..COMMITTED_READERS {
+        inside.recv_timeout(Duration::from_secs(10)).unwrap();
+    }
+    assert_eq!(mux.registry_connection.committed_readers_open(), COMMITTED_READERS);
+
+    let waiting = read_revision_on_a_thread(&mux);
+    assert!(
+        waiting.recv_timeout(Duration::from_millis(300)).is_err(),
+        "a read past the pool runs only when a connection comes back"
+    );
+    assert_eq!(mux.registry_connection.committed_readers_open(), COMMITTED_READERS);
+    releases.remove(0).send(()).unwrap();
+    assert_eq!(waiting.recv_timeout(Duration::from_secs(5)).unwrap(), expected);
+    for release in releases {
+        release.send(()).unwrap();
+    }
+    for holder in holders {
+        assert_eq!(holder.join().unwrap(), expected);
+    }
+    assert_eq!(mux.registry_connection.committed_readers_open(), COMMITTED_READERS);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A read that panics drops its connection (it may hold an open
+/// transaction) and frees its slot; later reads still run.
+#[test]
+fn a_committed_read_that_panics_frees_its_connection() {
+    let (mux, root) = persistent_mux("reads-panic");
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let expected = mux.terminal_registry_revision().unwrap();
+    assert_eq!(mux.registry_connection.committed_readers_open(), 1);
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        mux.registry_connection.read_committed(|connection| -> anyhow::Result<()> {
+            let _transaction = connection.unchecked_transaction()?;
+            panic!("the read panicked")
+        })
+    }));
+    assert!(panicked.is_err());
+    assert_eq!(mux.registry_connection.committed_readers_open(), 0);
+    assert_eq!(
+        read_revision_on_a_thread(&mux).recv_timeout(Duration::from_secs(5)).unwrap(),
+        expected
+    );
+    assert_eq!(mux.registry_connection.committed_readers_open(), 1);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Nine clients listing tabs kept every pooled reader busy, and `identify`'s
+/// terminal revision read (one meta row) waited for one: p50 0.1 -> 5-7 ms
+/// (events lane O1). The O(1) point reads of the frequent cheap requests
+/// (`identify` and `list-workspaces`' terminal revision, `session.ping`'s
+/// cursor) must not wait for heavy reads, however many run.
+#[test]
+fn point_reads_do_not_wait_for_a_full_reader_pool() {
+    use crate::workspace_registry::registry_connection::COMMITTED_READERS;
+    let (mux, root) = persistent_mux("point-reads");
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let revision = mux.terminal_registry_revision().unwrap();
+    let cursor = crate::resource_api::public_session_cursor(&mux).unwrap();
+    let (entered, inside) = std::sync::mpsc::sync_channel(COMMITTED_READERS);
+    let mut releases = Vec::new();
+    let mut holders = Vec::new();
+    for _ in 0..COMMITTED_READERS {
+        let (release, released) = std::sync::mpsc::sync_channel(1);
+        holders.push(hold_committed_read(&mux, entered.clone(), released));
+        releases.push(release);
+    }
+    for _ in 0..COMMITTED_READERS {
+        inside.recv_timeout(Duration::from_secs(10)).unwrap();
+    }
+
+    let (answer, answered) = std::sync::mpsc::channel();
+    let reader = mux.clone();
+    std::thread::spawn(move || {
+        let _ = answer.send((
+            reader.terminal_registry_revision().ok(),
+            crate::resource_api::public_session_cursor(&reader).ok(),
+        ));
+    });
+    let during = answered.recv_timeout(Duration::from_secs(5));
+    for release in releases {
+        release.send(()).unwrap();
+    }
+    for holder in holders {
+        assert_eq!(holder.join().unwrap(), revision);
+    }
+    let (during_revision, during_cursor) =
+        during.expect("a point read waited for a reader held by a heavy read");
+    assert_eq!(during_revision, Some(revision));
+    assert_eq!(during_cursor, Some(cursor));
+    assert_eq!(mux.registry_connection.committed_readers_open(), COMMITTED_READERS);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
 }

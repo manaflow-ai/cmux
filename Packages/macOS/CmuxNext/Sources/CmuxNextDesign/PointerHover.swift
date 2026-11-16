@@ -12,7 +12,8 @@ public import AppKit
 /// - every geometry or visibility change, reported by the view that owns the
 ///   geometry (`PointerHover.refresh(in:)`: a sidebar layout pass, a toast
 ///   relayout, a strip scrollbar update),
-/// - every key-window change, and every `debug.mouse` pointer (DEBUG).
+/// - every key-window change that can come with a new window order (`KeyWindowObserver`), and
+///   every `debug.mouse` pointer (DEBUG).
 ///
 /// The layout's divider hover (`ScreenDividers`) reads the same pointer.
 @MainActor
@@ -172,8 +173,21 @@ public final class PointerHover: NSObject {
         #if DEBUG
         if debugPointer(in: window) != nil { return true }
         #endif
-        let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        let mouse = NSEvent.mouseLocation
+        // A window clear under the pointer (a hover card's band) passes it to the window below.
+        let top = topmostWindow(passes: { number in
+            (NSApp.window(withWindowNumber: number) as? any PointerPassThroughWindow)?.passesPointer(atScreen: mouse) == true
+        }, below: { NSWindow.windowNumber(at: mouse, belowWindowWithWindowNumber: $0) })
         return top == window.windowNumber || passThrough.contains(top)
+    }
+
+    /// The front window under the pointer that keeps it: from the front, every window that
+    /// `passes` the pointer is looked through to the one `below` it (0: none).
+    static func topmostWindow(passes: (Int) -> Bool, below: (Int) -> Int) -> Int {
+        var top = below(0)
+        // A handful of stacked hover windows at most; the bound only stops a cycle.
+        for _ in 0..<8 where top != 0 && passes(top) { top = below(top) }
+        return top
     }
 
     // MARK: The owner
@@ -181,7 +195,8 @@ public final class PointerHover: NSObject {
     private static let index = TargetIndex()
     private static var refreshing = false
     private static var pending: [NSWindow] = []
-    private static var keyObserver: KeyWindowObserver?
+    /// The process's one observer of key-window changes (tests read what it knows).
+    static private(set) var keyObserver: KeyWindowObserver?
 
     /// Recomputes `window`'s hover from the pointer and the current frames: the targets that
     /// hover now (anywhere: a view that left its window or hid must clear), then the targets whose
@@ -211,54 +226,17 @@ public final class PointerHover: NSObject {
         }
     }
 
-    /// A key-window change refreshes that window (a key-window target under the pointer starts or
-    /// ends; the hovering ones elsewhere are recomputed with it).
-    fileprivate static func keyChanged(_ window: NSWindow?) {
-        refresh(in: window)
+    /// `window` became or resigned key: its key-window targets start or end (the other targets do
+    /// not read the key). O(key-window targets), the buttons of a sheet.
+    static func keyChanged(in window: NSWindow) {
+        for target in index.keyTargets(in: window) { target.update() }
     }
 
-    /// Becoming or resigning key changes whether key-window targets hover.
+    /// Becoming or resigning key changes whether key-window targets hover, and a key change to
+    /// another window can cover the pointer.
     private static func installKeyObserversIfNeeded() {
         guard keyObserver == nil else { return }
         keyObserver = KeyWindowObserver()
-    }
-}
-
-/// Key-window changes refresh that window's hover (`PointerHover`).
-///
-/// Block observers on `queue: .main`, not selectors: AppKit may post these
-/// off the main thread, and a selector into this main-actor class trapped
-/// there (#18771). `queue: .main` runs the block inline when the post is on
-/// main, so key changes and closes keep their synchronous order.
-@MainActor
-private final class KeyWindowObserver {
-    private var tokens: [any NSObjectProtocol] = []
-
-    init() {
-        let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
-                let window = note.object as? NSWindow
-                MainActor.assumeIsolated { PointerHover.keyChanged(window) } // main-proof: observer on queue: .main
-            })
-        }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // A closed window's synthesized pointer must not pass to a new window
-        // that reuses its address.
-        tokens.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
-            guard let window = note.object as? NSWindow else { return }
-            let key = ObjectIdentifier(window)
-            MainActor.assumeIsolated { PointerHover.debugPointers[key] = nil } // main-proof: observer on queue: .main
-        })
-        #endif
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for token in tokens { NotificationCenter.default.removeObserver(token) }
-        }
     }
 }
 
@@ -284,6 +262,8 @@ private final class TargetIndex {
     private var byView: [ObjectIdentifier: [Weak]] = [:]
     /// Targets that hover now (a handful).
     private var hovering: [ObjectIdentifier: Weak] = [:]
+    /// Targets that hover only in the key window (the buttons of a sheet: a handful).
+    private var keyed: [ObjectIdentifier: Weak] = [:]
     private var nextOrder: UInt64 = 0
     /// The entry count at which freed entries are swept (a target freed off the main thread
     /// leaves its entry): twice the count after the last sweep, so sweeps cost O(1) a target.
@@ -297,12 +277,14 @@ private final class TargetIndex {
         var entries = byView[key, default: []].filter { $0.value?.view === view }
         entries.append(Weak(value: target))
         byView[key] = entries
+        if target.requiresKeyWindow { keyed[ObjectIdentifier(target)] = Weak(value: target) }
         if byView.count >= sweepAt { sweep() }
     }
 
     /// A target is freed (its `deinit`, on the main thread): its entries drop out.
     func remove(_ target: ObjectIdentifier, view: ObjectIdentifier) {
         hovering[target] = nil
+        keyed[target] = nil
         guard let entries = byView[view] else { return }
         let live = entries.filter { $0.value != nil }
         byView[view] = live.isEmpty ? nil : live
@@ -310,6 +292,20 @@ private final class TargetIndex {
 
     func noteHovering(_ target: PointerHover, _ hovers: Bool) {
         hovering[ObjectIdentifier(target)] = hovers ? Weak(value: target) : nil
+    }
+
+    /// The key-window targets whose view is in `window` now, in creation order: a key change of
+    /// `window` reads them and no other target.
+    func keyTargets(in window: NSWindow) -> [PointerHover] {
+        var found: [PointerHover] = []
+        for (id, entry) in keyed {
+            guard let target = entry.value else {
+                keyed[id] = nil
+                continue
+            }
+            if target.view?.window === window { found.append(target) }
+        }
+        return found.sorted { $0.order < $1.order }
     }
 
     /// The targets a refresh of `window` reads: the ones that hover now, then the ones whose view

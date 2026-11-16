@@ -23,7 +23,7 @@
 pub mod classify;
 pub mod flush;
 #[cfg(unix)]
-mod nofollow;
+pub(crate) mod nofollow;
 pub mod replica;
 mod store;
 

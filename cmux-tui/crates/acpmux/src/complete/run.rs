@@ -147,11 +147,8 @@ impl RunDir {
             super::places::RUN_PREFIX,
             std::process::id()
         ));
-        let mut builder = std::fs::DirBuilder::new();
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
         // `create`, never `create_all`: a folder that exists is not fresh.
-        builder.create(&path)?;
+        crate::home_fs::create_dir(&path, 0o700)?;
         Ok(Self { path })
     }
 
@@ -173,6 +170,6 @@ impl RunDir {
 
 impl Drop for RunDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
+        let _ = crate::home_fs::remove_dir_all(&self.path);
     }
 }

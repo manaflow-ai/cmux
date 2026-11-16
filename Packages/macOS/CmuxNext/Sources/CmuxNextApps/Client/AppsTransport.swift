@@ -4,7 +4,9 @@ public import Foundation
 public nonisolated enum AppsTransportEvent: Sendable, Hashable {
     case availability(AppsAvailability)
     /// `apps-changed {revision}`: the install mirror moved; list again.
-    case changed(revision: UInt64?)
+    /// `app`: the one app whose files a local reload changed (`transaction: local-reload`): its
+    /// open web panes reload in place.
+    case changed(revision: UInt64?, app: String? = nil)
     /// `apps-scene {mount_id, ops, reset?}`. `reset` (the supervisor
     /// restarted the app host and re-mounted, after a crash or a grant
     /// change) means: drop the mount's tree and apply `ops` to an empty one.
@@ -13,6 +15,9 @@ public nonisolated enum AppsTransportEvent: Sendable, Hashable {
     case mountFailed(mountID: String, reason: String)
     /// `apps-host {app, state, reason?}`.
     case host(app: String, state: AppHostState, reason: String?)
+    /// `apps-reload-failed {app, reason}`: a saved script of `app` did not load; its open views keep
+    /// the last script that did.
+    case reloadFailed(app: String, reason: String)
     /// `apps-log {app, level, message, ts_ms}` (after `apps-logs` with follow).
     case log(app: String, level: String, message: String, date: Date?)
 }
@@ -32,6 +37,10 @@ public protocol AppsTransport: AnyObject {
     func list() async throws(AppsTransportError) -> AppsListReply
     /// Visible Session Info app sections (`cmux.apps.panels.list`).
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel]
+    /// The composer's extension slash commands and mention providers (`apps.composer.list`).
+    func composerPlaces() async throws(AppsTransportError) -> AppJSON
+    /// One read-only App Store op (`apps-store {op}`, no arguments), the reply as the daemon wrote it.
+    func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)
@@ -45,4 +54,36 @@ public protocol AppsTransport: AnyObject {
     /// connection the daemon verified as the cmux app.
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine]
+    /// One raw bridge message (`{id, op, params}`) of `app`'s web pane `page` (`apps-page-call`):
+    /// the daemon checks it against the app's grant and answers `{id, ok, value | error}`.
+    func pageCall(app: String, page: String, message: String) async throws(AppsTransportError) -> AppJSON
+    /// Offers a clicked link to the app whose `cmux.opener/1` matches it (`apps-open-link`; the
+    /// daemon picks the app). The answer is `{handled, app?, error?}`.
+    func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON
+}
+
+public extension AppsTransport {
+    /// A transport without web panes refuses every page call.
+    func pageCall(app: String, page: String, message: String) async throws(AppsTransportError) -> AppJSON {
+        // The wire command it lacks, not prose: the page shows the code.
+        throw AppsTransportError(code: "operation.unsupported", message: "apps-page-call")
+    }
+}
+
+extension AppsTransport {
+    /// A transport with no supervisor link handlers (tests, previews): cmux opens every link itself.
+    public func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON { ["handled": .bool(false)] }
+}
+
+extension AppsTransport {
+    /// A transport that serves no App Store reads answers each with an empty object.
+    public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { .object([:]) }
+
+    public func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] {
+        AppSessionInfoPanel.list(try await storeCall("apps.panels.list"))
+    }
+
+    /// The agent chat composer's extension places (`apps.composer.list`): the reply as the daemon
+    /// wrote it, `{commands, mentions}`.
+    public func composerPlaces() async throws(AppsTransportError) -> AppJSON { try await storeCall("apps.composer.list") }
 }

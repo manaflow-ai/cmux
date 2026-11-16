@@ -73,6 +73,12 @@ define_named_action_definitions! {
     RESIZE_SHRINK_DEFINITION => (Action::ResizeShrink, "resize-shrink", "Shrink pane", "ペインを縮小");
     SCROLL_UP_DEFINITION => (Action::ScrollUp, "scroll-up", "Scroll up", "上にスクロール");
     SCROLL_DOWN_DEFINITION => (Action::ScrollDown, "scroll-down", "Scroll down", "下にスクロール");
+    SCROLL_PAGE_UP_DEFINITION => (Action::ScrollPageUp, "scroll-page-up", "Scroll up one page", "1 ページ上にスクロール");
+    SCROLL_PAGE_DOWN_DEFINITION => (Action::ScrollPageDown, "scroll-page-down", "Scroll down one page", "1 ページ下にスクロール");
+    SCROLL_HALF_PAGE_UP_DEFINITION => (Action::ScrollHalfPageUp, "scroll-half-page-up", "Scroll up half a page", "半ページ上にスクロール");
+    SCROLL_HALF_PAGE_DOWN_DEFINITION => (Action::ScrollHalfPageDown, "scroll-half-page-down", "Scroll down half a page", "半ページ下にスクロール");
+    COPY_MODE_DEFINITION => (Action::CopyMode, "copy-mode", "Copy mode", "コピーモード");
+    SEARCH_SCROLLBACK_DEFINITION => (Action::SearchScrollback, "search-scrollback", "Search scrollback", "スクロールバックを検索");
     CLEAR_HISTORY_DEFINITION => (Action::ClearHistory, "clear-history", "Clear terminal history", "ターミナル履歴を消去");
     BROWSER_BACK_DEFINITION => (Action::BrowserBack, "browser-back", "Browser back", "ブラウザで戻る");
     BROWSER_FORWARD_DEFINITION => (Action::BrowserForward, "browser-forward", "Browser forward", "ブラウザで進む");
@@ -224,7 +230,7 @@ pub(super) static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 80] = [
+    static DEFINITIONS: [&ActionDefinition; 86] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -285,6 +291,12 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &RESIZE_SHRINK_DEFINITION,
         &SCROLL_UP_DEFINITION,
         &SCROLL_DOWN_DEFINITION,
+        &SCROLL_PAGE_UP_DEFINITION,
+        &SCROLL_PAGE_DOWN_DEFINITION,
+        &SCROLL_HALF_PAGE_UP_DEFINITION,
+        &SCROLL_HALF_PAGE_DOWN_DEFINITION,
+        &COPY_MODE_DEFINITION,
+        &SEARCH_SCROLLBACK_DEFINITION,
         &CLEAR_HISTORY_DEFINITION,
         &BROWSER_BACK_DEFINITION,
         &BROWSER_FORWARD_DEFINITION,
@@ -365,6 +377,12 @@ impl Action {
             Action::ResizeShrink => &RESIZE_SHRINK_DEFINITION,
             Action::ScrollUp => &SCROLL_UP_DEFINITION,
             Action::ScrollDown => &SCROLL_DOWN_DEFINITION,
+            Action::ScrollPageUp => &SCROLL_PAGE_UP_DEFINITION,
+            Action::ScrollPageDown => &SCROLL_PAGE_DOWN_DEFINITION,
+            Action::ScrollHalfPageUp => &SCROLL_HALF_PAGE_UP_DEFINITION,
+            Action::ScrollHalfPageDown => &SCROLL_HALF_PAGE_DOWN_DEFINITION,
+            Action::CopyMode => &COPY_MODE_DEFINITION,
+            Action::SearchScrollback => &SEARCH_SCROLLBACK_DEFINITION,
             Action::ClearHistory => &CLEAR_HISTORY_DEFINITION,
             Action::BrowserBack => &BROWSER_BACK_DEFINITION,
             Action::BrowserForward => &BROWSER_FORWARD_DEFINITION,

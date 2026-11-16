@@ -62,6 +62,7 @@ fn remember_over_the_socket_writes_the_profile_once() {
             turn: None,
             peers: None,
             fork: None,
+            mcp: None,
         },
     )
     .unwrap();

@@ -38,11 +38,33 @@ struct GrantParam {
 enum Command {
     #[serde(rename = "apps-list")]
     List,
+    /// The capability manifest (`apps.capabilities`, read): every op an app
+    /// may call with its scope, class, risk class, consent text, gesture and
+    /// escalation, the ops apps never reach, the API version and the typed
+    /// global `cmux-app.d.ts` (cmux_app_manifest::capabilities). `op` asks
+    /// for one op's row. Needs no app host: it is this daemon's own table.
+    /// `brief` answers the API version and the types digest only.
+    #[serde(rename = "apps-capabilities")]
+    Capabilities {
+        #[serde(default)]
+        op: Option<String>,
+        #[serde(default)]
+        brief: bool,
+    },
     #[serde(rename = "apps-place")]
     Place {
         contribution: String,
         #[serde(default)]
         region: Option<cmux_layout_reducer::sidebar_doc::Region>,
+    },
+    /// Reads the local app folders again now and reloads `app`, or every
+    /// local app, as a save would (`Supervisor::reload_local_now`). No
+    /// gesture: it changes no install, grant or placement, only reruns
+    /// scripts the person already installed.
+    #[serde(rename = "apps-reload")]
+    Reload {
+        #[serde(default)]
+        app: Option<String>,
     },
     #[serde(rename = "apps-set")]
     Set {
@@ -64,6 +86,16 @@ enum Command {
     /// An App Store op (`cmux.apps.*`, apps/store.rs): `{op, args}`.
     #[serde(rename = "apps-store")]
     Store {
+        op: String,
+        #[serde(default)]
+        args: Value,
+    },
+    /// Safe mode (apps/safe_mode.rs): `op` is `safe_mode.get`,
+    /// `safe_mode.set {on}` (leaving needs origin user),
+    /// `safe_mode.launch_began` or `safe_mode.launch_settled {reason?}` (the
+    /// launch ops from the verified app connection only).
+    #[serde(rename = "apps-safe-mode")]
+    SafeMode {
         op: String,
         #[serde(default)]
         args: Value,
@@ -98,10 +130,22 @@ enum Command {
         #[serde(default)]
         gesture: Option<String>,
     },
+    /// A clicked link (`cmux.opener/1`, apps/openers.rs): the matching
+    /// app's opener runs with `{url}`; `{handled: false}` sends the caller
+    /// to its usual open.
+    #[serde(rename = "apps-open-link")]
+    OpenLink { url: String },
     /// Open terminal connector links and their local sockets (for this
     /// daemon's clients; apps never get a socket path).
     #[serde(rename = "apps-terminal-links")]
     TerminalLinks,
+    /// Read the local app folders again now and apply what changed, as the
+    /// file watch does on a save (`Supervisor::reload_local_apps_now`): the
+    /// caller that just wrote an app's files (`cmux ext dev`) asks, so its
+    /// reload never waits on file events. The `apps-changed` and
+    /// `apps-reload-failed` events of the pass go out before the reply.
+    #[serde(rename = "apps-reload-local")]
+    ReloadLocal,
     #[serde(rename = "apps-logs")]
     Logs {
         app: String,
@@ -127,6 +171,16 @@ enum Command {
     /// A fixed invalidation from the current verified agent_cli provider.
     #[serde(rename = "apps-agent-inventory-changed")]
     AgentInventoryChanged { demand_sequence: u64 },
+    /// The verified app's provider of `family` says its data changed (`<family>.changed`).
+    #[serde(rename = "apps-provider-changed")]
+    ProviderChanged { family: String },
+    /// One bridge message of an app's web pane (`render: web`,
+    /// apps/page_calls.rs), from the Mac app that hosts the page: `page`
+    /// names the open page, `message` is the page's raw `{id, op, params}`
+    /// (the size limit applies before it is parsed). Verified app only. The
+    /// reply is the page's answer `{id, ok, value | error}`.
+    #[serde(rename = "apps-page-call")]
+    PageCall { app: String, page: String, message: String },
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -194,6 +248,28 @@ pub fn start_apps_when_ready(mux: &Arc<Mux>) {
     }
 }
 
+/// Runs `job` on a thread of its own and replies to `id` with its result
+/// when it ends; the connection reads its next request meanwhile.
+fn answer_off_thread(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    job: impl FnOnce() -> Result<Value, crate::apps::ApiError> + Send + 'static,
+) -> bool {
+    let answer = writer.clone();
+    let asked = id.clone();
+    let spawned = std::thread::Builder::new()
+        .name("cmux-apps-reload".into())
+        .spawn(move || reply(&answer, asked, job()));
+    match spawned {
+        Ok(_) => true,
+        Err(error) => reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new("operation.failed", error.to_string())),
+        ),
+    }
+}
+
 fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<JoinHandle<()>> {
     std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
 }
@@ -247,6 +323,24 @@ fn cancel_request(mux: &Arc<Mux>, client: u64, value: Value, writer: &MessageWri
     reply(writer, request.id, Ok(json!({})))
 }
 
+/// `apps-capabilities`: the manifest, one op's row, or (`brief`) the API
+/// version and types digest.
+fn capabilities(op: Option<&str>, brief: bool) -> Result<Value, crate::apps::ApiError> {
+    let table = cmux_app_manifest::Capabilities::get();
+    if let Some(error) = cmux_app_manifest::Capabilities::load_error() {
+        return Err(crate::apps::ApiError::new("apps.capabilities", error));
+    }
+    if brief {
+        return Ok(table.summary_json());
+    }
+    table.manifest_json(op).ok_or_else(|| {
+        crate::apps::ApiError::new(
+            "apps.op.unknown",
+            format!("{} is not an op of this cmux", op.unwrap_or_default()),
+        )
+    })
+}
+
 /// Handles an `apps-*` command or `cancel-request`; `None` when the message
 /// is neither.
 pub(super) fn try_handle(
@@ -267,9 +361,15 @@ pub(super) fn try_handle(
         return None;
     }
     let id = value.get("id").cloned();
-    if cmd == "apps-agent-inventory-changed"
+    // An invalidation carries its one field and nothing else (no stream, owner or rows).
+    let only = match cmd {
+        "apps-agent-inventory-changed" => Some("demand_sequence"),
+        "apps-provider-changed" => Some("family"),
+        _ => None,
+    };
+    if let Some(only) = only
         && value.as_object().is_none_or(|fields| {
-            fields.keys().any(|key| !matches!(key.as_str(), "id" | "cmd" | "demand_sequence"))
+            fields.keys().any(|key| key != "id" && key != "cmd" && key != only)
         })
     {
         return Some(reply(
@@ -277,7 +377,7 @@ pub(super) fn try_handle(
             id,
             Err(crate::apps::ApiError::new(
                 "bad-request",
-                "inventory invalidation accepts only demand_sequence",
+                format!("this invalidation accepts only {only}"),
             )),
         ));
     }
@@ -310,6 +410,11 @@ pub(super) fn try_handle(
         Command::LinkChanged | Command::TeamEvent { .. } => true,
         _ => false,
     };
+    // The capability manifest is this daemon's own read-only table: no
+    // grant, gate or app host decides it.
+    if let Command::Capabilities { op, brief } = &request.command {
+        return Some(reply(writer, request.id, capabilities(op.as_deref(), *brief)));
+    }
     let user_authority = changes_apps || request.origin == crate::apps::Origin::User;
     if user_authority && let Err(e) = super::origin_gate::require_user(mux, client) {
         return Some(reply(writer, request.id, Err(e)));
@@ -317,8 +422,10 @@ pub(super) fn try_handle(
     // Origin `user` also needs a connection that is not bound to an agent
     // (the verified app check above does not see the agent binding).
     let origin_claim = claim_for(mux, client);
-    if matches!(request.command, Command::AgentInventoryChanged { .. })
-        && !crate::apps::hosting_app_connection(&origin_claim)
+    if matches!(
+        request.command,
+        Command::AgentInventoryChanged { .. } | Command::ProviderChanged { .. }
+    ) && !crate::apps::hosting_app_connection(&origin_claim)
     {
         return Some(reply(
             writer,
@@ -332,6 +439,21 @@ pub(super) fn try_handle(
     if let Err(e) = crate::apps::admit_origin(request.origin, &origin_claim) {
         return Some(reply(writer, request.id, Err(e)));
     }
+    // Only the app itself reports its launches: an agent cannot fake a
+    // crash loop, nor settle one away.
+    if let Command::SafeMode { op, .. } = &request.command
+        && op.contains("launch_")
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.origin_forbidden",
+                "only the verified cmux app connection reports its launches",
+            )),
+        ));
+    }
     // An agent-bound connection never reports a link change, also when it
     // is the verified app's (as `apps-provider-register`).
     if matches!(request.command, Command::LinkChanged | Command::TeamEvent { .. })
@@ -343,6 +465,20 @@ pub(super) fn try_handle(
             Err(crate::apps::ApiError::new(
                 "apps.origin_forbidden",
                 "only the verified cmux app connection reports a link change",
+            )),
+        ));
+    }
+    // A web pane's call runs with its app's grant: only the app that hosts
+    // the page may send it, so no other connection borrows that grant.
+    if matches!(request.command, Command::PageCall { .. })
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.origin_forbidden",
+                "only the verified cmux app connection hosts an extension's web pane",
             )),
         ));
     }
@@ -361,9 +497,33 @@ pub(super) fn try_handle(
     );
     let Request { id, origin, command } = request;
     let user = origin == crate::apps::Origin::User;
+    // A forced reload reads every local folder and may wait on a load trial
+    // per open view (seconds): it answers from its own thread, so this
+    // connection's mounts and events go on meanwhile (`apps-reload`, and the
+    // app's Reload Custom Views, the App Store op `apps.local.reload`).
+    let command = match command {
+        Command::Reload { app } => {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.reload_local_now(app.as_deref())
+            }));
+        }
+        Command::Store { op, args } if op == "apps.local.reload" => {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.store_call(client, &op, args, origin)
+            }));
+        }
+        command => command,
+    };
     let result = match command {
         Command::List => Ok(supervisor.list()),
+        Command::ReloadLocal => Ok(supervisor.reload_local_apps_now()),
+        Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
+        // Answered on its own thread above.
+        Command::Reload { .. } => Err(crate::apps::ApiError::new(
+            "operation.failed",
+            "apps-reload is answered off this thread",
+        )),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),
@@ -391,6 +551,7 @@ pub(super) fn try_handle(
             },
         ),
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
+        Command::SafeMode { op, args } => supervisor.safe_mode_call(&op, args, origin),
         Command::Mount { app, interface, mount_id, context } => {
             supervisor.mount(client, &mount_id, &app, &interface, context)
         }
@@ -419,7 +580,38 @@ pub(super) fn try_handle(
             );
             return Some(true);
         }
-        Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
+        Command::PageCall { app, page, message } => {
+            let writer = writer.clone();
+            supervisor.page_call(
+                client,
+                &app,
+                &page,
+                &message,
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::OpenLink { url } => {
+            let writer = writer.clone();
+            supervisor.open_link(
+                url,
+                origin,
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::Logs { app, follow } => {
+            // A follow outlives its request (`server/message_writer/long_connection.rs`).
+            if follow && let Err(full) = writer.long.hold() {
+                Err(crate::apps::ApiError::new("operation.failed", full.to_string()))
+            } else {
+                Ok(supervisor.logs(client, &app, follow))
+            }
+        }
         Command::ProviderRegister { families, inventory_watch } => {
             if inventory_watch {
                 supervisor.register_inventory_provider(client, claim_for(mux, client), families)
@@ -429,6 +621,9 @@ pub(super) fn try_handle(
         }
         Command::AgentInventoryChanged { demand_sequence } => {
             supervisor.agent_inventory_changed(client, claim_for(mux, client), demand_sequence)
+        }
+        Command::ProviderChanged { family } => {
+            supervisor.provider_changed(client, claim_for(mux, client), &family)
         }
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
@@ -521,6 +716,82 @@ mod tests {
         for request in [install("user"), grant("user")] {
             assert_eq!(error_code(&mux, agent_app, &agent_app_out, request).as_deref(), FORBIDDEN);
         }
+    }
+
+    /// Safe mode on the wire: leaving needs origin user, which only the
+    /// verified app may claim; launches come from the verified app only.
+    #[test]
+    fn safe_mode_leaving_and_launch_reports_need_the_verified_app() {
+        let mux = Mux::new_for_test("apps-safe-mode-gate", SurfaceOptions::default());
+        let leave = || json!({"id": 1, "cmd": "apps-safe-mode", "origin": "user", "op": "safe_mode.set", "args": {"on": false}});
+        let began = |origin: &str| json!({"id": 2, "cmd": "apps-safe-mode", "origin": origin, "op": "safe_mode.launch_began"});
+        let settled = || json!({"id": 3, "cmd": "apps-safe-mode", "op": "safe_mode.launch_settled", "args": {"reason": "quit"}});
+        let (cli, cli_out) = connection(&mux, Some("cli"), false);
+        assert_eq!(error_code(&mux, cli, &cli_out, leave()).as_deref(), NOT_VERIFIED);
+        assert_eq!(error_code(&mux, cli, &cli_out, began("cli")).as_deref(), FORBIDDEN);
+        assert_eq!(error_code(&mux, cli, &cli_out, settled()).as_deref(), FORBIDDEN);
+        let (agent_app, agent_out) = connection(&mux, Some("app"), true);
+        verify(&mux, agent_app);
+        assert_eq!(error_code(&mux, agent_app, &agent_out, began("cli")).as_deref(), FORBIDDEN);
+        // The verified app passes the gates (then the supervisor, or
+        // apps.unavailable in a daemon without an app host).
+        let (app, app_out) = connection(&mux, Some("app"), false);
+        verify(&mux, app);
+        for request in [leave(), began("user"), settled()] {
+            let code = error_code(&mux, app, &app_out, request);
+            assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
+        }
+    }
+
+    /// A web pane's call runs with its app's grant, so only the verified app
+    /// that hosts the page may send one: a CLI or agent connection cannot
+    /// borrow an extension's scopes through `apps-page-call`.
+    #[test]
+    fn page_calls_need_the_verified_app_connection() {
+        let mux = Mux::new_for_test("apps-page-call-gate", SurfaceOptions::default());
+        let call = || json!({"id": 1, "cmd": "apps-page-call", "app": "local/web", "page": "p1", "message": "{\"id\":\"1\",\"op\":\"workspace.list\"}"});
+        let (cli, cli_out) = connection(&mux, Some("cli"), false);
+        assert_eq!(error_code(&mux, cli, &cli_out, call()).as_deref(), FORBIDDEN);
+        let (declared, declared_out) = connection(&mux, Some("app"), false);
+        assert_eq!(error_code(&mux, declared, &declared_out, call()).as_deref(), FORBIDDEN);
+        let (agent_app, agent_out) = connection(&mux, Some("app"), true);
+        verify(&mux, agent_app);
+        assert_eq!(error_code(&mux, agent_app, &agent_out, call()).as_deref(), FORBIDDEN);
+        let (app, app_out) = connection(&mux, Some("app"), false);
+        verify(&mux, app);
+        let code = error_code(&mux, app, &app_out, call());
+        assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
+    }
+
+    /// `apps-capabilities` answers the capability manifest on any local
+    /// connection, with no app host: every op row, the never list, the API
+    /// version and the typed global; `op` asks for one row.
+    #[test]
+    fn capabilities_answer_the_manifest_without_an_app_host() {
+        let mux = Mux::new_for_test("apps-capabilities", SurfaceOptions::default());
+        let (cli, out) = connection(&mux, Some("cli"), false);
+        let writer = mux.control_clients.state.lock().unwrap().clients[&cli].writer.clone();
+        let ask = |request: Value| -> Value {
+            assert_eq!(try_handle(&mux, cli, &request.to_string(), &writer), Some(true));
+            serde_json::from_str(&out.try_pop().expect("reply")).unwrap()
+        };
+        let all = ask(json!({"id": 1, "cmd": "apps-capabilities"}));
+        assert_eq!(all["ok"], true, "{all}");
+        let table = cmux_app_manifest::Capabilities::get();
+        assert_eq!(all["data"]["apiVersion"], table.api_version.as_str());
+        assert_eq!(all["data"]["types"], cmux_app_manifest::capabilities::APP_TYPES);
+        assert_eq!(all["data"]["ops"].as_array().map(Vec::len), Some(table.ops().count()));
+        let one = ask(json!({"id": 2, "cmd": "apps-capabilities", "op": "workspace.list"}));
+        assert_eq!(one["data"]["ops"][0]["scope"], "workspace:read", "{one}");
+        let brief = ask(json!({"id": 4, "cmd": "apps-capabilities", "brief": true}));
+        assert_eq!(
+            brief["data"]["typesDigest"],
+            cmux_app_manifest::capabilities::types_digest(),
+            "{brief}"
+        );
+        assert!(brief["data"].get("types").is_none(), "{brief}");
+        let unknown = ask(json!({"id": 3, "cmd": "apps-capabilities", "op": "made.up"}));
+        assert_eq!(unknown["error_code"], "apps.op.unknown", "{unknown}");
     }
 
     /// `user_origin_allowed` (the `client-hello` field) matches the door:
@@ -625,6 +896,29 @@ mod tests {
         );
         // The full UInt64 range is parsed exactly before the authority gate.
         let frame = json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":u64::MAX});
+        assert_eq!(
+            error_code(&mux, client, &out, frame).as_deref(),
+            Some("apps.provider.forbidden")
+        );
+    }
+
+    #[test]
+    fn cmux_next_provider_changed_frame_names_only_its_family() {
+        let mux = Mux::new_for_test("provider-changed-frame", SurfaceOptions::default());
+        let (client, out) = connection(&mux, Some("app"), false);
+        for key in ["stream", "event", "body", "demand_sequence", "origin"] {
+            let mut frame = json!({"id":1,"cmd":"apps-provider-changed","family":"agent_chat"});
+            frame[key] = json!("untrusted");
+            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
+        }
+        for family in [Value::Null, json!(1), json!(["agent_chat"])] {
+            let frame = json!({"id":1,"cmd":"apps-provider-changed","family":family});
+            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
+        }
+        let frame = json!({"id":1,"cmd":"apps-provider-changed"});
+        assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
+        // A well-formed frame from a connection that is not the verified app stops at the gate.
+        let frame = json!({"id":1,"cmd":"apps-provider-changed","family":"agent_chat"});
         assert_eq!(
             error_code(&mux, client, &out, frame).as_deref(),
             Some("apps.provider.forbidden")

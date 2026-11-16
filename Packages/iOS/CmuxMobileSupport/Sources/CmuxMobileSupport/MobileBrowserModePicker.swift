@@ -10,7 +10,7 @@ public enum MobileBrowserMode: Hashable, Sendable {
     case onDevice
 }
 
-/// The Streamed / On iPhone switch in ``MobileBrowserChromeBar``.
+/// The Streaming from Mac / On iPhone switch in ``MobileBrowserChromeBar``.
 public struct MobileBrowserModePicker {
     /// The mode this browser is in.
     public var current: MobileBrowserMode
@@ -38,7 +38,7 @@ public struct MobileBrowserModePicker {
     }
 
     static var streamedTitle: String {
-        L10n.string("mobile.browser.mode.streamed", defaultValue: "Streamed")
+        L10n.string("mobile.browser.mode.streamed", defaultValue: "Streaming from Mac")
     }
 
     static func detail(_ mode: MobileBrowserMode) -> String {

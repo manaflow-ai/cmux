@@ -6,6 +6,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 // Imported before this file installs a window, as a cached module would have been.
 import { currentLanguage, setPaneLanguage, subscribeLanguage } from "../src/agent-session/acpmux/i18n";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator"] as const;
@@ -28,7 +29,8 @@ function changeLanguage(dom: JSDOM): void {
   dom.window.dispatchEvent(new dom.window.Event("languagechange"));
 }
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];

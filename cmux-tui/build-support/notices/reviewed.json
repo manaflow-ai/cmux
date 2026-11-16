@@ -5,6 +5,9 @@
       "LICENSES/Apache-2.0.txt",
       "LICENSES/MIT.txt"
     ],
+    "openh264-sys2": [
+      "upstream/LICENSE"
+    ],
     "r-efi": [
       "AUTHORS"
     ],
@@ -28,6 +31,7 @@
   },
   "extra_license_reasons": {
     "crc-catalog": "The .crate keeps its MIT and Apache-2.0 texts in a REUSE-style LICENSES/ directory, not at the top level.",
+    "openh264-sys2": "The crate declares BSD-2-Clause but ships no top-level license file, and the openh264-rs repository has none at the commit .cargo_vcs_info.json records (34a1c088b9d5). upstream/LICENSE is the BSD-2-Clause text of Cisco's OpenH264, the C++ library the crate wraps and (with its source feature) compiles.",
     "r-efi": "AUTHORS holds the MIT text and the copyright holders; the README points there.",
     "regex-syntax": "The Unicode tables are derived from Unicode data under the Unicode license.",
     "ring": "Bundled code under its own terms: the once_cell polyfill (MIT and Apache-2.0 texts) and fiat-crypto output (Apache-2.0, the fiat-crypto authors).",
@@ -109,6 +113,26 @@
           "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
           "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
           "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
+        }
+      ]
+    },
+    "cranelift-assembler-x64 0.135.8": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release; its manifest has no repository, so the review gave the GitHub repository bytecodealliance/wasmtime by hand (the crate's path_in_vcs and sha1 are unchanged)",
+      "files": [
+        {
+          "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
+          "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/7b6c29ec3e9a49c97da231665cbd8eead9ccbda0/LICENSE",
+          "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+        }
+      ]
+    },
+    "cranelift-bitset 0.135.8": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
+          "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/7b6c29ec3e9a49c97da231665cbd8eead9ccbda0/LICENSE",
+          "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
         }
       ]
     },
@@ -607,6 +631,16 @@
         }
       ]
     },
+    "pulley-interpreter 48.0.8": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release; its manifest repository is a /tree/main/pulley URL, so the review gave the GitHub repository bytecodealliance/wasmtime by hand (the crate's path_in_vcs and sha1 are unchanged)",
+      "files": [
+        {
+          "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
+          "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/7b6c29ec3e9a49c97da231665cbd8eead9ccbda0/LICENSE",
+          "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+        }
+      ]
+    },
     "ratatui-termina 0.1.0": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
       "files": [
@@ -664,6 +698,36 @@
           "file": "texts/reviewer-supplied/Apache-2.0.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
           "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        }
+      ]
+    },
+    "subsecond 0.7.10": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release; its manifest repository is a /tree/main/packages/subsecond URL, so the review gave the GitHub repository DioxusLabs/dioxus by hand (the crate's path_in_vcs and sha1 are unchanged)",
+      "files": [
+        {
+          "file": "texts/DioxusLabs-dioxus-57d6794ad60b/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/DioxusLabs/dioxus/57d6794ad60b949e5bd8aa282f6f8c3dc97a365e/LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        },
+        {
+          "file": "texts/DioxusLabs-dioxus-57d6794ad60b/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/DioxusLabs/dioxus/57d6794ad60b949e5bd8aa282f6f8c3dc97a365e/LICENSE-APACHE",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+        }
+      ]
+    },
+    "subsecond-types 0.7.10": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release; its manifest repository is a /tree/main/packages/subsecond URL, so the review gave the GitHub repository DioxusLabs/dioxus by hand (the crate's path_in_vcs and sha1 are unchanged)",
+      "files": [
+        {
+          "file": "texts/DioxusLabs-dioxus-57d6794ad60b/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/DioxusLabs/dioxus/57d6794ad60b949e5bd8aa282f6f8c3dc97a365e/LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        },
+        {
+          "file": "texts/DioxusLabs-dioxus-57d6794ad60b/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/DioxusLabs/dioxus/57d6794ad60b949e5bd8aa282f6f8c3dc97a365e/LICENSE-APACHE",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
         }
       ]
     },
@@ -784,6 +848,46 @@
           "file": "texts/wez-wezterm-edeae72b5fc5/LICENSE.md",
           "source": "https://raw.githubusercontent.com/wez/wezterm/edeae72b5fc55c7fa4aa1d08bbefd08c5493f757/LICENSE.md",
           "sha256": "37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca"
+        }
+      ]
+    },
+    "wasmtime-internal-component-util 48.0.8": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
+          "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/7b6c29ec3e9a49c97da231665cbd8eead9ccbda0/LICENSE",
+          "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+        }
+      ]
+    },
+    "wasmtime-internal-core 48.0.8": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release; its manifest has no repository, so the review gave the GitHub repository bytecodealliance/wasmtime by hand (the crate's path_in_vcs and sha1 are unchanged)",
+      "files": [
+        {
+          "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
+          "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/7b6c29ec3e9a49c97da231665cbd8eead9ccbda0/LICENSE",
+          "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+        }
+      ]
+    },
+    "wasmtime-internal-jit-debug 48.0.8": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
+          "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/7b6c29ec3e9a49c97da231665cbd8eead9ccbda0/LICENSE",
+          "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+        }
+      ]
+    },
+    "wasmtime-internal-jit-icache-coherence 48.0.8": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
+          "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/7b6c29ec3e9a49c97da231665cbd8eead9ccbda0/LICENSE",
+          "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
         }
       ]
     },

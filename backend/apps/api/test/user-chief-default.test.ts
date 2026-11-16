@@ -2,9 +2,9 @@ import { env } from "cloudflare:workers"
 import { runInDurableObject as runIn } from "cloudflare:test"
 import type { Principal, ReduceContext, ReduceResult } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
-import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefIdentity, defaultChiefWorkspace } from "../src/domains/user-chief-default.ts"
+import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_REBIND, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefIdentity, defaultChiefWorkspace } from "../src/domains/user-chief-default.ts"
 import { personalTeamIdFor, userDomain, type UserState } from "../src/domains/user.ts"
-import { deliverSignupChief, ensureChiefMachine, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
+import { deliverSignupChief, ensureChiefMachine, rebindDefaultChief, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
 import type { TargetItem } from "../src/do-outbox.ts"
 import { fireAlarm, quiesce } from "./setup/alarm.ts"
 import { cloudTestUser } from "./setup/cloud-teams.ts"
@@ -94,6 +94,60 @@ describe("signup default Chief", () => {
       { ...state, grants: { grant_00000000000000000001: { ...state.grants.grant_00000000000000000001!, expires_at: 1 } } },
       { ...state, installs: { [INSTALL]: { ...state.installs[INSTALL]!, kind: "daemon" as const } } }
     ]) expect(userDomain.reduce(changed, DEFAULT_CHIEF_BIND, binding, context())).toMatchObject({ ok: false, code: "validation.invalid" })
+  })
+
+  it("a rebind follows the same logical machine to its new VM and install, and nothing else", () => {
+    const VM2 = "vm_00000000000000000002", INSTALL2 = "inst_00000000000000000002"
+    const bound = decided(userDomain.reduce(machineState(), DEFAULT_CHIEF_BIND, binding, context())).state
+    expect(userDomain.reduce(machineState(), DEFAULT_CHIEF_REBIND, binding, context())).toMatchObject({ ok: false, code: "chief.unavailable" })
+    // The platform registered the new VM's own install; the old one is revoked with the old VM.
+    const moved: UserState = {
+      ...bound,
+      installs: { ...bound.installs, [INSTALL]: { ...bound.installs[INSTALL]!, revoked_at: 2 }, [INSTALL2]: { ...bound.installs[INSTALL]!, id: INSTALL2, grant: "grant_00000000000000000002", bound_machine: VM2 } },
+      grants: { ...bound.grants, grant_00000000000000000002: { ...bound.grants.grant_00000000000000000001!, id: "grant_00000000000000000002", grantee: INSTALL2 } }
+    }
+    const next = { ...binding, connection_machine: VM2, install: INSTALL2 }
+    const rebound = decided(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, next, context()))
+    expect(rebound.state.chiefs?.[bound.hosted_default!]).toMatchObject({ brain_place: null, cloud_machine: next })
+    expect(rebound.state.grants).toEqual(moved.grants)
+    expect(decided(userDomain.reduce(rebound.state, DEFAULT_CHIEF_REBIND, next, context())).changed).toBe(false)
+    // Signup's bind still never replaces a machine.
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_BIND, next, context())).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, { ...next, machine: "another-logical-machine" }, context())).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, { ...next, provider: "other-provider" }, context())).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // The new VM must hold its own live install; the old VM's revoked one never binds.
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, { ...next, install: INSTALL }, context())).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, { ...binding, connection_machine: VM2 }, context())).toMatchObject({ ok: false, code: "validation.invalid" })
+    for (const principal of [session, { identity: "system:user:someone-else", kind: "system" as const }]) {
+      expect(userDomain.authorize?.(moved, DEFAULT_CHIEF_REBIND, next, principal)?.code).toBe("auth.forbidden")
+      expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, next, context(principal))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    }
+  })
+
+  it("rebinds only when the platform names another VM for the same logical machine", async () => {
+    const VM2 = "vm_00000000000000000002", INSTALL2 = "inst_00000000000000000002"
+    let state = decided(userDomain.reduce(machineState(), DEFAULT_CHIEF_BIND, binding, context())).state
+    const agent = state.hosted_default!
+    const submit = (machine: typeof binding, key: string) => {
+      const r = userDomain.reduce(state, DEFAULT_CHIEF_REBIND, machine, context())
+      if (!r.ok) return { frames: [{ t: "reject" as const, tx: "rebind", idempotency_key: key, code: r.code, message: r.message, retryable: false, replayed: false }] }
+      state = r.state
+      return { frames: [{ t: "result" as const, tx: "rebind", idempotency_key: key, value: machine, revision: "2", replayed: false }] }
+    }
+    const now = () => context().now
+    expect(await rebindDefaultChief(platform(), USER, agent, () => state, submit, now)).toEqual({ ok: true, changed: false, binding })
+    expect(await rebindDefaultChief(platform(), USER, "agent_other", () => state, submit, now)).toMatchObject({ ok: false, code: "chief.machine.not_default", retryable: false })
+    // The new VM has not registered its install yet: retry later, change nothing.
+    expect(await rebindDefaultChief(platform({ ...platformValue(), connectionMachine: VM2 }), USER, agent, () => state, submit, now)).toMatchObject({ ok: false, code: "chief.provision.machine_binding_pending", retryable: true })
+    expect(await rebindDefaultChief(platform({ ...platformValue(), machine: { ...platformValue().machine, id: "another-logical-machine" } }), USER, agent, () => state, submit, now)).toMatchObject({ ok: false, code: "chief.machine.binding_changed", retryable: false })
+    state = {
+      ...state,
+      installs: { ...state.installs, [INSTALL2]: { ...state.installs[INSTALL]!, id: INSTALL2, grant: "grant_00000000000000000002", bound_machine: VM2 } },
+      grants: { ...state.grants, grant_00000000000000000002: { ...state.grants.grant_00000000000000000001!, id: "grant_00000000000000000002", grantee: INSTALL2 } }
+    }
+    const next = { ...binding, connection_machine: VM2, install: INSTALL2 }
+    expect(await rebindDefaultChief(platform({ ...platformValue(), connectionMachine: VM2 }), USER, agent, () => state, submit, now)).toEqual({ ok: true, changed: true, binding: next })
+    expect(state.chiefs?.[agent]?.cloud_machine).toEqual(next)
   })
 
   it("retries admission/registration outages and rejects cross-account platform replies", async () => {

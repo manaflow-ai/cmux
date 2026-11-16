@@ -65,8 +65,9 @@ pub struct Preset {
     /// while `mode_approval` holds (`hub/person.rs`, (b)).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
-    /// The person's approval of this preset's mode: the
-    /// [`Preset::approval_digest`] of the contents the person approved.
+    /// The person's approval of this preset's mode, and of a policy that does not ask
+    /// (`hub/unattended_presets.rs`): the [`Preset::approval_digest`] of the contents the person
+    /// approved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_approval: Option<String>,
 }
@@ -86,9 +87,10 @@ impl Preset {
     /// or withdraw it. A later change of the contents drops it.
     pub fn apply_mode_approval(&mut self, approve: Option<bool>) -> Result<(), String> {
         match approve {
-            Some(true) if self.mode.is_none() => {
-                Err("this preset has no mode to approve: set mode first".into())
-            }
+            Some(true) if self.mode.is_none() && !self.policy_skips_asking() => Err(
+                "this preset has no mode or policy to approve: set mode, or policy approve-all or review, first"
+                    .into(),
+            ),
             Some(true) => {
                 self.mode_approval = self.approval_digest();
                 Ok(())
@@ -105,6 +107,25 @@ impl Preset {
     pub fn mode_approved(&self) -> bool {
         match (&self.mode, &self.mode_approval, self.approval_digest()) {
             (Some(_), Some(approved), Some(now)) => cmux_local_auth::tokens_match(approved, &now),
+            _ => false,
+        }
+    }
+
+    /// Whether the preset's policy settles every tool call with no person: approve-all, or review
+    /// (what it does not approve it denies). Approve-reads and approve-edits still ask for the rest,
+    /// so a chat on another machine would wait on them (`hub/unattended_presets.rs`).
+    pub fn policy_skips_asking(&self) -> bool {
+        matches!(self.policy, Some(PermissionPolicy::ApproveAll | PermissionPolicy::Review))
+    }
+
+    /// Whether the person approved this preset's policy for its current contents
+    /// (`hub/unattended_presets.rs`): a policy that does not ask, under an approval that still
+    /// matches.
+    pub fn policy_approved(&self) -> bool {
+        match (&self.mode_approval, self.approval_digest()) {
+            (Some(approved), Some(now)) => {
+                self.policy_skips_asking() && cmux_local_auth::tokens_match(approved, &now)
+            }
             _ => false,
         }
     }
@@ -228,21 +249,25 @@ pub fn preset_dir(presets: &Path, name: &str) -> PathBuf {
 #[cfg(unix)]
 pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result<String> {
     use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file.
     crate::config::refuse_lost_home(presets).map_err(io::Error::other)?;
     let dir = preset_dir(presets, name);
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
-    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    crate::home_fs::create_dir_all(&dir, 0o700)?;
+    crate::home_fs::set_mode(&dir, 0o700)?;
     let tmp = dir.join(format!(".{SYSTEM_PROMPT_FILE}.{}", uuid::Uuid::now_v7()));
     let written = (|| {
-        let mut file =
-            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o400).open(&tmp)?;
+        let mut file = crate::home_fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o400)
+            .open(&tmp)?;
         file.write_all(text.as_bytes())?;
         file.sync_all()?;
-        std::fs::rename(&tmp, dir.join(SYSTEM_PROMPT_FILE))
+        crate::home_fs::rename(&tmp, dir.join(SYSTEM_PROMPT_FILE))
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written?;
     Ok(crate::sha256::sha256_hex(text.as_bytes()))
@@ -266,7 +291,8 @@ pub fn remove_preset_dir(presets: &Path, name: &str) -> io::Result<()> {
     if check_preset_dir_name(name).is_err() {
         return Ok(());
     }
-    match std::fs::remove_dir_all(preset_dir(presets, name)) {
+    // From the folder this daemon holds (`home_fs`), never the new home's.
+    match crate::home_fs::remove_dir_all(preset_dir(presets, name)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
     }

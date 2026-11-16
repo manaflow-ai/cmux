@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Xcode "Embed Computer Use helper (dev)" phase of the cmux-next target. DEV
-# builds only: copies the pinned, team-signed (the pin's "signing" field)
+# builds only copy the pinned, team-signed (the pin's "signing" field)
 # "cmux Computer Use (dev).app" (cua-helper-dev.pin.json) to
 #   Contents/Library/cmux Computer Use (dev).app
 # where ComputerUseHelperV2 starts it for computerUse.driver = "upstream".
 # The bytes are never re-signed here (the helper's code identity, and so its
 # macOS grant, must stay the same across builds); Xcode signs the outer app
-# without --deep. Release embeds nothing. An unavailable helper (no R2 read
+# without --deep. The nested cmux Remote asset is also embedded for NIGHTLY
+# Release builds. An unavailable helper (no R2 read
 # credentials) warns and embeds nothing unless CMUX_NEXT_REQUIRE_CUA_HELPER=1;
 # a sha256 mismatch fails the build. CMUX_NEXT_SKIP_CUA_HELPER=1 embeds nothing.
 set -euo pipefail

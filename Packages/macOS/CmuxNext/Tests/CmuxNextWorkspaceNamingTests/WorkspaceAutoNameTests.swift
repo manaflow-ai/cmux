@@ -58,13 +58,11 @@ struct WorkspaceAutoNameTests {
         #expect(Self.live.label(name: "workspace-3", title: nil, front: .chat(userName: "  ", title: "\n")) == nil)
     }
 
-    /// An agent's spinner frames (`⠐ Fix the login bug`) name the workspace by their words only
-    /// (plans/cmux-next/osc-titles.md), so the row does not change on every frame.
-    @Test func terminalTitleLosesItsStatusGlyphs() {
-        for raw in ["⠂ Fix the login bug", "⠐ Fix the login bug", "✳ Fix the login bug"] {
-            #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: raw)) == "Fix the login bug")
-        }
-        #expect(Self.live.label(name: "Release", title: nil, front: Self.terminal(title: "⠂ Fix the login bug"), nameSource: .user) == nil)
+    /// An agent's title names the workspace by its words: the daemon takes the spinner glyphs off
+    /// (plans/cmux-next/main-thread-scheduling.md, D2). A user's name stays.
+    @Test func anAgentTitleNamesTheWorkspaceUnlessTheUserNamedIt() {
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: "Fix the login bug")) == "Fix the login bug")
+        #expect(Self.live.label(name: "Release", title: nil, front: Self.terminal(title: "Fix the login bug"), nameSource: .user) == nil)
     }
 
     @Test func terminalShowsItsLiveTitle() {

@@ -192,9 +192,11 @@ def setup():
     with open(os.path.join(ACP_HOME, "config.json"), "w") as f:
         json.dump(config, f, indent=1)
     # The tag's own app state starts empty (only this tag's folder; never another build's).
-    tag_state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{opts.tag}")
-    if os.path.isdir(tag_state) and not os.path.islink(tag_state):
-        os.rename(tag_state, f"{tag_state}.old-{int(time.time())}")
+    # NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that).
+    for tag_state in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{opts.tag}"),
+                      os.path.expanduser(f"~/Library/Application Support/cmux/tags/{opts.tag}")):
+        if os.path.isdir(tag_state) and not os.path.islink(tag_state):
+            os.rename(tag_state, f"{tag_state}.old-{int(time.time())}")
 
 
 APP_PROC = None

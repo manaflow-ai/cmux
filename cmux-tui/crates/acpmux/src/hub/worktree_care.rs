@@ -27,7 +27,7 @@
 
 use super::*;
 
-pub(super) mod revive;
+pub(in crate::hub) mod revive;
 
 use std::path::PathBuf;
 use std::sync::LazyLock;

@@ -10,6 +10,7 @@ const TOKEN: &str = "wireguard-test-listener-token";
 
 fn peer(key: String, endpoint: SocketAddr, address: SocketAddr) -> PeerConfig {
     PeerConfig {
+        link_host: None,
         url: "ws://127.0.0.1:1".into(),
         wireguard: Some(StaticPeer { public_key: key, endpoint: endpoint.to_string(), address }),
         token: Some(TOKEN.into()),
@@ -24,6 +25,81 @@ async fn pair(
     wrong_key: bool,
 ) -> (Arc<Transport>, Arc<Transport>, Vec<tempfile::TempDir>) {
     pair_on(UdpSocket::bind("127.0.0.1:0").await.unwrap(), target, wrong_key).await
+}
+
+#[test]
+fn aliases_of_one_wireguard_key_share_one_mesh_peer() {
+    runtime().block_on(async {
+        let home = tempfile::tempdir().unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let settings = StaticConfig {
+            listen: socket.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        };
+        let key = base64::engine::general_purpose::STANDARD.encode([7; 32]);
+        let first =
+            peer(key.clone(), "127.0.0.1:4101".parse().unwrap(), "10.77.0.2:4100".parse().unwrap());
+        let second =
+            peer(key, "127.0.0.1:4102".parse().unwrap(), "10.77.0.2:4100".parse().unwrap());
+        let configured =
+            BTreeMap::from([("host".into(), first.clone()), ("alias".into(), second.clone())]);
+        let lock = KeyHolder::acquire(home.path()).unwrap();
+        let transport = Transport::from_socket(
+            &settings,
+            &configured,
+            home.path(),
+            "127.0.0.1:4103".parse().unwrap(),
+            socket,
+            lock,
+        )
+        .await
+        .expect("two names for the same authenticated host must start");
+        assert_eq!(transport.peers.len(), 1, "one cryptographic identity, one session");
+        assert_eq!(transport.peers[0].candidates.len(), 2, "both aliases' endpoint paths survive");
+        assert_eq!(
+            transport.route_for("host", first.wireguard.as_ref().unwrap()),
+            Some("10.77.0.2:4100".parse().unwrap())
+        );
+        assert_eq!(
+            transport.route_for("alias", second.wireguard.as_ref().unwrap()),
+            Some("10.77.0.2:4100".parse().unwrap())
+        );
+        transport.shutdown(tokio::time::Instant::now() + BOUND).await;
+    });
+}
+
+#[test]
+fn different_wireguard_keys_cannot_claim_one_overlay_address() {
+    runtime().block_on(async {
+        let home = tempfile::tempdir().unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let settings = StaticConfig {
+            listen: socket.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        };
+        let configured = BTreeMap::from([7u8, 8].map(|id| {
+            (
+                format!("host-{id}"),
+                peer(
+                    base64::engine::general_purpose::STANDARD.encode([id; 32]),
+                    "127.0.0.1:4101".parse().unwrap(),
+                    "10.77.0.2:4100".parse().unwrap(),
+                ),
+            )
+        }));
+        let lock = KeyHolder::acquire(home.path()).unwrap();
+        let result = Transport::from_socket(
+            &settings,
+            &configured,
+            home.path(),
+            "127.0.0.1:4103".parse().unwrap(),
+            socket,
+            lock,
+        )
+        .await;
+        let error = result.err().expect("different identities must not share an overlay address");
+        assert!(error.to_string().contains("overlap"), "{error}");
+    });
 }
 
 /// A pair whose `a` side runs on `a_socket`.
@@ -51,8 +127,14 @@ async fn pair_on(
     };
     let a_peers = BTreeMap::from([("b".into(), peer(b_public, b.listen, b.address))]);
     let b_peers = BTreeMap::from([("a".into(), peer(a_key.public_key_b64(), a.listen, a.address))]);
-    let a = Transport::from_socket(&a, &a_peers, homes[0].path(), target, a_socket).await.unwrap();
-    let b = Transport::from_socket(&b, &b_peers, homes[1].path(), target, b_socket).await.unwrap();
+    let a_lock = KeyHolder::acquire(homes[0].path()).unwrap();
+    let b_lock = KeyHolder::acquire(homes[1].path()).unwrap();
+    let a = Transport::from_socket(&a, &a_peers, homes[0].path(), target, a_socket, a_lock)
+        .await
+        .unwrap();
+    let b = Transport::from_socket(&b, &b_peers, homes[1].path(), target, b_socket, b_lock)
+        .await
+        .unwrap();
     (a, b, homes)
 }
 
@@ -90,17 +172,110 @@ fn disabled_never_binds_udp_or_reads_a_key() {
             listen: occupied.local_addr().unwrap(),
             address: "10.77.0.1:4100".parse().unwrap(),
         });
-        let disabled =
-            Transport::start(&cfg, &dir.path().join("absent"), "127.0.0.1:1".parse().unwrap())
-                .await
-                .unwrap();
+        let disabled = Transport::start_with_link(
+            &cfg,
+            &dir.path().join("absent"),
+            None,
+            "127.0.0.1:1".parse().unwrap(),
+        )
+        .await
+        .unwrap();
         assert!(disabled.is_none());
         assert!(!dir.path().join("absent").exists());
         cfg.transport.wireguard = true;
         assert!(
-            Transport::start(&cfg, dir.path(), "127.0.0.1:1".parse().unwrap()).await.is_err(),
+            Transport::start_with_link(&cfg, dir.path(), None, "127.0.0.1:1".parse().unwrap())
+                .await
+                .is_err(),
             "the occupied UDP socket must prevent enabled startup"
         );
+    });
+}
+
+#[test]
+fn a_held_key_lock_steps_the_transport_down_without_binding() {
+    runtime().block_on(async {
+        // Occupied: a transport that went past the lock would fail to bind.
+        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.transport.wireguard = true;
+        cfg.transport.wireguard_static = Some(StaticConfig {
+            listen: occupied.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        });
+        // A link that serves this node's own key (one key on the machine) holds its lock.
+        let link_dir = tempfile::tempdir().unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(dir.path()).unwrap();
+        let node = std::fs::read(cmux_link::key_holder::KeyFile::Node.path_in(dir.path())).unwrap();
+        std::fs::write(
+            cmux_link::key_holder::KeyFile::Link.path_in(link_dir.path()),
+            base64::engine::general_purpose::STANDARD.encode(&node),
+        )
+        .unwrap();
+        let link = KeyHolder::acquire(dir.path()).unwrap();
+        let start = || {
+            Transport::start_with_link(
+                &cfg,
+                dir.path(),
+                Some(link_dir.path()),
+                "127.0.0.1:1".parse().unwrap(),
+            )
+        };
+        assert!(start().await.unwrap().is_none());
+        drop(link);
+        assert!(
+            start().await.is_err(),
+            "with the lock free, the transport goes on to the (occupied) bind"
+        );
+    });
+}
+
+/// Review F1 at 9e91bcea: a configured link turns the transport off only when it serves this
+/// home's node key (the app recorded this home for it). A link that keeps its own key (no
+/// home recorded, as under launchd before the fix) leaves the transport on, so the machine
+/// is never left with neither on the node key.
+#[test]
+fn the_transport_steps_down_only_for_a_link_that_serves_the_node_key() {
+    runtime().block_on(async {
+        // Occupied: a transport that goes on fails at its bind.
+        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.transport.wireguard = true;
+        cfg.transport.wireguard_static = Some(StaticConfig {
+            listen: occupied.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        });
+        let link_dir = tempfile::tempdir().unwrap();
+        std::fs::write(link_dir.path().join("config.json"), r#"{"install":"inst_a","port":0}"#)
+            .unwrap();
+        let start = || {
+            Transport::start_with_link(
+                &cfg,
+                dir.path(),
+                Some(link_dir.path()),
+                "127.0.0.1:1".parse().unwrap(),
+            )
+        };
+        assert!(start().await.is_err(), "a link keeping its own key turned the transport off");
+        crate::cli::mesh_node_key::record_link_home(link_dir.path(), Some(dir.path())).unwrap();
+        assert!(start().await.unwrap().is_none(), "the link serving the node key holds it");
+    });
+}
+
+#[test]
+fn a_stopped_transport_releases_the_key_lock() {
+    runtime().block_on(async {
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (a, b, homes) = pair(target.local_addr().unwrap(), false).await;
+        assert!(matches!(
+            KeyHolder::acquire(homes[0].path()),
+            Err(KeyHolderError::KeyHeld { pid: Some(pid) }) if pid == std::process::id()
+        ));
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
+        assert!(KeyHolder::acquire(homes[0].path()).is_ok(), "the lock outlived the transport");
     });
 }
 
@@ -381,5 +556,84 @@ fn a_stop_delivers_what_the_listener_sent_before_the_tunnel_ends() {
         assert!(read.is_ok(), "the tunnel was reset: {read:?}, after {got:?}");
         assert_eq!(got, b"last words");
         a.shutdown(tokio::time::Instant::now()).await;
+    });
+}
+
+/// A rekey's restart (`machine_tunnel.rs`): the mesh comes back on the same UDP port with the
+/// new key. A peer that knows only the new key reaches this side after the restart, never before.
+#[test]
+fn a_restart_runs_the_mesh_with_the_new_key_on_the_same_port() {
+    runtime().block_on(async {
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let homes = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let b_key = crate::cli::mesh_node_key::load_or_create_at(homes[1].path()).unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(homes[0].path()).unwrap();
+        let fresh = Zeroizing::new([42u8; 32]);
+        let fresh_public = base64::engine::general_purpose::STANDARD.encode(
+            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*fresh)).to_bytes(),
+        );
+        let (a_socket, b_socket) = (
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+        );
+        let a = StaticConfig {
+            listen: a_socket.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        };
+        let b = StaticConfig {
+            listen: b_socket.local_addr().unwrap(),
+            address: "10.77.0.2:4100".parse().unwrap(),
+        };
+        let a_peers =
+            BTreeMap::from([("b".into(), peer(b_key.public_key_b64(), b.listen, b.address))]);
+        // b already knows a only by the key a gets in the rekey.
+        let b_peers = BTreeMap::from([("a".into(), peer(fresh_public, a.listen, a.address))]);
+        let a_lock = KeyHolder::acquire(homes[0].path()).unwrap();
+        let b_lock = KeyHolder::acquire(homes[1].path()).unwrap();
+        let target_addr = target.local_addr().unwrap();
+        let a_side =
+            Transport::from_socket(&a, &a_peers, homes[0].path(), target_addr, a_socket, a_lock)
+                .await
+                .unwrap();
+        let b_side =
+            Transport::from_socket(&b, &b_peers, homes[1].path(), target_addr, b_socket, b_lock)
+                .await
+                .unwrap();
+        let before = tokio::time::timeout(
+            Duration::from_secs(1),
+            a_side.connect(a_side.route("b").unwrap()),
+        )
+        .await;
+        assert!(!matches!(before, Ok(Ok(_))), "b took a's old key");
+        // Every key user takes the key with the write, in turn; a failed write reaches none.
+        let took = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        for name in ["carrier", "other"] {
+            let took = took.clone();
+            a_side.add_key_user(Arc::new(move |private: &[u8; 32], write| {
+                write()?;
+                took.lock().unwrap().push(format!("{name} {}", private[0]));
+                Ok(())
+            }));
+        }
+        let mut wrote = 0;
+        a_side
+            .put_key(&fresh, &mut || {
+                wrote += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(wrote, 1, "the key file is written once");
+        assert_eq!(*took.lock().unwrap(), ["other 42", "carrier 42"]);
+        assert!(a_side.put_key(&[7u8; 32], &mut || Err(anyhow::anyhow!("no write"))).is_err());
+        assert_eq!(took.lock().unwrap().len(), 2, "a failed write gave no user the key");
+        let port = a_side.local_addr();
+        a_side.restart(fresh).await.unwrap();
+        assert_eq!(a_side.local_addr(), port);
+        assert!(a_side.with_key(|_| ()).is_some(), "the restart kept the key lock");
+        let after = tokio::time::timeout(BOUND, a_side.connect(a_side.route("b").unwrap())).await;
+        assert!(matches!(after, Ok(Ok(_))), "the restarted mesh did not reach b with the new key");
+        tokio::time::timeout(BOUND, target.accept()).await.unwrap().unwrap();
+        a_side.shutdown(tokio::time::Instant::now()).await;
+        b_side.shutdown(tokio::time::Instant::now()).await;
     });
 }

@@ -2,6 +2,7 @@ import { createContext } from "react";
 import { type Translate } from "../i18n";
 import type { TurnTokenSplit } from "../model";
 import { formatDuration } from "./turns";
+import { previewAddress } from "./previewChipModel";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
@@ -19,13 +20,15 @@ export type WorkingCounts = {
   tokens?: number;
   /// Those tokens split into output and what the calls read (snapshot `turnTokenSplit`), when known.
   split?: TurnTokenSplit;
+  /// The page the newest running background command serves (PreviewChip.tsx), and what opens it.
+  preview?: { url: string; open: () => void };
 };
 
 export { workingTokens } from "./turnTokensModel";
 
 /// The running line's counts, each opening what it counts: the subagents and the chats the agent
 /// started are one count, "3 subagents" (the tray's word, subagents/SubagentTray.tsx), then the
-/// commands.
+/// commands, then the page a command serves (`localhost:5173`), which opens it beside the chat.
 export function workingParts(t: Translate, counts: WorkingCounts): { key: string; label: string; open: () => void }[] {
   const subagents = counts.agents + counts.sessions;
   const parts = [
@@ -38,6 +41,11 @@ export function workingParts(t: Translate, counts: WorkingCounts): { key: string
       key: "commands",
       label: t("turn.working.commands", { n: counts.commands }),
       open: counts.openCommands,
+    },
+    counts.preview !== undefined && {
+      key: "preview",
+      label: previewAddress(counts.preview.url),
+      open: counts.preview.open,
     },
   ];
   return parts.filter((part) => part !== false);

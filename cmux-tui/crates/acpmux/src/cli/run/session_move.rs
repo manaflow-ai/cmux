@@ -22,7 +22,9 @@
 //!    is pushed to `origin` (never forced) and becomes a fresh worktree of that branch on the
 //!    target (`wt new` there when it has `wt`, else a fresh clone of its own under
 //!    `~/Projects/checkouts`), the chat's subfolder checked out in it; any other folder under the
-//!    home is made at the same path under the target's home; `--cwd` names it outright.
+//!    home is made at the same path under the target's home; `--cwd` names it outright. With
+//!    `--carry-changes` the checkout's uncommitted work is read once the branch is pushed and
+//!    applied in the new worktree (`session_move_carry.rs`).
 //! 5. The rest of the move is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with
 //!    the target daemon's own local socket reached through an `ssh -L` forward
 //!    (`ssh_forward.rs`): the bundle is paged across, imported there in its new folder, then
@@ -33,6 +35,7 @@
 //!    and agent links follow it (`hub/locate.rs`).
 
 use super::*;
+use crate::cli::session_move_carry::{self as carry, Carry};
 use crate::cli::session_move_plan::{self as plan, Checkout, Folder};
 use crate::ssh_forward::Forward;
 #[cfg(test)]
@@ -49,6 +52,9 @@ pub(crate) struct MoveArgs {
     pub all_idle: bool,
     pub interrupt: bool,
     pub leave_dirty: bool,
+    /// `--carry-changes`: the checkout's uncommitted work goes with the chat
+    /// (`session_move_carry.rs`).
+    pub carry_changes: bool,
     pub cwd: Option<String>,
     pub dry_run: bool,
     /// `session resume`'s move: once moved, the held queue runs on the target, asked over the
@@ -95,6 +101,8 @@ struct Outcome {
     there: Option<String>,
     /// With `resume_there`: whether a held queue ran there, or why it did not (the chat moved).
     resumed: Result<bool, String>,
+    /// With `--carry-changes`: what was carried (`Carry::record`).
+    carried: Option<Value>,
     error: Option<String>,
 }
 
@@ -160,7 +168,8 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             .iter()
             .map(|o| {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
-                       "moved": o.moved, "dryRun": args.dry_run, "error": o.error})
+                       "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
+                       "error": o.error})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
@@ -177,8 +186,24 @@ fn print_outcome(o: &Outcome, dry_run: bool) {
     match &o.error {
         Some(e) => eprintln!("{} ({}): not moved: {e}", o.name, o.session),
         None if dry_run => println!("{} ({}): would move to {host} in {cwd}", o.name, o.session),
-        None => println!("{} ({}): moved to {host} in {cwd}", o.name, o.session),
+        None => println!("{} ({}): moved to {host} in {cwd}{}", o.name, o.session, carried_text(o)),
     }
+}
+
+/// `, with N uncommitted files (left here: .env)` for a move that carried changes.
+fn carried_text(o: &Outcome) -> String {
+    let Some(c) = &o.carried else { return String::new() };
+    let files = c.get("files").and_then(Value::as_u64).unwrap_or(0);
+    let left: Vec<&str> = c
+        .get("leftOut")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|l| l.get("path").and_then(Value::as_str))
+        .collect();
+    let left =
+        if left.is_empty() { String::new() } else { format!(" (left here: {})", left.join(", ")) };
+    format!(", with {files} uncommitted file{}{left}", if files == 1 { "" } else { "s" })
 }
 
 /// Where `session resume` moved a stopped chat (`move_off_interactive`): the peer, the chat's
@@ -200,6 +225,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         all_idle: false,
         interrupt: false,
         leave_dirty: false,
+        carry_changes: false,
         cwd: None,
         dry_run: false,
         resume_there: true,
@@ -261,6 +287,7 @@ async fn move_one_from(
         moved: false,
         there: None,
         resumed: Ok(false),
+        carried: None,
         error: None,
     };
     if let Err(e) = move_steps(src, source, key, args, home, targets, &mut o).await {
@@ -338,7 +365,7 @@ async fn move_steps(
         &home,
         checkout.as_ref(),
         &remote.home,
-        args.leave_dirty,
+        args.leave_dirty || args.carry_changes,
         target_cwd,
     )
     .map_err(|e| anyhow!(e))?;
@@ -414,11 +441,12 @@ async fn prepare(
         home,
         checkout.as_ref(),
         &remote.home,
-        args.leave_dirty,
+        args.leave_dirty || args.carry_changes,
         args.cwd.as_deref(),
     )
     .map_err(|e| anyhow!(e))?;
     let mut record = json!({"host": target.name});
+    let mut carry = None;
     if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
         let commit = tokio::task::spawn_blocking({
             let (top, branch, ssh) =
@@ -431,7 +459,31 @@ async fn prepare(
         .await??;
         record.set("branch", json!(branch));
         record.set("commit", json!(commit));
-        if *dirty {
+        if *dirty && args.carry_changes {
+            // Read after the freeze and the push: what the agent left, against what was pushed.
+            let read = tokio::task::spawn_blocking({
+                let (top, ssh) = (c.top.clone(), source.ssh().map(str::to_owned));
+                move || match ssh {
+                    None => carry::snapshot(&|script, input| run_here(script, input), &top, true),
+                    Some(ssh) => carry::snapshot(
+                        &|script, input| {
+                            crate::cli::hosts::Remote::exec(
+                                &crate::cli::hosts::SshRemote(&ssh),
+                                script,
+                                Some(input),
+                            )
+                        },
+                        &top,
+                        false,
+                    ),
+                }
+            })
+            .await??;
+            carry::check_base(&read, &commit)?;
+            record.set("uncommittedCarried", read.record());
+            o.carried = Some(read.record());
+            carry = Some(read);
+        } else if *dirty {
             let left_on = match source {
                 Source::Here => crate::pairing::machine_name(),
                 Source::Peer { name, .. } => name.clone(),
@@ -444,6 +496,13 @@ async fn prepare(
         move || prepare_folder(&host, &folder)
     })
     .await??;
+    if let Some(carry) = carry.filter(|c| !c.patch.is_empty()) {
+        tokio::task::spawn_blocking({
+            let (host, there) = (target.ssh.clone(), there.clone());
+            move || apply_carry(&host, &there, &carry)
+        })
+        .await??;
+    }
     o.cwd = Some(there.clone());
     record.set("cwd", json!(there));
     // This machine as the target (`--machine local`): its own daemon, no forward.
@@ -554,6 +613,27 @@ fn push_branch_on(ssh: &str, top: &Path, branch: &str) -> Result<String> {
         bail!("pushing {branch} to origin on {ssh} failed (it may have moved on there): {last}");
     }
     Ok(head)
+}
+
+/// Applies `carry` in the chat's new folder `there` on the ssh host `host` (this machine when
+/// empty), through [`carry::APPLY_SCRIPT`].
+fn apply_carry(host: &str, there: &str, carry: &Carry) -> Result<()> {
+    let input = carry::apply_input(there, carry);
+    let out = if host.is_empty() {
+        run_here(carry::APPLY_SCRIPT, &input)?
+    } else {
+        crate::cli::hosts::Remote::exec(
+            &crate::cli::hosts::SshRemote(host),
+            carry::APPLY_SCRIPT,
+            Some(&input),
+        )?
+    };
+    if !out.ok {
+        let host = if host.is_empty() { "this machine" } else { host };
+        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
+        bail!("its uncommitted changes did not apply in {there} on {host}: {last}");
+    }
+    Ok(())
 }
 
 /// This machine's daemon as a target (`--machine local`): its home and local socket.

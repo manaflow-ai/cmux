@@ -95,6 +95,7 @@ Process {
                 // or acpmux did after a minute in the foreground)
   outputBytes   // the output file's length when listed; null with no file
   outputFile?   // the file the harness writes its output to
+  preview?      // {url, port}: the dev server it runs, while it runs
 }
 ```
 
@@ -102,6 +103,20 @@ As built (#20724), `subagentSessionId` names the subagent whose call started
 it, and a task id a later harness reuses gets `-2`, `-3`. Each change is
 logged once as a mux `process_update` record, which is how a daemon rebuilds
 the table.
+
+`preview` is the local server a running process serves, so the chat can
+offer it as a link (`hub/process_preview.rs`). When a process with an output
+file runs, the daemon reads the file's last 64 KiB 0.5, 1.5, 3.5, 7.5, 15.5,
+31.5 and 59.5 s after, strips its terminal escapes, and takes the loopback
+URLs it names (`localhost:5173`, `127.0.0.1:3000`, `0.0.0.0:8080`; the
+`cmux-local-url` crate the daemon's `terminal-ports` uses too), newest first.
+The first whose port accepts a TCP connect on 127.0.0.1 or ::1 is logged as
+`preview: {url, port}` in one `process_update`, and the checks stop; they
+also stop once the process ends, and after the last. A wildcard host reads
+`localhost`, and an API path (`/api`, `/v1`, `/graphql`, `/rpc`, `/health`)
+reads `/`. A process that ends drops its preview. Only the chat's own output
+files are read: no process scanning, no ports table. Codex names no output
+file, so its processes have no preview.
 
 `lost` means the process ended without anyone seeing how, for example when the
 harness itself exited. Its last output is kept and its command is shown with
@@ -181,7 +196,7 @@ process's command line and its kill never leave the machine.
 
 | Message | Params | Result |
 | --- | --- | --- |
-| `_acpmux/process/list` (request, built) | `{sessionId?, limit?, cursor?}`; without `limit`, existing full list. With `limit`, `sessionId` required and `cursor` is the previous page's `nextCursor`. Requested limit is capped to 1,000. | Unpaged: `{processes: [Process]}`. Paged: `{processes: [Process], nextCursor: string|null}`. Pages are additionally cut to fit the 31 MiB RPC frame; a single oversized record gives an explicit `omitted` stub preserving process identity and state. |
+| `_acpmux/process/list` (request, built) | `{sessionId?, limit?, cursor?}`. With `limit`, `sessionId` is required, `cursor` is the previous page's `nextCursor`, and the limit is capped at 1,000. Without `limit`, the newest processes that fit one reply (1 MiB, `rpc::REPLY_PAGE_BYTES`), of one chat or of every chat. A client that needs every process of a chat (to stop them all, or to find an older one) pages with `limit` and `cursor`: the Chief's `running_processes` and `acpmux process list --session`/`show` do. | Unpaged: `{processes: [Process], omitted?: number}`, oldest first, with `omitted` saying how many older processes were left out. Paged: `{processes: [Process], nextCursor: string|null}`, each page also cut to fit 1 MiB. A record too large on its own goes as a stub that keeps the process's identity and state, with `omitted` set. |
 | `_acpmux/process/tail` (request, built) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB; at most 1 MiB) | `{data (base64), fromByte, nextByte, eof}`; `eof`: the process ended and `nextByte` is the file's end; a missing file is empty data |
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
 | `_acpmux/process/kill` (request, built) | `{processId, sessionId?, signal?: "term" \| "kill"}`; a named `sessionId` must be the process's chat (the agent pane names it, and its host allows only a chat in the pane's scope) | `{}`; the outcome arrives as a `process_update` |
@@ -206,7 +221,7 @@ process's command line and its kill never leave the machine.
 | Chat closed, no client attached | Keeps running: a running process blocks the idle reap. |
 | Over the session's memory budget (cx-v9s8g) | Enforced by the kernel, not by acpmux measuring: on Linux the session's cgroup scope (`MemoryMax`); `killed`, reason `budget_memory`. |
 | Over the CPU budget (cx-v9s8g) | Lower priority, not killed: the cgroup's `CPUWeight` on Linux, `setpriority(PRIO_PGRP)` on macOS. |
-| Start (macOS) | The harness starts at normal CPU class: a start has a deadline, and at background class a busy disk can hold it past that deadline (2026-10-30: a harness at background class used under 1 s of CPU in 90 s of trust-settings reads). Once the session's start is over (`initialize` and `session/new` or `session/load` answered), the daemon puts the running harness in background CPU class (`setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, `cpu_class.rs`), so every process it starts after that inherits it and cmux's GUI and renderers go first. A process the harness started during its start keeps normal class, because acpmux lists no processes: an MCP server, and the real agent of a harness that is only a launcher (a script or adapter that starts the agent as a child), whose turns then run at normal class. The daemon also clears a background class that another process set, right after the spawn. Disk I/O stays at the daemon's and host's utility tier. A start that still fails at background class is retried once, and a start that misses its deadline names its agent process's pid, class, run time, CPU time and running threads. `normal` opts out of the lowering: a profile's env `ACPMUX_SESSION_CPU_CLASS`, the daemon's env, or config `session.cpuClass`. |
+| Start (macOS) | The agent host and its harness start at the daemon's CPU class, with no utility clamp (disk I/O stays at utility) (W6, 2026-11-12: at load 125 to 256 a start under the clamp waited 10 to 82 s, and one used 1.8 s of CPU in 90 s); a `normal` harness and what it started go to nice +11, the clamp's priority, once the start is over. The harness starts at normal CPU class: a start has a deadline, and at background class a busy disk can hold it past that deadline (2026-10-30: a harness at background class used under 1 s of CPU in 90 s of trust-settings reads). Once the session's start is over (`initialize` and `session/new` or `session/load` answered), the daemon puts the running harness in background CPU class (`setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, `cpu_class.rs`), so every process it starts after that inherits it and cmux's GUI and renderers go first. A process the harness started during its start keeps normal class, because acpmux lists no processes: an MCP server, and the real agent of a harness that is only a launcher (a script or adapter that starts the agent as a child), whose turns then run at normal class. The daemon also clears a background class that another process set, right after the spawn. Disk I/O stays at the daemon's and host's utility tier. A start that still fails at background class is retried once, and a start that misses its deadline names its agent process's pid, class, run time, CPU time and running threads. A Claude Code profile whose `argv` does not start with `claude` is a launcher and defaults to `normal`, because lowering it cannot reach its agent's tools and it can carry the agent's stream (`sr2 claude` relays it). `normal` opts out of the lowering: a profile's env `ACPMUX_SESSION_CPU_CLASS`, the daemon's env, or config `session.cpuClass`; any of them can also ask a launcher for `background`. |
 | Harness time limit (Claude's `timeout`; acpmux lifts the ceiling to about 24.8 days) | `killed`, reason `harness_time_limit`. |
 | Daemon restart | Keeps running (the agent host owns the harness); the list is rebuilt from the `process_update` records. A process still `running` there stays so until its harness reports its end. |
 | Harness or host exit, app update relaunch | `lost` (built), with the last output kept and Run again offered. A real reattach needs Claude Code's background sessions (`claude agents`, 2.1.196); evaluated separately. |

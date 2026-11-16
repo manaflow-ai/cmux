@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCookieImport
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextOnboarding
@@ -13,9 +14,9 @@ import os
 
 /// Owns the tool window (Import from Browser, Computer Use setup), the
 /// browser-data import offer, the default-app registry and the imported
-/// data, and feeds imported history to the omnibar at launch. Fresh installs
-/// also show the history-import page; existing installations go straight to
-/// the main window. The one-time classic migration adds classic's workspaces
+/// data, and feeds imported history to the omnibar at launch. First-run onboarding
+/// (windows, Set Up cmux card, history page) is off unless `--onboarding`
+/// (``AppEnvironment/skipsOnboarding``): launches go straight to the main window. The one-time classic migration adds classic's workspaces
 /// to the restored windows (classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
@@ -34,9 +35,6 @@ final class OnboardingService {
     private var importSettingFollow: Task<Void, Never>?
     private var cookieBannerFollow: Task<Void, Never>?
 
-    /// Where `workspace.importClassic` reads classic's saved session; nil
-    /// reads the one classic saved last (tests point it at a fixture).
-    var classicSessions: ClassicSessionImporter?
     /// How `workspace.importClassic` reaches a classic SSH workspace's host:
     /// the daemon for that destination. Nil connects through `SSHService`
     /// (tests stand in a daemon).
@@ -46,21 +44,11 @@ final class OnboardingService {
     var classicChatPlan: (@MainActor (AgentPaneAdopt, String?) async throws -> AcpmuxChatOpenPlan?)?
     /// The toast `workspace.importClassic` or the launch migration showed last.
     var classicImportNotice: String?
-    /// The classic migration's folder (ledger, backups); nil uses
-    /// `Application Support/cmux-next/<bundle id>/classic-migration` (tests use a scratch folder).
-    var classicMigrationDirectory: URL?
-    /// The Application Support folder holding classic's `cmux` folder; nil is this Mac's.
-    var classicMigrationSupport: URL?
     /// Whether launch runs the classic migration; nil decides by build (shipping builds only).
     var classicMigrationAtLaunch: Bool?
-    /// Whether a classic cmux app is running; nil reads it from how recently classic saved.
-    var classicRunning: (@MainActor () -> Bool)?
-    /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
-    /// (`~/.local/state/cmux`); tests use a scratch folder.
-    var classicStateRoot: URL?
     /// Answers the migration preview; nil presents the native cmux dialog.
     /// Tests inject an answer without creating UI.
-    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> Bool)?
+    var classicMigrationConfirmation: (@MainActor (ClassicImportPreview) async -> ClassicImportAnswer)?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
@@ -90,30 +78,19 @@ final class OnboardingService {
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
         // once in the background while the app is starting.
         projectScanTask = Task { [weak self] in
-            let folders = await Task.detached {
+            let agent = await Task.detached {
                 var scan = AgentProjectScan.live()
                 scan.filesPerApp = 200
-                let agent = scan.run().map(\.id)
-                let classic: [ClassicSessionWorkspace]
-                do {
-                    classic = try ClassicSessionImporter().read()
-                } catch {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
-                        .error("classic session snapshot could not be read: \(String(describing: error), privacy: .public)")
-                    classic = []
-                }
-                // Folders on this Mac: an SSH or Cloud VM workspace's are another machine's.
-                let classicFolders = classic.filter { $0.remote == nil && $0.cloudVM == nil }.flatMap { workspace in
-                    [workspace.workingDirectory] + workspace.layout.tabs.compactMap(\.workingDirectory)
-                }
-                var seen = Set<String>()
-                return (agent + classicFolders).compactMap { path in
-                    let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
-                    return seen.insert(normalized).inserted ? normalized : nil
-                }
+                return scan.run().map(\.id)
             }.value
             guard let self else { return }
-            projectFolders = folders
+            // Classic's saved folders, read by the daemon (`classic_import.plan`) once it is up.
+            let classic = await classicProjectFolders()
+            var seen = Set<String>()
+            projectFolders = (agent + classic).compactMap { path in
+                let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+                return seen.insert(normalized).inserted ? normalized : nil
+            }
         }
         presenter.makeModel = { [weak self] step in
             self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
@@ -186,9 +163,18 @@ final class OnboardingService {
         return await services.openLocalProviderLogin(line)
     }
 
-    /// Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
+    /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.skipsOnboarding)
+
+    /// A first run starts Home's Set Up cmux card, which offers the agents, the chat history (when found), the
+    /// account and the command line in one place: the Agents window and the CLI toast count as shown, and
+    /// Bring your history opens from the card's row. Otherwise Agents, then Bring your history
+    /// (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
     func showFirstRunSteps(isFirstRun: Bool) async {
         guard !services.environment.skipsOnboarding else { return }
+        let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
+        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
+        guard route == .windows else { return }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 

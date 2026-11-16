@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSidebarActions
 
 // Sidebar intents -> daemon commands, applied optimistically to the
 // sidebar model first. Each command goes to the machine daemon that owns
@@ -19,6 +20,11 @@ extension SidebarBridge {
            let shown = model.group(group)?.isCollapsed {
             rows.edits.foldShown(group, collapsed: !shown)
             doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.edits.dropFold(group) }
+            return
+        }
+        // A row still being created: the daemon has no workspace to move yet, so its drop is the create's slot.
+        if case let .reorder(ids, position) = intent, !ids.isEmpty, ids.allSatisfy(model.isCreating) {
+            if !services.windows.reslotCreates(ids.map(\.rawValue), at: position, in: state.id, sections: model.sections) { resync() }
             return
         }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || services.sidebarDoc.handle(intent, bridge: self) { return }
@@ -42,7 +48,7 @@ extension SidebarBridge {
             case .snapBack, nil: return resync()
             }
         }
-        if usesPersonalOrganization, PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
+        if usesPersonalOrganization, groupFlow.sendsUnderDaemonID(intent) || PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
             // A placeholder row is no workspace: never claimed or shown.
@@ -82,6 +88,10 @@ extension SidebarBridge {
             let rule = NewWorkspacePlacements.rule(for: state.id, in: services.windows)
             let slot = group.map { rule.slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
             services.windows.newWorkspace(in: state, on: daemon, at: slot)
+        case .viewScreen, .shareScreen:
+            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) {
+                services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane)
+            }
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {
@@ -106,11 +116,8 @@ extension SidebarBridge {
             rows.send(rows.edits.add(intent), closes, failed: saveFailed(intent))
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
-        case .newProfile:
-            services.registry.perform("space.new", invocation: ActionInvocation())
-        case .openProfileInNewWindow(let profile):
-            let invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: profile.rawValue), origin: .user)
-            services.registry.perform("space.openInNewWindow", invocation: invocation)
+        case .newProfile, .openProfileInNewWindow:
+            SidebarIntentActions(registry: services.registry, remoteRuns: services.cmuxRemote.started).handle(intent, sections: model.sections)
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
@@ -203,7 +210,7 @@ extension SidebarBridge {
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state.id, windows: services.windows.connectingRowWindows(making: state.id)) }
-        rows.show(sections, shownAt: shownAt)
+        rows.show(SidebarScreenActions(macs: services.macScreenPages.hub?.macScreenAvailability ?? [:], aliases: DaemonService.screenDeviceAliases(in: services.machines.daemons)).applying(to: sections), shownAt: shownAt)
         model.profiles = SidebarSpaceBar.profiles(services.machines.local, window: state.id, windows: services.windows)
         groupFlow.openPendingEditor()
     }

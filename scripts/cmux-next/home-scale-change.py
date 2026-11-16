@@ -31,6 +31,7 @@ import re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from home_pixels import check_crisp, check_rows  # noqa: E402
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -173,8 +174,8 @@ try:
     if not check("the Home fixture opens and shows its transcript", bool(shown),
                  rpc("debug.home.drive", {"action": "texts"})):
         # Which windows and pages show (for the failure's cause).
-        print("     windows: " + json.dumps(rpc("debug.window_list"))[:1500], flush=True)
-        print("     home: " + json.dumps(rpc("debug.home"))[:800], flush=True)
+        safe_print("     windows: " + json.dumps(rpc("debug.window_list"))[:1500], flush=True)
+        safe_print("     home: " + json.dumps(rpc("debug.home"))[:800], flush=True)
     rpc("debug.home.drive", {"action": "focus"})
     rpc("debug.home.drive", {"action": "type", "text": "Scale change check"})
     sent = rpc("debug.home.drive", {"action": "send"}) or {}
@@ -204,9 +205,9 @@ try:
     vd = int(fields["pid"]) if fields.get("pid", "").isdigit() else None
     if not check("a 1x virtual display exists", run.returncode == 0 and line.startswith("ready") and vd is not None,
                  line or (run.stderr or "")[-300:]):
-        print(f"     vdisplay: {line or run.stderr.strip()[-300:]}", flush=True)
+        safe_print(f"     vdisplay: {line or run.stderr.strip()[-300:]}", flush=True)
         sys.exit(1)
-    print(f"     vdisplay: {line}", flush=True)
+    safe_print(f"     vdisplay: {line}", flush=True)
     moved = rpc("debug.window_frame", {"screen": "last"}) or {}
     check("the window moves onto the virtual display", moved.get("screen") == "MessagesLab Rig", moved)
     r1 = poll(lambda: (r := rows_report()) and r.get("scale") == 1 and r, timeout=10) or rows_report()

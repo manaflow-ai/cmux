@@ -10,7 +10,7 @@ public nonisolated struct DensityNames: Sendable {
         switch preset {
         case .ultraCompact: SettingsText.keyed("settings.choice.ultraCompact", "Ultra-compact")
         case .compact: SettingsText.keyed("settings.choice.compact", "Compact")
-        case .cozy: SettingsText.keyed("settings.choice.cozy", "Cozy")
+        case .cozy: SettingsText.keyed("settings.choice.default", "Default")
         case .comfortable: SettingsText.keyed("settings.choice.comfortable", "Comfortable")
         case .spacious: SettingsText.keyed("settings.choice.spacious", "Spacious")
         }

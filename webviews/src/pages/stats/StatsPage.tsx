@@ -1,6 +1,7 @@
 // The Stats page (hq#1920): what this machine's agents did, from the local session logs only.
 // Tiles first (agent time, time waiting on you, turns, peak parallel agents, streak), then the
-// activity heatmap, the time of day, each agent's share, how turns ended and what needed you.
+// activity heatmap, the time of day, each agent's share, how turns ended and what needed you, then
+// the person's opt-in usage patterns (commands, splits, agents, connections; counts only).
 import { useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { harnessName } from "./harnessNames";
@@ -15,9 +16,10 @@ import {
   heatmap,
   hourShares,
   stripLabel,
+  usageGroups,
 } from "./shape";
 import type { StatsStore } from "./store";
-import { RANGES, type StatsSummary } from "./types";
+import { RANGES, type StatsSummary, type UsagePatterns } from "./types";
 
 export function StatsPage({ store, strings }: { store: StatsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -196,6 +198,75 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
           </dl>
         </section>
       )}
+      {summary.usagePatterns && <UsageSection patterns={summary.usagePatterns} strings={strings} />}
     </>
+  );
+}
+
+/** Usage Patterns: off says how to turn it on; on shows each family's top keys as bars. */
+export function UsageSection({ patterns, strings }: { patterns: UsagePatterns; strings: Strings }) {
+  const language = strings.language;
+  const count = (value: number) => formatCount(value, language);
+  const groups = usageGroups(patterns.rollup.counts);
+  const peak = patterns.rollup.peaks["connections.open"];
+  const since = patterns.rollup.since;
+  return (
+    <section className="stats-section stats-usage">
+      <h2 className="stats-section-title">{strings.t("stats.section.usage")}</h2>
+      {!patterns.enabled && groups.length === 0 ? (
+        <p className="stats-message stats-muted">{strings.t("stats.usage.off")}</p>
+      ) : groups.length === 0 ? (
+        <p className="stats-message stats-muted">{strings.t("stats.usage.empty")}</p>
+      ) : (
+        <>
+          {!patterns.enabled && <p className="stats-muted">{strings.t("stats.usage.off")}</p>}
+          {since > 0 && (
+            <p className="stats-muted stats-usage-since">
+              {strings.format("stats.usage.since", formatDay(new Date(since).toISOString().slice(0, 10), language))}
+            </p>
+          )}
+          <div className="stats-usage-groups">
+            {groups.map((group) => (
+              <div key={group.family} className="stats-usage-group">
+                <div className="stats-usage-head">
+                  <span>{strings.t(group.titleKey)}</span>
+                  <span className="stats-harness-value">
+                    {count(group.family === "machine" ? group.distinct : group.total)}
+                  </span>
+                </div>
+                {group.rows.length > 0 && (
+                  <ul className="stats-harnesses">
+                    {group.rows.map((row) => (
+                      <li key={row.key} className="stats-harness">
+                        <span className="stats-harness-name stats-usage-key">
+                          {group.family.startsWith("agent-") ? harnessName(row.key) : row.key}
+                        </span>
+                        <span className="stats-harness-track">
+                          <span
+                            className="stats-harness-bar"
+                            style={{
+                              width: `${Math.round((100 * row.count) / Math.max(1, group.rows[0]?.count ?? 1))}%`,
+                            }}
+                          />
+                        </span>
+                        <span className="stats-harness-value">{count(row.count)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+          {peak !== undefined && peak > 0 && (
+            <dl className="stats-outcomes">
+              <div className="stats-outcome">
+                <dt>{strings.t("stats.usage.peak")}</dt>
+                <dd>{count(peak)}</dd>
+              </div>
+            </dl>
+          )}
+        </>
+      )}
+    </section>
   );
 }

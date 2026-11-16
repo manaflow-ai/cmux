@@ -4,7 +4,8 @@
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
-import type { AgentsState, ChannelsState, SharesState } from "./ops";
+import { personalizationPartOf } from "./personalizationParts";
+import type { AgentsState, ChannelsState, LibraryListing, SharesState, TailnetState, KeysState } from "./ops";
 import { settingsKeys } from "./queries";
 import type { SettingsStore } from "./store";
 
@@ -48,6 +49,19 @@ export function agentsQuery(store: SettingsStore) {
   });
 }
 
+/** This Mac on Your Tailnet's key; each sign-in step writes its answer here. */
+export const TAILNET_KEY = [...settingsKeys.all, "tailnet"] as const;
+
+/** Settings > Server > This Mac on Your Tailnet: the node's snapshot (null: no tailnet here). */
+export function tailnetQuery(store: SettingsStore) {
+  return queryOptions<TailnetState | null>({
+    queryKey: TAILNET_KEY,
+    queryFn: () => store.tailnet("state"),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The Shared Links list's key; a revoke refreshes it. */
 export const SHARES_KEY = [...settingsKeys.all, "shares"] as const;
 
@@ -61,8 +75,43 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
+/** Personalization > Customization Library's key; a change the card makes writes the library it answers here. */
+export const LIBRARY_KEY = [...settingsKeys.all, "customize-library"] as const;
+
+/** Personalization > Customization Library: everything the person applied, top first (null: no CLI). */
+export function libraryQuery(store: SettingsStore) {
+  return queryOptions<LibraryRead>({
+    queryKey: LIBRARY_KEY,
+    queryFn: () => store.customizeLibrary({ verb: "list" }),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
+/** The library as read, and the CLI's refusal of the read in its own words. */
+export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
+
+/** The Keys list's key; an answer, a decline, a revoke and the host's `cmux.settings.keys.changed`
+ * refresh it. */
+export const KEYS_KEY = [...settingsKeys.all, "keys"] as const;
+
+/** Settings > Keys: this Mac's keys and the requests waiting for the person (null: the host has none). */
+export function keysQuery(store: SettingsStore) {
+  return queryOptions<KeysState | null>({
+    queryKey: KEYS_KEY,
+    queryFn: () => store.keys(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The section a route shows: the focused key's home, else the path's category or schema section. */
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
+  // Personalization is the one page that draws the theme, background, density, Chief pet and sounds
+  // rows: a link to one of them (a search result, the CLI, the palette, MCP) opens it there, and a
+  // link to Personalization with any key stays on it.
+  if ((focus && personalizationPartOf(focus)) || (section && categoryOf(section) === "personalization"))
+    return "personalization";
   const home = focus ? homes.get(focus) : undefined;
   return home?.category ?? categoryOf(section);
 }
@@ -78,11 +127,15 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   // The store's own keys (theme colors, accounts, harnesses) read through its query defaults and
   // stay fresh until the host pushes a change; the per-section host reads refresh when stale.
   for (const id of category.actions) reads.push({ options: sectionActionsQuery(store, id), revalidate: true });
-  if (cards.has("themeStudio")) reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
+  if (cards.has("themeStudio") || cards.has("personalization"))
+    reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
   if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
+  if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {
     const ring = store.getSnapshot().rows.get("updates.channel")?.value;
     reads.push({ options: channelsQuery(store, typeof ring === "string" ? ring : undefined), revalidate: true });

@@ -91,8 +91,9 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
     but knows which phone it is. What hostd's phone filter refuses (a mode that
     does not ask, a chat in one) then goes on marked
     `_meta.acpmux.requireFullAccess`, and acpmux runs it only when that phone's
-    Full-access setting is on (Settings > Devices on the Mac, off by default,
-    off again at once when turned off or the phone is removed). Without a
+    Full-access setting is on (Settings > Devices on the Mac; on by default for
+    a phone the person paired, since 2026-11-13; off at once when it is
+    turned off or the phone is removed, and an off stays off). Without a
     credential, or when acpmux refuses it, the dashboard token and hostd's own
     refusal apply as before.
 - **Executing commands.** The phone can prompt agents, and agents run commands
@@ -129,10 +130,30 @@ session summary and refuses missing or unknown modes, non-asking modes, and an
 acpmux enforcement policy other than `ask`. Its preflight accepts Claude
 `default`/`plan` and Codex `ask` only. History remains readable in other modes.
 
-This preflight is not atomic VM authorization. Shipping requires the VM's
-mobile-capability implementation to enforce the authenticated owner, actual
-harness profile and asking-mode floor at dispatch, through the queue and for
-the active turn. The adapter cannot establish a Codex bridge profile from its
+This preflight is not atomic VM authorization. The VM enforces the
+authenticated owner, actual harness profile and asking-mode floor itself, and
+its daemon advertises `cloud-mobile-chat-v1` only because it does
+(hq#8003):
+
+- The carrier reaches the VM daemon as a `mux-control` stream. The session
+  host writes the verified carrier grant's role (`vmk`) on it before any of
+  the phone's bytes (`carrier-role`), and the daemon binds it once. A
+  teammate's or role-less stream can't start a chat on the caller's `owner`
+  word.
+- A connection that declared `cloud-mobile-chat-v1` may send only the
+  adapter's commands (`phone_carrier.rs`): `identify`, `set-client-info`,
+  `list-workspaces`, `create-workspace`, an agent `new-conversation-tab` of
+  the machine's own store, `close-surface` of an agent tab no chat is bound
+  to, and `agent-session-{of,start,attach,events,prompt,cancel,detach,context}`.
+  It may not send command-bearing params. The declaration lasts for the
+  connection's life.
+- Its start needs an acpmux that reports the Cloud mobile floor. It must be a
+  family the floor has a mode for, and the new session must end up in a mode
+  acpmux's floor accepts for the profile it actually runs. Otherwise the
+  session is ended.
+- Every one of its prompts is stamped `via: cloud-mobile`. acpmux holds it to
+  that floor at dispatch, through the queue and for the active turn.
+ The adapter cannot establish a Codex bridge profile from its
 mode name, or prevent a concurrent mode change by itself. No Mac approval
 signature or Full-access setting is transplanted to the VM. Approval answers, mode changes, file operations and other native
 commands are unsupported on this service.
@@ -768,7 +789,7 @@ were added to `policy.rs` or `DaemonLanePolicy.swift`:
 
 | Phone action | Line it sends | Rule 2 notes |
 | --- | --- | --- |
-| New Agent Chat, New Agent Chat With… | acpmux `_acpmux/harnesses`, `_acpmux/models` (reads), `session/new` (harness, `policy: ask`, workspace folder), `session/set_model` on the phone's own new session; daemon `new-conversation-tab` (host set by hostd) | The catalog read is the one the handoff sheet already made. A model choice is a free config (`FREE_CONFIG_IDS`), never a mode. A Mac-started Claude session stays unchanged from the phone (D13). |
+| New Agent Chat, New Agent Chat With… | acpmux `_acpmux/harnesses`, `_acpmux/models` (reads), `session/new` (harness, `policy: ask`, workspace folder), `session/set_model` on the phone's own new session; daemon `new-conversation-tab` (host set by hostd) | The catalog read is the one the handoff sheet already made. A model choice is a free config (`FREE_CONFIG_IDS`), never a mode. A Claude chat the Mac started takes the owner's own paired phone's prompts, stops, answers, model and mode, as the Mac's do (acpmux D13: a live `phone` credential; in a mode that does not ask, only while the phone's Full-access setting is on, the one the Mac app issues for a phone its host admits under the Mac owner's account; removing the phone revokes it). With the phone's Full-access setting off, the owner's phone still passes the D13 refusal, so the user's own Claude permission rules run in a turn it sends; every other Web rule (an asking mode, an asking policy, no lasting grant, the sandbox) still holds it, as Leo asked on 2026-11-14 ("chat writable in both directions"). Any other client is refused with `remote.local_claude_session` and `action: new_chat`. |
 | Rename Tab… | `rename-surface {surface, name}` | The person's own tab; the name is text the daemon shows. |
 | Duplicate Tab | `new-tab {pane}` (folder chosen by hostd, `with_pane_folder`), `new-browser-tab {url, pane}` (http/https only) | Same as New Terminal and New Browser Tab. Agent chats have no duplicate. |
 | Drag to reorder tabs | `move-tab {surface, pane, index}` | Position only, within the person's workspaces. |

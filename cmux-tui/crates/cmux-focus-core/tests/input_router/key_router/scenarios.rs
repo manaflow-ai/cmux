@@ -11,7 +11,7 @@ use cmux_focus_core::input::{
     Binding, ConsumeReason, DropReason, FieldKind, GoneReason, InputEffect, InputEvent, KeyPhase,
     Modifiers, Sink, Tier, Via, WaitReason,
 };
-use cmux_focus_core::state::{ExpectationKey, Target};
+use cmux_focus_core::state::{CloseFocusPolicy, ExpectationKey, Target};
 use cmux_focus_core::topology::Pane;
 
 const A: u16 = 0;
@@ -189,6 +189,10 @@ fn a_second_cmd_w_never_types_into_a_closing_terminal() {
             .collect()
     };
     s.open("w1", topology("ws", tabs(3)), "p3");
+    // Each close hands focus to the pane on its left (the chain under test).
+    // Opening focused p1 first, so the default `mostRecent` rule would skip
+    // p2 (issue 38194); the keys' routing is what this scenario checks.
+    s.router.set_close_focus("w1", CloseFocusPolicy::PreviousNeighbor);
     s.press(chord("w1", 13, "closeTab", Tier::System, Some(terminal("T3"))));
     s.focus("w1", FocusEvent::Topology { topology: topology("ws", tabs(2)) });
     let a = s.press(key("w1", A, Some(terminal("T3"))));

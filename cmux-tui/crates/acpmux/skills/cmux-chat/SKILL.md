@@ -32,14 +32,14 @@ work with its own result (a branch, a PR, a separate investigation) that can run
 you go on, never for a step you need the answer to right now: do that yourself or in your
 harness's own subagent (Claude Code's Task/Agent tool), whose result comes back to you.
 
-- `start_session` (server `cmux-subsessions`): starts a child now. Use it when the person
+- `start_session` (`cmux.subsessions_start_session` in cmux_exec): starts a child now. Use it when the person
   asked for parallel or background work. Pass `worktree: true` when it edits files that
   yours may also touch. Its prompt carries the whole task: it starts with none of your
   context. Read results with `wait_for_sessions` or `get_session`; steer with
   `send_message`.
-- `offer_session` (server `cmux-sessions`): one suggestion mid-turn for work you noticed
+- `offer_session` (`cmux.sessions_offer_session`): one suggestion mid-turn for work you noticed
   outside the task (a bug, a cleanup). The person starts it or not; do not do that work here.
-- `suggest_tasks` (server `cmux-sessions`): at the end of a turn, up to 5 follow-ups the
+- `suggest_tasks` (`cmux.sessions_suggest_tasks`): at the end of a turn, up to 5 follow-ups the
   person may want, drawn as one card.
 - Not for: quick lookups, a handful of tool calls, or pieces of one change. Never start a
   session the person did not ask for; offer it instead.

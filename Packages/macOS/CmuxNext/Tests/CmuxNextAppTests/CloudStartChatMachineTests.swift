@@ -190,7 +190,7 @@ struct CloudStartChatMachineTests {
     /// A signed-out first send keeps its stable refusal code for callers, but the
     /// card must tell the person how to sign in instead of displaying `not_signed_in`.
     @Test func aSignedOutFirstSendCarriesActionableRecoveryCopy() {
-        #expect(CloudStartChat.refusalMessage("not_signed_in") == CloudStrings.signInFirst)
-        #expect(CloudStartChat.refusalMessage("cloud_disabled") == "cloud_disabled")
+        #expect(CloudStrings.startRefusal("not_signed_in") == CloudStrings.signInFirst)
+        #expect(CloudStrings.startRefusal("cloud_disabled") == "cloud_disabled")
     }
 }

@@ -161,6 +161,90 @@ const editVariants = {
   },
 };
 
+// The panel's left edge is the split's divider (Leo, 2026-11-09: "there's this supposed divider-looking
+// thing that I can't actually drag"). The shipped look draws it as a native split divider: the hairline
+// at rest, a 2px focus-ring line on hover and while dragged (ui/SplitEdge). The two `edge-alt-*`
+// variants are the looks it was picked over, drawn by a style the play adds: no line at rest (the edge
+// shows only under the pointer, as Session Info's does), and a grip pill on the line.
+const table = reply(
+  "Compare the retry policies",
+  `Here they are:\n\n| Failure | Retried | Backoff |\n| --- | --- | --- |\n| 5xx | yes | 200 ms, doubling |\n| Timeout | yes | 200 ms, doubling |\n| 4xx | no | none |`,
+);
+const openTable = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Open table"]'));
+  await ctx.click({ selector: 'button[aria-label="Open table"]' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-artifact > .ui-split-edge"));
+};
+const edgeLook = (ctx: PlayContext, css: string) => {
+  const style = ctx.document.createElement("style");
+  style.textContent = css;
+  ctx.document.head.append(style);
+};
+const edgeChecks = {
+  layoutShiftMax: {
+    value: 0.3,
+    reason: "Opening the side panel narrows the chat beside it on purpose; a drag moves the split.",
+  },
+};
+const edgeVariants = {
+  "edge-rest": {
+    note: "Shipped. A table opened beside the chat: the hairline between them is the split's divider, at rest.",
+    checks: edgeChecks,
+    snapshot: table,
+    play: openTable,
+  },
+  "edge-hover": {
+    note: "Shipped. Under the pointer the edge shows the resize cursor and a 2px line in the focus ring's color, as a native split divider does.",
+    checks: edgeChecks,
+    snapshot: table,
+    play: async (ctx: PlayContext) => {
+      await openTable(ctx);
+      await ctx.hover({ selector: ".acpmux-artifact > .ui-split-edge" });
+    },
+  },
+  "edge-dragging": {
+    note: "Shipped. Mid-drag toward the chat: the panel, the chat and the composer move together each frame; the chat keeps 400px.",
+    checks: edgeChecks,
+    snapshot: table,
+    play: async (ctx: PlayContext) => {
+      await openTable(ctx);
+      await ctx.pointer.down({ selector: ".acpmux-artifact > .ui-split-edge" });
+      await ctx.pointer.move({ selector: ".acpmux-scroll" });
+    },
+  },
+  "edge-saved": {
+    note: "Shipped. A width dragged before (62% of the pane) opens again as it was left; a double-click on the edge puts the default back.",
+    checks: edgeChecks,
+    snapshot: table,
+    play: async (ctx: PlayContext) => {
+      ctx.document.defaultView?.localStorage.setItem("cmux.agentPane.artifact.share", "62");
+      await openTable(ctx);
+    },
+  },
+  "edge-alt-no-line": {
+    note: "Not picked: no line at rest, the edge shows only under the pointer. The panel then reads as floating, not as a split.",
+    checks: edgeChecks,
+    snapshot: table,
+    play: async (ctx: PlayContext) => {
+      edgeLook(ctx, ".acpmux-artifact { box-shadow: none; }");
+      await openTable(ctx);
+      await ctx.hover({ selector: ".acpmux-artifact > .ui-split-edge" });
+    },
+  },
+  "edge-alt-grip": {
+    note: "Not picked: a grip pill on the line. Clear, but no other split in cmux draws one, so it reads as a different control.",
+    checks: edgeChecks,
+    snapshot: table,
+    play: async (ctx: PlayContext) => {
+      edgeLook(
+        ctx,
+        `.acpmux-artifact > .ui-split-edge::before { content: ""; position: absolute; top: 50%; left: 2px; width: 4px; height: 28px; margin-top: -14px; border-radius: 2px; background: var(--agent-muted); opacity: 0.6; }`,
+      );
+      await openTable(ctx);
+    },
+  },
+};
+
 export default agentPaneEntry({
   id: "agent-pane.artifact-panel",
   title: "Side preview panel",
@@ -171,6 +255,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/artifactPin.ts",
     "agent-session/acpmux/conversation/OpenPreview.tsx",
     "agent-session/acpmux/conversation/writtenArtifacts.tsx",
+    "ui/SplitEdge.tsx",
   ],
   variants: {
     "live-stream": live(),
@@ -215,6 +300,7 @@ export default agentPaneEntry({
       ]),
     ),
     ...editVariants,
+    ...edgeVariants,
     svg: {
       snapshot: reply(
         "Draw a circle",

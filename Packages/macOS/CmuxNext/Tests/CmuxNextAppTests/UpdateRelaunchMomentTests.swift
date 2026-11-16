@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import CmuxNextWakeupsTestSupport
 import Testing
@@ -147,7 +148,7 @@ import Testing
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
-                                     defaults: UserDefaults(suiteName: "UpdateRelaunchMomentTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "UpdateRelaunchMomentTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
         // The test runner has no modal, sheet, menu or composition up: the install starts now.
         // Called outside #expect: the macro passes a call's arguments through a @Sendable closure, and

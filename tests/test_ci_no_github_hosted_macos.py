@@ -35,6 +35,10 @@ RUNNERS = ROOT / ".github/runners.json"
 HOSTED_MACOS = re.compile(r"(?<![A-Za-z0-9_.-])macos-(?:latest|[0-9]+)(?:-(?:intel|large|xlarge|arm64))?(?![A-Za-z0-9_.-])")
 # The fork branch: only a repository owner other than manaflow-ai reaches it.
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && ('[A-Za-z0-9._-]+'|matrix\.hosted_runner)")
+# The operator's hosted signing switch on nightly.yml's six signing and publishing jobs (Leo, 2026-11-10:
+# "It's fine to sign on GitHub hosted tonight", while the only owned signer had no power). The variable is
+# compared with macos-26, never used as the label; unset, the jobs keep the trusted signer.
+HOSTED_SIGNING_SWITCH = re.compile(r"vars\.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26'")
 # A cmux-ci worker label (`cmux-ci run ... --label macos-27`) names the macOS version an owned fleet worker
 # runs; it is an argument to the fleet client, never a runs-on, so no GitHub-hosted image can serve it.
 CMUX_CI_LABEL = re.compile(r"--label[ =]['\"]?macos-[0-9A-Za-z.-]+")
@@ -70,7 +74,7 @@ def workflow_hits(root: Path) -> list[str]:
                 content = strip_comment(line)
                 if not content:
                     continue
-                if HOSTED_MACOS.search(CMUX_CI_LABEL.sub("", FORK_BRANCH.sub("", content))):
+                if HOSTED_MACOS.search(CMUX_CI_LABEL.sub("", HOSTED_SIGNING_SWITCH.sub("", FORK_BRANCH.sub("", content)))):
                     hits.append(f"{path.relative_to(root)}:{number}:{line}")
     return hits
 

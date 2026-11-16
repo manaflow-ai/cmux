@@ -115,6 +115,7 @@ export default diffPageEntry({
     "diff-viewer/Loading.tsx",
     "diff-viewer/Toolbar.tsx",
     "diff-viewer/WorkerRenderOptionsSync.tsx",
+    "diff-viewer/PlainEnglishView.tsx",
   ],
   variants: {
     "jump-file-overflow": {
@@ -226,6 +227,141 @@ export default diffPageEntry({
       ],
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("#comments-send"), { capMs: 10_000 });
+      },
+    },
+    "plain-english": {
+      note: "Plain English on: each hunk is one sentence an agent wrote, its code folded beneath. Sentences arrive in place while the first changed line holds the row, so nothing moves.",
+      height: 640,
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+        { path: "src/config.ts", before: config, after: configAfter },
+      ],
+      summaries: {
+        delayMs: 300,
+        sentences: {
+          // The first key a hunk's patch contains names its sentence: the helper's own file first.
+          "attempt >= attempts": "Adds a helper that reruns a failing task until it runs out of attempts.",
+          withRetry: "Retries each request up to three times before giving up.",
+          "retries: 5": "Raises retries to five, the timeout to 15 seconds, and moves to the v2 API.",
+          describeConfig: "Renames describe to describeConfig and can add the timeout to its text.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle:not([aria-disabled="true"])'), {
+          capMs: 10_000,
+        });
+        await ctx.click({ selector: "#plain-english-toggle" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.plain-english-row[data-state="ready"]').length >= 3, {
+          capMs: 10_000,
+        });
+      },
+    },
+    "plain-english-open-hunk": {
+      note: "One click unfolds a hunk's code under its sentence; Open in diff goes back to it in the full diff.",
+      height: 640,
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      summaries: {
+        sentences: {
+          // The first key a hunk's patch contains names its sentence: the helper's own file first.
+          "attempt >= attempts": "Adds a helper that reruns a failing task until it runs out of attempts.",
+          withRetry: "Retries each request up to three times before giving up.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle:not([aria-disabled="true"])'), {
+          capMs: 10_000,
+        });
+        await ctx.click({ selector: "#plain-english-toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector('.plain-english-row[data-state="ready"]'), {
+          capMs: 10_000,
+        });
+        await ctx.click({ selector: ".plain-english-row" });
+        await ctx.waitFor(() => ctx.document.querySelector(".plain-english-code"), { capMs: 10_000 });
+      },
+    },
+    "plain-english-many-files": {
+      note: "Thirty files read as a page: only the rows on screen or a screen away ask for a sentence; the rest keep their code preview.",
+      files: many,
+      summaries: {
+        delayMs: 150,
+        sentences: { "export const added": "Doubles the value and adds a new string export." },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle:not([aria-disabled="true"])'), {
+          capMs: 10_000,
+        });
+        await ctx.click({ selector: "#plain-english-toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector('.plain-english-row[data-state="ready"]'), {
+          capMs: 10_000,
+        });
+      },
+    },
+    "plain-english-unavailable": {
+      note: "No agent here can write summaries: the book button is off, and its tooltip says why.",
+      files: [{ path: "src/net/client.ts", before, after }],
+      summaries: { refused: "complete.not_installed" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle[aria-disabled="true"]'), {
+          capMs: 10_000,
+        });
+        await ctx.hover({ selector: "#plain-english-toggle" });
+      },
+    },
+    "review-brief": {
+      note: "An agent's diff with the chat's brief open: its goal, the spot it undid and redid and its hedge, the approach it dropped. A spot opens its hunk.",
+      height: 640,
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      reviewBrief: {
+        sessionId: "gallery",
+        seq: 42,
+        brief: {
+          goal: "Make requests retry with a bounded number of attempts, and keep getJSON's signature.",
+          planText: "",
+          plan: [
+            { content: "Find where requests are sent", status: "completed" },
+            { content: "Add withRetry", status: "completed" },
+            { content: "Back off between attempts", status: "pending" },
+          ],
+          rejected: [
+            {
+              text: "Retrying inside getJSON didn't work because request() is called directly in two places.",
+              seq: 12,
+            },
+          ],
+          unsure: [
+            {
+              kind: "redone",
+              path: "src/net/client.ts",
+              snippet: "return withRetry(() => fetch(url).then((response) => response.json()), attempts);",
+              seq: 20,
+            },
+            {
+              kind: "hedge",
+              text: "I'm not sure three attempts is right for uploads; it may need to come from config.",
+              path: "src/net/client.ts",
+              seq: 31,
+            },
+            {
+              kind: "hedge",
+              text: "withRetry is untested against a rejected promise that never settles.",
+              path: "src/net/retry.ts",
+              seq: 31,
+            },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const row = () => ctx.document.querySelector<HTMLButtonElement>(".review-brief-row:not(:disabled)");
+        await ctx.waitFor(row, { capMs: 10_000 });
+        row()?.click();
+        await ctx.waitFor(() => ctx.document.querySelector('.review-brief[data-open="true"]'), { capMs: 5_000 });
       },
     },
     "collapsed-files": {

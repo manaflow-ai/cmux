@@ -247,6 +247,21 @@ impl Registration {
     }
 }
 
+/// A device's own `cmux-mesh-v1` proof (VM API `signed-request.ts`): the
+/// signature over `purpose`, `target`, the WireGuard key, the install public
+/// key (standard base64 of the 65-byte point) and the name line, at `at` unix
+/// ms with `nonce`. Answers `{signedAt, nonce, signature}`, the signature in
+/// standard base64 as the VM API reads it; `sign` returns base64url `r||s`
+/// ([`crate::install_key::InstallKey::sign`]).
+pub fn mesh_proof(
+    lines: [&str; 5],
+    at: u64,
+    nonce: [u8; 16],
+    sign: impl FnOnce(&[u8]) -> Result<String, String>,
+) -> Result<Value, String> {
+    signed_proof(lines, at, nonce, sign)
+}
+
 fn signed_proof(
     lines: [&str; 5],
     at: u64,

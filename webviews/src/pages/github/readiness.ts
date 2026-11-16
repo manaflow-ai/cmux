@@ -8,7 +8,10 @@
 // - no check still running;
 // - into main, the person's by-name approval of the head (merge_hold's approvals file, which the
 //   page cannot read, so it says what is needed);
-// - and GitHub's own: not a draft, no conflict with the base.
+// - and GitHub's own: not a draft, no conflict with the base, and a merge state its Merge button
+//   allows (not blocked by a branch rule, not behind the base).
+// Ready is never claimed from part of the history: the read keeps only the newest comments, and a
+// BLOCK at the head may be in the part it did not read.
 import type { DashboardChecks, DashboardJob, LinkedPullRequest, PullRequestDetails } from "./types";
 
 export type Family = "codex" | "claude" | "person" | "self";
@@ -37,7 +40,11 @@ export type Blocker =
   | { kind: "running"; count: number }
   | { kind: "main" }
   | { kind: "draft" }
-  | { kind: "conflict" };
+  | { kind: "conflict" }
+  /** GitHub's own merge state refuses it: a branch rule (`blocked`) or a base it is `behind`. */
+  | { kind: "github"; state: "blocked" | "behind" }
+  /** Only `shown` of the conversation's `total` entries were read. */
+  | { kind: "history"; shown: number; total: number };
 
 export interface Readiness {
   state: "ready" | "blocked" | "merged" | "closed" | "unknown";
@@ -61,10 +68,11 @@ const BODY_HOLD = /^[^\w\n]*(?:HOLD(?:ING)?\b(?!-\w)|[Hh][Oo][Ll][Dd](?:[Ii][Nn]
 
 /** A reviewer label's family; null when it names none. */
 export function reviewerFamily(label: string): Family | null {
+  // A subagent is the author's own review whatever model it names (review of #38115, F1).
+  if (SUBAGENT.test(label)) return "self";
   if (CODEX.test(label)) return "codex";
   if (CLAUDE.test(label)) return "claude";
   if (PERSON.test(label)) return "person";
-  if (SUBAGENT.test(label)) return "self";
   return null;
 }
 
@@ -161,6 +169,15 @@ export function readiness(
   const running = runningOf(pr, checks);
   if (running) blockers.push({ kind: "running", count: running });
   if (pr.mergeable === "conflicting") blockers.push({ kind: "conflict" });
+  // What the Merge button refuses (GitHubPage UNMERGEABLE; review of #38115, F2).
+  if (details.mergeState === "blocked" || details.mergeState === "behind") {
+    blockers.push({ kind: "github", state: details.mergeState });
+  }
   if (pr.baseRef === "main") blockers.push({ kind: "main" });
+  // Review of #38115, F3: a BLOCK at the head may be in the comments the read left out. Counted as
+  // the host counts the total, before empty review wrappers are dropped (review of #38263, F1).
+  if (details.conversationTotal > details.conversationRead) {
+    blockers.push({ kind: "history", shown: details.conversationRead, total: details.conversationTotal });
+  }
   return { state: blockers.length ? "blocked" : "ready", ship, blockers };
 }

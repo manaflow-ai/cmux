@@ -1,0 +1,243 @@
+/* Steer queue (SteerQueue.tsx): one layer of the shared popup glass floating over the chat, so the
+   chat it acts on stays in view under it. Every row of a look has the same height (the second line
+   is always drawn, empty or not), so a re-rank moves rows by whole rows and the panel never changes
+   height while the list holds the same count. The
+   reason's mark is the pane's own: the needs-you dot for an ask, the failure colour, the accent for
+   a running turn, muted for a finished one. */
+
+.acpmux-steer-queue {
+  position: absolute;
+  z-index: var(--layer-overlay);
+  /* Under the 28 px header, with a 12 px gap. */
+  top: 0;
+  margin-top: 40px;
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100% - 24px));
+  max-height: calc(100% - 52px);
+  overflow: hidden;
+  box-sizing: border-box;
+  border-radius: var(--ui-popup-radius);
+  color: var(--agent-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-steer-queue:has(.acpmux-steer-body[data-look="split"]) {
+  width: min(760px, calc(100% - 24px));
+}
+
+.acpmux-steer-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.acpmux-steer-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: 8px 12px 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-steer-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.acpmux-steer-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.acpmux-steer-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  list-style: none;
+}
+
+.acpmux-steer-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: default;
+}
+.acpmux-steer-body[data-look="compact"] .acpmux-steer-row {
+  align-items: center;
+  padding-block: 4px;
+}
+.acpmux-steer-row[aria-selected="true"] {
+  background: var(--agent-control-hover);
+}
+
+/* The dot is a border, so it takes the reason's colour with no box of its own to size. */
+.acpmux-steer-mark {
+  flex: none;
+  width: 0;
+  height: 0;
+  margin-top: 4px;
+  border: 4px solid var(--agent-muted);
+  border-radius: 50%;
+}
+.acpmux-steer-body[data-look="compact"] .acpmux-steer-mark {
+  margin-top: 0;
+}
+.acpmux-steer-row[data-reason="ask"] .acpmux-steer-mark {
+  border-color: var(--acpmux-needs-you-mark);
+}
+.acpmux-steer-row[data-reason="failed"] .acpmux-steer-mark {
+  border-color: var(--agent-status-failure);
+}
+.acpmux-steer-row[data-reason="stalled"] .acpmux-steer-mark {
+  border-color: var(--agent-status-warning);
+}
+.acpmux-steer-row[data-reason="running"] .acpmux-steer-mark {
+  border-color: var(--agent-accent);
+}
+
+.acpmux-steer-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.acpmux-steer-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.acpmux-steer-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-emphasis, 600);
+}
+.acpmux-steer-reason,
+.acpmux-steer-host,
+.acpmux-steer-age {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-steer-age {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-steer-line,
+.acpmux-steer-said {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* What the person did takes the line's place while it shows, so the row keeps its height. */
+.acpmux-steer-row:has(.acpmux-steer-said) .acpmux-steer-line {
+  display: none;
+}
+.acpmux-steer-line:empty::before {
+  content: "\00a0";
+}
+.acpmux-steer-said {
+  color: var(--agent-text);
+}
+.acpmux-steer-row[data-step="failed"] .acpmux-steer-said {
+  color: var(--agent-status-failure);
+}
+.acpmux-steer-body[data-look="compact"] .acpmux-steer-said {
+  display: none;
+}
+
+.acpmux-steer-key {
+  flex: none;
+  align-self: center;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+}
+.acpmux-steer-row[aria-selected="true"] .acpmux-steer-key {
+  opacity: 1;
+}
+
+.acpmux-steer-empty {
+  padding: 16px 12px;
+  color: var(--agent-muted);
+}
+
+.acpmux-steer-detail {
+  flex: 0 0 42%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-left: 1px solid var(--agent-border);
+  overflow: auto;
+}
+.acpmux-steer-detail-name {
+  font-weight: var(--weight-emphasis, 600);
+}
+.acpmux-steer-detail-meta,
+.acpmux-steer-detail-last {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-steer-detail-line {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.acpmux-steer-detail-last q {
+  display: block;
+  margin-top: 4px;
+  color: var(--agent-text);
+}
+
+.acpmux-steer-field {
+  flex: none;
+  margin: 4px 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  outline: none;
+  background: var(--agent-input-bg);
+  color: var(--agent-text);
+  font: inherit;
+}
+.acpmux-steer-field:focus-visible {
+  border-color: var(--agent-accent);
+}
+
+.acpmux-steer-hints {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 4px 12px 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-steer-hint kbd {
+  margin-right: 4px;
+  font: inherit;
+  color: var(--agent-text);
+}

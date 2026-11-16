@@ -54,6 +54,19 @@ struct CloudWorkspaceEnvironmentChoiceTests {
         #expect(!Self.fieldIDs(classic).contains("setupScript"))
     }
 
+    /// New Cloud machine from the composer's Environment chip: the dialog starts on the chip's
+    /// environment; one the team does not list (or the classic path) starts where it would.
+    @Test func theDialogStartsOnTheEnvironmentTheChipPicked() {
+        let picked = CloudWorkspaceSetupWizard.setupDialogSpec(supportsRepository: false, environments: environments, supportsEnvironments: true,
+                                                               selectedEnvironment: "env_00000000000000000001")
+        let unknown = CloudWorkspaceSetupWizard.setupDialogSpec(supportsRepository: false, environments: environments, supportsEnvironments: true,
+                                                                selectedEnvironment: "env_gone")
+        let classic = CloudWorkspaceSetupWizard.setupDialogSpec(supportsRepository: true, selectedEnvironment: "env_00000000000000000001")
+        #expect(Self.selected(picked) == "environment:env_00000000000000000001")
+        #expect(Self.selected(unknown) == "empty")
+        #expect(Self.selected(classic) == "empty")
+    }
+
     @MainActor
     @Test func choosingAnEnvironmentInTheDialogReturnsItsPlan() async throws {
         let plan = try await CloudWorkspaceSetupWizard().choosePlan(availability: .unsupportedCloudRoute, scopeIsCurrent: { true },
@@ -74,6 +87,13 @@ struct CloudWorkspaceEnvironmentChoiceTests {
             if case .choice(_, _, let options, _) = field { return options.map(\.value) }
             return []
         }
+    }
+
+    private static func selected(_ spec: CmuxDialogSpec) -> String? {
+        spec.fields.lazy.compactMap { field -> String? in
+            if case .choice(let id, _, _, let selected) = field, id == "source" { return selected }
+            return nil
+        }.first
     }
 
     private static func fieldIDs(_ spec: CmuxDialogSpec) -> [String] {

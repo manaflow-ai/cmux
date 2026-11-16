@@ -13,7 +13,13 @@ import threading
 import time
 import unittest
 from unittest import mock
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "dev-fleet-warm-slot.py"
@@ -21,6 +27,10 @@ SPEC = importlib.util.spec_from_file_location("dev_fleet_warm_slot", HELPER)
 assert SPEC and SPEC.loader
 warm_slot = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(warm_slot)
+# tests/process_gone.py by path, for the same reason.
+_PROCESS_GONE_SPEC = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_PROCESS_GONE_SPEC)
+_PROCESS_GONE_SPEC.loader.exec_module(process_gone)
 
 TOOLCHAIN_A = {"available": True, "platform": "darwin", "arch": "arm64", "xcode": "Xcode A", "swift": "Swift A", "sdk": "A"}
 TOOLCHAIN_B = {"available": True, "platform": "darwin", "arch": "arm64", "xcode": "Xcode B", "swift": "Swift B", "sdk": "B"}
@@ -1130,13 +1140,7 @@ class WarmSlotTest(unittest.TestCase):
             os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            try:
-                os.killpg(pgid, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(0.05)
+        self.assertTrue(process_gone.group_died(pgid, within=5), f"process group {pgid} outlived its SIGKILL")
 
         planned = self.call("plan", *self.common(), "--target", self.base)
         self.assertEqual(planned["reason"], "recovery_required")

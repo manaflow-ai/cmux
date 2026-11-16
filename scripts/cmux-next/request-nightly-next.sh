@@ -421,6 +421,7 @@ if [[ "$mode" == release-compile-green && -n "$promoted" ]] \
   fallback=""
 fi
 refused=0
+quarantine_read="" quarantined_list=""
 max_refused="${CMUX_NIGHTLY_NEXT_MAX_REFUSED:-5}"
 [[ "$max_refused" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_MAX_REFUSED must be 1 to 99" >&2; exit 2; }
 while read -r run_sha; do
@@ -447,6 +448,22 @@ while read -r run_sha; do
   fi
   # <sha> itself goes to request(), which names a missing gate.
   [[ "$run_sha" == "$sha" ]] || has_notary_gate "$run_sha" || continue
+  # A commit the direct-push quarantine holds (scripts/cmux-next/nightly_quarantine.py: cmuxterm-hq's base-red-watch
+  # found a direct push red on feat-cmux-next's push runs and no later push green) is never promoted: nightly-next
+  # stays on its last build and skips forward once a fix or revert passes. Read once a run, on the first candidate
+  # that gets this far; unreadable, nothing is held (base-red-watch still pages the base-reds owner).
+  if [[ -z "$quarantine_read" ]]; then
+    quarantine_read=1
+    if ! quarantined_list="$(python3 "$repo_root/scripts/cmux-next/nightly_quarantine.py" quarantined --repo "$repo" --tip "$tip" 2>/dev/null)"; then
+      echo "warning: the direct-push quarantine is unreadable; promoting as if none were open" >&2
+      quarantined_list=""
+    fi
+  fi
+  if held_by="$(grep -m1 "^$run_sha " <<<"$quarantined_list")"; then
+    read -r _ q_culprit q_pusher <<<"$held_by"
+    echo "not promoting ${run_sha:0:12}: quarantined since direct push $q_culprit by $q_pusher failed the direct-push gates; a later push that passes them (a fix or a revert) is promoted"
+    continue
+  fi
   rc=0
   request "$run_sha" || rc=$?
   [[ "$rc" != 0 ]] || exit 0

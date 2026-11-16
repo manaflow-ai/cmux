@@ -41,6 +41,24 @@ const steered = (harness: string) =>
     { title: "File transfer follow-ups", harness, isWorking: true },
   );
 
+/// The turn ends right after the person's message (acpmux carries it to the next turn): the row over
+/// his message is the only one, since the turn's own footer would copy nothing new (Leo, 2026-11-12:
+/// "COPY SHOULDN'T DO ANYTHING IF ALL THAT CHANGED WAS I SENT A MESSAGE THERE'S NO POINT HAVING THE
+/// SECOND BUTTON ROW AFTER MY MESSAGE"). `answered`: the agent replies after it, so that reply ends
+/// on its own row as well.
+const endedAfterMessage = (harness: string, answered = false) =>
+  chat(
+    [
+      user("What's left on the file transfer work?", 10, { seq: 1 }),
+      reply(),
+      commands(),
+      user("ofc", 9, { steer: "landed" }),
+      ...(answered ? [assistant("Started the seed lane.", 8.8)] : []),
+      summary(8.7, { status: "completed", seq: 3 }),
+    ],
+    { title: "File transfer follow-ups", harness, isWorking: !answered },
+  );
+
 /// A new prompt over a turn that never got its end (no summary): it ended where he came in.
 const unended = () =>
   chat(
@@ -74,6 +92,21 @@ export default agentPaneEntry({
     "steered-codex": {
       note: "Codex: the same stretch, the same row.",
       snapshot: steered("codex"),
+      play: pointAtReply,
+    },
+    "ended-after-message-claude": {
+      note: "Claude Code: the turn ends right after the person's message; one row, over his message, and none under it.",
+      snapshot: endedAfterMessage("claude"),
+      play: pointAtReply,
+    },
+    "ended-after-message-codex": {
+      note: "Codex: the same, one row over his message.",
+      snapshot: endedAfterMessage("codex"),
+      play: pointAtReply,
+    },
+    "answered-after-message": {
+      note: "The agent replied after his message: that reply ends on its own row too.",
+      snapshot: endedAfterMessage("claude", true),
       play: pointAtReply,
     },
     "next-prompt-no-summary": {

@@ -385,8 +385,19 @@ fn terminal_wait_timeouts_are_canonical_decimal_strings_on_the_wire() {
             }),
         ),
     ] {
+        let pending = result["state"] == "pending";
         let (output, requests) = fake_resource_cli(args, FakeReply::Success(result));
-        assert_success(&output);
+        if pending {
+            // A process still running when the time ran out is a timeout, not an exit.
+            assert_eq!(output.status.code(), Some(124), "{args:?}: {}", stderr(&output));
+            let printed = parse_single_json(&output.stdout);
+            assert_eq!(printed["state"], "pending", "{printed}");
+            assert_eq!(printed["timed_out"], true, "{printed}");
+            assert_eq!(printed["waited_ms"], "2000", "{printed}");
+        } else {
+            assert_success(&output);
+            assert_eq!(parse_single_json(&output.stdout)["timed_out"], false, "{args:?}");
+        }
         assert!(output.stderr.is_empty(), "{args:?}: {}", stderr(&output));
         assert_eq!(requests.len(), 1, "{args:?}: {requests:?}");
         assert_eq!(requests[0]["operation"], operation, "{args:?}");

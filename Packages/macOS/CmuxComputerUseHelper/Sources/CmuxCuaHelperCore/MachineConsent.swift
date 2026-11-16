@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CoreGraphics
 import Foundation
 import os
 
@@ -248,22 +249,77 @@ public struct ConsentRefusal: Error, Sendable, Equatable, CustomStringConvertibl
     }
 }
 
+/// The refusal a call gets when this Mac's screen locked before it ran
+/// (design/lock-bridge.md, item 3): the lock screen is all it would see,
+/// and a click or a keystroke would land on its password field. acpmux's
+/// bridge answers it as its typed `mac_locked` result.
+public struct ScreenLockedRefusal: Error, Sendable, Equatable, CustomStringConvertible {
+    public static let code = "mac_locked"
+
+    public let tool: String
+
+    public init(tool: String) { self.tool = tool }
+
+    public var description: String {
+        "\(Self.code): this Mac's screen is locked, so nothing can see or use it. `\(tool)` did not run. "
+            + "It runs again once the person unlocks the Mac."
+    }
+}
+
 /// The consent check at the execution boundary. `admit` runs as the last
 /// step before a tool executes, after every other await: it asks the
 /// authority for the state as of now, and on a refusal records it and
-/// throws, so nothing runs.
+/// throws, so nothing runs. It reads the screen lock after that answer, so
+/// a call that waited on the target check, a takeover or consent while the
+/// Mac locked never runs on the lock screen.
 public final class ConsentGate: Sendable {
     /// Advertised in the socket's admission reply: every tool call passes
     /// the machine-consent gate at execution.
     public static let capability = "machine-consent-gate-v1"
+    /// Advertised in the socket's admission reply: `admit` reads the screen lock after its last
+    /// await, so no tool runs on a locked screen. acpmux's v2 bridge sends no call to a helper without it (#37239).
+    public static let lockCapability = "screen-lock-at-execution-v1"
 
     public let authority: any MachineConsentAuthority
     /// Names of tools whose `tools/list` entry is read-only (observe); every
     /// other name, including tools the inventory does not list, acts.
     private let readOnly = OSAllocatedUnfairLock<Set<String>?>(initialState: nil)
 
-    public init(authority: any MachineConsentAuthority) {
+    /// Whether the screen is locked now; the window server's answer unless a test passes its own.
+    private let screenLocked: @Sendable () -> Bool
+
+    public init(authority: any MachineConsentAuthority,
+                screenLocked: @escaping @Sendable () -> Bool = ConsentGate.screenIsLocked) {
         self.authority = authority
+        self.screenLocked = screenLocked
+    }
+
+    /// Whether the screen is locked, or its lock state unknown, as the window server reports
+    /// it: a tool runs only on a screen known to be unlocked.
+    @Sendable public static func screenIsLocked() -> Bool {
+        lockFlag(session: CGSessionCopyCurrentDictionary() as? [String: Any])
+    }
+
+    /// The window server sets `CGSSessionScreenIsLocked` (true) only while locked and leaves it out
+    /// while unlocked: it never reports `false`, so requiring an explicit `false` would refuse every
+    /// call on an unlocked Mac (NotificationPreviews and scripts/cmux-next/bench_launch.py read the
+    /// same key the same way). A missing key is unlocked only for a session it reports logged in
+    /// and on the console (`kCGSessionLoginDoneKey` and `kCGSSessionOnConsoleKey` both true). No
+    /// session dictionary, a key that is not a Boolean, or a missing key in any other session is
+    /// unknown: locked.
+    static func lockFlag(session: [String: Any]?) -> Bool {
+        guard let session else { return true }
+        guard let value = session["CGSSessionScreenIsLocked"] else {
+            return !(isBoolean(session["kCGSessionLoginDoneKey"], true)
+                && isBoolean(session["kCGSSessionOnConsoleKey"], true))
+        }
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return true }
+        return number.boolValue
+    }
+
+    private static func isBoolean(_ value: Any?, _ expected: Bool) -> Bool {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+        return number.boolValue == expected
     }
 
     /// The requirement for `name`, from the driver's own inventory
@@ -279,11 +335,14 @@ public final class ConsentGate: Sendable {
         return names.contains(name) ? .observe : .act
     }
 
-    /// Throws `ConsentRefusal` unless consent allows `requirement` now.
+    /// Throws `ConsentRefusal` unless consent allows `requirement` now, then
+    /// `ScreenLockedRefusal` if the screen is locked. No await follows the lock read.
     public func admit(_ name: String, requirement: ConsentRequirement) async throws {
-        guard let surface = await authority.current().missing(for: requirement) else { return }
-        await authority.recordRefusal(surface: surface, tool: name)
-        throw ConsentRefusal(surface: surface, tool: name, reason: authority.refusalReason)
+        if let surface = await authority.current().missing(for: requirement) {
+            await authority.recordRefusal(surface: surface, tool: name)
+            throw ConsentRefusal(surface: surface, tool: name, reason: authority.refusalReason)
+        }
+        if screenLocked() { throw ScreenLockedRefusal(tool: name) }
     }
 
     /// acpmux's bridge rule (cua_v2.rs `Helper::request`): the one entry

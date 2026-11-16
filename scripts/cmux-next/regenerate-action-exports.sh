@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 # Regenerates the action exports (plans/cmux-next/action-surfaces.json,
-# actions.md and links.json) for the autofix bots, on a Mac runner, and copies
+# action-catalog.json, actions.md and links.json) for the autofix bots, on a Mac runner, and copies
 # the ones that changed into OUT at their repository paths: the --generated
 # DIR of scripts/cmux-next/base-autofix.sh, which copies them over the
 # checkout before it regenerates the docs shortcuts from the new catalog.
 # Rust (cmux-tui include_str!), the docs and gen-cmux-global.ts read the
 # committed copy, so the exports stay checked in; no person regenerates them.
+#
+# It also writes OUT.patch, beside OUT and never in it (base-autofix.sh copies
+# every file under OUT into the checkout): one `git apply` patch of every
+# export that changed, after a one-line header, so it is never a 0-byte file
+# (the fleet's artifact store refuses one). A step returns one file, so a lane
+# without a Mac regenerates a pull request's exports with
+#   cmux-ci run --class light --script scripts/cmux-next/regenerate-action-exports.sh \
+#     --ref <pushed head> --key <key> --arg .build/exports --artifact .build/exports.patch
+#   cmux-ci artifact <step id> exports.patch
+#   git apply --allow-empty exports.patch   # no diff when nothing was stale
 #
 # Usage: scripts/cmux-next/regenerate-action-exports.sh OUT
 set -euo pipefail
@@ -18,7 +28,7 @@ cmux_next_require_fleet regenerate-action-exports.sh "swift test" "cmux-next PR 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 out="$(mkdir -p "${1:?usage: $0 OUT}" && cd "$1" && pwd)"
 root="$(git rev-parse --show-toplevel)"
-exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
+exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/action-catalog.json plans/cmux-next/actions.md plans/cmux-next/links.json)
 
 cmux_next_warm_build "$root/Packages/macOS/CmuxNext"
 cd "$root/Packages/macOS/CmuxNext"
@@ -26,7 +36,7 @@ cd "$root/Packages/macOS/CmuxNext"
 # that fails for another reason still leaves them current; that failure is
 # the pull request's to fix, not the autofix's.
 status=0
-CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter 'ActionSurfaceParityTests|LinkExportTests' || status=$?
+CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter 'ActionSurfaceParityTests|ActionCatalogDumpTests|LinkExportTests' || status=$?
 (( status == 0 )) || echo "::warning::the action parity tests failed (exit $status); the exports were still regenerated"
 cd "$root"
 for file in "${exports[@]}"; do
@@ -38,3 +48,8 @@ for file in "${exports[@]}"; do
   cp "$file" "$out/$file"
   echo "regenerated: $file"
 done
+{
+  echo "regenerate-action-exports.sh at $(git rev-parse HEAD): the exports that changed (none when no diff follows)"
+  git diff --binary -- "${exports[@]}"
+} > "$out.patch"
+echo "patch: $out.patch ($(wc -l < "$out.patch" | tr -d ' ') lines)"

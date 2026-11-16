@@ -1,0 +1,85 @@
+<!doctype html>
+<!-- The first-use hint for selecting text while a full-screen TUI (Claude Code, Codex) has the mouse.
+     Leo, 2026-11-08: "those NEED to be written down and FIXED and IMPROVED. these are big goals."
+     Open in a browser; each card is one terminal pane mid-drag over a TUI. -->
+<html lang="en">
+<meta charset="utf-8">
+<title>Terminal selection hint</title>
+<style>
+  :root { --bg:#1e1e20; --line:#3a3a3e; --raised:#2c2c30; --text:#e6e6e8; --sec:#9a9aa0; --accent:#4a8cff; }
+  body { margin:24px; background:#111; color:var(--text); font:13px -apple-system, system-ui, sans-serif; }
+  h1 { font-size:16px; font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:24px; }
+  figure { margin:0; }
+  figcaption { color:var(--sec); margin-top:8px; line-height:1.4; }
+  figcaption b { color:var(--text); }
+  .pane { height:220px; border-radius:10px; overflow:hidden; position:relative; background:var(--bg); border:1px solid var(--line);
+          font:12px ui-monospace, Menlo, monospace; color:#c8c8cc; padding:10px 12px; box-sizing:border-box; }
+  .pane .row { height:17px; white-space:pre; }
+  .pane .tui { color:var(--sec); }
+  .drag { background:#4a8cff33; }
+  .pill { position:absolute; display:flex; align-items:center; gap:6px; background:var(--raised); border:1px solid var(--line);
+          border-radius:999px; padding:5px 12px; font:600 12px -apple-system, system-ui, sans-serif; color:var(--text); white-space:nowrap; }
+  kbd { font:600 11px -apple-system, system-ui, sans-serif; color:var(--sec); border:1px solid var(--line); border-radius:4px; padding:0 4px; }
+  .tr { top:8px; right:8px; }
+  .bc { bottom:12px; left:50%; transform:translateX(-50%); background:#ffffff1c; backdrop-filter:blur(14px); border-color:#ffffff26; font-size:11px; }
+  .tip { left:150px; top:88px; border-radius:6px; }
+  .bar { position:absolute; left:0; right:0; bottom:0; border-radius:0; border-width:1px 0 0; justify-content:center; }
+  .pick { outline:2px solid var(--accent); outline-offset:6px; border-radius:10px; }
+</style>
+<h1>Select text in a TUI: four hints</h1>
+<div class="grid">
+
+<figure>
+  <div class="pane">
+    <div class="row tui">╭─ Claude Code ─────────────────────────────╮</div>
+    <div class="row">  Edited TerminalPointerMods.swift</div>
+    <div class="row">  <span class="drag">Option-drag selects text while the</span></div>
+    <div class="row">  <span class="drag">program has the mouse.</span></div>
+    <div class="row tui">╰───────────────────────────────────────────╯</div>
+    <div class="row tui">  &gt; _</div>
+    <div class="pill tr"><kbd>⌥</kbd> drag to select text</div>
+  </div>
+  <figcaption><b>A. Top-right pill.</b> Where the copy-mode "vim" pill sits, so the two collide, and it is far from the pointer and from the text being dragged.</figcaption>
+</figure>
+
+<figure class="pick">
+  <div class="pane">
+    <div class="row tui">╭─ Claude Code ─────────────────────────────╮</div>
+    <div class="row">  Edited TerminalPointerMods.swift</div>
+    <div class="row">  <span class="drag">Option-drag selects text while the</span></div>
+    <div class="row">  <span class="drag">program has the mouse.</span></div>
+    <div class="row tui">╰───────────────────────────────────────────╯</div>
+    <div class="row tui">  &gt; _</div>
+    <div class="pill bc"><kbd>⌥ Option</kbd> or <kbd>⇧ Shift</kbd> + drag selects text</div>
+  </div>
+  <figcaption><b>B. Picked: bottom-center chip.</b> The shared glass chip that held Command or Option already shows key hints in, centered over the bottom rows and clear of the text being dragged. It fades in on the first plain drag a TUI takes in that terminal, stays four seconds, and clicks go through it.</figcaption>
+</figure>
+
+<figure>
+  <div class="pane">
+    <div class="row tui">╭─ Claude Code ─────────────────────────────╮</div>
+    <div class="row">  Edited TerminalPointerMods.swift</div>
+    <div class="row">  <span class="drag">Option-drag selects text while the</span></div>
+    <div class="row">  <span class="drag">program has the mouse.</span></div>
+    <div class="row tui">╰───────────────────────────────────────────╯</div>
+    <div class="row tui">  &gt; _</div>
+    <div class="pill tip"><kbd>⌥</kbd> drag to select</div>
+  </div>
+  <figcaption><b>C. At the pointer.</b> Closest to the gesture, but it covers the text being dragged and has to follow the pointer, a move per drag event.</figcaption>
+</figure>
+
+<figure>
+  <div class="pane">
+    <div class="row tui">╭─ Claude Code ─────────────────────────────╮</div>
+    <div class="row">  Edited TerminalPointerMods.swift</div>
+    <div class="row">  <span class="drag">Option-drag selects text while the</span></div>
+    <div class="row">  <span class="drag">program has the mouse.</span></div>
+    <div class="row tui">╰───────────────────────────────────────────╯</div>
+    <div class="row tui">  &gt; _</div>
+    <div class="pill bar"><kbd>⌥ Option</kbd> or <kbd>⇧ Shift</kbd> + drag selects text in a program that uses the mouse</div>
+  </div>
+  <figcaption><b>D. Status bar across the bottom.</b> Reads best, but it changes the pane's height of usable rows for the time it shows, which looks like a resize.</figcaption>
+</figure>
+
+</div>

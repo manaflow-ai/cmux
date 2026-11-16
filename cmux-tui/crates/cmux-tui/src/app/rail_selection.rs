@@ -1,7 +1,7 @@
 //! Rail selection model: machine rail commands, workspace rail selection and
 //! targets, and rail paging and keyboard navigation.
 
-use cmux_tui_core::{Rect, WorkspaceId};
+use cmux_tui_core::{Rect, SurfaceId, WorkspaceId};
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::layout::SidebarActionTarget;
@@ -23,6 +23,8 @@ pub(crate) enum WorkspaceRailSelection {
     Workspace,
     Recoverable,
     Action(SidebarActionTarget),
+    /// An agent of the agents section, by its tab.
+    Agent(SurfaceId),
 }
 
 impl WorkspaceRailSelection {
@@ -42,6 +44,7 @@ pub(super) enum WorkspaceRailTarget {
     Workspace(WorkspaceId),
     Recoverable(String),
     Action(SidebarActionTarget),
+    Agent(SurfaceId),
 }
 
 pub(super) fn rail_page_size(area: Option<Rect>) -> usize {

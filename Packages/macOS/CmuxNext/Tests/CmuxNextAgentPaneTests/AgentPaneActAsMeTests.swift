@@ -48,7 +48,7 @@ struct AgentPaneActAsMeTests {
         }
         for method in ["_acpmux/permission_respond", "_acpmux/permission_group_respond", "acp.trust.set", "session/set_mode",
                        "session/set_config_option", "_acpmux/harness_enable", "_acpmux/secret_submit", "_acpmux/btw",
-                       "_acpmux/agent_login/start", "session/new"] {
+                       "_acpmux/agent_login/start", "session/new", "_acpmux/presets"] {
             gestures.recordPosted(driver: Self.driver)
             #expect(!gestures.consumePosted(for: method), "the grant reached \(method)")
             #expect(!gestures.consume(), "a posted gesture stood in for the person's on \(method)")
@@ -212,6 +212,40 @@ struct AgentPaneActAsMeTests {
         let own = try #require(gestures.reserve(connection: 1, intent: send))
         grant.turnOff()
         #expect(gestures.redeem(own, connection: 1, pick: pick), "Turn Off voided the person's own Send")
+    }
+
+    /// A posted Send's uploads stand only under the grant it was reserved under: Turn Off ends a hold
+    /// in progress (its chunks and finish are refused), and a revoked ticket holds no new upload.
+    @Test func turningItOffEndsThePostedSendsUploads() throws {
+        let grant = AgentPaneActAsMe()
+        grant.turnOn(.init())
+        let gestures = Self.gestures(grant)
+        var ended = Set<String>()
+        gestures.onUploadHoldsEnded = { ended.formUnion($0) }
+        let send = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": ["method": "session/prompt", "params": ["promptId": "p-1", "sessionId": "s-1"]],
+        ]))
+        gestures.recordPosted(driver: Self.driver)
+        let posted = try #require(gestures.reserve(connection: 1, intent: send))
+        #expect(gestures.holdForUpload(posted, upload: "u", connection: 1, sessionId: "s-1", promptId: "p-1"))
+        grant.turnOff()
+        #expect(!gestures.holdsTicket(upload: "u"), "a posted Send's upload outlived Turn Off")
+        #expect(!gestures.uploadProgressed("u"), "a chunk went on under a revoked ticket")
+        #expect(ended == ["u"])
+
+        // Reserved while on, then off and on again: it holds no new upload.
+        grant.turnOn(.init())
+        gestures.recordPosted(driver: Self.driver)
+        let beforeOff = try #require(gestures.reserve(connection: 1, intent: send))
+        grant.turnOff()
+        grant.turnOn(.init())
+        #expect(!gestures.holdForUpload(beforeOff, upload: "v", connection: 1, sessionId: "s-1", promptId: "p-1"))
+        // The person's own Send ticket holds its upload whatever the grant does.
+        gestures.record()
+        let own = try #require(gestures.reserve(connection: 1, intent: send))
+        #expect(gestures.holdForUpload(own, upload: "w", connection: 1, sessionId: "s-1", promptId: "p-1"))
+        grant.turnOff()
+        #expect(gestures.holdsTicket(upload: "w") && gestures.uploadProgressed("w"))
     }
 
     /// A credential transfer rides on a Send ticket, but the grant never covers it: a posted gesture

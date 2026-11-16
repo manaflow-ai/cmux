@@ -2,6 +2,9 @@ mod abuse;
 mod attachment;
 mod auth;
 mod circuit;
+mod daemon;
+#[cfg(test)]
+mod interleavings;
 mod park;
 mod routing;
 mod slot;

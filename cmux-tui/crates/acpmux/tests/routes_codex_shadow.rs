@@ -99,9 +99,12 @@ impl Client {
 }
 
 fn hub(root: &Path) -> Arc<Hub> {
+    // Named as a Codex harness: `python3` names no agent, so the profile name's first word
+    // decides which login it keeps (`agent/foreign_login.rs`, #35486); the `family` label never
+    // does, and a `fake-…` name ran as an unknown agent, with CODEX_HOME removed.
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake-codex": {"argv": ["python3", FAKE], "family": "codex"}},
-        "defaultHarness": "fake-codex",
+        "harnesses": {"codex-fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "codex-fake",
         "permissionPolicy": "approve-all",
         // No automatic continuation runs behind this test's own prompts (`auto_resume.rs`).
         "autoResumeDelaysMs": [],

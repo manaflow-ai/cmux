@@ -8,6 +8,7 @@ use crate::handshake::{self, Verdict};
 use crate::identity::Identity;
 use crate::idle::{self, Clients};
 use crate::latency;
+use crate::offline::{self, Held};
 use crate::retry::{BUSY_RETRY_CAP_NS, Preset};
 use crate::scope::{self, Created, Failure, Scope};
 use serde_json::{Map, Value, json};
@@ -212,6 +213,34 @@ pub fn call(op: &str, request: &Value) -> OpResult {
         "derived_uuid" => Ok(
             json!({"uuid": scope::derived_uuid(text(request, "key")?, text(request, "kind")?, number(request, "ordinal")?)}),
         ),
+        "offline_intent_disposition" => {
+            let answering = request.get("answering").and_then(Value::as_bool).unwrap_or(true);
+            let kind = text(request, "kind")?;
+            Ok(json!({
+                "disposition": offline::disposition(kind, answering),
+                "sent": offline::maybe_sent(kind),
+                "bound_ms": offline::HOLD_BOUND_MS,
+            }))
+        }
+        "offline_intent_sweep" => {
+            let held: Vec<Held> =
+                serde_json::from_value(request.get("held").cloned().unwrap_or(json!([])))
+                    .map_err(|_| invalid("held"))?;
+            let bound_ms =
+                request.get("bound_ms").and_then(Value::as_u64).unwrap_or(offline::HOLD_BOUND_MS);
+            let now_ms = number(request, "now_ms")?;
+            to_value(offline::sweep(&held, now_ms, flag(request, "reachable"), bound_ms))
+        }
+        "offline_intent_requeue" => {
+            let entry: Held =
+                serde_json::from_value(request.get("held").cloned().unwrap_or_default())
+                    .map_err(|_| invalid("held"))?;
+            to_value(offline::requeue(&entry, text(request, "kind")?))
+        }
+        "offline_intent_text" => to_value(offline::text(
+            text(request, "action")?,
+            optional_text(request, "name").unwrap_or_default(),
+        )),
         "session_ending_keeps_layout" => {
             let capabilities: BTreeSet<String> =
                 strings(request, "capabilities")?.into_iter().collect();

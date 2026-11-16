@@ -96,6 +96,36 @@ struct MenuIdentityHeaderTests {
         #expect(menu.items.contains { ActionRegistry.menuRun(of: $0)?.id == "renameWorkspace" })
     }
 
+    /// #39953: the strip keeps a swatch's press. A press it handed up the responder chain went to the open menu's
+    /// tracking, which then kept the release, so the swatch's color never ran. This guards that mechanism (the press
+    /// never reaches the menu); it calls the strip's handlers directly, so it is not a real menu click.
+    @Test func aClickOnASwatchKeepsThePressAndRunsItsColor() throws {
+        let registry = ActionRegistry.standard()
+        let colored = Box()
+        registry.bind("renameWorkspace", invoke: { _ in })
+        registry.bind("palette.workspaceColor", invoke: { colored.names.append($0["color"]?.stringValue ?? "") })
+        let menu = registry.makeContextMenu(for: .workspaceRow, target: target)
+        MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: "api", rename: "renameWorkspace")
+        let header = try #require(menu.items.first?.view as? MenuIdentityHeaderView)
+        let strip = try #require(header.strip)
+        let window = NSWindow(contentRect: header.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.contentView = header
+        let menuTracking = PressRecorder()
+        strip.nextResponder = menuTracking
+
+        // The first color swatch (No Color is the one before it), at its center. 10 is MenuSwatchStrip.gap, which is
+        // internal to CmuxNextDesign; a swatch's hit area reaches half a gap past it, so a small change still lands.
+        let size = MenuMetrics.iconSize, x = MenuSwatchStrip.ringRoom + (size + 10) + size / 2
+        let point = strip.convert(NSPoint(x: x, y: strip.bounds.midY), to: nil)
+        for (type, send) in [(NSEvent.EventType.leftMouseDown, strip.mouseDown), (.leftMouseUp, strip.mouseUp)] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            send(event)
+        }
+        #expect(menuTracking.presses == 0, "the press went past the strip to the menu, which keeps the release")
+        #expect(colored.names.count == 1 && colored.names.first?.isEmpty == false, "the swatch ran its color")
+    }
+
     /// The group menu's colors are per-color actions (`workspaceGroup.color.<color>`).
     @Test func theGroupMenuReadsItsPerColorRows() {
         let registry = ActionRegistry.standard()
@@ -104,6 +134,12 @@ struct MenuIdentityHeaderTests {
         let colors = menu.items.first?.submenu?.items.compactMap(MenuIdentityHeader.color(of:)) ?? []
         #expect(colors == [.blue, .red])
     }
+}
+
+/// Stands in for the open menu's tracking: it records each press the strip hands up the responder chain.
+@MainActor private final class PressRecorder: NSResponder {
+    var presses = 0
+    override func mouseDown(with event: NSEvent) { presses += 1 }
 }
 
 @MainActor private final class Box {

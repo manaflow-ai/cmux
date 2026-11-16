@@ -3,14 +3,17 @@
 // pending "Writing a file" row over a "Write 12s" line for the same call: "sometimes you can just
 // combine the, like, whatever command or action you're doing sooner than you do"). A Write arrives
 // as acpmux sends Claude Code's (claude_stdio/early_calls.rs): named as its block starts, pending
-// with no input; whole once its input came, in_progress; then completed. At each step the pane
-// draws the call once, on the turn's live line, and the line's top never moves.
+// with no input; whole once its input came, in_progress; then completed. While it runs the pane
+// draws the call once, on the turn's live line, and the line's top never moves. Once it is done
+// the retained `line` look of live-turn-work draws no row for it while the turn runs (turns.ts
+// `codexRuns`, 8a37e5fcf650): the line reads Thinking, then the next call, on the same pixel.
 //
 // Real Chromium from Playwright, the pane's dev entry over a stand-in acpmux daemon whose socket
 // pushes each step live; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -192,6 +195,7 @@ await requireBrowserLane("agent-pane-one-row-per-call.test.ts", async () => {
 
   test("a Write is one row from pending to done, and that row's top does not move", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await pinArms(page, { ...CLOCK_ON_LINE, "live-turn-work": "line" });
     for (let attempt = 1; ; attempt++) {
       try {
         await page.goto(url());
@@ -216,18 +220,23 @@ await requireBrowserLane("agent-pane-one-row-per-call.test.ts", async () => {
       seen.push(await drawn(page));
     }
     console.log("ONE_ROW_STEPS", JSON.stringify(seen));
-    // Past the call: the next one on the line, the Write folded into its run above it.
+    // Past the call: the next one on the line, and still no row for the finished Write.
     const next = seen.pop()!;
     expect(next.line).toStartWith("Read");
-    expect(seen.map((step) => step.rows)).toEqual([1, 1, 1]);
-    // Pending and running: the same row, one id, its top still. Done: the Write folds into its run
-    // the moment it completes and the line reads Thinking (Leo, 2026-11-07: "Why don't we just
-    // immediately switch to the thinking?"), never a run's row and the line at once.
+    // Was [1, 1, 1] under the `runs` look, where the finished Write drew as a row of its run. Under
+    // the retained `line` look a finished call of a running turn draws no row.
+    expect(seen.map((step) => step.rows)).toEqual([1, 1, 0]);
+    // Pending and running: the same row, one id, its top still. Done: the line lets the Write go
+    // the moment it completes and reads Thinking (Leo, 2026-11-07: "Why don't we just immediately
+    // switch to the thinking?"), never a run's row and the line at once.
     const [pending, running, done] = seen;
     expect(running!.ids).toEqual(pending!.ids);
     expect(running!.top).toBe(pending!.top);
     expect(done!.ids).not.toEqual(pending!.ids);
     expect(done!.ids).toEqual(next.ids);
+    // Nothing came in above the line when the Write finished or the next call started.
+    expect(done!.top).toBe(pending!.top);
+    expect(next.top).toBe(pending!.top);
     // The line says what the call's own row would while it runs, then Thinking.
     expect(seen.map((step) => step.line.replace(/\s*\d.*$/, "").replace(/ · .*$/, ""))).toEqual([
       "Writing a file",

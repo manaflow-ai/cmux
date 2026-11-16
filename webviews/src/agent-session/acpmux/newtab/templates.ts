@@ -37,11 +37,11 @@ export type ScreenSections = {
 };
 
 const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
-  // Minimal (Leo 2026-10-20: "only do the composer for the default"): the composer, about the
-  // window's middle, with no greeting (Leo 2026-10-22). The rest is widgets the user
-  // turns on (pageWidgets.ts); with the project card, the actions or the chats on, the page takes
-  // Default's stage around them. What an unset template shows (shownTemplate).
-  minimal: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false, stage: true },
+  // Minimal (Leo 2026-10-20: "only do the composer for the default"): the composer alone, about the
+  // window's middle, with no greeting (Leo 2026-10-22) and no widgets (Lawrence 2026-11-09: "remove
+  // widgets completely"): NewTabScreen draws none of its lists. What an unset template shows
+  // (shownTemplate).
+  minimal: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false, stage: false },
   // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field, the project and
   // the agent's chips in a row under it, then three chat cards.
   cards: { chats: "cards", allChats: false, recent: 3, prompt: false, closed: false, stage: false },

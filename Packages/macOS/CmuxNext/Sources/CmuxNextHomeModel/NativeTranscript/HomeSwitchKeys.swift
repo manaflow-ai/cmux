@@ -12,7 +12,7 @@ public struct HomeSwitchKeys: Sendable, Equatable {
     public var nextPreviousTab: String?
     /// Previous and next workspace (`⌃⌘[ ⌃⌘]`).
     public var nextPreviousWorkspace: String?
-    /// Focus Back and Forward (`⌘[ ⌘]`).
+    /// Focus Back and Forward (`⌥⌘, ⌥⌘.`).
     public var focusBackForward: String?
     /// Mission Control's Switch to Desktop uses the tabs-by-number keys:
     /// the card shows a one-line note and a button to Keyboard Shortcuts settings.

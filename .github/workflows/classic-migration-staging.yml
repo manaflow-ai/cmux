@@ -1,0 +1,93 @@
+name: Classic migration staging proof
+
+# The classic -> NEXT migration, proven end to end on staging by scripts/cmux-next/classic-migrate/staging-proof.ts:
+# SETUP makes a throwaway smoke user and team with one VM each on classic staging (through classic's own API) and
+# writes a nonce on each; DRY RUN plans both against classic staging Postgres (read only, host allowlist); MIGRATE
+# copies them into NEXT through cmux-platform's internal migration route, verifies, and reads the nonce back on each
+# NEXT machine; ROLLBACK removes the copies and checks classic still answers; TEARDOWN deletes everything, always.
+# The job summary has each step's seconds and result; the artifact has proof.json and the ledgers.
+#
+# Without PLATFORM_STAGING_INTERNAL_TOKEN (cmuxterm-hq#8793) MIGRATE and ROLLBACK are reported not-run and the run
+# passes with a notice, so the dry-run half is proven first. Manual dispatch only.
+on:
+  workflow_dispatch:
+    inputs:
+      classic_db_host_allow:
+        description: Classic staging Postgres host(s) the read-only plan may connect to (comma list); empty uses vars.CLASSIC_DB_HOST_ALLOW
+        required: false
+        default: ""
+        type: string
+      platform_origin:
+        description: cmux-platform staging origin (the internal migration route)
+        required: false
+        default: https://cmux-platform-staging.debussy.workers.dev
+        type: string
+      next_api_origin:
+        description: NEXT staging API origin (sign-in and machine exec)
+        required: false
+        default: https://cloud-api-staging.cmux.dev
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classic-migration-staging
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 60
+    environment: cloud-vm-staging
+    env:
+      NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+      NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+      STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      INTERNAL_TOKEN: ${{ secrets.PLATFORM_STAGING_INTERNAL_TOKEN }}
+      CLASSIC_DB_HOST_ALLOW: ${{ inputs.classic_db_host_allow || vars.CLASSIC_DB_HOST_ALLOW }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Proof
+        env:
+          PLATFORM_ORIGIN: ${{ inputs.platform_origin }}
+          NEXT_API_ORIGIN: ${{ inputs.next_api_origin }}
+        run: |
+          set -euo pipefail
+          bun scripts/cmux-next/classic-migrate/staging-proof.ts --out "$RUNNER_TEMP/classic-migration-proof" \
+            --platform "$PLATFORM_ORIGIN" --next-api "$NEXT_API_ORIGIN"
+
+      # The proof tears down in its own run; this repeats it from the state file after a cancel, a timeout or a
+      # crash. It is idempotent: what is already gone is skipped.
+      - name: Teardown
+        if: ${{ always() }}
+        env:
+          PLATFORM_ORIGIN: ${{ inputs.platform_origin }}
+          NEXT_API_ORIGIN: ${{ inputs.next_api_origin }}
+        run: |
+          set -euo pipefail
+          bun scripts/cmux-next/classic-migrate/staging-proof.ts --out "$RUNNER_TEMP/classic-migration-proof" --teardown-only \
+            --platform "$PLATFORM_ORIGIN" --next-api "$NEXT_API_ORIGIN"
+
+      - name: Upload proof
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: classic-migration-staging-proof
+          # The proof and the ledgers only: plan.json names the classic database host.
+          path: |
+            ${{ runner.temp }}/classic-migration-proof/proof.json
+            ${{ runner.temp }}/classic-migration-proof/*/ledger.jsonl
+          if-no-files-found: warn
+          retention-days: 3

@@ -27,7 +27,7 @@ final class SandboxRunNotices {
     init(services: AppServices, follower: SandboxRunFollower? = nil, user: (@MainActor () -> String?)? = nil) {
         self.services = services
         self.currentUser = user ?? { [weak services] in services?.cloud.auth.user?.id }
-        self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.api] id, team in
+        self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.machineAPI.drainingClassic(services.cloud.api)] id, team in
             try await api.pinningTeam(team).waitRun(id, timeoutMs: 10_000)
         })
         self.follower.onEnd = { [weak self] end in self?.ended(end) }
@@ -51,19 +51,19 @@ final class SandboxRunNotices {
     }
 
     /// A send's Run `id`, followed here for the account signed in now; answers its terminal snapshot.
-    /// The server decides who may read it: if the create went out under another account (a switch
-    /// during the send), this account's wait is refused (403, 404) and the follow ends, untold.
+    /// The daemon decides who may read it: while the app is on another account or team it refuses the wait
+    /// (409, never 404), and the follow waits that out, so a switch back finds the Run again.
     /// `incognito` is the send's own, read as it was issued (``sendIsIncognito(_:)``): by the time the
     /// create answers, its tab may be gone (#31040).
     func follow(id: String, task: String, key: String, team: String?, incognito: Bool) async throws -> Data {
-        guard let user = currentUser() else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
+        guard let user = currentUser() else { throw CloudAPIError.timedOut("cloud.runs/\(id)") }
         var record = SandboxRunRecord(id: id, task: task, key: key, user: user, team: team, started: Date())
         record.incognito = incognito ? true : nil
         return try await follower.follow(record)
     }
 
     /// Whether `view`'s tab is incognito, read as its send is issued, before the line drains (#31109). No tab: taken as one.
-    func sendIsIncognito(_ view: AgentPaneView) -> Bool { services?.agentTabs.views.first { $0.value === view }.map { incognito(tab: $0.key) } ?? true }
+    func sendIsIncognito(_ view: AgentPaneView) -> Bool { services?.agentTabs.views.first { $0.value === view }.map { incognito(tab: $0.key.key) } ?? true }
 
     func ended(_ end: SandboxRunEnd) {
         let snapshot = (try? JSONSerialization.jsonObject(with: end.snapshot)) as? [String: Any] ?? [:]
@@ -168,6 +168,6 @@ final class SandboxRunNotices {
 
     /// The agent tab whose page holds the send of attempt `key`.
     private func tab(holding key: String) -> String? {
-        services?.agentTabs.views.first { $0.value.model.sandboxRuns.holds(key: key) }?.key
+        services?.agentTabs.views.first { $0.value.model.sandboxRuns.holds(key: key) }?.key.key
     }
 }

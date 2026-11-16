@@ -6,16 +6,22 @@ public import CmuxNextDesignTokens
 /// Forward), the sidebar's + and the top row's tab pills all center on it, at every density.
 /// Debug Settings `chrome.topRowLine` keeps the variants measured for the change:
 public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The default: everything centers on the traffic lights' line, the one line the window cannot
+    /// The default: the main pane's card keeps the gutter at the top as at the sides, so its corner
+    /// is concentric with the window's (Lawrence 2026-11-07: "concentricity padding on top of tabbar
+    /// is bad", "make it all concentric with macos windows by default"). The top row's pills sit in
+    /// their strip as in every other row, and the toolbar band, the sidebar's + and the pane's
+    /// buttons center on the pills' line. The traffic lights move onto it too (``TrafficLightsLine``).
+    case concentric
+    /// Everything centers on the traffic lights' line, the one line the window cannot
     /// move; the main pane's card moves down to bring the top row's pills to it, and the pills keep
     /// equal gaps above and below them (#38054). Where the card cannot reach it, the line is the pills'.
     case lights
     /// The controls follow the tabs: the band and the + center on the line the top-row pills keep on
     /// their own padding (the pane padding above the strip plus the pill's inset, `PaneChromeMetrics`;
-    /// the lights stay where macOS draws them).
+    /// the traffic lights move onto it, ``TrafficLightsLine``).
     case tabs
     /// One titlebar height: the band, the + and the pills center on the middle of the
-    /// `titlebarHeight` row (the lights stay where macOS draws them).
+    /// `titlebarHeight` row (the traffic lights move onto it, ``TrafficLightsLine``).
     case titlebar
     /// The look before 2026-11-07: the band and the + on the lights' line, the pills where their
     /// strip's own padding puts them.
@@ -23,7 +29,8 @@ public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable
 
     public var tunableTitle: String {
         switch self {
-        case .lights: "Traffic lights' line (default)"
+        case .concentric: "Even inset, concentric with the window (default)"
+        case .lights: "Traffic lights' line"
         case .tabs: "The tabs' line"
         case .titlebar: "Middle of the titlebar row"
         case .off: "Off (pills on their strip's padding)"
@@ -33,7 +40,7 @@ public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable
     public static let tunable = Tunable<TopRowLineLook>.choice(
         "chrome.topRowLine", .sidebar, "Top row line",
         help: "The line the traffic lights, the toolbar band, the sidebar's + and the top row's tabs share (Leo 2026-11-07).",
-        default: .lights, code: "TopRowLineLook.tunable")
+        default: .concentric, code: "TopRowLineLook.tunable")
 }
 
 /// The top row's line, from the window's top edge, and where a top-row strip puts its pills on it.
@@ -45,13 +52,14 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
     public init(centerY: CGFloat) { self.centerY = centerY }
 
     /// The line for `look`: the lights' center (`lights`, `off`), the pill center the top row's tabs
-    /// keep on their own padding (`tabs`, ``tabsCenterY(_:scale:)``), or the titlebar row's middle
-    /// (`titlebar`).
+    /// keep on their own padding (`tabs`, ``tabsCenterY(_:scale:)``), that center below a card
+    /// `concentricCardTop` down (`concentric`, the gutter), or the titlebar row's middle (`titlebar`).
     public static func resolve(_ look: TopRowLineLook, lightsCenterY: CGFloat, tabsCenterY: CGFloat,
-                               titlebarHeight: CGFloat) -> TopRowLine {
+                               titlebarHeight: CGFloat, concentricCardTop: CGFloat = 0) -> TopRowLine {
         switch look {
         case .lights, .off: TopRowLine(centerY: lightsCenterY)
         case .tabs: TopRowLine(centerY: tabsCenterY)
+        case .concentric: TopRowLine(centerY: concentricCardTop + tabsCenterY)
         case .titlebar: TopRowLine(centerY: titlebarHeight / 2)
         }
     }
@@ -68,7 +76,7 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
     /// card moves to reach a line (#38054), so a line the card cannot reach (Comfortable and
     /// Spacious, whose pills center below the lights' line with the card at the window's top) gives
     /// way to the pills': the toolbar band, the sidebar's + and the pane's buttons stay on the tabs'
-    /// line, and only the traffic lights, which macOS draws, keep their own.
+    /// line, and the traffic lights move onto it (``TrafficLightsLine``).
     public func reached(by metrics: PaneChromeMetrics, cardTop: CGFloat, scale: CGFloat) -> TopRowLine {
         TopRowLine(centerY: metrics.topRowPillCenter(cardTop: cardTop, scale: scale))
     }
@@ -90,7 +98,7 @@ extension WindowTitlebar {
     /// own cards, which sit the gutter and a pane padding down.
     public static func topRowLine(in window: NSWindow, look: TopRowLineLook = TopRowLineLook.tunable.value) -> TopRowLine? {
         guard let target = targetTopRowLine(in: window, look: look) else { return nil }
-        guard look != .off else { return target }
+        guard look != .off, look != .concentric else { return target }
         let scale = window.backingScaleFactor
         let row = topRowMetrics(scale: scale)
         if Metrics.floatingPanes {
@@ -106,7 +114,7 @@ extension WindowTitlebar {
     /// line variant other than `off`, and no floating panes (each of those pills centers in its own card).
     public static func topRowEvensPillGaps(in window: NSWindow) -> Bool {
         let look = TopRowLineLook.tunable.value
-        return look != .off && !Metrics.floatingPanes && targetTopRowLine(in: window, look: look) != nil
+        return look != .off && look != .concentric && !Metrics.floatingPanes && targetTopRowLine(in: window, look: look) != nil
     }
 
     /// The variant's line before the card's limits (``topRowLine(in:look:)``): what the card's top aims for.
@@ -117,7 +125,8 @@ extension WindowTitlebar {
         let lightsCenter = content.bounds.maxY - content.convert(lights, from: nil).midY
         return TopRowLine.resolve(look, lightsCenterY: lightsCenter,
                                   tabsCenterY: TopRowLine.tabsCenterY(.current, scale: window.backingScaleFactor),
-                                  titlebarHeight: Metrics.titlebarHeight)
+                                  titlebarHeight: Metrics.titlebarHeight,
+                                  concentricCardTop: Metrics.floatingPanes ? Metrics.mainPaneGutter : Metrics.windowEdgeInset(Metrics.mainPaneGutter, in: window))
     }
 
     /// The live pane chrome with the strip as tall as panes lay it out (`resolvedStripHeight`, a device
@@ -135,6 +144,8 @@ extension WindowTitlebar {
     public static func topRowCardTop(centeringPillOn centerY: CGFloat, gutter: CGFloat, in window: NSWindow,
                                      look: TopRowLineLook = TopRowLineLook.tunable.value) -> CGFloat {
         guard !Metrics.floatingPanes else { return gutter }
+        // Concentric: the gutter on top as at the sides, so the card's corner shares the window's center.
+        guard look != .concentric else { return Metrics.windowEdgeInset(gutter, in: window) }
         let scale = window.backingScaleFactor
         guard look != .off else {
             return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: centerY, scale: scale)), in: window)

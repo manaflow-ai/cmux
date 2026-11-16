@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 public import Foundation
 
 /// A machine that joined the team with a one-line join token: one `kind: "joined"` row of
@@ -5,7 +6,7 @@ public import Foundation
 /// Every field but the id and name is optional, so an older or newer CLI still lists the row.
 public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
     public nonisolated enum State: String, Hashable, Sendable {
-        /// Its last heartbeat is within ``JoinedMachine/onlineWindow`` (the hub's 90 s row TTL).
+        /// Its last heartbeat is within ``JoinedMachine/onlineWindow`` (the hub's 30 s row TTL).
         case online
         case offline
         /// Its credential was revoked: it left the mesh.
@@ -60,8 +61,10 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
     }
 
     /// How fresh a heartbeat must be for the machine to show online: the hub's address-book row TTL
-    /// (cmux-platform `src/server/mesh/Core.ts`, 90 s; the daemon heartbeats every 30 s or sooner).
-    public static let onlineWindow: TimeInterval = 90
+    /// (cmux-platform `src/server/mesh/Core.ts`, 30 s; the daemon heartbeats every third of it, and
+    /// the platform stamps the heartbeat at most every 10 s). The platform's list also says `online`
+    /// itself, which the CLI's row `state` follows.
+    public static let onlineWindow: TimeInterval = 30
 
     /// Its state from its own heartbeat at `now`: revoked first (the platform's `revoked`, or the CLI's
     /// `state: "revoked"`, which keeps the last heartbeat); then online when `heartbeat` is within
@@ -112,5 +115,53 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
         self.init(id: id, name: text("name") ?? text("label") ?? text("hostname") ?? id, state: state, lastHeartbeat: shownHeartbeat,
                   platform: text("platform"), hostname: text("hostname"), meshPeerId: text("meshPeerId"),
                   joinTokenId: text("joinTokenId"), mintedBy: text("mintedBy"), heartbeatAt: heartbeat)
+    }
+}
+
+extension JoinedMachine {
+    /// Whether it reported a Mac at join: only a Mac shows the consent card that answers New Workspace's
+    /// ask (``JoinedDialAnswer``), so only a Mac's row asks.
+    public var isMac: Bool { ["macos", "darwin"].contains(platform?.lowercased() ?? "") }
+
+    /// Its route among acpmux's (`_acpmux/machine_routes`' `machines`): the one whose hub `daemonId` is
+    /// its `meshPeerId`; with no `meshPeerId`, the only one whose host is its host name or name. Nil: none,
+    /// a `meshPeerId` acpmux doesn't list (never another Mac of the same name), or two that name the same host.
+    public func route(in routes: [[String: Any]]) -> [String: Any]? {
+        if let peer = meshPeerId { return routes.first { $0["daemonId"] as? String == peer } }
+        let names = Set([hostname, name].compactMap { $0?.lowercased() })
+        let named = routes.filter { ($0["host"] as? String).map { names.contains($0.lowercased()) } ?? false }
+        return named.count == 1 ? named.first : nil
+    }
+}
+
+/// Where New Workspace on a joined Mac reached through the hub stands, as the Machines page reads it
+/// (`cmux.machines.openJoined`, webviews/src/pages/machines/types.ts `JoinedDialAnswer`).
+public nonisolated enum JoinedDialAnswer: Equatable, Sendable {
+    /// The other Mac allowed it, and the workspace opened there.
+    case opened
+    /// Its person hasn't answered: that Mac recorded the ask and shows its consent card.
+    case consentRequired
+    /// Its person said Not now (or turned the switch off): nothing asks again until a click.
+    case consentDeclined
+    /// It can't be reached: acpmux's reason (`service.unknown`, `machine.unlisted`, `carrier.off`) or this app's.
+    case unavailable(String)
+
+    /// The answer to a probe acpmux refused with `reason` (its `error.data.reason`).
+    public init(refusal reason: String?) {
+        switch reason {
+        case "consent_required": self = .consentRequired
+        case "consent_declined": self = .consentDeclined
+        default: self = .unavailable(reason ?? "machine.unreachable")
+        }
+    }
+
+    /// The page's form: `{state, reason?}`.
+    public var json: JSONValue {
+        switch self {
+        case .opened: ["state": "opened"]
+        case .consentRequired: ["state": "consent_required"]
+        case .consentDeclined: ["state": "consent_declined"]
+        case .unavailable(let reason): ["state": "unavailable", "reason": .string(reason)]
+        }
     }
 }

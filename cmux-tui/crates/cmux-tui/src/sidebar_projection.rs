@@ -490,6 +490,7 @@ mod tests {
             notification: None,
             program_status: None,
             attention: None,
+            git_branch: None,
         }
     }
 

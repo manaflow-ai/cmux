@@ -17,7 +17,6 @@ import { primeSentImages, withSentShapes } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
 import { UserBubble } from "./UserBubble";
-import { sentPasteLook } from "./sentPasteLook.experiment";
 
 type Shot = { width: number; height: number; hue: number };
 type Prompt = {
@@ -237,17 +236,6 @@ export default componentEntry<Props>({
   height: 640,
   covers: ["agent-session/acpmux/conversation/UserBubble.tsx#UserBubble"],
   load: async () => SentBubbleStage,
-  // The paste's look inside the bubble (Leo, 2026-11-07: "we do not want to have this card thing
-  // going on, this double card thing"): its own text (the default), one label row, or the card.
-  experiment: {
-    definition: sentPasteLook,
-    script: [
-      {
-        name: "the sent paste settles",
-        run: async (ctx) => ctx.waitFor(() => ctx.document.querySelector("[data-sent-settled]")),
-      },
-    ],
-  },
   variants: {
     "text-only": {
       note: "A typed prompt alone: the bubble's one size from the frame it lands.",
@@ -299,7 +287,7 @@ export default componentEntry<Props>({
       },
     },
     "long-paste": {
-      note: "A 600-character paste under a typed line: its own characters in the bubble's text, never a card inside the bubble (compare: the row and card arms).",
+      note: "A 600-character paste under a typed line: its own characters in the bubble's text, part of the message's one body, never a card inside the bubble.",
       height: 360,
       props: { prompts: [{ text: "Can you look at this?", paste: PASTE }] },
     },

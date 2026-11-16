@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 @testable import CmuxNextApp
 import CmuxNextAppCore
 import CmuxNextFocusUI
@@ -204,9 +205,9 @@ import CmuxNextTestSupport
         let a = make(), b = make(), page = make()
         a.addChildWindow(page, ordered: .above)
         defer { a.removeChildWindow(page); for window in [a, b, page] { window.close() } }
-        #expect(!NewTabInputCoordinator.mayTakeKey(a, keyWindow: b), "window A took the keyboard from window B")
-        #expect(NewTabInputCoordinator.mayTakeKey(a, keyWindow: page), "A takes the keys back from its own page window")
-        #expect(NewTabInputCoordinator.mayTakeKey(a, keyWindow: nil))
+        #expect(!a.mayTakeKey(from: b), "window A took the keyboard from window B")
+        #expect(a.mayTakeKey(from: page), "A takes the keys back from its own page window")
+        #expect(a.mayTakeKey(from: nil))
     }
 
     /// Keys the daemon gives back from a creation in window A wait for a terminal of window A; a

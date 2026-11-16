@@ -35,8 +35,10 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// toggle); with `all` every tracked change, and `includeUntracked` adds
     /// untracked, nonignored files.
     case commit(sessionId: String, message: String, all: Bool, includeUntracked: Bool, expectedHead: String?, key: String)
-    /// The current branch to where `git push` would send it; never forced.
-    case push(sessionId: String, expectedHead: String?, key: String)
+    /// The current branch to where `git push` would send it; never forced. Create PR leaves
+    /// `setUpstream` false so Rust establishes tracking only for a fresh branch and preserves
+    /// the published head identity of an existing branch.
+    case push(sessionId: String, expectedHead: String?, setUpstream: Bool, key: String)
     /// A new chat's own worktree of `cwd`, the chat's folder (cx-lyqio.2).
     case worktree(cwd: String, name: String?, key: String)
     /// The chat's worktree work, onto its main checkout (cx-lyqio.4).
@@ -68,7 +70,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// The page's idempotency key for this user action.
     public var key: String {
         switch self {
-        case .commit(_, _, _, _, _, let key), .push(_, _, let key), .worktree(_, _, let key), .worktreeApply(_, let key),
+        case .commit(_, _, _, _, _, let key), .push(_, _, _, let key), .worktree(_, _, let key), .worktreeApply(_, let key),
              .worktreeRemove(_, _, let key): key
         }
     }
@@ -77,7 +79,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// new chat's worktree.
     public var sessionId: String? {
         switch self {
-        case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _), .worktreeApply(let sessionId, _),
+        case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _, _), .worktreeApply(let sessionId, _),
              .worktreeRemove(let sessionId, _, _): sessionId
         case .worktree: nil
         }
@@ -126,7 +128,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
                   all || !untracked else { return nil }
             self = .commit(sessionId: sessionId, message: message, all: all, includeUntracked: untracked, expectedHead: expectedHead, key: key)
         case "git.push":
-            self = .push(sessionId: sessionId, expectedHead: expectedHead, key: key)
+            self = .push(sessionId: sessionId, expectedHead: expectedHead, setUpstream: false, key: key)
         case "git.worktree.apply":
             self = .worktreeApply(sessionId: sessionId, key: key)
         case "git.worktree.remove":

@@ -12,8 +12,9 @@
 # This script removes those artifacts for tags that are safe to clean.
 # Safety rules (always on):
 #   - Skip any tag whose `cmux DEV <tag>` app is currently running.
-#   - Skip the tag of the app opened last (~/Library/Application Support/cmux/last-app-cli,
-#     written by the app) and of the most recent reload (/tmp/cmux-last-cli-path, legacy).
+#   - Skip the tag of the app opened last (~/Library/Application Support/cmux-next/last-app-cli,
+#     written by the app; cmux/last-app-cli from an older build) and of the most recent
+#     reload (/tmp/cmux-last-cli-path, legacy).
 # A worktree merely existing on the same name is not treated as a
 # protection. Use --keep TAG when you want to preserve a build whose
 # worktree you still have around, or --older-than DAYS to skip anything
@@ -37,7 +38,8 @@ set -euo pipefail
 DERIVED_DATA_ROOT="$HOME/Library/Developer/Xcode/DerivedData"
 APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
 LAST_CLI_PATH_FILE="/tmp/cmux-last-cli-path"
-LAST_APP_CLI_FILE="$APP_SUPPORT_DIR/last-app-cli"
+LAST_APP_CLI_FILE="$HOME/Library/Application Support/cmux-next/last-app-cli"
+LEGACY_APP_CLI_FILE="$APP_SUPPORT_DIR/last-app-cli"
 
 apply=0
 older_than_days=0
@@ -129,7 +131,7 @@ derived_data_mtime_days() {
 # The app's own pointer (plans/cmux-next/version-skew.md) and reload.sh's
 # legacy one each protect their tag.
 active_tags=()
-for pointer in "$LAST_APP_CLI_FILE" "$LAST_CLI_PATH_FILE"; do
+for pointer in "$LAST_APP_CLI_FILE" "$LEGACY_APP_CLI_FILE" "$LAST_CLI_PATH_FILE"; do
     [[ -r "$pointer" && ! -L "$pointer" ]] || continue
     last_path="$(LC_ALL=C head -c 4097 "$pointer" 2>/dev/null | head -n 1 || true)"
     if [[ "$last_path" =~ /cmux-([A-Za-z0-9._-]+)/ ]]; then
@@ -204,7 +206,7 @@ printf 'cleanup-dev-builds  (mode: %s)\n\n' "$([[ $apply -eq 1 ]] && echo APPLY 
 
 if (( ${#plan_skip[@]} > 0 )); then
     printf 'skipping:\n'
-    for entry in "${plan_skip[@]}"; do
+    for entry in ${plan_skip[@]+"${plan_skip[@]}"}; do
         IFS='|' read -r tag bytes reason <<< "$entry"
         printf '  %-40s %10s  (%s)\n' "$tag" "$(human_bytes "$bytes")" "$reason"
     done
@@ -217,7 +219,7 @@ if (( ${#plan_delete[@]} == 0 )); then
 fi
 
 printf 'would delete:\n'
-for entry in "${plan_delete[@]}"; do
+for entry in ${plan_delete[@]+"${plan_delete[@]}"}; do
     IFS='|' read -r tag bytes <<< "$entry"
     printf '  %-40s %10s\n' "$tag" "$(human_bytes "$bytes")"
 done
@@ -230,7 +232,7 @@ fi
 
 echo
 echo 'applying...'
-for entry in "${plan_delete[@]}"; do
+for entry in ${plan_delete[@]+"${plan_delete[@]}"}; do
     IFS='|' read -r tag _ <<< "$entry"
     while IFS= read -r p; do
         if [[ -e "$p" || -L "$p" ]]; then

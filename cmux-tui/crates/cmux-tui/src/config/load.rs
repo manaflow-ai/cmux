@@ -132,6 +132,9 @@ pub fn load() -> Config {
             );
         }
     }
+    if let Some(agents) = raw.sidebar.agents {
+        config.sidebar.agents = agents;
+    }
     if let Some(template) = raw.sidebar.workspace_label {
         let template = template.trim().to_string();
         if !template.is_empty() {
@@ -675,6 +678,11 @@ pub(super) fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<
         }
         port => port,
     }
+}
+
+/// The config file's `agents` section alone (`daemon status`).
+pub(crate) fn load_raw_agents() -> crate::agent_plugin_config::RawAgents {
+    load_raw_config().agents
 }
 
 pub(super) fn load_raw_config() -> RawConfig {

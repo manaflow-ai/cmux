@@ -69,7 +69,7 @@ import Testing
         hovered.isHovered = true
         hovered.layoutSubtreeIfNeeded()
         let list = sidebar.list
-        let inset = SidebarStyle.horizontalInset
+        let inset = SidebarStyle.contentInset
         for (name, id) in [("pinned", Self.pinnedID), ("grouped", Self.groupedID), ("loose", Self.looseID),
                            ("errored", Self.erroredID), ("hovered", Self.hoveredID), ("selected", Self.selectedID)] {
             let row = try Self.row(sidebar, id)
@@ -110,7 +110,51 @@ import Testing
                 "the fill is \(pill.minX) pt from the row's left edge, \(bandRow.bounds.width - pill.maxX) pt from its right")
         #expect(!bandRow.activity.isHidden && bandRow.activity.frame.width > 0, "the row shows its status mark")
         let trailing = pill.maxX - bandRow.activity.frame.maxX
-        #expect(abs(trailing - SidebarStyle.horizontalInset) <= Self.tolerance,
-                "the mark (\(bandRow.activity.frame)) ends \(trailing) pt before the fill's end (\(pill)), the row inset \(SidebarStyle.horizontalInset)")
+        #expect(abs(trailing - SidebarStyle.contentInset) <= Self.tolerance,
+                "the mark (\(bandRow.activity.frame)) ends \(trailing) pt before the fill's end (\(pill)), the content inset \(SidebarStyle.contentInset)")
+    }
+
+    /// Lawrence 2026-11-09: "for each workspace row, padding on left/bottom/top/right should be even, on all
+    /// densities". A one-line row's content keeps one padding on all four sides of its fill: its first glyph starts it
+    /// inside the fill's left edge, its last trailing box ends it before the right edge, and its title's capitals sit
+    /// it below the top edge with its baseline it above the bottom (the ink a person sees; the row centers its
+    /// capitals). Before, the sides took the row inset (6 compact, 8 comfortable) while the text had about 7.5 and 9.5
+    /// above and below it.
+    @Test(arguments: [SidebarDensity.compact, .comfortable])
+    func aOneLineRowsContentHasOnePaddingOnEverySide(_ density: SidebarDensity) throws {
+        try SidebarGroupRailAlignmentTests.with(density, .off) {
+            let sidebar = Self.sidebar()
+            let hovered = try Self.row(sidebar, Self.hoveredID)
+            hovered.isHovered = true
+            hovered.layoutSubtreeIfNeeded()
+            for (name, id) in [("loose", Self.looseID), ("selected", Self.selectedID), ("hovered", Self.hoveredID)] {
+                let row = try Self.row(sidebar, id)
+                let font = row.title.font
+                let scale = row.window?.backingScaleFactor ?? 2
+                let baseline = row.title.frame.minY + (font.ascender * scale).rounded() / scale
+                let top = baseline - font.capHeight, bottom = row.bounds.height - baseline
+                let left = row.title.frame.minX
+                let last = try #require(Self.lastTrailingView(row, excluding: [row.title, row.icon]), "\(name) shows no trailing view")
+                let right = id == Self.hoveredID
+                    ? row.bounds.width - SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width) - SidebarStyle.statusGlyphSize / 2
+                    : row.bounds.width - last.frame.maxX
+                let sides = [("top", top), ("bottom", bottom), ("right", right)]
+                for (side, value) in sides {
+                    #expect(abs(value - left) <= 0.75,
+                            "\(density.rawValue) \(name): the content starts \(left) pt inside the fill's left edge, \(value) pt inside its \(side) edge")
+                }
+            }
+        }
+    }
+
+    /// Expanded rows keep the same padding left and right, and their one leading edge is the compact list's.
+    @Test func anExpandedRowsSidesMatch() throws {
+        try SidebarGroupRailAlignmentTests.with(.expanded, .off) {
+            let sidebar = Self.sidebar()
+            let row = try Self.row(sidebar, Self.looseID)
+            let last = try #require(Self.lastTrailingView(row, excluding: [row.title, row.icon, row.subtitle]), "no trailing view")
+            let left = row.title.frame.minX, right = row.bounds.width - last.frame.maxX
+            #expect(abs(left - right) <= Self.tolerance, "expanded: the content starts \(left) pt inside the left edge, ends \(right) before the right")
+        }
     }
 }

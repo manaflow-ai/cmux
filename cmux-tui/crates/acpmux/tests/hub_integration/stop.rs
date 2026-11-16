@@ -743,5 +743,7 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
 #[cfg(target_os = "macos")]
 #[test]
 fn a_stand_in_harness_runs_at_normal_class_in_tests() {
-    assert_eq!(acpmux::cpu_class::CpuClass::for_session([]), acpmux::cpu_class::CpuClass::Normal);
+    let kind = acpmux::config::HarnessKind::Acp;
+    let class = acpmux::cpu_class::CpuClass::for_session(kind, &[], []);
+    assert_eq!(class, acpmux::cpu_class::CpuClass::Normal);
 }

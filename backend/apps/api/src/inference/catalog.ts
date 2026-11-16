@@ -11,7 +11,7 @@
  * list (2026-10-10, read with our keys); a model a provider does not list has no route there.
  */
 
-export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom", "openai"] as const
+export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom", "openai", "particle"] as const
 export type ProviderId = (typeof PROVIDERS)[number]
 
 /** Budget lines of the spend guard: one per provider, plus the free tier's own line. */
@@ -28,6 +28,12 @@ export interface ProviderRoute {
    * without one keeps its catalog place after the priced ones. Metering never uses it.
    */
   readonly list?: { readonly input: number; readonly output: number }
+  /**
+   * The most images one request may carry at this provider, when the provider publishes a limit
+   * below the model's own (`ModelEntry.vision.maxImages`). Unset: the model's limit holds here.
+   * A request with more images than a route takes skips that route (route.ts), never fails on it.
+   */
+  readonly maxImages?: number
 }
 
 /** Blended list price of a route: agent turns read about three input tokens per output token. */
@@ -54,11 +60,23 @@ export interface ModelEntry {
    */
   readonly freeProviders?: ReadonlyArray<ProviderId>
   /**
-   * Image input (OpenAI `image_url` parts). Set: the most images one request may carry and the
-   * token ceiling we bill each one at before usage is known. Unset: text only.
+   * Image input (OpenAI `image_url` parts). Set: the token ceiling we bill each image at before
+   * usage is known, and `maxImages`, the model maker's published per-request image limit, which
+   * holds at every route that serves the model (unset when the maker publishes none). A route may
+   * publish a lower one (`ProviderRoute.maxImages`). Unset: text only. chat-request.ts never
+   * refuses a chat for its history: past the highest limit of the routes that can serve a request,
+   * the newest images go and each older one becomes a placeholder.
    */
-  readonly vision?: { readonly maxImages: number; readonly tokensPerImage: number }
+  readonly vision?: { readonly maxImages?: number; readonly tokensPerImage: number }
 }
+
+/** The most images one request may carry at `route` of `model`: the lower of the two limits; 0 for a text model. */
+export const routeImageLimit = (model: ModelEntry, route: ProviderRoute): number =>
+  model.vision ? Math.min(model.vision.maxImages ?? Infinity, route.maxImages ?? Infinity) : 0
+
+/** The most images one request may carry at any of `routes` (the highest route limit; 0 with no route). */
+export const imageLimit = (model: ModelEntry, routes: ReadonlyArray<ProviderRoute>): number =>
+  Math.max(0, ...routes.map((route) => routeImageLimit(model, route)))
 
 export const MODELS: ReadonlyArray<ModelEntry> = [
   {
@@ -73,7 +91,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 65_536,
     defaultMaxTokens: 16_384,
     tools: true,
-    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    // DeepSeek publishes 600 images per request for this model (https://api-docs.deepseek.com/guides/vision,
+    // 2026-11). No route publishes a lower limit for it (Azure's 50 is for its GPT models only).
+    vision: { maxImages: 600, tokensPerImage: 4_096 },
     routes: [
       { provider: "vercel", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.075, output: 0.3 } },
       { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.15, output: 0.6 } },
@@ -81,6 +101,25 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
       { provider: "custom", id: "deepseek/deepseek-v4.1-flash-1017" },
       { provider: "azure", id: "deepseek-v4.1-flash" }
     ]
+  },
+  {
+    // Particle (particle.ai, user 2026-11-10): a coding-agent model post-trained on DeepSeek V4.1 Flash for
+    // token efficiency. Particle is its only route on purpose: the cmux key's traffic is not under Particle's
+    // zero-data-retention terms (the inference-for-data arrangement), so no other model ever falls back to
+    // Particle and only a caller who picks this model reaches it. Not in the deployments' allowlist yet; a
+    // deployment opts in with INFERENCE_MODEL_ALLOWLIST. List price is Particle's peak default tier
+    // (docs.particle.ai pricing, 2026-11-10); off-peak and flex are cheaper, so the card is an upper bound.
+    id: "particle-ai/particle-1",
+    name: "Particle-1",
+    card: { input: 0.25, output: 1 },
+    context: 1_048_576,
+    maxOutput: 131_072,
+    defaultMaxTokens: 16_384,
+    tools: true,
+    // Particle has no image-count limit, only bytes (16 MiB per image, 100 MiB in all;
+    // https://docs.particle.ai/models, 2026-11).
+    vision: { tokensPerImage: 4_096 },
+    routes: [{ provider: "particle", id: "particle-ai/particle-1", list: { input: 0.25, output: 1 } }]
   },
   {
     // OpenAI's own API (user 2026-10-28: ChatGPT API credits). Not in the deployments' allowlist yet
@@ -92,7 +131,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 128_000,
     defaultMaxTokens: 16_384,
     tools: true,
-    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    // OpenAI takes 1,500 images per request (https://developers.openai.com/api/docs/guides/images-vision,
+    // 2026-11); Vercel AI Gateway passes the request to OpenAI and publishes no lower limit.
+    vision: { maxImages: 1_500, tokensPerImage: 4_096 },
     routes: [
       { provider: "openai", id: "gpt-5.4-mini", list: { input: 0.75, output: 4.5 } },
       { provider: "vercel", id: "openai/gpt-5.4-mini", list: { input: 0.75, output: 4.5 } }

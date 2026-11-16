@@ -16,15 +16,18 @@ public import AppKit
 /// for ``isZoomed``. The resize goes through the panes Motion gate: with Reduce Motion or animations
 /// off it happens at once.
 ///
-/// A window keeps one value and forwards to it:
+/// A window keeps one and forwards to it. It is a class: with Reduce Motion or animations off the
+/// gate runs the completion inside ``zoom(_:)``, and that completion ends the zoom on the same state
+/// (``WindowZoomFinishing``). In a struct that was a second write inside the first, which Swift's
+/// exclusivity check stops the app for.
 ///
 /// ```swift
-/// private var zoomState = WindowZoom()
+/// private let zoomState = WindowZoom()
 /// override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
 /// override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
 /// ```
 @MainActor
-public struct WindowZoom {
+public final class WindowZoom {
     /// The frame before the last zoom to the standard frame; nil when there is none to go back to.
     private(set) var userFrame: NSRect?
     /// The frame the running animation moves to; nil when no zoom animates.
@@ -41,7 +44,7 @@ public struct WindowZoom {
 
     /// Zooms `window` (AppKit's toggle, ``WindowZoom``) and returns true; false for a full-screen or
     /// screenless window, which the caller hands to `super.zoom(_:)`.
-    public mutating func zoom(_ window: NSWindow) -> Bool {
+    public func zoom(_ window: NSWindow) -> Bool {
         guard !window.styleMask.contains(.fullScreen), let screen = window.screen ?? NSScreen.main else { return false }
         let standard = window.delegate?.windowWillUseStandardFrame?(window, defaultFrame: screen.visibleFrame) ?? screen.visibleFrame
         guard let target = target(from: window.frame, standard: standard) else { return true }
@@ -57,7 +60,7 @@ public struct WindowZoom {
 
     /// Where a zoom moves a window now at `frame` (its running animation's target while one runs),
     /// given its standard frame; nil when it is at the standard frame with nothing to go back to.
-    mutating func target(from frame: NSRect, standard: NSRect) -> NSRect? {
+    func target(from frame: NSRect, standard: NSRect) -> NSRect? {
         let current = animatingTo ?? frame
         if Self.same(current, standard) {
             guard let back = userFrame else { return nil }
@@ -69,7 +72,7 @@ public struct WindowZoom {
     }
 
     /// Records the animation that moves the window to `target` and returns its generation.
-    mutating func begin(to target: NSRect, standard: NSRect) -> Int {
+    func begin(to target: NSRect, standard: NSRect) -> Int {
         generation &+= 1
         animatingTo = target
         animatingStandard = standard
@@ -77,7 +80,7 @@ public struct WindowZoom {
     }
 
     /// The animation of `finished` ended (a newer one may run).
-    public mutating func end(_ finished: Int) {
+    public func end(_ finished: Int) {
         guard finished == generation else { return }
         animatingTo = nil
         animatingStandard = nil

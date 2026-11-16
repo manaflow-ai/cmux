@@ -10,6 +10,7 @@ import { machineColor } from "../machineColor";
 import { useAvatarPicture } from "../../../pages/home-channels/avatars";
 import { initials, isGuest, type Participant } from "./participants";
 import { PRESENCE_STACK } from "./facesModel";
+import { signed } from "../../../ui/Typography";
 
 /// An https picture the page could not load itself, as the host loaded it (`data:`), or null when the
 /// host would not: asked once per link for the page's life.
@@ -148,7 +149,7 @@ export function PresenceStack({ viewing, look = "stack" }: { viewing: Participan
       ))}
       {viewing.length > shown.length && (
         <span className="cv-presence__more" aria-hidden="true">
-          {t("multiplayer.more", { count: viewing.length - shown.length })}
+          {signed(t("multiplayer.more", { count: viewing.length - shown.length }))}
         </span>
       )}
     </div>

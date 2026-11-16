@@ -469,7 +469,9 @@ async function desktopChecks(vm: Vm, check: Checker): Promise<void> {
   check("rd-run-dir-and-socket", s["rd-run-dir"] === "711:root:root" && s["rd-socket"] === `socket:660:root:${DEVBOX_WORK_USER}`, `${RD_RUN_DIR} ${s["rd-run-dir"]}, ${RD_SOCKET} ${s["rd-socket"]}`);
   check("rd-socket-enabled-host-off", s["rd-socket-unit"] === "active" && s["rd-socket-enabled"] === "enabled" && s["rd-unit"] === "inactive", `socket ${s["rd-socket-unit"]}/${s["rd-socket-enabled"]}, host ${s["rd-unit"]}`);
   check("rd-peer-uid-is-work-user", s["rd-peer-uid"] === String(RD_PEER_UID) && s["rd-work-uid"] === String(RD_PEER_UID) && s["rd-exec-start"] === `path=${RD_START_SCRIPT}`, `--peer-uid ${s["rd-peer-uid"]}, ${DEVBOX_WORK_USER} uid ${s["rd-work-uid"]}, ${s["rd-exec-start"]}`);
-  check("rd-host-unix-only", s["rd-families"] === "AF_UNIX", `RestrictAddressFamilies=${s["rd-families"]}`);
+  // Unix sockets, plus IPv4 UDP and netlink for the datagram link (agent-tools.ts rdUnit); never IPv6 or another family.
+  const families = (s["rd-families"] ?? "").split(/\s+/).filter(Boolean).sort().join(" ");
+  check("rd-host-families", families === "AF_INET AF_NETLINK AF_UNIX", `RestrictAddressFamilies=${s["rd-families"]}`);
   const other = kv((await run(vm, rdOtherUserCommand(), 30_000)).stdout);
   check("rd-other-user-refused", other["other-connect"] === "EACCES", `connect as nobody: ${other["other-connect"]}`);
   const a = kv((await run(vm, rdActivateCommand(), 150_000)).stdout);

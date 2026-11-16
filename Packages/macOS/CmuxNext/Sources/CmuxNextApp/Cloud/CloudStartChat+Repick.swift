@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
+import CmuxNextTabs
 import Foundation
 
 /// Another machine picked for a Cloud chat whose first send has not run (`cloud.repickChat`,
@@ -20,18 +21,18 @@ extension CloudStartChat {
     static func repickRunner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any] {
         { [weak tabs, weak services] view, repick in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            guard let view, let tabs, let key = tabs.views.first(where: { $0.value === view })?.key,
-                  let started = tabs.pageChats.cloudStarted[key], let (tab, _) = services.locateTab(key) else {
+            guard let view, let tabs, let scoped = tabs.views.entries.first(where: { $0.value === view })?.key,
+                  let started = tabs.pageChats.cloudStarted[scoped], let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine) else {
                 // No chat a start opened: the page does what a pick did before.
                 return AgentPaneReply.failure(code: "not_a_cloud_start", message: "not_a_cloud_start")
             }
-            return await CloudStartChat(services: services).repick(repick, started: started, key: key, tab: tab)
+            return await CloudStartChat(services: services).repick(repick, started: started, key: scoped.key, machine: scoped.machine, tab: tab)
         }
     }
 
     /// Moves the chat a start opened (tab `key`, `tab`) to the machine `repick` names and sends its
     /// first prompt there; the page's reply.
-    func repick(_ repick: AgentPaneCloudRepick, started: AgentPaneCloudStarted, key: String, tab: TabModel) async -> [String: Any] {
+    func repick(_ repick: AgentPaneCloudRepick, started: AgentPaneCloudStarted, key: String, machine: String, tab: TabModel) async -> [String: Any] {
         if let refusal = Self.refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let listed = services.cloud.listedMachineIDs
         let machines = services.machines.cloud.filter { listed.contains($0.machineID) }
@@ -54,7 +55,7 @@ extension CloudStartChat {
             let old = services.machines.daemon(forTab: tab)
             let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account) { [services] in
                 // The chat's tab on the machine it was on, whose first send never ran.
-                services.agentTabs.pageChats.cloudStarted[key] = nil
+                services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine, key: key)] = nil
                 do {
                     try await old.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
                 } catch {

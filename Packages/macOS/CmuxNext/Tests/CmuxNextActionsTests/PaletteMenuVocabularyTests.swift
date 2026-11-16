@@ -153,8 +153,7 @@ struct PaletteMenuVocabularyTests {
 
     /// One name per command: no two palette or menu bar actions share a name unless one is a
     /// declared duplicate of the other (`ActionDescriptor.paletteDuplicates`), and a duplicate
-    /// carries its canonical action's name. Two different commands that read alike ("Show Feed"
-    /// for the right sidebar's mode and for the feed panel) fail here.
+    /// carries its canonical action's name. Two different commands that read alike fail here.
     @Test func everyNameBelongsToOneCommand() throws {
         func key(_ title: String) -> String {
             (title.hasSuffix("…") ? String(title.dropLast()) : title).lowercased()

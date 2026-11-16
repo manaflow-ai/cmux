@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { TerminalSquare } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
@@ -26,7 +27,8 @@ export function BackgroundTaskTail({
   readOutput?: boolean;
   link?: CommandLink;
   owner?: string;
-  elapsed?: string;
+  /// Its time (SubagentTray.tsx `commandTime`), ticking in its own leaf while it runs.
+  elapsed?: ReactNode;
   onOpenTerminal?: () => void;
   /// Opens the subagent that runs it (`owner`): an explicit button, never the row's click.
   onOpenOwner?: () => void;

@@ -139,7 +139,7 @@ struct StoreStageTests {
         let scope = DaemonCommandScope()
         let stage = store.openStage(for: scope, until: .now + .seconds(60))
         let scripted = { Self.names(store, workspace: 1) }
-        let watched = { store.workspace(handle: 2)?.screens.flatMap(\.panes).flatMap(\.tabs).map(\.title) ?? [] }
+        let watched = { store.workspace(handle: 2)?.screens.flatMap(\.panes).flatMap(\.tabs).map(\.titleText) ?? [] }
         var scriptedPublishes = 0
         for surface in 1...8 {
             let changed = Self.publishes(scripted) {
@@ -164,7 +164,7 @@ struct StoreStageTests {
             }
             if changed { scriptedPublishes += 1 }
             #expect(watchedChanged, "workspace 2's update waited for the scripted batch")
-            #expect(store.tab(surface: 21)?.title == title)
+            #expect(store.tab(surface: 21)?.titleText == title)
         }
         #expect(scriptedPublishes == 0, "the scripted workspace showed \(scriptedPublishes) partial states before the commit")
         let committed = Self.publishes(scripted) { stage.commit() }
@@ -368,7 +368,7 @@ struct StoreStageTests {
         ])
         #expect(followup != .resync, "a held new screen's layout applied before the screen")
         stage.commit()
-        #expect(store.tab(surface: 9)?.title == "late", "the title set after the held tab-added was dropped")
+        #expect(store.tab(surface: 9)?.titleText == "late", "the title set after the held tab-added was dropped")
         #expect(store.screen(300) != nil)
     }
 

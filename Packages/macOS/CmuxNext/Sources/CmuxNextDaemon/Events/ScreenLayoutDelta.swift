@@ -12,14 +12,17 @@ public struct ScreenLayoutDelta: Sendable, Hashable, Decodable {
     public var viewportBaseWidth: Double?
     /// Empty unless horizontal viewport columns are active.
     public var columns: [ColumnSnapshot]
+    /// Splits whose divider draws no line (`split-divider-visibility-v1`).
+    public var hiddenDividers: Set<SplitID>
 
     public init(activePane: PaneID? = nil, zoomedPane: PaneID? = nil, layout: LayoutNode,
-                viewportBaseWidth: Double? = nil, columns: [ColumnSnapshot] = []) {
+                viewportBaseWidth: Double? = nil, columns: [ColumnSnapshot] = [], hiddenDividers: Set<SplitID> = []) {
         self.activePane = activePane
         self.zoomedPane = zoomedPane
         self.layout = layout
         self.viewportBaseWidth = viewportBaseWidth
         self.columns = columns
+        self.hiddenDividers = hiddenDividers
     }
 
     enum CodingKeys: String, CodingKey {
@@ -27,6 +30,7 @@ public struct ScreenLayoutDelta: Sendable, Hashable, Decodable {
         case activePane = "active_pane"
         case zoomedPane = "zoomed_pane"
         case viewportBaseWidth = "viewport_base_width"
+        case hiddenDividers = "hidden_dividers"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -36,5 +40,6 @@ public struct ScreenLayoutDelta: Sendable, Hashable, Decodable {
         layout = try c.decode(LayoutNode.self, forKey: .layout)
         viewportBaseWidth = try c.decodeIfPresent(Double.self, forKey: .viewportBaseWidth)
         columns = try c.decodeIfPresent([ColumnSnapshot].self, forKey: .columns) ?? []
+        hiddenDividers = Set(((try? c.decodeIfPresent([SplitID].self, forKey: .hiddenDividers)) ?? nil) ?? [])
     }
 }

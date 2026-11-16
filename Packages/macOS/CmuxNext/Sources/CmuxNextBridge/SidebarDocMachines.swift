@@ -121,18 +121,21 @@ public struct SidebarDocMachines {
     }
 
     /// Link rows draw the favicon at their item's icon address. An open tab's favicon address can change while its image
-    /// is cached already (no favicon `revision`): this watches the addresses too (`byOrigin`, one origin -> favicon table
-    /// read once per change) and stores them on the link items; `faviconKey` is a page's origin key.
+    /// is cached already (no favicon `revision`): this watches the addresses too (`byOrigin`, one origin -> favicon table:
+    /// ``OpenTabFavicons/byOrigin``, a cell its per-workspace observations write only when it changed, never a walk of the
+    /// tabs) and stores them on the link items; `faviconKey` is a page's origin key. Rows are told to draw again
+    /// (`itemFaviconsChanged`) only when an image, the document or an address changed.
     public static func followFavicons(_ store: SidebarDocStore, revision: @escaping @MainActor () -> Int?,
                                       byOrigin: @escaping @MainActor () -> [String: String], faviconKey: @escaping (URL) -> String?) {
         // task-owner: the app's services (live for the app); event-driven (Observation)
         Task {
-            var last: [String: String]?
-            var lastVersion: UInt64?
-            for await (_, version, origins) in ObservationStream({ (revision(), store.version, byOrigin()) }) {
+            var last: (images: Int?, version: UInt64, origins: [String: String])?
+            for await (images, version, origins) in ObservationStream({ (revision(), store.version, byOrigin()) }) {
+                guard last.map({ $0.images != images || $0.version != version || $0.origins != origins }) ?? true else { continue }
+                let moved = last.map { $0.origins != origins || $0.version != version } ?? true
+                last = (images, version, origins)
                 NotificationCenter.default.post(name: SidebarModel.itemFaviconsChanged, object: nil)
-                guard origins != last || version != lastVersion else { continue } // a tab change that moves no favicon address
-                (last, lastVersion) = (origins, version)
+                guard moved else { continue } // a new image only: the stored addresses stay
                 store.storeIconURLs { page in URL(string: page).flatMap(faviconKey).flatMap { origins[$0] } }
             }
         }

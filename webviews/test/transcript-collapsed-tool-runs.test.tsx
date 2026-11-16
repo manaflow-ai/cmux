@@ -16,6 +16,18 @@ import { mainToolRunCategory } from "../src/agent-session/acpmux/conversation/to
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { configureToolRunLook } from "../src/agent-session/acpmux/toolRunLook";
 import { isEditRow } from "../src/agent-session/acpmux/turnChanges/sessionRows";
+import { teardownDom } from "./support/domTeardown";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -35,12 +47,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   configureToolRunLook(undefined);
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const call = (id: string, kind: string, extra: Record<string, unknown> = {}): AcpmuxActivity => ({

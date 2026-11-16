@@ -69,6 +69,22 @@ import CmuxNextWakeupsTestSupport
         return try #require(coordinator.panel).cardFrame
     }
 
+    /// The pointer left the shown card's row and the card: moves `clock` past the card's leave grace
+    /// until the card hides. A workspace card lingers (#39684, Leo 2026-11-07): it stays for the grace
+    /// armed when the pointer left its row (the aim window when it headed into the card), and a deadline
+    /// that found the pointer on the card starts one more full grace once it finds the pointer gone. So
+    /// two graces at most: a card still shown after them is a card that stays.
+    static func waitOutLeaveGrace(_ coordinator: HoverCardCoordinator, _ clock: ManualClock) async throws {
+        let grace = max(coordinator.machine.leaveWindow, coordinator.machine.aimWindow) + .milliseconds(50)
+        for _ in 0..<2 where coordinator.machine.shownTarget != nil {
+            let armed = coordinator.machine.armedToken
+            // The grace timer must be asleep before the clock moves past it, and its deadline must land.
+            try await clock.waitForSleeper()
+            clock.advance(by: grace)
+            try await settle(until: { coordinator.machine.armedToken != armed })
+        }
+    }
+
     @Test func aScrollOnTheCardKeepsItAndNeverReachesTheSidebar() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)

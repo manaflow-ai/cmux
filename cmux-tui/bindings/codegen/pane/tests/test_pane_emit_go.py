@@ -5,10 +5,15 @@ import json
 import os
 import shutil
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
-from codegen.pane import generate as pane_generate
+# cmux-tui/bindings, so `python3 cmux-tui/bindings/codegen/pane/tests/test_pane_emit_go.py` imports the
+# codegen package without PYTHONPATH (the registry's lane runner starts each test file that way).
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from codegen.pane import generate as pane_generate  # noqa: E402
 from codegen.pane.emit_go import render
 from codegen.pane.ir import (
     SUPPORTED_KEYWORDS,

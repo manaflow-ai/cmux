@@ -21,18 +21,20 @@ extension DaemonStore {
     /// carrying `transaction`, then calls `noteSettled` after the reply or
     /// `rejectIntent` when it failed.
     public func intend(_ intent: Intent, transaction: ClientTransactionID) {
+        // One monotonic read: the rollback record's time from shown to taken back (``SlowRequestLog``).
+        let shownAt = slowRequestLog?.uptime() ?? 0
         // A script batch's intent waits for its stage to commit (DaemonStore+Stage.swift).
         if let stage, stage.holds(intent, transaction: transaction, in: self) {
-            _ = intentLog.append(intent, transaction: transaction, held: true)
+            _ = intentLog.append(intent, transaction: transaction, held: true, shownAt: shownAt)
             return
         }
         if overlayLifted {
             // Applied with the rest when the lift ends.
-            _ = intentLog.append(intent, transaction: transaction)
+            _ = intentLog.append(intent, transaction: transaction, shownAt: shownAt)
             return
         }
         verifyMirrorUnchanged(before: "intent")
-        guard intentLog.append(intent, transaction: transaction) else { return }
+        guard intentLog.append(intent, transaction: transaction, shownAt: shownAt) else { return }
         if !intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
         recomputeSidebarIfNeeded()
         publishTabListChange()
@@ -66,8 +68,10 @@ extension DaemonStore {
 
     /// The command for `transaction` failed: the intent leaves the log and
     /// the visible state returns to the confirmed mirror (plus the others).
-    public func rejectIntent(_ transaction: ClientTransactionID) {
-        guard intentLog.contains(transaction) else { return }
+    /// `failure` is what refused it, for the slow request log's rollback record (its code only, never its message).
+    public func rejectIntent(_ transaction: ClientTransactionID, failure: (any Error)? = nil) {
+        guard let rejected = intentLog.entries.first(where: { $0.transaction == transaction }) else { return }
+        slowRequestLog?.noteRollback(name: rejected.kind.logName, startedAt: rejected.shownAt, failure: failure)
         // A rejected close leaves its tabs: no longer closed (`closedLately`), so a new tab's move waits for them again.
         if case .closeTabs(let surfaces)? = intentLog.entries.first(where: { $0.transaction == transaction })?.kind { intentLog.forgetClosed(Set(surfaces)) }
         withOverlayLifted(writer: "intent rejection") { settleIntent(transaction, .rejected) }

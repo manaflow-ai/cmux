@@ -42,7 +42,7 @@ does the OptChat/unii thing, and starts tasks.
 | Lines | `VoiceRoomLineSplitter`: a sentence is sent once the next one starts; long unpunctuated runs cut at a word; the rest at session end; each line carries its peak mic level | O(text) |
 | Screen | every 5 s (injected clock, cancelled with the session) a ScreenCaptureKit still of the main display at 1440 px, cmux's own windows excluded (the room page never reads itself); a 32×20 grey signature decides "changed" (> 2 % mean difference) | one still per 5 s; OCR only on change |
 | Screen text | Vision `.fast` text recognition, top to bottom, ≤ 800 characters, sent as a `screen` line | ~30–60 ms off main per change |
-| Keyframes | JPEG (q 0.6) per change in `~/Library/Application Support/cmux/voice-room/frames`, newest 2,000 kept | local only, never sent |
+| Keyframes | JPEG (q 0.6) per change in `~/Library/Application Support/cmux-next/voice-room/frames`, newest 2,000 kept | local only, never sent |
 | Pause | the room's pause (any participant, button or Ctrl-Option-P in the page) reaches the app over the observer socket; capture stops until resume; a line the paused room refused also pauses | — |
 
 The mic is shared through `DictationMicrophoneClaims`: a composer's dictation takes it and the

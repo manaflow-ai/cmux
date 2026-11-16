@@ -1,0 +1,9 @@
+# Committed cmux screenshots the codec study adds to its drawn scenes (repo-relative PNG paths).
+docs/assets/screenshot.png
+docs/assets/built-in-browser.png
+docs/assets/claude-code-teams.png
+docs/assets/vertical-horizontal-tabs-and-splits.png
+plans/cmux-next/evidence/terminal-after-cli-input.png
+plans/cmux-next/evidence/runtime-cua-browser.png
+plans/cmux-next/evidence/layout-split-tabs.png
+markdown-obsidian-parity/screenshots/table-webkit-dark.png

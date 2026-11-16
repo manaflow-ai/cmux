@@ -57,6 +57,46 @@ public struct CloudCLICall: Sendable {
         }
     }
 
+    /// `cmux cloud api` (cmux-tui `cli/cloud_api.rs`, the cmux-cloud-api crate behind the daemon's
+    /// `cloud.<call>` ops) on this Mac's daemon at `socket`, as the signed-in person of `auth` on the platform origin, worker auth. The
+    /// answer line as is: `{"ok": true, "body": B}` or `{"ok": false, "error": {"kind", "code", "message", …}}`.
+    /// The token is read per call and goes on stdin, never in argv.
+    @MainActor
+    func cloudAPI(_ call: String, args: [String: any Sendable], signedIn auth: CloudAuth, socket: String) async -> Data {
+        let failed = { (kind: String, message: String) in
+            (try? JSONSerialization.data(withJSONObject: ["ok": false, "error": ["kind": kind, "message": message]])) ?? Data()
+        }
+        guard auth.isSignedIn, let credential = try? await auth.tokens().access else { return failed("not_signed_in", "") }
+        var request: [String: Any] = ["call": call, "api": auth.configuration.relayAPIBaseURL().absoluteString, "auth": "worker",
+                                      "credential": credential, "args": args]
+        if let team = auth.teamID { request["team"] = team }
+        guard let stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
+        do {
+            return try await run(["--socket", socket, "cloud", "api"], stdin: stdin, timeout: .seconds(60))
+        } catch {
+            return failed("transport", String(describing: error))
+        }
+    }
+
+    /// Share with Me on a teammate's Cloud machine's refused chat start (the agent pane's
+    /// `machine.share.self`): cmux-platform's `PUT /v1/machines/{id}/chat-grants/{user}` for the
+    /// signed-in person, sent by the cmux-cloud-api crate (`machine.share_chat` with `me`) on this Mac's daemon at `socket`. Nil once
+    /// the person may start chats there; else the platform's refusal code (`machine.creator_or_admin`,
+    /// `machine.private`, …) or the call's failure kind (`not_signed_in`, `timed_out`, `transport`, …), and its message.
+    @MainActor
+    public func shareChatWithMe(machine: String, signedIn auth: CloudAuth, socket: String?) async -> (code: String, message: String)? {
+        guard let user = auth.platformUserID else { return ("not_signed_in", "") }
+        guard let socket else { return ("transport", "") }
+        struct Answer: Decodable {
+            struct Failure: Decodable { var kind: String?; var code: String?; var message: String? }
+            var ok: Bool
+            var error: Failure?
+        }
+        let line = await cloudAPI("machine.share_chat", args: ["machine": machine, "user": user, "me": true], signedIn: auth, socket: socket)
+        guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else { return ("transport", "") }
+        return answer.ok ? nil : (answer.error?.code ?? answer.error?.kind ?? "transport", answer.error?.message ?? "")
+    }
+
     private static func unreachable(_ message: String) -> Data {
         let answer: [String: Any] = ["ok": false, "error": ["code": "owner.unreachable", "message": message]]
         return (try? JSONSerialization.data(withJSONObject: answer)) ?? Data(#"{"ok":false,"error":{"code":"owner.unreachable","message":""}}"#.utf8)

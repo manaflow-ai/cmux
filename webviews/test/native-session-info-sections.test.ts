@@ -10,8 +10,35 @@ import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/nati
 import { outputsSection } from "../src/agent-session/acpmux/session-info/native/outputs";
 import { sourcesSection } from "../src/agent-session/acpmux/session-info/native/sources";
 import { safeExternalUrl } from "../src/agent-session/acpmux/session-info/native/links";
+import { until } from "./support/until";
 
 const t: Translate = (key, values) => translate(key, values, "en");
+
+test("screen sharing is one action below the named machine and preserves Cloud lifetime", async () => {
+  const actions = new NativeInfoActions();
+  let requests = 0;
+  const section = environmentSection(
+    {
+      summary: { sessionId: "cloud-chat", hostKind: "cloud", host: "Maple" },
+      onShareScreen: () => {
+        requests += 1;
+      },
+      screenShareKind: "view",
+      screenShareNote: "Host approval is required.",
+    },
+    actions,
+    t,
+  )!;
+  expect(section.rows[0]!.id).toBe("machine");
+  expect(section.rows[0]!.subtitle).toBe(t("cloudRepository.lifetime"));
+  const share = section.rows[1]!;
+  expect(share.id).toBe("screen-sharing");
+  expect(share.title).toBe(t("sessionInfo.environment.viewScreen"));
+  expect(share.subtitle).toBe("Host approval is required.");
+  actions.run(share.action!);
+  await Promise.resolve();
+  expect(requests).toBe(1);
+});
 
 test("Cloud environment actions retain anchors, grants and one Remote Control switch", async () => {
   const actions = new NativeInfoActions();
@@ -327,7 +354,7 @@ test("a pull request's View diff opens its Files tab through the chat's link rou
     // An issue has no diff.
     expect(issue!.menu).toBeUndefined();
     actions.run(pull!.menu![0]!.action);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await until(() => hosted.length >= 2);
     // Never the preview beside the chat (a plain browser tab): the App's GitHub route takes the link.
     expect(beside).toEqual([]);
     const open = ["browser.openIn", { url: `${url}/files`, browserId: "cmux" }];

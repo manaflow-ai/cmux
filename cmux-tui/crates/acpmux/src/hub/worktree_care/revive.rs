@@ -3,7 +3,7 @@
 use crate::git_state::{GitState, WorktreeOrigin, linked_worktree};
 use crate::hub::{Hub, Session};
 use crate::rpc::RpcError;
-use crate::subsession_worktree::{add_without_config, git_by};
+use crate::subsession_worktree::{add_without_config, git_by, git_repo_write_by};
 use serde_json::json;
 use std::path::Path;
 use std::sync::Arc;
@@ -134,7 +134,9 @@ fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
     }
     let by = Instant::now() + Duration::from_secs(60);
     let git = |args: &[&str]| git_by(&w.common_dir, args, by);
-    git(&["worktree", "prune"])?;
+    // Under the repository's lock: a model race's add in this process at the same time can see
+    // the worktree list change under it.
+    git_repo_write_by(&w.common_dir, &["worktree", "prune"], by)?;
     let root = w.root.to_string_lossy();
     let commit = |r: &str| git(&["rev-parse", "--verify", "--quiet", &format!("{r}^{{commit}}")]);
     let add = |args: &[&str], at: &str| add_without_config(&w.common_dir, args, &w.root, at, by);

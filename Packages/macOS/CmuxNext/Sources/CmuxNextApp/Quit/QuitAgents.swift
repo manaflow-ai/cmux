@@ -42,14 +42,10 @@ enum QuitAgents {
     /// (``ChiefHostStop/appAcpmuxEndKeep(chiefUsesAppAcpmux:)``).
     static func end(_ environment: AcpmuxEnvironment?, keep: AcpmuxQuit.Keep = .chief,
                     waitForShutdown: Bool = false) async -> [EndSessionsFailure] {
-        if environment?.isAttached == true {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
-                .info("end agents: skipped, attached to \(environment?.home.path ?? "", privacy: .public)")
-            return []
-        }
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
+        if environment?.isAttached == true { logger.info("end agents: skipped, attached to \(environment?.home.path ?? "", privacy: .public)"); return [] }
         let result = await AcpmuxQuit.endAgents(environment, keep: keep, waitForShutdown: waitForShutdown)
-        Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
-            .info("end agents: \(String(describing: result), privacy: .public)")
+        logger.info("end agents: \(String(describing: result), privacy: .public)")
         return failures(for: result)
     }
 }

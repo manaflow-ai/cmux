@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -98,7 +99,7 @@ import CmuxNextWakeupsTestSupport
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "1.0.0", build: "100",
                                            minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", hasPublicKey: true)
-        let defaults = UserDefaults(suiteName: "UpdateStagedYieldsToNewerTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "UpdateStagedYieldsToNewerTests.\(UUID().uuidString)")!
         let clock = ManualClock()
         let feed = CountingFeed(xml: xml, held: held)
         let sparkle = FakeSparkle()
