@@ -6,7 +6,7 @@ import { markRecapEntrance } from "../conversation/turnEndFold";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
-import { useLiveThoughtRow } from "../liveThought";
+import { useLiveThoughtLine, useLiveThoughtRow } from "../liveThought";
 import { useStreamingRowFor } from "../streamingRow";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
@@ -46,7 +46,10 @@ export const RowContent = React.memo(
     });
     // What moved on without the pane (a running command's output, a thought, the streaming reply's
     // text and the live line under it): this row alone draws it.
-    const row = useStreamingRowFor(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
+    const row = useStreamingRowFor(
+      useLiveThoughtLine(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools),
+      liveTools,
+    );
     return <Component {...props} row={row} />;
   },
   (previous, next) => {

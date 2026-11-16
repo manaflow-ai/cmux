@@ -32,9 +32,11 @@ export const liveSummary = {
   set(drawn: Summary, now: Summary): void {
     publish({ drawn, now });
   },
-  /// The pane draws a new snapshot: its summary is the truth again.
+  /// The pane draws a new snapshot: its summary is the truth again. Silent: the readers render
+  /// with that snapshot's summary as it commits; notifying them now would draw them a frame early,
+  /// with the pane's older summary (a store's update outruns the pane's `setSnapshot`).
   clear(): void {
-    publish(undefined);
+    entry = undefined;
   },
   get: () => entry,
 };
@@ -51,8 +53,13 @@ export function usageOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean 
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return false;
   for (const key of keys) if (key !== "summary" && !Object.is(before[key], after[key])) return false;
-  const was = drawn.summary as unknown as Record<string, unknown>;
-  const now = next.summary as unknown as Record<string, unknown>;
+  return sameButUsage(drawn.summary, next.summary);
+}
+
+/// Whether two summaries hold the same objects in every field but the usage ones. O(fields).
+function sameButUsage(previous: Summary, next: Summary): boolean {
+  const was = previous as unknown as Record<string, unknown>;
+  const now = next as unknown as Record<string, unknown>;
   let count = 0;
   for (const key in now) {
     if (USAGE_KEYS.has(key)) continue;
@@ -65,8 +72,12 @@ export function usageOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean 
 
 const none = (): undefined => undefined;
 
-/// `summary` as it is now: the store's newer one while `summary` is the one it moved on from.
+/// `summary` as it is now: the store's newer one while `summary` is the one it moved on from, or one
+/// that holds the same in every other field (a reader that kept an equal older object,
+/// useSessionInfo.tsx `useSameValue`). A summary the pane scoped to a subagent differs in more than
+/// usage, so it keeps its own numbers.
 export function useLiveSummary<T extends Summary | undefined>(summary: T): T {
   const live = useSyncExternalStore(liveSummary.subscribe, liveSummary.get, none);
-  return live && summary !== undefined && live.drawn === summary ? (live.now as T) : summary;
+  if (!live || summary === undefined) return summary;
+  return live.drawn === summary || sameButUsage(live.drawn, summary) ? (live.now as T) : summary;
 }
