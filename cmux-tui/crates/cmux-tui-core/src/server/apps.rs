@@ -490,7 +490,11 @@ pub(super) fn try_handle(
         Command::List => Ok(supervisor.list()),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
-        Command::Reload { .. } => unreachable!("apps-reload answers on its own thread"),
+        // Answered on its own thread above.
+        Command::Reload { .. } => Err(crate::apps::ApiError::new(
+            "operation.failed",
+            "apps-reload is answered off this thread",
+        )),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),
