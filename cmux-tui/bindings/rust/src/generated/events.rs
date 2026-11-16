@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 69789c7a969db60c8122dc6a4f03f032c16ea2d0529abdceef6f3fa21d1705a5.
+// cmux-tui mux protocol 12, IR d6fe394e4186410f007428bdc8a655853714c501d88f2fd7a18b0b8f1593fa78.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -49,6 +49,13 @@ pub struct AgentCliFrameEvent {
     pub frame: u64,
     pub rows: u16,
     pub stream: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliLeanEvent {
+    pub f: T::Base64,
     pub surface: T::Id,
 }
 
@@ -406,6 +413,16 @@ pub struct DetachedEvent {
     pub surface: T::Id,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSetupStepEvent {
+    pub detail: String,
+    pub device: String,
+    pub fix: String,
+    pub state: String,
+    pub step: String,
 }
 
 #[rustfmt::skip]
@@ -1053,6 +1070,7 @@ pub enum Event {
     ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
     AgentCliFrame(AgentCliFrameEvent),
+    AgentCliLean(AgentCliLeanEvent),
     AgentInventoryChanged(AgentInventoryChangedEvent),
     AgentInventoryWatchEnded(AgentInventoryWatchEndedEvent),
     AgentPresenceChanged(AgentPresenceChangedEvent),
@@ -1087,6 +1105,7 @@ pub enum Event {
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
+    DeviceSetupStep(DeviceSetupStepEvent),
     Empty(EmptyEvent),
     FeedReportsChanged(FeedReportsChangedEvent),
     FeedViewChanged(FeedViewChangedEvent),
@@ -1155,6 +1174,7 @@ impl Event {
             Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
             Self::AgentCliFrame(_) => Some("agent-cli-frame"),
+            Self::AgentCliLean(_) => Some("agent-cli-lean"),
             Self::AgentInventoryChanged(_) => Some("agent-inventory-changed"),
             Self::AgentInventoryWatchEnded(_) => Some("agent-inventory-watch-ended"),
             Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
@@ -1189,6 +1209,7 @@ impl Event {
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
+            Self::DeviceSetupStep(_) => Some("device-setup-step"),
             Self::Empty(_) => Some("empty"),
             Self::FeedReportsChanged(_) => Some("feed-reports-changed"),
             Self::FeedViewChanged(_) => Some("feed-view-changed"),
@@ -1256,6 +1277,7 @@ impl Event {
             Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
             Self::AgentCliFrame(_) => Some(&AGENT_CLI_FRAME_EVENT_METADATA),
+            Self::AgentCliLean(_) => Some(&AGENT_CLI_LEAN_EVENT_METADATA),
             Self::AgentInventoryChanged(_) => Some(&AGENT_INVENTORY_CHANGED_EVENT_METADATA),
             Self::AgentInventoryWatchEnded(_) => Some(&AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA),
             Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
@@ -1290,6 +1312,7 @@ impl Event {
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
+            Self::DeviceSetupStep(_) => Some(&DEVICE_SETUP_STEP_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
             Self::FeedReportsChanged(_) => Some(&FEED_REPORTS_CHANGED_EVENT_METADATA),
             Self::FeedViewChanged(_) => Some(&FEED_VIEW_CHANGED_EVENT_METADATA),
@@ -1375,6 +1398,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-cli-frame") => match serde_json::from_value::<AgentCliFrameEvent>(raw.clone()) {
             Ok(event) => Event::AgentCliFrame(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-cli-lean") => match serde_json::from_value::<AgentCliLeanEvent>(raw.clone()) {
+            Ok(event) => Event::AgentCliLean(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1647,6 +1678,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("detached") => match serde_json::from_value::<DetachedEvent>(raw.clone()) {
             Ok(event) => Event::Detached(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("device-setup-step") => match serde_json::from_value::<DeviceSetupStepEvent>(raw.clone()) {
+            Ok(event) => Event::DeviceSetupStep(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

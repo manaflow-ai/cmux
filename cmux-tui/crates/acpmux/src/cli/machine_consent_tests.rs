@@ -157,7 +157,7 @@ fn after_a_sign_in_join_a_local_computer_use_call_passes_and_one_from_elsewhere_
     assert_eq!(elsewhere, a.status());
     assert_eq!(elsewhere["consentRequired"], true);
     let refused = crate::cua_v2::require_tool_consent(true, &elsewhere).unwrap_err();
-    assert_eq!(refused.to_string(), crate::cli::cloud_join::CONSENT_REQUIRED);
+    assert_eq!(refused.to_string(), crate::machine_record::CONSENT_REQUIRED);
     // A consent the person set is theirs: the local use is gated by it, as it always was.
     a.set("screen", true).unwrap();
     let local = a.status_for(true);
@@ -187,7 +187,7 @@ fn signed_in_machines_is_off_by_default_and_answered_once() {
     let status = b.status();
     assert_eq!(status["consent"]["signedInMachines"], "none", "signing in grants nothing");
     assert!(status["consent"]["signedInMachinesAnsweredAt"].is_null(), "not asked yet");
-    a.refused_from(super::super::cloud_join::SIGNED_IN_MACHINES, Some("studio")).unwrap();
+    a.refused_from(crate::machine_record::SIGNED_IN_MACHINES, Some("studio")).unwrap();
     let status = b.status();
     assert_eq!(status["lastRefusal"]["surface"], "signedInMachines");
     assert_eq!(status["lastRefusal"]["from"], "studio");

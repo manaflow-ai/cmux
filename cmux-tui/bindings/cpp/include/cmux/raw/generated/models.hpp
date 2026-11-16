@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "69789c7a969db60c8122dc6a4f03f032c16ea2d0529abdceef6f3fa21d1705a5";
+inline constexpr std::string_view kProtocolIrSha256 = "d6fe394e4186410f007428bdc8a655853714c501d88f2fd7a18b0b8f1593fa78";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -409,6 +409,7 @@ struct DeleteTerminalCommandsRequest;
 struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
+struct DeviceSetupRequest;
 struct ExportLayoutRequest;
 struct FeedLocalHandoffAbortRequest;
 struct FeedLocalHandoffBeginRequest;
@@ -623,6 +624,7 @@ struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
 struct AgentCliFrameEvent;
+struct AgentCliLeanEvent;
 struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
@@ -657,6 +659,7 @@ struct ConversationRunChangedEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
+struct DeviceSetupStepEvent;
 struct EmptyEvent;
 struct FeedReportsChangedEvent;
 struct FeedViewChangedEvent;
@@ -849,6 +852,12 @@ struct AgentCliFrameEvent {
     std::string stream{};
     Id surface{};
     friend bool operator==(const AgentCliFrameEvent&, const AgentCliFrameEvent&) = default;
+};
+
+struct AgentCliLeanEvent {
+    Base64 f{};
+    Id surface{};
+    friend bool operator==(const AgentCliLeanEvent&, const AgentCliLeanEvent&) = default;
 };
 
 struct AgentInventoryChangedEvent {
@@ -2937,6 +2946,23 @@ struct DetachedEvent {
     Id surface{};
     std::optional<std::string> view{};
     friend bool operator==(const DetachedEvent&, const DetachedEvent&) = default;
+};
+
+struct DeviceSetupRequest {
+    std::optional<bool> allow_agents{};
+    std::string device{};
+    std::optional<bool> dry_run{};
+    std::string verb{};
+    friend bool operator==(const DeviceSetupRequest&, const DeviceSetupRequest&) = default;
+};
+
+struct DeviceSetupStepEvent {
+    std::string detail{};
+    std::string device{};
+    std::string fix{};
+    std::string state{};
+    std::string step{};
+    friend bool operator==(const DeviceSetupStepEvent&, const DeviceSetupStepEvent&) = default;
 };
 
 struct EmptyEvent {
@@ -8990,6 +9016,12 @@ struct Codec<DetachClientRequest> {
 };
 
 template <>
+struct Codec<DeviceSetupRequest> {
+    static Result<Json> encode(const DeviceSetupRequest& value);
+    static Result<DeviceSetupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ExportLayoutRequest> {
     static Result<Json> encode(const ExportLayoutRequest& value);
     static Result<ExportLayoutRequest> decode(const Json& value);
@@ -10274,6 +10306,12 @@ struct Codec<AgentCliFrameEvent> {
 };
 
 template <>
+struct Codec<AgentCliLeanEvent> {
+    static Result<Json> encode(const AgentCliLeanEvent& value);
+    static Result<AgentCliLeanEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentInventoryChangedEvent> {
     static Result<Json> encode(const AgentInventoryChangedEvent& value);
     static Result<AgentInventoryChangedEvent> decode(const Json& value);
@@ -10475,6 +10513,12 @@ template <>
 struct Codec<DetachedEvent> {
     static Result<Json> encode(const DetachedEvent& value);
     static Result<DetachedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeviceSetupStepEvent> {
+    static Result<Json> encode(const DeviceSetupStepEvent& value);
+    static Result<DeviceSetupStepEvent> decode(const Json& value);
 };
 
 template <>

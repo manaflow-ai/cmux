@@ -558,6 +558,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object deviceSetup(DeviceSetupRequest request) throws CmuxException {
+        Object result = execute(Commands.DEVICE_SETUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ExportLayoutResult exportLayout(ExportLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.EXPORT_LAYOUT, request.toWire());
         return ExportLayoutResult.fromWire(result);

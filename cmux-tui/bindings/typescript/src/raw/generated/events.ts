@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 69789c7a969db60c8122dc6a4f03f032c16ea2d0529abdceef6f3fa21d1705a5. */
+/* cmux-tui mux protocol 12, IR d6fe394e4186410f007428bdc8a655853714c501d88f2fd7a18b0b8f1593fa78. */
 
 
 import type * as T from "./types.js";
@@ -37,6 +37,12 @@ export type AgentCliFrameEvent = { event: "agent-cli-frame" } & {
   "frame": bigint;
   "rows": number;
   "stream": string;
+  "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: attach-byte. */
+export type AgentCliLeanEvent = { event: "agent-cli-lean" } & {
+  "f": T.Base64;
   "surface": T.Id;
 };
 
@@ -301,6 +307,15 @@ export type DetachedEvent = { event: "detached" } & {
   "scope"?: string;
   "surface": T.Id;
   "view"?: string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type DeviceSetupStepEvent = { event: "device-setup-step" } & {
+  "detail": string;
+  "device": string;
+  "fix": string;
+  "state": string;
+  "step": string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -783,6 +798,7 @@ export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
   | AgentCliFrameEvent
+  | AgentCliLeanEvent
   | AgentInventoryChangedEvent
   | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
@@ -816,6 +832,7 @@ export type KnownCmuxEvent =
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
+  | DeviceSetupStepEvent
   | EmptyEvent
   | FeedReportsChangedEvent
   | FeedViewChangedEvent
@@ -981,6 +998,7 @@ export type TreeDeltaEvent =
 /** Known events from any attach mode. */
 export type KnownAttachEvent =
   | AgentCliFrameEvent
+  | AgentCliLeanEvent
   | BrowserStateEvent
   | ColorsChangedEvent
   | DetachedEvent
@@ -998,6 +1016,7 @@ export type KnownAttachEvent =
 /** Known byte attach events. */
 export type KnownByteAttachEvent =
   | AgentCliFrameEvent
+  | AgentCliLeanEvent
   | ColorsChangedEvent
   | DetachedEvent
   | NotificationEvent

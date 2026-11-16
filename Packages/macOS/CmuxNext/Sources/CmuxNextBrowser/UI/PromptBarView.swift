@@ -198,9 +198,9 @@ final class PromptBarView: NSView {
             if offer.code != nil { addButton(Strings.verificationFillCode, prominent: true, response: .accept) }
         }
         if !inputField.isHidden {
-            window?.makeFirstResponder(inputField)
+            FocusRoute(.system, "a page's prompt").moveKeyboard(in: window, to: inputField)
         } else if !userField.isHidden {
-            window?.makeFirstResponder(userField)
+            FocusRoute(.system, "a page's sign-in prompt").moveKeyboard(in: window, to: userField)
         }
     }
 

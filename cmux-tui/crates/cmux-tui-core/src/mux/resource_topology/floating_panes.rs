@@ -104,7 +104,11 @@ impl Mux {
         let unchanged = self.with_state(|state| {
             let (workspace, screen) =
                 state.screen_of(pane).ok_or(FloatPaneError::PaneNotFound { pane })?;
-            let screen = &state.workspaces[workspace].screens[screen];
+            let screen = state
+                .workspaces
+                .get(workspace)
+                .and_then(|item| item.screens.get(screen))
+                .ok_or(FloatPaneError::PaneNotFound { pane })?;
             let (next, frame) = planned_floating_panes(screen, pane, mode, frame)?;
             let outcome = FloatPaneOutcome { screen: screen.id, frame, changed: false };
             Ok::<_, FloatPaneError>((next == screen.floating).then_some(outcome))
@@ -131,7 +135,11 @@ impl Mux {
                     let (workspace, screen) =
                         state.screen_of(pane).ok_or(FloatPaneError::PaneNotFound { pane })?;
                     let mut projected = state.clone();
-                    let target = &mut projected.workspaces[workspace].screens[screen];
+                    let target = projected
+                        .workspaces
+                        .get_mut(workspace)
+                        .and_then(|item| item.screens.get_mut(screen))
+                        .ok_or(FloatPaneError::PaneNotFound { pane })?;
                     let (_, placed) = planned_floating_panes(target, pane, mode, frame)?;
                     let before = target.layout_snapshot_for_coalescing_change(coalesce);
                     target.place_floating_pane(pane, mode, frame).map_err(

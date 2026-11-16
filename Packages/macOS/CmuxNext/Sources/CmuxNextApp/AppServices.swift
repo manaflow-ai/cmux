@@ -231,6 +231,8 @@ final class AppServices {
         palette.hiddenActionIDs = {
             AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"]
         }
+        // Restart to Update while a downloaded update waits, in place of Check for Updates… (Lawrence 2026-11-16).
+        RestartToUpdatePaletteRows(staged: { [weak self] in self?.updater.restartableUpdate.map { ($0.title, $0.version) } }).install(into: palette, registry: registry)
         return palette
     }()  // first read in init (no IUO)
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache, pages: pages)  // first read in init (no IUO)
@@ -888,10 +890,11 @@ final class AppServices {
     /// optimistic split's echo gives its record the daemon's handle in place before the window's handle map follows,
     /// and a Cmd-D in that step found no controller, so it split with no focus and no key hold (smoke step 23).
     func paneController(for pane: PaneModel) -> PaneController? {
-        for controller in windows.controllers {
+        let controllers = windows.controllersActingFirst // two windows can show one pane (a shared space): the person's
+        for controller in controllers {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
-        return windows.controllers.lazy.compactMap { $0.content?.controller(for: pane) }.first // keyed by the pane's public id: O(windows)
+        return controllers.lazy.compactMap { $0.content?.controller(for: pane) }.first // keyed by the pane's public id: O(windows)
     }
 
     /// A quit deadline's end: it names and records the state files still saving (a paired-phones save is

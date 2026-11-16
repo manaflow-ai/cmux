@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 69789c7a969db60c8122dc6a4f03f032c16ea2d0529abdceef6f3fa21d1705a5. */
+/* cmux-tui mux protocol 12, IR d6fe394e4186410f007428bdc8a655853714c501d88f2fd7a18b0b8f1593fa78. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "69789c7a969db60c8122dc6a4f03f032c16ea2d0529abdceef6f3fa21d1705a5" as const;
+export const SDK_IR_SHA256 = "d6fe394e4186410f007428bdc8a655853714c501d88f2fd7a18b0b8f1593fa78" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -145,6 +145,7 @@ export const COMMAND_METADATA = {
     "stream": {
       "event_names": [
         "agent-cli-frame",
+        "agent-cli-lean",
         "browser-state",
         "colors-changed",
         "detached",
@@ -172,6 +173,7 @@ export const COMMAND_METADATA = {
         "bytes": [
           "vt-state",
           "agent-cli-frame",
+          "agent-cli-lean",
           "output",
           "resized",
           "colors-changed",
@@ -196,7 +198,7 @@ export const COMMAND_METADATA = {
       "replay_history_start (with replay_history_rows) makes the vt-state replay hold that many history rows from that row (0: the oldest kept), then the active area, at most 10000 rows; the vt-state then carries history_rows_omitted and, when rows between the window and the active area are left out, history_rows_skipped. A window that reaches the active area, or a terminal with images or an alternate screen, gets the rows from that row down instead.",
       "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted.",
       "output_coalesce_ms (bytes mode, no snapshot; 0 to 1000, 0 off) applies only when the connection declared attach-output-coalesce-v1 in set-client-info: output events then come at most once per interval (default 16.667 ms), the first bytes after an idle interval at once.",
-      "A connection that declared agent-cli-hybrid-v1 in set-client-info gets a bytes attach (no snapshot) of a terminal whose agent report names claude, codex or opencode as colors-changed, then agent-cli-frame events instead of vt-state and output: a keyframe (base null), or with hybrid_stream and hybrid_frame naming a stream the daemon still keeps at the same size, one delta from that frame; then at most one frame per 100 ms while the screen changes. resized becomes a keyframe at the new size. hybrid_stream and hybrid_frame go together; without the capability they are ignored."
+      "A connection that declared agent-cli-hybrid-v1 in set-client-info gets a bytes attach (no snapshot) of a terminal whose agent report names claude, codex or opencode as colors-changed, then agent-cli-frame events instead of vt-state and output: a keyframe (base null), or with hybrid_stream and hybrid_frame naming a stream the daemon still keeps at the same size, one delta from that frame; then at most one frame per 100 ms while the screen changes. resized becomes a keyframe at the new size. hybrid_stream and hybrid_frame go together; without the capability they are ignored. With agent-cli-hybrid-v2 declared too, each frame goes as an agent-cli-lean event instead (the same frames in the lean form)."
     ]
   },
   "bind-conversation-tab-session": {
@@ -1359,6 +1361,18 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
+    ]
+  },
+  "device-setup": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "device-setup-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux device setup|start for the verified app connection only (origin.forbidden otherwise); runs off the connection's dispatcher.",
+      "Each step comes first as a device-setup-step control event on the asking connection; the reply (the summary line) ends the request, so no stream stays open.",
+      "Never quits or replaces a running app and never turns sharing on; the agents permission only with allow_agents."
     ]
   },
   "export-layout": {
@@ -3920,6 +3934,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "agent-cli-lean": {
+    "since": 12,
+    "capability": "agent-cli-hybrid-v2",
+    "streams": [
+      "attach-byte"
+    ],
+    "emission": "emitted"
+  },
   "agent-inventory-changed": {
     "since": 12,
     "capability": "agent-inventory-watch-v1",
@@ -4191,6 +4213,14 @@ export const EVENT_METADATA = {
       "attach-byte",
       "attach-render",
       "attach-browser"
+    ],
+    "emission": "emitted"
+  },
+  "device-setup-step": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -22045,6 +22075,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "device-setup": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "allow_agents": {
+          "description": "Turn on the agents permission (the person's click in the app).",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "device": {
+          "description": "A device id, name or address, as `cmux device list` shows it.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "dry_run": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "verb": {
+          "description": "setup (every step) or start (reach, login item and start).",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "export-layout": {
     "request": {
       "additional_properties": false,
@@ -31265,6 +31342,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "agent-cli-lean": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-cli-lean"
+        }
+      },
+      "f": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Base64"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "agent-inventory-changed": {
     "additional_properties": false,
     "constraints": [
@@ -32737,6 +32844,60 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "optional",
         "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "device-setup-step": {
+    "additional_properties": false,
+    "fields": {
+      "detail": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "device": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "device-setup-step"
+        }
+      },
+      "fix": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "step": {
+        "nullable": false,
+        "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"

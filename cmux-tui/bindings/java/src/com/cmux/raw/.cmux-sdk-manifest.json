@@ -41,6 +41,11 @@
       "size": 8219
     },
     {
+      "path": "AgentCliLeanEvent.java",
+      "sha256": "4122244e4e2b280d7868233fdc8f8312dde91ec98209753ab8d0698c16ffb1e8",
+      "size": 2837
+    },
+    {
       "path": "AgentInventoryChangedEvent.java",
       "sha256": "c027a12981fef0eb104e1abc7e952edea9a0d648119eb5886311e6bd9a403a9a",
       "size": 3827
@@ -777,8 +782,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "c66fb854c4c397e95ffcb15ee00df7ca50f83bf51176fbe3838741c4025fca5b",
-      "size": 84010
+      "sha256": "36f94ea2368afe78b5d931abe39adcaecf68487777b384707ebda47a8a5489f2",
+      "size": 84235
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1306,6 +1311,16 @@
       "size": 4555
     },
     {
+      "path": "DeviceSetupRequest.java",
+      "sha256": "dae9006a2c4bb002d9e43f60b88bb02998580718bbd8ccfa6a4913004f3ad3ee",
+      "size": 4158
+    },
+    {
+      "path": "DeviceSetupStepEvent.java",
+      "sha256": "27f58a49e68abfd34f844aa2f59e1fda5ad13ef55787330327d53219f5959833",
+      "size": 4848
+    },
+    {
       "path": "EmptyEvent.java",
       "sha256": "e02cc1ac66e2fd3de29acf244b96e9ba6fba9313a25365bf45b68d956064eb60",
       "size": 1513
@@ -1322,8 +1337,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "741ee9712d05dc25f1863eba9c17f1c1f6d2b254c88bc32b9c0a8b0451caff2e",
-      "size": 20092
+      "sha256": "90e3ee053efc4d6c7ce4af4aa29acd3c3731be62a15f667f062086ed18740c3c",
+      "size": 20489
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1442,8 +1457,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "43d29fab32c4aeebe5b1c7fd81e2c4886d3197706e07a675e9e3ad39d9028f06",
-      "size": 72190
+      "sha256": "3f74e272cfa1232c04cd6404c4c8dda55c3df47a440a8325e2b1dca2cd965813",
+      "size": 72401
     },
     {
       "path": "GetBlobRequest.java",
@@ -2217,8 +2232,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "862e76b24e9bcb3b86782e20b61c29b1669c3d17fa9c484b8025d4a69cf7757d",
-      "size": 8160
+      "sha256": "f1624ee95327fe2231f2a702bc36ffdbcbc0f440681037f8ee48a2b34247ffb7",
+      "size": 8310
     },
     {
       "path": "ProtocolEvent.java",
@@ -3742,7 +3757,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "69789c7a969db60c8122dc6a4f03f032c16ea2d0529abdceef6f3fa21d1705a5",
+  "ir_sha256": "d6fe394e4186410f007428bdc8a655853714c501d88f2fd7a18b0b8f1593fa78",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -28,16 +28,19 @@ public nonisolated protocol RemoteViewFrameSource: RemoteViewStreamSource {
     func decodedFrames() -> AsyncStream<RemoteDecodedFrame>
 }
 
-/// The remote cursor as the host reports it, in stream pixels. Shapes ride
-/// the control channel; `shapeHash` names a cached image.
+/// The remote cursor as the host reports it, in stream pixels (cap `cursor`:
+/// the host leaves it out of the pictures). Shapes ride the control channel;
+/// `shapeHash` names one, and `shape` is its image once it arrived.
 public nonisolated struct RemoteCursorState: Sendable, Hashable {
     public var position: CGPoint
     public var visible: Bool
     public var shapeHash: UInt64?
+    public var shape: RemoteCursorShape?
 
-    public init(position: CGPoint, visible: Bool, shapeHash: UInt64? = nil) {
+    public init(position: CGPoint, visible: Bool, shapeHash: UInt64? = nil, shape: RemoteCursorShape? = nil) {
         self.position = position
         self.visible = visible
         self.shapeHash = shapeHash
+        self.shape = shape
     }
 }

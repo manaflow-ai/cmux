@@ -148,8 +148,11 @@ pub(super) fn overlay(
         .collect::<Result<Vec<_>, _>>()?;
     let mut touched: Vec<usize> = Vec::new();
     for (screen_id, record) in records {
-        let Some(index) = screens.iter().position(|screen| screen.public_id.as_str() == screen_id)
-        else {
+        let found = screens
+            .iter_mut()
+            .enumerate()
+            .find(|(_, screen)| screen.public_id.as_str() == screen_id);
+        let Some((index, screen)) = found else {
             continue;
         };
         let entry = record.and_then(|(pane, frame)| {
@@ -159,13 +162,12 @@ pub(super) fn overlay(
             eprintln!("cmux-tui: ignoring a floating pane record of {screen_id}: it is not valid");
             continue;
         };
-        screens[index].floating.push(entry);
+        screen.floating.push(entry);
         if !touched.contains(&index) {
             touched.push(index);
         }
     }
-    for index in touched {
-        let screen = &mut screens[index];
+    for (_, screen) in screens.iter_mut().enumerate().filter(|(index, _)| touched.contains(index)) {
         let mut panes = Vec::new();
         layout_panes(&screen.layout, &mut panes);
         let kept = screen

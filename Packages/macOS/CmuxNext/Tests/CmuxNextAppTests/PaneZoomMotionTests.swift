@@ -4,8 +4,8 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// Zoom and unzoom (Leo 2026-10-13, Lawrence 2026-10-18): the zooming pane owns the motion and is
-/// laid out live at its spring rect on every frame ("content must move while it animates"); it
+/// Zoom and unzoom (decided 2026-10-13 and 2026-10-18): the zooming pane owns the motion and is
+/// laid out live at its spring rect on every frame (the content moves while it animates); it
 /// covers the other panes, whose hosts keep their opacity and place and are let go once it lands
 /// (the dim over them while it moves is one view above them: `PaneZoomDimsOthersTests`). Frames step
 /// at a fixed 120 Hz dt, so every assertion is about frame N, not wall time.

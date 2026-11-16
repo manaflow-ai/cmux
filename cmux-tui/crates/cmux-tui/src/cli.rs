@@ -149,6 +149,8 @@ pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
+#[cfg(unix)]
+pub(crate) use remote_host::confirm_allow_agents;
 
 /// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
 /// hosting, every platform), on the `cmux` surface only, like the other
@@ -182,6 +184,8 @@ mod pane_identify;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
+#[cfg(unix)]
+mod remote_host_grants;
 mod resolve;
 mod root_help;
 mod scope_help;
@@ -703,8 +707,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = vm_short::run_if_requested(args) {
         return code;
     }
-    // `device revoke|rotate|doctor|vault` and `device SELECTOR show` are `machine …` (`machine`
-    // is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    // `device revoke|rotate|doctor|vault` and `device SELECTOR show --catalog|session|doctor` are
+    // `machine …` (`machine` is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    // A plain `device SELECTOR show` ran in devices/mod.rs (the device list, then this route).
     #[cfg(unix)]
     let device_alias_args;
     #[cfg(unix)]
@@ -851,6 +856,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| ext::run_if_requested(args))
+        .or_else(|| ext::run_reload_config_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))

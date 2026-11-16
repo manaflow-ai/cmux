@@ -14,7 +14,9 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
 /// - `window-occlusion`: a window became visible or occluded.
 /// - From the page (`diag.flicker`, webviews `acpmux/flickerLog.ts`): `page-load` (its navigation
 ///   type), `visibility` (the document's visibility), `transcript-mount` (the transcript's root
-///   mounted; `n` over 1 is a remount), `long-frame` (a frame over 100 ms while visible) and `frames`
+///   mounted; `n` over 1 is a remount), `transcript-replace` (the chat drew a frame with none of its
+///   rows from before), `remount` (a row drew again from nothing), `reply-unpainted` (a turn ended
+///   with a reply the followed view did not paint), `long-frame` (a frame over 100 ms while visible) and `frames`
 ///   (at most once a second while the page changes: its frame intervals' `p50`, `p95` and `max`, and
 ///   `miss120` and `miss60`, the frames a 120 Hz or a 60 Hz display would miss; `cmux perf record` reads them).
 ///
@@ -29,11 +31,24 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
 @MainActor public final class AgentPageFlickerLog {
     nonisolated static let fileName = "agent-page-flicker.ndjson"
     nonisolated static let olderName = "agent-page-flicker.1.ndjson"
-    nonisolated static let maximumBytes = 256 * 1024
+    /// One half of the ring. A busy chat writes a `long-frame` line every few hundred ms: in Leo's
+    /// NIGHTLY (2026-11-15) about 30 KB a minute, so the old 256 KB half rolled in 9 minutes and the
+    /// lines from when his chat stopped showing replies (22:17Z) were gone when looked for. 8 MB a
+    /// half keeps at least 4.5 hours at that rate (``minimumCoverage``) and at most 16 MB on disk.
+    nonisolated static let maximumBytes = 8 * 1024 * 1024
+    /// What the newest full half must cover at the busiest rate seen (``busiestBytesPerMinute``).
+    nonisolated static let minimumCoverage: TimeInterval = 3 * 60 * 60
+    nonisolated static let busiestBytesPerMinute = 30 * 1024
     /// The page's method; answered in ``AgentPaneBridge`` before ``AgentPaneRequest``, never logged.
     nonisolated static let method = "diag.flicker"
-    /// The kinds a page may write, and the most events one call carries.
-    nonisolated static let pageKinds: Set<String> = ["page-load", "visibility", "transcript-mount", "long-frame", "frames", "focus-lost"]
+    /// The kinds a page may write (every `record` kind in webviews `acpmux/flickerLog.ts`, which a
+    /// test reads), and the most events one call carries. `transcript-replace`, `remount` and
+    /// `reply-unpainted` were missing, so the page's own detector of an unpainted reply was dropped
+    /// here and never reached the file (Leo, 2026-11-15: "now there's just no response from you?").
+    nonisolated static let pageKinds: Set<String> = [
+        "page-load", "visibility", "transcript-mount", "transcript-replace", "remount", "reply-unpainted",
+        "long-frame", "frames", "focus-lost",
+    ]
     nonisolated static let maximumPageEvents = 32
 
     /// The app run's ring, for the composition root to make once; nil outside an app bundle
@@ -45,12 +60,15 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
     }
 
     nonisolated let directory: URL
+    /// This ring's half (``maximumBytes``; tests pass a small one).
+    nonisolated let bound: Int
     private nonisolated let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-page.flicker-log", qos: .utility)
     /// Whether a pane asked for window occlusion lines (``watchWindows()``).
     private(set) var watchingWindows = false
 
-    nonisolated init(directory: URL) {
+    nonisolated init(directory: URL, bound: Int = AgentPageFlickerLog.maximumBytes) {
         self.directory = directory
+        self.bound = bound
     }
 
     nonisolated var url: URL { directory.appending(path: Self.fileName) }
@@ -108,7 +126,7 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
     }
 
     private nonisolated func append(_ lines: [Data]) {
-        let directory = directory, url = url, older = directory.appending(path: Self.olderName)
+        let directory = directory, url = url, older = directory.appending(path: Self.olderName), limit = UInt64(bound)
         queue.async {
             do {
                 try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -120,7 +138,7 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
                 let added = lines.reduce(Data(), +)
                 let handle = try FileHandle(forWritingTo: url)
                 let size = try handle.seekToEnd()
-                if size > 0, size + UInt64(added.count) > UInt64(Self.maximumBytes) {
+                if size > 0, size + UInt64(added.count) > limit {
                     try handle.close()
                     try? FileManager.checked.removeItem(at: older)
                     try FileManager.checked.moveItem(at: url, to: older)

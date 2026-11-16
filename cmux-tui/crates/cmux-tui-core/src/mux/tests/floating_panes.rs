@@ -25,40 +25,33 @@ fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
 
 /// Seeds the restore fixture with its first screen changed by `edit`.
 fn seed(name: &str, edit: impl FnOnce(&mut RegistryScreen)) -> (PathBuf, String) {
+    seed_screens(name, |screens| {
+        let first = restore_screen_id(1);
+        edit(screens.iter_mut().find(|screen| screen.public_id == first).unwrap());
+    })
+}
+
+/// Seeds the restore fixture with its screens changed by `edit`.
+fn seed_screens(name: &str, edit: impl FnOnce(&mut [RegistryScreen])) -> (PathBuf, String) {
     let root = std::env::temp_dir()
         .join(format!("cmux-floating-{name}-{}", WorkspacePublicId::random().unwrap()));
     let session = format!("floating-{name}");
-    let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
-    commit_fixture(&mut registry, &format!("seed-floating-{name}"), Some(0), edit);
-    (root, session)
-}
-
-/// Commits the restore fixture on `registry` as the mutation `id`, with its first screen changed by `edit`.
-fn commit_fixture(
-    registry: &mut WorkspaceRegistry,
-    id: &str,
-    expected_revision: Option<u64>,
-    edit: impl FnOnce(&mut RegistryScreen),
-) {
     let (fixture_snapshot, mut fixture_topology) = resource_restore_fixture();
-    let screen = fixture_topology
-        .screens
-        .iter_mut()
-        .find(|screen| screen.public_id == restore_screen_id(1))
-        .unwrap();
-    edit(screen);
+    edit(fixture_topology.screens.as_mut_slice());
+    let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::daemon(id.to_owned(), "test").unwrap(),
+            &WorkspaceMutation::daemon(format!("seed-floating-{name}"), "test").unwrap(),
             "session.restore_fixture",
             &serde_json::json!({"fixture":"floating"}),
             None,
-            expected_revision,
+            Some(0),
             &resource_restore_patch(&fixture_snapshot, &fixture_topology),
             &serde_json::json!({"restored":true}),
             &serde_json::json!([{"event":"session.restored"}]),
         )
         .unwrap();
+    (root, session)
 }
 
 /// The stored list of the fixture's first screen.
@@ -92,6 +85,28 @@ fn live_list(mux: &Mux) -> Vec<Floating<PanePublicId>> {
                 frame: entry.frame,
             })
             .collect()
+    })
+}
+
+/// The live list of the screen `screen`, by the public ids of its panes, and the rows of each of its columns.
+fn live_screen(mux: &Mux, screen: &ScreenPublicId) -> (Vec<Floating<PanePublicId>>, Vec<usize>) {
+    mux.with_state(|state| {
+        let screen = state
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .find(|item| item.public_id == *screen)
+            .unwrap();
+        let list = screen
+            .floating
+            .iter()
+            .map(|entry| Floating {
+                pane: state.panes[&entry.pane].public_id.clone(),
+                frame: entry.frame,
+            })
+            .collect::<Vec<_>>();
+        let rows = screen.layout_columns.iter().map(|column| column.rows.len()).collect::<Vec<_>>();
+        (list, rows)
     })
 }
 
@@ -195,11 +210,6 @@ fn floating_panes_in_the_store_follow_a_focus_and_a_close() {
     };
 
     let mux = open_restart_mux(&root, &session);
-    assert_eq!(
-        mux.float_pane_as(&Actor::Daemon, live_pane(&mux, &one), FloatMode::On, None, None),
-        Err(FloatPaneError::FixedPane),
-        "a member of a stack never floats"
-    );
     for pane in [&right, &low] {
         mux.float_pane_as(&Actor::Daemon, live_pane(&mux, pane), FloatMode::On, None, None)
             .unwrap();
@@ -238,10 +248,11 @@ fn floating_panes_in_the_store_follow_a_focus_and_a_close() {
 #[test]
 fn floating_pane_refuses_a_pane_of_a_column_with_rows() {
     let (root, session) = seed("rows", |screen| {
-        // The first column: the stack of panes 1 and 2 in the first row, pane 3 in the second row.
+        // The first column: the stack of panes 1 and 2 in the first row, pane 3 in the second row. The heights
+        // agree with the ratio 0.6 of the fixture's row split, as each record that the product writes does.
         screen.viewport.columns[0].rows = vec![
-            RegistryRow { id: restore_split_id(9), height: 700 },
-            RegistryRow { id: restore_split_id(1), height: 300 },
+            RegistryRow { id: restore_split_id(9), height: 600 },
+            RegistryRow { id: restore_split_id(1), height: 400 },
         ];
     });
     let mux = open_restart_mux(&root, &session);
@@ -259,6 +270,74 @@ fn floating_pane_refuses_a_pane_of_a_column_with_rows() {
     let right = live_pane(&mux, &restore_pane_id(4));
     mux.float_pane_as(&Actor::Daemon, right, FloatMode::On, None, None).unwrap();
     assert_eq!(live_list(&mux).len(), 1);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A member of a stack never floats. A pane of the same column that is not in the stack floats.
+#[test]
+fn floating_pane_refuses_a_member_of_a_stack() {
+    let (root, session) = seed("stack", |_| {});
+    let mux = open_restart_mux(&root, &session);
+    // The first column has no rows and no dock: the stack of panes 1 and 2 is above pane 3 in one split.
+    for member in [1, 2].map(restore_pane_id) {
+        let pane = live_pane(&mux, &member);
+        assert_eq!(
+            mux.float_pane_as(&Actor::Daemon, pane, FloatMode::On, None, None),
+            Err(FloatPaneError::FixedPane),
+            "{member}"
+        );
+    }
+    assert!(live_list(&mux).is_empty());
+
+    let low = live_pane(&mux, &restore_pane_id(3));
+    mux.float_pane_as(&Actor::Daemon, low, FloatMode::On, None, None).unwrap();
+    assert_eq!(live_list(&mux).len(), 1);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The rows of the second column of the first screen.
+fn second_column_rows(mux: &Mux) -> usize {
+    mux.with_state(|state| state.workspaces[0].screens[0].layout_columns[1].rows.len())
+}
+
+/// The path of a person: `new-row` makes the rows of a column, then a pane of the other column floats, and a
+/// restart keeps the rows and the list.
+#[test]
+fn floating_pane_floats_beside_rows_that_new_row_made() {
+    let (root, session) = seed("new-row", |_| {});
+    let mux = open_restart_mux(&root, &session);
+    // The second column gets its second row from the act of the product.
+    let right = live_pane(&mux, &restore_pane_id(4));
+    mux.new_row_with_options(right, 500, Default::default(), Some((38, 10)), None).unwrap();
+    assert_eq!(second_column_rows(&mux), 2, "the second column has its two rows");
+    assert_eq!(
+        mux.float_pane_as(&Actor::Daemon, right, FloatMode::On, None, None),
+        Err(FloatPaneError::FixedPane)
+    );
+    assert!(live_list(&mux).is_empty());
+
+    // Pane 3 is a pane of the first column, which has no rows.
+    let low = live_pane(&mux, &restore_pane_id(3));
+    mux.float_pane_as(&Actor::Daemon, low, FloatMode::On, None, None).unwrap();
+    let expected = live_list(&mux);
+    assert_eq!(expected.len(), 1);
+    assert_eq!(stored_list_of(&mux), expected, "after the float");
+    mux.shutdown();
+    drop(mux);
+
+    assert_eq!(stored_list(&root, &session), expected, "the store at rest");
+    let mux = open_restart_mux(&root, &session);
+    assert_eq!(second_column_rows(&mux), 2, "a restart keeps the rows");
+    assert_eq!(live_list(&mux), expected, "a restart keeps the list");
+    // The screen that the restart loaded takes a float request: the pane goes back into the tiled panes.
+    let low = live_pane(&mux, &restore_pane_id(3));
+    mux.float_pane_as(&Actor::Daemon, low, FloatMode::Off, None, None).unwrap();
+    assert!(live_list(&mux).is_empty(), "the request after the restart commits");
+    assert_eq!(second_column_rows(&mux), 2, "the rows stay");
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
