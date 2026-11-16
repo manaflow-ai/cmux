@@ -1,14 +1,15 @@
 //! Durable action envelopes for followed chats.
 //!
-//! This module is opt-in: the v1 event log and actor do not call into it. Actions are one compact
-//! JSON envelope per line, with a byte cursor (`after`) returned by the sole writer. Replays seek
-//! to that cursor and read a bounded number of bytes, so reconnecting never walks whole history.
+//! This is an opt-in v2 seam. One writer owns `raw/acts.ndjson`; callers get
+//! the byte place before and the byte cursor after each synced line. Replay is
+//! bounded and never reads the history before the requested cursor.
 #![deny(clippy::indexing_slicing, clippy::string_slice, clippy::expect_used)]
 #![forbid(unsafe_code)]
 
+use crate::chat::act_ids::{ActIdLookup, ActIdRing};
+use acpmux_book::translate::{QueueEntry, prompt_hash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -16,9 +17,10 @@ use std::sync::Mutex;
 
 pub const MAX_RAW_LINE_BYTES: usize = 256 * 1024;
 pub const MAX_QUEUE_ENTRIES: usize = 1024;
-pub const DEFAULT_REPLAY_BYTES: usize = 256 * 1024;
+pub const DEFAULT_REPLAY_BYTES: usize = MAX_RAW_LINE_BYTES;
 
-/// The one raw envelope persisted by a followed chat.
+/// The compact action line. These fields are deliberately stable: `k` is
+/// always `act` for requests and `act_result` for outcomes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ActEnvelope {
     pub k: String,
@@ -42,21 +44,19 @@ impl ActEnvelope {
         Self { k: "act".into(), op: op.into(), id: id.into(), at, by: by.into(), since, body }
     }
 
-    /// Compact JSON plus its trailing newline, bounded before it reaches the writer.
+    /// Compact JSON plus its newline. Oversized data is rejected before any
+    /// filesystem mutation; the writer never spills bodies to another file.
     pub fn line(&self) -> io::Result<Vec<u8>> {
         let mut line = serde_json::to_vec(self).map_err(io::Error::other)?;
         line.push(b'\n');
         if line.len() > MAX_RAW_LINE_BYTES {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "raw action line exceeds 256 KiB",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "too_large"));
         }
         Ok(line)
     }
 }
 
-/// Build an external outcome while retaining the same envelope shape.
+/// Construct the durable outcome envelope. Outcomes are not queue actions.
 pub fn act_result(
     id: impl Into<String>,
     at: u64,
@@ -64,36 +64,32 @@ pub fn act_result(
     since: Option<u64>,
     body: Value,
 ) -> ActEnvelope {
-    ActEnvelope::new("act_result", id, at, by, since, body)
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BlobRef {
-    pub id: String,
-    pub bytes: u64,
-}
-
-impl BlobRef {
-    fn value(&self) -> Value {
-        serde_json::json!({"blob": {"id": self.id, "bytes": self.bytes}})
+    ActEnvelope {
+        k: "act_result".into(),
+        op: "act_result".into(),
+        id: id.into(),
+        at,
+        by: by.into(),
+        since,
+        body,
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ActReceipt {
-    /// Byte offset immediately after the durable line; this is the replay cursor.
+    /// Byte place where the line starts in `acts.ndjson`.
+    pub place: u64,
+    /// Cursor immediately after the synced line.
     pub after: u64,
-    pub start: u64,
-    pub end: u64,
-    pub blob: bool,
 }
 
-/// The sole append writer for one followed chat. `raw.map` is synced before its first action.
+/// The sole writer for one followed chat. The map and action file are both
+/// serialized through this writer; no blob directory is created.
 pub struct FollowedChatWriter {
     inner: Mutex<WriterInner>,
     pub acts_path: PathBuf,
     pub map_path: PathBuf,
-    blobs: PathBuf,
+    chat_path: PathBuf,
 }
 
 struct WriterInner {
@@ -103,67 +99,165 @@ struct WriterInner {
 impl FollowedChatWriter {
     pub fn open(chat: &Path, source_path: &Path, identity: &[u8]) -> io::Result<Self> {
         let raw = chat.join("raw");
-        let blobs = raw.join("blobs");
-        fs::create_dir_all(&blobs)?;
+        fs::create_dir_all(&raw)?;
         let acts_path = raw.join("acts.ndjson");
         let map_path = raw.join("raw.map");
-        let mut map = OpenOptions::new().create(true).append(true).open(&map_path)?;
-        let map_line = serde_json::json!({"kind":"file", "path":source_path.to_string_lossy(), "identity":String::from_utf8_lossy(identity)});
-        let mut encoded = serde_json::to_vec(&map_line).map_err(io::Error::other)?;
-        encoded.push(b'\n');
-        map.write_all(&encoded)?;
-        map.sync_all()?;
+        ensure_map(&map_path, source_path, identity)?;
         let mut acts = OpenOptions::new().create(true).append(true).read(true).open(&acts_path)?;
         repair_torn_tail(&mut acts)?;
-        Ok(Self { inner: Mutex::new(WriterInner { acts }), acts_path, map_path, blobs })
+        Ok(Self {
+            inner: Mutex::new(WriterInner { acts }),
+            acts_path,
+            map_path,
+            chat_path: chat.to_path_buf(),
+        })
     }
 
-    /// Append one action, spilling only an oversized body to `raw/blobs/`.
+    /// Append one action and return its byte place/cursor after sync.
     pub fn append(&self, envelope: &ActEnvelope) -> io::Result<ActReceipt> {
-        let mut inner =
-            self.inner.lock().map_err(|_| io::Error::other("action writer poisoned"))?;
-        let (line, blob) = self.encode_with_blob(envelope)?;
-        let start = inner.acts.metadata()?.len();
-        inner.acts.write_all(&line)?;
-        inner.acts.sync_all()?;
-        let end = start
-            .checked_add(line.len() as u64)
-            .ok_or_else(|| io::Error::other("action offset overflow"))?;
-        Ok(ActReceipt { after: end, start, end, blob: blob.is_some() })
+        let line = envelope.line()?;
+        self.append_line(&line)
     }
 
-    /// Persist an external outcome. Results use the same envelope but are kept out of queue
-    /// admission and transition state.
+    /// Append a batch with one sync. The returned receipt spans the complete
+    /// batch and its place is the first line's byte offset.
+    pub fn append_batch(&self, envelopes: &[ActEnvelope]) -> io::Result<ActReceipt> {
+        let lines: Vec<Vec<u8>> =
+            envelopes.iter().map(ActEnvelope::line).collect::<io::Result<_>>()?;
+        let bytes = lines.iter().map(Vec::len).sum::<usize>();
+        let mut inner = self.lock_inner()?;
+        let place = inner.acts.metadata()?.len();
+        for line in &lines {
+            inner.acts.write_all(line)?;
+        }
+        inner.acts.sync_all()?;
+        let after = place
+            .checked_add(bytes as u64)
+            .ok_or_else(|| io::Error::other("action offset overflow"))?;
+        Ok(ActReceipt { place, after })
+    }
+
     pub fn append_result(&self, result: &ActEnvelope) -> io::Result<ActReceipt> {
-        if result.op != "act_result" {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "result operation must be act_result",
-            ));
+        if result.k != "act_result" || result.op != "act_result" {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "result must be act_result"));
         }
         self.append(result)
     }
 
-    fn encode_with_blob(&self, envelope: &ActEnvelope) -> io::Result<(Vec<u8>, Option<BlobRef>)> {
-        match envelope.line() {
-            Ok(line) => Ok((line, None)),
-            Err(error) if error.kind() == io::ErrorKind::InvalidData => {
-                let body = serde_json::to_vec(&envelope.body).map_err(io::Error::other)?;
-                let id = format!("{}-body", sanitize_id(&envelope.id));
-                let path = self.blobs.join(&id);
-                let mut file = OpenOptions::new().create_new(true).write(true).open(&path)?;
-                file.write_all(&body)?;
-                file.sync_all()?;
-                let reference = BlobRef { id, bytes: body.len() as u64 };
-                let reduced = ActEnvelope { body: reference.value(), ..envelope.clone() };
-                Ok((reduced.line()?, Some(reference)))
-            }
-            Err(error) => Err(error),
+    fn append_line(&self, line: &[u8]) -> io::Result<ActReceipt> {
+        if line.len() > MAX_RAW_LINE_BYTES {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "too_large"));
         }
+        let mut inner = self.lock_inner()?;
+        let place = inner.acts.metadata()?.len();
+        inner.acts.write_all(line)?;
+        inner.acts.sync_all()?;
+        let after = place
+            .checked_add(line.len() as u64)
+            .ok_or_else(|| io::Error::other("action offset overflow"))?;
+        Ok(ActReceipt { place, after })
+    }
+
+    fn lock_inner(&self) -> io::Result<std::sync::MutexGuard<'_, WriterInner>> {
+        self.inner.lock().map_err(|_| io::Error::other("action writer poisoned"))
     }
 }
 
+impl crate::chat::DaemonLineWriter for FollowedChatWriter {
+    fn append_daemon_lines(&self, lines: &[&[u8]]) -> Result<u64, crate::chat::ActWriteError> {
+        let mut inner = self.lock_inner()?;
+        let place = inner.acts.metadata()?.len();
+        let mut bytes = 0usize;
+        for line in lines {
+            crate::chat::validate_daemon_line(line)?;
+            bytes = bytes.saturating_add(line.len());
+        }
+        for line in lines {
+            if let Err(error) = inner.acts.write_all(line) {
+                let _ = inner.acts.set_len(place);
+                let _ = inner.acts.sync_all();
+                return Err(error.into());
+            }
+        }
+        inner.acts.sync_all()?;
+        let _ = place
+            .checked_add(bytes as u64)
+            .ok_or_else(|| io::Error::other("action offset overflow"))?;
+        Ok(place)
+    }
+}
+
+fn ensure_map(path: &Path, source_path: &Path, identity: &[u8]) -> io::Result<()> {
+    let mut file = OpenOptions::new().create(true).read(true).append(true).open(path)?;
+    repair_torn_tail_inner(&mut file, MAX_RAW_LINE_BYTES)?;
+    let path_text = source_path.to_string_lossy();
+    let identity_text = hex_identity(identity);
+    let same = last_map_entry(&mut file)?.is_some_and(|entry| {
+        entry.get("path").and_then(Value::as_str) == Some(path_text.as_ref())
+            && entry.get("identity").and_then(Value::as_str) == Some(identity_text.as_str())
+    });
+    if same {
+        return Ok(());
+    }
+    let line = serde_json::json!({"kind":"file", "path": path_text, "identity": identity_text});
+    let mut encoded = serde_json::to_vec(&line).map_err(io::Error::other)?;
+    encoded.push(b'\n');
+    let was_empty = file.metadata()?.len() == 0;
+    file.write_all(&encoded)?;
+    file.sync_all()?;
+    if was_empty
+        && let Some(parent) = path.parent()
+        && let Ok(dir) = File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
+fn hex_identity(identity: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(identity.len().saturating_mul(2));
+    for byte in identity {
+        let hi = HEX.get((byte >> 4) as usize).copied().unwrap_or(b'0');
+        let lo = HEX.get((byte & 0x0f) as usize).copied().unwrap_or(b'0');
+        out.push(hi as char);
+        out.push(lo as char);
+    }
+    out
+}
+
+fn last_map_entry(file: &mut File) -> io::Result<Option<Value>> {
+    let length = file.metadata()?.len();
+    if length == 0 {
+        return Ok(None);
+    }
+    let window = length.min(MAX_RAW_LINE_BYTES as u64);
+    file.seek(SeekFrom::Start(length - window))?;
+    let mut bytes = vec![0; usize::try_from(window).map_err(io::Error::other)?];
+    file.read_exact(&mut bytes)?;
+    let end = if bytes.last().copied() == Some(b'\n') {
+        bytes.len().saturating_sub(1)
+    } else {
+        bytes.len()
+    };
+    let content = bytes.get(..end).unwrap_or_default();
+    let start = content
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |newline| newline.saturating_add(1));
+    if start >= end {
+        return Ok(None);
+    }
+    serde_json::from_slice(bytes.get(start..end).unwrap_or_default())
+        .map(Some)
+        .map_err(io::Error::other)
+}
+
 fn repair_torn_tail(file: &mut File) -> io::Result<()> {
+    repair_torn_tail_inner(file, MAX_RAW_LINE_BYTES)
+}
+
+fn repair_torn_tail_inner(file: &mut File, cap: usize) -> io::Result<()> {
     let length = file.metadata()?.len();
     if length == 0 {
         return Ok(());
@@ -174,30 +268,17 @@ fn repair_torn_tail(file: &mut File) -> io::Result<()> {
     if last[0] == b'\n' {
         return Ok(());
     }
-    let window = length.min(MAX_RAW_LINE_BYTES as u64);
+    let window = length.min(cap as u64);
     file.seek(SeekFrom::Start(length - window))?;
     let mut bytes = vec![0; usize::try_from(window).map_err(io::Error::other)?];
     file.read_exact(&mut bytes)?;
-    let Some(newline) = bytes.iter().rposition(|byte| *byte == b'\n') else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "raw action torn tail exceeds 256 KiB",
-        ));
-    };
-    file.set_len(length - window + newline as u64 + 1)?;
-    file.sync_all()
-}
-
-fn sanitize_id(id: &str) -> String {
-    let mut out = String::with_capacity(id.len().min(80));
-    for byte in id.bytes().take(80) {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') {
-            out.push(byte as char);
-        } else {
-            out.push('_');
-        }
+    if let Some(newline) = bytes.iter().rposition(|byte| *byte == b'\n') {
+        file.set_len(length - window + newline as u64 + 1)?;
+    } else {
+        // A torn first line has no durable record and is cut to zero.
+        file.set_len(0)?;
     }
-    if out.is_empty() { "action".into() } else { out }
+    file.sync_all()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -205,16 +286,21 @@ pub struct ReplayBatch {
     pub entries: Vec<ActEnvelope>,
     pub next: u64,
     pub more: bool,
+    /// Complete lines skipped because they were malformed or too large.
+    pub skipped: usize,
 }
 
-/// Replay from a byte cursor. A partial final line is left for the next call.
+/// Replay complete lines from a byte cursor. Malformed lines are counted and
+/// skipped. A torn final line is ignored and reports `more: false`.
 pub fn replay_from(path: &Path, after: u64, budget: usize) -> io::Result<ReplayBatch> {
     let mut file = File::open(path)?;
     let length = file.metadata()?.len();
     let start = after.min(length);
     file.seek(SeekFrom::Start(start))?;
     let mut reader = BufReader::new(file);
+    let budget = budget.min(DEFAULT_REPLAY_BYTES);
     let mut entries = Vec::new();
+    let mut skipped = 0usize;
     let mut used = 0usize;
     let mut cursor = start;
     loop {
@@ -224,22 +310,24 @@ pub fn replay_from(path: &Path, after: u64, budget: usize) -> io::Result<ReplayB
             break;
         }
         if !line.ends_with(b"\n") {
-            return Ok(ReplayBatch { entries, next: cursor, more: true });
-        }
-        if !entries.is_empty() && used.saturating_add(read) > budget {
+            cursor = length;
             break;
         }
-        if entries.is_empty() && read > budget {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "replay budget is smaller than one action",
-            ));
+        if used > 0 && used.saturating_add(read) > budget {
+            break;
+        }
+        cursor = cursor.saturating_add(read as u64);
+        if read > MAX_RAW_LINE_BYTES {
+            skipped = skipped.saturating_add(1);
+            continue;
         }
         used = used.saturating_add(read);
-        cursor = cursor.saturating_add(read as u64);
-        entries.push(serde_json::from_slice::<ActEnvelope>(&line).map_err(io::Error::other)?);
+        match serde_json::from_slice::<ActEnvelope>(&line) {
+            Ok(entry) => entries.push(entry),
+            Err(_) => skipped = skipped.saturating_add(1),
+        }
     }
-    Ok(ReplayBatch { entries, next: cursor, more: cursor < length })
+    Ok(ReplayBatch { entries, next: cursor, more: cursor < length && cursor != length, skipped })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -261,121 +349,134 @@ pub struct QueueReceipt {
     pub result: ActEnvelope,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct QueueItem {
-    body: Value,
-    held: bool,
-}
-
-/// Bounded, idempotent action transitions. State is committed only after the line is durable.
+#[derive(Clone, Debug)]
+/// Queue actions are projected into the translator's packed `QueueEntry`.
+/// Prompt bodies carry `{promptId,at,held,place,span,textLen}`; retract bodies
+/// carry `{promptId}`. The queue never stores a second body map.
 pub struct ActorQueue {
     writer: FollowedChatWriter,
-    items: BTreeMap<String, QueueItem>,
-    receipts: BTreeMap<(String, String), QueueReceipt>,
-    receipt_order: VecDeque<(String, String)>,
+    entries: Vec<QueueEntry>,
+    ids: ActIdRing,
 }
 
 impl ActorQueue {
     pub fn new(writer: FollowedChatWriter) -> Self {
-        Self {
-            writer,
-            items: BTreeMap::new(),
-            receipts: BTreeMap::new(),
-            receipt_order: VecDeque::new(),
-        }
+        let ids = ActIdRing::empty(&writer.chat_path);
+        Self { writer, entries: Vec::new(), ids }
+    }
+
+    pub fn with_ids(writer: FollowedChatWriter, ids: ActIdRing) -> Self {
+        Self { writer, entries: Vec::new(), ids }
     }
     pub fn len(&self) -> usize {
-        self.items.len()
+        self.entries.len()
+    }
+    pub fn entries(&self) -> &[QueueEntry] {
+        &self.entries
     }
 
     pub fn apply(&mut self, envelope: ActEnvelope) -> Result<QueueReceipt, QueueError> {
-        if envelope.k != "act" || envelope.op == "act_result" || envelope.id.is_empty() {
+        if envelope.k != "act" || envelope.id.is_empty() || !allowed_op(&envelope.op) {
             return Err(QueueError::Invalid("invalid action envelope".into()));
         }
-        let operation = (envelope.op.clone(), envelope.id.clone());
-        if let Some(receipt) = self.receipts.get(&operation) {
-            return Ok(QueueReceipt { duplicate: true, ..receipt.clone() });
+        let body = serde_json::to_vec(&envelope.body)
+            .map_err(|error| QueueError::Io(error.to_string()))?;
+        match self.ids.lookup_bytes_with_since(&envelope.id, &envelope.op, &body, envelope.since) {
+            ActIdLookup::Replay { ack_seq } => {
+                let receipt = ActReceipt { place: 0, after: ack_seq };
+                return Ok(QueueReceipt {
+                    receipt,
+                    duplicate: true,
+                    result: act_result(
+                        envelope.id,
+                        envelope.at,
+                        envelope.by,
+                        Some(ack_seq),
+                        serde_json::json!({"ok":true,"replayed":true,"after":ack_seq}),
+                    ),
+                });
+            }
+            ActIdLookup::IdReuse => return Err(QueueError::Invalid("id_reuse".into())),
+            ActIdLookup::IdUnknown => return Err(QueueError::Invalid("id_unknown".into())),
+            ActIdLookup::New => {}
         }
-        let target = action_target(&envelope);
-        if envelope.op == "prompt"
-            && !self.items.contains_key(target)
-            && self.items.len() >= MAX_QUEUE_ENTRIES
-        {
+        if envelope.op == "prompt" && self.entries.len() >= MAX_QUEUE_ENTRIES {
             return Err(QueueError::Full);
         }
-        let mut next_items = self.items.clone();
-        transition(&mut next_items, &envelope)?;
+        validate_transition(&self.entries, &envelope)?;
         let receipt = self.writer.append(&envelope)?;
-        self.items = next_items;
+        transition(&mut self.entries, &envelope)?;
+        self.ids
+            .remember_bytes(&envelope.id, &envelope.op, &body, receipt.after)
+            .map_err(QueueError::from)?;
         let result = act_result(
             envelope.id.clone(),
             envelope.at,
             envelope.by.clone(),
             Some(receipt.after),
-            serde_json::json!({"ok":true,"op":envelope.op}),
+            serde_json::json!({"ok":true,"op":envelope.op,"after":receipt.after}),
         );
-        let out = QueueReceipt { receipt, duplicate: false, result };
-        if self.receipt_order.len() >= MAX_QUEUE_ENTRIES {
-            if let Some(oldest) = self.receipt_order.pop_front() {
-                self.receipts.remove(&oldest);
-            }
-        }
-        self.receipt_order.push_back(operation.clone());
-        self.receipts.insert(operation, out.clone());
-        Ok(out)
+        let output = QueueReceipt { receipt, duplicate: false, result };
+        Ok(output)
     }
 }
 
-fn transition(
-    items: &mut BTreeMap<String, QueueItem>,
-    envelope: &ActEnvelope,
-) -> Result<(), QueueError> {
-    let target = action_target(envelope);
-    match envelope.op.as_str() {
-        "prompt" => {
-            let held = envelope.body.get("held").and_then(Value::as_bool).unwrap_or(false);
-            items
-                .entry(target.into())
-                .or_insert_with(|| QueueItem { body: envelope.body.clone(), held });
-        }
-        "retract" | "remove" => {
-            items.remove(target);
-        }
-        "edit" => {
-            if let Some(item) = items.get_mut(target) {
-                item.body = envelope.body.clone();
-            }
-        }
-        "clear" => items.clear(),
-        "supersede" => {
-            let old = envelope.body.get("old").and_then(Value::as_str).unwrap_or_default();
-            let new = envelope.body.get("new").and_then(Value::as_str).unwrap_or_default();
-            if old.is_empty() || new.is_empty() {
-                return Err(QueueError::Invalid("supersede needs old and new".into()));
-            }
-            items.remove(old);
-            items
-                .entry(new.into())
-                .or_insert_with(|| QueueItem { body: envelope.body.clone(), held: false });
-        }
-        "resume" => {
-            if let Some(item) = items.get_mut(target) {
-                item.held = false;
-            }
-        }
-        _ => return Err(QueueError::Invalid(format!("unknown action operation: {}", envelope.op))),
+fn allowed_op(op: &str) -> bool {
+    matches!(op, "prompt" | "retract")
+}
+
+fn validate_transition(entries: &[QueueEntry], envelope: &ActEnvelope) -> Result<(), QueueError> {
+    let target = envelope
+        .body
+        .get("promptId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| QueueError::Invalid("body.promptId is required".into()))?;
+    if envelope.op == "prompt" {
+        let _ = prompt_entry(target, envelope)?;
+    }
+    if envelope.op == "retract" && entries.iter().all(|entry| entry.id_hash != prompt_hash(target))
+    {
+        // Retraction is idempotent at the queue state level; the durable action
+        // still records it for replay and the id ring handles request repeats.
     }
     Ok(())
 }
 
-fn action_target(envelope: &ActEnvelope) -> &str {
-    envelope
+fn prompt_entry(target: &str, envelope: &ActEnvelope) -> Result<QueueEntry, QueueError> {
+    Ok(QueueEntry::new(
+        prompt_hash(target),
+        envelope.body.get("at").and_then(Value::as_u64).unwrap_or(envelope.at),
+        envelope.body.get("held").and_then(Value::as_bool).unwrap_or(false),
+        envelope.body.get("place").and_then(Value::as_u64).unwrap_or(0),
+        envelope.body.get("span").and_then(Value::as_u64).unwrap_or(0),
+        envelope.body.get("textLen").and_then(Value::as_u64).unwrap_or(0),
+    ))
+}
+
+fn transition(entries: &mut Vec<QueueEntry>, envelope: &ActEnvelope) -> Result<(), QueueError> {
+    let target = envelope
         .body
         .get("promptId")
-        .or_else(|| envelope.body.get("target"))
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
-        .unwrap_or(&envelope.id)
+        .ok_or_else(|| QueueError::Invalid("body.promptId is required".into()))?;
+    let hash = prompt_hash(target);
+    match envelope.op.as_str() {
+        "prompt" => {
+            let entry = prompt_entry(target, envelope)?;
+            if let Some(slot) = entries.iter().position(|old| old.id_hash == hash) {
+                if let Some(old) = entries.get_mut(slot) {
+                    *old = entry;
+                }
+            } else {
+                entries.push(entry);
+            }
+        }
+        "retract" => entries.retain(|entry| entry.id_hash != hash),
+        _ => return Err(QueueError::Invalid("unknown action operation".into())),
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -384,78 +485,85 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    #[test]
-    fn envelope_is_one_compact_act_line() {
-        let line =
-            ActEnvelope::new("prompt", "p1", 7, "person", None, serde_json::json!({"text":"hi"}))
-                .line()
-                .unwrap();
-        assert!(line.ends_with(b"\n"));
-        let value: Value = serde_json::from_slice(&line).unwrap();
-        assert_eq!(value["k"], "act");
-        assert_eq!(value["op"], "prompt");
+    fn writer(dir: &Path) -> FollowedChatWriter {
+        FollowedChatWriter::open(dir, Path::new("source"), b"\x00\xff").unwrap()
     }
 
     #[test]
-    fn queue_full_is_checked_before_the_writer() {
+    fn envelope_and_outcome_have_distinct_kinds() {
+        let request = ActEnvelope::new(
+            "prompt",
+            "p1",
+            7,
+            "person",
+            None,
+            serde_json::json!({"promptId":"p1"}),
+        );
+        assert_eq!(serde_json::from_slice::<Value>(&request.line().unwrap()).unwrap()["k"], "act");
+        assert_eq!(act_result("p1", 8, "daemon", Some(7), Value::Null).k, "act_result");
+    }
+
+    #[test]
+    fn map_only_changes_for_source_or_identity_and_identity_is_hex() {
         let dir = tempdir().unwrap();
-        let writer = FollowedChatWriter::open(dir.path(), Path::new("source"), b"x").unwrap();
+        let first = writer(dir.path());
+        let first_len = fs::metadata(&first.map_path).unwrap().len();
+        let second = writer(dir.path());
+        assert_eq!(first_len, fs::metadata(&second.map_path).unwrap().len());
+        FollowedChatWriter::open(dir.path(), Path::new("source"), b"\x01").unwrap();
+        let map = fs::read_to_string(&first.map_path).unwrap();
+        assert!(map.contains("00ff"));
+        assert!(map.contains("01"));
+    }
+
+    #[test]
+    fn torn_first_line_is_cut_to_zero_and_replay_reports_no_more() {
+        let dir = tempdir().unwrap();
+        let raw = dir.path().join("raw");
+        fs::create_dir_all(&raw).unwrap();
+        fs::write(raw.join("acts.ndjson"), b"torn").unwrap();
+        let writer = writer(dir.path());
+        assert_eq!(fs::metadata(&writer.acts_path).unwrap().len(), 0);
+        let batch = replay_from(&writer.acts_path, 0, DEFAULT_REPLAY_BYTES).unwrap();
+        assert!(!batch.more);
+    }
+
+    #[test]
+    fn malformed_lines_are_skipped_and_counted() {
+        let dir = tempdir().unwrap();
+        let writer = writer(dir.path());
+        fs::write(&writer.acts_path, b"bad\n").unwrap();
+        let batch = replay_from(&writer.acts_path, 0, DEFAULT_REPLAY_BYTES).unwrap();
+        assert_eq!(batch.skipped, 1);
+        assert!(batch.entries.is_empty());
+    }
+
+    #[test]
+    fn queue_full_is_rejected_before_the_writer_and_replays_after_reopen() {
+        let dir = tempdir().unwrap();
+        let writer = writer(dir.path());
         let mut queue = ActorQueue::new(writer);
         for n in 0..MAX_QUEUE_ENTRIES {
-            queue.items.insert(format!("p{n}"), QueueItem { body: Value::Null, held: false });
+            queue.entries.push(QueueEntry::new(n as u64, 0, false, 0, 0, 0));
         }
         let error = queue
             .apply(ActEnvelope::new("prompt", "new", 1, "person", None, Value::Null))
             .unwrap_err();
         assert_eq!(error, QueueError::Full);
         assert_eq!(fs::metadata(dir.path().join("raw/acts.ndjson")).unwrap().len(), 0);
-    }
-
-    #[test]
-    fn replay_uses_after_cursor_and_duplicate_is_idempotent() {
-        let dir = tempdir().unwrap();
-        let writer = FollowedChatWriter::open(dir.path(), Path::new("source"), b"x").unwrap();
-        let path = writer.acts_path.clone();
-        let mut queue = ActorQueue::new(writer);
-        let first =
-            queue.apply(ActEnvelope::new("prompt", "p", 1, "person", None, Value::Null)).unwrap();
-        let duplicate =
-            queue.apply(ActEnvelope::new("prompt", "p", 1, "person", None, Value::Null)).unwrap();
-        assert!(duplicate.duplicate);
-        assert_eq!(first.receipt.after, duplicate.receipt.after);
-        assert_eq!(replay_from(&path, 0, DEFAULT_REPLAY_BYTES).unwrap().entries.len(), 1);
-        assert!(
-            replay_from(&path, first.receipt.after, DEFAULT_REPLAY_BYTES)
-                .unwrap()
-                .entries
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn receipt_memory_is_bounded_to_queue_capacity() {
-        let dir = tempdir().unwrap();
-        let writer = FollowedChatWriter::open(dir.path(), Path::new("source"), b"x").unwrap();
-        let mut queue = ActorQueue::new(writer);
-        for n in 0..=MAX_QUEUE_ENTRIES {
-            queue
-                .apply(ActEnvelope::new("remove", format!("p{n}"), 1, "person", None, Value::Null))
-                .unwrap();
-        }
-        assert_eq!(queue.receipts.len(), MAX_QUEUE_ENTRIES);
-        assert_eq!(queue.receipt_order.len(), MAX_QUEUE_ENTRIES);
-    }
-
-    #[test]
-    fn oversized_body_is_replaced_by_a_blob_reference() {
-        let dir = tempdir().unwrap();
-        let writer = FollowedChatWriter::open(dir.path(), Path::new("source"), b"x").unwrap();
-        let body = serde_json::json!({"text": "x".repeat(MAX_RAW_LINE_BYTES)});
-        let receipt =
-            writer.append(&ActEnvelope::new("prompt", "large", 1, "person", None, body)).unwrap();
-        assert!(receipt.blob);
-        let batch = replay_from(&writer.acts_path, 0, DEFAULT_REPLAY_BYTES).unwrap();
-        assert!(batch.entries[0].body.get("blob").is_some());
-        assert!(fs::read_dir(dir.path().join("raw/blobs")).unwrap().next().is_some());
+        let dir2 = tempdir().unwrap();
+        let first = writer(dir2.path());
+        let path = first.acts_path.clone();
+        let mut q = ActorQueue::new(first);
+        let request =
+            ActEnvelope::new("prompt", "p", 1, "person", None, serde_json::json!({"promptId":"p"}));
+        let receipt = q.apply(request).unwrap();
+        drop(q);
+        let reopened = writer(dir2.path());
+        let replay = replay_from(&path, 0, DEFAULT_REPLAY_BYTES).unwrap();
+        assert_eq!(replay.entries.len(), 1);
+        assert_eq!(replay.next, receipt.receipt.after);
+        assert_eq!(replay.entries[0].k, "act");
+        drop(reopened);
     }
 }
