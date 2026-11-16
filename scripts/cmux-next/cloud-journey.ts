@@ -439,9 +439,21 @@ export type PreclaimFailureRecord = {
   claimed_behind: boolean | null;
 };
 
+/**
+ * Guest facts within 12,000 characters, the sections before the journal first: run 43873927808 kept only the last 8,000,
+ * and the journal pushed out the own-login and acp tail sections that say why a claim failed.
+ */
+function guestFactsCapped(guest: string, max = 12_000): string {
+  const at = guest.indexOf("== journal");
+  if (guest.length <= max || at < 0) return guest.slice(0, max);
+  const head = guest.slice(0, Math.min(at, max / 2));
+  const mark = "== journal (last lines)\n";
+  return head + mark + guest.slice(at).slice(-(max - head.length - mark.length));
+}
+
 /** A failed claim stays visible in the private evidence without exposing credentials publicly. */
 export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = [], claimedBehind: boolean | null = null, guest?: string): PreclaimFailureRecord {
-  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600), claimed_behind: claimedBehind, ...(guest === undefined ? {} : { guest: scrub(guest, secrets).slice(-8000) }) };
+  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600), claimed_behind: claimedBehind, ...(guest === undefined ? {} : { guest: guestFactsCapped(scrub(guest, secrets)) }) };
 }
 
 /**
@@ -819,7 +831,14 @@ export function clientPlatformOrigin(body: unknown): string {
 export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number | null; replyNotJudged: string | null }> {
   const started = Date.now();
   const ensured = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m claude --json 2>&1; echo "@@exit $?"`, 120_000);
-  if (!/@@exit 0/.test(ensured.stdout)) throw new Error(`preclaim ${session}: agent start refused`);
+  const ensureExit = /@@exit (\d+)/.exec(ensured.stdout)?.[1];
+  if (ensureExit !== "0") {
+    // Say why (run 43873927808 claim 4 kept only "agent start refused"): ensure's own exit, or the exec cutting it off.
+    const ran = `after ${Math.round((Date.now() - started) / 1000)} s`;
+    const how = ensureExit === undefined ? `no exit within the 120 s exec, code ${ensured.code}, ${ran}` : `exit ${ensureExit} ${ran}`;
+    const said = `${ensured.stdout.replace(/@@exit \d+\n?/, "")}${ensured.stderr}`.trim().slice(-300);
+    throw new Error(`preclaim ${session}: agent start refused (${how})${said ? `: ${said}` : ""}`);
+  }
   const chatMs = Date.now() - started;
   const sent = await exec(`${GUEST}printf '%s' ${shq(prompt)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
   if (!/@@exit 0/.test(sent.stdout)) throw new Error(`preclaim ${session}: chat send refused`);
