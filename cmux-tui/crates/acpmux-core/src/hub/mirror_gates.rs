@@ -2,6 +2,7 @@
 //! its mark, from the queue through the writer's append, sync and publish.
 
 use super::*;
+use acpmux_book::gate_rounds;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Instant;
@@ -113,6 +114,7 @@ fn pr08_mirror_apply() {
     let marks_before = god.hub.mirror_counts();
     let mut small_rounds = Vec::new();
     let mut god_rounds = Vec::new();
+    let (mut small_kept, mut god_kept) = (Vec::new(), Vec::new());
     let mut pooled = Vec::new();
     let (mut small_sync, mut god_sync) = (Vec::new(), Vec::new());
     let (mut small_all, mut god_all_samples) = (Vec::new(), Vec::new());
@@ -121,13 +123,16 @@ fn pr08_mirror_apply() {
         let mut samples: Vec<u128> =
             (0..SAMPLES).map(|_| sample(&mut small, &mut small_sync)).collect();
         small_all.extend_from_slice(&samples);
+        small_kept.push(samples.clone());
         small_rounds.push(p95(&mut samples));
         let mut samples: Vec<u128> =
             (0..SAMPLES).map(|_| sample(&mut god, &mut god_sync)).collect();
         god_all_samples.extend_from_slice(&samples);
         pooled.extend_from_slice(&samples);
+        god_kept.push(samples.clone());
         god_rounds.push(p95(&mut samples));
     }
+    gate_rounds::report("v2.pr08.mirror_apply", &[("small", &small_kept), ("god", &god_kept)]);
     let small_p95 = small_rounds.into_iter().min().unwrap_or(1);
     let god_p95 = god_rounds.into_iter().min().unwrap_or(1);
     let god_all = p95(&mut pooled);
@@ -235,19 +240,27 @@ fn pr08_mirror_local_row() {
     let mut small_rounds = Vec::new();
     let mut god_rounds = Vec::new();
     let mut alone_rounds = Vec::new();
+    let (mut small_kept, mut god_kept, mut alone_kept) = (Vec::new(), Vec::new(), Vec::new());
     let mut pooled = Vec::new();
     for _ in 0..LOCAL_ROUNDS {
         let mut samples: Vec<u128> =
             (0..LOCAL_SAMPLES).map(|_| local_sample(&mut small, true)).collect();
+        small_kept.push(samples.clone());
         small_rounds.push(p95(&mut samples));
         let mut samples: Vec<u128> =
             (0..LOCAL_SAMPLES).map(|_| local_sample(&mut god, true)).collect();
         pooled.extend_from_slice(&samples);
+        god_kept.push(samples.clone());
         god_rounds.push(p95(&mut samples));
         let mut samples: Vec<u128> =
             (0..LOCAL_SAMPLES).map(|_| local_sample(&mut god, false)).collect();
+        alone_kept.push(samples.clone());
         alone_rounds.push(p95(&mut samples));
     }
+    gate_rounds::report(
+        "v2.pr08.mirror_local_row",
+        &[("small", &small_kept), ("god", &god_kept), ("alone", &alone_kept)],
+    );
     let small_p95 = small_rounds.into_iter().min().unwrap_or(1);
     let god_p95 = god_rounds.into_iter().min().unwrap_or(1);
     let god_all = p95(&mut pooled);
@@ -318,23 +331,30 @@ fn pr08_mirror_local_row_thirty() {
     thirty_sample(&mut god);
     let mut capped_rounds = Vec::new();
     let mut lifted_rounds = Vec::new();
+    let (mut capped_kept, mut lifted_kept) = (Vec::new(), Vec::new());
     let mut pooled = Vec::new();
     for _ in 0..LOCAL_ROUNDS {
         god.writer.mirror.turn_changes = MAX_TURN_UNIT_CHANGES;
         let mut samples: Vec<u128> = (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god)).collect();
         pooled.extend_from_slice(&samples);
+        capped_kept.push(samples.clone());
         capped_rounds.push(p95(&mut samples));
         god.writer.mirror.turn_changes = usize::MAX;
         let mut samples: Vec<u128> = (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god)).collect();
+        lifted_kept.push(samples.clone());
         lifted_rounds.push(p95(&mut samples));
     }
+    gate_rounds::report(
+        "v2.pr08.mirror_local_row_thirty",
+        &[("capped", &capped_kept), ("lifted", &lifted_kept)],
+    );
     let capped_p95 = capped_rounds.into_iter().min().unwrap_or(1);
     let capped_all = p95(&mut pooled);
     let lifted_p95 = lifted_rounds.into_iter().min().unwrap_or(1);
     let counts = god.hub.mirror_counts();
     assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     let line = format!(
-        "{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"small_p95\":0,\"god_p95\":{capped_p95},\"god_p95_all\":{capped_all},\"lifted_p95\":{lifted_p95},\"origins\":{ORIGINS},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}"
+        "{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"small_p95\":0,\"god_p95\":{capped_p95},\"god_p95_all\":{capped_all},\"capped_p95\":{capped_p95},\"capped_p95_all\":{capped_all},\"lifted_p95\":{lifted_p95},\"origins\":{ORIGINS},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}"
     );
     eprintln!("{line}");
     if let Ok(path) = std::env::var("V2_GATE_OUT")
