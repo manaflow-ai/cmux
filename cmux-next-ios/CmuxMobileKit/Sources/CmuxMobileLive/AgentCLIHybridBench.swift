@@ -181,12 +181,21 @@ final class AgentCLIHybridBench {
         ReceivedByteCount.shared.startLogging()
         Logger(subsystem: "dev.cmux.mobile", category: "frames").notice("FRAMELOG list-stress holding hybrid")
         let daemon = daemon
+        let frames = Logger(subsystem: "dev.cmux.mobile", category: "frames")
+        var before = probe.take()
+        var pass = 0
         while !Task.isCancelled {
             daemon.rewind()
             let (from, until, attachMs) = (CACurrentMediaTime(), session.durationMs, session.attachMs)
             await Task.detached { await daemon.play(until: until, from: from, attachMs: attachMs) }.value
             // The session's quiet tail, then the next pass.
             try? await Task.sleep(for: .seconds(2))
+            // What this pass drew: both modes must present frames, or the bench compares
+            // drawing with not drawing.
+            let now = probe.take()
+            pass += 1
+            frames.notice("FRAMELOG list-stress hybrid-pass \(pass, privacy: .public) mode=\(self.mode, privacy: .public) presents=\(now.presents - before.presents, privacy: .public) processed=\(now.processed - before.processed, privacy: .public)")
+            before = now
         }
     }
 
