@@ -256,6 +256,18 @@ extension BrowserSettingsSchema {
                 default: .bool(BrowserVerificationAutofillSetting.enabledDefault),
                 keywords: ["email", "verification", "code", "one-time", "otp", "2fa", "autofill", "magic link"]
             ),
+            SettingDescriptor(
+                BrowserVerificationAutofillSetting.accountsPath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.browser.verificationAutofill.accounts", "Email Accounts for Codes"),
+                help: SettingsText.keyed("settings.browser.verificationAutofill.accounts.help", "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent."),
+                summary: SettingsText.keyed("settings.browser.verificationAutofill.accounts.summary", "Addresses cmux may read codes from"),
+                kind: .stringList,
+                default: .array(BrowserVerificationAutofillSetting.accountsDefault.map { .string($0) }),
+                keywords: ["email", "gmail", "mail", "account", "verification", "code"],
+                placeholder: SettingText(key: nil, text: "you@example.com")
+            ),
         ]
     }
 }

@@ -1847,6 +1847,36 @@
             "autofill",
             "magic link"
           ]
+        },
+        {
+          "key": "browser.verificationAutofill.accounts",
+          "note": "Per-account opt-in: mail of any other address is never read for codes.",
+          "title": {
+            "key": "settings.browser.verificationAutofill.accounts",
+            "text": "Email Accounts for Codes"
+          },
+          "help": {
+            "key": "settings.browser.verificationAutofill.accounts.help",
+            "text": "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent."
+          },
+          "summary": {
+            "key": "settings.browser.verificationAutofill.accounts.summary",
+            "text": "Addresses cmux may read codes from"
+          },
+          "kind": "string_list",
+          "default": [],
+          "placeholder": {
+            "key": null,
+            "text": "you@example.com"
+          },
+          "keywords": [
+            "email",
+            "gmail",
+            "mail",
+            "account",
+            "verification",
+            "code"
+          ]
         }
       ]
     }
