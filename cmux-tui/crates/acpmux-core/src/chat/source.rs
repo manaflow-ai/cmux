@@ -318,6 +318,11 @@ impl RawWriter {
         &self.path
     }
 
+    /// Sequence for the caller's next encoded record. It advances only on a successful append.
+    pub fn next_seq(&self) -> u64 {
+        self.next_seq
+    }
+
     /// Append one pre-encoded line without its newline; record policy/serialization is the caller's.
     /// The receipt carries the next seq supplied at open. `sync_now` is true for acts and turn ends.
     /// The actor must also call `sync` on its one-second timer when no further append arrives.
@@ -351,7 +356,6 @@ impl RawWriter {
                 self.last_index_offset = start;
             }
         }
-        self.next_seq = next_seq;
         self.unsynced = true;
         let due = sync_now || self.last_sync.elapsed() >= Duration::from_secs(1);
         if due {
@@ -365,6 +369,7 @@ impl RawWriter {
             self.last_sync = Instant::now();
             self.unsynced = false;
         }
+        self.next_seq = next_seq;
         Ok(WriteReceipt { seq, start, end: self.offset, synced: !self.unsynced })
     }
 
@@ -1011,6 +1016,19 @@ mod tests {
         let mut reopened = RawMap::open(&map_path)?;
         assert_eq!(std::fs::metadata(&map_path)?.len(), length);
         assert_eq!(reopened.append_file(&raw_path, b"file:test")?, 0);
+        let (first, writer) =
+            RawWriter::open_mapped(&mut reopened, &raw_path, b"file:test", None, 4)?;
+        drop(writer);
+        let (again, _writer) =
+            RawWriter::open_mapped(&mut reopened, &raw_path, b"file:test", None, 4)?;
+        assert_eq!((first, again), (0, 0));
+        assert_eq!(std::fs::metadata(&map_path)?.len(), length);
+        let second_path = dir.path().join("other.ndjson");
+        assert_eq!(reopened.append_file(&second_path, b"file:second")?, 1);
+        drop(reopened);
+        let mut reopened = RawMap::open(&map_path)?;
+        assert_eq!(reopened.append_file(&raw_path, b"file:test")?, 0);
+        assert_eq!(reopened.append_file(&dir.path().join("third"), b"file:third")?, 2);
         Ok(())
     }
 
