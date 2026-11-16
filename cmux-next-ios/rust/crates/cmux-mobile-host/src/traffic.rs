@@ -238,7 +238,7 @@ pub async fn run_sampler() {
         let now = Instant::now();
         TRAFFIC.sample(now);
         seconds += 1;
-        if seconds % 60 == 0 {
+        if seconds.is_multiple_of(60) {
             let report = TRAFFIC.report(now);
             let busy: Vec<String> = report["services"]
                 .as_array()
@@ -309,6 +309,7 @@ mod tests {
             channels.push((phone_side, sender, receiver));
         }
         let report = traffic.report(start + Duration::from_secs(10));
+        eprintln!("traffic report: {report}");
         let terminal = row(&report, "terminal");
         assert_eq!(
             (terminal["in_bytes"].as_u64(), terminal["out_bytes"].as_u64()),
