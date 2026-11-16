@@ -40,6 +40,24 @@ pub struct MediaQueueStats {
     pub dropped_rejected_protected_datagrams: u64,
 }
 
+#[cfg(feature = "link")]
+impl From<cmux_rd_link::net::NetStats> for MediaQueueStats {
+    fn from(stats: cmux_rd_link::net::NetStats) -> Self {
+        Self {
+            queue_frames: stats.queue_frames,
+            queue_datagrams: stats.queue_datagrams,
+            dropped_frames: stats.dropped_frames,
+            dropped_datagrams: stats.dropped_datagrams,
+            dropped_replaced_frames: stats.dropped_replaced_frames,
+            dropped_replaced_datagrams: stats.dropped_replaced_datagrams,
+            dropped_evicted_for_protected_frames: stats.dropped_evicted_for_protected_frames,
+            dropped_evicted_for_protected_datagrams: stats.dropped_evicted_for_protected_datagrams,
+            dropped_rejected_protected_frames: stats.dropped_rejected_protected_frames,
+            dropped_rejected_protected_datagrams: stats.dropped_rejected_protected_datagrams,
+        }
+    }
+}
+
 pub trait Carrier {
     /// Readable when [`Carrier::receive`] may have something.
     fn fds(&self) -> Vec<RawFd>;
@@ -210,19 +228,7 @@ impl Carrier for LinkCarrier {
     }
 
     fn media_queue_stats(&self) -> Option<MediaQueueStats> {
-        let stats = self.net.stats();
-        Some(MediaQueueStats {
-            queue_frames: stats.queue_frames,
-            queue_datagrams: stats.queue_datagrams,
-            dropped_frames: stats.dropped_frames,
-            dropped_datagrams: stats.dropped_datagrams,
-            dropped_replaced_frames: stats.dropped_replaced_frames,
-            dropped_replaced_datagrams: stats.dropped_replaced_datagrams,
-            dropped_evicted_for_protected_frames: stats.dropped_evicted_for_protected_frames,
-            dropped_evicted_for_protected_datagrams: stats.dropped_evicted_for_protected_datagrams,
-            dropped_rejected_protected_frames: stats.dropped_rejected_protected_frames,
-            dropped_rejected_protected_datagrams: stats.dropped_rejected_protected_datagrams,
-        })
+        Some(self.net.stats().into())
     }
 
     fn send_control(&mut self, control: &Control) -> io::Result<()> {
