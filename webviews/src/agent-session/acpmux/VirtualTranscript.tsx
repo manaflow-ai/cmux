@@ -2490,7 +2490,7 @@ function TranscriptView({
   const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
   // This transcript's layout arrays, reused from one estimate to the next (model.ts LayoutBuffers).
   const layoutBuffers = useRef<LayoutBuffers | null>(null);
-  layoutBuffers.current ??= new LayoutBuffers();
+  if (layoutBuffers.current === null) layoutBuffers.current = new LayoutBuffers();
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<LastEstimate | undefined>(undefined);
