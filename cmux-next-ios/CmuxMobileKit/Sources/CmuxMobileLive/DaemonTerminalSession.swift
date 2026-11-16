@@ -1471,7 +1471,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// What `set-client-info` declares: the hybrid stream only with the setting on.
     static func capabilities(agentCLIHybrid: Bool) -> [String] {
-        agentCLIHybrid ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability] : clientCapabilities
+        agentCLIHybrid ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability] : clientCapabilities + [agentCLIHybridCapability]
     }
 
     /// While the size is claimed and the daemon leases it: the same size
