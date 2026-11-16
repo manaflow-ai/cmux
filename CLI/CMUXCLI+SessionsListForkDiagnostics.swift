@@ -10,6 +10,7 @@ final class SessionsListClaudeTranscriptLookupCache {
     private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
     private var transcriptPathByConfigRootAndSession: [String: String] = [:]
     private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
+    private var sessionEntryIndexByConfigRoot: [String: ClaudeProjectSessionEntryIndex] = [:]
 
     init(homeDirectory: String) {
         self.homeDirectory = homeDirectory
@@ -80,7 +81,7 @@ final class SessionsListClaudeTranscriptLookupCache {
         if let cached = transcriptPathByConfigRootAndSession[key] { return cached }
         if missingTranscriptPathByConfigRootAndSession.contains(key) { return nil }
 
-        for projectDir in projectDirs(configRoot: standardizedRoot) {
+        for projectDir in projectDirs(configRoot: standardizedRoot, holdingEntryFor: sessionId) {
             if let path = transcriptPath(
                 configRoot: standardizedRoot,
                 projectDirName: projectDir,
@@ -92,6 +93,37 @@ final class SessionsListClaudeTranscriptLookupCache {
         }
         missingTranscriptPathByConfigRootAndSession.insert(key)
         return nil
+    }
+
+    /// The folders under `projects/` that can hold an entry for `sessionId`
+    /// (`<sessionId>.jsonl` or `<sessionId>/`), in listing order. Callers probe
+    /// these instead of every folder.
+    func projectDirs(configRoot: String, holdingEntryFor sessionId: String) -> [String] {
+        let standardizedRoot = (configRoot as NSString).standardizingPath
+        return sessionEntryIndex(configRoot: standardizedRoot).projectDirs(sessionId: sessionId)
+    }
+
+    private func sessionEntryIndex(configRoot standardizedRoot: String) -> ClaudeProjectSessionEntryIndex {
+        if let index = sessionEntryIndexByConfigRoot[standardizedRoot] { return index }
+
+        let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+        var index = ClaudeProjectSessionEntryIndex()
+        for projectDir in projectDirs(configRoot: standardizedRoot) {
+            let projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDir) as NSString)
+                .standardizingPath
+            // The per-folder lookup finds nothing in an entry that is not a directory.
+            guard directoryExists(atPath: projectRoot) else {
+                index.add(projectDir: projectDir, sessionIds: [])
+                continue
+            }
+            let entries = try? FileManager.default.contentsOfDirectory(atPath: projectRoot)
+            index.add(
+                projectDir: projectDir,
+                sessionIds: entries.flatMap(ClaudeProjectSessionEntryIndex.sessionIds(entryNames:))
+            )
+        }
+        sessionEntryIndexByConfigRoot[standardizedRoot] = index
+        return index
     }
 
     func projectDirs(configRoot: String) -> [String] {
