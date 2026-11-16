@@ -28,7 +28,7 @@
 use std::io::Write as _;
 use std::time::{Duration, Instant};
 
-use cmux_json::JsonGet as _;
+use cmux_json::{JsonGet as _, JsonSet as _};
 use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 
@@ -541,7 +541,7 @@ where
     }});
     let failed = |code: &str, message: String, mut answer: Value, exit: i32| {
         if code == "chat.wait_timeout" {
-            answer["timed_out"] = json!(true);
+            answer.set("timed_out", json!(true));
         }
         Outcome::Failed {
             error: json!({"code": code, "message": message, "details": {"answer": answer},
@@ -610,10 +610,10 @@ where
             }
         }
         let mut answer = answer;
-        answer["status"] = session.get("status").cloned().unwrap_or(Value::Null);
-        answer["reply"] = session.get("reply").cloned().unwrap_or(Value::Null);
+        answer.set("status", session.get("status").cloned().unwrap_or(Value::Null));
+        answer.set("reply", session.get("reply").cloned().unwrap_or(Value::Null));
         if let Some(error) = session.get("error").filter(|error| !error.is_null()) {
-            answer["error"] = error.clone();
+            answer.set("error", error.clone());
             return Outcome::Failed {
                 error: json!({"code": "chat.turn_failed",
                               "message": format!("the turn on {target} ended with an error"),

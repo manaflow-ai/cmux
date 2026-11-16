@@ -735,7 +735,7 @@ fn acpmuxs_own_machines_join_the_machine_list_once() {
         {"id": "machine_box", "name": "box", "origin": "ssh"},
         {"kind": "joined", "id": "m_6", "name": "lane six", "hostname": "gcp-agent-lane-6"},
     ]);
-    let merged = merge_peer_rows(listed.clone(), &peers);
+    let merged = merge_peer_rows(listed, &peers);
     let added: Vec<&Value> = merged.as_array().unwrap()[3..].iter().collect();
     let names: Vec<&str> = added.iter().map(|row| row["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["gcp-agent-lane-3", "cosmic-gray", "[31m"]);

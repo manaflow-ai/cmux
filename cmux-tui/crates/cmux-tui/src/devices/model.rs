@@ -239,18 +239,6 @@ fn parked_detail(name: &str) -> String {
     )
 }
 
-/// Merges the stores and the network's nodes into one row per device.
-///
-/// - an acpmux peer is a computer that runs your agents; its URL's host is
-///   matched to a network node for its OS and address;
-/// - a daemon-role pairing is the record behind a peer of the same name, so
-///   it joins that row; a client or read-only pairing is its own row;
-/// - remote hosting's `allow` logins and live grants are rows while remote
-///   hosting is on (off, they let no one in);
-/// - revoked records and spent tickets are not rows; open tickets are invites;
-/// - network computers that are online and not a device are `available`,
-///   then the ssh config's hosts that are neither a device nor one of
-///   those computers (git forges left out).
 /// The person's ssh config alias for network computer `node`: one whose
 /// HostName is the node (its MagicDNS name, short name or address) first, else
 /// one named as the node is. ssh dials such an alias with the person's own
@@ -269,6 +257,18 @@ fn ssh_alias(
         .map(|h| h.alias.clone())
 }
 
+/// Merges the stores and the network's nodes into one row per device.
+///
+/// - an acpmux peer is a computer that runs your agents; its URL's host is
+///   matched to a network node for its OS and address;
+/// - a daemon-role pairing is the record behind a peer of the same name, so
+///   it joins that row; a client or read-only pairing is its own row;
+/// - remote hosting's `allow` logins and live grants are rows while remote
+///   hosting is on (off, they let no one in);
+/// - revoked records and spent tickets are not rows; open tickets are invites;
+/// - network computers that are online and not a device are `available`,
+///   then the ssh config's hosts that are neither a device nor one of
+///   those computers (git forges left out).
 pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkNode]) -> Listing {
     let net_name = network.kind.name();
     let mut devices: Vec<Device> = Vec::new();
