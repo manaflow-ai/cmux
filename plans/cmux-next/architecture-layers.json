@@ -142,7 +142,6 @@
     "CmuxAgentQuestion": {"layer": "core", "package": "Packages/Shared/CmuxAgentQuestion", "note": "harness-neutral question model"},
     "CmuxInstallAuthCore": {"layer": "core", "package": "Packages/Shared/CmuxInstallAuthCore", "note": "install auth crypto values"},
     "CmuxFeedPushCore": {"layer": "core", "package": "Packages/Shared/CmuxFeedPushCore", "note": "feed push crypto values"},
-    "CmuxRetryAfter": {"layer": "core", "package": "Packages/Shared/CmuxRetryAfter", "note": "Retry-After parsing and the shared cooldown; CmuxAuthRuntime and CMUXMobileCore use it"},
     "CmuxTheme": {"layer": "core", "package": "Packages/Shared/CmuxTheme", "note": "theme values; core CmuxNextDesignTokens depends on it"},
     "CmuxTerminalSizing": {"layer": "core", "package": "Packages/Shared/CmuxTerminalSizing", "note": "pure terminal sizing math"},
     "CmuxSentryScrubbing": {"layer": "core", "package": "Packages/Shared/CmuxSentryTelemetry", "note": "pure report scrubber"},

@@ -45,7 +45,7 @@
  },
  "swift": {
   "async_closure_default_arg": {
-   "CMUXMobileCore": 2,
+   "CMUXMobileCore": 3,
    "CmuxAuthRuntime": 7,
    "CmuxInstallAuthCore": 1,
    "CmuxIrohTransport": 4,
