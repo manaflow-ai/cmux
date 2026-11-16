@@ -70,7 +70,10 @@ impl App {
         // earlier attempt had exhausted its own path. Time alone is not a
         // reason to interrupt the person while automatic recovery continues.
         if self.machine_provider_reconnect_retry_at.is_some()
-            || matches!(self.machine_action_request, Some(MachineRequest::ReconnectProvider))
+            || matches!(
+                self.machine_action_request.as_ref(),
+                Some(MachineRequest::ReconnectProvider)
+            )
         {
             return None;
         }
