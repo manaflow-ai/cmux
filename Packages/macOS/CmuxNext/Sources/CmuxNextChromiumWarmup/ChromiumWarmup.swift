@@ -183,14 +183,13 @@ public final class ChromiumWarmup {
     /// the first tab's open.
     private func warmStarted() {
         guard !stopped, engine.isRunning else { return }
-        // Chromium also runs for agent chats and cmux pages, which never use the spare: it is a web
-        // tab's window and page. With none open or likely, Home held both (a hidden window, an about:blank
-        // placeholder and a frozen spare page, each with its renderer) for nothing.
-        guard Self.makesSpare(webTabsOpen: webTabsOpen(), webTabIntent: webTabIntent) else {
-            spareDeferred = true
-            return
-        }
-        spareDeferred = false
+        // Chromium also runs for agent chats and cmux pages, which never use the web tabs' spare: it is a
+        // web tab's window and page. With none open or likely, Home held both (a hidden window, an
+        // about:blank placeholder and a frozen spare page, each with its renderer) for nothing. Once a
+        // cmux page opened, the pages' own store keeps a spare window for the next page (CEFSpareWindow).
+        let webSpare = Self.makesSpare(webTabsOpen: webTabsOpen(), webTabIntent: webTabIntent)
+        spareDeferred = !webSpare
+        guard webSpare || engine.wantsPageSpareWindow else { return }
         waitForIdle { [weak self] in
             guard let self else { return }
             // A page being made builds its own window: the spare waits until the pages settle
@@ -201,7 +200,10 @@ public final class ChromiumWarmup {
                 spareWaitsForPages = true
                 return
             }
-            engine.prepareSpareWindow()
+            // One window per idle moment: the pages' spare first (a cmux page opens more often than a
+            // web tab's pane); its window coming up asks for the next idle moment (`onSpareWindowNeeded`).
+            if engine.wantsPageSpareWindow, engine.preparePageSpareWindow() { return }
+            if webSpare { engine.prepareSpareWindow() }
         }
     }
 
