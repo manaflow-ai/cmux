@@ -417,6 +417,70 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  // A turn's end (turnEndFold.ts) and a reader's "Worked for" toggle (turnFold.ts) leave a drawn copy of
+  // each row they take away, fading out on a Web Animation where the row was. The page writes its copy
+  // the moment its tab hides (live.ts, a window occluded included), so a write can land mid-fold. The
+  // markup carries no animation: written, each copy drew at full ink at its old top, over the rows
+  // placed since, on the next launch: two layers of rows (cmux#43975, the turn's progress lines over
+  // its folded replies).
+  const FOLD_GHOST = "acpmux-row--fold-ghost";
+  const ghostMarkup = (top: number) =>
+    `<article class="acpmux-row ${FOLD_GHOST}" aria-hidden="true" inert="" style="top:${top}px">went ${top}</article>`;
+
+  test("a write while a fold plays leaves its fading copies out (cmux#43975)", async () => {
+    const context = await newContext(800, 600);
+    const page = await context.newPage();
+    await page.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+    );
+    await page.goto("http://chat.test/a.html");
+    await page.addScriptTag({ content: capture });
+    const html = (await page.evaluate((ghostClass) => {
+      const scroll = document.querySelector(".acpmux-scroll")!;
+      scroll.scrollTop = 2000;
+      // Two copies in view, mid-fade, over rows 55 and 60.
+      const spacer = document.querySelector(".acpmux-spacer")!;
+      for (const top of [2200, 2400]) {
+        spacer.insertAdjacentHTML(
+          "beforeend",
+          `<article class="acpmux-row ${ghostClass}" aria-hidden="true" inert="" style="top:${top}px">went ${top}</article>`,
+        );
+        (spacer.lastElementChild as HTMLElement).animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: 60_000,
+          fill: "both",
+        });
+      }
+      return (globalThis as any).captureSnapshot(document, "theme-1").html;
+    }, FOLD_GHOST)) as string;
+    expect(html).toContain('data-row-id="r60"');
+    expect(html).not.toContain(FOLD_GHOST);
+    expect(html).not.toContain("went 2200");
+    await context.close();
+  });
+
+  test("a copy written mid-fold before the fix draws none of the fold's copies (cmux#43975)", async () => {
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage());
+    const snapshot = before.snapshot as { html: string };
+    // As a copy kept on disk from a build that wrote them: the copies sit in the transcript's markup.
+    const old = { ...snapshot, html: snapshot.html.replace("</article>", `</article>${ghostMarkup(2400)}`) };
+    expect(old.html).toContain(FOLD_GHOST);
+    const page = await context.newPage();
+    await relaunched(page, old, "theme-1", { holdDraw: true });
+    const drawn = await page.evaluate((ghost) => {
+      const copy = document.querySelector("cmux-chat-snapshot")?.shadowRoot;
+      return {
+        shown: !!copy,
+        rows: copy?.querySelectorAll(".acpmux-row[data-row-id]").length ?? 0,
+        ghosts: copy?.querySelectorAll(`.${ghost}`).length ?? -1,
+      };
+    }, FOLD_GHOST);
+    expect(drawn.shown).toBe(true);
+    expect(drawn.rows).toBeGreaterThan(0);
+    expect(drawn.ghosts).toBe(0);
+    await context.close();
+  });
+
   test("a block scrolled inside a shadow root draws at its offset", async () => {
     const context = await newContext(800, 600);
     const writer = await context.newPage();
