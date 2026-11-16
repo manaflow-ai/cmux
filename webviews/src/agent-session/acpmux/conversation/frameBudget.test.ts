@@ -98,13 +98,6 @@ test("the chat's mark: its gate moves nothing, the rest of the page moves on, th
   expect(frames).toBeLessThan(IDLE_FRAMES);
   expect(queue.length).toBe(0);
   expect(budget.minimal).toBe(true);
-  // It went idle with misses still in the window: no timer takes the mark away.
-  expect(timers.filter((timer) => timer.at < Infinity).length).toBe(0);
-  // Its next poke a second later reads frames in budget with the window clear.
-  now += 1000;
-  budget.poke();
-  while (run(FRAME) > 0 && frames < 4000) frames += 1;
-  expect(budget.minimal).toBe(true);
   // No work for HEALTHY_FOR: the chat is healthy again, and the mark goes, on one timer.
   expect(timers.filter((timer) => timer.at < Infinity).length).toBe(1);
   now += HEALTHY_FOR;
@@ -258,5 +251,16 @@ test("a chat that goes idle while its frames still miss stays minimal for its ne
     // The next record lands minimal: no fade, drawn in the frame it comes.
     expect(chat.getAttribute("data-chat-motion")).toBe("minimal");
   }
+  // The load ends: a record whose first frame misses once, then frames in budget. The loop stops on QUIET_FRAMES and
+  // the mark goes HEALTHY_FOR later, though that one frame is still in the window (review of #44367).
+  budget.poke();
+  run(FRAME);
+  run(40);
+  let settling = 0;
+  while (run(FRAME) > 0 && settling < 200) settling += 1;
+  expect(settling).toBeLessThan(IDLE_FRAMES);
+  now += HEALTHY_FOR;
+  for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
+  expect(chat.hasAttribute("data-chat-motion")).toBe(false);
   budget.dispose();
 });
