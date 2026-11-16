@@ -9,7 +9,10 @@
 // into its frames, and over a read cell it would change the counter the viewer reads.
 //
 //   swiftc -O -o cmux-rd-marker main.swift
-//   ./cmux-rd-marker [--motion]     --motion: animate the rest of the display every refresh
+//   ./cmux-rd-marker [--motion] [--tick]
+//     --motion: animate the rest of the display every refresh
+//     --tick:   also count every display refresh, an fps probe: a viewer that shows every
+//               frame sees the counter step by one each refresh (screen-share-vs.py)
 //
 // Test hosts only: it covers the menu bar corner and takes key focus on the host Mac.
 
@@ -144,11 +147,23 @@ if let motion {
     let link = screen.displayLink(target: motion, selector: #selector(MotionView.step))
     link.add(to: .main, forMode: .common)
 }
+if CommandLine.arguments.contains("--tick") {
+    let link = screen.displayLink(target: marker, selector: #selector(MarkerView.tick))
+    link.add(to: .main, forMode: .common)
+}
 
 extension MotionView {
     @objc func step(_ link: CADisplayLink) {
         phase += 8
         needsDisplay = true
+    }
+}
+
+extension MarkerView {
+    /// `--tick`: one count per display refresh, drawn at once.
+    @objc func tick(_ link: CADisplayLink) {
+        counter &+= 1
+        display()
     }
 }
 
