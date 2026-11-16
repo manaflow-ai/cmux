@@ -265,13 +265,45 @@ export class Journey {
 
 type Answer = { status: number; body: any };
 
-async function http(method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs = 30_000): Promise<Answer> {
-  const res = await fetch(url, {
-    method,
-    headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+/**
+ * The request died on its socket before any answer came back: the peer reset or closed it (Bun: ECONNRESET "The
+ * socket connection was closed unexpectedly", or ConnectionClosed; Node: UND_ERR_SOCKET, EPIPE). A timeout is not one:
+ * the server may still be working on it.
+ */
+export function socketDropped(error: unknown): boolean {
+  for (let e: any = error, depth = 0; e && depth < 3; e = e.cause, depth++) {
+    if (["ECONNRESET", "ConnectionClosed", "UND_ERR_SOCKET", "EPIPE", "ECONNABORTED"].includes(String(e.code ?? ""))) return true;
+    if (/socket connection was closed unexpectedly/i.test(String(e.message ?? ""))) return true;
+  }
+  return false;
+}
+
+/**
+ * One HTTP request. With `repeatable` (a read, a GET, or an op under an idempotency key) a request whose socket
+ * drops before any answer is sent once more on a fresh connection (keepalive off), so one stale pooled socket can't
+ * fail a step: run 43927514723's connect_info read died 40 ms in with ECONNRESET on the first request after a
+ * 122 s idle step, a socket the edge had closed while it sat in the pool.
+ */
+export async function http(method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs = 30_000, repeatable = method === "GET" || method === "HEAD"): Promise<Answer> {
+  const send = (fresh: boolean) =>
+    fetch(url, {
+      method,
+      headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+      ...(fresh ? { keepalive: false } : {}),
+    });
+  let res: Response;
+  try {
+    res = await send(false);
+  } catch (error) {
+    if (!repeatable || !socketDropped(error)) throw error;
+    try {
+      res = await send(true);
+    } catch (again) {
+      throw new Error(`${(again as Error)?.message ?? again} (sent once more on a fresh connection after: ${(error as Error)?.message ?? error})`);
+    }
+  }
   const text = await res.text();
   let parsed: any;
   try {
@@ -318,7 +350,7 @@ class Api {
   }
   async op(op: string, params: unknown, key?: string): Promise<any> {
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000, !!key);
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
@@ -333,14 +365,14 @@ class Api {
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
     const until = Date.now() + budgetMs;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true);
       if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
-    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs);
+    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
