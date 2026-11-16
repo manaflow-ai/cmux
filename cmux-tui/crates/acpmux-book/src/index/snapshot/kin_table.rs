@@ -19,7 +19,6 @@ pub(in crate::index) use build::Builder;
 pub(crate) const ENTRY_BYTES: usize = 32;
 const TABLE_HEADER_BYTES: usize = 4096;
 const PAGE_BYTES: usize = 4096;
-const ENTRY_PAGE_BYTES: usize = PAGE_BYTES;
 const ENTRIES_PER_PAGE: usize = 127;
 const SLOTS_PER_PAGE: usize = 511;
 const FAMILY_KIND: u8 = 1;

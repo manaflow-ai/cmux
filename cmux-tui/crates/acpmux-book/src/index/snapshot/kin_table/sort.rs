@@ -5,6 +5,7 @@ use std::collections::BinaryHeap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
+use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -98,7 +99,7 @@ impl<R: Record> Sorter<R> {
     }
 
     fn with_budget_in(directory: &Path, bytes: usize) -> io::Result<Self> {
-        let limit = (bytes / std::mem::size_of::<R>().max(R::WIDTH).max(1)).max(1);
+        let limit = (bytes / size_of::<R>().max(R::WIDTH).max(1)).max(1);
         Ok(Self {
             space: TempSpace::new(directory)?,
             memory: Vec::with_capacity(limit),

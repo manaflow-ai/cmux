@@ -127,7 +127,7 @@ fn assert_rejected(path: &Path, bind: Binding) {
 }
 
 fn forest() -> Vec<Summary> {
-    let mut rows = Vec::new();
+    let mut rows: Vec<Summary> = Vec::new();
     let mut state = 0x9e37_79b9_u64;
     for index in 0..96 {
         let mut row = row(format!("forest-{index:03}"), index as u64 + 1);
@@ -373,7 +373,7 @@ fn damaged_page_disables_once_and_short_page_is_not_retried() {
     let (_directory, short_path) = write_table(&rows, 8, TEST_HEAD_CRC);
     let short = open_table(&short_path, 8, rows.len() as u64, TEST_HEAD_CRC);
     let first_data_page = u64::from(short.header.directory_pages);
-    fs::OpenOptions::new()
+    OpenOptions::new()
         .write(true)
         .open(&short_path)
         .unwrap()
