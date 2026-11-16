@@ -29,10 +29,9 @@ import Testing
         ])
     }
 
-    /// One window's sidebar over a session with one open workspace, made in the caller's turn. The band has a
-    /// built-in item, a page item with a stored name, and three pinned workspaces: an open one, a closed one with no
-    /// stored name and a closed one with a stored name.
-    static func sidebar() throws -> SidebarBridge {
+    /// The app over a session with one open workspace. The band has a built-in item, a page item with a stored name,
+    /// and three pinned workspaces: an open one, a closed one with no stored name and a closed one with a stored name.
+    static func app() throws -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         // The band's layout, set before anything reads the service: no daemon and no document store write it later.
@@ -43,11 +42,22 @@ import Testing
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
+        store.apply(snapshot: tree(name: "Build"))
+        return services
+    }
+
+    /// The session's tree: the one open workspace, under `name`.
+    static func tree(name: String) -> DaemonTree {
         let tab = TabSnapshot(surface: 1, terminalResourceID: "term_open", name: "shell")
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
-        store.apply(snapshot: DaemonTree(registryID: session, workspaces: [
-            WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "k-open"), resourceID: "ws_open", name: "Build", screens: [screen]),
-        ]))
+        return DaemonTree(registryID: session, workspaces: [
+            WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "k-open"), resourceID: "ws_open", name: name, screens: [screen]),
+        ])
+    }
+
+    /// One window's sidebar over that app, made in the caller's turn.
+    static func sidebar() throws -> SidebarBridge {
+        let services = try app()
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"first-frame","workspace_key":"first-frame-home"}"#.utf8))
         let state = WindowState(record: record)
         services.windows.registry.provisional[state.id] = ["k-open"]
@@ -107,15 +117,50 @@ import Testing
         #expect(empty.designedStates == Set<SidebarFirstFrame.DesignedState>([.loadingRow, .savedRow, .storedLabel]))
     }
 
-    @Test func theOrderInRunsThePassWhenAnInfoIsNotThere() throws {
+    @Test func completeFirstFrameRunsThePassWhenAnInfoIsNotThere() throws {
         let bridge = try Self.sidebar()
         defer { bridge.teardown() }
         let pass = try #require(bridge.sectionsPass, "the sidebar has no pass for its band items")
         bridge.model.itemInfo = [:]
-        // What the window manager calls before it orders the window in.
+        // The method that the window manager's `present` calls.
         pass.completeFirstFrame()
         #expect(SidebarFirstFrame(bridge.model).isComplete)
         #expect(bridge.model.itemInfo[Self.open.id]?.workspaceRow != nil)
+    }
+
+    /// The window manager's `present` writes the values before its order-in. The window is a real one that is never
+    /// ordered in (`ordersWindowsIn`); the test empties the values after the window is made, so only this call of
+    /// `present` can write them again.
+    @Test func presentWritesEachBandItemsInfoBeforeTheOrderIn() throws {
+        let services = try Self.app()
+        services.windows.ordersWindowsIn = false
+        let controller = services.windows.makeController(for: WindowRegistry.Window(id: "first-frame-present"))
+        defer { controller.teardown(); controller.window?.close() }
+        let model = controller.sidebar.model
+        try #require(model.layout.item(Self.home.id) != nil, "the fixture is wrong: the window's band does not list the item that the test set")
+        model.itemInfo = [:]
+        services.windows.present(controller)
+        #expect(SidebarFirstFrame(model).isComplete, "present left band items with no info: \(SidebarFirstFrame(model).faults.map(\.id.rawValue))")
+        #expect(model.itemInfo[Self.home.id] != nil)
+    }
+
+    /// After the first write the pass's task follows a change of the store: this test runs no pass itself. Its wait
+    /// is the model's own change (Observation): one call reads the title and arms the wait, so a write between the two
+    /// is not lost. The time limit is the bound: a change that the task does not write ends the test red.
+    @Test(.timeLimit(.minutes(1))) func theTaskWritesALaterChangeOfTheStore() async throws {
+        let bridge = try Self.sidebar()
+        defer { bridge.teardown() }
+        let model = bridge.model
+        try #require(model.itemInfo[Self.open.id]?.title == "Build", "the fixture is wrong: the open workspace's pin does not draw its workspace's name")
+        bridge.services.machines.local.store.apply(snapshot: Self.tree(name: "Ship"))
+        #expect(model.itemInfo[Self.open.id]?.title == "Build", "the title changed in the turn of the store's change: the wait below proves nothing")
+        var title: String?
+        while title != "Ship" {
+            let (changes, change) = AsyncStream<Void>.makeStream()
+            title = withObservationTracking { model.itemInfo[Self.open.id]?.title } onChange: { change.yield(); change.finish() }
+            if title != "Ship" { for await _ in changes { break } }
+        }
+        #expect(SidebarFirstFrame(model).isComplete)
     }
 
     @Test func aNewPinHasItsInfoInTheTurnThatShowsIt() throws {

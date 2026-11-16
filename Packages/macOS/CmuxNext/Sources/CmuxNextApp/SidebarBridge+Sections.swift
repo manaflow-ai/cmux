@@ -82,7 +82,6 @@ extension SidebarBridge {
     func observeSections() {
         let model = model
         let registry = services.registry
-        // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
         // Another client's group fold (the sidebar document's fold-only batches) folds this window's rows. After the
         // `sidebarLayout` read, which starts this app's document.
