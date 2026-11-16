@@ -460,7 +460,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "withdraw")
         // May replace a stale surface, displacing the view shown here.
         let elsewhere = key.flatMap { $0 == takesHere ? nil : paneShowingElsewhere($0) } != nil // its one view draws in another window
-        let content = BenchSpans.measure("switch.content") { key.flatMap { elsewhere ? elsewhereContent($0) : content(for: $0) } }
+        let content: TabContent? = BenchSpans.measure("switch.content") {
+            guard let key else { return nil }
+            return elsewhere ? elsewhereContent(key) : content(for: key)
+        }
         if !elsewhere { elsewhereNotice = nil }
         let ownsView = guestTerminal?.key == key || elsewhere // not the cache's surface: the ledger never hears of it
         if case .browser(let entry) = content {
