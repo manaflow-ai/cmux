@@ -1334,31 +1334,57 @@ impl Hub {
         wireguard: Option<Arc<crate::wireguard::Transport>>,
         start_peers: bool,
     ) -> Arc<Self> {
+        let gauges = crate::gauges::global();
         let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
-        let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let handoffs = {
+            let _phase = gauges.phase("hub handoffs");
+            handoff::Handoffs::open(store.handoff_dir())
+        };
         // Loaded now, so a forced `sessions.allowFullAccess` off holds from the first request
         // after a restart, before the app pushes again (`start_mode_state.rs`).
-        let start_mode_state =
-            start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
+        let start_mode_state = {
+            let _phase = gauges.phase("hub start mode");
+            start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref())
+        };
         // Loaded before the socket serves, so an agent that outlived the previous daemon is
         // known by its caller token from the first request (`caller_registry.rs`).
-        let caller_registry =
-            caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
+        let caller_registry = {
+            let _phase = gauges.phase("hub caller registry");
+            caller_registry::CallerRegistry::load(caller_registry::state_file(&config))
+        };
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
-        let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        let peer_paths = {
+            let _phase = gauges.phase("hub peer paths");
+            Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()))
+        };
         // A removed peer's kept remote tokens go with it (`peer_kept_tokens.rs`).
         peer_paths
             .tokens
             .retain(peers_cfg.iter().map(|(name, pc)| (name.as_str(), pc.url.as_str())));
-        let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
+        let suggestion_gate = {
+            let _phase = gauges.phase("hub suggestion gate");
+            StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()))
+        };
         // Beside the session store in its home; a memory store keeps it in memory only.
-        let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
-        let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
-        let briefs = dispatch::Briefs::open(store.briefs_path());
-        let audit = audit_log::AuditLog::open(store.audit_dir());
+        let ledger = {
+            let _phase = gauges.phase("hub ledger");
+            ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")))
+        };
+        let peer_snapshots = {
+            let _phase = gauges.phase("hub peer snapshots");
+            peer_snapshot::PeerSnapshots::open(home)
+        };
+        let briefs = {
+            let _phase = gauges.phase("hub briefs");
+            dispatch::Briefs::open(store.briefs_path())
+        };
+        let audit = {
+            let _phase = gauges.phase("hub audit log");
+            audit_log::AuditLog::open(store.audit_dir())
+        };
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
         #[cfg(feature = "hub-carrier")]
         let hub_carrier =

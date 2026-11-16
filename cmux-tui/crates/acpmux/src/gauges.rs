@@ -34,8 +34,12 @@ struct Phase {
     name: &'static str,
     /// Milliseconds from [`Gauges::born`] to its start.
     at_ms: u64,
+    /// Microseconds from [`Gauges::born`] to its start.
+    at_us: u64,
     /// Its length; None while it runs. A mark is a phase of 0 ms.
     ms: Option<u64>,
+    /// Its length in microseconds; None while it runs. A mark is 0.
+    us: Option<u64>,
 }
 
 /// A running phase: its length is recorded when this drops.
@@ -48,15 +52,21 @@ pub struct PhaseGuard {
 impl Drop for PhaseGuard {
     fn drop(&mut self) {
         let ms = millis(self.started.elapsed());
+        let us = micros(self.started.elapsed());
         let mut phases = self.gauges.phases.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(phase) = phases.get_mut(self.index) {
             phase.ms = Some(ms);
+            phase.us = Some(us);
         }
     }
 }
 
 fn millis(d: Duration) -> u64 {
     u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn micros(d: Duration) -> u64 {
+    u64::try_from(d.as_micros()).unwrap_or(u64::MAX)
 }
 
 impl Gauges {
@@ -71,7 +81,13 @@ impl Gauges {
         if phases.len() >= PHASES {
             return PhaseGuard { gauges: self, index: usize::MAX, started };
         }
-        phases.push(Phase { name, at_ms: millis(started - self.born), ms: None });
+        phases.push(Phase {
+            name,
+            at_ms: millis(started - self.born),
+            at_us: micros(started - self.born),
+            ms: None,
+            us: None,
+        });
         PhaseGuard { gauges: self, index: phases.len() - 1, started }
     }
 
@@ -81,14 +97,25 @@ impl Gauges {
         if phases.len() >= PHASES || phases.iter().any(|p| p.name == name) {
             return;
         }
-        phases.push(Phase { name, at_ms: millis(self.born.elapsed()), ms: Some(0) });
+        phases.push(Phase {
+            name,
+            at_ms: millis(self.born.elapsed()),
+            at_us: micros(self.born.elapsed()),
+            ms: Some(0),
+            us: Some(0),
+        });
     }
 
     /// `gauges` in `_acpmux/status`, but for the connections' queues, which the server adds.
     pub fn status(&self) -> Value {
         let phases: Vec<Value> = {
             let phases = self.phases.lock().unwrap_or_else(PoisonError::into_inner);
-            phases.iter().map(|p| json!({"name": p.name, "atMs": p.at_ms, "ms": p.ms})).collect()
+            phases
+                .iter()
+                .map(|p| {
+                    json!({"name": p.name, "atMs": p.at_ms, "atUs": p.at_us, "ms": p.ms, "us": p.us})
+                })
+                .collect()
         };
         json!({
             "uptimeMs": millis(self.born.elapsed()),

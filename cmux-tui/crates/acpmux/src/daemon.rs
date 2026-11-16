@@ -603,6 +603,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let _phase = v2_start.then(|| gauges.phase("hub construct"));
         Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone())
     };
+    let _hub_ready_phase = gauges.phase("hub end to requests ready");
     if let Some(v2) = v2.as_ref() {
         let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
         hub.install_v2_tee(tee);
@@ -830,6 +831,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         "listen": bound,
         "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
+    drop(_hub_ready_phase);
     gauges.mark("requests ready");
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(

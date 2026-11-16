@@ -122,17 +122,24 @@ async fn daemon_status_inner(socket: &std::path::Path) -> serde_json::Value {
 }
 
 fn startup_phase_summary(samples: &[serde_json::Value]) -> serde_json::Value {
-    let mut by_name: BTreeMap<String, (Vec<u64>, Vec<u64>)> = BTreeMap::new();
+    let mut by_name: BTreeMap<String, (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>)> = BTreeMap::new();
     for startup in samples {
         for phase in startup.as_array().into_iter().flatten() {
-            let (Some(name), Some(at_ms), Some(ms)) =
-                (phase["name"].as_str(), phase["atMs"].as_u64(), phase["ms"].as_u64())
-            else {
+            let (Some(name), Some(at_ms), Some(at_us), Some(ms), Some(us)) = (
+                phase["name"].as_str(),
+                phase["atMs"].as_u64(),
+                phase["atUs"].as_u64(),
+                phase["ms"].as_u64(),
+                phase["us"].as_u64(),
+            ) else {
                 continue;
             };
-            let (at_values, ms_values) = by_name.entry(name.to_owned()).or_default();
+            let (at_values, at_us_values, ms_values, us_values) =
+                by_name.entry(name.to_owned()).or_default();
             at_values.push(at_ms);
+            at_us_values.push(at_us);
             ms_values.push(ms);
+            us_values.push(us);
         }
     }
     let p95 = |values: &mut Vec<u64>| {
@@ -142,14 +149,16 @@ fn startup_phase_summary(samples: &[serde_json::Value]) -> serde_json::Value {
     serde_json::Value::Object(
         by_name
             .into_iter()
-            .map(|(name, (mut at_values, mut ms_values))| {
+            .map(|(name, (mut at_values, mut at_us_values, mut ms_values, mut us_values))| {
                 let samples = at_values.len();
                 (
                     name,
                     json!({
                         "samples": samples,
                         "atMsP95": p95(&mut at_values),
+                        "atUsP95": p95(&mut at_us_values),
                         "msP95": p95(&mut ms_values),
+                        "usP95": p95(&mut us_values),
                     }),
                 )
             })
