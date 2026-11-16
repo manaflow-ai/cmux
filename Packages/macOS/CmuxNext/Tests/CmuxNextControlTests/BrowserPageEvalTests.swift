@@ -50,7 +50,8 @@ import WebKit
                 "return \(BrowserPageScripts.jsonSafe(script));", arguments: [:], in: nil, contentWorld: .page)
             return JSONValue(foundation: result ?? NSNull()) ?? .null
         }
-        #expect(try await evaluate("new Promise(resolve => setTimeout(() => resolve({answer: 42}), 10))") == ["answer": 42])
+        // Settle after the wrapper observes the pending promise, without a wall-clock delay.
+        #expect(try await evaluate("new Promise(resolve => queueMicrotask(() => resolve({answer: 42})))") == ["answer": 42])
         #expect(try await evaluate("Promise.reject(new Error('rejected'))")["__cmuxEvalError"] == "Error: rejected")
         let badConversion = "(() => { window.evalCount = (window.evalCount || 0) + 1; return Promise.resolve({toJSON() { throw new SyntaxError('conversion'); }}); })()"
         #expect(try await evaluate(badConversion)["__cmuxEvalError"] == "SyntaxError: conversion")

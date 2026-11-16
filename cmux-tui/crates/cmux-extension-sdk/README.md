@@ -74,7 +74,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `newTab(render)` | A whole New Tab page (`cmux.newtab/1`): the scene is the page body. It shows only once the person runs `cmux settings set tabs.newTabApp <your id>`; unset, or when the extension is hidden, disabled or fails, cmux draws its own page. Render gets `{ surface: "newTab", cwd? }`. Draws on the web New Tab page, not the native one (`tabs.nativeNewTabPage`). |
 | `chatWidget(render)` | A chat widget (`cmux.chat.widget/1`): a card under each agent tool call whose name matches the manifest's `options.tools` (`*` matches any run of characters), and for widget parts an agent sends naming the extension. Render gets `{ surface: "chatWidget", widget: { key }, tool?: { name, title?, status?, input?, output? }, props? }`. cmux ships no widgets of its own; a missing, hidden or failing extension leaves the call as it was. Export the same render with `section(...)` to show it in the sidebar too. |
 | `command(run)` | A command an extension declares in `catalog.json`; runs from the palette, the CLI or another extension. |
-| `browserPage(ctx.cmux)` | The page of a browser tab cmux draws: `eval(script or fn, {tab?, args?})` runs a script in the page's own world and answers its value (a promise it answers is awaited, for up to 20 s), `state()`, `back()`, `forward()`, `reload()`, `navigate(url)`, `newTab(url)`. With no `tab`, the focused one. Scopes: `browser:execute` for `eval`, `browser:read` for `state`, `browser:write` for the rest. |
+| `browserPage(ctx.cmux)` | The page of a browser tab cmux draws: `eval(script or fn, {tab?, args?})` runs a script in the page's own world and answers its value (promises returned by functions or expression strings are awaited for up to 20 s), `state()`, `back()`, `forward()`, `reload()`, `navigate(url)`, `newTab(url)`. With no `tab`, the focused one. Scopes: `browser:execute` for `eval`, `browser:read` for `state`, `browser:write` for the rest. |
 | `pageKeys()`, `setPageKeys(bindings)`, `isPageKey(key)`, `PAGE_KEYS_STORAGE_KEY` | The person's page key bindings (below), kept with `storage:local`. |
 | `workspaces()`, `agents()`, `chats()` | Live lists: call one for the latest value; `.loading()`, `.error()`, `.refresh()`. One read however many views use it; re-read on the matching event. |
 | `on(stream, fn)` | Runs `fn` each time `stream` fires; returns the unsubscribe, and unsubscribes with the render that called it. An unknown stream throws at load. |
@@ -140,9 +140,20 @@ whose `when` is `browserFocused`:
   `{}` puts back the catalog's, and a key cmux cannot route keeps the catalog's. Only an op
   with a page key in its catalog can be given one.
 
-The command reaches the page with `browserPage(ctx.cmux)`. A page script's promise is awaited for up to 20 s;
-work that outlives the call (a key listener) stays in the page, on listeners the script
-adds. `examples/extensions/link-hints` labels links with it.
+The command reaches the page with `browserPage(ctx.cmux)`. Promises returned by functions or
+expression strings are awaited for up to 20 s. Raw statement strings keep the browser engine's
+completion behavior and do not provide portable promise results. For a multi-statement async
+operation, pass a function with an explicit return:
+
+```ts
+const answer = await browserPage(ctx.cmux).eval(async () => {
+  const result = await Promise.resolve(42)
+  return result
+})
+```
+
+Work that outlives the call (a key listener) stays in the page, on listeners the script adds.
+`examples/extensions/link-hints` labels links with it.
 
 ## Composer: slash commands and mentions
 

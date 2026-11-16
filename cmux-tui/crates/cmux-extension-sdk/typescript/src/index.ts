@@ -157,8 +157,10 @@ export function browserPage(c: CmuxGlobal = cmux) {
   return {
     /**
      * Runs `script` in the page's own world and answers its value (JSON). A function is sent as its
-     * source and called with `args` (JSON values), so it must not close over anything else. A promise
-     * it answers is awaited, for up to 20 seconds. Work that outlives the call (listening for keys, say)
+     * source and called with `args` (JSON values), so it must not close over anything else. Promises
+     * returned by functions or expression strings are awaited for up to 20 seconds. Raw statement
+     * strings keep the browser engine's completion behavior; use a function with an explicit return
+     * for portable promise results. Work that outlives the call (listening for keys, say)
      * stays in the page, on listeners the script adds.
      */
     async eval<T = unknown>(script: string | ((...args: never[]) => T), options: BrowserPageTarget & { args?: unknown[] } = {}): Promise<T> {
