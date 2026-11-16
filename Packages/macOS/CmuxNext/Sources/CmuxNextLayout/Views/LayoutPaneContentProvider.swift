@@ -118,7 +118,12 @@ final class LayoutViewContext {
     /// The hold ends by the tracker's count (`Motion.liveResizeChanges`), not by a view callback: a full screen
     /// transition counts as a live resize (`Motion.isLiveResizing`) and ends with no `viewDidEndLiveResize`, and a
     /// second resize can start with no ask after the first (no handle under the pointer then).
+    ///
+    /// Where an overlay of the window takes the mouse (a toast over a divider), nothing is asked: the window is not on
+    /// top there, though the window server's answer for the window may still be the window itself (the overlay panel
+    /// takes the pointer one move late) and the answer held for a still pointer was from before the overlay came.
     func hoverReaches(_ window: NSWindow, pointer: NSPoint) -> Bool { // perf-hot: 1ms window-resize-step
+        if WindowOverlayHost.overlayTakesMouse(in: window, atWindowPoint: pointer) { return false }
         guard !Motion.isLiveResizing(window) else {
             let changes = Motion.liveResizeChanges
             if let heldInResize, heldInResize.window == window.windowNumber, heldInResize.changes == changes {
