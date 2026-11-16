@@ -86,3 +86,6 @@ pub mod wire;
 // one more `tests/` binary.
 #[cfg(test)]
 mod tokio_list_tests;
+
+#[cfg(test)]
+mod v2_pr04b_mirror_v1_rows_gate;

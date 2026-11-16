@@ -310,10 +310,14 @@ struct PaneCloseMotionTests {
 
     // MARK: The spring
 
-    /// A close is a split run backwards: the same spring (`split`, 0.085 s, damping 1), about nine
-    /// tenths of the way at 50 ms, no visible overshoot, exactly at rest within 0.75 s.
+    /// A close is a split run backwards on a shorter spring, since an exit ends sooner than its enter
+    /// (`paneClose`, 0.064 s, damping 1; `split` is 0.085 s): between 0.95 and 0.99 of the way at
+    /// 50 ms, no visible overshoot, exactly at rest within 0.75 s. A close steps one frame in the
+    /// turn of its key (`ScreenContentView.leadIfPending`), so the sample at 50 ms is seven frames
+    /// into the spring: 0.98 on the close spring and 0.93 on the split spring, which is under the
+    /// band, so this test fails if a close goes back to the split spring.
     @Test(arguments: [SplitAxis.horizontal, .vertical])
-    func aCloseRunsOnTheSplitSpringWithoutOvershootAndLandsExactly(axis: SplitAxis) throws {
+    func aCloseRunsOnTheCloseSpringWithoutOvershootAndLandsExactly(axis: SplitAxis) throws {
         let screen = Screen(.splits(.split("v", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))))
         defer { screen.tearDown() }
         let extent: (CGRect) -> CGFloat = { axis == .horizontal ? $0.width : $0.height }
@@ -328,7 +332,8 @@ struct PaneCloseMotionTests {
         }
         let travel = extent(target) - start
         let early = (sizes[Int((0.05 * Self.scale / Self.dt).rounded()) - 1] - start) / travel
-        #expect(early > 0.8 && early < 0.95, "at 50 ms the close is at \(early) of its travel")
+        print("pane close (\(axis)): at 50 ms at \(early) of its travel (120 Hz)")
+        #expect(early > 0.95 && early < 0.99, "at 50 ms the close is at \(early) of its travel")
         #expect(zip(sizes, sizes.dropFirst()).allSatisfy { $1 >= $0 - 0.1 }, "the growing pane shrank on its way")
         #expect(sizes.allSatisfy { $0 <= extent(target) + 0.25 }, "the growing pane overshot: \(sizes.max() ?? 0) > \(extent(target))")
         #expect(screen.rect("p1") == target)

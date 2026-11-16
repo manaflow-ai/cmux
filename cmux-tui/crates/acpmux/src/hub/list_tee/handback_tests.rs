@@ -168,6 +168,7 @@ async fn peers_off_writes_off_the_mark_and_v1_holds_the_rows() {
     mirrored(&earlier.hub).await;
     let v2 = v2_over((*earlier.hub.snapshot()).clone(), &["list"]);
     assert!(v2.hub.mirror_mark(SSH).is_some());
+    assert_eq!(v2.hub.source(SSH), Some(Source::Mirror), "the mark opens it as the mirror's");
     let v1 = v1_hub();
     ssh_row(&v1, "r1");
     ssh_row(&v1, "r2");
@@ -177,4 +178,39 @@ async fn peers_off_writes_off_the_mark_and_v1_holds_the_rows() {
     })
     .await;
     assert_eq!(v2.hub.source(SSH), Some(Source::V1));
+}
+
+/// Decision 264 with `peers` off at the second start: the daemon reopened from its store opens
+/// the origin as the mirror's, the write-off takes it over as v1, and the tee's walk leaves the
+/// origin's rows v1's with the mark off.
+#[tokio::test]
+async fn peers_off_at_a_second_start_from_the_store_hands_the_origin_to_v1() {
+    let directory = tempfile::tempdir().unwrap();
+    {
+        let (index, writer) = acpmux_core::hub::Hub::open(directory.path(), 1, || 7).unwrap();
+        let writing = tokio::spawn(writer.run());
+        mirrored(&index).await;
+        index.close();
+        writing.await.unwrap().unwrap();
+    }
+    let (index, writer) = acpmux_core::hub::Hub::open(directory.path(), 2, || 8).unwrap();
+    let v2 = Arc::new(V2::with_surfaces(index, writer, ["list".to_owned()].into()));
+    tokio::spawn(v2.take_writer().unwrap().run());
+    v2.hub.wait_hydrated().await.unwrap();
+    assert_eq!(
+        v2.hub.source(SSH),
+        Some(Source::Mirror),
+        "the stored mark opens it as the mirror's"
+    );
+    let v1 = v1_hub();
+    ssh_row(&v1, "r1");
+    ssh_row(&v1, "r2");
+    tee(&v1, &v2);
+    until("the origin's rows are v1's and the mark is off", || {
+        v2.hub.source(SSH) == Some(Source::V1)
+            && v2_ids(&v2) == v1_ids(&v1)
+            && v2.hub.mirror_mark(SSH).is_none()
+    })
+    .await;
+    assert_eq!(v2_ids(&v2), ["r1", "r2"]);
 }

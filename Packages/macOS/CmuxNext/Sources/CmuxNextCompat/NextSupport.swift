@@ -29,6 +29,24 @@ public struct NextSupport: Sendable {
             .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
     }
 
+    /// `<applicationSupport>/cmux-next/cmux-cua/runtime/<scope>`: the Computer Use helper's runtime
+    /// folder for a bundle (its `agent-token` and `state`), named by ``computerUseScope(_:)``.
+    public func computerUseRuntime(bundleID: String) -> URL {
+        folder.appendingPathComponent("cmux-cua/runtime/\(Self.computerUseScope(bundleID))", isDirectory: true)
+    }
+
+    /// Where builds before kept ``computerUseRuntime(bundleID:)``: classic's `cmux/cmux-cua/runtime/<scope>`.
+    public func classicComputerUseRuntime(bundleID: String) -> URL {
+        applicationSupport.appendingPathComponent("cmux/cmux-cua/runtime/\(Self.computerUseScope(bundleID))", isDirectory: true)
+    }
+
+    /// A stable 16-hex scope for a bundle id (FNV-1a): the name of the bundle's Computer Use items.
+    public static func computerUseScope(_ bundleID: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in bundleID.utf8 { hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3 }
+        return String(format: "%016llx", hash)
+    }
+
     /// The name a path in a bundle folder is known by wherever it is hashed into a name that should
     /// outlive the move (a link socket): its path in classic's `cmux` from before the move. Every
     /// other path is its own name.

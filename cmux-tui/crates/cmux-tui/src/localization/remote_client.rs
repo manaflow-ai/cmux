@@ -84,6 +84,9 @@ pub(crate) struct RemoteClientMessages {
     pub wireguard_hub_conflict: &'static str,
     pub via_machine_conflict: &'static str,
     pub acpmux_socket_unknown: &'static str,
+    pub(super) machine_refused_consent: &'static str,
+    pub(super) machine_refused_service_off: &'static str,
+    pub(super) machine_refused: &'static str,
     pub wireguard_hub_token_needs_hub: &'static str,
     pub stdin_claimed_twice: &'static str,
     pub hub_token_invalid: &'static str,
@@ -114,6 +117,16 @@ pub(crate) struct RemoteClientMessages {
 }
 
 impl RemoteClientMessages {
+    /// What a far machine's refusal (`reason`, its `message`) means here, and what to do.
+    pub(crate) fn machine_refused(&self, reason: &str, message: &str) -> String {
+        let template = match reason {
+            "consent_required" | "consent_declined" => self.machine_refused_consent,
+            "service.off" => self.machine_refused_service_off,
+            _ => self.machine_refused,
+        };
+        template.replace("{message}", message).replace("{reason}", reason)
+    }
+
     pub(crate) fn exec_output_truncated(&self, reason: &str) -> String {
         self.exec_output_truncated.replace("{reason}", reason)
     }
@@ -492,6 +505,9 @@ for up to two relay fallbacks
     wireguard_hub_conflict: "--wireguard-config and --wireguard-hub cannot be combined; one link owns a tunnel or dials through a hub, not both",
     via_machine_conflict: "--via-machine carries the route through another machine; it cannot be combined with --wireguard-config or --wireguard-hub",
     acpmux_socket_unknown: "--via-machine needs this machine's acpmux, and its socket could not be found (set ACPMUX_SOCKET)",
+    machine_refused_consent: "the owner of that machine has not allowed control from elsewhere: on that Mac, open Settings > Devices and turn on Control, then run this again ({reason})",
+    machine_refused_service_off: "that machine serves no cmux-tui remote daemon to its other machines: on it, run `acpmux config --set remote_daemon=127.0.0.1:PORT` ({reason})",
+    machine_refused: "that machine refused the connection, and retrying will not change it: {message} ({reason})",
     wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin needs --wireguard-hub",
     stdin_claimed_twice: "only one input can come from stdin: --wireguard-hub-token-stdin and --invite-file - cannot be combined",
     hub_token_invalid: "the WireGuard hub token on stdin must be one line of 1 to 255 bytes",
@@ -769,6 +785,9 @@ ID とセッション:
     wireguard_hub_conflict: "--wireguard-config と --wireguard-hub は併用できません。1 つのリンクはトンネルを所有するかハブ経由で接続するかのどちらかです",
     via_machine_conflict: "--via-machine は別のマシン経由でルートを運びます。--wireguard-config や --wireguard-hub とは併用できません",
     acpmux_socket_unknown: "--via-machine にはこのマシンの acpmux が必要ですが、そのソケットが見つかりません (ACPMUX_SOCKET を設定してください)",
+    machine_refused_consent: "そのマシンの所有者が他のマシンからの操作を許可していません: その Mac で 設定 > デバイス を開いて「操作」をオンにしてから、もう一度実行してください ({reason})",
+    machine_refused_service_off: "そのマシンは他のマシンに cmux-tui リモートデーモンを提供していません: そのマシンで `acpmux config --set remote_daemon=127.0.0.1:PORT` を実行してください ({reason})",
+    machine_refused: "そのマシンが接続を拒否しました。再試行しても変わりません: {message} ({reason})",
     wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin には --wireguard-hub が必要です",
     stdin_claimed_twice: "標準入力から読めるのは 1 つだけです。--wireguard-hub-token-stdin と --invite-file - は併用できません",
     hub_token_invalid: "標準入力の WireGuard ハブトークンは 1 から 255 バイトの 1 行である必要があります",

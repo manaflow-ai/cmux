@@ -153,6 +153,7 @@ dependencies = [
  "core-foundation-sys",
  "notify",
  "plist",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

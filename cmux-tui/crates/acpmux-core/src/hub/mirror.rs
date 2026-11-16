@@ -38,11 +38,15 @@ pub const MAX_FRAME_CHANGES: usize = crate::wire::MAX_REPLAY_FRAME_BYTES / MIN_O
 /// frame into units of this size, each with the mark after its last change.
 pub const MAX_UNIT_CHANGES: usize = 512;
 
-/// At most this many mirror changes in one writer turn, all origins together.
-/// Thirty origins each with a unit of [`MAX_UNIT_CHANGES`] queued held a local
-/// row about 60 ms in one turn; past this count the rest of the units wait for
-/// the next turn, so a local row waits behind at most four units, about 8 ms.
-pub const MAX_TURN_UNIT_CHANGES: usize = 4 * MAX_UNIT_CHANGES;
+/// At most this many mirror changes in one writer turn, all origins together
+/// (decision 298). A turn writes its units before a local row queued with them,
+/// at 4.1 to 5.1 µs a change whatever the count (build, append, the index apply
+/// and publishing, measured at 512 to 15,360 changes a turn), and ends with one
+/// log sync of about 0.3 ms. So a local row waits behind at most two units,
+/// about 5 ms: its p95 was 6.7 to 8.4 ms with 30 units of [`MAX_UNIT_CHANGES`]
+/// queued, against 11 to 17 ms at four units, where the bound of 10 ms sat on
+/// the mean. The units past this count wait for the next turns.
+pub const MAX_TURN_UNIT_CHANGES: usize = 2 * MAX_UNIT_CHANGES;
 
 pub enum UnitChange {
     Summary(Box<Summary>),
@@ -80,12 +84,22 @@ pub struct Counters {
 
 /// The takeovers the writer handled for one origin: those it applied (the
 /// source set, the mark off) and those it held with the origin (leaving, or
-/// its record waiting for the storage retry). A held takeover that is later
-/// released counts again when it applies.
+/// its record waiting for the storage retry), and those it refused (the
+/// origin past the bound on origins). A held takeover that is later released
+/// counts again when it applies.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TakeoverTurns {
     pub applied: u64,
     pub held: u64,
+    pub refused: u64,
+}
+
+/// What the writer did with one takeover.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TakeoverTurn {
+    Applied,
+    Held,
+    Refused,
 }
 
 /// One read of the mirror's counters.
@@ -127,13 +141,13 @@ impl Counters {
         }
     }
 
-    pub(super) fn note_takeover(&self, origin: &str, applied: bool) {
+    pub(super) fn note_takeover(&self, origin: &str, turn: TakeoverTurn) {
         if let Ok(mut takeovers) = self.takeovers.lock() {
             let turns = takeovers.entry(origin.into()).or_default();
-            if applied {
-                turns.applied += 1;
-            } else {
-                turns.held += 1;
+            match turn {
+                TakeoverTurn::Applied => turns.applied += 1,
+                TakeoverTurn::Held => turns.held += 1,
+                TakeoverTurn::Refused => turns.refused += 1,
             }
         }
     }

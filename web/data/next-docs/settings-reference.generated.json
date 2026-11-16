@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 616,
+  "count": 622,
   "sections": [
     {
       "id": "general",
@@ -2126,7 +2126,7 @@
         {
           "key": "appearance.background",
           "title": "Background",
-          "help": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
+          "help": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun.",
           "kind": "choice",
           "default": "none",
           "group": "Window Background",
@@ -2282,7 +2282,9 @@
             "dore-raven",
             "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
             "file:/Users/Shared/Harbor.png",
-            "folder:/Users/Shared/Wallpapers"
+            "folder:/Users/Shared/Wallpapers",
+            "appearance",
+            "schedule"
           ]
         },
         {
@@ -2300,6 +2302,54 @@
           ]
         },
         {
+          "key": "appearance.backgroundDark",
+          "title": "Dark Picture",
+          "help": "The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture.",
+          "kind": "choice",
+          "default": null,
+          "group": "Window Background",
+          "values": [
+            "desktop",
+            "munch-scream",
+            "system:/System/Library/Desktop Pictures/Sonoma.heic",
+            "file:/Users/Shared/Harbor.png"
+          ]
+        },
+        {
+          "key": "appearance.backgroundDynamic",
+          "title": "Dynamic Wallpaper",
+          "help": "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting.",
+          "kind": "choice",
+          "default": "appearance",
+          "group": "Window Background",
+          "values": [
+            "appearance",
+            "time"
+          ]
+        },
+        {
+          "key": "appearance.backgroundLight",
+          "title": "Light Picture",
+          "help": "The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture.",
+          "kind": "choice",
+          "default": null,
+          "group": "Window Background",
+          "values": [
+            "desktop",
+            "munch-scream",
+            "system:/System/Library/Desktop Pictures/Sonoma.heic",
+            "file:/Users/Shared/Harbor.png"
+          ]
+        },
+        {
+          "key": "appearance.backgroundLocation",
+          "title": "Sun Location",
+          "help": "Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location.",
+          "kind": "text",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.backgroundOpacity",
           "title": "Opacity",
           "help": "How much of the theme color covers the material behind the window.",
@@ -2315,15 +2365,18 @@
         {
           "key": "appearance.backgroundRotation",
           "title": "Change Picture",
-          "help": "How often a shuffled background turns to its next picture.",
-          "kind": "choice",
+          "help": "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes.",
+          "kind": "choice_or_number",
           "default": "daily",
-          "group": "Window Background",
-          "values": [
-            "15m",
-            "hourly",
-            "daily"
-          ]
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundSchedule",
+          "title": "Time of Day Pictures",
+          "help": "Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
         },
         {
           "key": "appearance.borders",
@@ -2571,6 +2624,19 @@
             "tabs",
             "both",
             "none"
+          ]
+        },
+        {
+          "key": "appearance.fontSmoothing",
+          "title": "Text Smoothing",
+          "help": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Density and Motion",
+          "values": [
+            "auto",
+            "antialiased",
+            "subpixel"
           ]
         },
         {
@@ -3754,7 +3820,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 400,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3775,7 +3841,7 @@
           "title": "Group Card Delay",
           "help": "How long the pointer rests on a group before its summary card opens.",
           "kind": "number",
-          "default": 1500,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3936,7 +4002,7 @@
         {
           "key": "sidebar.minimal",
           "title": "Minimal Mode",
-          "help": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+          "help": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"

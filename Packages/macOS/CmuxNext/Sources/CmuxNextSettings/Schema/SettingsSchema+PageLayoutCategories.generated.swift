@@ -9,7 +9,7 @@ extension SettingsPageLayout {
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
-        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory]),
+        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, keysCategory, mobileCategory, devicesCategory]),
         SidebarSection(id: "system", title: SettingsText.keyed("settings.sidebarSection.system", "Data and System"), categories: [importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory]),
     ]
 
@@ -49,7 +49,7 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.appTheme"),
         ],
-        lead: [.personalization], legacyIDs: ["theme"]
+        lead: [.personalization], trail: [.customizeLibrary], legacyIDs: ["theme"]
     )
 
     /// Change Background… lands here: the art picker draws appearance.background and appearance.backgroundOpacity (search still shows them as rows). The density card draws appearance.density, .customDensity and .customDensities.
@@ -260,6 +260,13 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.cloudWorkspaces"),
         ],
         lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines]
+    )
+
+    /// Keys agents store and use without seeing them (Leo 2026-11-15: "letting agents safely write keys and store them"), and the requests waiting for the person.
+    private static let keysCategory = CategorySpec(
+        id: "keys", title: SettingsText.keyed("settings.category.keys", "Keys"), symbol: "key",
+        groups: [],
+        lead: [.keys]
     )
 
     /// Phones reaching this Mac: the iPhone host's switch and Phone Access, then its live status and phones (Lucas 2026-11-11: Mobile stays its own page).

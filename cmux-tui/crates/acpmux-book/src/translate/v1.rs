@@ -171,6 +171,8 @@ fn mux(
     let Line { place, span, .. } = line;
     match kind {
         "retracted" | "removed" | "steer_withdrawn" => {
+            // A prompt sent now that an older writer withdraws takes its turn's `continued` back.
+            state.withdrawn(&msg.prompt_id, out);
             state.queue_remove(&msg.prompt_id, out);
             state.settle_prompt(super::prompt_hash(&msg.prompt_id), true, out);
         }
@@ -258,6 +260,12 @@ fn mux(
             state.end_turn(end, &msg.status, out);
         }
         "message_superseded" => state.supersede(&msg.old_message_id, out),
+        _ if super::cards::record(
+            state,
+            kind,
+            super::cards::At { raw: line.raw, line: super::RawLine { place, span } },
+            out,
+        )? => {}
         _ => match kinds::find(kinds::MUX, kind).map(|known| known.draw) {
             Some(kinds::Draw::Row(spec)) => {
                 let mut row = state.drawn(&spec, line.raw, out)?;

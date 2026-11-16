@@ -36,7 +36,7 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, datetime, hashlib, importlib.util, io, json, os, re, subprocess, sys, time, urllib.error
+import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, subprocess, sys, time, urllib.error
 import urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -169,13 +169,21 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
-    {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
+    # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
+    # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
+    # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
+    # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
-    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals.
-    {"name": "throughput", "args": [*MEASURE, "--suite=terminal-throughput"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput"},
+    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
+    # bench configuration (Release optimization, split-spring.sh --config=bench), since Ghostty is its optimized
+    # release; the default Debug build made the ratio a Debug-against-Release one. Rows before this were Debug.
+    {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
+     "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -189,7 +197,8 @@ PARTS = [
     {"name": "web-ui-growth", "where": "linux", "kind": "webui", "needs": "web-ui-growth"},
     # The chat benches on the god session (webviews/bench/godFixture.ts) beside their ordinary run, on one runner at one
     # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
-    # six benches take about 13 minutes.
+    # six benches take about 13 minutes. Then the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
+    # chats played at once, whose median per-round ratio replaces the transcript_replay god_ratio rows.
     {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god"},
     # Infinite items (scripts/measure/infinite-items.py, CMUX-571): a release acpmux and headless cmux-tui with 10, 100
     # and 1,000 workspaces (a terminal tab and an agent chat each) through simulated days; memory vs empty, idle CPU
@@ -228,8 +237,11 @@ ROW_PARTS = [
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
 # here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
-# memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged.
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.)")
+# memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
+# composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
+# the judged to_frame time goes: shown, not judged (measurement only, no new gate).
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -579,28 +591,107 @@ def rows_of_part(part, report, budgets_mod, budgets):
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
-        for r in report.get("rows") or []:
-            name, p95 = r.get("name") if isinstance(r, dict) else None, r.get("p95") if isinstance(r, dict) else None
-            if not (isinstance(name, str) and WEBUI_ROW_RE.match(name) and isinstance(p95, (int, float))):
-                continue
-            p50 = r.get("p50") if isinstance(r.get("p50"), (int, float)) else p95
-            floor = r.get("floor") if isinstance(r.get("floor"), (int, float)) else max(round(0.1 * p95, 4), 0.0001)
-            out[f"webui.{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
-                                    "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
-                                    "floor": floor,
-                                    "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+        out.update(webui_rows(report.get("rows")))
         if part.get("name") == "web-ui-god":
             # The ordinary twins ran here only to pair at one commit on one runner; the web-ui part owns their rows.
             ratios = god_ratio_rows(out)
             out = {n: r for n, r in out.items() if part_for_row(n) == "web-ui-god"}
             out.update(ratios)
+            # The paired rounds' median ratio replaces the one-run ratio of the same row (cmuxterm-hq's
+            # god_chat_replay_ratio_max reads webui.god_ratio.transcript_replay.long.{heap_mb,thought_ms,token_ms}).
+            paired = report.get("paired") if isinstance(report.get("paired"), dict) else {}
+            out.update(paired_ratio_rows(paired.get("rounds") or []))
     return out
 
 
-def god_ratio_rows(rows):
+def webui_rows(rows):
+    """{webui.<name>: row} of a list of PERF_ROW objects (pure): a row's target is its budget, its floor the noise on
+    a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule)."""
+    out = {}
+    for r in rows or []:
+        name, p95 = r.get("name") if isinstance(r, dict) else None, r.get("p95") if isinstance(r, dict) else None
+        if not (isinstance(name, str) and WEBUI_ROW_RE.match(name) and isinstance(p95, (int, float))):
+            continue
+        p50 = r.get("p50") if isinstance(r.get("p50"), (int, float)) else p95
+        floor = r.get("floor") if isinstance(r.get("floor"), (int, float)) else max(round(0.1 * p95, 4), 0.0001)
+        out[f"webui.{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
+                                "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
+                                "floor": floor,
+                                "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+    return out
+
+
+def median(values):
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def median_interval(values, draws=4000):
+    """The 95% interval of VALUES' median (pure): a seeded bootstrap, as webviews/bench/god-ratio-ab.sh computes it."""
+    rng = random.Random(1)
+    meds = sorted(median(rng.choices(values, k=len(values))) for _ in range(draws))
+    return meds[int(draws * 0.025)], meds[int(draws * 0.975)]
+
+
+def paired_ratio_rows(rounds):
+    """{webui.god_ratio.<twin>: row} from the web-ui-god part's paired transcript-replay rounds (pure): each round's
+    god / small ratio (god_ratio_rows over that round's PERF_ROW lines, both chats played at once), and the row is the
+    median over the rounds, with its 95% interval (ci_lo, ci_hi, ci_width), the per-round ratios and their count. A row
+    needs GOD_PAIRED_MIN_ROUNDS rounds that measured it. Run one after the other, a round's ratio swung 0.5x to 1.9x on
+    the same code; paired, about 0.08x (cmux#43874).
+    The small chat's least value (GOD_RATIO_MIN) is judged on the median of the rounds' small p95, not per round: in a
+    paired round both chats run on the runner at the same speed, so a fast round (small token p95 3.6 ms, god 4.4 ms)
+    is as good a pair as a slow one. Judged per round, that one fast round of five dropped the token and thought rows
+    under GOD_PAIRED_MIN_ROUNDS, and the board read the one-run ratio (1.578) in place of the paired median (1.384) at
+    83b6f50f (perf cron run 43797713590)."""
+    per = {}
+    for each in rounds:
+        for name, r in _paired_round_ratios(each).items():
+            per.setdefault(name, []).append(r)
+    out = {}
+    for name, rs in sorted(per.items()):
+        if len(rs) < GOD_PAIRED_MIN_ROUNDS:
+            continue
+        small = median([r["small_p95"] for r in rs])
+        if small <= max(rs[0].get("twin_floor") or 0, rs[0]["least"]):
+            continue
+        ratios = [r["p95"] for r in rs]
+        mid = round(median(ratios), 3)
+        lo, hi = median_interval(ratios)
+        first = {k: v for k, v in rs[0].items() if k not in ("least", "twin_floor")}
+        out[name] = {**first, "p50": mid, "p95": mid, "god_p95": round(median([r["god_p95"] for r in rs]), 4),
+                     "small_p95": round(median([r["small_p95"] for r in rs]), 4), "paired": True, "rounds": len(rs),
+                     "ci_lo": round(lo, 3), "ci_hi": round(hi, 3), "ci_width": round(hi - lo, 3),
+                     "round_ratios": ratios, "measure_version": max(r["measure_version"] for r in rs)}
+    return out
+
+
+def paired_settled(rounds):
+    """Whether the paired rounds so far are enough (pure): each board row (GOD_PAIRED_BOARD_RE) has a median over
+    GOD_PAIRED_MIN_ROUNDS or more rounds whose 95% interval is narrower than GOD_PAIRED_CI_WIDTH."""
+    if len(rounds) < GOD_PAIRED_MIN_ROUNDS:
+        return False
+    # Every board row the rounds measured must have its median, not just the ones that did: a board row with no
+    # median (heap settled, token and thought short of rounds) stopped the rounds at five at 83b6f50f.
+    measured = {n for each in rounds for n in _paired_round_ratios(each) if GOD_PAIRED_BOARD_RE.match(n)}
+    published = paired_ratio_rows(rounds)
+    return bool(measured) and all(n in published and published[n]["ci_width"] < GOD_PAIRED_CI_WIDTH
+                                  for n in measured)
+
+
+def _paired_round_ratios(each):
+    """One paired round's {webui.god_ratio.<twin>: row} (pure), with no least-twin cut (paired_ratio_rows judges
+    that on the rounds' median) and the twin's floor and least kept as twin_floor and least for it."""
+    rows = each.get("rows") if isinstance(each, dict) else None
+    return god_ratio_rows(webui_rows(rows), least_twin=False)
+
+
+def god_ratio_rows(rows, least_twin=True):
     """{webui.god_ratio.<twin>: row} for each god row with an ordinary twin in ROWS (pure): god p95 / twin p95, unit
     x, budget GOD_RATIO_MAX. Rows of another unit, slopes and per-operation rows, and twins at or under their noise
-    floor get none."""
+    floor get none. With least_twin False that last cut is left to the caller, and each row carries the twin's floor
+    and least value (twin_floor, least)."""
     out = {}
     for name, god in rows.items():
         m = re.match(r"^webui\.([a-z0-9_]+)\.god\.(.+)$", name)
@@ -615,13 +706,15 @@ def god_ratio_rows(rows):
         if not isinstance(small, (int, float)) or not isinstance(big, (int, float)) or small <= 0:
             continue
         least = GOD_RATIO_MIN_RATE if name.endswith("_per_s") else GOD_RATIO_MIN[unit]
-        if small <= max(twin.get("floor") or 0, least):
+        if least_twin and small <= max(twin.get("floor") or 0, least):
             continue
         ratio = round(big / small, 3)
         version = max(god.get("measure_version") or DIFF_LEGACY_VERSION, twin.get("measure_version") or DIFF_LEGACY_VERSION)
-        out[f"webui.god_ratio.{m.group(1)}.{m.group(2)}"] = {
-            "p50": ratio, "p95": ratio, "unit": "x", "budget": GOD_RATIO_MAX, "floor": 0.1, "measure_version": version,
-            "god_p95": big, "small_p95": small}
+        key = f"webui.god_ratio.{m.group(1)}.{m.group(2)}"
+        out[key] = {"p50": ratio, "p95": ratio, "unit": "x", "budget": GOD_RATIO_MAX, "floor": 0.1,
+                    "measure_version": version, "god_p95": big, "small_p95": small}
+        if not least_twin:
+            out[key].update(twin_floor=twin.get("floor") or 0, least=least)
     return out
 
 
@@ -823,7 +916,11 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "state-growth"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-god":
         only = ",".join(GOD_BENCHES + [f"{b}-god" for b in GOD_BENCHES])
-        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
+        # `paired` runs in rounds (run_paired_rounds): the god and small chats at once, as god-ratio-ab.sh plays them.
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {}),
+                "paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
+                           os.path.join(root, "webviews"),
+                           {"PAIRED": "1", "GOD_PAIRED_ROUNDS": f"{GOD_PAIRED_MIN_ROUNDS}-{GOD_PAIRED_MAX_ROUNDS}"})}
     if part == "web-ui-million":
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
@@ -1094,6 +1191,41 @@ def give_up_host(state, t):
     return why
 
 
+def no_host_for_tip(state, t):
+    """End the Mac parts still to do of the tip measurement in flight as 'no_host' when no measure host took one for
+    HOST_WAIT_HOURS while any host could (cur['host_asked_since']: the first request since the last Mac part result):
+    the measurement is unpinned, or it gave a host up before (give_up_host) and the host it is pinned to again went
+    silent. A pinned tip that never gave its host up goes to give_up_host first (any idle host may take it). The
+    measurement then finishes with the parts that ran: their rows are stored as usual, a no_host part's rows keep
+    their last value and age (the measurement is incomplete, so the stale clock keeps running), and the next tick
+    starts a newer tip, whose parts run wherever they can. Returns why, or None.
+
+    2026-11-16 00:59Z: tip 83b6f50f waited on cmux20-bench (reserved, given up twice) for memory-agents and throughput
+    until the 48 h ABANDON_WALL_HOURS cap, and no newer tip started meanwhile: chat_100k_flat_ratio_max never got a
+    row although cmux#44161 fixed its Linux part on a newer commit, and every other row went stale with it."""
+    cur = state.get("current")
+    if not cur or cur.get("kind") != "tip" or not needs_mac(cur):
+        return None
+    asked = parse_iso(cur.get("host_asked_since") or None)
+    if not (asked and hours_between(asked, t) > HOST_WAIT_HOURS):
+        return None
+    host = cur.get("host")
+    if host and not cur.get("gave_up"):
+        return None
+    tried = sorted({g.get("host") for g in cur.get("gave_up") or [] if isinstance(g, dict) and g.get("host")} | {host} - {None})
+    why = f"no measure host took a Mac part for {HOST_WAIT_HOURS} h" + (f" (gave up {', '.join(tried)})" if tried else "")
+    if host:
+        mark_host(state, host, waited_at=iso(t))
+        cur.pop("host")
+    for name in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
+        cur["parts"][name] = {"state": "no_host", "reason": why}
+        cur["parts_todo"].remove(name)
+    cur.pop("host_asked_since", None)
+    end_yield(cur, t)
+    cur["no_host"] = {"at": iso(t), "why": why}
+    return why
+
+
 def tip_pin_host(state, t):
     """The Mac host a new tip measurement is pinned to (pure): the host of the oldest Mac row waiting for its confirming
     run (state['pending']: only a run there can confirm or clear it, so its run comes first), else of the earliest open regression of a Mac row,
@@ -1137,6 +1269,7 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     that has no answer until the part's result run, so the time from the request to the result is the fleet's wait
     (start_yield; record_part ends it), not the measurement's active time."""
     drop_dead_measurement(state, t, measurable)
+    no_host = no_host_for_tip(state, t)
     give_up_host(state, t)
     cur = state.get("current")
     if not cur and bisect and not (candidate and tip_due(state, t)):
@@ -1158,7 +1291,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "
                                             "was measured, and no regression range to bisect"}
     if not cur["parts_todo"]:
-        return {"action": "finish", "sha": cur["sha"], "reason": "every part ran; report only"}
+        return {"action": "finish", "sha": cur["sha"],
+                "reason": f"its Mac parts have no host ({no_host}); report only" if no_host else "every part ran; report only"}
     linux = next((p for p in cur["parts_todo"] if is_linux_part(p)), "")
     fleet = next((p for p in cur["parts_todo"] if not is_linux_part(p)), "")
     done = f"{len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done"
@@ -1173,12 +1307,12 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
-        if cur.get("host"):
-            cur.setdefault("host_asked_since", iso(t))  # ...but it does count for give_up_host: then the bench host
+        cur.setdefault("host_asked_since", iso(t))  # ...but it counts for give_up_host (the bench host) and no_host_for_tip
     if not fleet and not linux:
         return {"action": "none", "sha": cur["sha"], "reason": github_busy, "yielded": True}
-    if fleet and cur.get("host"):
-        cur.setdefault("host_asked_since", iso(t))  # give_up_host's clock: cleared by the host's next part result
+    if fleet:
+        # give_up_host's clock for a pinned host, no_host_for_tip's for any host: cleared by the next Mac part result.
+        cur.setdefault("host_asked_since", iso(t))
     if fleet and controller_route:
         start_yield(cur, t)
     what = " and ".join(x for x in (fleet, linux) if x)
@@ -1251,6 +1385,25 @@ def http_json(url, timeout=30):
         return json.load(r)
 
 
+# What a measurement step asks the host to have free (the controller's min_free_bytes of a bench or measure job).
+MEASURE_MIN_FREE_BYTES = 11811160064
+
+
+def disk_starved(w):
+    """Why the worker cannot be leased a measurement step for want of disk, or "" (pure): its free disk is under
+    MEASURE_MIN_FREE_BYTES and its heartbeat counts too little evictable for the controller or worker to free it."""
+    free = w.get("free_bytes")
+    if not isinstance(free, (int, float)) or isinstance(free, bool) or free >= MEASURE_MIN_FREE_BYTES:
+        return ""
+    evictable = (w.get("disk") or {}).get("evictable_bytes")
+    if not isinstance(evictable, (int, float)) or isinstance(evictable, bool):
+        evictable = 0
+    if free + evictable >= MEASURE_MIN_FREE_BYTES:
+        return ""
+    return (f"disk {free / 1e9:.1f} GB free of the {MEASURE_MIN_FREE_BYTES / 1e9:.1f} GB a measurement step needs, "
+            f"{evictable / 1e9:.1f} GB evictable")
+
+
 def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
     """None when the fleet lets the perf cron run a part on `worker` now, else the reason it yields.
     status: /v1/status; workers: `cmux-ci workers` ({name: heartbeat}); jobs: /v1/jobs (all recent)."""
@@ -1259,6 +1412,12 @@ def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
         return f"{worker} is not a controller worker now"
     if not w.get("healthy"):
         return f"{worker} is not healthy"
+    starved = disk_starved(w)
+    if starved:
+        # Healthy and idle, yet the controller leases it nothing: a measurement step asks MEASURE_MIN_FREE_BYTES and the
+        # worker has nothing to evict. 2026-11-16: the bench host sat at 10.9 GB free, every request to it queued until
+        # the cron gave it up, and no Mac row was stored for 34 h (tabs-keep-speed red).
+        return f"{worker} is not healthy: {starved}"
     seen = parse_iso((w.get("last_seen") or "")[:19] + "Z") if w.get("last_seen") else None
     if not seen or hours_between(seen, now_utc()) * 3600 > 180:
         return f"{worker} has not been seen for over 3 minutes"
@@ -1751,6 +1910,18 @@ GOD_RATIO_UNITS = ("ms", "MB", "KB", "score")
 GOD_RATIO_MIN = {"ms": 5.0, "MB": 1.0, "KB": 16.0, "score": 0.01}
 GOD_RATIO_MIN_RATE = 0.5  # a rate (idle_ms_per_s): main-thread ms per second at rest
 GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_(?!s$)[a-z]+$)")  # a rate per second (idle_ms_per_s) keeps its ratio
+# The web-ui-god part's paired transcript-replay rounds (transcript-replay.bench.ts PAIRED=1, cmux#43874): at least MIN
+# rounds, then more until each board row's (GOD_PAIRED_BOARD_RE, cmuxterm-hq god_chat_replay_ratio_max) median has a
+# 95% interval narrower than CI_WIDTH, up to MAX rounds. A round starts only while the part's benches have run under
+# DEADLINE_S with room for one more round as long as the longest so far (the Linux job's cap is 40 minutes with about
+# 5 of setup); each round is cut at ROUND_TIMEOUT_S.
+GOD_PAIRED_MIN_ROUNDS = 5
+GOD_PAIRED_MAX_ROUNDS = 12
+GOD_PAIRED_CI_WIDTH = 0.1
+GOD_PAIRED_DEADLINE_S = 1950
+GOD_PAIRED_ROUND_TIMEOUT_S = 600
+GOD_PAIRED_BOARD_RE = re.compile(r"^webui\.god_ratio\.transcript_replay\.long\.(heap_mb|thought_ms|token_ms)$")
+PERF_ROW_MARK = "PERF_ROW "
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
 DIFF_BENCH_FILES = {"sidecar": "Native/DiffSidecar/src/benchmark.rs", "stream": "webviews/bench/diff-stream.bench.ts"}
 DIFF_BENCH_VERSION_RE = re.compile(r"\bDIFF_BENCH_VERSION\s*(?::\s*u32\s*)?=\s*(\d+)")
@@ -2888,6 +3059,18 @@ def cmd_run_part(o):
     print(f"perf-cron part: {json.dumps({k: v for k, v in result.items() if k != 'tail'})}")
 
 
+# A Linux part that failed before its bench could measure anything: the runner had no browser (Playwright's
+# "Executable doesn't exist", runs 43809071719 and 43812228014 on 2026-11-16) or refused the job. The commit is not
+# to blame, so record_part runs the part once more (a runner that writes no result at all is NO_RESULT, a yield).
+SETUP_FAILURE_RE = re.compile(r"Executable doesn't exist|Please run the following command to download new browsers"
+                              r"|browserType\.launch(?:Server)?: |The runner refused the job|No space left on device")
+
+
+def setup_failure(result):
+    """The line of a failed part's tail that names a setup failure (SETUP_FAILURE_RE), or None (pure)."""
+    return next((str(line) for line in result.get("tail") or [] if SETUP_FAILURE_RE.search(str(line))), None)
+
+
 NOT_STARTED = "not-started.json"  # a part dir with this file: the fleet check said no, no part ran (no attempt)
 NO_RESULT = {"state": "yielded", "no_result": True,
              "reason": "the job ended without the part's result (cancelled, timed out, no fleet client, or a setup step "
@@ -3034,6 +3217,10 @@ def cmd_run_linux_part(o):
     report, tail, ok = {}, [], True
     load = {}
     for name, (argv, cwd, extra) in runs.items():
+        if name == "paired":
+            report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra}, started)
+            tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
+            continue
         before = host_contention() if part != "web-ui" else []
         try:
             proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
@@ -3049,6 +3236,8 @@ def cmd_run_linux_part(o):
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
                 if failed:
                     report["incomplete"] = [f"{f.get('bench')}: {f.get('why')}" for f in failed]
+                    # A bench's setup failure (no browser) is in its own tail, not its exit code: record_part reads it.
+                    tail += [str(x) for f in failed for x in f.get("tail") or [] if SETUP_FAILURE_RE.search(str(x))][-3:]
                     tail += [f"{f.get('bench')}: {f.get('why')}" for f in failed]
             ok = isinstance(value, dict) and bool(value.get("rows"))
         elif code != 0 or value is None:
@@ -3066,6 +3255,48 @@ def cmd_run_linux_part(o):
               "worker": o.runner_class}
     json.dump(result, open(os.path.join(o.out, "result.json"), "w"), indent=1)
     print(f"perf-cron linux part: {json.dumps({k: v for k, v in result.items() if k != 'tail'})} {json.dumps(report)[:600]}")
+
+
+def perf_rows(text):
+    """The PERF_ROW objects a bench printed (pure)."""
+    out = []
+    for line in (text or "").splitlines():
+        if line.startswith(PERF_ROW_MARK):
+            try:
+                row = json.loads(line[len(PERF_ROW_MARK):])
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                out.append(row)
+    return out
+
+
+def run_paired_rounds(argv, cwd, env, started, clock=time.monotonic, run=subprocess.run):
+    """The web-ui-god part's paired rounds (GOD_PAIRED_*), until settled, the deadline or MAX rounds:
+    {"rounds": [{"rows", "seconds", "exit"}], "stopped"}. STARTED is the part's start on CLOCK."""
+    rounds, longest, stopped = [], 0.0, "max rounds"
+    for _ in range(GOD_PAIRED_MAX_ROUNDS):
+        if paired_settled(rounds):
+            stopped = "settled"
+            break
+        if clock() - started + longest > GOD_PAIRED_DEADLINE_S:
+            stopped = "deadline"
+            break
+        at = clock()
+        try:
+            proc = run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=GOD_PAIRED_ROUND_TIMEOUT_S)
+            rows, code = perf_rows(proc.stdout), proc.returncode
+        except subprocess.TimeoutExpired:
+            rows, code = [], f"timeout ({GOD_PAIRED_ROUND_TIMEOUT_S} s)"
+        seconds = clock() - at
+        longest = max(longest, seconds)
+        rounds.append({"rows": rows, "seconds": round(seconds), "exit": code})
+        print(f"perf-cron web-ui-god: paired round {len(rounds)}: exit {code}, {round(seconds)} s, {len(rows)} rows")
+    else:
+        stopped = "settled" if paired_settled(rounds) else stopped
+    for name, r in paired_ratio_rows(rounds).items():
+        print(f"perf-cron web-ui-god: paired {name} {r['p95']} [{r['ci_lo']}, {r['ci_hi']}] over {r['rounds']} rounds")
+    return {"rounds": rounds, "stopped": stopped}
 
 
 def manage_issue(repo, state, event, now, run_url, summary, set_changed):
@@ -3156,7 +3387,7 @@ def record_part(cur, part, result, run_url, t=None):
     failure: the next part builds the app itself (split-spring.sh --app-cache builds on a cache miss)."""
     if t is not None and not is_linux_part(part):
         end_yield(cur, t)
-    if not is_linux_part(part) and result.get("worker") in (None, cur.get("host")):
+    if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
         cur.pop("host_asked_since", None)  # the host answered (any result): give_up_host's wait starts again
     entry = dict(cur["parts"].get(part) or {"yields": 0})
     entry.update({"state": result["state"], "step_id": result.get("step_id"), "run_url": run_url,
@@ -3173,7 +3404,11 @@ def record_part(cur, part, result, run_url, t=None):
         entry["yields"] = entry.get("yields", 0) + 1
         if entry["yields"] >= MAX_YIELDS:
             entry["state"] = "yielded_out"
-    if entry["state"] != "yielded" and part in cur["parts_todo"]:
+    retry = (entry["state"] == "failed" and is_linux_part(part) and not entry.get("setup_retried")
+             and setup_failure(result))
+    if retry:
+        entry["setup_retried"] = retry[:200]  # runs once more on the same commit; a second failure ends it
+    if entry["state"] != "yielded" and not retry and part in cur["parts_todo"]:
         cur["parts_todo"].remove(part)
     cur["parts"][part] = entry
     build_failed = bool(result.get("build_failed")) or any(BUILD_FAILED_MARK in line for line in result.get("tail") or [])

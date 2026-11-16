@@ -21,7 +21,7 @@
 # libraries rustc names for it, and -dead_strip. dsymutil keeps the symbol
 # names in the xcframework's dSYM before the library is stripped of them.
 #
-# Usage: build-app-ffi.sh
+# Usage: build-app-ffi.sh [--list-exports]
 # Environment:
 #   CMUX_APP_FFI_ARCHS  macOS architectures, arm64 and/or x86_64 (default: host)
 #   CMUX_APP_FFI_OUT    output directory (default: cmux-tui/target/cmux-app-ffi)
@@ -38,10 +38,12 @@ case "$out_root" in ""|"/") echo "error: CMUX_APP_FFI_OUT must name a directory"
 [[ "$out_root" == /* ]] || out_root="$PWD/$out_root"
 lib_name="libcmux_app_ffi.a"
 dylib_name="libcmux_app_ffi.dylib"
-headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
+headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
+            "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
             "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI"
             "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI"
             "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
+            "$crates/cmux-app-ffi/include/cmux_launch_record.h:CCmuxLaunchRecordFFI"
             "$crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h:CCmuxAgentPanePolicyFFI"
             "$crates/cmux-action-catalog/include/cmux_action_catalog.h:CCmuxActionCatalogFFI"
             "$crates/cmux-cookie-sync/include/cmux_cookie_sync.h:CCmuxCookieSyncFFI"
@@ -50,6 +52,17 @@ headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
             "$crates/cmux-health-core/include/cmux_health.h:CCmuxHealthFFI"
             "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI"
             "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI")
+
+# Also available on Linux so the header/export contract needs no macOS build.
+list_exports() {
+  for entry in "${headers_in[@]}"; do
+    grep -oE '\b(cmux_|acpmux_client_|acpmux_page_driver_)[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
+  done | sort -u
+}
+if [[ "${1:-}" == --list-exports ]]; then
+  list_exports
+  exit
+fi
 
 for tool in cargo rustup xcodebuild lipo clang dsymutil strip codesign; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool is required" >&2; exit 1; }
@@ -96,9 +109,7 @@ export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:+$LIBSQLITE3_FLAGS }-DSQLITE_WITHOUT
 work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-app-ffi.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 exports="$work/exports.txt"
-for entry in "${headers_in[@]}"; do
-  grep -oE '\bcmux_[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
-done | sort -u > "$exports"
+list_exports > "$exports"
 
 headers="$out_root/headers"
 rm -rf "$headers"

@@ -8,7 +8,7 @@
 use crate::panic_free::JsonFields;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
@@ -19,6 +19,9 @@ use serde_json::{Value, json};
 pub(super) mod agent_session_children;
 #[path = "agent_session_folders.rs"]
 mod agent_session_folders;
+#[cfg(all(test, unix))]
+#[path = "agent_session_kin_parity_tests.rs"]
+mod agent_session_kin_parity_tests;
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
 #[path = "agent_session_observe.rs"]
@@ -309,6 +312,13 @@ struct Attachment {
     outbound: OutboundStream,
     /// Calls running on worker threads (at most [`MAX_CALLS`]).
     calls: AtomicUsize,
+    /// An unfiltered stream of a chat this machine's acpmux owns has a
+    /// contiguous sequence. Filtered streams, and a peer's chat (its link is
+    /// not sent every record: `MUX_UNSENT`), have holes and skip the check.
+    ordered_stream: bool,
+    /// The seq the next live record should have; 0 until the page's
+    /// `lastSeq` or the first live record seeds it.
+    next_stream_seq: AtomicU64,
     ended: AtomicBool,
     /// Permission ids acpmux announced on this attachment, oldest first.
     permissions: Mutex<VecDeque<String>>,
@@ -403,6 +413,26 @@ impl Attachment {
         } else {
             self.outbound.close();
         }
+    }
+
+    /// A newer live record arriving before an older one leaves the client with
+    /// no way to recover the gap from the stream. End the attachment so its
+    /// normal after-seq replay fetches the missing records. A record at or
+    /// below what the stream already covers (one written while the attach read
+    /// its page) is an overlap the client drops: it passes and moves nothing.
+    /// `deliver` runs one record at a time, so load-then-store does not race.
+    pub(super) fn accepts_stream_seq(&self, seq: u64) -> bool {
+        if !self.ordered_stream || seq == 0 {
+            return true;
+        }
+        let expected = self.next_stream_seq.load(Ordering::Relaxed);
+        if expected != 0 && seq > expected {
+            return false;
+        }
+        if expected == 0 || seq == expected {
+            self.next_stream_seq.store(seq.saturating_add(1), Ordering::Relaxed);
+        }
+        true
     }
 }
 
@@ -796,6 +826,12 @@ pub(crate) enum Refusal {
     /// `agent-session-start`: the agent answered that it is not signed in on this machine
     /// (acpmux `agent.sign_in_required`); `data` names the harness (hq#11225).
     SignInRequired,
+    /// `agent-session-start`: the agent asked for is not in this machine's acpmux catalog (not
+    /// installed there); `data` names the harness (hq#11225).
+    HarnessMissing,
+    /// `agent-session-start`: the agent's model route cannot serve it on this machine (acpmux
+    /// `route.*`); `data` names the route's reason and the harness (hq#11225).
+    RouteUnavailable,
 }
 
 impl Refusal {
@@ -826,6 +862,8 @@ impl Refusal {
             Self::ScopeNotGranted => "agent_session.scope_not_granted",
             Self::ShareEnded => "agent_session.share_ended",
             Self::SignInRequired => "agent_session.sign_in_required",
+            Self::HarnessMissing => "agent_session.harness_missing",
+            Self::RouteUnavailable => "agent_session.route_unavailable",
         }
     }
 
@@ -866,6 +904,8 @@ impl Refusal {
             Self::ScopeNotGranted => "a link guest only watches and writes to the shared chat",
             Self::ShareEnded => "the share ended, or the owner removed this guest",
             Self::SignInRequired => "the agent is not signed in on this machine",
+            Self::HarnessMissing => "this agent is not installed on this machine",
+            Self::RouteUnavailable => "the agent's model route cannot serve it on this machine",
         }
     }
 

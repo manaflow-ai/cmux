@@ -172,6 +172,88 @@
 
       ],
       "category" : "window",
+      "cliName" : "action customize-open",
+      "computed" : {
+        "canonical_action_id" : "customize.open",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "WindowActionCatalog",
+      "hint" : null,
+      "id" : "customize.open",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "customize",
+        "customise",
+        "personalize",
+        "make it yours",
+        "ask",
+        "agent",
+        "sidebar",
+        "section",
+        "widget",
+        "extension",
+        "theme",
+        "profile",
+        "preview",
+        "apply",
+        "discard",
+        "rollback",
+        "undo"
+      ],
+      "mainMenu" : "app",
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "menu"
+      ],
+      "symbol" : "wand.and.rays",
+      "targets" : [
+
+      ],
+      "title" : "Customize…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "window",
       "cliName" : "app new-window",
       "computed" : {
         "canonical_action_id" : "newWindow",
@@ -13024,7 +13106,14 @@
         "palette_tier" : "standard"
       },
       "defaultChord" : null,
-      "defaultShortcut" : null,
+      "defaultShortcut" : {
+        "key" : "n",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
       "description" : null,
       "focuses" : false,
       "group" : "ProfileActionCatalog",
@@ -44740,6 +44829,239 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "terminal",
+      "cliName" : "terminal fix-last-command",
+      "computed" : {
+        "canonical_action_id" : "terminal.fixLastCommand",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "TerminalActionCatalog",
+      "hint" : null,
+      "id" : "terminal.fixLastCommand",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "fix",
+        "error",
+        "failed",
+        "agent",
+        "chat",
+        "exit",
+        "debug",
+        "ask"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "terminalFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "terminalSelection",
+            "folder" : null,
+            "group" : "edit",
+            "label" : null,
+            "parent" : null,
+            "rank" : 9,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "wrench.and.screwdriver",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Fix Last Command with Agent",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "terminal",
+      "cliName" : "terminal send-last-output-to-chat",
+      "computed" : {
+        "canonical_action_id" : "terminal.sendLastOutputToChat",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "TerminalActionCatalog",
+      "hint" : null,
+      "id" : "terminal.sendLastOutputToChat",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "output",
+        "command",
+        "agent",
+        "chat",
+        "send",
+        "ask",
+        "result"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "terminalFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "terminalSelection",
+            "folder" : null,
+            "group" : "edit",
+            "label" : null,
+            "parent" : null,
+            "rank" : 8,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "text.bubble",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Send Last Output to Chat",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "terminal",
+      "cliName" : "terminal send-selection-to-chat",
+      "computed" : {
+        "canonical_action_id" : "terminal.sendSelectionToChat",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "TerminalActionCatalog",
+      "hint" : null,
+      "id" : "terminal.sendSelectionToChat",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "selection",
+        "agent",
+        "chat",
+        "send",
+        "ask",
+        "quote"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "terminalFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "terminalSelection",
+            "folder" : null,
+            "group" : "edit",
+            "label" : null,
+            "parent" : null,
+            "rank" : 7,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "bubble.left.and.text.bubble.right",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Send Selection to Chat",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
           "isAskedInPalette" : false,
           "isRequired" : true,
@@ -70326,13 +70648,7 @@
         "palette_tier" : "standard"
       },
       "defaultChord" : null,
-      "defaultShortcut" : {
-        "key" : "`",
-        "modifiers" : [
-          "opt",
-          "cmd"
-        ]
-      },
+      "defaultShortcut" : null,
       "description" : null,
       "focuses" : false,
       "group" : "AgentActionCatalog",
@@ -111901,7 +112217,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -111929,8 +112245,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
+      "paletteTarget" : "machine",
+      "paletteTargetSource" : "joined",
       "requires" : [
 
       ],
@@ -111954,11 +112270,10 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "guiOnly"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
+        "palette",
         "contextMenu"
       ],
       "symbol" : "stethoscope",
@@ -111982,7 +112297,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -112010,8 +112325,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
+      "paletteTarget" : "machine",
+      "paletteTargetSource" : "joined",
       "requires" : [
 
       ],
@@ -112035,11 +112350,10 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "guiOnly"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
+        "palette",
         "contextMenu"
       ],
       "symbol" : "key",
@@ -112063,7 +112377,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -112091,8 +112405,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
+      "paletteTarget" : "machine",
+      "paletteTargetSource" : "joined",
       "requires" : [
 
       ],
@@ -112116,11 +112430,10 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "guiOnly"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
+        "palette",
         "contextMenu"
       ],
       "symbol" : "xmark.circle",
@@ -112881,6 +113194,96 @@
 
       ],
       "title" : "Run App Command…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "app",
+          "suggestions" : null,
+          "title" : "App"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "item",
+          "suggestions" : null,
+          "title" : "Menu Item"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "app run-menu-item",
+      "computed" : {
+        "canonical_action_id" : "app.menu.run",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AppStoreActionCatalog",
+      "hint" : null,
+      "id" : "app.menu.run",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "apps",
+        "extensions",
+        "menu",
+        "right-click",
+        "context menu"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "familyMember"
+        }
+      },
+      "surfaces" : [
+        "contextMenu"
+      ],
+      "symbol" : "puzzlepiece.extension",
+      "targets" : [
+        "workspace",
+        "tab"
+      ],
+      "title" : "Run App Menu Item",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

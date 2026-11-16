@@ -31,7 +31,7 @@ final class HomeStarterChips: NSView {
         }
         repaint()
         needsLayout = true
-        if let focused { window?.makeFirstResponder(buttons.first { $0.title == focused } ?? buttons.first) }
+        if let focused { FocusRoute(.system, "Home starter prompts listed").moveKeyboard(in: window, to: buttons.first { $0.title == focused } ?? buttons.first) }
     }
 
     func applyScale(_ value: CGFloat) { scale = value; repaint(); needsLayout = true }

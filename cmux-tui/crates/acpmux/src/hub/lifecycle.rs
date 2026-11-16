@@ -125,6 +125,8 @@ impl Hub {
             .map(|s| s.id.clone());
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
+        // A harness installed since the catalog loaded serves this start (`rediscover.rs`).
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (
@@ -1354,7 +1356,14 @@ impl Hub {
 
         let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
             Ok(v) => v,
-            Err(e) => return Err(Self::explain_start_failure(session, e).await),
+            Err(e) => {
+                // An agent CLI that refuses to start signed out exits before it answers
+                // `initialize` ("agent process closed (grok): Authentication required"): typed
+                // the same as a `session/new` auth_required, so the start names it (hq#11225).
+                let mut e = Self::explain_start_failure(session, e).await;
+                crate::recovery::start_sign_in(&mut e, &meta.harness);
+                return Err(e);
+            }
         };
         let supports_load = init
             .get("agentCapabilities")

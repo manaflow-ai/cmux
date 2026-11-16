@@ -29,7 +29,7 @@ pub(super) struct Staged {
 
 /// The app's embedded bundle: `CMUX_REMOTE_APP`, else `Contents/Library`
 /// of the app whose `Contents/Resources/bin` holds this daemon.
-fn embedded() -> Result<PathBuf, String> {
+pub(super) fn embedded() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("CMUX_REMOTE_APP").map(PathBuf::from) {
         return path
             .is_dir()

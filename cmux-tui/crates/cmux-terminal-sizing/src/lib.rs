@@ -314,6 +314,13 @@ struct Entry {
     activity: u64,
 }
 
+/// The narrowest grid a shared terminal takes while some counting view is at
+/// least this wide: an iPhone's portrait terminal page. A narrower view (a
+/// split pane, another device) gets the wider grid instead of squeezing every
+/// view below a phone (Leo, 2026-11-15: "i dont see the point of a
+/// narrower-than-iphone terminal"). `fixed` and `held` keep their grid.
+pub const MIN_SHARED_COLS: u16 = 40;
+
 /// Decides the PTY grid of one shared terminal.
 #[derive(Clone, Debug)]
 pub struct TerminalSizingEngine {
@@ -612,8 +619,14 @@ impl TerminalSizingEngine {
     fn publish(&mut self) -> bool {
         let counting =
             self.entries.iter().filter(|entry| self.entry_counts(entry)).collect::<Vec<_>>();
-        let (size, owners, reason) = self.decide(&counting);
+        let (mut size, owners, reason) = self.decide(&counting);
         if reason != TerminalSizingReason::Held && reason != TerminalSizingReason::Fixed {
+            let phone_wide = counting.iter().any(|entry| {
+                entry.participant.viewport.is_some_and(|viewport| viewport.cols >= MIN_SHARED_COLS)
+            });
+            if phone_wide {
+                size.cols = size.cols.max(MIN_SHARED_COLS);
+            }
             self.held = size;
         }
         let participants = self

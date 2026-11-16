@@ -68,9 +68,6 @@ import Testing
         grouped.flattensMachines = false
         let underHeader = grouped.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: grouped))
         #expect(names(label(underHeader)) == 1)
-        var minimal = o
-        minimal.minimal = true
-        #expect(names(label(minimal.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: minimal)))) == 1)
     }
 
     /// Review of #28510 at 5f1d588f (P1): a machine that cannot connect has its status in the one-list label
@@ -89,13 +86,12 @@ import Testing
 
     /// Review of #28510 at 58ee6d24 (P1): every row mode says the failed machine's status, and a row that draws no
     /// mark (only that one machine listed, so no marks) still names the computer.
-    @Test(arguments: ["compact", "minimal", "tabs", "expanded", "unmarked"])
+    @Test(arguments: ["compact", "tabs", "expanded", "unmarked"])
     func everyRowModeSpeaksAFailedMachinesStatus(_ mode: String) throws {
         let model = SidebarModel(sections: [mac, vm].map(section))
         var o = model.listOptions()
         o.machineStatusLabels[vm.id] = "Failed to start"
         switch mode {
-        case "minimal": o.minimal = true
         case "tabs": o.workspacesAsTabs = true
         case "expanded": o.expanded = true
         case "unmarked": o.machines = [:]

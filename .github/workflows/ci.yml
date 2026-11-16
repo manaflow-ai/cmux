@@ -592,17 +592,17 @@ jobs:
             # The cmux-next workflow owns its Swift, Rust, web and webview
             # checks. Keep the generic changes job for shared web routing, but
             # do not send a next-line PR through the legacy app-host suite.
+            # package_route: a package other than CmuxNext changed. A pull request that
+            # changes CmuxNext too keeps it: the lane's PACKAGES has no CmuxNext, so it
+            # never wakes the CmuxNext suite, and without it the other package's tests
+            # ran in no pull request check (hq#11644, scripts/ci/swift_test_coverage.py).
             package_route=false
-            cmuxnext_route=false
             if [ -f /tmp/cmux-ci-changed-files.txt ]; then
-              if grep -q '^Packages/' /tmp/cmux-ci-changed-files.txt; then
+              if awk '/^Packages\// && !/^Packages\/macOS\/CmuxNext\// { found = 1 } END { exit !found }' /tmp/cmux-ci-changed-files.txt; then
                 package_route=true
               fi
-              if grep -q '^Packages/macOS/CmuxNext/' /tmp/cmux-ci-changed-files.txt; then
-                cmuxnext_route=true
-              fi
             fi
-            if [ "$package_route" = true ] && [ "$cmuxnext_route" = false ]; then
+            if [ "$package_route" = true ]; then
               # The legacy reusable macOS workflow owns focused tests for the
               # affected package. Keep that route instead of waking the full
               # CmuxNext suite; its package lane runs beside compile admission

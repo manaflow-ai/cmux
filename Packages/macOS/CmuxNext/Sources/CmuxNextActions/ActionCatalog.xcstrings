@@ -1,6 +1,141 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.errors.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مسح سجل الأخطاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obriši dnevnik grešaka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ryd fejljournal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fehlerprotokoll leeren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Error Journal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Borrar registro de errores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Effacer le journal des erreurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancella registro errori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エラージャーナルを消去"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សម្អាតកំណត់ហេតុកំហុស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오류 기록 지우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tøm feillogg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyczyść dziennik błędów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limpar registro de erros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очистить журнал ошибок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ล้างบันทึกข้อผิดพลาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hata günlüğünü temizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очистити журнал помилок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa nhật ký lỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "清除错误日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "清除錯誤記錄"
+          }
+        }
+      }
+    },
+    "action.app.try.run": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تشغيل طلب سحب كهذا التطبيق…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreni PR kao ovu aplikaciju…"}},"da":{"stringUnit":{"state":"needs_review","value":"Kør en PR som denne app…"}},"de":{"stringUnit":{"state":"needs_review","value":"PR als diese App ausführen…"}},"en":{"stringUnit":{"state":"translated","value":"Run a PR as This App…"}},"es":{"stringUnit":{"state":"needs_review","value":"Ejecutar un PR como esta app…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Exécuter une PR comme cette app…"}},"it":{"stringUnit":{"state":"needs_review","value":"Esegui una PR come questa app…"}},"ja":{"stringUnit":{"state":"translated","value":"PR をこのアプリとして実行…"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំណើរការ PR ជាកម្មវិធីនេះ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"PR을 이 앱으로 실행…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjør en PR som denne appen…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchom PR jako tę aplikację…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Executar um PR como este app…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запустить PR как это приложение…"}},"th":{"stringUnit":{"state":"needs_review","value":"เรียกใช้ PR เป็นแอปนี้…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bir PR'ı bu uygulama olarak çalıştır…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запустити PR як цей застосунок…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chạy một PR làm ứng dụng này…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"将 PR 作为此应用运行…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"將 PR 作為此 App 執行…"}}}},
+    "action.app.try.run.hint": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بدّل هذا التطبيق إلى طلب سحب أو فرع أو إيداع، دون سحب أو بناء. «التراجع عن آخر تشغيل لطلب سحب» يعيده."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prebaci ovu aplikaciju na pull request, granu ili commit, bez checkouta i builda. Poništi zadnje pokretanje PR-a vraća je nazad."}},"da":{"stringUnit":{"state":"needs_review","value":"Skift denne app til en pull request, gren eller commit uden checkout eller build. Fortryd seneste PR-kørsel sætter den tilbage."}},"de":{"stringUnit":{"state":"needs_review","value":"Diese App auf einen Pull Request, Branch oder Commit umstellen, ohne Checkout oder Build. „Letzten PR-Lauf rückgängig machen“ stellt sie wieder her."}},"en":{"stringUnit":{"state":"translated","value":"Swap this app to a pull request, branch or commit, with no checkout or build. Undo Last PR Run puts it back."}},"es":{"stringUnit":{"state":"needs_review","value":"Cambia esta app a un pull request, rama o commit, sin checkout ni compilación. Deshacer la última ejecución de PR la restaura."}},"fr":{"stringUnit":{"state":"needs_review","value":"Bascule cette app sur une pull request, une branche ou un commit, sans checkout ni build. Annuler la dernière exécution de PR la rétablit."}},"it":{"stringUnit":{"state":"needs_review","value":"Passa questa app a una pull request, un branch o un commit, senza checkout né build. Annulla l’ultima esecuzione della PR la ripristina."}},"ja":{"stringUnit":{"state":"translated","value":"チェックアウトもビルドもせずに、このアプリをプルリクエスト、ブランチ、コミットに切り替えます。「前回の PR 実行を元に戻す」で元に戻せます。"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្ដូរកម្មវិធីនេះទៅ pull request, branch ឬ commit ដោយគ្មាន checkout ឬ build។ «មិនធ្វើវិញនូវការដំណើរការ PR ចុងក្រោយ» នាំវាត្រឡប់មកវិញ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"체크아웃이나 빌드 없이 이 앱을 풀 리퀘스트, 브랜치 또는 커밋으로 바꿉니다. 마지막 PR 실행 취소로 되돌릴 수 있습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Bytt denne appen til en pull request, gren eller commit uten checkout eller bygg. Angre siste PR-kjøring setter den tilbake."}},"pl":{"stringUnit":{"state":"needs_review","value":"Przełącz tę aplikację na pull request, gałąź lub commit, bez checkoutu i kompilacji. Cofnij ostatnie uruchomienie PR przywraca ją."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Troca este app para um pull request, branch ou commit, sem checkout nem build. Desfazer a última execução de PR o restaura."}},"ru":{"stringUnit":{"state":"needs_review","value":"Переключает это приложение на pull request, ветку или коммит без checkout и сборки. «Отменить последний запуск PR» возвращает его."}},"th":{"stringUnit":{"state":"needs_review","value":"สลับแอปนี้ไปเป็น pull request, branch หรือ commit โดยไม่ต้อง checkout หรือ build “เลิกทำการเรียกใช้ PR ครั้งล่าสุด” จะคืนค่ากลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu uygulamayı checkout veya derleme olmadan bir pull request, dal ya da commit'e geçirir. Son PR Çalıştırmasını Geri Al onu geri getirir."}},"uk":{"stringUnit":{"state":"needs_review","value":"Перемикає цей застосунок на pull request, гілку чи коміт без checkout і збирання. «Скасувати останній запуск PR» повертає його."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chuyển ứng dụng này sang một pull request, nhánh hoặc commit, không cần checkout hay build. Hoàn tác lần chạy PR gần nhất sẽ đưa nó về lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无需检出或构建，将此应用切换到某个拉取请求、分支或提交。“撤销上次 PR 运行”可将其还原。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無需簽出或建置，將此 App 切換到某個拉取請求、分支或提交。「還原上次 PR 執行」可將其復原。"}}}},
+    "action.app.try.undo": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التراجع عن آخر تشغيل لطلب سحب"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poništi zadnje pokretanje PR-a"}},"da":{"stringUnit":{"state":"needs_review","value":"Fortryd seneste PR-kørsel"}},"de":{"stringUnit":{"state":"needs_review","value":"Letzten PR-Lauf rückgängig machen"}},"en":{"stringUnit":{"state":"translated","value":"Undo Last PR Run"}},"es":{"stringUnit":{"state":"needs_review","value":"Deshacer la última ejecución de PR"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler la dernière exécution de PR"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla l’ultima esecuzione della PR"}},"ja":{"stringUnit":{"state":"translated","value":"前回の PR 実行を元に戻す"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនធ្វើវិញនូវការដំណើរការ PR ចុងក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"마지막 PR 실행 취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Angre siste PR-kjøring"}},"pl":{"stringUnit":{"state":"needs_review","value":"Cofnij ostatnie uruchomienie PR"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Desfazer a última execução de PR"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить последний запуск PR"}},"th":{"stringUnit":{"state":"needs_review","value":"เลิกทำการเรียกใช้ PR ครั้งล่าสุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Son PR Çalıştırmasını Geri Al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати останній запуск PR"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hoàn tác lần chạy PR gần nhất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"撤销上次 PR 运行"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"還原上次 PR 執行"}}}},
+    "argument.app.try.target": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"طلب سحب أو فرع أو إيداع"}},"bs":{"stringUnit":{"state":"needs_review","value":"PR, grana ili commit"}},"da":{"stringUnit":{"state":"needs_review","value":"PR, gren eller commit"}},"de":{"stringUnit":{"state":"needs_review","value":"PR, Branch oder Commit"}},"en":{"stringUnit":{"state":"translated","value":"PR, Branch or Commit"}},"es":{"stringUnit":{"state":"needs_review","value":"PR, rama o commit"}},"fr":{"stringUnit":{"state":"needs_review","value":"PR, branche ou commit"}},"it":{"stringUnit":{"state":"needs_review","value":"PR, branch o commit"}},"ja":{"stringUnit":{"state":"translated","value":"PR、ブランチ、またはコミット"}},"km":{"stringUnit":{"state":"needs_review","value":"PR, branch ឬ commit"}},"ko":{"stringUnit":{"state":"needs_review","value":"PR, 브랜치 또는 커밋"}},"nb":{"stringUnit":{"state":"needs_review","value":"PR, gren eller commit"}},"pl":{"stringUnit":{"state":"needs_review","value":"PR, gałąź lub commit"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"PR, branch ou commit"}},"ru":{"stringUnit":{"state":"needs_review","value":"PR, ветка или коммит"}},"th":{"stringUnit":{"state":"needs_review","value":"PR, branch หรือ commit"}},"tr":{"stringUnit":{"state":"needs_review","value":"PR, dal veya commit"}},"uk":{"stringUnit":{"state":"needs_review","value":"PR, гілка чи коміт"}},"vi":{"stringUnit":{"state":"needs_review","value":"PR, nhánh hoặc commit"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"PR、分支或提交"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"PR、分支或提交"}}}},
     "argument.debug.statusIconSet": {
       "comment": "Argument name of the Status Icons debug action: the icon set to use.",
       "extractionState": "manual",
@@ -1127,6 +1262,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "復原 Chief 移動"
+          }
+        }
+      }
+    },
+    "action.customize.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخصيص…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagodi…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpas…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anpassen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizar…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnaliser…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizza…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタマイズ…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរតាមបំណង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자화…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpass…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosuj…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizar…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับแต่ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özelleştir…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tùy chỉnh…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂…"
           }
         }
       }
@@ -5324,6 +5590,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "重新顯示已隱藏的提示"
+          }
+        }
+      }
+    },
+    "action.debug.keycapPlayground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keycap Playground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーキャップのプレイグラウンド"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ساحة تجربة أزرار المفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igralište tipki"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legeplads for taster"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasten-Spielwiese"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zona de pruebas de teclas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bac à sable des touches"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Area di prova dei tasti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែង​សាកល្បង​គ្រាប់ចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키캡 플레이그라운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lekeplass for taster"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plac zabaw klawiszy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Área de testes de teclas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песочница клавиш"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สนามทดลองปุ่มคีย์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tuş oyun alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пісочниця клавіш"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sân thử phím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "键帽试验场"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "鍵帽試驗場"
           }
         }
       }
@@ -67158,6 +67555,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "再次執行上一個指令"
+          }
+        }
+      }
+    },
+    "action.terminal.fixLastCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix Last Command with Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前回のコマンドをエージェントで修正"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصلاح آخر أمر باستخدام الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Popravi posljednju naredbu s agentom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ret sidste kommando med agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letzten Befehl mit Agent beheben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Corregir el último comando con el agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Corriger la dernière commande avec l’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Correggi l'ultimo comando con l'agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួសជុលពាក្យបញ្ជាចុងក្រោយជាមួយភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트로 마지막 명령 수정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fiks siste kommando med agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Napraw ostatnie polecenie z agentem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Corrigir o último comando com o agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Исправить последнюю команду с агентом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แก้ไขคำสั่งล่าสุดด้วยเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son komutu ajanla düzelt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виправити останню команду з агентом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sửa lệnh cuối bằng tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用智能体修复上一条命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用代理修復上一個命令"
+          }
+        }
+      }
+    },
+    "action.terminal.sendLastOutputToChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Last Output to Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前回の出力をチャットに送信"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إرسال آخر مخرجات إلى الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pošalji posljednji izlaz u chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send sidste output til chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letzte Ausgabe an Chat senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar la última salida al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoyer la dernière sortie au chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Invia l'ultimo output alla chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ញើលទ្ធផលចុងក្រោយទៅការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 출력을 채팅으로 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send siste utdata til chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyślij ostatnie wyjście do czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar a última saída para o chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправить последний вывод в чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งเอาต์พุตล่าสุดไปยังแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son çıktıyı sohbete gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надіслати останній вивід у чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gửi đầu ra cuối vào trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将上次输出发送到聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將上次輸出傳送到聊天"
+          }
+        }
+      }
+    },
+    "action.terminal.sendSelectionToChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Selection to Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選択範囲をチャットに送信"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إرسال التحديد إلى الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pošalji odabir u chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send markering til chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auswahl an Chat senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar la selección al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoyer la sélection au chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Invia la selezione alla chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ញើការជ្រើសរើសទៅការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "선택 항목을 채팅으로 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send markering til chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyślij zaznaczenie do czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar a seleção para o chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправить выделение в чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งส่วนที่เลือกไปยังแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seçimi sohbete gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надіслати виділене в чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gửi vùng chọn vào trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将所选内容发送到聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將所選內容傳送到聊天"
           }
         }
       }

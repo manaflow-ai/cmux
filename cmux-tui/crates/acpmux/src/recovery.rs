@@ -51,17 +51,27 @@ pub mod kind {
 /// (`turn_errors::says_unreachable`) is never a sign-in state, whatever words
 /// about a sign-in it also carries ("HTTP 503: authentication_failed").
 pub fn auth_kind(message: &str) -> Option<&'static str> {
-    if crate::hub::turn_errors::says_unreachable(message) {
+    if crate::turn_errors::says_unreachable(message) {
         return None;
     }
     if crate::claude_auth::is_expired_credential(message) {
         Some(kind::AUTH_EXPIRED)
-    } else if crate::claude_auth::is_sign_in_failure(message) {
+    } else if crate::claude_auth::is_sign_in_failure(message) || says_missing_openai_key(message) {
         Some(kind::AUTH_SIGNED_OUT)
     } else {
         None
     }
 }
+
+/// Whether `message` is codex's "Missing environment variable: `OPENAI_API_KEY`.": its provider
+/// has no key, so a Codex with no sign-in of its own (own mode with no login, or team mode with
+/// no placeholder) is signed out ([`auth_kind`]), and the chat shows Codex's Sign in card.
+pub fn says_missing_openai_key(message: &str) -> bool {
+    message.to_lowercase().contains("missing environment variable: `openai_api_key`")
+}
+
+/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
+pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
 
 /// Free space under this is `disk.low` unless the config sets `diskLowBytes`.
 pub const DISK_LOW_DEFAULT_BYTES: u64 = 1 << 30;
@@ -80,15 +90,8 @@ pub fn annotate_peer(e: &mut RpcError, peer: &str) {
     if !is_disk_full(&e.message) {
         return;
     }
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return };
-            data
-        }
-    };
+    object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return };
     if data.contains_key("errorKind") {
         return;
     }
@@ -117,15 +120,8 @@ pub fn dead_process(e: &RpcError) -> bool {
 /// message (a full disk) still wins.
 pub fn annotate_as(e: &mut RpcError, near: Option<&Path>, dead: bool) {
     let dead = dead || e.message.starts_with("agent process closed");
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return };
-            data
-        }
-    };
+    let wrapped = object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return };
     if data.contains_key("errorKind") {
         return;
     }
@@ -136,6 +132,35 @@ pub fn annotate_as(e: &mut RpcError, near: Option<&Path>, dead: bool) {
     }
     if data.is_empty() {
         e.data = None;
+    } else if wrapped && data.len() == 1 {
+        // Nothing typed it: the agent's own data goes back as it sent it.
+        e.data = data.remove(AGENT_DATA);
+    }
+}
+
+/// The key an agent's own error `data` moves under when it is not an object ([`object_data`]).
+pub const AGENT_DATA: &str = "agentData";
+
+/// Make `e.data` an object this module can type: none (or null) becomes empty, and an agent's
+/// own data that is not an object (grok 1.0.77 answers `session/new` with "Authentication
+/// required" and the string data "no auth method id provided") moves under [`AGENT_DATA`], so
+/// typing never fails for the shape of what the agent sent. Returns whether it moved it.
+pub(crate) fn object_data(e: &mut RpcError) -> bool {
+    match e.data.take() {
+        Some(Value::Object(data)) => {
+            e.data = Some(Value::Object(data));
+            false
+        }
+        None | Some(Value::Null) => {
+            e.data = Some(Value::Object(Map::new()));
+            false
+        }
+        Some(other) => {
+            let mut data = Map::new();
+            data.insert(AGENT_DATA.into(), other);
+            e.data = Some(Value::Object(data));
+            true
+        }
     }
 }
 
@@ -167,7 +192,7 @@ fn classify(
         let mut details = Map::new();
         details.insert("peer".into(), json!(peer));
         if let Some(at) = data.get("lastSeen").and_then(Value::as_u64) {
-            details.insert("lastSeenAt".into(), json!(crate::server::iso(at)));
+            details.insert("lastSeenAt".into(), json!(crate::clock_text::iso(at)));
         }
         let recovery = format!(
             "Check that {peer} is on and online in `tailscale status`; `acpmux machine doctor \
@@ -208,7 +233,7 @@ fn classify(
             Map::new(),
         ));
     }
-    if message == crate::hub::SHUTTING_DOWN {
+    if message == SHUTTING_DOWN {
         return Some((
             kind::DAEMON_RESTARTING,
             "The daemon is restarting. Run the command again in a few seconds; a send with the \
@@ -426,7 +451,7 @@ pub fn start_sign_in(e: &mut RpcError, harness: &str) -> bool {
     let lower = e.message.to_ascii_lowercase();
     let kind = match auth_kind(&e.message) {
         Some(kind) => kind,
-        None if crate::hub::turn_errors::says_unreachable(&e.message) => return false,
+        None if crate::turn_errors::says_unreachable(&e.message) => return false,
         // -32000 is also JSON-RPC's generic server error, so the code alone is never a sign-in:
         // only with the agent's own words for one (an adapter's quota error stays as it is).
         None if lower.contains("authentication required")
@@ -438,15 +463,8 @@ pub fn start_sign_in(e: &mut RpcError, harness: &str) -> bool {
         }
         None => return false,
     };
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return false,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return false };
-            data
-        }
-    };
+    object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return false };
     data.insert("reason".into(), json!(SIGN_IN_REQUIRED));
     data.insert("errorKind".into(), json!(kind));
     data.insert(
@@ -704,5 +722,62 @@ mod tests {
             assert!(!start_sign_in(&mut e, "cursor"), "{message}");
             assert!(e.data.is_none(), "{message}");
         }
+    }
+
+    /// grok 1.0.77, signed out on a fresh Cloud machine, answers `session/new` with -32000
+    /// "Authentication required" and the string data "no auth method id provided" (its own
+    /// words, run by hand against `grok agent stdio`). A start typed only object data, so grok's
+    /// start reached the app as a bare `agent_session.refused` (cloud harness matrix,
+    /// grok-app-start). The sign-in is typed, and the agent's data stays under `agentData`.
+    #[test]
+    fn a_signed_out_start_with_string_data_names_the_harness() {
+        let mut e = RpcError::new(ACP_AUTH_REQUIRED, "Authentication required");
+        e.data = Some(json!("no auth method id provided"));
+        assert!(start_sign_in(&mut e, "grok"));
+        let data = e.data.unwrap();
+        assert_eq!(data["reason"], SIGN_IN_REQUIRED);
+        assert_eq!(data["details"]["harness"], "grok");
+        assert_eq!(data[AGENT_DATA], "no auth method id provided");
+
+        // The same class in the other typers: a turn error or a peer's full disk with an agent's
+        // string data is still typed, and an untyped one keeps the agent's data as it was.
+        let mut full = RpcError::new(-32603, "No space left on device (os error 28)");
+        full.data = Some(json!("write failed"));
+        annotate_peer(&mut full, "box");
+        let data = full.data.unwrap();
+        assert_eq!(data["errorKind"], kind::DISK_FULL);
+        assert_eq!(data[AGENT_DATA], "write failed");
+
+        let mut full = RpcError::new(-32603, "No space left on device (os error 28)");
+        full.data = Some(json!(["write failed"]));
+        annotate(&mut full, None);
+        assert_eq!(full.data.unwrap()["errorKind"], kind::DISK_FULL);
+
+        let mut other = RpcError::new(-32602, "bad params");
+        other.data = Some(json!("the agent's own"));
+        annotate(&mut other, None);
+        assert_eq!(other.data, Some(json!("the agent's own")));
+    }
+
+    /// The gateway's 401 for a Gemini or Grok call with no team or owner key says
+    /// `agent.sign_in_required`: a turn or start that fails on it is a sign-in, typed
+    /// `auth.signed_out`, and a start's refusal names the harness (hq#11225).
+    #[test]
+    fn the_gateways_sign_in_marker_is_a_sign_in() {
+        for message in [
+            "[API Error: 401 cmux: sign in required (agent.sign_in_required)]",
+            "agent process closed (grok): 401 Unauthorized: cmux: sign in required (agent.sign_in_required)",
+        ] {
+            assert_eq!(auth_kind(message), Some(kind::AUTH_SIGNED_OUT), "{message}");
+        }
+        let mut e = RpcError::new(
+            -32603,
+            "Request failed: 401 cmux: sign in required (agent.sign_in_required)",
+        );
+        assert!(start_sign_in(&mut e, "gemini"));
+        let data = e.data.unwrap();
+        assert_eq!(data["reason"], SIGN_IN_REQUIRED);
+        assert_eq!(data["errorKind"], kind::AUTH_SIGNED_OUT);
+        assert_eq!(data["details"]["harness"], "gemini");
     }
 }

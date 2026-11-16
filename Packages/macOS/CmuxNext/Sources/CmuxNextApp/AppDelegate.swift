@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextKeepAwake
+import CmuxNextKeys
 import CmuxNextLiveCode
 import CmuxNextOnboarding
 import CmuxNextPages
@@ -27,8 +28,6 @@ import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var environment: AppEnvironment
-    /// The daemon's first connect attempt, begun in `main`.
-    private var daemonPrestart: DaemonPrestart?
     /// Resolves once before any auth or daemon is constructed; cancelled on quit.
     private var cloudBootstrap: Task<Void, Never>?
     private let cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>  // started in `main` (startAtLaunch)
@@ -82,11 +81,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
+    init(environment: AppEnvironment,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
          cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshot?, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
-        self.launchReads = launchReads; self.daemonPrestart = daemonPrestart; self.launchCleanup = launchCleanup
+        self.launchReads = launchReads; self.launchCleanup = launchCleanup
         let firstFrame = FirstFrameGate()
         self.firstFrame = firstFrame
         launchSettle = LaunchSettle(firstFrame: firstFrame)
@@ -109,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
-                finishLaunching(snapshot); await firstFrame.opened(); await refresh()
+                try await finishLaunching(snapshot); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -120,14 +119,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for key in LaunchIdentity.cloudSelectionKnobs + ["CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
-                finishLaunching(snapshot)
+                try? await finishLaunching(snapshot) // only cancellation throws; Quit must not resume startup
             }
             cloudBootstrap = nil
         }
     }
 
-    private func finishLaunching(_ launchSnapshot: LaunchSnapshot?) {
-        daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+    private func finishLaunching(_ launchSnapshot: LaunchSnapshot?) async throws {
+        let preparedDaemon = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
             terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
             resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
         // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
@@ -156,8 +155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LastAppCLIPointer.publishAtLaunch()
         // Other copies of this app: a second copy opened says which kept running; a passing copy offers a move.
         appCopyGuide.start(activates: !environment.noActivate)
-        // cmux.json's appearance goes on the Ghostty overrides before the
-        // runtime's first config load, so the first frame needs no reload.
+        // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config
+        // load, so the first frame needs no reload; appearance.fontSmoothing before any window.
         let settingsRead = SettingsController.readAtLaunch(
             file: CmuxConfigFile.launchFile(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
         TerminalThemeSetting.prime(settingsRead.snapshot)
@@ -187,6 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
+        // This launch's times, in every build, for `cmux app launch-times` (CMUX-571): once the first frame and Home have shown.
+        if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
+            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:]) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
+            firstFrame.whenOpen { [launchReveal = services.launchReveal] in launchReveal.whenReady(.home) { recorder.write(marks: DebugTimings.launchMarkTimes()) } }
+        }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
@@ -212,6 +216,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchSettle.install(daemon: services.daemon)
         daemonPrompts = DaemonPrompts.start(services)
         services.healthFeeds.start() // app health: before the daemon's first ensure
+        let daemonPrestart = await withTaskCancellationHandler { await preparedDaemon.value } onCancel: { preparedDaemon.cancel() }
+        guard !Task.isCancelled else { daemonPrestart?.cancel(); throw CancellationError() }
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart, launchSnapshot: launchSnapshot)
@@ -246,10 +252,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         // At idle after the first terminal frame: the palette panel (native) and the icon catalog (off the main actor). The icon picker and
-        // group editor (WebKit, ~60 MB of processes) wait for the first menu or palette open, where every Set Icon and Rename Group is.
+        // group editor (WebKit, ~60 MB of processes) wait for a menu or palette open, where every Set Icon and Rename Group is,
+        // and are freed again once their idle limit passes with no open or menu (IconPickerService/GroupEditorService.idleLimit);
+        // each menu or palette open makes them again or pushes that limit back.
         launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0); services?.iconPicker.prepare(page: false) }
         let warmOverlays = { @MainActor [weak services] in services?.iconPicker.prepare(); services?.groupEditor.prepare() }
-        services.keyRouter.menuPickKeys.tracking.onFirstMenu(warmOverlays); services.palette.onFirstShow(warmOverlays)
+        services.keyRouter.menuPickKeys.tracking.onMenus(warmOverlays)
+        services.palette.onShows(warmOverlays)
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
@@ -334,7 +343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         if LaunchIdentity.ignoresCustomizations(keysHeld: NSEvent.modifierFlags.isSuperset(of: [.option, .shift])) { WebDevOverride.ignoreThisRun() }
         let registry = services.registry
-        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
+        let settings = SettingsController(writer: SettingsEditSender(services.daemon.settingsFile.edit(json:file:)), registry: registry, fileURL: launch.fileURL, launch: launch) // the home daemon writes the file
         settings.applyManagedFeaturesNow()
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
@@ -358,7 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bundleID: bundleID
             )
         )
-        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
+        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true, untilWritable: { [daemon = services.daemon] in await daemon.untilLive() }) // fresh-install Glass, theme rotation: written once the daemon is live
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
         let acpmux = QuitAgents.environment(services)
@@ -391,11 +400,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
         if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
-        // Agent-launched builds never take system-wide keys from the person's app.
-        if !environment.noActivate { services.globalHotKeys.start() }
-        // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.
-        if !environment.noActivate { services.menuBarExtra.follow(settings, background: services.background) }
+        // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
+        if !environment.noActivate { services.globalHotKeys.start(); services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
+        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(firstFrame); services.cache.cef.preload() } // a restored chat's page starts Chromium as the window builds: map its framework now, off main; CefInitialize waits for the first frame (CMUX-571)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
@@ -418,13 +426,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            await settings.runLaunchMigrations(marker: .standard) // legacy keys, classic imports, stored defaults
+            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy keys, classic imports, stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
+                control.service?.router.register([services.keyRequests.controlMethod]) // keys.request (Settings > Keys)
                 control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)

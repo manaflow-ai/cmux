@@ -50,6 +50,8 @@ on:
       - "skills/cmux/SKILL.md"
       - "scripts/ci/webviews_test_results.py"
       - "scripts/cmux-next/run-v2-gates.sh"
+      - "scripts/cmux-next/tests/run-v2-gates.test.sh"
+      - "scripts/cmux-next/v2-gates.d/**"
       - "webviews/src/agent-session/acpmux/rows/parity/*.changes.jsonl"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui

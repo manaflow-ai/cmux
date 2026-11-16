@@ -49,7 +49,7 @@ import Testing
         defer { Motion.reduceMotionOverride = previousMotion }
         let h = try await SidebarBandHideTests().make(#"{"sidebar":{"minimal":true}}"#)
         defer { h.tearDown() }
-        await h.until { h.model.minimal }
+        await h.until { h.sidebar.design.sidebarSections.minimal }
         h.sidebar.setChromeRevealed(false)
         let views: [NSView] = [h.sidebar.newButton, h.sidebar.searchButton, h.sidebar.footerRegion, h.sidebar.profileBar]
         await h.until { views.allSatisfy { $0.alphaValue == 0 } }
@@ -123,8 +123,8 @@ import Testing
         let h = try await SidebarBandHideTests().make(#"{"sidebar":{"minimal":true,"controlsOnHover":true}}"#)
         defer { h.tearDown() }
         h.model.profileAvatar = SidebarAvatar(name: "Default", color: .blue)
-        await h.until { h.sidebar.footerBand.profileControl != nil && h.model.minimal }
-        #expect(h.model.minimal, "Minimal Mode's compact rows stay on")
+        await h.until { h.sidebar.footerBand.profileControl != nil && h.sidebar.design.sidebarSections.minimal }
+        #expect(h.sidebar.design.sidebarSections.minimal, "Minimal Mode stays on")
         h.sidebar.setChromeRevealed(false)
         #expect(h.sidebar.newButton.alphaValue == 0 && h.sidebar.searchButton.alphaValue == 0)
         h.sidebar.setChromeRevealed(true)

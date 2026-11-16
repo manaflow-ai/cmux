@@ -37,6 +37,8 @@ public final class PaletteController {
     public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
     /// Work waiting for the palette's first open (``onFirstShow(_:)``); empty after it.
     private var firstShowWork: [@MainActor () -> Void] = []
+    /// Work for each open (``onShows(_:)``).
+    private var showWork: [@MainActor () -> Void] = []
     /// Main-thread phases of each open, request to committed first frame (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
     /// The `systemUptime` timestamp of the input event that opens the palette
@@ -154,6 +156,13 @@ public final class PaletteController {
     /// made on this sign of intent and not at launch, as `MenuTracking.onFirstMenu` does for menus).
     public func onFirstShow(_ work: @escaping @MainActor () -> Void) {
         firstShowWork.append(work)
+    }
+
+    /// Runs `work` at each palette open, after that open's frame is committed (as ``onFirstShow(_:)``): work made ahead
+    /// of something a palette row may open next that is freed again when unused (the app's web overlay pages), so `work`
+    /// makes it again or keeps it, and costs little when it is already made.
+    public func onShows(_ work: @escaping @MainActor () -> Void) {
+        showWork.append(work)
     }
 
     /// Loads the palette's localized string tables. Pure and thread-safe:
@@ -292,10 +301,10 @@ public final class PaletteController {
         isVisible = true
         parentWindow = parent
         onVisibilityChange?(true, parent)
-        if !firstShowWork.isEmpty {
-            let work = firstShowWork
+        let due = firstShowWork + showWork
+        if !due.isEmpty {
             firstShowWork = []
-            scheduleAfterFrameCommit { work.forEach { $0() } }
+            scheduleAfterFrameCommit { due.forEach { $0() } }
         }
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)

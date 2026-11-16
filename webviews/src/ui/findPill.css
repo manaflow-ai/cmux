@@ -150,7 +150,8 @@
   height: var(--find-pill-button);
   padding: 0;
   border: 0;
-  border-radius: var(--ds-radius-control);
+  /* Concentric with the capsule (Lawrence 2026-11-15), as the native find pill: half the button's height. */
+  border-radius: calc(var(--find-pill-button) / 2) /* radius-allow: concentric child of the find capsule */;
   background: none;
   color: inherit;
 }

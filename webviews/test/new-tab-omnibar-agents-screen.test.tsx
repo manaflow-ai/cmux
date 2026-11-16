@@ -1,7 +1,7 @@
 // The New Tab field's agent rows in the rendered screen (launchRows.ts): "codex cmux" lists Codex in
-// the cmux folders under a header-free lead, Return starts Codex there with no prompt, a chat row
+// the cmux folders, Return starts Codex there with no prompt, a chat row
 // opens its chat, a typed path asks the host for its folder once the field stays still and Tab
-// fills the folder in, and the sections carry their headers.
+// fills the folder in.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -11,6 +11,7 @@ import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownF
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -74,7 +75,11 @@ const SESSIONS = [
   { sessionId: "s2", displayTitle: "Release notes", harness: "codex", cwd: "/Users/me/notes", activityAt: 4 },
 ] as AcpmuxSessionEntry[];
 
-async function render(calls: unknown[][], completeFolder?: (path: string) => Promise<readonly string[]>) {
+async function render(
+  calls: unknown[][],
+  completeFolder?: (path: string) => Promise<readonly string[]>,
+  takeDraft?: () => { text: string; attachments: ComposerAttachment[] },
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -84,7 +89,12 @@ async function render(calls: unknown[][], completeFolder?: (path: string) => Pro
       <NewTabScreen
         template="default"
         snapshot={noChat(SESSIONS)}
-        omnibar={{ ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "cmux-scratch" }] }}
+        omnibar={{
+          ...EMPTY_OMNIBAR,
+          workspaces: [{ id: "ws", name: "cmux-scratch" }],
+          tabs: [{ id: "docs", kind: "browser", title: "Omnibar docs", detail: "docs.example.com" }],
+          actions: [{ id: "split.right", title: "Split Right", detail: "Panes", keywords: ["panes", "omnibar"] }],
+        }}
         home="/Users/me"
         lastAgent="claude"
         projects={[
@@ -99,6 +109,7 @@ async function render(calls: unknown[][], completeFolder?: (path: string) => Pro
         onOpenSession={(id) => calls.push(["session", id])}
         onShowAll={noop}
         {...(completeFolder ? { completeFolder } : {})}
+        {...(takeDraft ? { takeDraft } : {})}
       />,
     ),
   );
@@ -118,7 +129,6 @@ async function type(text: string) {
 
 const options = () => [...window.document.querySelectorAll<HTMLElement>('.nt-rows [role="option"]')];
 const label = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
-const headers = () => [...window.document.querySelectorAll<HTMLElement>(".nt-section")].map((h) => h.textContent);
 const key = (field: Element, name: string) =>
   act(async () => {
     field.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
@@ -140,15 +150,46 @@ test('"codex cmux" leads with Codex in the cmux folder, and Return starts it the
   expect(calls[0]!.slice(0, 4)).toEqual(["ask", "codex", "", "/Users/me/fun/cmux"]);
 });
 
-test("a chat's title finds it under the Chats header, and a press opens it", async () => {
+test("a chat's title finds its suggestion, and a press opens it", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   await type("omnibar");
-  expect(headers()).toContain("Chats");
   const chat = options().find((row) => label(row) === "Omnibar ranking")!;
   expect(chat).toBeDefined();
   await act(async () => chat.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   expect(calls).toEqual([["session", "s1"]]);
+});
+
+test("commands omit their group while Ask keeps its model, chats their agent and pages their host", async () => {
+  await render([]);
+  await type("omnibar");
+  const row = (type: string) => options().find((option) => option.dataset.type === type)!;
+  expect(row("action").querySelector(".nt-row-title")?.textContent).toBe("Split Right");
+  expect(row("action").querySelector(".nt-row-detail")).toBeNull();
+  expect(row("ask").querySelector(".nt-row-detail")?.textContent).toBe("Opus 5.5");
+  expect(row("chat").querySelector(".nt-row-detail")?.textContent).toBe("Claude Code");
+  expect(row("tab").querySelector(".nt-row-detail")?.textContent).toBe("docs.example.com");
+});
+
+test.each([
+  ["omnibar", "Omnibar ranking", "Claude Code"],
+  ["release", "Release notes", "Codex"],
+  ["cmux", "Omnibar ranking", "Claude Code"],
+  ["notes", "Release notes", "Codex"],
+])('chat suggestions for "%s" show only their agent as the detail', async (query, title, agent) => {
+  await render([]);
+  await type(query);
+  const chat = options().find((row) => row.dataset.type === "chat" && label(row) === title)!;
+  expect(chat).toBeDefined();
+  expect(chat.querySelector(".nt-row-detail")?.textContent).toBe(agent);
+});
+
+test("commands still match their group keyword without displaying it", async () => {
+  await render([]);
+  await type("panes");
+  const command = options().find((row) => row.dataset.type === "action")!;
+  expect(label(command)).toBe("Split Right");
+  expect(command.querySelector(".nt-row-detail")).toBeNull();
 });
 
 test("a typed path lists its folder's subfolders once the host answers, and Tab fills the folder", async () => {
@@ -165,4 +206,67 @@ test("a typed path lists its folder's subfolders once the host answers, and Tab 
   await key(editable, "Tab");
   // The field holds Markdown (`\~`); the page acts on its text.
   expect(handle.agentText(handle.value())).toBe("codex ~/fun/games/");
+});
+
+const selected = () => options().findIndex((row) => row.getAttribute("aria-selected") === "true");
+
+test("Tab fills the top row's folder once; on a row Tab stepped to, the next Tab steps on", async () => {
+  await render([], async () => ["games", "gallery"]);
+  const { handle, editable } = await type("~/fun/ga");
+  await until(() => options().map(label).includes("Claude Code in ~/fun/games"));
+  const starts = options()
+    .map((row, index) => (label(row).includes(" in ~/fun/") ? index : -1))
+    .filter((index) => index >= 0);
+  expect(starts.length).toBeGreaterThan(1);
+  // Step to the first start row, then Tab again: the selection moves on, the text stays.
+  while (selected() < starts[0]!) await key(editable, "Tab");
+  const text = handle.agentText(handle.value());
+  await key(editable, "Tab");
+  expect(selected()).toBe(starts[0]! + 1);
+  expect(handle.agentText(handle.value())).toBe(text);
+});
+
+test("a folder listed once is read again when the path comes back, so a new folder shows", async () => {
+  let folders = ["cmux", "games"];
+  const asked: string[] = [];
+  await render([], async (path) => {
+    asked.push(path);
+    return folders;
+  });
+  const { handle } = await type("codex ~/fun/ga");
+  await until(() => options().map(label).includes("Codex in ~/fun/games"));
+  folders = ["cmux", "games", "gallery"];
+  const retype = (text: string) =>
+    act(async () => {
+      handle.selectAll();
+      handle.type(text);
+    });
+  await retype("codex ~/");
+  await until(() => asked.includes("/Users/me"));
+  await retype("codex ~/fun/ga");
+  await until(() => options().map(label).includes("Codex in ~/fun/gallery"));
+});
+
+test("a press on a start row starts an empty chat there; the staged files stay for the prompt", async () => {
+  const calls: unknown[][] = [];
+  const file: ComposerAttachment = {
+    id: "f1",
+    kind: "image",
+    name: "shot.png",
+    mimeType: "image/png",
+    size: 3,
+    data: "AQID",
+  };
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ attachmentView: "strip" });
+  await render(calls, undefined, () => ({ text: "", attachments: [file] }));
+  await type("codex cmux");
+  await until(() => host.querySelectorAll(".acpmux-attachments .acpmux-attachment").length === 1);
+  const start = options().find((row) => label(row) === "Codex in ~/fun/cmux")!;
+  await act(async () => start.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!.slice(0, 4)).toEqual(["ask", "codex", "", "/Users/me/fun/cmux"]);
+  const sent = calls[0]![6] as ComposerAttachment[] | undefined;
+  expect(sent ?? []).toEqual([]);
+  setComposerSettings({ attachmentView: "inline" });
 });

@@ -291,6 +291,10 @@ pub const APP: Argument = Argument { name: "app", title: t("Localizable", "argum
 #[rustfmt::skip]
 pub const RANGE: Argument = Argument { name: "range", title: t("HistoryActions", "argument.history.range", "Time Range"), kind: ArgKind::Enumeration(CASES_HOUR_TODAY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const SITE_HOST: Argument = Argument { name: "host", title: t("HistoryActions", "argument.history.siteHost", "Site"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CLOSED_ITEM: Argument = Argument { name: "closed", title: t("HistoryActions", "argument.history.closed", "Closed Item"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:closed.list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const PROXY_SCHEME: Argument = Argument { name: "scheme", title: t("BrowserProfileActions", "argument.browserProfile.proxyScheme", "Proxy Type"), kind: ArgKind::Enumeration(CASES_PROXY_SCHEME), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const PROXY_HOST: Argument = Argument { name: "host", title: t("BrowserProfileActions", "argument.browserProfile.proxyHost", "Proxy Host"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
@@ -708,3 +712,5 @@ pub const FEED_COMMENT: Argument = Argument { name: "comment", title: t("ActionC
 pub const DEBUG_SIDEBAR_TOGGLE_ICON: Argument = Argument { name: "icon", title: t("ActionCatalog", "argument.debug.sidebarToggleIcon", "Icon"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugSidebarToggleIcons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const DEBUG_STATUS_ICON_SET: Argument = Argument { name: "set", title: t("ActionCatalog", "argument.debug.statusIconSet", "Icon Set"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugStatusIconSets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const APP_TRY_TARGET: Argument = Argument { name: "target", title: t("ActionCatalog", "argument.app.try.target", "PR, Branch or Commit"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

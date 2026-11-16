@@ -12,13 +12,11 @@ import {
   type OmnibarContext,
   type OmnibarProfile,
   type OmnibarRow,
-  stepSelection,
 } from "../omnibar";
 import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
-import { translateNewTab } from "./strings";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
 import { TOP_SITES } from "./topSites";
 import {
@@ -46,13 +44,9 @@ export type ScreenRow =
   | { type: "workspace"; id: string; title: string; detail?: string }
   | { type: "history"; url: string; title?: string; icon?: string }
   /// A Commands palette action (Cmd-Shift-P) the host runs (`app.action`); `detail` is its section.
-  | { type: "action"; id: string; title: string; detail?: string; keycaps?: string[] }
+  | { type: "action"; id: string; title: string; detail?: string; keycaps?: string[]; symbol?: string }
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
   | { type: "ask"; text: string; harness: string; agent: string; model?: string }
-  /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
-  /// `strip`: drawn in the quiet strip under the rows, not as a row. ↓ and ↑ reach the strip as one
-  /// line (at the action last selected there), ← and → step along it (``arrowStep``, ``stripStep``).
-  | { type: "create"; kind: CreateKind; strip?: true }
   /// Open in Profile… (Lawrence 2026-11-05): the field becomes a search of every browser profile,
   /// for the address `url` that `text` resolved to (``profileRows``).
   | { type: "inProfile"; url: string; text: string }
@@ -77,12 +71,10 @@ export type ScreenAgentSources = {
   listing?: FolderListing;
 };
 
-/// The headed groups of the rows, in their order (Lawrence 2026-11-13, "ranked sections"): what
-/// Return takes leads unheaded, then open tabs and workspaces, chats, agents to start, visited
-/// pages, palette actions and the web search.
-export type ScreenSection = "lead" | "open" | "chats" | "start" | "pages" | "actions" | "web" | "create";
+/// Groups used to rank suggestions before the web search.
+export type ScreenSection = "lead" | "open" | "chats" | "start" | "pages" | "actions" | "web";
 
-/// The section `row` lists under; `lead` for the rows above the first header.
+/// The group a suggestion belongs to.
 export function rowSection(row: ScreenRow): ScreenSection {
   switch (row.type) {
     case "tab":
@@ -98,37 +90,9 @@ export function rowSection(row: ScreenRow): ScreenSection {
       return "actions";
     case "search":
       return "web";
-    case "create":
-      return "create";
     default:
       return "lead";
   }
-}
-
-/// How many rows lead, unheaded: through the Ask row (an agent start the text named, the address
-/// or the exact name above it), else the top row alone (``navigationRows``).
-export function leadLength(rows: readonly ScreenRow[]): number {
-  const ask = rows.findIndex((row) => row.type === "ask");
-  if (ask >= 0) return ask + 1;
-  // No Ask row: the named starts lead together, else the top row alone.
-  const starts = rows.findIndex((row) => row.type !== "launch");
-  if (starts < 0) return rows.length;
-  return starts > 0 ? starts + 1 : 1;
-}
-
-/// The header to draw above row `index`, when it starts a section after the lead: never in the
-/// lead, over the web search or the create rows, nor between two rows of one section.
-export function sectionHeader(
-  rows: readonly ScreenRow[],
-  index: number,
-  lead = leadLength(rows),
-): ScreenSection | undefined {
-  const row = rows[index];
-  if (!row || index < lead) return undefined;
-  const section = rowSection(row);
-  if (section === "lead" || section === "create" || section === "web") return undefined;
-  if (index > lead && rowSection(rows[index - 1]!) === section) return undefined;
-  return section;
 }
 
 /// The web search row searches the draft's words, as `words` reads them: never an attachment's
@@ -141,9 +105,6 @@ export function searchWords(rows: readonly ScreenRow[], words: (text: string) =>
     return text ? [{ ...row, text }] : [];
   });
 }
-
-/// What a create row opens, in the order the rows list them.
-export type CreateKind = "terminal" | "browser" | "chat";
 
 /// The agent the Ask row names.
 export type ScreenAsk = { harness: string; agent: string; model?: string };
@@ -182,37 +143,17 @@ export const MINIMAL_MATCH_ROWS = 3;
 /// Shorter text matches a name only at its start or a word's ("ff" is not "diffviewer").
 const SUBSTRING_MATCH_LENGTH = 3;
 
-/// The popover's rows. Empty text and `!`: none. Then the top hit (what Return takes, see
-/// SuggestionOrder), the matching open tabs, workspaces and visited pages, and the web search
-/// last (none for a local file): a fallback, never the default while an agent can be asked. With
-/// no agent, plain text searches. One row per page: a page an open tab shows is that tab ("Switch
-/// to tab"), and addresses compare without their tracking parameters. The create actions (Leo
-/// 2026-10-18: one Down or one click away while the list shows) end the list outside the cap:
-/// `chat` lists all three as rows; `intent` lists the ones the text names ("new", "term") as rows
-/// and the others as `strip` rows, one quiet line under the rows; `minimal` none.
+/// Suggestions for the typed text. Create actions live in the buttons under the composer.
 export function screenRows(
   text: string,
   context: {
     omnibar: OmnibarContext;
     home?: string;
     ask?: ScreenAsk;
-    create?: readonly CreateKind[];
-    /// The create actions' names in the pane's language (English when unset).
-    createNames?: Partial<Record<CreateKind, string>>;
     order?: SuggestionOrder;
   } & ScreenAgentSources,
 ): ScreenRow[] {
-  const rows = withProfileRows(navigationRows(text, context), text, context);
-  if (!rows.length) return rows;
-  const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
-  const create = order === "minimal" ? [] : (context.create ?? []);
-  if (order === "chat") return [...rows, ...create.map((kind): ScreenRow => ({ type: "create", kind }))];
-  const named = create.filter((kind) => namesCreate(text, kind, context.createNames?.[kind]));
-  return [
-    ...rows,
-    ...named.map((kind): ScreenRow => ({ type: "create", kind })),
-    ...create.filter((kind) => !named.includes(kind)).map((kind): ScreenRow => ({ type: "create", kind, strip: true })),
-  ];
+  return withProfileRows(navigationRows(text, context), text, context);
 }
 
 /// A typed web address gets Open in Profile… (with more than one profile to pick from) and Open in
@@ -275,34 +216,6 @@ function profileScore(needle: string, name: string): number {
   return 0.5;
 }
 
-/// Whether `row` is drawn in the strip under the rows.
-export function inStrip(row: ScreenRow): boolean {
-  return row.type === "create" && row.strip === true;
-}
-
-/// The row ↑ or ↓ selects from `current` (-1: the text): the rows one line each, then the create
-/// strip as one line under them (the strip ends the list, ``screenRows``). The strip is entered at
-/// action `column` (the one last selected there; 0, its first, by default), clamped to its length.
-/// Down never steps along the strip's actions one by one; ← and → do (``stripStep``).
-export function arrowStep(rows: readonly ScreenRow[], current: number, step: 1 | -1, column = 0): number {
-  const strip = rows.findIndex(inStrip);
-  const listed = strip < 0 ? rows.length : strip;
-  const lines = strip < 0 ? listed : listed + 1;
-  // The strip's line is index `listed`.
-  const line = stepSelection(current < 0 ? -1 : Math.min(current, listed), step, lines);
-  if (strip < 0 || line !== listed) return line;
-  return listed + Math.max(0, Math.min(column, rows.length - listed - 1));
-}
-
-/// The strip action ← or → selects from `current`, staying at the strip's ends; undefined when
-/// `current` is not a strip action, so the keys keep their meaning in the text.
-export function stripStep(rows: readonly ScreenRow[], current: number, step: 1 | -1): number | undefined {
-  const row = rows[current];
-  if (!row || !inStrip(row)) return undefined;
-  const next = rows[current + step];
-  return next && inStrip(next) ? current + step : current;
-}
-
 /// An address with its port still to come (`localhost:`, `example.com:`): the address it was a key
 /// ago, so its row stays put while the port is typed instead of leaving for one key and coming
 /// back (the rows under it jumped 28 px down, up and down again; agent-pane.new-tab#create-strip-narrow).
@@ -341,21 +254,23 @@ function navigationRows(
   // keep Return and the starts list under them.
   const agentFound = agentRows(query, context);
   const agent = top && agentFound.named ? { ...agentFound, named: false } : agentFound;
-  const fit = (lead: ScreenRow[]) => {
-    const kept = ranked(rest, context.omnibar.uses).slice(
-      0,
-      Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length),
-    );
-    const places = kept.filter((row) => rowSection(row) === "open");
-    const pages = kept.filter((row) => rowSection(row) !== "open");
-    return [
-      ...places,
-      ...agent.chats,
-      ...(agent.named ? [] : agent.launch.slice(0, MAX_UNNAMED_LAUNCH_ROWS)),
-      ...pages,
-    ];
-  };
   const named = agent.named ? agent.launch : [];
+  // The rows under the lead share what is left of MAX_SUGGESTIONS (the named starts, the lead and
+  // the web search count): one row per section in turn, so each section the text finds keeps a row
+  // and no section's many push the others out; each keeps its own order.
+  const fit = (lead: ScreenRow[]) => {
+    // The tabs, workspaces and pages keep their cap together, as before the agent rows.
+    const kept = ranked(rest, context.omnibar.uses).slice(0, cap);
+    return share(
+      [
+        kept.filter((row) => rowSection(row) === "open"),
+        agent.chats,
+        agent.named ? [] : agent.launch.slice(0, MAX_UNNAMED_LAUNCH_ROWS),
+        kept.filter((row) => rowSection(row) !== "open"),
+      ],
+      MAX_SUGGESTIONS - named.length - lead.length - search.length,
+    );
+  };
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
     if (!top) return [...named, ...search, ...fit(search), ...actionRows(query, context.omnibar)];
@@ -363,6 +278,21 @@ function navigationRows(
   }
   const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
   return [...named, ...lead, ...fit(lead), ...actionRows(query, context.omnibar), ...search];
+}
+
+/// Up to `room` rows from `sections`, taken one per section in turn, listed section by section.
+function share(sections: readonly (readonly ScreenRow[])[], room: number): ScreenRow[] {
+  const counts = sections.map(() => 0);
+  for (let taken = 0, more = true; more && taken < room;) {
+    more = false;
+    for (let index = 0; index < sections.length && taken < room; index += 1) {
+      if (counts[index]! >= sections[index]!.length) continue;
+      counts[index]! += 1;
+      taken += 1;
+      more = true;
+    }
+  }
+  return sections.flatMap((rows, index) => rows.slice(0, counts[index]));
 }
 
 /// The chats the text finds and the agent starts it names (launchRows.ts); `named` when the text
@@ -417,6 +347,7 @@ export function actionRows(query: string, omnibar: OmnibarContext, limit = MAX_A
         title: action.title,
         ...(action.detail ? { detail: action.detail } : {}),
         ...(action.keycaps ? { keycaps: action.keycaps } : {}),
+        ...(action.symbol ? { symbol: action.symbol } : {}),
       }))
   );
 }
@@ -442,16 +373,6 @@ function exactMatch(query: string, rows: readonly ScreenRow[], omnibar: OmnibarC
     rows.find((row) => row.type === "tab" && named(tab(row)?.workspace))
   );
 }
-
-/// Whether the text starts the create action's name (`name`, else English) or a word of it ("new",
-/// "term", "brow"). The English name always counts.
-function namesCreate(text: string, kind: CreateKind, name?: string): boolean {
-  const query = text.trim();
-  if (query.length < 2) return false;
-  return matchScore(query, name, translateNewTab(CREATE_KEYS[kind], {}, "en")) >= 2;
-}
-
-const CREATE_KEYS = { terminal: "create.terminal", browser: "create.browser", chat: "create.chat" } as const;
 
 /// The row Return takes before Down or Ctrl-N: the top one, what the text reads as. A question
 /// with no agent to ask has the web search on top, and Return takes it.

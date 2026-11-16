@@ -13,9 +13,13 @@ import io
 import os
 import json
 import sys
+import subprocess
 import tarfile
 import tempfile
+import textwrap
 import unittest
+from contextlib import redirect_stderr
+from unittest import mock
 import zlib
 from pathlib import Path
 
@@ -202,6 +206,19 @@ class Result(unittest.TestCase):
         with self.assertRaises(hv.Refused):
             hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
 
+    def test_a_look_the_worker_stopped_says_why_not_just_no_marker(self) -> None:
+        # Runs 43779426587 (#44015: plan ran past 300 s on cmux17) and 43758485104 (#43472: a fetch timed out) ended
+        # as "the receipt has no hot-verify marker"; the reason was only in the out.tar's step.json.
+        why = "plan: Command '[...hot-verify.py, plan, ...]' timed out after 300 seconds"
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "worker": "cmux17", "error": why,
+                                                          "phases": {"plan": 300.26}}).encode(),
+                             "out/log.txt": b"plan: ...\n"})
+        with self.assertRaises(hv.Refused) as refused:
+            hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
+        self.assertIn("cmux17", str(refused.exception))
+        self.assertIn("timed out after 300 seconds", str(refused.exception))
+        self.assertIn("plan 300", str(refused.exception))
+
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
         self.assertEqual(hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt"),
@@ -283,6 +300,42 @@ class Comment(unittest.TestCase):
             hv.gh = original
 
 
+    def test_a_call_out_of_quota_waits_for_the_reset_then_retries(self) -> None:
+        # Run 43790108433 (cmux#44086, 2026-11-16): the look passed, then "post the look" died on
+        # "API rate limit exceeded for installation" and the finished look was never posted.
+        limited = subprocess.CompletedProcess([], 1, "", "gh: API rate limit exceeded for installation. If you ...")
+        answers, calls, slept = [], [], []
+
+        def run(argv, **kw):
+            calls.append(argv)
+            if argv[1:3] == ["api", "rate_limit"]:
+                return subprocess.CompletedProcess(argv, 0, "0 1000300\n", "")
+            return answers.pop(0)
+
+        with mock.patch.object(hv.subprocess, "run", side_effect=run), \
+                mock.patch.object(hv.time, "time", return_value=1000000.0), \
+                mock.patch.object(hv.time, "sleep", side_effect=slept.append), redirect_stderr(io.StringIO()):
+            answers[:] = [limited, subprocess.CompletedProcess([], 0, "ok\n", "")]
+            self.assertEqual(hv.gh("api", "repos/manaflow-ai/cmux/pulls/7"), "ok\n")
+            self.assertEqual(slept, [305.0])  # the core reset, 300 s on, plus 5
+            self.assertEqual([c[1:3] for c in calls], [["api", "repos/manaflow-ai/cmux/pulls/7"],
+                                                       ["api", "rate_limit"],
+                                                       ["api", "repos/manaflow-ai/cmux/pulls/7"]])
+            # Past QUOTA_WAIT_SECONDS in all, it stops waiting and says why.
+            slept.clear()
+            answers[:] = [limited] * 20
+            with self.assertRaises(hv.Refused) as refused:
+                hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
+            self.assertLessEqual(sum(slept), hv.QUOTA_WAIT_SECONDS)
+            self.assertIn("rate limit", str(refused.exception))
+            # Any other failure is not retried.
+            slept.clear()
+            answers[:] = [subprocess.CompletedProcess([], 1, "", "HTTP 404: Not Found")]
+            with self.assertRaises(hv.Refused):
+                hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
+            self.assertEqual(slept, [])
+
+
 class Workflow(unittest.TestCase):
     """The workflow's wiring that the script relies on (text checks; the house guards check the rest)."""
 
@@ -297,6 +350,132 @@ class Workflow(unittest.TestCase):
         self.assertIn("gh workflow run cmux-next-web-bundle-publish.yml", text)
         self.assertNotIn("secrets: inherit", text)
         self.assertIn("--script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar", text)
+
+    def test_the_look_step_packs_its_inputs_without_bash_4_builtins(self) -> None:
+        # #43916's look on glaeda-5 died with "mapfile: command not found": a fleet Mac's /bin/bash is 3.2. Run the
+        # step's packing lines with bash 4's array builtins switched off, as 3.2 has none of them.
+        lines = WORKFLOW.read_text().splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith('nonce="hv-'))
+        end = next(i for i in range(start, len(lines)) if lines[i].strip().startswith('log="$RUNNER_TEMP/look.log"'))
+        packing = textwrap.dedent("\n".join(lines[start:end]))
+        script = "enable -n mapfile readarray\nset -uo pipefail\n" + packing + '\nprintf "%s\\n" "${args[@]}"\n'
+        done = subprocess.run(["bash", "-c", script], cwd=ROOT, capture_output=True, text=True,
+                              env={**os.environ, "PR": "7", "HEAD_SHA": "a" * 40, "GITHUB_RUN_ID": "1",
+                                   "GITHUB_RUN_ATTEMPT": "1"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        args = done.stdout.splitlines()
+        self.assertTrue(args and all(a.startswith("--arg=") and len(a) > len("--arg=") for a in args), done.stdout)
+        expected = hv.pack(hv.step_inputs(7, "a" * 40, "hv-7-aaaaaaaaaaaa-1-1", True))
+        self.assertEqual([a[len("--arg="):] for a in args], expected)
+
+    def test_the_plan_fetch_finds_the_merge_base_after_a_depth_one_checkout(self) -> None:
+        # The fleet's looks on #43862, #43807, #43816 and #43779 failed at `git merge-base` (2026-11-15): the
+        # checkout's depth-1 fetch left the base tip shallow and the step's --shallow-since fetch did not deepen it.
+        lines = WORKFLOW.read_text().splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith('since="$(date'))
+        end = next(i for i in range(start, len(lines)) if 'git rev-parse refs/remotes/pr/head' in lines[i])
+        fetch = textwrap.dedent("\n".join(lines[start:end]))
+        with tempfile.TemporaryDirectory(prefix="hot-verify-fetch-") as scratch:
+            root = Path(scratch)
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+
+            def git(cwd: Path, *args: str) -> str:
+                return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True,
+                                      env=env).stdout.strip()
+
+            src = root / "src"
+            src.mkdir()
+            git(src, "init", "-q", "-b", "feat-cmux-next")
+            git(src, "config", "uploadpack.allowFilter", "true")
+            for n in range(5):
+                (src / "f").write_text(f"{n}\n")
+                git(src, "add", "f")
+                git(src, "commit", "-q", "-m", f"base {n}")
+            fork = git(src, "rev-parse", "HEAD~2")
+            git(src, "checkout", "-q", "-b", "pr", fork)
+            (src / "g").write_text("change\n")
+            git(src, "add", "g")
+            git(src, "commit", "-q", "-m", "change")
+            head = git(src, "rev-parse", "HEAD")
+            git(src, "update-ref", "refs/pull/7/head", head)
+            git(src, "checkout", "-q", "feat-cmux-next")
+            clone = root / "clone"
+            clone.mkdir()
+            git(clone, "init", "-q")
+            git(clone, "remote", "add", "origin", src.as_uri())
+            # As actions/checkout: the base branch alone, at depth 1.
+            git(clone, "fetch", "-q", "--no-tags", "--depth=1", "origin",
+                "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next")
+            subprocess.run(["bash", "-euo", "pipefail", "-c", fetch], cwd=clone, check=True, capture_output=True,
+                           env={**env, "BASE_REF": "feat-cmux-next", "PR": "7"})
+            self.assertEqual(git(clone, "merge-base", "refs/remotes/pr/head", "refs/remotes/origin/feat-cmux-next"),
+                             fork)
+
+    def job_block(self, job: str) -> list[str]:
+        """The workflow's lines of one top-level job, its key line through the line before the next job."""
+        lines = WORKFLOW.read_text().splitlines()
+        start = lines.index(f"  {job}:")
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("  ") and not
+                    lines[i].startswith("   ") and lines[i].rstrip().endswith(":") and not lines[i].lstrip().startswith("#")),
+                   len(lines))
+        return lines[start:end]
+
+    def run_block(self, job: str, gh_out: str, env: dict) -> tuple[subprocess.CompletedProcess, Path, list[str]]:
+        """Run JOB's one `run: |` script with a gh on PATH that prints GH_OUT and logs its argv; returns the
+        process, the GITHUB_OUTPUT file and the gh calls."""
+        block = self.job_block(job)
+        start = next(i for i, line in enumerate(block) if line.strip() == "run: |") + 1
+        script = textwrap.dedent("\n".join(block[start:]))
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-job-")))
+        (scratch / "bin").mkdir()
+        fake = scratch / "bin" / "gh"
+        fake.write_text('#!/bin/bash\nprintf "%s\\0" "$@" >> "$GH_CALLS"; printf "%s\\n" "$GH_OUT"\n')
+        fake.chmod(0o755)
+        out, summary, calls = scratch / "out", scratch / "summary", scratch / "calls"
+        done = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                              env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "GH_OUT": gh_out,
+                                   "GH_CALLS": str(calls), "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
+                                   "GITHUB_REPOSITORY": "manaflow-ai/cmux", **env})
+        argv = calls.read_text().split("\0")[:-1] if calls.exists() else []
+        return done, out, argv
+
+    def test_a_merged_pull_request_is_looked_at_at_its_merged_head(self) -> None:
+        # A look queued behind the busy gateway label (12 looks waited up to 30 min, 2026-11-16 09:10Z) starts after
+        # its PR merged, and `look again` always runs after the look it repeats: a check that took only open PRs
+        # dropped both.
+        env = {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "rust"}
+        cases = {
+            "merged": (f"manaflow-ai/cmux\t{HEAD}\tfeat-cmux-next\tclosed\tfalse\t2026-11-16T09:00:00Z", "true"),
+            "open": (f"manaflow-ai/cmux\t{HEAD}\tfeat-cmux-next\topen\tfalse\t-", "true"),
+            "closed unmerged": (f"manaflow-ai/cmux\t{HEAD}\tfeat-cmux-next\tclosed\tfalse\t-", "false"),
+            "draft": (f"manaflow-ai/cmux\t{HEAD}\tfeat-cmux-next\topen\ttrue\t-", "false"),
+            "merged, moved": (f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\tclosed\tfalse\t2026-11-16T09:00:00Z", "false"),
+            "fork": (f"someone/cmux\t{HEAD}\tfeat-cmux-next\tclosed\tfalse\t2026-11-16T09:00:00Z", "false"),
+        }
+        for name, (row, ok) in cases.items():
+            with self.subTest(name):
+                done, out, _ = self.run_block("target", row, env)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertIn(f"ok={ok}\n", out.read_text())
+
+    def test_a_look_lost_on_the_fleet_is_started_once_more_and_only_once(self) -> None:
+        # 2026-11-16: run 43788086518's step failed on three lent Macs' disk declines, run 43788591989's worker
+        # stopped renewing its lease, and cmux8s's gateway runner refused 8 looks under a reservation (runs
+        # 43833883489, 43834069668, ...). Each lost its look for good: nothing started one again.
+        block = "\n".join(self.job_block("again"))
+        self.assertIn("needs: [target, look]", block)
+        self.assertIn("needs.look.result == 'failure'", block)
+        self.assertIn("inputs.attempt != '1'", block)
+        self.assertIn("!cancelled()", block)
+        self.assertIn("attempt:", WORKFLOW.read_text().split("jobs:", 1)[0])
+        done, _, argv = self.run_block("again", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust",
+                                                      "EVENT_AT": "1794800000"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(argv[:2], ["workflow", "run"])
+        self.assertIn("cmux-next-hot-verify.yml", argv)
+        for field in ("pr=7", f"head={HEAD}", "layers=web,rust", "event_at=1794800000", "attempt=1"):
+            self.assertIn(field, argv)
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()

@@ -44,6 +44,8 @@ on:
   push:
     branches: [feat-cmux-next]
     paths:
+      - "cmux-tui/crates/acpmux-client/**"
+      - "cmux-tui/crates/acpmux-list-types/**"
       - "cmux-tui/crates/cmux-app-ffi/**"
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
@@ -52,6 +54,7 @@ on:
       - "cmux-tui/crates/cmux-cloud-handlers/**"
       - "cmux-tui/crates/cmux-cloud-machine/**"
       - "cmux-tui/crates/cmux-cloud-start-core/**"
+      - "cmux-tui/crates/cmux-tab-discard/**"
       - "cmux-tui/crates/cmux-cloud-tasks/**"
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"

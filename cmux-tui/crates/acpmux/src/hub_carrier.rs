@@ -265,7 +265,21 @@ pub trait Tickets: Send + Sync + 'static {
     async fn register(&self) -> Result<CarrierAnswer, String>;
     /// A Connect ticket for the slot of the machine whose hub `daemonId` is `peer`.
     async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String>;
+    /// What a log may say of where the tickets come from: the hub's origin, never a token.
+    fn shown(&self) -> String {
+        "the hub".into()
+    }
 }
+
+/// The longest wait between two register asks; the wait doubles from 1 s up to it.
+const REGISTER_WAIT_MAX: Duration = Duration::from_secs(60);
+
+/// How often the register loop says at info that the hub still refuses, after its first warn.
+/// By time, not by attempt count: one ask can take from milliseconds (a refusal) to the hub
+/// client's 30 s call bound (a hub that does not answer), so a count would say nothing of when
+/// the next line comes. At the 60 s backoff cap this is about one line per 8 to 10 asks, six an
+/// hour, which keeps a day of refusals readable and the current state never older than 10 min.
+const REFUSAL_SAID_EVERY: Duration = Duration::from_secs(600);
 
 /// The carrier's timings.
 #[derive(Debug, Clone, Copy)]
@@ -589,21 +603,52 @@ impl HubCarrier {
         let allowed = self.allowed.clone();
         allowed.write().unwrap_or_else(|e| e.into_inner()).clear();
         let mut wait = Duration::from_secs(1);
+        let mut attempts: u64 = 0;
+        let mut last_said: Option<tokio::time::Instant> = None;
+        // Said before the first ask: one ask may take up to the hub client's call bound
+        // (`mesh_http.rs` `CALL_WAIT`, 30 s), and a start's log must show the carrier is asking.
+        tracing::info!("hub carrier: asking {} for a register ticket", self.tickets.shown());
         // The first answer names the relay and the slot; each later authentication asks again,
         // which also refreshes the keys let in (a revoked machine is out by the next one).
         let answer = loop {
             if !self.key_current() {
+                tracing::warn!(
+                    "hub carrier off: the node key is no longer this machine's; not registering"
+                );
                 return;
             }
+            attempts += 1;
             match self.tickets.register().await {
                 Ok(answer) => break answer,
                 Err(e) => {
-                    tracing::debug!("hub carrier: no register ticket yet: {e}");
+                    // The first refusal is the start's answer, a warn. The later ones say at info
+                    // where the asking stands, at most once per `REFUSAL_SAID_EVERY`.
+                    let now = tokio::time::Instant::now();
+                    if attempts == 1 {
+                        tracing::warn!(
+                            "hub carrier: no register ticket yet, retrying in {}s: {e}",
+                            wait.as_secs()
+                        );
+                        last_said = Some(now);
+                    } else if last_said
+                        .is_none_or(|said| now.duration_since(said) >= REFUSAL_SAID_EVERY)
+                    {
+                        tracing::info!(
+                            "hub carrier: still no register ticket after {attempts} attempts, next try in {}s: {e}",
+                            wait.as_secs()
+                        );
+                        last_said = Some(now);
+                    } else {
+                        tracing::debug!("hub carrier: no register ticket yet: {e}");
+                    }
                     tokio::time::sleep(wait).await;
-                    wait = (wait * 2).min(Duration::from_secs(60));
+                    wait = (wait * 2).min(REGISTER_WAIT_MAX);
                 }
             }
         };
+        if attempts > 1 {
+            tracing::info!("hub carrier: a register ticket came after {attempts} attempts");
+        }
         let endpoint = match relay_url(&answer.relay) {
             Ok(endpoint) => endpoint,
             Err(e) => {
@@ -952,7 +997,9 @@ where
             if n == 0 {
                 return Ok::<_, String>(());
             }
-            link.send(Bytes::copy_from_slice(&buf[..n])).await.map_err(|e| e.to_string())?;
+            // `read` never returns more than `buf` holds; `get` keeps that a checked fact.
+            let read_bytes = buf.get(..n).ok_or("the read overran its buffer")?;
+            link.send(Bytes::copy_from_slice(read_bytes)).await.map_err(|e| e.to_string())?;
             stats.sent.fetch_add(n as u64, Ordering::Relaxed);
             stats.records.fetch_add(1, Ordering::Relaxed);
         }
@@ -1010,6 +1057,8 @@ fn random_16() -> Result<[u8; 16], String> {
 /// The platform's tickets, by this machine's `cmm_` credential, through the mesh hub's client.
 pub(crate) struct PlatformTickets {
     hub: crate::mesh_http::HttpHub,
+    /// The hub's scheme, host and port (`MeshRelayConfig::shown`), for the log.
+    shown: String,
 }
 
 #[async_trait]
@@ -1020,6 +1069,10 @@ impl Tickets for PlatformTickets {
 
     async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String> {
         self.hub.carrier(Some(peer)).await
+    }
+
+    fn shown(&self) -> String {
+        self.shown.clone()
     }
 }
 
@@ -1137,12 +1190,23 @@ pub async fn start_configured(
     websocket: Option<SocketAddr>,
     held: Option<Arc<cmux_link::key_holder::KeyHolder>>,
 ) -> Option<HubServe> {
-    let config = hub.config.read().await.mesh_relay.clone()?;
+    // Every way out says why, so a start's log always holds the carrier's state.
+    let Some(config) = hub.config.read().await.mesh_relay.clone() else {
+        tracing::info!(
+            "hub carrier off: this machine is not joined (config.json has no meshRelay)"
+        );
+        return None;
+    };
     if config.credential.as_deref() != Some("join") {
+        tracing::info!("hub carrier off: meshRelay's credential is not the machine join");
         return None;
     }
+    let Some(websocket) = websocket else {
+        tracing::warn!("hub carrier off: the daemon has no loopback WebSocket listener");
+        return None;
+    };
     // Only this daemon's loopback listener, whose tokens stay mandatory, as WireGuard's bridge.
-    let websocket = match crate::wireguard::local_websocket(websocket?) {
+    let websocket = match crate::wireguard::local_websocket(websocket) {
         Ok(websocket) => websocket,
         Err(e) => {
             tracing::warn!("hub carrier off: {e:#}");
@@ -1193,7 +1257,7 @@ pub async fn start_configured(
             && crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
     });
     let carrier = HubCarrier::with_key_check(
-        Arc::new(PlatformTickets { hub: client }),
+        Arc::new(PlatformTickets { hub: client, shown: config.shown() }),
         *private,
         Timings::default(),
         check,
@@ -1203,6 +1267,10 @@ pub async fn start_configured(
     // Off unless the person on this machine allowed its other signed-in machines in.
     carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
     hub.hub_carrier.set(carrier.clone());
+    // The start's answer, whether or not the relay takes the registration yet (it retries).
+    tracing::info!(
+        "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
+    );
     let mut serving = carrier.serve(websocket);
     serving.lease = lease;
     Some(serving)
@@ -1232,8 +1300,14 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
     use crate::no_panic::LockExt;
     let carrier = hub.hub_carrier.clear();
     let serving = hub.hub_carrier_serve.lock_or_recover().take();
+    // The workspace routes to the person's other machines go with the carrier they dial.
+    hub.machine_routes.clear();
     carrier.is_some() || serving.is_some()
 }
+
+#[cfg(test)]
+#[path = "hub_carrier_register_log_tests.rs"]
+mod register_log_tests;
 
 #[cfg(test)]
 mod key_lock_tests {

@@ -3196,7 +3196,8 @@
       "kind": "enum",
       "values": [
         "unix",
-        "websocket"
+        "websocket",
+        "remote"
       ]
     },
     "ClientTerminalSize": {
@@ -8086,12 +8087,13 @@
             "kind": "enum",
             "values": [
               "set",
+              "set_exact",
               "set_unset",
               "reset",
               "reset_unchanged"
             ]
           },
-          "description": "set and reset are settings.set and settings.reset; set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
+          "description": "set and reset are settings.set and settings.reset; set_exact is set without its default removal (a schema row set to its default keeps the key); set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
         },
         "key": {
           "required": false,
@@ -8119,7 +8121,7 @@
             "kind": "ref",
             "name": "JsonValue"
           },
-          "description": "The value to set (set, set_unset) or the value expected (reset_unchanged); reset takes none."
+          "description": "The value to set (set, set_exact, set_unset) or the value expected (reset_unchanged); reset takes none."
         }
       },
       "extra": false
@@ -10718,6 +10720,15 @@
             "min_length": 1
           },
           "description": "For example origin/main."
+        },
+        "github_repo": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "With github: true, the owner/name of the upstream's remote (else origin) when its URL is on github.com, for example manaflow-ai/cmux. Absent otherwise."
         },
         "base": {
           "required": false,
@@ -16359,6 +16370,31 @@
               "name": "string"
             },
             "description": "privacy, network or destructive; absent for a path that is not a setting."
+          }
+        },
+        "extra": false
+      }
+    },
+    "settings.file_mismatch": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "file": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The settings file the request named."
+          },
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The settings file this daemon's owner reads and writes (settings.snapshot path)."
           }
         },
         "extra": false
@@ -28292,6 +28328,14 @@
               "min_length": 1
             },
             "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "github": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also read github_repo, the GitHub owner/name of the upstream's remote (else origin). One more git run, so it is off unless asked."
           }
         },
         "extra": false
@@ -35269,6 +35313,15 @@
             },
             "description": "The edits, applied in order to the file text and published once."
           },
+          "file": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The settings file the caller means. When its standardized path is not the owner's file (settings.snapshot path), the op is settings.file_mismatch and writes nothing."
+          },
           "if_revision": {
             "required": false,
             "type": {
@@ -35318,6 +35371,7 @@
         "selector.invalid",
         "selector.not_found",
         "settings.agent_refused",
+        "settings.file_mismatch",
         "settings.invalid",
         "settings.managed",
         "settings.removed",

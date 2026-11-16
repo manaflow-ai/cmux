@@ -29,6 +29,11 @@ const REASON: &str = "permission.person_required";
 /// `full-access`. The daemon policy is `ask` and the start level `standard`, so a chat ends in
 /// full access only by its starter.
 fn hub() -> Arc<Hub> {
+    hub_at("standard")
+}
+
+/// [`hub`] with the person's start level (`defaultPermissionMode`) at `level`.
+fn hub_at(level: &str) -> Arc<Hub> {
     let _ = &HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
@@ -37,7 +42,7 @@ fn hub() -> Arc<Hub> {
         },
         "defaultHarness": "fake",
         "permissionPolicy": "ask",
-        "defaultPermissionMode": "standard",
+        "defaultPermissionMode": level,
         "webRoots": [std::env::temp_dir()],
         "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"]},
     }))
@@ -52,9 +57,14 @@ struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 impl Client {
     /// The unix socket with no caller.
     fn new(hub: &Arc<Hub>) -> Self {
+        Self::from(hub, Origin::Local)
+    }
+
+    /// A connection of `origin` with no caller (`Origin::LocalApp`: the app's composer).
+    fn from(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         Client(in_tx, out_rx, 0)
     }
 
@@ -193,9 +203,14 @@ async fn listen(b: Arc<Hub>, tag: &str, peer: bool) -> (u16, Option<String>) {
 
 /// A (`a`) with B added as peer `b`.
 async fn with_peer(tag: &str, peer: bool) -> (Arc<Hub>, Arc<Hub>) {
+    with_peer_at(tag, peer, "standard").await
+}
+
+/// [`with_peer`] with A's person at start level `level`.
+async fn with_peer_at(tag: &str, peer: bool, level: &str) -> (Arc<Hub>, Arc<Hub>) {
     let b = hub();
     let (port, token) = listen(b.clone(), tag, peer).await;
-    let a = hub();
+    let a = hub_at(level);
     a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), token, true)
         .await
         .unwrap();
@@ -249,6 +264,42 @@ fn a_host_that_refuses_full_access_says_so_instead_of_starting_the_chat_asking()
         assert!(try_cmd.contains("--machine b") && try_cmd.contains("--policy ask"), "{r}");
         // Asking for less there still starts it.
         agent.ok("session/new", on_b(json!({"policy": "ask"}))).await;
+    });
+}
+
+/// The person's own start on another machine (the CLI outside any chat, the app's composer with
+/// the machine picked) runs at the person's start level there, as it would here: full access
+/// without a prompt, `standard` or `ask` asking (hq#11835 row 4, `cmux chat --on MACHINE`).
+#[test]
+fn the_persons_own_chat_on_another_machine_runs_at_the_persons_start_level() {
+    big_stack(async {
+        for (level, want) in [("fullAccess", "approve-all"), ("standard", "ask"), ("ask", "ask")] {
+            let (a, b) = with_peer_at(&format!("person-{level}"), true, level).await;
+            let mut on_b_app = Client::new(&b);
+            for origin in [Origin::Local, Origin::LocalApp] {
+                let mut person = Client::from(&a, origin);
+                let chat = id(&person.ok("session/new", on_b(json!({}))).await);
+                let policy = on_b_app.level(&chat).await.1;
+                assert_eq!(policy, json!(want), "{level} from {origin:?}");
+            }
+            // A start that names its own policy keeps it.
+            let mut cli = Client::new(&a);
+            let chat = id(&cli.ok("session/new", on_b(json!({"policy": "ask"}))).await);
+            assert_eq!(on_b_app.level(&chat).await.1, json!("ask"), "{level}: named ask");
+        }
+    });
+}
+
+/// A host that serves this machine as a remote client takes no approve-all from it: the
+/// person's own chat still starts there, asking, as it did before the start level was carried.
+#[test]
+fn a_host_that_refuses_full_access_still_starts_the_persons_chat_asking() {
+    big_stack(async {
+        let (a, b) = with_peer_at("person-remote", false, "fullAccess").await;
+        let mut on_b_app = Client::new(&b);
+        let mut cli = Client::new(&a);
+        let chat = id(&cli.ok("session/new", on_b(json!({}))).await);
+        assert_eq!(on_b_app.level(&chat).await.1, json!("ask"));
     });
 }
 

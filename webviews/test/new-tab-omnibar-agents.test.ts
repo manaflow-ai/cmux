@@ -16,11 +16,10 @@ import {
   type LaunchAgent,
 } from "../src/agent-session/acpmux/newtab/launchRows";
 import {
+  MAX_SUGGESTIONS,
   inlineCompletion,
   rowSection,
   screenRows,
-  leadLength,
-  sectionHeader,
   type ScreenRow,
 } from "../src/agent-session/acpmux/newtab/screenModel";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
@@ -108,8 +107,6 @@ test("a word after the agent's name leads only as a folder's whole name; else it
 test("without an Ask row, the named starts lead together, unheaded", () => {
   const rows = screenRows("codex cmux", { ...context(), ask: undefined });
   expect(kinds(rows).slice(0, 2)).toEqual(["launch", "launch"]);
-  expect(leadLength(rows)).toBe(3);
-  expect(sectionHeader(rows, 1)).toBeUndefined();
 });
 
 test("a prompt that starts with an agent's name stays a prompt", () => {
@@ -189,7 +186,7 @@ test("chats are searched by title and folder, newest first, a live chat once wit
   );
   const rows = chatRows("omni", chats);
   expect(rows.map((row) => row.id)).toEqual(["s2", "s1"]);
-  expect(rows[0]).toMatchObject({ type: "chat", harness: "codex", detail: "~/fun/cmux" });
+  expect(rows[0]).toEqual({ type: "chat", id: "s2", title: "Omnibar perf", harness: "codex" });
   // The folder's name finds a chat too.
   expect(chatRows("notes", chats).map((row) => row.id)).toEqual(["s3"]);
   // Two letters find a chat only at a word's start.
@@ -209,7 +206,6 @@ test("chats the device index found for the text list with their key, for chats.o
       key: "codex:x9",
       title: "Ship the omnibar",
       harness: "codex",
-      detail: "~/fun/cmux",
     },
   ]);
 });
@@ -227,15 +223,12 @@ test("the rows come in ranked sections: lead, open, chats, start, history, comma
     ),
   );
   // The exact name ("cmux", the tab's workspace) and Ask lead; the sections follow in their order.
-  expect(kinds(rows).slice(0, leadLength(rows))).toEqual(["tab", "ask"]);
-  const sections = rows.slice(leadLength(rows)).map(rowSection);
-  const order = ["lead", "open", "chats", "start", "pages", "actions", "web", "create"];
+  expect(kinds(rows).slice(0, 2)).toEqual(["tab", "ask"]);
+  const sections = rows.slice(2).map(rowSection);
+  const order = ["lead", "open", "chats", "start", "pages", "actions", "web"];
   const ranks = sections.map((section) => order.indexOf(section));
   expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
   expect(sections).toEqual(expect.arrayContaining(["chats", "start", "pages", "actions", "web"]));
-  // A header starts each section after the lead, once.
-  const headers = rows.flatMap((_, index) => sectionHeader(rows, index) ?? []);
-  expect(headers).toEqual(["chats", "start", "pages", "actions"]);
 });
 
 test("the folders are this Mac's projects, then the newest chats' folders, never home or a private folder", () => {
@@ -253,4 +246,50 @@ test("the folders are this Mac's projects, then the newest chats' folders, never
 test("without agent sources the rows are as before", () => {
   const before = screenRows("zqxv", { omnibar: EMPTY_OMNIBAR, ask });
   expect(kinds(before)).toEqual(["ask", "search"]);
+});
+
+test("the rows above the commands stay at most eight, whatever the chats and starts add", () => {
+  const many = Array.from({ length: 2 }, (_, i) => ({ id: `w${i}`, name: `cmux ${i}` }));
+  const chats = Array.from({ length: 6 }, (_, i) => ({ id: `c${i}`, title: `cmux chat ${i}`, at: i }));
+  const rows = screenRows(
+    "cmux",
+    context(
+      {
+        workspaces: many,
+        history: Array.from({ length: 6 }, (_, i) => ({ url: `https://cmux${i}.dev/`, title: `cmux ${i}` })),
+      },
+      { chats },
+    ),
+  );
+  const listed = rows.filter((row) => row.type !== "action");
+  expect(listed.length).toBeLessThanOrEqual(MAX_SUGGESTIONS);
+  // Each section the text finds keeps a row: none is pushed out by another's many.
+  const sections = new Set<string>(listed.map(rowSection));
+  for (const section of ["open", "chats", "start", "pages"]) expect(sections).toContain(section);
+  // Named starts count too.
+  const named = screenRows(
+    "codex",
+    context({ workspaces: many }, { chats, folders: [...FOLDERS, ...FOLDERS.map((f) => `${f}2`)] }),
+  );
+  expect(named.filter((row) => row.type !== "action").length).toBeLessThanOrEqual(MAX_SUGGESTIONS);
+});
+
+test('Tab\'s folder completion keeps the words before the path, "in" and spacing included', () => {
+  const listing = { parent: "/Users/me/fun", folders: ["cmux", "games"] };
+  const { rows } = launchRows("codex in ~/fun/g", { agents: AGENTS, folders: FOLDERS, home: HOME, listing });
+  expect(rows[0]?.fill).toBe("codex in ~/fun/games/");
+  const screen = screenRows("codex in ~/fun/g", context({}, { listing }));
+  expect(inlineCompletion("codex in ~/fun/g", screen)).toBe("codex in ~/fun/games/");
+  expect(
+    launchRows("claude code  ~/fun/g", { agents: AGENTS, folders: FOLDERS, home: HOME, listing }).rows[0]?.fill,
+  ).toBe("claude code  ~/fun/games/");
+});
+
+test('a slash command is no path: "/model" never lists /, a path with a second part still does', () => {
+  expect(listingWanted("/model", AGENTS, HOME, "claude")).toBeUndefined();
+  expect(listingWanted("/rev", AGENTS, HOME, "claude")).toBeUndefined();
+  expect(listingWanted("/", AGENTS, HOME, "claude")).toBe("/");
+  expect(listingWanted("/Users/", AGENTS, HOME, "claude")).toBe("/Users");
+  expect(listingWanted("codex /Users/m", AGENTS, HOME)).toBe("/Users");
+  expect(launches(screenRows("/model", context()))).toEqual([]);
 });

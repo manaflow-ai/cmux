@@ -115,6 +115,13 @@ keys.
 `owners` lists the participants that set a dimension, in attach order. A
 viewport is clamped to at least 2 × 1.
 
+Under every mode but `fixed` (and `held`), the grid is never narrower than an
+iPhone's portrait terminal page, 40 columns, while any counting participant is
+at least that wide: a narrower view (a split pane, another device) gets the
+40-column grid instead of narrowing every view below a phone (Leo, 2026-11-15:
+"i dont see the point of a narrower-than-iphone terminal"). When every counting
+view is narrower, the mode decides as usual. Rows are not floored.
+
 With no counting participant the grid keeps its last size (reason `held`). An
 owner detach selects the next owner in the same step. The grid never freezes
 waiting for a departed owner.

@@ -24,7 +24,7 @@ use std::path::{Component, Path};
 #[cfg(not(unix))]
 pub(super) use by_path::{Entry, Stat, Tree, kind_in, stat_of};
 #[cfg(unix)]
-pub(super) use through_folders::{Entry, Stat, Tree, kind_in, stat_of};
+pub(super) use through_folders::{Entry, Stat, Tree, kind_in, open_at, stat_at, stat_of};
 
 /// Folders above one entry; a path with more has no entry.
 const MAX_DEPTH: usize = 128;
@@ -123,7 +123,11 @@ mod through_folders {
     }
 
     /// `name` in `folder`, opened with `flags`.
-    fn open_at(folder: RawFd, name: &CStr, flags: libc::c_int) -> io::Result<OwnedFd> {
+    pub(in crate::git_ops) fn open_at(
+        folder: RawFd,
+        name: &CStr,
+        flags: libc::c_int,
+    ) -> io::Result<OwnedFd> {
         // SAFETY: a live descriptor and a NUL-terminated name; the result is checked.
         let fd = unsafe { libc::openat(folder, name.as_ptr(), flags) };
         if fd < 0 {
@@ -135,7 +139,7 @@ mod through_folders {
 
     /// What the system says of `name` in `folder`, with no link followed;
     /// `None` when nothing has that name.
-    fn stat_at(folder: RawFd, name: &CStr) -> Option<Stat> {
+    pub(in crate::git_ops) fn stat_at(folder: RawFd, name: &CStr) -> Option<Stat> {
         let mut stat = MaybeUninit::<Stat>::uninit();
         // SAFETY: a live descriptor, a NUL-terminated name and room for one `stat`.
         let result = unsafe {
@@ -183,26 +187,40 @@ mod through_folders {
         /// folder is no work tree, and no open waits for the other end of a
         /// FIFO that has the name.
         pub(in crate::git_ops) fn open(root: &Path) -> Option<Self> {
+            Self::opened(root).ok()
+        }
+
+        /// [`Self::open`], with the error of the open that stopped the walk.
+        /// A path that is no list of names from the root of the file system
+        /// gives `InvalidInput`.
+        pub(in crate::git_ops) fn opened(root: &Path) -> io::Result<Self> {
+            let no_list = || io::Error::from(io::ErrorKind::InvalidInput);
             let mut parts = root.components();
             if parts.next() != Some(Component::RootDir) {
-                return None;
+                return Err(no_list());
             }
             let mut names = Vec::new();
             for part in parts {
-                let Component::Normal(name) = part else { return None };
-                names.push(c_name(name).ok()?);
+                let Component::Normal(name) = part else { return Err(no_list()) };
+                names.push(c_name(name).map_err(|_| no_list())?);
             }
             let Some((top, folders_above)) = names.split_last() else {
                 // The root of the file system is the top folder.
-                let root = open_at(libc::AT_FDCWD, c"/", FOLDER_FLAGS).ok()?;
-                return Some(Self { root, above: Vec::new() });
+                let root = open_at(libc::AT_FDCWD, c"/", FOLDER_FLAGS)?;
+                return Ok(Self { root, above: Vec::new() });
             };
-            let mut folder = open_at(libc::AT_FDCWD, c"/", ABOVE_TOP_FLAGS).ok()?;
+            let mut folder = open_at(libc::AT_FDCWD, c"/", ABOVE_TOP_FLAGS)?;
             for name in folders_above {
-                folder = open_at(folder.as_raw_fd(), name, ABOVE_TOP_FLAGS).ok()?;
+                folder = open_at(folder.as_raw_fd(), name, ABOVE_TOP_FLAGS)?;
             }
-            let root = open_at(folder.as_raw_fd(), top, FOLDER_FLAGS).ok()?;
-            Some(Self { root, above: Vec::new() })
+            let root = open_at(folder.as_raw_fd(), top, FOLDER_FLAGS)?;
+            Ok(Self { root, above: Vec::new() })
+        }
+
+        /// The top folder, open: for a caller that keeps the folder and reads no entry
+        /// below it.
+        pub(in crate::git_ops) fn into_top(self) -> OwnedFd {
+            self.root
         }
 
         /// The entry that `relative` names, a path under the top folder.

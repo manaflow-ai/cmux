@@ -1,43 +1,55 @@
-//! `cmux customize use pr:N`: an unmerged pull request as a library entry
-//! (cmuxterm-hq `docs/design/experiments-shelf.md`).
+//! `cmux customize use pr:N | branch:NAME | sha:SHA | OWNER/REPO@REF`: code
+//! someone published as a library entry (cmuxterm-hq
+//! `docs/design/experiments-shelf.md`; `dir:PATH`, built here, is dir.rs).
 //!
-//! CI publishes a PR's web layer on dispatch (cmux-next-web-bundle-publish.yml
-//! with `pr=N`): the PR head merged onto a base, built, and a pointer at
-//! `files.cmux.com/cmux-next-web/pr/N/latest.json` (and `<head>-<base>.json`)
-//! naming its web bundle key, the web ABI it needs and what else the PR
-//! changes. `use pr:N` reads the pointer for this app's own commit first,
-//! fetches and checks the bundles into a layer folder, and puts the PR on top
-//! of the library, on. `library off pr-N` puts back what was under it.
-//! `library refresh` follows each PR: a newer head is fetched, a merge that
-//! is in this app's build turns the entry off, a web ABI the app no longer
-//! has turns it off and says so.
+//! CI publishes the web layer of a PR, a branch or a commit of
+//! manaflow-ai/cmux on dispatch (cmux-next-web-bundle-publish.yml with `pr=N`
+//! or `ref=NAME`): its own change applied onto a base, built, and a pointer at
+//! `files.cmux.com/cmux-next-web/pr/N/latest.json` or `.../ref/<slug>/...`
+//! (and `<head>-<base>.json`) naming its web bundle key, the web ABI it needs
+//! and what else it changes. A fork's code never builds on our CI: the fork's
+//! own CI (cmux-web-layer-fork.yml, run in the fork) publishes the same
+//! pointer and archive as a release of the fork, and `use OWNER/REPO@REF`
+//! reads it there, with the same sha256, ABI and commit checks.
 //!
-//! What a PR changes that a running app cannot take (Swift, resources, Rust
-//! the app links) is listed on the entry as "needs a build".
+//! `use` reads the pointer for this app's own commit first, fetches and checks
+//! the bundles into a layer folder, and puts the code on top of the library,
+//! on. `library off NAME` puts back what was under it. `library refresh`
+//! follows each entry: a newer head (a PR's push, a branch's tip) is fetched,
+//! code that is in this app's build turns the entry off, a web ABI the app no
+//! longer has turns it off and says so. A fork's newer layer is only named:
+//! fork code changes in someone's cmux when they run `use` again.
+//!
+//! What the code changes that a running app cannot take (Swift, resources,
+//! Rust the app links) is listed on the entry as "needs a build".
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
-use cmux_customize::library::{CodeLayer, code};
+use cmux_customize::library::{CodeKind, CodeLayer, code};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::Failure;
 use super::render::Answer;
+use super::source::{Source, ref_slug};
 
 const DEFAULT_BASE: &str = "https://files.cmux.com/cmux-next-web";
-const REPO: &str = "manaflow-ai/cmux";
+pub(super) const REPO: &str = "manaflow-ai/cmux";
+/// A fork's layer is a release of the fork with this tag prefix
+/// (cmux-web-layer-fork.yml).
+const FORK_TAG: &str = "cmux-web-layer-";
 /// The largest web bundle archive a layer fetches (they are about 30 MB).
 const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
 /// Where each overlay surface sits in a published archive.
-const SURFACES: [(&str, &str); 3] = [
+pub(super) const SURFACES: [(&str, &str); 3] = [
     ("Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/", "agent-pane"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/", "pages"),
     ("Resources/markdown-viewer/webviews-app/", "webviews-app"),
 ];
-const APP_ABI: &str =
+pub(super) const APP_ABI: &str =
     "Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json";
 
 /// The PR a `use` source names: `pr:N`, `#N` or a pull request link (a
@@ -96,16 +108,43 @@ pub(super) fn web_abi_of(bundle: &Path) -> Option<u32> {
 
 impl App {
     /// The app's commit in full: a short one is resolved on GitHub.
-    fn full_commit(&mut self, http: &Http) {
+    pub(super) fn full_commit(&mut self, http: &Http) {
         let Some(commit) = self.commit.clone().filter(|commit| !is_sha(commit)) else { return };
-        let url = format!("https://api.github.com/repos/{REPO}/commits/{commit}");
-        self.commit = http
-            .get_json(&url)
-            .ok()
-            .flatten()
-            .and_then(|value| value.get("sha").and_then(Value::as_str).map(str::to_owned))
-            .filter(|sha| is_sha(sha) && sha.starts_with(&commit));
+        self.commit = full_sha(http, &commit).ok().flatten();
     }
+}
+
+/// A commit of manaflow-ai/cmux in full, from 7 or more hex: `Ok(None)` when
+/// GitHub says there is no such commit, `Err` when it could not be asked. The
+/// anonymous API allows 60 calls an hour per IP, which a shared office or
+/// fleet address runs out of, so a refusal is asked again through `gh`
+/// (signed in) when it is installed.
+fn full_sha(http: &Http, commit: &str) -> Result<Option<String>, String> {
+    let url = format!("https://api.github.com/repos/{REPO}/commits/{commit}");
+    let found = match http.get_json(&url) {
+        Ok(answer) => {
+            answer.and_then(|value| value.get("sha").and_then(Value::as_str).map(str::to_owned))
+        }
+        // GitHub's answer for hex that names no commit.
+        Err(error) if error.message.contains("HTTP 422") => None,
+        Err(error) => match gh_sha(commit) {
+            Some(sha) => Some(sha),
+            None => return Err(error.message),
+        },
+    };
+    Ok(found.filter(|sha| is_sha(sha) && sha.starts_with(commit)))
+}
+
+/// `full_sha`'s question through `gh api`, signed in.
+fn gh_sha(commit: &str) -> Option<String> {
+    let output = cmux_process::Command::new("gh")
+        .args(["api", &format!("repos/{REPO}/commits/{commit}"), "--jq", ".sha"])
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|sha| is_sha(sha))
 }
 
 fn is_hex_commit(text: &str) -> bool {
@@ -113,7 +152,7 @@ fn is_hex_commit(text: &str) -> bool {
         && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-fn is_sha(text: &str) -> bool {
+pub(super) fn is_sha(text: &str) -> bool {
     text.len() == 40 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
@@ -126,18 +165,18 @@ fn base_url() -> String {
         .to_owned()
 }
 
-fn failure(why: String) -> Failure {
+pub(super) fn failure(why: String) -> Failure {
     Failure::from(Error::Library(why))
 }
 
 /// GETs, one current-thread runtime per verb.
-struct Http {
+pub(super) struct Http {
     runtime: tokio::runtime::Runtime,
     client: reqwest::Client,
 }
 
 impl Http {
-    fn new() -> Result<Http, Failure> {
+    pub(super) fn new() -> Result<Http, Failure> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -190,15 +229,85 @@ impl Http {
     }
 }
 
-/// The published pointer for PR `pr`: the one built on `commit` when there
+/// A source someone published: what `use` fetches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Published {
+    Pr(u64),
+    /// A branch or a full commit of manaflow-ai/cmux.
+    Ref {
+        kind: CodeKind,
+        name: String,
+    },
+    Fork {
+        repo: String,
+        reference: String,
+    },
+}
+
+impl Published {
+    /// The published source of a code entry; `None` for a folder.
+    pub(super) fn of(code: &CodeLayer) -> Option<Published> {
+        match code.kind {
+            CodeKind::Pr => Some(Published::Pr(code.pr)),
+            CodeKind::Branch | CodeKind::Sha => {
+                Some(Published::Ref { kind: code.kind, name: code.source.clone() })
+            }
+            CodeKind::Fork => {
+                let (repo, reference) = code.source.split_once('@')?;
+                Some(Published::Fork { repo: repo.to_owned(), reference: reference.to_owned() })
+            }
+            CodeKind::Dir => None,
+        }
+    }
+
+    /// What `use` takes to name it again.
+    fn source_text(&self) -> String {
+        match self {
+            Published::Pr(pr) => format!("pr:{pr}"),
+            Published::Ref { kind: CodeKind::Sha, name } => format!("sha:{name}"),
+            Published::Ref { name, .. } => format!("branch:{name}"),
+            Published::Fork { repo, reference } => format!("{repo}@{reference}"),
+        }
+    }
+
+    /// Where our CI writes its pointers, under the web bundle base.
+    fn ours(&self) -> Option<String> {
+        match self {
+            Published::Pr(pr) => Some(format!("pr/{pr}")),
+            Published::Ref { name, .. } => Some(format!("ref/{}", ref_slug(name))),
+            Published::Fork { .. } => None,
+        }
+    }
+
+    /// A fork's release download folder.
+    fn fork_release(&self) -> Option<String> {
+        match self {
+            Published::Fork { repo, reference } => Some(format!(
+                "https://github.com/{repo}/releases/download/{FORK_TAG}{}",
+                ref_slug(reference)
+            )),
+            _ => None,
+        }
+    }
+}
+
+/// The published pointer for `source`: the one built on `commit` when there
 /// is one, else the newest.
-fn pointer(http: &Http, pr: u64, commit: Option<&str>) -> Result<Option<Value>, Failure> {
+fn pointer(
+    http: &Http,
+    source: &Published,
+    commit: Option<&str>,
+) -> Result<Option<Value>, Failure> {
+    if let Some(release) = source.fork_release() {
+        return http.get_json(&format!("{release}/layer.json"));
+    }
     let base = base_url();
-    let latest = http.get_json(&format!("{base}/pr/{pr}/latest.json"))?;
+    let prefix = source.ours().unwrap_or_default();
+    let latest = http.get_json(&format!("{base}/{prefix}/latest.json"))?;
     if let (Some(latest), Some(commit)) = (&latest, commit)
         && latest.get("base").and_then(Value::as_str) != Some(commit)
         && let Some(head) = latest.get("head").and_then(Value::as_str).filter(|head| is_sha(head))
-        && let Some(exact) = http.get_json(&format!("{base}/pr/{pr}/{head}-{commit}.json"))?
+        && let Some(exact) = http.get_json(&format!("{base}/{prefix}/{head}-{commit}.json"))?
     {
         return Ok(Some(exact));
     }
@@ -235,17 +344,48 @@ pub(super) fn needs_build(classify: &Value) -> Vec<String> {
     out
 }
 
-/// The layer a pointer describes, for an app with `app`.
+/// The layer a pointer describes, for an app with `app`. A PR pointer names
+/// its `pr`; a branch or commit pointer its `kind` and `ref`; a fork's pointer
+/// is read as `source` says, whatever it claims.
+#[cfg(test)]
 pub(super) fn layer_of(pointer: &Value, app: &App) -> Result<CodeLayer, Failure> {
+    layer_from(pointer, app, None)
+}
+
+fn layer_from(
+    pointer: &Value,
+    app: &App,
+    source: Option<&Published>,
+) -> Result<CodeLayer, Failure> {
     let field =
         |name: &str| pointer.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let pr = pointer
-        .get("pr")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| failure("the PR pointer has no pr".into()))?;
+    let (kind, pr, source, repo) = match source {
+        Some(Published::Fork { repo, reference }) => {
+            (CodeKind::Fork, 0, format!("{repo}@{reference}"), repo.clone())
+        }
+        _ => match pointer.get("pr").and_then(Value::as_u64) {
+            Some(pr) => (CodeKind::Pr, pr, String::new(), REPO.to_owned()),
+            None => {
+                let kind = match field("kind").as_str() {
+                    "branch" => CodeKind::Branch,
+                    "sha" => CodeKind::Sha,
+                    _ => {
+                        return Err(failure(
+                            "the pointer names no pr and no branch or commit".into(),
+                        ));
+                    }
+                };
+                let name = field("ref");
+                if !super::source::valid_ref(&name) {
+                    return Err(failure("the pointer names no ref".into()));
+                }
+                (kind, 0, name, REPO.to_owned())
+            }
+        },
+    };
     let head = field("head");
     if !is_sha(&head) {
-        return Err(failure(format!("the pointer for #{pr} names no head")));
+        return Err(failure("the pointer names no head".into()));
     }
     let classify = pointer.get("classify").unwrap_or(&Value::Null);
     let has_web = classify
@@ -264,7 +404,9 @@ pub(super) fn layer_of(pointer: &Value, app: &App) -> Result<CodeLayer, Failure>
         web.clear();
     }
     Ok(CodeLayer {
-        repo: pointer.get("repo").and_then(Value::as_str).unwrap_or(REPO).to_owned(),
+        kind,
+        source,
+        repo,
         pr,
         title: field("title"),
         head,
@@ -277,10 +419,24 @@ pub(super) fn layer_of(pointer: &Value, app: &App) -> Result<CodeLayer, Failure>
 }
 
 /// Fetches layer `layer`'s web bundles into its folder, checked, unless it
-/// is there already.
+/// is there already. A fork's archive is its release's, named by its sha256.
 fn install(customize: &Customize, http: &Http, layer: &CodeLayer) -> Result<(), Failure> {
     if !layer.has_web() || customize.layer_ready(&layer.web) {
         return Ok(());
+    }
+    if let Some(release) = Published::of(layer).and_then(|source| source.fork_release()) {
+        let url = format!("{release}/web-bundles.tar.gz");
+        let bytes =
+            http.get(&url, MAX_ARCHIVE)?.ok_or_else(|| failure(format!("{url}: not found")))?;
+        let got = hex(&Sha256::digest(&bytes));
+        if got != layer.web {
+            return Err(failure(format!(
+                "{url}: sha256 {got}, the fork's layer.json says {}",
+                layer.web
+            )));
+        }
+        let dir = customize.layer_dir(&layer.web);
+        return unpack(&bytes, &dir, layer).map_err(|error| failure(format!("{url}: {error}")));
     }
     let base = base_url();
     let manifest_url = format!("{base}/{}/manifest.json", layer.web);
@@ -302,7 +458,7 @@ fn install(customize: &Customize, http: &Http, layer: &CodeLayer) -> Result<(), 
     unpack(&bytes, &dir, layer).map_err(|error| failure(format!("{url}: {error}")))
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -359,16 +515,7 @@ pub(super) fn unpack(bytes: &[u8], dir: &Path, layer: &CodeLayer) -> std::io::Re
         if surfaces.is_empty() {
             return Err(std::io::Error::other("the archive holds no web bundles"));
         }
-        // The app reads `abi` and `commit` (WebDevOverride.abiRefusal).
-        let manifest = json!({
-            "stamp": format!("pr-{}-{}", layer.pr, layer.head.get(..12).unwrap_or(&layer.head)),
-            "commit": layer.head,
-            "bundles": surfaces,
-            "abi": layer.abi,
-            "pr": layer.pr,
-            "base": layer.base,
-        });
-        std::fs::write(part.join(code::LAYER_MANIFEST), format!("{manifest}\n"))?;
+        write_manifest(&part, layer, &surfaces)?;
         let _ = std::fs::remove_dir_all(dir);
         std::fs::rename(&part, dir)
     })();
@@ -378,8 +525,38 @@ pub(super) fn unpack(bytes: &[u8], dir: &Path, layer: &CodeLayer) -> std::io::Re
     result
 }
 
-/// Asks CI to publish PR `pr`'s layer on `commit`, when `gh` is here.
-fn request_publish(pr: u64, commit: Option<&str>) -> Option<String> {
+/// The layer folder's manifest.json, written last: the app reads `abi` and
+/// `commit` (WebDevOverride.abiRefusal).
+pub(super) fn write_manifest(
+    part: &Path,
+    layer: &CodeLayer,
+    surfaces: &[&str],
+) -> std::io::Result<()> {
+    let manifest = json!({
+        "stamp": format!("{}-{}", layer.name(), layer.head.get(..12).unwrap_or(&layer.head)),
+        "commit": layer.head,
+        "bundles": surfaces,
+        "abi": layer.abi,
+        "kind": layer.kind,
+        "source": layer.source_label(),
+        "base": layer.base,
+    });
+    std::fs::write(part.join(code::LAYER_MANIFEST), format!("{manifest}\n"))
+}
+
+/// Asks our CI to publish `source`'s layer on `commit`, when `gh` is here; a
+/// fork's is the fork's to publish, so it says how.
+fn request_publish(source: &Published, commit: Option<&str>) -> Option<String> {
+    let field = match source {
+        Published::Pr(pr) => format!("pr={pr}"),
+        Published::Ref { name, .. } => format!("ref={name}"),
+        Published::Fork { repo, reference } => {
+            let base = commit.map(|commit| format!(" -f base={commit}")).unwrap_or_default();
+            return Some(format!(
+                "the fork publishes its own layer (our CI never builds fork code): in {repo}, run `gh workflow run cmux-web-layer-fork.yml -R {repo} --ref {reference}{base}`, or use `dir:` on a clone of it"
+            ));
+        }
+    };
     let mut args = vec![
         "workflow".to_owned(),
         "run".to_owned(),
@@ -389,7 +566,7 @@ fn request_publish(pr: u64, commit: Option<&str>) -> Option<String> {
         "--ref".to_owned(),
         "feat-cmux-next".to_owned(),
         "-f".to_owned(),
-        format!("pr={pr}"),
+        field,
     ];
     if let Some(commit) = commit {
         args.extend(["-f".to_owned(), format!("base={commit}")]);
@@ -405,29 +582,74 @@ fn request_publish(pr: u64, commit: Option<&str>) -> Option<String> {
     Some(if ran { format!("asked CI to publish it ({shown})") } else { format!("run `{shown}`") })
 }
 
-/// `cmux customize use pr:N`.
-pub(super) fn use_pr(
+/// `cmux customize use SOURCE` for every source but a folder.
+pub(super) fn use_code(
     customize: &Customize,
-    pr: u64,
+    source: Source,
     origin: &str,
     now_ms: u64,
 ) -> Result<Answer, Failure> {
     let mut app = App::find();
     let http = Http::new()?;
     app.full_commit(&http);
-    let Some(pointer) = pointer(&http, pr, app.commit.as_deref())? else {
-        let next = request_publish(pr, app.commit.as_deref()).unwrap_or_default();
+    let published = match source {
+        Source::Pr(pr) => Published::Pr(pr),
+        Source::Branch(name) => Published::Ref { kind: CodeKind::Branch, name },
+        Source::Sha(sha) => {
+            let full = if is_sha(&sha) { Ok(Some(sha.clone())) } else { full_sha(&http, &sha) };
+            let name = match full {
+                Ok(Some(name)) => name,
+                Ok(None) => {
+                    return Err(failure(format!(
+                        "{sha} is no commit of {REPO} (a fork's commit: use OWNER/REPO@BRANCH)"
+                    )));
+                }
+                Err(why) => {
+                    return Err(failure(format!(
+                        "could not look {sha} up on GitHub ({why}); give the whole commit: cmux customize use sha:<40 hex>"
+                    )));
+                }
+            };
+            Published::Ref { kind: CodeKind::Sha, name }
+        }
+        Source::Fork { repo, reference } => Published::Fork { repo, reference },
+        Source::Dir(path) => return super::dir::use_dir(customize, &path, false, origin, now_ms),
+    };
+    let shown = published.source_text();
+    let Some(pointer) = pointer(&http, &published, app.commit.as_deref())? else {
+        let next = request_publish(&published, app.commit.as_deref()).unwrap_or_default();
         return Err(Failure {
-            code: "customize.pr_unpublished".to_owned(),
+            code: "customize.code_unpublished".to_owned(),
             message: format!(
-                "#{pr} has no published layer yet; {next}, then run `cmux customize use pr:{pr}` again in a few minutes"
+                "{shown} has no published layer yet; {next}, then run `cmux customize use {shown}` again in a few minutes"
             ),
-            details: json!({ "pr": pr }),
+            details: json!({ "source": shown }),
             exit: 1,
         });
     };
-    let layer = layer_of(&pointer, &app)?;
+    let layer = layer_from(
+        &pointer,
+        &app,
+        Some(&published).filter(|p| matches!(p, Published::Fork { .. })),
+    )?;
     let mut lines = Vec::new();
+    if matches!(published, Published::Fork { .. }) {
+        lines.push(format!(
+            "a fork layer runs {}'s code in your cmux: its pages see what cmux pages see",
+            layer.source
+        ));
+    }
+    if let Published::Ref { kind: CodeKind::Branch, name } = &published
+        && let Some(tip) = branch_tip(&http, name)
+        && tip != layer.head
+    {
+        lines.push(format!(
+            "the branch is at {} now, this layer is {}; {}",
+            short(&tip),
+            short(&layer.head),
+            request_publish(&published, app.commit.as_deref()).unwrap_or_default()
+        ));
+    }
     if let Some(commit) = &app.commit
         && layer.has_web()
         && &layer.base != commit
@@ -436,24 +658,35 @@ pub(super) fn use_pr(
             "built on {}, not this app's {}: other web changes since may be missing; {}",
             short(&layer.base),
             short(commit),
-            request_publish(pr, Some(commit)).unwrap_or_default()
+            request_publish(&published, Some(commit)).unwrap_or_default()
         ));
     }
     install(customize, &http, &layer)?;
-    let words = vec![format!("#{pr} {}", layer.title)];
+    let answer = put_on(customize, layer, lines, origin, now_ms)?;
+    Ok(answer)
+}
+
+/// Puts `layer` on top of the library and says what happened.
+pub(super) fn put_on(
+    customize: &Customize,
+    layer: CodeLayer,
+    lines: Vec<String>,
+    origin: &str,
+    now_ms: u64,
+) -> Result<Answer, Failure> {
+    let name = layer.name();
+    let label = layer.label();
+    let words = vec![label.clone()];
     let change = customize.library_use_code(layer.clone(), words, origin, now_ms)?;
     let mut human = if layer.has_web() {
-        format!(
-            "pr-{pr} is on: #{pr} {} ({} on {}); open pages reload onto it now\n",
-            layer.title,
-            short(&layer.head),
-            short(&layer.base)
-        )
+        let at = if layer.base.is_empty() || layer.base == layer.head {
+            format!("at {}", short(&layer.head))
+        } else {
+            format!("{} on {}", short(&layer.head), short(&layer.base))
+        };
+        format!("{name} is on: {label} ({at}); open pages reload onto it now\n")
     } else {
-        format!(
-            "pr-{pr} is in your library, off: #{pr} {} has nothing a running cmux can take\n",
-            layer.title
-        )
+        format!("{name} is in your library, off: {label} has nothing a running cmux can take\n")
     };
     for line in &layer.needs_build {
         human.push_str(&format!("  needs a build: {line}\n"));
@@ -464,11 +697,11 @@ pub(super) fn use_pr(
     if dev_server_wins(customize) {
         human.push_str("  web-dev.json names a dev server, and a server wins over a layer: `scripts/cmux-next/web-overlay.sh server off` stops it\n");
     }
-    human.push_str(&format!("  cmux customize library off pr-{pr}   put back what was under it\n"));
+    human.push_str(&format!("  cmux customize library off {name}   put back what was under it\n"));
     human.push_str(
         "  cmux customize library reset       if cmux breaks: every layer off, no app needed\n",
     );
-    Ok(Answer::Library { json: json!({ "pr": pr, "layer": layer, "change": change }), human })
+    Ok(Answer::Library { json: json!({ "name": name, "layer": layer, "change": change }), human })
 }
 
 fn dev_server_wins(customize: &Customize) -> bool {
@@ -478,7 +711,7 @@ fn dev_server_wins(customize: &Customize) -> bool {
         .is_some_and(|value| value.get("server").is_some_and(Value::is_string))
 }
 
-fn short(sha: &str) -> &str {
+pub(super) fn short(sha: &str) -> &str {
     sha.get(..12).unwrap_or(sha)
 }
 
@@ -494,6 +727,18 @@ fn merged(http: &Http, repo: &str, pr: u64) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// A branch of manaflow-ai/cmux's tip, `None` when it is gone or GitHub does
+/// not answer.
+fn branch_tip(http: &Http, name: &str) -> Option<String> {
+    let url = format!("https://api.github.com/repos/{REPO}/branches/{name}");
+    let value = http.get_json(&url).ok()??;
+    value
+        .pointer("/commit/sha")
+        .and_then(Value::as_str)
+        .filter(|sha| is_sha(sha))
+        .map(str::to_owned)
+}
+
 /// Whether `commit` has `merge` in its history (GitHub compare).
 fn contains(http: &Http, repo: &str, merge: &str, commit: &str) -> Option<bool> {
     let url = format!("https://api.github.com/repos/{repo}/compare/{merge}...{commit}");
@@ -501,8 +746,24 @@ fn contains(http: &Http, repo: &str, merge: &str, commit: &str) -> Option<bool> 
     Some(matches!(value.get("status").and_then(Value::as_str), Some("ahead" | "identical")))
 }
 
-/// `cmux customize library refresh`: every PR entry against what is
-/// published and what this app is.
+/// What refresh says instead of installing a fork's newer layer. Someone who
+/// ran `use OWNER/REPO@REF` agreed to the code they got then; the fork's owner
+/// can publish anything later (its layer.json and archive are the fork's own),
+/// so new fork code goes in only when the person runs `use` again. Our own
+/// PRs, branches and commits come from people with write access here and
+/// follow their head.
+fn fork_update_waits(published: &Published, layer: &CodeLayer) -> Option<String> {
+    let Published::Fork { .. } = published else { return None };
+    Some(format!(
+        "the fork published {} (on {}); fork code changes only when you take it: `cmux customize use {}`",
+        short(&layer.head),
+        short(&layer.base),
+        published.source_text()
+    ))
+}
+
+/// `cmux customize library refresh`: every code entry against what is
+/// published (a folder: built again) and what this app is.
 pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Result<Answer, Failure> {
     let mut app = App::find();
     let http = Http::new()?;
@@ -513,24 +774,52 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
     for entry in listing.entries.iter().filter(|entry| entry.code.is_some()) {
         let Some(code) = entry.code.clone() else { continue };
         let name = entry.name.clone();
-        let (note, on) = if let Some(merge) = merged(&http, &code.repo, code.pr) {
-            match app
-                .commit
-                .as_deref()
-                .and_then(|commit| contains(&http, &code.repo, &merge, commit))
-            {
+        let Some(published) = Published::of(&code) else {
+            let note = super::dir::refresh_entry(customize, &code, origin, now_ms)?;
+            human.push_str(&format!("{name}: {note}\n"));
+            results.push(json!({ "name": name, "note": note, "turned_off": false }));
+            continue;
+        };
+        let merge = match &published {
+            Published::Pr(pr) => merged(&http, &code.repo, *pr),
+            // A branch or a commit is in the build once the build has its head.
+            Published::Ref { kind, name } => {
+                let head = if *kind == CodeKind::Branch {
+                    branch_tip(&http, name).unwrap_or_else(|| code.head.clone())
+                } else {
+                    code.head.clone()
+                };
+                Some(head)
+            }
+            Published::Fork { .. } => None,
+        };
+        let in_build = match (&merge, app.commit.as_deref()) {
+            (Some(merge), Some(commit)) => contains(&http, &code.repo, merge, commit),
+            _ => None,
+        };
+        let (note, on) = if code.kind == CodeKind::Pr && merge.is_some() {
+            match in_build {
                 Some(true) => ("merged: in your build".to_owned(), Some(false)),
                 _ => ("merged: not in your build yet".to_owned(), None),
             }
-        } else if let Some(pointer) = pointer(&http, code.pr, app.commit.as_deref())? {
-            let layer = layer_of(&pointer, &app)?;
-            if !layer.same(&code) || layer.base != code.base || layer.web != code.web {
+        } else if code.kind != CodeKind::Pr && in_build == Some(true) {
+            ("in your build".to_owned(), Some(false))
+        } else if let Some(pointer) = pointer(&http, &published, app.commit.as_deref())? {
+            let fork = Some(&published).filter(|p| matches!(p, Published::Fork { .. }));
+            let layer = layer_from(&pointer, &app, fork)?;
+            let tip = match &published {
+                Published::Ref { kind: CodeKind::Branch, name } => branch_tip(&http, name),
+                _ => None,
+            };
+            let changed = !layer.same(&code) || layer.base != code.base || layer.web != code.web;
+            if let Some(tip) = tip.filter(|tip| *tip != layer.head) {
+                let asked = request_publish(&published, app.commit.as_deref()).unwrap_or_default();
+                (format!("the branch is at {}; {asked}", short(&tip)), None)
+            } else if changed && let Some(waits) = fork_update_waits(&published, &layer) {
+                (waits, None)
+            } else if changed {
                 install(customize, &http, &layer)?;
-                let was_on = entry.on;
-                customize.library_use_code(layer.clone(), Vec::new(), origin, now_ms)?;
-                if !was_on {
-                    customize.library_settle_code(&name, "", Some(false), origin, now_ms)?;
-                }
+                customize.library_update_code(layer.clone(), origin, now_ms)?;
                 (format!("now at {} on {}", short(&layer.head), short(&layer.base)), None)
             } else if code.has_web() && !layer.has_web() {
                 (
@@ -554,7 +843,7 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
         results.push(json!({ "name": name, "note": note, "turned_off": on == Some(false) }));
     }
     if results.is_empty() {
-        human.push_str("no pull request entries; `cmux customize use pr:N` adds one\n");
+        human.push_str("no code entries; `cmux customize use pr:N|branch:NAME|sha:SHA|dir:PATH|OWNER/REPO@REF` adds one\n");
     }
     Ok(Answer::Library { json: json!({ "refreshed": results }), human })
 }
@@ -609,6 +898,23 @@ mod tests {
         );
         let none = layer_of(&pointer_json(false, 3), &app).unwrap();
         assert!(!none.has_web());
+    }
+
+    #[test]
+    fn refresh_takes_a_new_fork_layer_only_through_use() {
+        let app = App { path: None, commit: None, abi: Some(3) };
+        let fork = Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() };
+        let layer = layer_from(&pointer_json(true, 3), &app, Some(&fork)).unwrap();
+        let note = fork_update_waits(&fork, &layer).unwrap();
+        assert!(note.contains("cmux customize use someone/cmux@theme"), "{note}");
+        assert!(note.contains(short(&layer.head)), "{note}");
+        for ours in [
+            Published::Pr(7),
+            Published::Ref { kind: CodeKind::Branch, name: "feat-x".into() },
+            Published::Ref { kind: CodeKind::Sha, name: "a".repeat(40) },
+        ] {
+            assert_eq!(fork_update_waits(&ours, &layer), None, "{ours:?}");
+        }
     }
 
     #[test]

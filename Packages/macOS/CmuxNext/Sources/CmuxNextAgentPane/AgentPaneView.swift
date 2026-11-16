@@ -68,6 +68,10 @@ public final class AgentPaneView: NSView {
     let terminations: AgentPageTerminations
     /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
     let flickerLog: AgentPageFlickerLog?
+    /// Where a page's text input losing the keyboard with no key or click is recorded (the app's focus log).
+    public typealias PageFocusLoss = @MainActor (_ window: NSWindow?, _ detail: String) -> Void
+    /// The app's focus log for this page's `focus-lost` events (``AgentPaneShared/focusLoss``); nil records none.
+    public var onPageFocusLost: PageFocusLoss?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
@@ -228,7 +232,7 @@ public final class AgentPaneView: NSView {
             let resources = AgentPageResources(session: { [weak model] in model?.sessionId }, allowed: keepsSnapshots)
             pageResources = resources
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources)
+                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources, chatModel: model)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -418,7 +422,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }

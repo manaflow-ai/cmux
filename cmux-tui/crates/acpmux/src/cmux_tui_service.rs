@@ -165,8 +165,13 @@ pub(crate) async fn serve_pipe<R, W>(
             )
             .with_data(json!({"reason": "carrier.off"}))
         })?;
+        // The far machine's refusal keeps its own reason (`consent_required`, ...): the CLI
+        // ends on one no redial cures and redials the rest (`machine.unreachable`).
         carrier.dial_service(&daemon, CircuitService::CmuxTui { port }).await.map_err(|e| {
-            RpcError::new(-32000, e).with_data(json!({"reason": "machine.unreachable"}))
+            let refusal = crate::machine_routes::refusal_of(&e);
+            let message =
+                refusal.get("error").and_then(serde_json::Value::as_str).unwrap_or(&e).to_owned();
+            RpcError::new(-32000, message).with_data(json!({"reason": refusal.get("reason")}))
         })
     }
     .await;
