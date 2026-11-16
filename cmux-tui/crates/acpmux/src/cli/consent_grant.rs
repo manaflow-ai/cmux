@@ -656,11 +656,7 @@ pub(crate) fn apply(
         // SECURITY: the sign-in's default On (both `default`) takes only where no policy for the
         // account is kept yet: an automatic sign-in on one Mac never undoes the person's Off.
         let kept = read_policy(root).filter(|(kept, _)| kept.account == grant.account);
-        let newer = if grant.control == Change::Default {
-            kept.is_none()
-        } else {
-            kept.is_none_or(|(kept, _)| grant.issued_at > kept.issued_at)
-        };
+        let newer = replaces(kept.as_ref().map(|(kept, _)| kept), &grant);
         if newer {
             write_json(&root.join(POLICY), &json!({"grant": value, "at": now}))
                 .map_err(|_| store())?;
@@ -803,8 +799,26 @@ pub(crate) fn policy_grant(root: &Path, account: Option<&str>) -> Option<Value> 
     (account == Some(parsed.account.as_str())).then(|| grant.clone())
 }
 
-/// When the account policy kept here for `account` was issued.
+/// Whether account grant `grant` replaces the account policy `kept` for its account.
+fn replaces(kept: Option<&Grant>, grant: &Grant) -> bool {
+    if grant.control == Change::Default {
+        kept.is_none()
+    } else {
+        kept.is_none_or(|kept| grant.issued_at > kept.issued_at)
+    }
+}
+
+/// Whether an account policy a peer handed (`op: "policy"`) would replace the one kept here for
+/// `account`: the collection applies only those, so it never logs the same stale policy again.
 #[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
+pub(crate) fn policy_replaces(authority: &Authority, account: &str, handed: &Value) -> bool {
+    let Ok(handed) = parse(handed) else { return false };
+    let kept = read_policy(authority.root()).filter(|(kept, _)| kept.account == account);
+    handed.account_wide() && replaces(kept.as_ref().map(|(kept, _)| kept), &handed)
+}
+
+/// When the account policy kept here for `account` was issued (the tests read it).
+#[cfg(test)]
 pub(crate) fn policy_issued_at(authority: &Authority, account: &str) -> Option<u64> {
     read_policy(authority.root())
         .filter(|(grant, _)| grant.account == account)

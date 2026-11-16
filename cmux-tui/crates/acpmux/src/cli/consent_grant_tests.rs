@@ -534,12 +534,7 @@ fn an_account_grant_from_a_pinned_key_turns_on_a_never_granted_machine() {
 #[test]
 fn the_sign_ins_default_on_never_undoes_an_account_off() {
     let (a, b) = (key(), key());
-    let default = |k: &EcdsaKeyPair, issued: u64| {
-        account_grant(k, issued, |g| {
-            g["control"] = json!("default");
-            g["screen"] = json!("default");
-        })
-    };
+    let default = default_grant;
     // A machine with no policy yet: the default turns both surfaces on, and reads as On.
     let (_fresh_dir, fresh) = fixture();
     pin(&fresh, &b, ACCOUNT_ID);
@@ -577,6 +572,65 @@ fn the_sign_ins_default_on_never_undoes_an_account_off() {
         apply(&authority, &half, &target(), None, NOW + 70_000).unwrap_err().reason,
         MALFORMED
     );
+}
+
+fn default_grant(k: &EcdsaKeyPair, issued: u64) -> Value {
+    account_grant(k, issued, |g| {
+        g["control"] = json!("default");
+        g["screen"] = json!("default");
+    })
+}
+
+/// An explicit account Off signed before another Mac's sign-in default, but delivered after it
+/// (the target was offline, or the Off was held back), still replaces the kept default; and the
+/// collection pulls it from a peer whatever its signing time (re-review of #43983).
+#[test]
+fn an_explicit_account_off_replaces_a_kept_default_whatever_its_age() {
+    let (a, b) = (key(), key());
+    let (_dir, authority) = fixture();
+    pin(&authority, &a, ACCOUNT_ID);
+    pin(&authority, &b, ACCOUNT_ID);
+    let off = account_grant(&a, NOW, |g| {
+        g["control"] = json!("off");
+        g["screen"] = json!("off");
+    });
+    let default = default_grant(&b, NOW + 30_000);
+    apply(&authority, &default, &target(), None, NOW + 30_000).unwrap();
+    assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "control"), "granted");
+    assert!(policy_replaces(&authority, ACCOUNT_ID, &off), "the collection pulls the older Off");
+    assert!(!policy_replaces(&authority, ACCOUNT_ID, &default_grant(&a, NOW + 40_000)));
+    apply(&authority, &off, &target(), None, NOW + 40_000).unwrap();
+    let kept = status(&authority, Some(ACCOUNT_ID));
+    assert_eq!(consent_of(&kept, "control"), "none", "the older explicit Off wins over a default");
+    assert_eq!(consent_of(&kept, "screen"), "none");
+    assert_eq!(
+        status_fields(&authority, Some(ACCOUNT_ID), None)["accountPolicy"]["control"],
+        "off"
+    );
+    // Explicit policies still order by signing time.
+    let older_on = account_grant(&b, NOW - 10_000, |_| {});
+    assert!(!policy_replaces(&authority, ACCOUNT_ID, &older_on));
+}
+
+/// A sign-in default ranks below every per-machine record: it never undoes a per-machine Off
+/// another Mac signed for this machine, even though it is newer.
+#[test]
+fn a_sign_in_default_never_undoes_a_per_machine_off() {
+    let (a, b) = (key(), key());
+    let (_dir, authority) = fixture();
+    pin(&authority, &a, ACCOUNT_ID);
+    pin(&authority, &b, ACCOUNT_ID);
+    let machine_off = grant(&a, |g| {
+        g["control"] = json!("off");
+        g["screen"] = json!("keep");
+    });
+    apply(&authority, &machine_off, &target(), None, NOW).unwrap();
+    apply(&authority, &default_grant(&b, NOW + 30_000), &target(), None, NOW + 30_000).unwrap();
+    let kept = status(&authority, Some(ACCOUNT_ID));
+    assert_eq!(consent_of(&kept, "control"), "none", "the per-machine Off holds");
+    assert_eq!(source(&kept, "control"), "machine");
+    assert_eq!(consent_of(&kept, "screen"), "granted", "no record for screen: the default applies");
+    assert_eq!(source(&kept, "screen"), "account");
 }
 
 #[test]

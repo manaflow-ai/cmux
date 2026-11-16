@@ -323,11 +323,9 @@ async fn collect(hub: &Arc<Hub>, done: &mut std::collections::BTreeSet<String>) 
         let Some(grant) = handed.get("grant").filter(|grant| grant.is_object()).cloned() else {
             continue;
         };
-        let issued = grant.get("issuedAt").and_then(Value::as_u64).unwrap_or_default();
         let (account, target) = (account.clone(), target.clone());
         let applied = with_authority(move |authority| {
-            let kept = consent_grant::policy_issued_at(authority, &account);
-            if kept.is_some_and(|kept| kept >= issued) {
+            if !consent_grant::policy_replaces(authority, &account, &grant) {
                 return false;
             }
             let now = crate::store::now_ms();
