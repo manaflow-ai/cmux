@@ -1,7 +1,5 @@
 //! This process's acpmux build id, and the `--version` line that shows it.
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 /// This process's build id (git short hash and date, acpmux-build-id). The
 /// cmux-tui binary and the shipped standalone acpmux (acpmux-standalone)
 /// install it at start (`install_build`) and build this crate without the
@@ -32,5 +30,5 @@ pub fn install_build(build: &'static str) {
 /// `<version> (<build>)`, for `--version`.
 pub fn version_line() -> &'static str {
     static LINE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    LINE.get_or_init(|| format!("{} ({})", VERSION, build()))
+    LINE.get_or_init(|| format!("{} ({})", super::VERSION, build()))
 }

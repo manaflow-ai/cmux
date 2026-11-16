@@ -46,7 +46,7 @@ enum Filter {
 }
 
 impl WritePolicy {
-    /// Use `crate::remote_chain_profile::PROFILE` for the production policy.
+    /// Use `crate::hub::remote_sandbox::PROFILE` for the production policy.
     /// Parse both write rules and read masks; unsupported file forms fail closed.
     /// The loop ends at EOF or the first invalid form.
     pub(crate) fn from_profile(sb: &str, params: &Params) -> Result<Self, ParseError> {
@@ -330,7 +330,7 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote_chain_profile::PROFILE;
+    use crate::hub::remote_sandbox::PROFILE;
 
     fn params() -> Params {
         [

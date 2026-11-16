@@ -73,7 +73,7 @@ pub async fn pair(
         "agent_policy": agent_policy,
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
-        "version": crate::build_info::VERSION,
+        "version": crate::hub::VERSION,
     });
     let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::Client::builder()

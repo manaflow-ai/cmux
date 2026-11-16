@@ -1241,7 +1241,7 @@ mod tests {
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value))
         .collect();
-        let policy = WritePolicy::from_profile(crate::remote_chain_profile::PROFILE, &params)
+        let policy = WritePolicy::from_profile(crate::hub::remote_sandbox::PROFILE, &params)
             .expect("profile policy");
         let resolved = resolve(
             task().as_raw_fd(),
@@ -1260,8 +1260,8 @@ mod notification_tests {
     include!("supervisor/review_tests.rs");
     use super::*;
     use crate::{
+        hub::remote_sandbox::PROFILE,
         linux_sandbox::{rules::Params, seccomp},
-        remote_chain_profile::PROFILE,
     };
     use std::{
         ffi::CString,

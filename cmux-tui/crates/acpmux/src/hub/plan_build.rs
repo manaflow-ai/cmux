@@ -28,6 +28,7 @@ use super::{Hub, Session};
 use crate::rpc::RpcError;
 use crate::store::SessionStatus;
 use cmux_json::JsonSet as _;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -47,7 +48,38 @@ const MAX_FILES: usize = 200;
 /// The longest one build's git read takes before it is given up.
 const GIT_LIMIT: Duration = Duration::from_secs(10);
 
-pub use crate::plan_build_records::{PlanBuildEntry, PlanBuildRecord};
+/// One plan build, kept on the plan's chat (`SessionMeta::plan_builds`) by acpmux alone: which
+/// chats are its builds, and each one's worktree root and base as its start made them. Tags would
+/// not do: a build's agent can set its own chat's tags (`_acpmux/tag`), and compare runs git in
+/// the root it names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanBuildRecord {
+    pub build_id: String,
+    pub builds: Vec<PlanBuildEntry>,
+    /// The build kept (`_acpmux/plan/keep`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<String>,
+}
+
+/// Whether a chat has no plan builds (`SessionMeta::plan_builds` is then left out).
+pub(crate) fn no_records(records: &Arc<Vec<PlanBuildRecord>>) -> bool {
+    records.is_empty()
+}
+
+/// One build of a [`PlanBuildRecord`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanBuildEntry {
+    pub session_id: String,
+    /// Its worktree's root, from the start (the chat's folder is the started-from folder's place
+    /// in the worktree).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<PathBuf>,
+    /// The branch its worktree was made from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+}
 
 /// Where an approved plan is built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -35,7 +35,7 @@
 //!   Codex child, which runs in its own thread), on every event of it, and on
 //!   every subagent below it: a client never waits on one for the turn's end.
 
-use crate::protocol::merge_mux_meta;
+use crate::hub::merge_mux_meta;
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 

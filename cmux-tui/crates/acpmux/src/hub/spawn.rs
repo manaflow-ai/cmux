@@ -597,7 +597,22 @@ impl std::ops::Deref for Spawn {
     }
 }
 
-pub use crate::config::expand_env_value;
+/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
+pub fn expand_env_value(
+    value: &str,
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+    model: &str,
+) -> String {
+    let mut out = value
+        .replace("${cwd}", &cwd.to_string_lossy())
+        .replace("${home}", &home.to_string_lossy())
+        .replace("${model}", model);
+    if let Some(rest) = out.strip_prefix("~/") {
+        out = format!("{}/{rest}", home.to_string_lossy());
+    }
+    out
+}
 
 #[cfg(test)]
 #[path = "spawn_claude_cloud_tests.rs"]

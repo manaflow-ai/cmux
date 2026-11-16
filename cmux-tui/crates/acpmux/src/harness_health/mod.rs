@@ -395,7 +395,7 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
 /// when it says the provider had no capacity or the connection dropped: a transport error is
 /// never a sign-in state (`turn_errors::says_unreachable`, as `recovery::auth_kind`).
 fn auth_failure(output: &str) -> Auth {
-    if crate::turn_errors::says_unreachable(output) {
+    if crate::hub::turn_errors::says_unreachable(output) {
         Auth::Unknown
     } else if crate::claude_auth::is_expired_credential(output) {
         Auth::Expired

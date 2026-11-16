@@ -246,7 +246,7 @@ pub fn spawn_env(
     let home = dirs::home_dir().unwrap_or_default();
     let model = meta.model_request.clone().unwrap_or_default();
     for value in harness_env.values_mut() {
-        *value = crate::config::expand_env_value(value, &meta.cwd, &home, &model);
+        *value = crate::hub::expand_env_value(value, &meta.cwd, &home, &model);
     }
     harness_env.extend(meta.session_env.clone());
     harness_env
@@ -266,7 +266,7 @@ pub fn current_home(
     let home = dirs::home_dir().unwrap_or_default();
     let model = meta.model_request.clone().unwrap_or_default();
     for value in env.values_mut() {
-        *value = crate::config::expand_env_value(value, &meta.cwd, &home, &model);
+        *value = crate::hub::expand_env_value(value, &meta.cwd, &home, &model);
     }
     env.extend(meta.session_env.clone());
     meta.apply_chat_store(&mut env);

@@ -1004,7 +1004,7 @@ impl Translator {
             "system" if sub == "peer_message_hold" => {
                 let field = |key: &str| line.get(key).cloned().unwrap_or(Value::Null);
                 out.push(upd(json!({
-                    "sessionUpdate": crate::claude_stdio::native_messaging::HOLD_UPDATE,
+                    "sessionUpdate": crate::hub::native_messaging::HOLD_UPDATE,
                     "state": field("state"),
                     "messageUuid": field("message_uuid"),
                     "lane": field("lane"),

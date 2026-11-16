@@ -13,7 +13,7 @@
 //! Collection loops stop at finite input exhaustion.
 //! Service loops stop on child exit, cancellation, or runtime teardown; the
 //! supervisor thread stops on its eventfd or listener hangup.
-pub(crate) use crate::linux_sandbox::loader_env_key;
+pub(crate) use crate::hub::remote_sandbox::loader_env_key;
 
 use super::{bwrap, proxy, rules, supervisor};
 use bwrap::Paths;
@@ -668,7 +668,7 @@ async fn run(options: Options) -> Result<i32> {
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v.clone()))
     .collect();
-    let policy = rules::WritePolicy::from_profile(crate::remote_chain_profile::PROFILE, &params)
+    let policy = rules::WritePolicy::from_profile(crate::hub::remote_sandbox::PROFILE, &params)
         .map_err(|e| e.to_string())?;
     let mut denies = policy.read_denies();
     denies.extend(
@@ -742,7 +742,7 @@ async fn run(options: Options) -> Result<i32> {
         .collect();
     let bwrap_path = format!("/proc/self/fd/{}", bwrap_fd.as_raw_fd());
     let mut command = Command::new(bwrap_path);
-    crate::linux_sandbox::scrub_loader_env(&mut command);
+    crate::hub::remote_sandbox::scrub_loader_env(&mut command);
     // bwrap passes inherited non-CLOEXEC fds to its command; bind fds are
     // consumed by the mount plan, and init closes the handoff before exec.
     command
@@ -828,7 +828,7 @@ mod tests {
             .env("TMPDIR", "/injected")
             .env("MALLOC_CHECK_", "3")
             .env("PATH", "/usr/bin");
-        crate::linux_sandbox::scrub_loader_env(&mut cmd);
+        crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
         let env = crate::agent::command_env(&cmd);
         assert!(!env.iter().any(|(k, _)| matches!(
             k.as_str(),

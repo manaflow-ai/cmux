@@ -833,7 +833,13 @@ pub fn decision_proof(
     )))
 }
 
-pub use crate::person_tokens::new_nonce;
+/// A connection's nonce: 32 random bytes as lowercase hex.
+pub fn new_nonce() -> String {
+    let mut bytes = [0u8; 32];
+    // No randomness means no safe challenge: the daemon cannot serve.
+    getrandom::fill(&mut bytes).expect("the OS random generator for a connection nonce"); // crash-allow: no randomness, no safe challenge
+    cmux_local_auth::frontend_proof::hex(&bytes)
+}
 
 /// The declared refusal.
 pub fn person_required(what: &str) -> RpcError {

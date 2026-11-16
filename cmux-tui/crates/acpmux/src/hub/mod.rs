@@ -27,7 +27,8 @@ pub use agent_pairs::PairGuard;
 mod aside;
 mod asks_below;
 mod atomic_json;
-pub use crate::build_info::{build, install_build, version_line};
+mod build;
+pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
@@ -46,7 +47,7 @@ pub(crate) mod session_auth;
 pub(crate) mod settled_view;
 pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
-pub(crate) use crate::turn_errors;
+pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
@@ -125,6 +126,8 @@ pub(crate) mod unattended_presets;
 pub(crate) use idle::SessionAtWork;
 mod tool_start;
 pub(crate) use idle_census::LaunchServers;
+#[cfg(unix)]
+pub(crate) use idle_census::host_census;
 pub use idle_census::{Sidecar, StoredLaunch};
 pub use tool_start::{ToolStart, tool_start};
 pub(crate) mod book_tee;
@@ -278,8 +281,8 @@ pub use session::{Session, live_tags};
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
     HashMap<(String, String), tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>>;
-pub(crate) use crate::shell_readonly;
 pub(super) use session::{newest_first, prompt_text, short_text};
+pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 mod bridge;
@@ -302,7 +305,7 @@ mod stream;
 mod tags;
 mod tailnet_controller;
 mod tap;
-pub(crate) use crate::time_breakdown;
+pub(crate) mod time_breakdown;
 mod titles;
 mod tool_installs;
 mod tool_paths;
@@ -366,7 +369,7 @@ pub mod presence;
 mod processes;
 mod pull_requests;
 pub(crate) mod purge_tombstones;
-pub(crate) use crate::questions;
+pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
@@ -516,7 +519,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
-pub use crate::build_info::VERSION;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// How long a session's harness may sit unused (no turn, nothing queued, no
 /// question waiting, no activity) before it hibernates: it exits and the
@@ -3220,7 +3223,24 @@ impl Hub {
     }
 }
 
-pub(crate) use crate::protocol::merge_mux_meta;
+/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
+/// agent sent.
+pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    if !mux.is_object() {
+        *mux = json!({});
+    }
+    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
+        }
+    }
+}
 
 /// Ends the startup log load (`Hub::load_logs`) however it stops. A load that panicked
 /// leaves the daemon on the session list and whatever the load finished before the panic

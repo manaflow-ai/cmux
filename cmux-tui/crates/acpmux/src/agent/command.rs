@@ -155,7 +155,7 @@ pub(crate) fn harness_command(
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
-    for key in crate::person_tokens::CALLER_ENV_KEYS {
+    for key in crate::hub::person::CALLER_ENV_KEYS {
         env.remove(key);
     }
     // So is the CLI an agent runs (`cli_caller.rs`): never a profile's.
@@ -255,7 +255,7 @@ pub(crate) fn harness_command(
             // With its home: a socket pairs only with an explicit home (`config::autostart_refusal`).
             .env("ACPMUX_HOME", crate::config::home())
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
-            .envs(crate::person_tokens::caller_env(id))
+            .envs(crate::hub::person::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
         // This daemon's own acpmux, by absolute path: a login profile's PATH may find an older
         // one, which proves no caller (`cli_caller.rs`, bench round 4 A5).
@@ -337,8 +337,8 @@ pub(crate) fn harness_command(
         // through acpmux (`hub/native_messaging.rs`). A value the profile or login set wins.
         // Undocumented in Claude Code: if it renames it, the PreToolUse gate still refuses a
         // SendMessage to an acpmux session; only the cross-daemon peer list comes back.
-        if get(crate::claude_stdio::native_messaging::SWITCH_ENV).is_none() {
-            cmd.env(crate::claude_stdio::native_messaging::SWITCH_ENV, "0");
+        if get(crate::hub::native_messaging::SWITCH_ENV).is_none() {
+            cmd.env(crate::hub::native_messaging::SWITCH_ENV, "0");
         }
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
@@ -357,7 +357,7 @@ pub(crate) fn harness_command(
     // for this entrypoint.
     if profile.kind == crate::config::HarnessKind::ClaudeStdio {
         let format = preview_format(profile).claude_value();
-        cmd.env(crate::questions::PREVIEW_FORMAT_ENV, format);
+        cmd.env(crate::hub::questions::PREVIEW_FORMAT_ENV, format);
     }
     // A Claude agent's sign-in inputs, for a clear message if it has none (plain Claude Code)
     // and for `/status` (every Claude family, a launcher's too: `session_status.rs`).
@@ -374,7 +374,7 @@ pub(crate) fn harness_command(
     }
     #[cfg(target_os = "linux")]
     if remote_environment {
-        crate::linux_sandbox::scrub_loader_env(&mut cmd);
+        crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
     }
     Ok(cmd)
 }
@@ -405,8 +405,8 @@ fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
 /// `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT`, a reference resolved as the launch
 /// resolves it. The hub labels the questions with it (`hub/tools.rs`) and
 /// `harness_command` pins the agent to it, so the two never disagree.
-pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::questions::PreviewFormat {
-    use crate::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::hub::questions::PreviewFormat {
+    use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
     let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
     let Some(value) = profile.env.get(PREVIEW_FORMAT_ENV).filter(|_| claude) else {
         return PreviewFormat::Monospace;
@@ -419,8 +419,8 @@ pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::questions::Prev
 /// The preview format `harness_command` pinned on `cmd`: what the agent it starts writes. The hub
 /// records this one (`Hub::record_preview_format`), never a second resolution of the profile,
 /// which a pooled agent started minutes earlier could disagree with.
-pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::questions::PreviewFormat {
-    use crate::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::hub::questions::PreviewFormat {
+    use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
     let mut envs = cmd.as_std().get_envs();
     let pinned = envs.find(|(name, _)| *name == PREVIEW_FORMAT_ENV).and_then(|(_, value)| value);
     match pinned {
@@ -627,7 +627,7 @@ mod tests {
     #[test]
     fn claude_code_is_pinned_to_the_preview_format_the_hub_records() {
         use crate::config::HarnessKind;
-        use crate::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+        use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
         let profile = |kind, value: &str| {
             let mut p: HarnessProfile =
                 serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/true"]})).unwrap();
