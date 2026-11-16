@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43812770968",
+  "recorded_at": "2026-11-16T06:04:58Z",
+  "reason": "cmux-tui 1404eabdde66 changes the image's cmux-tui (pinned 3cbf7a5759e3)",
+  "dry_run": false,
+  "cmux_tui": "1404eabdde66300c18a2f008b2b08f2370fc1f4a",
+  "fixes": [
+    {
+      "sha": "1404eabdde66300c18a2f008b2b08f2370fc1f4a",
+      "mergedAt": "2026-11-15T21:33:50-08:00",
+      "subject": "Extensions: sidebar sections reload on request (cmux ext reload, cmux reload-config, Reload Custom Views) and a live-edit tour in the real sidebar (#44021)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T06:04:58Z",
+    "snapshot_id": "sh-c123d78809e4408aac17da60566be095",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43812770968): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2b24d96c52186dd71aa383776d0c0e98651bddae",
+    "image": "cloud-native-auto-1404eabd-43812770968-1",
+    "revision": "ci-43812770968-1",
+    "at": "2026-11-16T06:04:58Z"
+  },
+  "rolled_back": false
+}
