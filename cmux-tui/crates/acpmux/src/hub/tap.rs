@@ -7,6 +7,7 @@ use super::*;
 /// No state is copied into a second holder; the actor supplies the core Context
 /// directly in its own path.
 struct SessionRecordState<'a> {
+    hub: &'a Hub,
     session: &'a Session,
     awaiting_first_delta: &'a AtomicBool,
 }
@@ -72,7 +73,7 @@ impl acpmux_core::chat::record::ContextState for SessionRecordState<'_> {
         &mut self,
         f: impl FnOnce(&mut acpmux_core::chat::process::ProcessTable) -> R,
     ) -> R {
-        let mut guard = self.session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.hub.process_table(self.session);
         f(&mut guard)
     }
     fn set_compacting(&mut self, value: bool) {
@@ -309,10 +310,22 @@ impl Hub {
                             // show it (`subagent_retry.rs`).
                             tap_hub.observe_task_line(&tap_session, line);
                         }
+                        // `times_request` already consumed the stream timing
+                        // flag above. Re-running the pure table here would see
+                        // the first delta as a duplicate and drop it.
+                        if method == RAW_STREAM_EVENT {
+                            let mut line = params.clone().unwrap_or(Value::Null);
+                            crate::model_copies::scrub_logged(&mut line);
+                            crate::claude_stdio::leave_out_bodies(method, &mut line);
+                            return tap_hub
+                                .append_logged(&tap_session, "in", method, line, host_seq)
+                                .1;
+                        }
                         // The pure table owns scrubbing, body leave-outs and
                         // repeat-section normalization. The writer remains below
                         // it, so failed writes never commit the hashes.
                         let mut state = SessionRecordState {
+                            hub: &tap_hub,
                             session: &tap_session,
                             awaiting_first_delta: &awaiting_first_delta,
                         };
@@ -378,6 +391,7 @@ impl Hub {
                     if method == "claude.stdin" =>
                 {
                     let mut state = SessionRecordState {
+                        hub: &tap_hub,
                         session: &tap_session,
                         awaiting_first_delta: &awaiting_first_delta,
                     };
@@ -460,6 +474,7 @@ impl Hub {
                     (meta.agent_session_id.clone(), meta.retired_agent_session_ids.clone())
                 };
                 let mut holder = SessionRecordState {
+                    hub: &tap_hub,
                     session: &tap_session,
                     awaiting_first_delta: &awaiting_first_delta,
                 };
@@ -489,9 +504,14 @@ impl Hub {
                     }
                 }
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
-                    todo_plan =
-                        super::tap_stage::observe_todo(&tap_session.id, &mut params["update"])
-                            .map(|update| (params.get("sessionId").cloned(), update));
+                    let mut holder = SessionRecordState {
+                        hub: &tap_hub,
+                        session: &tap_session,
+                        awaiting_first_delta: &awaiting_first_delta,
+                    };
+                    todo_plan = holder
+                        .todo(|watch| super::tap_stage::observe_todo(watch, &mut params["update"]))
+                        .map(|update| (params.get("sessionId").cloned(), update));
                 }
                 // A predicted next prompt reaches the composer only when likely to be taken
                 // (`suggestion_gate.rs`); a withheld one goes on with no suggestion.
@@ -556,6 +576,7 @@ impl Hub {
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
             {
                 let mut state = SessionRecordState {
+                    hub: &tap_hub,
                     session: &tap_session,
                     awaiting_first_delta: &awaiting_first_delta,
                 };
@@ -606,6 +627,7 @@ impl Hub {
             // Watchers hear the new count on the summary (`subagentsRunning`, `hub/views.rs`).
             if running_changed {
                 let mut holder = SessionRecordState {
+                    hub: &tap_hub,
                     session: &tap_session,
                     awaiting_first_delta: &awaiting_first_delta,
                 };

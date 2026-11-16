@@ -14,8 +14,25 @@ pub(super) fn enrich_gemini_plan(update: &mut Value, cwd: &Path, homes: &[std::p
     }
 }
 
-pub(super) fn observe_todo(session: &str, update: &mut Value) -> Option<Value> {
-    super::acp_todo_plan::observe(session, update)
+pub(super) fn observe_todo(
+    watch: &mut Option<super::acp_todo_plan::Watch>,
+    update: &mut Value,
+) -> Option<Value> {
+    let kind = update.get("sessionUpdate").and_then(Value::as_str);
+    if !matches!(kind, Some("tool_call" | "tool_call_update")) {
+        return None;
+    }
+    if watch.is_none()
+        && kind == Some("tool_call")
+        && super::acp_todo_plan::entries(update).is_some()
+    {
+        *watch = Some(Default::default());
+    }
+    let plan = watch.as_mut()?.observe(update);
+    if watch.as_ref().is_some_and(|w| w.is_empty()) {
+        *watch = None;
+    }
+    plan
 }
 
 pub(super) fn filter_suggestion(

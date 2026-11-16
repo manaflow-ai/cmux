@@ -122,6 +122,134 @@ pub(super) fn stamp_reply_segment(value: &mut Value, segment: &str) {
     }
 }
 
+/// The compaction update's state transition; the caller retains the existing atomic scope.
+pub(super) fn compaction_state(update: &Value, fenced: bool) -> Option<bool> {
+    match update.get("state").and_then(Value::as_str) {
+        Some("running") => Some(true),
+        Some("completed") | Some("failed") if !fenced => Some(false),
+        _ => None,
+    }
+}
+
+/// The stream's byte-affecting preparation, with no append or hub effect.
+pub(super) struct PreparedStream {
+    pub segment: Option<String>,
+    pub retrying: Option<Value>,
+    pub superseded: Option<(String, String, String)>,
+}
+
+pub(super) fn prepare_stream(
+    st: &mut StreamState,
+    update: &Value,
+    turn_id: Option<&str>,
+) -> PreparedStream {
+    let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+    let mut superseded = None;
+    let mut retrying = None;
+    let mut segment = None;
+    match kind {
+        "agent_message_chunk" => {
+            let id = update.get("messageId").and_then(Value::as_str);
+            let turn = turn_id.unwrap_or("-");
+            // A turn the agent started on its own has no prompt to end the last one's.
+            if st.reply_segment.is_none()
+                || id != st.segment_message.as_deref()
+                || st.segment_turn.as_deref() != Some(turn)
+            {
+                // Numbered within the turn: a new turn starts again at 1.
+                if st.segment_turn.as_deref() != Some(turn) {
+                    st.segment_turn = Some(turn.to_owned());
+                    st.reply_segments = 0;
+                }
+                st.reply_segments += 1;
+                st.reply_segment = Some(format!("{turn}.{}.{}", segment_boot(), st.reply_segments));
+                st.segment_message = id.map(str::to_owned);
+            }
+            segment = st.reply_segment.clone();
+            if let Some((old, notice)) = st.retry_from.take()
+                && let Some(new) = id
+                && new != old
+            {
+                superseded = Some((old, new.to_owned(), notice));
+            }
+            if id != st.open_message.as_deref() {
+                st.trailing_text.clear();
+                st.trailing_seqs.clear();
+                st.trailing_overflow = false;
+            }
+            st.open_message = id.map(str::to_owned);
+        }
+        "session_info_update" => {
+            if let Some((will_retry, err)) = codex_error(update) {
+                if will_retry {
+                    retrying = Some(super::turn_retry::codex_retry(&err));
+                    if let Some(open) = st.open_message.clone() {
+                        let notice =
+                            err.get("message").and_then(Value::as_str).unwrap_or("").to_owned();
+                        st.retry_from = Some((open, notice));
+                    }
+                } else {
+                    let text = err
+                        .get("additionalDetails")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| err.get("message").and_then(Value::as_str))
+                        .unwrap_or("")
+                        .to_owned();
+                    st.harness_error = Some(json!({
+                        "text": text,
+                        "code": err.get("codexErrorInfo").cloned().unwrap_or(Value::Null),
+                        "source": "codex",
+                    }));
+                }
+            }
+        }
+        _ => {
+            // A checklist is the turn's (the pane starts a new one at each prompt and turn).
+            // Only an update read with its turn (a plan or tool call) can show the turn
+            // changed: a usage tick, a call's update or a thought between a checklist and
+            // its next update reads none, and is never a new turn's start.
+            if matches!(kind, "plan" | "tool_call") {
+                let turn = turn_id.unwrap_or("-");
+                if st.plan_turn.as_deref() != Some(turn) {
+                    st.plan_turn = Some(turn.to_owned());
+                    st.plan_shown = false;
+                }
+            }
+            let mut plan_shown = st.plan_shown;
+            if cuts_reply(kind, update, &mut plan_shown) {
+                st.reply_segment = None;
+            }
+            st.plan_shown = plan_shown;
+            if !NEUTRAL_UPDATES.contains(&kind) {
+                // A tool call, plan or user chunk ends the message: a
+                // later retry does not abandon it.
+                st.open_message = None;
+                st.retry_from = None;
+                st.trailing_text.clear();
+                st.trailing_seqs.clear();
+                st.trailing_overflow = false;
+            }
+        }
+    }
+    PreparedStream { segment, retrying, superseded }
+}
+
+/// Fold the text of the record actually written; callers own the scoped stream access.
+pub(super) fn append_trailing(st: &mut StreamState, text: &str, seq: u64) {
+    if st.trailing_overflow {
+        return;
+    }
+    if st.trailing_text.len() + text.len() > TRAILING_LIMIT {
+        st.trailing_overflow = true;
+        st.trailing_text.clear();
+        st.trailing_seqs.clear();
+        return;
+    }
+    st.trailing_text.push_str(text);
+    st.trailing_seqs.push(seq);
+}
+
 impl Hub {
     /// Called for a live agent `session/update` before it is recorded.
     /// Appends `message_superseded` ahead of the redelivered message.
@@ -147,113 +275,18 @@ impl Hub {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         if kind == "compaction" {
             let fenced = session.compaction_metadata_fenced.load(Ordering::SeqCst);
-            match update.get("state").and_then(Value::as_str) {
-                Some("running") => session.compacting.store(true, Ordering::SeqCst),
-                Some("completed") | Some("failed") if !fenced => {
-                    session.compacting.store(false, Ordering::SeqCst)
-                }
-                _ => {}
+            if let Some(compacting) = compaction_state(update, fenced) {
+                session.compacting.store(compacting, Ordering::SeqCst);
             }
         }
-        let mut superseded = None;
-        let mut retrying = None;
-        let mut segment = None;
         // Read before the stream lock: the turn's lock is never taken under it.
         let turn_id = matches!(kind, "agent_message_chunk" | "plan" | "tool_call")
             .then(|| session.turn().map(|t| t.turn_id))
             .flatten();
-        {
+        let PreparedStream { segment, retrying, superseded } = {
             let mut st = session.stream.lock().unwrap();
-            match kind {
-                "agent_message_chunk" => {
-                    let id = update.get("messageId").and_then(Value::as_str);
-                    let turn = turn_id.as_deref().unwrap_or("-");
-                    // A turn the agent started on its own has no prompt to end the last one's.
-                    if st.reply_segment.is_none()
-                        || id != st.segment_message.as_deref()
-                        || st.segment_turn.as_deref() != Some(turn)
-                    {
-                        // Numbered within the turn: a new turn starts again at 1.
-                        if st.segment_turn.as_deref() != Some(turn) {
-                            st.segment_turn = Some(turn.to_owned());
-                            st.reply_segments = 0;
-                        }
-                        st.reply_segments += 1;
-                        st.reply_segment =
-                            Some(format!("{turn}.{}.{}", segment_boot(), st.reply_segments));
-                        st.segment_message = id.map(str::to_owned);
-                    }
-                    segment = st.reply_segment.clone();
-                    if let Some((old, notice)) = st.retry_from.take()
-                        && let Some(new) = id
-                        && new != old
-                    {
-                        superseded = Some((old, new.to_owned(), notice));
-                    }
-                    if id != st.open_message.as_deref() {
-                        st.trailing_text.clear();
-                        st.trailing_seqs.clear();
-                        st.trailing_overflow = false;
-                    }
-                    st.open_message = id.map(str::to_owned);
-                }
-                "session_info_update" => {
-                    if let Some((will_retry, err)) = codex_error(update) {
-                        if will_retry {
-                            retrying = Some(super::turn_retry::codex_retry(&err));
-                            if let Some(open) = st.open_message.clone() {
-                                let notice = err
-                                    .get("message")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_owned();
-                                st.retry_from = Some((open, notice));
-                            }
-                        } else {
-                            let text = err
-                                .get("additionalDetails")
-                                .and_then(Value::as_str)
-                                .filter(|s| !s.is_empty())
-                                .or_else(|| err.get("message").and_then(Value::as_str))
-                                .unwrap_or("")
-                                .to_owned();
-                            st.harness_error = Some(json!({
-                                "text": text,
-                                "code": err.get("codexErrorInfo").cloned().unwrap_or(Value::Null),
-                                "source": "codex",
-                            }));
-                        }
-                    }
-                }
-                _ => {
-                    // A checklist is the turn's (the pane starts a new one at each prompt and turn).
-                    // Only an update read with its turn (a plan or tool call) can show the turn
-                    // changed: a usage tick, a call's update or a thought between a checklist and
-                    // its next update reads none, and is never a new turn's start.
-                    if matches!(kind, "plan" | "tool_call") {
-                        let turn = turn_id.as_deref().unwrap_or("-");
-                        if st.plan_turn.as_deref() != Some(turn) {
-                            st.plan_turn = Some(turn.to_owned());
-                            st.plan_shown = false;
-                        }
-                    }
-                    let mut plan_shown = st.plan_shown;
-                    if cuts_reply(kind, update, &mut plan_shown) {
-                        st.reply_segment = None;
-                    }
-                    st.plan_shown = plan_shown;
-                    if !NEUTRAL_UPDATES.contains(&kind) {
-                        // A tool call, plan or user chunk ends the message: a
-                        // later retry does not abandon it.
-                        st.open_message = None;
-                        st.retry_from = None;
-                        st.trailing_text.clear();
-                        st.trailing_seqs.clear();
-                        st.trailing_overflow = false;
-                    }
-                }
-            }
-        }
+            prepare_stream(&mut st, update, turn_id.as_deref())
+        };
         // The model request failed and Codex tries again (`turn_retry.rs`).
         if let Some(retry) = retrying {
             self.turn_retrying(session, retry);
@@ -280,17 +313,7 @@ impl Hub {
             return;
         };
         let mut st = session.stream.lock().unwrap();
-        if st.trailing_overflow {
-            return;
-        }
-        if st.trailing_text.len() + text.len() > TRAILING_LIMIT {
-            st.trailing_overflow = true;
-            st.trailing_text.clear();
-            st.trailing_seqs.clear();
-            return;
-        }
-        st.trailing_text.push_str(text);
-        st.trailing_seqs.push(rec.seq);
+        append_trailing(&mut st, text, rec.seq);
     }
 
     /// Forget per-turn stream state when a turn starts.
