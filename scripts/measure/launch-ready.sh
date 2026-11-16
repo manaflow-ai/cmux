@@ -74,7 +74,7 @@ main() {
     [[ $rc == 0 ]] || exit "$rc"
   else
     if [[ "$dmg" == nightly ]]; then
-      dmg="$(curl -fsSL --proto '=https' --retry 3 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
         | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
     fi
     [[ "$dmg" == https://* ]] || { echo "LR no nightly DMG in the feed"; exit 3; }
@@ -104,6 +104,7 @@ main() {
   [[ -n "$pids" ]] && kill $pids 2>/dev/null
   python3 -I - "$out/runs.jsonl" <<'PY'
 import json, statistics, sys
+from collections import Counter
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
 for side in dict.fromkeys(r["side"] for r in rows):
     done = [r for r in rows if r["side"] == side and r["label"] not in ("prime", "seed") and r.get("window_on_screen") is not None]
@@ -111,6 +112,8 @@ for side in dict.fromkeys(r["side"] for r in rows):
     for key in ("finished_launching", "window_on_screen", "active", "request_to_start"):
         vals = [r[key] for r in done if r.get(key) is not None]
         med[key] = round(statistics.median(vals), 1) if vals else None
+    # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
+    med["first_reveal"] = dict(sorted(Counter(r.get("first_reveal") or "none" for r in done).items()))
     names = dict.fromkeys(name for r in done for name in r["marks"])
     for key in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
         vals = [r["marks"][key] for r in done if key in r["marks"]]
