@@ -41,7 +41,7 @@ import Testing
             mark.start()
             try await clock.waitForSleeper()
             clock.advance(by: .seconds(1))
-            _ = await events.stream.first { $0 == "launch_mark.shown" }
+            for await name in events.stream where name == "launch_mark.shown" { break }
         }
 
         func tearDown() {
