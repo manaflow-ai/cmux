@@ -239,16 +239,15 @@ impl UpdateQueue {
         let mut passed_over = false;
         let mut last = None;
         // The controls hold at most 512 keys (`enqueue`), so the order costs one pass of them.
-        let (sources, records): (Vec<UpdateKey>, Vec<UpdateKey>) =
+        let (mut sources, records): (Vec<UpdateKey>, Vec<UpdateKey>) =
             pending.controls.keys().cloned().partition(|key| matches!(key, UpdateKey::Source(_)));
         let split = pending
             .turn_after
             .as_ref()
             .map_or(0, |after| sources.partition_point(|key| key <= after));
-        let order = records
-            .into_iter()
-            .chain(sources[split..].iter().cloned())
-            .chain(sources[..split].iter().cloned());
+        // `partition_point` is at most the length, so the rotation stays in bounds.
+        sources.rotate_left(split);
+        let order = records.into_iter().chain(sources);
         for key in order {
             if batch.len() >= limit {
                 break;
