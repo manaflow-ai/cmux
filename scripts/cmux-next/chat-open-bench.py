@@ -172,6 +172,8 @@ CLICK_CASES = ("click", "click_again", "click_hover")
 CASES = [c for c in CASES if c in CLICK_CASES] + [c for c in CASES if c not in CLICK_CASES]
 # subagent_column clicks three of one chat's subagents.
 SUBAGENTS = opts.subagents or max(opts.runs + 1, 3)
+# The cases that open the subagent template; seed_templates makes it only for them.
+SUBAGENT_CASES = {"subagent", "subagent_column"}
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
 # The tagged build's state folder (scripts/measure/chat-open.sh builds --tag, default "chatopen").
@@ -312,7 +314,11 @@ def seed_templates(root):
     the sources that shape it, so the arms of an A/B (different app builds, the same templates)
     seed once. The templates, how long getting them took and each entry's cache result."""
     started = time.monotonic()
-    specs = {"small": {"turns": opts.small_turns}, "subagent": {"subagents": SUBAGENTS}}
+    # Only the templates the asked cases open: a run of `relaunched` alone seeds no subagent chat, so a seed agent
+    # that spawns no subagents can't stop it (2026-11-16: "spawned 0 of 5 subagents" ended a relaunched A/B).
+    specs = {"small": {"turns": opts.small_turns}}
+    if SUBAGENT_CASES & set(CASES):
+        specs["subagent"] = {"subagents": SUBAGENTS}
     if "big" in CASES:
         specs["big"] = {"turns": opts.turns}
     if "bloated" in CASES:
@@ -387,7 +393,7 @@ def seed(root):
     app's store: --sessions short chats for the list and fresh copies of each shape for every cold
     open, under fresh ids in a fresh store every run."""
     templates, seeded_s, cache_result, subagent_check = seed_templates(root)
-    small, sub = templates["small"], templates["subagent"]
+    small, sub = templates["small"], templates.get("subagent")
     big, bloated = templates.get("big"), templates.get("bloated")
     answered, closed = templates["answered"], templates["closed"]
     stored_at = time.monotonic()
@@ -403,7 +409,8 @@ def seed(root):
             "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
             "click_hover": [copy_chat(home, small, f"Click hover {condition} {i}") for i in range(opts.runs)],
-            "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
+            "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)]
+            if "subagent" in CASES else [],
             "subagent_column": [copy_chat(home, sub, f"Subagent column {condition} {i}") for i in range(opts.runs)]
             if "subagent_column" in CASES else [],
             "big": [copy_chat(home, big, f"Big {condition} {i}") for i in range(opts.runs)] if big else [],
