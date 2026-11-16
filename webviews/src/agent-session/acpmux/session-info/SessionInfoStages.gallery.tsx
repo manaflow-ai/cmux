@@ -15,6 +15,7 @@ import { setChatDisplay } from "../chatDisplay";
 import { setHeaderState } from "../header/headerState";
 import { setSessionInfoOpen } from "./sessionInfoState";
 import { GalleryPane } from "./SessionInfoSurfaces.gallery";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "./sessionInfoSelectors";
 
 /// Opens or closes the panel with its toggle under a placement (Settings > Agent Chat > Session Info).
 const place =
@@ -22,13 +23,11 @@ const place =
   async (ctx) => {
     setChatDisplay({ "agentPane.display.sessionInfo.placement": placement });
     const wrong = `button.acpmux-session-info-toggle[aria-pressed="${open ? "false" : "true"}"]`;
-    await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-session-info-toggle"));
+    await ctx.waitFor(() => ctx.document.querySelector(SESSION_INFO_TOGGLE));
     if (ctx.document.querySelector(wrong)) await ctx.click({ selector: wrong });
     if (open)
-      await ctx.waitFor(
-        () => ctx.document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
-      );
-    else await ctx.waitFor(() => !ctx.document.querySelector("aside.acpmux-session-info"));
+      await ctx.waitFor(() => ctx.document.querySelector(SESSION_INFO)?.getAttribute("data-presence") === "shown");
+    else await ctx.waitFor(() => !ctx.document.querySelector(SESSION_INFO));
   };
 
 export default componentEntry<{ surface: "transcript" }>({
