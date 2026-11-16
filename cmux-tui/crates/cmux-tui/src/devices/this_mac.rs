@@ -18,6 +18,7 @@
 
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use serde_json::Value;
 
 /// `cmux acp WORDS` with `stdin`: its JSON answer, or the failure.
@@ -135,11 +136,11 @@ impl Done {
             "listedMs": self.timing.listed_ms,
         });
         if let Some(name) = &self.listed_as {
-            mac["listedAs"] = Value::from(name.as_str());
+            mac.set("listedAs", Value::from(name.as_str()));
         }
         if let ThisMac::Blocked { message, next } = &self.state {
-            mac["message"] = Value::from(message.as_str());
-            mac["next"] = Value::from(next.as_str());
+            mac.set("message", Value::from(message.as_str()));
+            mac.set("next", Value::from(next.as_str()));
         }
         mac
     }
