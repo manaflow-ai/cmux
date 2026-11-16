@@ -349,11 +349,12 @@ fn a_frame_lost_whole_is_resent_then_recovered_from_a_keyframe() {
         true,
         10_000,
     );
-    // A small P-frame of one datagram, which the path loses: the viewer sees nothing of it.
+    // A small P-frame of one datagram and, on this idle link, its copy, which the path
+    // loses both of: the viewer sees nothing of it.
     let small = Rect { x: 1, y: 1, width: 10, height: 10 };
     let p = e.damage(0, small, 20_000).expect("second frame");
     let lost = send(&mut e, &p, false, 100, 20_000);
-    assert_eq!(lost.len(), 1);
+    assert_eq!(lost.len(), 2);
     assert!(
         e.tick(true, 20_000 + TAIL_PROBE_US - 1).datagrams.is_empty(),
         "no probe before its time"
