@@ -1,14 +1,15 @@
-import AppKit
-import CmuxNextDesign
-import CmuxNextFocusUI
-import os
+public import AppKit
+public import CmuxNextDesign
 
 /// The window the key window acts for, its close semantics, and whether
 /// the key window is a sheet or panel over it.
-struct KeyWindowRole {
-    let root: NSWindow
-    let close: WindowCloseSemantics
-    let overRoot: Bool
+public struct KeyWindowRole {
+    /// The window the key window acts for (`NSWindow.windowKindRoot`).
+    public let root: NSWindow
+    /// What close actions do in it.
+    public let close: WindowCloseSemantics
+    /// The key window is a sheet or panel over `root`.
+    public let overRoot: Bool
 
     /// Nil when there is no key window of ours (a parentless Chromium page
     /// window) and for the palette opened with no window to sit on (it
@@ -23,8 +24,14 @@ struct KeyWindowRole {
     /// actions are off. It never falls through to the main window behind
     /// it. Debug builds log a fault once per such window (the owner must
     /// call `install(kind:content:scope:activeLook:)`).
+    ///
+    /// - Parameters:
+    ///   - key: The key window.
+    ///   - ownedByMain: A main window of the app owns it.
+    ///   - isPalette: It is the command palette's window.
+    /// - Returns: Its role, or nil.
     @MainActor
-    static func resolve(_ key: NSWindow, ownedByMain: Bool, isPalette: Bool) -> KeyWindowRole? {
+    public static func resolve(_ key: NSWindow, ownedByMain: Bool, isPalette: Bool) -> KeyWindowRole? {
         let root = key.windowKindRoot
         // A Chromium page window inside the root (an undocked inspector's
         // page, a popup's page) acts for it.
@@ -36,31 +43,5 @@ struct KeyWindowRole {
         KindlessWindowAudit.note(root)
         let closable = root.styleMask.isSuperset(of: [.titled, .closable])
         return KeyWindowRole(root: root, close: .window, overRoot: !inside || !closable)
-    }
-}
-
-/// Logs (a fault in debug builds, never a crash) the first time each
-/// kind-less cmux window acts as the key window (plans/cmux-next/windows.md):
-/// its owner must install it through the window kit. AppKit's own panels
-/// (About, open and save, font, color), which no owner can install, are
-/// logged at debug level only.
-@MainActor
-enum KindlessWindowAudit {
-    private static let seen = NSHashTable<NSWindow>.weakObjects()
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.windows")
-
-    static func note(_ window: NSWindow) {
-        guard !seen.contains(window) else { return }
-        seen.add(window)
-        let name = String(describing: type(of: window))
-        if Bundle(for: type(of: window)).bundlePath.hasPrefix("/System/") {
-            logger.debug("system window without a kind is key: \(name, privacy: .public)")
-            return
-        }
-        #if DEBUG
-        logger.fault("window without a kind is key: \(name, privacy: .public)")
-        #else
-        logger.error("window without a kind is key: \(name, privacy: .public)")
-        #endif
     }
 }

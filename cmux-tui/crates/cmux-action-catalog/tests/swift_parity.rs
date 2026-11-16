@@ -617,3 +617,80 @@ fn toggle_terminal_and_chat_has_no_default_key() {
     let action = cmux_action_catalog::find("palette.toggleTerminalChat").expect("an action");
     assert!(action.default_shortcut.is_none() && action.default_chord.is_none());
 }
+
+/// The categories the App's launch check covers (`HandlerCoverage.categories` in
+/// `CmuxNextApp/Handlers/HandlerCoverage.swift`): every catalog action there needs an App handler.
+const HANDLER_COVERAGE_CATEGORIES: &[&str] = &["tab", "pane", "screen", "terminal"];
+
+/// Every `.swift` file under `dir`, recursively.
+fn swift_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            swift_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "swift") {
+            out.push(path);
+        }
+    }
+}
+
+/// A row the app has never had (absent from the Swift dump, so step A of an app FFI change) in a
+/// category `HandlerCoverage` checks reaches the app with the next FFI build: a same-tree build at
+/// once, a pinned one after the re-pin. With no App handler, a Debug app traps at launch on
+/// `HandlerCoverage.verify` (#43840's three terminal-to-chat rows). So its id must be named in a
+/// Swift source that binds actions (`bind`, `bindEffect`, or `bindUnavailable` until the handler
+/// lands) before the row merges. Rows the dump has are the App's `HandlerCoverageTests`' job.
+#[test]
+fn new_rows_in_handler_coverage_categories_have_an_app_binding() {
+    let sources = repo().join("Packages/macOS/CmuxNext/Sources");
+    let coverage =
+        std::fs::read_to_string(sources.join("CmuxNextApp/Handlers/HandlerCoverage.swift"))
+            .expect("HandlerCoverage.swift");
+    let line = coverage
+        .lines()
+        .find(|l| l.contains("static let categories"))
+        .expect("HandlerCoverage.categories");
+    let mut swift_categories: Vec<&str> = line
+        .split_once('=')
+        .map_or("", |(_, set)| set)
+        .split(|c: char| !(c.is_alphanumeric() || c == '.'))
+        .filter_map(|word| word.strip_prefix('.'))
+        .collect();
+    swift_categories.sort_unstable();
+    let mut ours = HANDLER_COVERAGE_CATEGORIES.to_vec();
+    ours.sort_unstable();
+    assert_eq!(
+        swift_categories, ours,
+        "HandlerCoverage.categories changed: update HANDLER_COVERAGE_CATEGORIES"
+    );
+
+    let dump = read_json(&repo().join("plans/cmux-next/action-catalog.json"));
+    let dumped: std::collections::HashSet<&str> = dump["actions"]
+        .as_array()
+        .expect("actions")
+        .iter()
+        .filter_map(|a| a["id"].as_str())
+        .collect();
+    let mut files = Vec::new();
+    swift_files(&sources, &mut files);
+    let binders: Vec<String> = files
+        .iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .filter(|text| text.contains("bind"))
+        .collect();
+    let missing: Vec<&str> = cmux_action_catalog::actions()
+        .filter(|a| HANDLER_COVERAGE_CATEGORIES.contains(&a.category) && !dumped.contains(a.id))
+        .map(|a| a.id)
+        .filter(|id| {
+            let literal = format!("\"{id}\"");
+            !binders.iter().any(|text| text.contains(&literal))
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "new tab/pane/screen/terminal actions with no App binding (a Debug app traps at launch in \
+         HandlerCoverage.verify): {missing:?}. Bind each in Packages/macOS/CmuxNext/Sources, \
+         with bindUnavailable until its handler lands"
+    );
+}
