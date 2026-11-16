@@ -339,6 +339,9 @@ class GeneratedClientMixin:
     def detach_client(self, client: DetachClientTarget, *, surface: Union[Id, None, MissingType] = MISSING, by: Union[SizeDetachActor, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('detach-client', DetachClientRequest(client=client, surface=surface, by=by))
 
+    def device_setup(self, device: str, verb: str, *, allow_agents: Union[bool, MissingType] = MISSING, dry_run: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('device-setup', DeviceSetupRequest(device=device, verb=verb, allow_agents=allow_agents, dry_run=dry_run))
+
     def export_layout(self, screen: Union[Id, None, MissingType] = MISSING) -> ExportLayoutResult:
         return self._invoke_command('export-layout', ExportLayoutRequest(screen=screen))
 
@@ -1028,6 +1031,7 @@ GeneratedClientMixin.delete_terminal_commands.__cmux_command__ = COMMANDS['delet
 GeneratedClientMixin.delete_workspace_group.__cmux_command__ = COMMANDS['delete-workspace-group']
 GeneratedClientMixin.detach_attached_view.__cmux_command__ = COMMANDS['detach-attached-view']
 GeneratedClientMixin.detach_client.__cmux_command__ = COMMANDS['detach-client']
+GeneratedClientMixin.device_setup.__cmux_command__ = COMMANDS['device-setup']
 GeneratedClientMixin.export_layout.__cmux_command__ = COMMANDS['export-layout']
 GeneratedClientMixin.feed_local_handoff_abort.__cmux_command__ = COMMANDS['feed-local-handoff-abort']
 GeneratedClientMixin.feed_local_handoff_begin.__cmux_command__ = COMMANDS['feed-local-handoff-begin']
