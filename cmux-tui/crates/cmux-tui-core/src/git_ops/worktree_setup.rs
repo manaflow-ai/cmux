@@ -69,7 +69,8 @@ const PORT_BLOCKS: u16 = 1_000;
 /// The output a read returns at most.
 pub(super) const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
 /// The most bytes that are read of a file that cmux keeps in a git folder
-/// (a setup's status, the repository's ports). A real one is far smaller.
+/// (a setup's status, the repository's ports), and of the `.git` file of a
+/// new worktree ([`read_small`]). A real one is far smaller.
 const MAX_OWN_BYTES: u64 = 1024 * 1024;
 /// Teardown output a removal reply carries.
 const MAX_TEARDOWN_OUTPUT_BYTES: u64 = 16 * 1024;
@@ -129,6 +130,12 @@ impl Place {
     /// keeps for the worktree ([`OwnFolder::is_of`]).
     pub(super) fn is_of(&self, common_dir: &Path) -> bool {
         self.own.is_of(&self.root, common_dir)
+    }
+
+    /// Why the worktree's own git folder is not open in this place
+    /// ([`OwnFolder::not_opened`]); `None` when it is open.
+    pub(super) fn not_opened(&self) -> Option<std::io::ErrorKind> {
+        self.own.not_opened()
     }
 
     fn name(&self) -> String {
@@ -446,6 +453,13 @@ pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
         Outcome::TimedOut => json!({"output": output, "state": "timed_out"}),
         Outcome::NotStarted(error) => json!({"output": error, "state": "failed"}),
     })
+}
+
+/// Whether `git_dir` is the git folder that the repository whose git folder
+/// is `common_dir` keeps for the worktree `root` ([`OwnFolder::is_of`]). The
+/// folder is opened here for this one check.
+pub(super) fn keeps(git_dir: &Path, root: &Path, common_dir: &Path) -> bool {
+    OwnFolder::open(git_dir).is_of(root, common_dir)
 }
 
 /// A worktree folder with its links resolved, as the setup and its ports
