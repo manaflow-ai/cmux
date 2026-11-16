@@ -69,6 +69,8 @@ import Foundation
     /// the wrong tab when a stand-in out of the strip for one update lost its opener relations (Lawrence 2026-11-13).
     public func successor(ofStandIn id: String, in pane: PaneModel) -> String? {
         if let tab = replacement(ofStandIn: id, in: pane) { return tab.id }
+        // A terminal's tab is paired by the host id its stand-in minted, before any reply names it (``became(standIn:tab:in:)``).
+        if ProvisionalTab.isProvisional(id), let tab = pane.tabs.first(where: { !ProvisionalTab.isProvisional($0.id) && became(standIn: id, tab: $0.id, in: pane) }) { return tab.id }
         if isUnderway(standIn: id) { return id }
         guard let surface = replacementSurface(ofStandIn: id), !store.closedLately(surface) else { return nil }
         return store.intentLog.entries.contains { $0.createdSurface == surface && ($0.closeWhenCreated || $0.standInClosed) } ? nil : id
