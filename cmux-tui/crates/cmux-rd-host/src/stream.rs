@@ -20,6 +20,7 @@ use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::{flags, DatagramHeader, DatagramKind};
+use cmux_rd_proto::{flags, DatagramHeader};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -103,6 +104,12 @@ fn carrier_send_queue_busy(carrier: &dyn Carrier) -> bool {
     carrier
         .media_queue_stats()
         .is_some_and(|stats| stats.queue_frames != 0 || stats.queue_datagrams != 0)
+}
+
+fn frame_is_droppable(datagrams: &[Vec<u8>]) -> bool {
+    datagrams.first().and_then(|datagram| DatagramHeader::decode(datagram).ok()).is_none_or(
+        |(header, _)| header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0,
+    )
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -348,7 +355,11 @@ impl MediaSession {
             };
             let timeout = wake
                 .map_or(timeout, |d| timeout.min(u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)));
-            let timeout = Some(timeout.max(1_000_000));
+            let timeout = Some(
+                timeout
+                    .min(carrier_send_queue_busy(carrier).then_some(1_000_000).unwrap_or(u64::MAX))
+                    .max(1_000_000),
+            );
             let mut fds = carrier.fds();
             fds.push(self.desktop.fd());
             fds.push(self.encoder.fd());
@@ -494,7 +505,6 @@ impl MediaSession {
         }
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
-        let idr = frame.idr;
         // Logged after the send, with the send time (`sent_us`).
         let logged = self.timing.is_some().then(|| {
             let len = frame.access_unit.len();
@@ -524,11 +534,7 @@ impl MediaSession {
             _ => None,
         };
         let Some(pacer) = self.pacer.as_mut() else {
-            let droppable = out.datagrams.iter().all(|datagram| {
-                let Ok((header, _)) = DatagramHeader::decode(datagram) else { return true };
-                header.kind != DatagramKind::Fec
-                    && header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0
-            });
+            let droppable = frame_is_droppable(&out.datagrams);
             carrier.send_datagram_frame(out.datagrams, droppable)?;
             if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
                 timing.frame_sent(line, now_us());
