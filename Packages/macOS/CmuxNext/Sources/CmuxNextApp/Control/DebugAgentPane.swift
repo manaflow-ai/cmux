@@ -65,7 +65,7 @@ enum DebugAgentPane {
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
-        "compose_send": "composeSend", "run_mode": "runMode", "toast": "toast",
+        "compose_send": "composeSend", "run_mode": "runMode", "toast": "toast", "select_text": "selectText",
         "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe", "paste_probe": "pasteProbe",
     ]
 
