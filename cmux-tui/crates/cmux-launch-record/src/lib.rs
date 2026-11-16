@@ -233,8 +233,9 @@ pub fn write_atomic(path: impl AsRef<Path>, record: &LaunchRecordData) -> io::Re
         std::process::id(),
         stamp
     ));
+    // A failed exclusive create owns no file; never remove another writer's temp.
+    let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
     let result: io::Result<()> = (|| {
-        let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         f.write_all(&bytes)?;
         f.sync_all()?;
         fs::rename(&tmp, path)
