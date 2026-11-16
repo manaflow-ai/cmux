@@ -93,6 +93,19 @@ struct AgentPageDrawnParkingTests {
         #expect(cover === picture, "the chat gone hidden lost its last frame")
     }
 
+    /// A chat that leaves the keep by another path (its tab closed while it waited, and the closed-tab retirer moved it;
+    /// Reopen Closed brings it back from there) is no longer away to its document.
+    @Test func aChatMovedOutOfTheKeepIsNoLongerAway() async throws {
+        let (view, _, window, host) = try await chat()
+        defer { view.page?.close(); window.close() }
+        #expect(AgentPageDrawnParking.park(view))
+        #expect(view.page?.isDrawnAway == true)
+        let elsewhere = NSView(frame: Self.size)
+        host.addSubview(elsewhere)
+        elsewhere.addSubview(view)
+        #expect(view.page?.isDrawnAway == false, "a chat moved out of the keep stayed hidden to its document")
+    }
+
     /// A New Tab page, or a chat that never painted, is not kept: the pane hides it as before.
     @Test func onlyPaintedChatsAreKept() async throws {
         let (view, _, window, _) = try await chat()

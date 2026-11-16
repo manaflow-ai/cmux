@@ -605,6 +605,8 @@ public final class AgentPaneView: NSView {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        // Left the drawn keep by any path (a pane took it back, the closed-tab retirer moved it): no longer away.
+        if page?.isDrawnAway == true, AgentPageDrawnParking.holding(self) == nil { cameBackDrawn() }
         onNativeToolOwnerChange?()
     }
 
