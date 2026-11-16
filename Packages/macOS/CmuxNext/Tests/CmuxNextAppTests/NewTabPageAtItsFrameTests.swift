@@ -15,13 +15,14 @@ import Testing
 /// is made at the next frame, for the tab that the pane has selected then. These hold it with an empty pool, so each
 /// page here is a cold one:
 ///
-/// - a run of keys in one turn makes no page view before a frame and one at most after it;
-/// - a tab closed before its frame makes no page view;
+/// - a run of keys in one turn makes no page view before a frame and one at the next frame;
+/// - a tab closed before its frame gets no page view;
 /// - a key typed before that frame still waits for the new tab's field;
 /// - a tab closed before that frame takes its typed keys with it.
 ///
 /// Frames are the app's own. A test waits for one by an event: a probe that stands in the scheduler's queue behind
-/// the pane. No wait polls and no wait reads a clock.
+/// the pane. No wait of these tests polls and none reads a clock. (The shared setup that starts the app and finds
+/// its focused pane is the base's, and waits in its own way before a test's first line.)
 ///
 /// The engine: each page view here is a real one, and each test prints the engine of each page view that it made
 /// (`engine-of-test:` in the run's output). The package's tests have no Chromium host, so that engine is WebKit: a
@@ -48,10 +49,22 @@ struct NewTabPageAtItsFrameTests {
         }
     }
 
+    /// A page view that the tab store built or adopted since the setup: its tab's key, and what it was then (its
+    /// engine, if its tab is a New Tab page, if its tab was the pane's selection).
+    typealias BuiltPage = (key: String, note: String)
+
     /// The app with an empty pool of prewarmed pages, so each New Tab page is made cold. `body` gets the pane that
     /// Cmd-T opens in, its window, and the count of page views built since the setup.
     private static func withAnEmptyPool(_ install: String,
                                         _ body: (AppServices, NSWindow, PaneController, () -> Int) async throws -> Void) async throws {
+        try await withThePagesOfAnEmptyPool(install) { services, window, pane, pages in
+            try await body(services, window, pane) { pages().count }
+        }
+    }
+
+    /// `withAnEmptyPool` with each built page view by its tab, in the order of the builds.
+    private static func withThePagesOfAnEmptyPool(_ install: String,
+                                                  _ body: (AppServices, NSWindow, PaneController, () -> [BuiltPage]) async throws -> Void) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: install)
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
@@ -60,11 +73,14 @@ struct NewTabPageAtItsFrameTests {
             pool.dropAll()
             pool.makeSpare = { _ in nil }
             // Each page view that the tab store builds or adopts tells this; the app's own listener still hears it.
-            var built = 0, engines: [String] = []
+            var pages: [BuiltPage] = [], engines: [String] = []
             let wired = tabs.onPageBuilt
             tabs.onPageBuilt = { key in
-                built += 1
-                engines.append(tabs.existingView(key)?.engineName ?? "no view")
+                let engine = tabs.existingView(key)?.engineName ?? "no view"
+                let kind = tabs.isNewTabPage(key) ? "a New Tab page" : "no New Tab page"
+                let selected = pane.stripModel.selectedID?.rawValue == key ? "the pane's selection" : "not the pane's selection"
+                pages.append((key: key, note: "\(engine), \(kind), \(selected)"))
+                engines.append(engine)
                 wired?(key)
             }
             defer {
@@ -72,13 +88,15 @@ struct NewTabPageAtItsFrameTests {
                 pool.makeSpare = nil
                 // The run's record of the engine (decision 2026-11-16: each test says the engine that it ran with).
                 print("engine-of-test: NewTabPageAtItsFrameTests \(install): \(engines.count) page views made, engines \(engines)")
+                print("pages-of-test: NewTabPageAtItsFrameTests \(install): \(pages)")
             }
-            try await body(services, window, pane) { built }
+            try await body(services, window, pane) { pages }
         }
     }
 
     /// Four New Tab keys in one turn of the main thread: no frame comes between them, so no tab but the last is
-    /// ever shown. Then three keys with a frame after each.
+    /// ever shown, and that one gets its page at the next frame. Then three keys with a frame after each: no page
+    /// in a key's own turn, and its page at its frame.
     @Test func aRunOfNewTabKeysInOneTurnMakesNoPageBeforeAFrameAndOneAtMostAfterIt() async throws {
         try await Self.withAnEmptyPool("cn-page-at-frame-run") { services, _, pane, built in
             let tabs = services.agentTabs
@@ -88,33 +106,50 @@ struct NewTabPageAtItsFrameTests {
             try #require(opened == 4, "the 4 keys opened \(opened) New Tab pages")
             #expect(built() == 0, "\(built()) page views were made in the keys' own turn, before a frame showed a tab")
             await Self.frame(services)
-            #expect(built() <= 1, "\(built()) page views were made for 4 keys of one turn and one frame")
-            // The tab that the pane shows gets its page: at that frame, or at a later one when the launch still held it.
-            for _ in 0..<240 where built() == 0 { await Self.frame(services) }
-            #expect(built() == 1, "\(built()) page views for the one tab that a frame showed")
+            // The one tab that the pane has selected gets its page at that frame: not before it and not after it.
+            #expect(built() == 1, "\(built()) page views were made for 4 keys of one turn at the one frame after them")
             #expect(pane.currentTabKey == pane.stripModel.selectedID?.rawValue, "the pane does not show its selected tab")
 
-            // Keys over frames: a page for each frame at most.
-            let before = built()
-            for _ in 0..<3 {
+            // Keys over frames: no page in a key's own turn, and one page at its frame.
+            for index in 1...3 {
+                let before = built()
                 NewTabPage.open(in: pane, seed: nil)
+                #expect(built() == before, "key \(index) of 3 made \(built() - before) page views in its own turn")
                 await Self.frame(services)
+                #expect(built() - before == 1, "key \(index) of 3 had \(built() - before) page views at its frame")
             }
-            #expect(built() - before <= 3, "\(built() - before) page views were made for 3 keys over 3 frames")
         }
     }
 
-    /// The tab closes in the turn of its key: no frame showed it, and no page view is made for it.
+    /// The tab closes in the turn of its key: no frame showed it, and no page view is made for it. The close gives
+    /// the pane's selection back to a tab that the pane had before the key; a page view for THAT tab at the frame is
+    /// the frame rule itself and is no fault. So each page view here must be for a tab that the pane had before the
+    /// key, and the failure names each built page by its tab.
     @Test func aNewTabClosedBeforeItsFrameMakesNoPage() async throws {
-        try await Self.withAnEmptyPool("cn-page-at-frame-close") { services, _, pane, built in
+        try await Self.withThePagesOfAnEmptyPool("cn-page-at-frame-close") { services, _, pane, pages in
+            let had = pane.stripModel.tabs.map(\.id.rawValue)
+            let selectedBefore = pane.stripModel.selectedID?.rawValue ?? "no tab"
             NewTabPage.open(in: pane, seed: nil)
             let made = try #require(pane.stripModel.selectedID, "the open selected no tab")
             try #require(services.agentTabs.isNewTabPage(made.rawValue), "the open did not select its New Tab page")
+            try #require(!had.contains(made.rawValue), "the open selected a tab that the pane had before the key")
             pane.close([made])
             #expect(pane.stripModel.selectedID != made, "the closed tab is still the pane's selection")
+            let atTheClose = pages().count
             await Self.frame(services)
+            let atFrameOne = pages().count
             await Self.frame(services)
-            #expect(built() == 0, "\(built()) page views were made for a tab that closed before a frame showed it")
+            // The run's record, on a pass also: which tab each page view was for, and what the pane has now.
+            let built = pages()
+            let tabsNow = pane.stripModel.tabs.map(\.id.rawValue)
+            let selectedNow = pane.stripModel.selectedID?.rawValue ?? "no tab"
+            let shownNow = pane.currentTabKey ?? "no tab"
+            var state = "the closed tab \(made.rawValue); the pane's tabs before the key \(had), its selection then \(selectedBefore); "
+            state += "page views at the close \(atTheClose), after frame 1 \(atFrameOne), after frame 2 \(built.count): \(built); "
+            state += "the pane's tabs now \(tabsNow), its selection \(selectedNow), its shown tab \(shownNow)"
+            print("state-of-test: NewTabPageAtItsFrameTests cn-page-at-frame-close: \(state)")
+            let notOfThePane = built.filter { !had.contains($0.key) }
+            #expect(notOfThePane.isEmpty, "\(notOfThePane.count) page views were made for a tab that the pane did not have before the key: \(state)")
         }
     }
 
