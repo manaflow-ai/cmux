@@ -232,7 +232,7 @@ import Testing
 /// Lawrence, 2026-11-15: "we still have the line below tabs which is very bad." No tab row line by default: none under
 /// a terminal's tabs, a browser's, a chat's or a Markdown page's, and none past the strips (under the docked Home's
 /// header), at every density, light and dark, under either title area tone and any contrast.
-@MainActor @Suite(.serialized) struct NoLineUnderTabsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NoLineUnderTabsTests {
     @Test(arguments: DensityPreset.allCases, [false, true])
     func noLineUnderAnyTabStrip(density: DensityPreset, isDark: Bool) throws {
         let design = DesignSettings.shared
