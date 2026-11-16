@@ -44,6 +44,7 @@ import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
+import { AGENT_TOOLS_BIN } from "./agent-tools";
 import { browserRoleProbe } from "./browser-probe";
 import { DESKTOP_SESSION_UNIT } from "./agent-tools";
 import { GH_SHIM } from "./github-auth";
@@ -362,6 +363,23 @@ async function automationChecks(vm: Vm, report: Report): Promise<void> {
 }
 
 /** The health loop runs clean and the guard drop-ins apply (machine-health.ts). */
+/**
+ * Roles are parked (no Xvfb running), first-use packages are absent, and CJK fonts are baked. openbox is role
+ * display-wm's: a first-use package, except that an agent-tools image bakes it for the desktop session
+ * (AGENT_TOOLS_BAKED_ROLES, #44696). The agent tools' cmux-cua wrapper marks that image.
+ */
+export function rolesOffFontsOnCommand(): string {
+  return [
+    `test -s ${ROLES_MANIFEST_PATH}`,
+    "! pgrep -x Xvfb >/dev/null",
+    `{ test -x ${AGENT_TOOLS_BIN}/cmux-cua || ! command -v openbox >/dev/null; }`,
+    "! command -v ffmpeg >/dev/null",
+    "command -v Xvfb >/dev/null",
+    "ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
+    "echo roles-off-fonts-on",
+  ].join(" && ");
+}
+
 async function machineHealthChecks(vm: Vm, report: Report): Promise<void> {
   const out = await run(vm, machineHealthSmokeCommand(DEVBOX_WORK_USER), 120_000);
   const problems = machineHealthSmokeProblems(out.stdout);
