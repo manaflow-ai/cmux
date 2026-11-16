@@ -160,6 +160,6 @@
 .mpd-settings-card {
   flex: 1;
   min-height: 0;
-  border-radius: 12px;
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2)); /* concentric with the rows inside, inset by .machines' top padding */
   background: color-mix(in srgb, currentColor 4%, transparent);
 }
