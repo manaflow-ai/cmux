@@ -18,7 +18,10 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import bench_relaunch_reconnect as rr  # noqa: E402
+# The bench's helpers load macOS libproc when imported; these tests call none of it, so they run on
+# Linux too with the library load stubbed for the import.
+with mock.patch("ctypes.CDLL"):
+    import bench_relaunch_reconnect as rr  # noqa: E402
 
 
 class SeenTests(unittest.TestCase):
@@ -70,8 +73,8 @@ class NewVersionTests(unittest.TestCase):
             with mock.patch.object(rr.subprocess, "run", return_value=ok) as run:
                 rr.new_version_bundle(bundle, 1)
             for name, text in before.items():
-                self.assertNotEqual(open(os.path.join(page, name)).read(), text, name)
-            index = open(os.path.join(page, "index.html")).read()
+                self.assertNotEqual(Path(page, name).read_text(), text, name)
+            index = Path(page, "index.html").read_text()
             self.assertNotIn("0123456789abcdef", index)
             self.assertRegex(index, r"pane\.css\?h=[0-9a-f]{16}")
             with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:

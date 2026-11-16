@@ -1899,6 +1899,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_bench_page_engine.py
             python3 scripts/cmux-next/tests/test_bench_power_guard.py
             python3 scripts/cmux-next/tests/test_bench_power_loaded.py
+            python3 scripts/cmux-next/tests/test_bench_relaunch_first_paint.py
             python3 scripts/cmux-next/tests/test_bench_startup_agent_mark.py
             python3 scripts/cmux-next/tests/test_bench_startup_daemon_build.py
             python3 scripts/cmux-next/tests/test_bench_startup_linger.py
