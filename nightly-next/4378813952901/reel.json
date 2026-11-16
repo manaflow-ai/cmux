@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4378813952901",
+  "notes": "notes/4378813952901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44027,
+      "title": "acpmux: this Mac's admin turns Control on with sudo, no app or screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44036,
+      "title": "fix(ci): list the tab switch harness tests in cmux-next checks; test the Agents setup path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43945,
+      "title": "cmux-tui-core: a retried worktree create takes only a worktree of its repository",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44046,
+      "title": "measure: launch-ready builds a named head (a PR's), prints every mark's median, and profiles the main thread with profile=1 (CMUX-629)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44005,
+      "title": "refactor(acpmux-core): move hub.rs's inline tests to hub/tests.rs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43948,
+      "title": "cmux CLI: scope help lists catalog app verbs; remote-host without cmux Remote",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44009,
+      "title": "cmux-tui publish: keep the tree markers out of cmux-tui/<sha>/ so its upload runs in parallel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43972,
+      "title": "Sign-in join: the Mac joins the team its Cloud machines are in, and moves there",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43997,
+      "title": "cmux NEXT: no layout shift when the scroller style flips (Universal Control, a mouse coming or going)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44031,
+      "title": "measure: launch-ready times a Dock launch from outside the app: bounce end, first on-screen window, launch marks (CMUX-629, CMUX-631)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
