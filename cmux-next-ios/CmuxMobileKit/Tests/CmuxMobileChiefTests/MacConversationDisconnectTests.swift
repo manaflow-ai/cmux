@@ -6,6 +6,8 @@ import Testing
 /// CMUX-30: when the Mac's link dropped, an open Mac conversation was replaced
 /// by a full-screen "Couldn't load this conversation." that hid the transcript
 /// and the composer. The conversation stays, marked as not live, with Try Again.
+/// These loaders mark at once (`quiet: .zero`), as past the quiet bound; under it nothing
+/// is said (``MacConversationQuietReconnectTests``).
 @MainActor
 @Suite struct MacConversationDisconnectTests {
     struct Offline: Error {}
@@ -15,7 +17,7 @@ import Testing
     }
 
     @Test func aDroppedLinkKeepsTheOpenConversationOnScreen() async {
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         let open = session()
         await loader.load { open }
         #expect(loader.session === open)
@@ -32,7 +34,7 @@ import Testing
     }
 
     @Test func aFirstOpenWithNothingToShowStillFails() async {
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         await loader.load { throw Offline() }
         #expect(loader.failed)
         #expect(loader.session == nil)
@@ -56,7 +58,7 @@ import Testing
     @Test func aFailedFirstOpenShowsTheConversationNotAFullScreenError() async {
         // The user, 2026-11-13: a full-screen "Couldn't load this conversation." hid everything.
         // The conversation opens (title, what was kept, composer) under its own bar.
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         let kept = session()
         var tries = 0
         await loader.load({ throw Offline() }, fallback: kept, tryAgain: { tries += 1 })
@@ -76,7 +78,7 @@ import Testing
     }
 
     @Test func theKeptConversationSaysItIsNotLiveAndOffersTryAgain() async {
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         let open = session()
         await loader.load { open }
         var tries = 0
@@ -96,7 +98,7 @@ import Testing
     }
 
     @Test func reconnectingReplacesTheKeptConversationAndCarriesWhatWasWritten() async {
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         let open = session()
         await loader.load { open }
         await loader.load({ throw Offline() }, tryAgain: {})
@@ -119,7 +121,7 @@ import Testing
     }
 
     @Test func theSameSessionComingBackClearsItsStaleBar() async {
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         let open = session()
         await loader.load { open }
         await loader.load({ throw Offline() }, tryAgain: {})

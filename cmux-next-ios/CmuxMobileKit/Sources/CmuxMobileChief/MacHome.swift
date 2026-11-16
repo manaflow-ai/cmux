@@ -656,7 +656,9 @@ public final class MacHomeFeed {
     /// The open session when there is one; nil when nothing can be kept (no account or Mac),
     /// unless `orEmpty`: then an empty one (its title and composer) for a conversation whose
     /// first open failed, so its screen never falls back to a full-screen error.
-    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``).
+    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``), with no bar:
+    /// a normal reconnect says nothing, and its loader marks it only past the quiet bound
+    /// (``MacConversationLoader``; Leo, 2026-11-16).
     public func keptSession(for route: MacConversationRoute, orEmpty: Bool = false) -> ChiefSession? {
         if let session = sessions[route.conversationID] ?? keptSessions[route.conversationID] { return session }
         let key = transcripts == nil ? nil : transcriptKey(route.conversationID)
@@ -666,15 +668,12 @@ public final class MacHomeFeed {
                                     participants: [identity.me, identity.chief])
         let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason, info: info), identity: identity,
                                    outbox: ChiefOutbox(file: nil), transcripts: key == nil ? nil : transcripts, transcriptKey: key)
-        session.unavailableTitle = Self.keptTitle
-        session.status = Self.keptReason
         session.macID = macID
         keptSessions[route.conversationID] = session
         return session
     }
 
-    /// The bar over a conversation shown from what the phone kept while its channel opens.
-    static var keptTitle: String { String(localized: "Connecting to your Mac…") }
+    /// Why a conversation shown from what the phone kept is not live (its offline backend's reason).
     static var keptReason: String { String(localized: "Showing the last messages. New ones load when it connects.") }
 
     /// Bumped each time the opened conversations close (a new link or another Mac):

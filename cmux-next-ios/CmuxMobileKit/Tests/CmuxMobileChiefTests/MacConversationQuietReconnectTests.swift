@@ -49,6 +49,71 @@ import Testing
         #expect(kept.unavailableTitle == nil)
     }
 
+    /// Waits for `condition`, at most `limit` (a bounded test wait, not a sync).
+    private func eventually(_ limit: Duration = .seconds(2), _ condition: @MainActor () -> Bool) async -> Bool {
+        let clock = ContinuousClock()
+        let end = clock.now + limit
+        while clock.now < end {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return condition()
+    }
+
+    @Test func pastTheQuietBoundTheConversationIsMarkedNotLiveOnce() async {
+        let loader = MacConversationLoader(quiet: .milliseconds(30))
+        let open = session()
+        await loader.load { open }
+        var tries = 0
+        await loader.load({ throw Offline() }, tryAgain: { tries += 1 })
+        #expect(open.barItem == nil)
+        // A retry that fails again does not restart the wait.
+        await loader.load({ throw Offline() }, tryAgain: { tries += 10 })
+
+        #expect(await eventually { loader.isStale })
+        #expect(open.unavailableTitle == MacConversationLoader.staleTitle)
+        #expect(open.barItem == .unavailable(reason: MacConversationLoader.staleReason, retrying: false))
+        open.retryConnecting()
+        // The newest load's Try Again is the one on the bar.
+        #expect(tries == 10)
+
+        // Back: the marks go, and the next drop waits the bound again.
+        await loader.load { open }
+        #expect(!loader.isStale)
+        #expect(open.barItem == nil)
+        await loader.load({ throw Offline() }, tryAgain: {})
+        #expect(open.barItem == nil)
+    }
+
+    @Test func aLiveSessionInsideTheBoundCancelsTheMark() async {
+        let loader = MacConversationLoader(quiet: .milliseconds(40))
+        let open = session()
+        await loader.load { open }
+        await loader.load({ throw Offline() }, tryAgain: {})
+        let live = session()
+        await loader.load { live }
+        try? await Task.sleep(for: .milliseconds(120))
+        #expect(!loader.isStale)
+        #expect(open.barItem == nil)
+        #expect(live.barItem == nil)
+    }
+
+    @Test func theHeaderSaysConnectingOnlyPastTheQuietBound() async {
+        // The conversation header's "Connecting…" line (ConversationViewController) follows this.
+        let quiet = ConversationStore(backend: ChiefOfflineBackend())
+        quiet.start()
+        defer { quiet.stop() }
+        #expect(await eventually { quiet.connection == .reconnecting })
+        #expect(!quiet.connectionNoticeDue)
+
+        let long = ConversationStore(backend: ChiefOfflineBackend())
+        long.connectionQuietDelay = .milliseconds(30)
+        long.start()
+        defer { long.stop() }
+        #expect(await eventually { long.connectionNoticeDue })
+        #expect(!quiet.connectionNoticeDue)
+    }
+
     @Test func theKeptConversationOpensWithNoBarWhileItsChannelOpens() {
         // It said "Connecting to your Mac…" over the kept messages on every open.
         let feed = MacHomeFeed(rowsCache: nil, transcripts: nil, accountID: { nil })
