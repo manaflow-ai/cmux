@@ -20,6 +20,11 @@ extension PageWebView {
         healthFeed?.pageVisibilityChanged(self)
     }
 
+    /// A new document (a reload or navigation while away) starts shown: marks it away again.
+    public func reapplyDrawnAway() {
+        if isDrawnAway { evaluateInPage(Self.drawnAwayScript(true)) }
+    }
+
     /// The document's side of ``setDrawnAway(_:)``: `document.visibilityState` and `document.hidden` answer
     /// "hidden" while away (the engine's own answer otherwise), and a change fires `visibilitychange`.
     /// Installed once per document; a reloaded document starts shown.

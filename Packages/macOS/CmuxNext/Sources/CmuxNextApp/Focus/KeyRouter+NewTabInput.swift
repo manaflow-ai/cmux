@@ -276,7 +276,7 @@ final class NewTabInputCoordinator {
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
         return window.childWindows?.first { child in
-            child.isVisible && chromiumAgentPane(under: child, in: window).map { !$0.isHiddenOrHasHiddenAncestor } == true
+            child.isVisible && chromiumAgentPane(under: child, in: window)?.isShownToPerson == true
         }
     }
 

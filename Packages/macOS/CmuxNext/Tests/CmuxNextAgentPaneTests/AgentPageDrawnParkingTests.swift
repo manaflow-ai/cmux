@@ -50,6 +50,7 @@ struct AgentPageDrawnParkingTests {
             #expect(AgentPageDrawnParking.park(view), "round \(round): a painted Chromium chat was not kept drawn")
             #expect(view.page?.isDrawnAway == true)
             #expect(!view.isHiddenOrHasHiddenAncestor)
+            #expect(!view.isShownToPerson, "round \(round): a chat waiting off screen still counts as shown (question keys, dialogs, held keys)")
             #expect(view.frame.size == Self.size.size, "round \(round): the parked chat changed size (it lays out again on return)")
             guard case .drawn = AgentPageDrawnParking.takeBack(view) else {
                 Issue.record("round \(round): the chat did not come back drawn")
@@ -58,6 +59,7 @@ struct AgentPageDrawnParkingTests {
             host.addSubview(view)
             view.frame = host.bounds
             #expect(view.page?.isDrawnAway == false)
+            #expect(view.isShownToPerson)
         }
         #expect(!chromium.visibility.dropFirst(start).contains(false), "a switch told Chromium the chat is hidden: it drops its frame")
         #expect(AgentPageDrawnParking.of(window)?.drawnCount == 0)
@@ -91,6 +93,37 @@ struct AgentPageDrawnParkingTests {
             return
         }
         #expect(cover === picture, "the chat gone hidden lost its last frame")
+    }
+
+    /// A picture that never comes (a hung renderer) does not keep the chat drawn past the limit: past
+    /// ``AgentPageDrawnParking/pictureDeadline`` it goes hidden with no picture, so the window's drawn count stays bounded.
+    @Test func aPictureThatNeverComesStillHidesTheChat() async throws {
+        var chats: [(AgentPaneView, FakeChromiumPage, NSWindow, NSView)] = []
+        for _ in 0...AgentPageDrawnParking.limit { chats.append(try await chat()) }
+        let (_, _, window, host) = chats[0]
+        defer { for chat in chats { chat.0.page?.close(); chat.2.close() } }
+        for chat in chats.dropFirst() {
+            chat.0.removeFromSuperview()
+            chat.0.frame = host.bounds
+            host.addSubview(chat.0)
+        }
+        #expect(AgentPageDrawnParking.park(chats[0].0))
+        let keeper = try #require(AgentPageDrawnParking.of(window))
+        keeper.snapshotOverride = { _ in
+            try? await Task.sleep(for: .seconds(30))
+            return NSImage(size: Self.size.size)
+        }
+        for chat in chats.dropFirst() { #expect(AgentPageDrawnParking.park(chat.0)) }
+        let oldest = chats[0].0
+        let clock = ContinuousClock()
+        let end = clock.now + AgentPageDrawnParking.pictureDeadline + .seconds(3)
+        while !oldest.isHidden, clock.now < end { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(oldest.isHidden, "a chat whose picture never came kept drawing off screen")
+        guard case .hidden(let cover) = AgentPageDrawnParking.takeBack(oldest) else {
+            Issue.record("a chat gone hidden came back as drawn")
+            return
+        }
+        #expect(cover == nil)
     }
 
     /// A chat that leaves the keep by another path (its tab closed while it waited, and the closed-tab retirer moved it;

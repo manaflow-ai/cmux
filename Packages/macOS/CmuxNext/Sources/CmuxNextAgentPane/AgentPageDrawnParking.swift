@@ -29,6 +29,8 @@ public final class AgentPageDrawnParking: NSView {
     public static let coverLimit = 4
     /// How long one stays drawn after its pane stopped showing it.
     public static let keepFor: Duration = .seconds(30)
+    /// How long the picture of a chat going hidden may take; past it, it goes hidden with none.
+    static let pictureDeadline: Duration = .seconds(2)
 
     /// How a chat comes back.
     public enum Return {
@@ -173,13 +175,20 @@ public final class AgentPageDrawnParking: NSView {
         let covered = entries.filter { $0.hidden && $0.cover != nil }
         if covered.count >= Self.coverLimit, let oldest = covered.first { oldest.cover = nil }
         let snapshot = snapshotOverride
+        // Bounded: a picture that never comes (a hung renderer) must not keep the chat drawn, and off the limit,
+        // forever. Past the deadline it goes hidden with no picture; a later picture is dropped.
+        entry.timer.schedule(after: Self.pictureDeadline) { @MainActor [weak self, weak entry, weak view] in
+            guard let self, let entry, let view, entry.hidden, entry.view === view, view.superview === parking else { return }
+            view.isHidden = true
+        }
         // task-owner: one picture of a chat leaving the drawn keep; it hides when the picture is in
         Task { @MainActor [weak self, weak entry, weak view] in
             guard let view else { return }
             // The saved-frame picture (#43281): a Chromium page's clear areas over the color under the page; nil when
             // no picture can stand in for it.
             let image: NSImage? = if let snapshot { await snapshot(view) } else { await view.pageImage() }
-            guard let self, let entry, entry.hidden, entry.view === view, view.superview === parking else { return }
+            guard let self, let entry, entry.hidden, entry.view === view, view.superview === parking, !view.isHidden else { return }
+            entry.timer.cancel()
             entry.cover = image
             // Still away to the document: hidden now, it reads as hidden until a pane takes it back.
             view.isHidden = true
@@ -199,6 +208,9 @@ public final class AgentPageDrawnParking: NSView {
 }
 
 extension AgentPaneView {
+    /// In a window, not hidden, and not waiting drawn off screen (``AgentPageDrawnParking``): what a person can see.
+    public var isShownToPerson: Bool { window != nil && !isHiddenOrHasHiddenAncestor && page?.isDrawnAway != true }
+
     /// Its pane stopped showing it and it waits drawn (``AgentPageDrawnParking``): what hiding it ends, ends.
     func wentAwayDrawn() {
         dictation.handle(.stop)
