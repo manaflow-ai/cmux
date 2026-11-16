@@ -48,6 +48,9 @@ extension CmuxRemoteActionEnvironment {
         host("remote.allowScreenRecording", "request", .object(["permission": .string("screen-recording")]))
         host("remote.restartComputerUse", "restart", .object(["worker": .string("computer-use")]))
         host("remote.restartScreenSharing", "restart", .object(["worker": .string("screen-sharing")]))
+        // Stop Sharing This Mac (MacScreenActions) ends this session now; this row leaves the catalog with the
+        // next re-pin, and then this bind finds no descriptor and does nothing.
+        host("remote.stopScreenSession", "screen.stop_session", .object([:]))
         _ = registry.bindEffect("remote.showStatus", unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
             // action-wait-allow: the status comes from the daemon and cmux Remote, other processes; the dialog shows it.
             .waiting(.externalProcess) {
@@ -74,12 +77,6 @@ extension CmuxRemoteActionEnvironment {
                 return .success([:])
             })
         })
-        for id: ActionID in ["macScreen.stopSharing", "remote.stopScreenSession"] {
-            _ = registry.bindEffect(id, unavailable: { environment.screenHost.noSessionReason }, effect: { _ in
-                environment.screenHost.stopSession(immediately: true)
-                return .done
-            })
-        }
         _ = registry.bindEffect("macScreen.revokeViewer", unavailable: { environment.screenHost.noSessionReason }, effect: { _ in
             _ = environment.screenHost.revokeViewer()
             return .done

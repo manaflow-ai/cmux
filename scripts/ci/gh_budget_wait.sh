@@ -27,7 +27,8 @@
 # longest a reset can be away); each wait is logged. Reading /rate_limit costs
 # nothing. A refused request did nothing on GitHub's side, so retrying a write is
 # safe. Standard input is replayed only when the call reads it (`--input -`,
-# `@-`, `-F -`); otherwise it is left alone for the caller.
+# `@-`, `-F -`); otherwise it is left alone for the caller. With GH_TOKEN_SPARE set (a
+# token with its own limit), the first refusal moves the call to it at once, with no wait.
 # Runs on macOS's bash 3.2.
 
 REAL_GH=gh # --install writes the real gh's path here
@@ -231,6 +232,14 @@ while [ "$try" -le "$attempts" ]; do
   if [ "$rc" -eq 0 ] || [ "$try" -eq "$attempts" ] ||
     ! grep -qiE "$throttled" "$work/err" "$work/out"; then
     break
+  fi
+  # A spare token with its own limit (GH_TOKEN_SPARE, the cmux-bot App's) takes the next try at
+  # once, before any wait: every workflow's github.token shares one installation budget.
+  if [ -n "${GH_TOKEN_SPARE:-}" ] && [ "${GH_TOKEN:-}" != "$GH_TOKEN_SPARE" ]; then
+    log_wait "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts); the next try goes out on GH_TOKEN_SPARE now"
+    export GH_TOKEN="$GH_TOKEN_SPARE"
+    try=$((try + 1))
+    continue
   fi
   wait_for_budget "$(seconds_to_reset "$try")" "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts)" || break
   try=$((try + 1))
