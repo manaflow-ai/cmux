@@ -97,6 +97,11 @@ fn show((key, modifiers): &Stroke) -> String {
         "\t" => "tab",
         "\u{1b}" => "escape",
         " " => "space",
+        "\u{8}" => "backspace",
+        "\u{f729}" => "home",
+        "\u{f72b}" => "end",
+        "\u{f72c}" => "page_up",
+        "\u{f72d}" => "page_down",
         other => other,
     };
     parts.push(key);
@@ -326,12 +331,12 @@ fn main_menu_keys() -> Vec<(Stroke, String)> {
                 }
             }
             keys.push(((key.to_string(), modifiers), format!("menu bar {title}")));
-        } else if line.contains("NSMenuItem(") {
-            if let Some(key) = quoted_after(line, "keyEquivalent:").filter(|k| !k.is_empty()) {
-                let title =
-                    line.split("Strings.").nth(1).and_then(|t| t.split(',').next()).unwrap_or("?");
-                keys.push(((key.to_string(), CMD), format!("menu bar {title}")));
-            }
+        } else if line.contains("NSMenuItem(")
+            && let Some(key) = quoted_after(line, "keyEquivalent:").filter(|k| !k.is_empty())
+        {
+            let title =
+                line.split("Strings.").nth(1).and_then(|t| t.split(',').next()).unwrap_or("?");
+            keys.push(((key.to_string(), CMD), format!("menu bar {title}")));
         }
     }
     assert!(
@@ -397,15 +402,46 @@ fn first_party_app_keys() -> Vec<(Stroke, String)> {
             std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
         files.sort();
         for file in files.into_iter().filter(|f| f.extension().is_some_and(|e| e == "json")) {
-            let text = std::fs::read_to_string(&file).unwrap_or_default();
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                let name =
-                    file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                walk(&value, &name, &mut out);
-            }
+            let text = std::fs::read_to_string(&file)
+                .unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+            let value: serde_json::Value =
+                serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+            let name =
+                file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            walk(&value, &name, &mut out);
         }
     }
+    // CodeMirror's Save (`cmd+s` in the editor) at least: none read means the layout moved.
+    assert!(
+        !out.is_empty(),
+        "first-party-apps/*/catalog/*.json: no `keyboard` key read; did the layout change?"
+    );
     out
+}
+
+/// Every default binding table must be in [`binding_tables`]: each entry of
+/// [`bindings::alias_entries`] (every table but the off-by-default workspaces-as-tabs keys) is in it.
+#[test]
+fn binding_tables_cover_every_default_binding() {
+    let listed: usize = binding_tables().iter().map(|(_, table)| table.len()).sum();
+    let aliases = bindings::alias_entries().count();
+    assert_eq!(
+        listed,
+        aliases + bindings::WORKSPACES_AS_TABS.len(),
+        "bindings.rs has a table binding_tables() does not list"
+    );
+}
+
+/// Whether `when` requires one of `keys` (a focus key that is not negated).
+fn when_requires(when: &str, keys: &[String]) -> bool {
+    keys.iter().any(|key| {
+        when.match_indices(key.as_str()).any(|(at, _)| {
+            let before = when[..at].trim_end();
+            let after = when[at + key.len()..].chars().next();
+            !before.ends_with('!')
+                && !after.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.')
+        })
+    })
 }
 
 /// `schemas/keybindings/ghostty-reserved-keys.json`.
@@ -554,7 +590,7 @@ fn ghostty_reserved_keys_stay_their_commands() {
         }
         for entry in keymap.iter().filter(|e| &e.stroke == stroke && e.command != command) {
             let scoped = match &entry.scope {
-                Scope::When(when) => scoped_owners.iter().any(|k| when.contains(k.as_str())),
+                Scope::When(when) => when_requires(when, &scoped_owners),
                 Scope::Catalog { requires, .. } => {
                     requires.iter().any(|r| scoped_owners.iter().any(|k| k == r))
                 }
