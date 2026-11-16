@@ -78,6 +78,10 @@ pub(super) struct Request {
     /// already covers it ([`ready::ready`]). No platform call.
     #[serde(default)]
     pub(super) ready: Option<String>,
+    /// The App's question instead of a warm: which teams its Cloud wire subscribes in ([`wire::wire_teams`]), the
+    /// install token on stdin. No platform call.
+    #[serde(default)]
+    pub(super) wire_teams: Option<wire::WireTeams>,
 }
 
 /// `{"waitCopy": {"machine": M, "provider": P}}`: what `wait-copy --machine M --provider P` asks.
@@ -733,6 +737,12 @@ pub(super) fn cli(action: &str, flags: &Flags, ledger: &Path) -> Option<Value> {
     }
     if let Some(request) =
         flags.one("--request").and_then(|request| serde_json::from_str::<Request>(request).ok())
+        && let Some(asked) = request.wire_teams.as_ref()
+    {
+        return Some(wire::answer(asked, &mut std::io::stdin().lock()));
+    }
+    if let Some(request) =
+        flags.one("--request").and_then(|request| serde_json::from_str::<Request>(request).ok())
         && let Some(asked) = request.login_receipt
     {
         return Some(receipt_scoped(
@@ -783,3 +793,8 @@ mod tests;
 
 #[cfg(test)]
 mod ready_tests;
+
+mod wire;
+
+#[cfg(test)]
+mod wire_tests;
