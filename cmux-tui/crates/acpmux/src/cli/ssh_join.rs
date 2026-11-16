@@ -467,10 +467,37 @@ pub fn hub_failure(origin: &str, error: &HubError) -> Failure {
             "the cmux hub did not accept this sign-in",
             "sign in to cmux on this computer (`cmux login`), then add it again",
         ),
+        // The platform's meanings (cmux-cloud-client openapi.json, `machineJoin.mint`): 404 is
+        // `MachineNotFound`, "the machine or enabled API surface is absent; check the identifier
+        // and deployment": that hub serves no machine joins (another deployment's origin, or
+        // joins off there), never a missing permission. Only 403 `machine.not_member` is the
+        // team's owner's to change.
+        HubError::Status { status: 404, code } => Failure::new(
+            Kind::Refused,
+            format!(
+                "the cmux hub at {origin} has no machine joins (HTTP 404 {code}): it is another deployment, or joining is off there"
+            ),
+            "check which hub this computer signs in to (--platform, or CMUX_PLATFORM_ORIGIN) and that its token is from that hub (`cmux login` there), then add it again",
+        ),
+        HubError::Status { status: 403, code } if code == "machine.not_member" => Failure::new(
+            Kind::Refused,
+            format!("the cmux hub refused a join line (HTTP 403 {code})"),
+            "ask your team's owner to let you add machines, then add it again",
+        ),
+        HubError::Status { status: 429, code } => Failure::new(
+            Kind::Refused,
+            format!("the cmux hub refused a join line for now (HTTP 429 {code})"),
+            "wait a minute, then add it again",
+        ),
+        HubError::Status { status: 503, code } => Failure::new(
+            Kind::HubUnreachable,
+            format!("the cmux hub cannot add machines right now (HTTP 503 {code})"),
+            "add it again in a few minutes",
+        ),
         HubError::Status { status, code } => Failure::new(
             Kind::Refused,
             format!("the cmux hub refused a join line (HTTP {status} {code})"),
-            "ask your team's owner to let you add machines, then add it again",
+            "add it again; if the hub refuses again, sign in to cmux again (`cmux login`)",
         ),
     }
 }

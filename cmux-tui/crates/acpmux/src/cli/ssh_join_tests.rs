@@ -411,3 +411,31 @@ async fn the_real_ssh_runner_closes_stdin_after_the_token_line() {
     assert_eq!(ran.code, 0, "{ran:?}");
     assert_eq!(ran.stdout.trim(), "closed");
 }
+
+/// Door A timing run (huge-blue/doora-timing, 2026-11-16): the staging hub answered the mint
+/// with 404 `machine.not_found`, and the add said "ask your team's owner to let you add
+/// machines", which no owner can do. On `machineJoin.mint` a 404 is the platform's
+/// `MachineNotFound`, "the machine or enabled API surface is absent; check the identifier and
+/// deployment": the next step is the hub this computer signs in to. Only 403
+/// `machine.not_member` is the owner's.
+#[test]
+fn a_hub_refusal_names_the_next_step_its_code_means() {
+    let origin = "https://hub.example";
+    let refused = |status: u16, code: &str| {
+        hub_failure(origin, &HubError::Status { status, code: code.into() })
+    };
+    let not_found = refused(404, "machine.not_found");
+    one_line(&not_found);
+    assert!(!not_found.next.contains("owner"), "{not_found:?}");
+    assert!(not_found.message.contains(origin), "{not_found:?}");
+    assert!(not_found.next.contains("CMUX_PLATFORM_ORIGIN"), "{not_found:?}");
+    let not_member = refused(403, "machine.not_member");
+    assert!(not_member.next.contains("owner"), "{not_member:?}");
+    for (status, code) in
+        [(429, "join.rate_limited"), (503, "machine.join.unavailable"), (400, "join.malformed")]
+    {
+        let failure = refused(status, code);
+        one_line(&failure);
+        assert!(!failure.next.contains("owner"), "{status}: {failure:?}");
+    }
+}
