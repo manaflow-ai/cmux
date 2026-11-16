@@ -6,7 +6,9 @@
 use super::*;
 pub(crate) use crate::sidecar_census::Census;
 pub(crate) use crate::sidecar_census::LaunchServers;
-use crate::sidecar_census::{CENSUS_BUDGET, Servers, classify, from_json, launch_only, resolved};
+#[cfg(unix)]
+use crate::sidecar_census::classify;
+use crate::sidecar_census::{CENSUS_BUDGET, Servers, from_json, launch_only, resolved};
 pub use crate::sidecar_census::{Sidecar, StoredLaunch};
 
 /// A refusal is logged at most this often per session.
