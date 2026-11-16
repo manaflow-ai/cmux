@@ -38,6 +38,7 @@ import { papercutPane, type PapercutStep } from "../test/support/papercutChat";
 import { traceUpwardAnchors } from "../test/support/upwardAnchorTrace";
 import { perfRow } from "./perfRow";
 import { reportForcedLayouts } from "./forcedLayoutTrace";
+import { reportRowCensus, reportSelectorStats, SELECTOR_STATS_CATEGORIES } from "./selectorStatsTrace";
 import { reportTrace, TRACE_CATEGORIES } from "./styleInvalidationTrace";
 
 const TURNS = Number(process.env.TURNS ?? 600);
@@ -68,6 +69,9 @@ const ASKED_PAGE_SIZE = process.env.SMALL_PAGES !== "1";
 const TRACE = process.env.TRACE === "1" || process.env.TRACE === "2";
 /// TRACE=2: with invalidation tracking too, and what restyled (styleInvalidationTrace.ts `STYLE-TRACE` lines).
 const INVALIDATIONS = process.env.TRACE === "2";
+/// TRACE=3: Chromium's selector stats for the run, and a census of the drawn rows: elements per row kind and
+/// the rules they match (selectorStatsTrace.ts `SELECTOR-STATS` and `ROW-CENSUS` lines).
+const SELECTOR_STATS = process.env.TRACE === "3";
 
 // The chat: the generated ordinary log at TURNS turns, its records as the stand-in daemon's lead steps; the
 // papercut chat adds one finished turn after it ("Answer 1:"), which the page waits for. FIXTURE=flat: the
@@ -111,12 +115,20 @@ async function run(name: string, engine: BrowserType) {
     // DEV=1 measures the dev server (React's development build); timing is of the production build.
     ...(process.env.DEV === "1"
       ? {}
-      : { production: { minify: process.env.PROFILE === "1" || TRACE ? false : undefined } }),
+      : { production: { minify: process.env.PROFILE === "1" || TRACE || SELECTOR_STATS ? false : undefined } }),
   });
   try {
     // Each older page on the wire (its `_acpmux/events` ask with `beforeSeq`, the reply's arrival and size)
     // and each ask the transcript makes and its settling (`__cmuxOlderTrace`), on the page's clock.
     const page = await pane.open({ width: 1100, height: 800 }, async (page) => {
+      if (process.env.ABLATE_CSS)
+        await page.addInitScript((css) => {
+          document.addEventListener("DOMContentLoaded", () => {
+            const style = document.createElement("style");
+            style.textContent = css;
+            document.head.append(style);
+          });
+        }, process.env.ABLATE_CSS);
       await page.addInitScript(() => {
         const wire = {
           sent: new Map<number, { before: number; limit: number; sentAt: number }>(),
@@ -249,6 +261,8 @@ async function run(name: string, engine: BrowserType) {
       profiledAt = (await page.evaluate(() => performance.now())) as number;
     }
     const tracing = TRACE && name === "chromium";
+    const statsTracing = SELECTOR_STATS && name === "chromium";
+    if (statsTracing) await browser!.startTracing(page, { categories: SELECTOR_STATS_CATEGORIES });
     if (tracing)
       await browser!.startTracing(page, {
         categories: TRACE_CATEGORIES.filter((each) => INVALIDATIONS || !each.includes("invalidationTracking")),
@@ -352,6 +366,10 @@ async function run(name: string, engine: BrowserType) {
         askToDrawn.push(drawn.paint - ask.askAt);
         drawnWindows.push({ from: ask.askAt, to: drawn.paint });
       } else undrawnAsks += 1;
+    }
+    if (statsTracing) {
+      reportSelectorStats(JSON.parse((await browser!.stopTracing()).toString()).traceEvents);
+      await reportRowCensus(page);
     }
     if (tracing) {
       const events = JSON.parse((await browser!.stopTracing()).toString()).traceEvents;
