@@ -531,8 +531,8 @@ class App:
     def call(self, method, params=None, timeout=30):
         return rpc(self.sock, method, params, timeout)
 
-    def action(self, name, focus=True, timeout=60, **args):
-        params = {"action": name, "args": args, "origin": "script", "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
+    def action(self, action_id, /, focus=True, timeout=60, **args):
+        params = {"action": action_id, "args": args, "origin": "script", "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
         return self.call("action.run", params, timeout=timeout)
@@ -736,7 +736,7 @@ def seed_chat(app: App, opts):
     for _ in range(6):
         added = app.action("agent.harness.add", focus=False, id=TURNS_AGENT[0], name=TURNS_AGENT[0],
                            command=sys.executable, args=shlex.quote(str(TURNS_AGENT[1])), protocol="acp",
-                           replace="true")
+                           replace=True)
         if "timeout" not in json.dumps(added):
             break
         time.sleep(5)  # harness: the app is still starting; the add goes on, try again
@@ -757,8 +757,14 @@ def seed_chat(app: App, opts):
         failed += sent.returncode != 0
         if failed > 5:
             break
+    before = set(app.workspace_ids())
     opened = app.action("agent.openSessionWorkspace", focus=False, session=session)
-    return {"session": session, "turns": opts.chat_turns, "failed_sends": failed,
+    appeared = []
+    deadline = time.monotonic() + 20  # the workspace opens as a task (AgentSessionWorkspace.open)
+    while not appeared and time.monotonic() < deadline:
+        time.sleep(0.5)  # harness: wait for the new workspace to reach the snapshot
+        appeared = [w for w in app.workspace_ids() if w and w not in before]
+    return {"session": session, "workspace": appeared[0] if appeared else None, "turns": opts.chat_turns, "failed_sends": failed,
             "seconds": round(time.monotonic() - started, 1), "open": "error" if opened.get("error") else "ok",
             "open_error": opened.get("error")}
 
@@ -785,17 +791,25 @@ def interaction_round(app: App, label, seed_info, rec, t0, mark_root: Path, inde
                                "shown_ms": round((time.monotonic() - started) * 1000, 1), "shown": shown,
                                "error": str(reply.get("error")) if reply.get("error") else None})
     typing = seed_info.get("typing") if seed_info.get("typing") in ids else (ids[-1] if ids else None)
-    if typing:
-        app.action("goToWorkspace", workspace=typing)
-        app.wait_shown(typing)
-        for verb in ("terminal.scrollPageUp",) * 4 + ("terminal.scrollPageDown",) * 4:
-            mark(f"scroll:{verb}")
+    chat_ws = (seed_info.get("chat") or {}).get("workspace")
+    scroll_ws = chat_ws if chat_ws in ids else typing
+    window = (rec.ready or {}).get("window") if rec is not None else None
+    if scroll_ws and SCROLLER and window:
+        app.action("goToWorkspace", workspace=scroll_ws)
+        app.wait_shown(scroll_ws)
+        x, y = window[0] + window[2] * 0.6, window[1] + window[3] * 0.5
+        for direction in ("up",) * 6 + ("down",) * 6:
+            mark(f"scroll:{direction}")
             started = time.monotonic()
-            reply = app.action(verb)
-            rows["scroll"].append({"verb": verb, "reply_ms": round((time.monotonic() - started) * 1000, 1),
-                                   "error": str(reply.get("error")) if reply.get("error") else None})
-            time.sleep(0.15)  # harness: one page a step, a person's pace
-        app.action("terminal.scrollToBottom")
+            done = subprocess.run([str(SCROLLER), f"{x:.0f}", f"{y:.0f}", "-1" if direction == "down" else "1", "8"],
+                                  capture_output=True, text=True, timeout=10)
+            rows["scroll"].append({"verb": f"wheel-{direction}", "where": "chat" if scroll_ws == chat_ws else "terminal",
+                                   "post_ms": round((time.monotonic() - started) * 1000, 1),
+                                   "error": (done.stderr.strip()[-200:] or "failed") if done.returncode else None})
+            time.sleep(0.15)  # harness: a person's pace
+    else:
+        rows["scroll"].append({"skipped": "no scroller, window or workspace", "scroller": bool(SCROLLER),
+                               "window": bool(window), "workspace": scroll_ws})
     for verb in ("newTab",) * 5 + ("closeTab",) * 5:
         mark(f"newtab:{verb}")
         started = time.monotonic()
@@ -1005,6 +1019,41 @@ def hang_files(home: Path, out: Path, since: float):
     return kept
 
 
+SCROLLER = None
+SCROLLER_SRC = r"""
+import CoreGraphics
+import Foundation
+// post-update-hitches scroller: STEPS wheel events of LINES lines each at X,Y (global points), 16 ms apart.
+let a = CommandLine.arguments
+guard a.count == 5, let x = Double(a[1]), let y = Double(a[2]), let lines = Int32(a[3]), let steps = Int(a[4]) else {
+    FileHandle.standardError.write("usage: scroller X Y LINES STEPS\n".data(using: .utf8)!)
+    exit(2)
+}
+CGWarpMouseCursorPosition(CGPoint(x: x, y: y))
+for _ in 0..<steps {
+    guard let e = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: lines, wheel2: 0, wheel3: 0) else {
+        FileHandle.standardError.write("no scroll event\n".data(using: .utf8)!)
+        exit(1)
+    }
+    e.location = CGPoint(x: x, y: y)
+    e.post(tap: .cghidEventTap)
+    usleep(16_000)
+}
+"""
+
+
+def build_scroller(cache: Path):
+    """The wheel-event poster (a person's scroll, from outside the app); None when it cannot be built."""
+    cache.mkdir(parents=True, exist_ok=True)
+    source, binary = cache / "puh-scroller.swift", cache / "puh-scroller"
+    source.write_text(SCROLLER_SRC)
+    done = subprocess.run(["swiftc", "-O", "-o", str(binary), str(source)], capture_output=True, text=True, timeout=600)
+    if done.returncode != 0:
+        print(f"PUH scroller not built: {done.stderr.strip()[-300:]}", flush=True)
+        return None
+    return binary
+
+
 def build_recorder(cache: Path):
     cache.mkdir(parents=True, exist_ok=True)
     binary = cache / "puh-recorder"
@@ -1040,6 +1089,8 @@ def run(opts, root: Path, report):
     if not opts.no_frames:
         try:
             recorder_bin = build_recorder(Path(opts.tools))
+            global SCROLLER
+            SCROLLER = build_scroller(Path(opts.tools))
         except (RuntimeError, OSError, subprocess.SubprocessError) as error:
             report["frames_note"] = str(error)
             say(f"note: frames skipped: {error}")
