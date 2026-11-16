@@ -140,13 +140,8 @@ pub(super) fn pull_kept(
     }
     let git = GitDirs::of(&local)?;
     let mut remote = Remote::connect(socket)?;
-    let (manifest_path, record, plain_in_git) = record_of(&mut remote, remote_root, git.is_some())?;
-    let manifest = base::trusted(&local, remote_root, record.as_deref())?;
-    // A first pass of a git folder (`size_cap`) went as a plain copy: no history, no git state
-    // recorded. Its files come back as any copy's do; there is no branch or index to bring back.
-    if plain_in_git && manifest.git.is_some() {
-        return Err(base::Mismatch.into());
-    }
+    let (manifest_path, manifest, plain_in_git) =
+        base::machine_record(&mut remote, &local, remote_root, git.is_some())?;
     let staging = Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
     let root = Dir::open(&local)?;
 
@@ -491,33 +486,6 @@ pub(super) fn pull_kept(
         "head": head,
         "manifest_saved": saved,
     })))
-}
-
-/// The machine's record of the push a pull merges against: its path and bytes, and whether it is
-/// the plain record (`.cmux-sync.json`) of a git folder here. A git folder's push records in
-/// `.git/cmux-sync.json`, except a first pass of one past the copy's limits (`size_cap`), which
-/// sends no history and records as a plain copy: with no `.git` record on the machine, the plain
-/// one is read (cmuxterm-hq#11697: Bring Back Local after a first pass stopped on a record
-/// mismatch, and the chat's edits never came back). Either is trusted only as this Mac kept it
-/// ([`base::trusted`]).
-fn record_of(
-    remote: &mut Remote,
-    remote_root: &str,
-    in_git: bool,
-) -> anyhow::Result<(String, Option<Vec<u8>>, bool)> {
-    let plain = format!("{remote_root}/.cmux-sync.json");
-    if !in_git {
-        let record = remote.read(&plain)?;
-        return Ok((plain, record, false));
-    }
-    let git = format!("{remote_root}/.git/cmux-sync.json");
-    if let Some(record) = remote.read(&git)? {
-        return Ok((git, Some(record), false));
-    }
-    match remote.read(&plain)? {
-        Some(record) => Ok((plain, Some(record), true)),
-        None => Ok((git, None, false)),
-    }
 }
 
 /// Puts back what `transaction` changed after `error`. A file that changed
