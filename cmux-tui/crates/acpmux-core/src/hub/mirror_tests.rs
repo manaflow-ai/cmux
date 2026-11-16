@@ -523,6 +523,43 @@ fn a_turn_takes_units_up_to_the_cap_and_the_local_row() {
     assert_eq!(hub.snapshot().len(), origins * MAX_UNIT_CHANGES + 1);
 }
 
+/// Decision 300: a turn writes its rows before its units. A local row queued behind thirty
+/// full units is published before the first change of any unit in that turn, and the turn
+/// still takes the cap's units (decision 279's count).
+#[test]
+fn a_row_queued_behind_thirty_units_is_published_before_any_unit_of_its_turn() {
+    const ORIGINS: usize = 30;
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    for origin in 0..ORIGINS {
+        let name = format!("peer-{origin:02}");
+        let changes = (0..MAX_UNIT_CHANGES)
+            .map(|n| UnitChange::Summary(Box::new(row(&name, &format!("c-{n:04}"), 1))))
+            .collect();
+        let unit = MirrorUnit { origin: name, after: None, changes, mark: mark(1) };
+        hub.submit_unit(Source::Mirror, unit).unwrap();
+    }
+    hub.submit(row("local", "mine", 1)).unwrap();
+    let subscription = hub.subscribe(&Sub::new("rows-first", "list")).unwrap();
+    writer.process_batch();
+    let mut published = Vec::new();
+    while let Some(item) = subscription.receiver.try_next() {
+        if let ListItem::Summary(event) = item {
+            published.push(event.summary.key());
+        }
+    }
+    assert_eq!(
+        published.first(),
+        Some(&RowKey::new("local", "mine")),
+        "the local row is published first, before {} unit changes",
+        published.len().saturating_sub(1)
+    );
+    let marked = (0..ORIGINS)
+        .filter(|origin| hub.mirror_mark(&format!("peer-{origin:02}")).is_some())
+        .count();
+    assert_eq!(marked, MAX_TURN_UNIT_CHANGES / MAX_UNIT_CHANGES, "the turn takes the cap's units");
+    assert_eq!(published.len(), MAX_TURN_UNIT_CHANGES + 1);
+}
+
 /// Decision 279: a unit the cap passed over is taken before any unit queued after it, so
 /// each turn starts after the origin the last one ended on. Thirty origins queue a full unit
 /// again as soon as theirs is taken; every origin's unit is taken within as many turns as it
