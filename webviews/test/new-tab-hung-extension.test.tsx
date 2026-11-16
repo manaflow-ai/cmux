@@ -12,6 +12,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -160,7 +161,10 @@ for (const mode of ["hang", "throws"] as const)
         handle.type("fix the flaky");
       });
       // The slot gives up (its deadline, or the throw); nothing else on the page changes.
-      await act(async () => new Promise((resolve) => setTimeout(resolve, 80)));
+      await until(
+        () => gone.length > 0,
+        () => act(async () => new Promise((resolve) => setTimeout(resolve, 0))),
+      );
       expect(gone).toHaveLength(1);
       if (mode === "throws") expect(gone[0]).toContain("TypeError");
       // The room over the composer stays: the composer does not move when the slot empties.
