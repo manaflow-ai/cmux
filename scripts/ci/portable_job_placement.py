@@ -96,8 +96,11 @@ side = _load("side_lane_placement")
 NOT_FLEET_LINUX = ("blacksmith-", "ubuntu-", "macos-", "windows-", "glaeda-")
 # SMALL_ONLY: the jobs that may take the small label, keyed `<workflow file>/<job id>` as glaeda's
 # hook keys them (glaeda-cmux-runner-hook SMALL_JOBS, which also lists the DEV verify and hq's routes).
-SMALL_JOBS = frozenset({"pr-checks.yml/size", "pr-red-checks-comment.yml/comment", "ci-guards.yml/guard-status",
-                        "web-validation.yml/web-validation"})
+# A reusable workflow's job is keyed by its caller's file, which GITHUB_WORKFLOW_REF names: `comment`
+# (pr-red-checks-comment.yml) and `guard-status` (ci-guards.yml) run only when called.
+SMALL_JOBS = frozenset({"pr-checks.yml/size", "web-validation.yml/web-validation",
+                        "ci.yml/comment", "cmux-next.yml/comment", "cmux-next-guards.yml/comment",
+                        "ci.yml/guard-status", "cmux-next-guards.yml/guard-status"})
 SMALL_PREFIX = "glaeda-small-xcode-"
 # Keep the step below its own timeout; early nightly controls retain their fleet fallback.
 DEADLINE_SECONDS = 60

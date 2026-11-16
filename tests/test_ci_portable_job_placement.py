@@ -984,6 +984,11 @@ def workflow_ref(name: str) -> str:
     return f"manaflow-ai/cmux/.github/workflows/{name}@refs/heads/feat-cmux-next"
 
 
+# The file each small job is defined in (its runs-on reads the small placement there).
+SMALL_JOB_FILES = {"size": "pr-checks.yml", "web-validation": "web-validation.yml",
+                   "comment": "pr-red-checks-comment.yml", "guard-status": "ci-guards.yml"}
+
+
 class SmallOnly(unittest.TestCase):
     """SMALL_ONLY: glaeda's small runners hold their listeners only under the small jobs' disk peak (8 GiB, not a
     heavy job's 20), so only those jobs may ever take the small label."""
@@ -995,7 +1000,7 @@ class SmallOnly(unittest.TestCase):
         self.assertEqual((placed.mini_runner, placed.mini_jobs), (SIDE, ("ui-review", "split")))
 
     def test_only_idle_small_runners_less_their_queue_and_a_busy_one_leaves_the_side_route(self):
-        config = env(JOBS="guard-status", GITHUB_WORKFLOW_REF=workflow_ref("ci-guards.yml"))
+        config = env(JOBS="guard-status", GITHUB_WORKFLOW_REF=workflow_ref("ci.yml"))
         busy = placement.decide(config, [small_runner("s", busy=True), *idle(1)], snapshot(), NOW)
         self.assertEqual((busy.small_runner, busy.small_jobs), ("", ()))
         self.assertEqual(busy.mini_jobs, ("guard-status",))
@@ -1010,7 +1015,10 @@ class SmallOnly(unittest.TestCase):
         runners = [small_runner(f"s{index}") for index in range(6)] + idle(6)
         cases = (("cmux-next.yml", "fast-tier release-compile swift-canary"),
                  ("pr-checks.yml", "ui-review split"),
-                 ("cmux-next.yml", "size comment guard-status web-validation"),
+                 ("cmux-next.yml", "size guard-status web-validation"),
+                 ("gallery-advisory.yml", "comment"),
+                 ("ci-guards.yml", "guard-status"),
+                 ("pr-red-checks-comment.yml", "comment"),
                  ("", "size"))
         for workflow, jobs in cases:
             with self.subTest(workflow=workflow, jobs=jobs):
@@ -1023,6 +1031,22 @@ class SmallOnly(unittest.TestCase):
             config = env(JOBS=job, GITHUB_WORKFLOW_REF=workflow_ref(workflow))
             self.assertEqual(placement.decide(config, runners, snapshot(), NOW).small_jobs, (job,))
 
+    def test_each_small_key_names_the_workflow_github_reports_for_that_job(self):
+        """GITHUB_WORKFLOW_REF names the caller for a reusable workflow's job, so a small key must name the job's
+        own file or a workflow that calls it; a key under the called file would never match (comment and
+        guard-status only run when called)."""
+        for key in sorted(placement.SMALL_JOBS):
+            workflow, job = key.split("/")
+            own = SMALL_JOB_FILES[job]
+            with self.subTest(key=key):
+                jobs = yaml.safe_load((WORKFLOWS / workflow).read_text()).get("jobs") or {}
+                if workflow == own:
+                    self.assertIn(job, jobs)
+                    self.assertNotIn("workflow_call", (WORKFLOWS / own).read_text().split("\njobs:", 1)[0])
+                else:
+                    self.assertTrue(any((spec or {}).get("uses") == f"./.github/workflows/{own}" for spec in jobs.values()),
+                                    f"{workflow} does not call {own}")
+
     def test_the_small_label_follows_the_side_labels_xcode(self):
         self.assertEqual(placement.small_label("glaeda-side-std-xcode-26.4"), "glaeda-small-xcode-26.4")
         self.assertEqual(placement.small_label("ubuntu-24.04"), "")
@@ -1030,7 +1054,7 @@ class SmallOnly(unittest.TestCase):
     def test_only_the_small_jobs_runs_on_read_the_small_output_and_no_workflow_names_the_label(self):
         """The workflow side of SMALL_ONLY: a runs-on may read small_runner only for a job in SMALL_JOBS, under its
         own key, and no workflow or variable default names the small label itself."""
-        allowed = {tuple(key.split("/")) for key in placement.SMALL_JOBS}
+        allowed = {(SMALL_JOB_FILES[key.split("/")[1]], key.split("/")[1]) for key in placement.SMALL_JOBS}
         seen = set()
         for path in sorted(WORKFLOWS.glob("*.yml")):
             text = path.read_text()
