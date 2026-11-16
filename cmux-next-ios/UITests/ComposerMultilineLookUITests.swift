@@ -20,7 +20,8 @@ final class ComposerMultilineLookUITests: XCTestCase {
         XCUIDevice.shared.appearance = appearance
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "kbd-chat"]
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "kbd-chat",
+                                "-cmuxMobile.settings.appearance", name]
         app.launch()
         defer { app.terminate() }
         let field = app.textViews["chat.composer.field"]
