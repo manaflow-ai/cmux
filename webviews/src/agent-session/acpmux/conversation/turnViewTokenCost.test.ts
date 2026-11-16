@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import type { AcpmuxRow } from "../model";
 import { turnViewFrom } from "./turns";
 
 // CMUX-571 god-chat-ratios: a streamed token into the last reply of a long chat must not copy a
@@ -7,8 +8,8 @@ import { turnViewFrom } from "./turns";
 
 const TURNS = 20_000;
 
-const rowsOf = (turns: number, lastText: string) => {
-  const rows = [];
+const rowsOf = (turns: number, lastText: string): AcpmuxRow[] => {
+  const rows: AcpmuxRow[] = [];
   for (let turn = 0; turn < turns; turn += 1) {
     rows.push({ id: `user-${turn}`, version: 1, at: turn * 2, kind: "user" as const, text: "prompt" });
     rows.push({
@@ -51,7 +52,8 @@ test("a streamed token into a long chat's last reply copies no set of every repl
   const previous = turnViewFrom(before, expanded, { working: true, now: 0 });
   // The token: only the last reply changed; every earlier row is the same object.
   const after = before.slice();
-  after[after.length - 1] = { ...after[after.length - 1]!, version: 2, text: "Answer final: one two" };
+  const last = after[after.length - 1]!;
+  after[after.length - 1] = { ...last, version: 2, text: "Answer final: one two" };
   let view: ReturnType<typeof turnViewFrom> | undefined;
   const copied = setCopies(() => {
     view = turnViewFrom(after, expanded, { working: true, now: 0 }, previous);
