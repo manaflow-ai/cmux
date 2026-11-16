@@ -7,6 +7,7 @@
 // typing before the live composer is up waits in the host's key queue (PageInputReadiness), as it does
 // with no snapshot.
 import {
+  FOLD_GHOST_CLASS,
   fitsDocument,
   PAGE_STYLE_ID,
   SNAPSHOT_BODY_TAG,
@@ -70,9 +71,13 @@ function setAttributes(element: Element, attributes: SnapshotAttributes): void {
   }
 }
 
-/// Script, frames and handlers out of the parsed copy: it draws, it never runs anything.
+/// Script, frames and handlers out of the parsed copy: it draws, it never runs anything. A fold's
+/// fading row copies go too: a copy kept from a build that wrote them would draw them at full ink.
 function inertCopy(root: ParentNode): void {
-  for (const node of Array.from(root.querySelectorAll("script, iframe, object, embed, frame, frameset"))) node.remove();
+  for (const node of Array.from(
+    root.querySelectorAll(`script, iframe, object, embed, frame, frameset, .${FOLD_GHOST_CLASS}`),
+  ))
+    node.remove();
   for (const element of Array.from(root.querySelectorAll("*")))
     for (const attribute of Array.from(element.attributes))
       if (/^on/i.test(attribute.name)) element.removeAttribute(attribute.name);

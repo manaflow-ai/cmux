@@ -4,6 +4,7 @@
 // it forces at most the one layout the page already needs for its next frame.
 import {
   attributesOf,
+  FOLD_GHOST_CLASS,
   PAGE_STYLE_ID,
   SNAPSHOT_MAX_CHARS,
   SNAPSHOT_SCROLL_ATTRIBUTE,
@@ -23,6 +24,8 @@ type Plan = { drop: boolean; scroll?: string; checked?: boolean; shadow?: Shadow
 function planFor(element: Element, viewHeight: number): Plan | undefined {
   let plan: Plan | undefined;
   if (element.matches(ROW_SELECTOR)) {
+    // A fold's fading copy of a row it took away: the rows already sit where the fold lands.
+    if (element.classList.contains(FOLD_GHOST_CLASS)) return { drop: true };
     const rect = element.getBoundingClientRect();
     if (rect.bottom < 0 || rect.top > viewHeight) return { drop: true };
   }

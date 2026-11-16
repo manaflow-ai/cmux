@@ -16,11 +16,13 @@ import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import type { LayoutGeometry } from "../conversationGeometry";
+import { FOLD_GHOST_CLASS } from "../chatSnapshot/shared";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
 export const TURN_FOLD_ATTR = "data-turn-fold";
-/// A drawn copy of a row a close hides, fading out where the row was (conversation.css).
-export const TURN_FOLD_GHOST = "acpmux-row--fold-ghost";
+/// A drawn copy of a row a close hides, fading out where the row was (conversation.css). A chat's
+/// snapshot leaves these out (chatSnapshot/shared.ts).
+export const TURN_FOLD_GHOST = FOLD_GHOST_CLASS;
 
 /// A row as the transcript places it: its id and top (layout px), by index.
 export type PlacedRows = {
