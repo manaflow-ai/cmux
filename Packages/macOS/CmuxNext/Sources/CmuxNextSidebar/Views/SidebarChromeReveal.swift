@@ -4,9 +4,10 @@ import CmuxNextDesign
 /// The opacity of each piece of the sidebar's hover chrome at one moment: the pointer over the
 /// sidebar or not, and the settings that hide pieces until it is.
 ///
-/// Show Sidebar Controls Only on Hover (`sidebar.controlsOnHover`, Lawrence 2026-10-27 message 14242) is off by default,
-/// so the New Workspace button, the spaces strip, the profile control and the Search button always
-/// show. On, they show only while the pointer is over the sidebar. `sidebar.spacesVisibility` Always
+/// By default the New Workspace button, the spaces strip, the profile control and the Search button always
+/// show. Minimal Mode (`sidebar.minimal`, user 2026-11-15) or Show Sidebar Controls Only on Hover
+/// (`sidebar.controlsOnHover`, Lawrence 2026-10-27 message 14242) shows them only while the pointer is
+/// over the sidebar (``SidebarSectionsPreferences/hidesControlsUntilHover``, passed as `controlsOnHover`). `sidebar.spacesVisibility` Always
 /// keeps the strip shown even then. Hide Bands Until Hover (`sidebar.minimalMode`) still hides its
 /// bands. Every piece is a fade only: it keeps its frame and its place in the accessibility tree.
 struct SidebarChromeReveal: Equatable {

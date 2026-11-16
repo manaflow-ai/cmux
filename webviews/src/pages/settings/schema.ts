@@ -68,6 +68,8 @@ export type SchemaRow = {
    * menu mutes a workspace). Still valid through settings.set. */
   page_hidden: boolean;
   validation: string;
+  /** domain:app_id: the app manifest's id pattern (cmux-app.schema.json `properties.id.pattern`). */
+  pattern?: string;
   accepts: unknown[];
   refuses: unknown[];
 };

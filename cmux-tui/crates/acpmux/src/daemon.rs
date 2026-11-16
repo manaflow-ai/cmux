@@ -106,13 +106,7 @@ pub struct DaemonOptions {
     pub take_over: bool,
 }
 
-/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
-/// a panic in a request task ends only that task and used to leave just
-/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
-/// app sends new lines to Sentry.
-pub fn panic_log_path() -> std::path::PathBuf {
-    home().join("panics.jsonl")
-}
+pub use crate::config::panic_log_path;
 
 /// Debug builds only: `thread` makes a worker thread panic once the hook
 /// is installed (tests/panic_log.rs). Its line carries `"test": true`.
@@ -448,6 +442,15 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         })
         .or_else(|| config.websocket.clone().map(|w| (w.listen, w.token)));
 
+    // The rest of config.json's start check (`config/start_check.rs`), the one `config --set` and
+    // `_acpmux/reload_config` run, so the CLI never writes what is refused here. The listener is
+    // checked just below, where `--listen` may stand in for config.json's.
+    if let Err(e) = config.settings_refusal() {
+        if let Some(fd) = opts.ready_fd {
+            write_ready(fd, &serde_json::json!({"ready": false, "refused": format!("{e:#}")}));
+        }
+        return Err(e);
+    }
     // Plain ws:// on a network address sends the token in clear: only with
     // the person's opt-in, on every path below (`server/ws_auth.rs`).
     let allow_network = opts.insecure_network_listen
@@ -571,6 +574,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tracing::warn!(
             "WireGuard transport off for this run: this home was copied from another machine"
         );
+        tracing::warn!("hub carrier off for this run: this home was copied from another machine");
     }
     // Start one mesh before Hub starts its saved peers. It forwards only to
     // the WebSocket listener bound above, whose existing tokens remain mandatory.
@@ -923,6 +927,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             {
                 let _phase = gauges.phase("wait for store");
                 hub.wait_store().await;
+            }
+            // The list's kept order first, before any log is read (`list_order.rs`): a list page
+            // or usage pass that comes before the logs are read waits for this sort alone, not
+            // for adoption and every log as well. After the ready line, so start stays instant.
+            {
+                let _phase = gauges.phase("list order");
+                let sorting = hub.clone();
+                let _ = tokio::task::spawn_blocking(move || sorting.sort_list_order()).await;
             }
             #[cfg(debug_assertions)]
             test_panic_in("startup");
@@ -1640,9 +1652,10 @@ where
         check_autostart(path)?;
     }
     exe_path::check_start()?;
-    // A saved network listen without its opt-in: the daemon would refuse it, and a daemon
-    // placed as a launchd job has no readiness line to say so. Say it here.
-    if let Some(why) = saved_listen_refusal().await {
+    // A config.json the daemon would refuse (a network listen without its opt-in, WireGuard
+    // without its settings): a daemon placed as a launchd job has no readiness line to say so.
+    // Say it here.
+    if let Some(why) = saved_start_refusal().await {
         return Err(anyhow!(why));
     }
     // The lock's holder serves this home at another socket: a start would wait out its own
@@ -1701,19 +1714,17 @@ fn check_autostart(path: &std::path::Path) -> Result<()> {
     }
 }
 
-/// Why a daemon started from this home's config.json would refuse its `websocket.listen` (a
-/// network address without `websocket.allowInsecureNetwork`), or None. `daemon status` shows it
-/// when no daemon runs, and a start refuses with it before it spawns one.
-pub async fn saved_listen_refusal() -> Option<String> {
+/// Why a daemon started from this home's config.json would refuse to start, or None: the whole
+/// start check (`Config::start_refusal`, `config/start_check.rs`), which `config --set` and
+/// `_acpmux/reload_config` run too: the WireGuard transport's settings and a `websocket.listen`
+/// on a network address without `websocket.allowInsecureNetwork`. `daemon status` shows it when
+/// no daemon runs, and a start refuses with it before it spawns one.
+pub async fn saved_start_refusal() -> Option<String> {
     let config = crate::config::Config::load().ok()?;
-    let w = config.websocket.as_ref()?;
-    // The address `run` would listen on: a home other than the shared one never keeps the
-    // fixed port and moves to a free loopback port instead (`first_run_listen`).
-    let listen = first_run_listen(uses_shared_home(), Some(&w.listen));
-    crate::server::check_listen_address(listen, w.allow_insecure_network)
+    tokio::task::spawn_blocking(move || config.start_refusal().err().map(|e| format!("{e:#}")))
         .await
-        .err()
-        .map(|e| format!("{:#}", e.context(format!("refusing websocket.listen {listen}"))))
+        .ok()
+        .flatten()
 }
 
 /// The refusal when this home's daemon serves `other`, not `path`.
@@ -2082,7 +2093,12 @@ fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
 
 /// Use the same home classification for initial launch and CLI restart.
 pub(crate) fn uses_shared_home() -> bool {
-    dirs::home_dir().map(|h| h.join(".acpmux")) == Some(home())
+    is_shared_home(&home())
+}
+
+/// Whether `home` is the shared daemon's home (`~/.acpmux`).
+pub(crate) fn is_shared_home(home: &std::path::Path) -> bool {
+    dirs::home_dir().map(|h| h.join(".acpmux")).as_deref() == Some(home)
 }
 
 /// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a

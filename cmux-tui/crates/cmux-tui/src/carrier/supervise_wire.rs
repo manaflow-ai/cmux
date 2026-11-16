@@ -100,6 +100,55 @@ pub(crate) fn error_of(value: &Value) -> Option<LinkError> {
     })
 }
 
+/// The longest `log` line text, in characters.
+pub(crate) const LOG_MAX: usize = 400;
+
+/// A run of token characters this long is taken for a credential and left
+/// out of a `log` line (a JWT or key is far longer; paths, ids and words are
+/// shorter).
+const SECRET_RUN: usize = 40;
+
+/// `{"log":TEXT}`: one link step (a connect, a child's start or exit, the
+/// socket ready, a refusal), which the app writes to its unified log as one
+/// persisted line (subsystem `com.cmuxterm.app.next`, category
+/// `cloud.carrier`), so a release build's link failure can be read with
+/// `log show`. Once per step, never per frame or byte; the text is one line,
+/// at most [`LOG_MAX`] characters, with any credential-shaped run replaced
+/// by `[redacted]`.
+pub(crate) fn log_line(text: &str) -> String {
+    json!({ "log": log_text(text) }).to_string()
+}
+
+/// `text` as a `log` line holds it: one line, bounded, no credential.
+pub(crate) fn log_text(text: &str) -> String {
+    // A run takes `/` too (standard base64), except at its start, so an
+    // absolute path stays readable.
+    fn flush(run: &mut String, out: &mut String) {
+        if run.chars().count() >= SECRET_RUN && !run.starts_with('/') {
+            out.push_str("[redacted]");
+        } else {
+            out.push_str(run);
+        }
+        run.clear();
+    }
+    let mut out = String::new();
+    let mut run = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '=' | '/') {
+            run.push(c);
+            continue;
+        }
+        flush(&mut run, &mut out);
+        out.push(if c.is_control() { ' ' } else { c });
+    }
+    flush(&mut run, &mut out);
+    if out.chars().count() > LOG_MAX {
+        out = out.chars().take(LOG_MAX - 1).collect();
+        out.push('…');
+    }
+    out
+}
+
 /// `{"read_token":R}`: the app answers with a `token` line.
 pub(crate) fn read_token_line(read: ReadId) -> String {
     json!({ "read_token": read }).to_string()

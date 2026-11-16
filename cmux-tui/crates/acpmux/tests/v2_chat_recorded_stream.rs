@@ -15,6 +15,9 @@
 //! The test fails when a committed file differs from the run; `ACPMUX_CHAT_STREAM_BLESS=1`
 //! rewrites them (or names a directory to write them to instead).
 
+use acpmux_book::blobs::{Blobs, Body};
+use acpmux_book::row::RowKind;
+use acpmux_book::translate::{self, Change, Harness};
 use acpmux_client::ffi::{
     ACPMUX_CLIENT_ABI_VERSION, ACPMUX_CLIENT_OK, Bytes, acpmux_client_abi_version,
     acpmux_client_bytes_free, acpmux_client_chat_blob, acpmux_client_chat_page,
@@ -27,6 +30,7 @@ use acpmux_client::wire::{
     OpenRow, QueueHead, QueueItem, RawJson, ReplayMark, blob_frame,
 };
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::c_void;
 use std::path::PathBuf;
 
@@ -539,6 +543,34 @@ fn the_chat_stream_is_recorded() {
     let step = rec.step("dropped", bytes);
     assert_eq!(kinds(step), ["chatDropped", "chatResumeEnd", "chatWindow"]);
 
+    // A page of turns: the group rows before the window, the newest two of three, as the
+    // daemon's turns page reads them (`turn_heads`).
+    let heads = turn_heads(3);
+    let before = heads.iter().map(row_id).max().unwrap() + 1;
+    let turns_page =
+        json!({"call": "chat_page", "request": {"sid": SID, "before": before, "turns": true}});
+    rec.call(turns_page.clone());
+    let page = ChatPageResult {
+        sid: SID.into(),
+        edition: 2,
+        rows: heads[1..].to_vec(),
+        has_before: true,
+        has_after: false,
+        refused: Vec::new(),
+        turns: true,
+    };
+    let step = rec.step("page-turns", Frame::json(FrameKind::Page, &page).unwrap().encode());
+    assert_eq!(kinds(step), ["chatPage"]);
+    assert!(step.changes[0].contains(r#""turns":true"#));
+
+    // The same page answered by a daemon from before `turns`: an ordinary page, not turns.
+    rec.call(turns_page);
+    let page = ChatPageResult { turns: false, ..page };
+    let step =
+        rec.step("page-turns-unsupported", Frame::json(FrameKind::Page, &page).unwrap().encode());
+    assert_eq!(kinds(step), ["chatError"]);
+    assert!(step.changes[0].contains(r#""code":"turns_unsupported""#));
+
     // A `sub` error but `not_ready` ends the sub: the page runs v1 for the chat.
     let step = rec.step("sub-error", error("sub", "source_failed"));
     assert_eq!(kinds(step), ["chatError"]);
@@ -556,6 +588,96 @@ fn the_chat_stream_is_recorded() {
     let fallback = fallback_stream();
     let total = rec.bytes.len() + lines.len() + fallback.bytes.len() + fallback.jsonl().len();
     assert!(total < MAX_FIXTURE_BYTES, "{total} bytes");
+}
+
+/// The group rows (turn heads) of `turns` settled tool turns, built as the daemon builds the rows
+/// its turns page reads (`acpmux-core`'s `settle_or_open`): each harness line through the book's
+/// translator, a row's fields merged into its body, the body written by `Blobs::settle`, and the
+/// row encoded by `Row::encode`. The lines have the shape of `acpmux-core`'s `tool_turn` (a
+/// prompt, a tool call and its result, a reply, the turn's end).
+fn turn_heads(turns: u64) -> Vec<RawJson> {
+    let dir = tempfile::tempdir().unwrap();
+    let mut blobs = Blobs::open(dir.path()).unwrap();
+    let mut state = translate::State::default();
+    let mut fields: BTreeMap<u64, BTreeMap<String, String>> = BTreeMap::new();
+    let mut bodied = BTreeSet::new();
+    let mut heads = Vec::new();
+    let mut place = 0;
+    for line in (1..=turns).flat_map(tool_turn) {
+        let span = line.len() as u64 + 1;
+        let ops = translate::translate(&mut state, Harness::V1, place, span, line.as_bytes());
+        place += span;
+        for op in ops.unwrap() {
+            let row = match op.change {
+                Change::Row(row) => row,
+                Change::Body { id, .. } => {
+                    bodied.insert(id);
+                    continue;
+                }
+                _ => continue,
+            };
+            fields.entry(row.id).or_default().extend(row.fields.clone());
+            if row.kind != RowKind::Group || row.open {
+                continue;
+            }
+            assert!(!bodied.contains(&row.id), "a group row's body is its fields alone");
+            let mut body = Body::new(row.id).unwrap();
+            for (key, value) in fields.remove(&row.id).unwrap() {
+                blobs.set(&mut body, &key, &value, false).unwrap();
+            }
+            let text = blobs.settle(&body).unwrap().expect("a group row's body is inline");
+            let mut encoded = Vec::new();
+            row.as_row(std::str::from_utf8(&text).unwrap()).encode(None, &mut encoded).unwrap();
+            heads.push(RawJson::from_bytes(&encoded).unwrap());
+        }
+    }
+    assert_eq!(heads.len(), turns as usize, "one group row a settled turn");
+    heads
+}
+
+fn row_id(row: &RawJson) -> u64 {
+    serde_json::from_str::<Value>(row.0.get()).unwrap()["id"].as_u64().unwrap()
+}
+
+/// One settled turn with a tool call, as a v1 harness log has it.
+fn tool_turn(n: u64) -> Vec<String> {
+    let seq = n * 10;
+    let line = |seq: u64, dir: &str, kind: &str, msg: Value| {
+        json!({"seq": seq, "at": seq * 1000, "dir": dir, "kind": kind, "msg": msg}).to_string()
+    };
+    let update = |seq: u64, kind: &str, update: Value| {
+        line(seq, "in", kind, json!({"method": "session/update", "params": {"update": update}}))
+    };
+    let (turn, prompt, call) = (format!("t{n}"), format!("p{n}"), format!("c{n}"));
+    vec![
+        line(
+            seq + 1,
+            "mux",
+            "user_message",
+            json!({"promptId": prompt, "turnId": turn, "text": format!("prompt {n}")}),
+        ),
+        line(seq + 2, "mux", "turn_started", json!({"turnId": turn, "promptId": prompt})),
+        update(
+            seq + 3,
+            "tool_call",
+            json!({"sessionUpdate": "tool_call", "toolCallId": call,
+            "title": "Read a.rs", "kind": "read", "status": "pending"}),
+        ),
+        update(
+            seq + 4,
+            "tool_call_update",
+            json!({"sessionUpdate": "tool_call_update",
+            "toolCallId": call, "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "fn a() {}"}}]}),
+        ),
+        update(
+            seq + 5,
+            "agent_message_chunk",
+            json!({"sessionUpdate": "agent_message_chunk",
+            "messageId": format!("m{n}"), "content": {"type": "text", "text": format!("reply {n}")}}),
+        ),
+        line(seq + 6, "mux", "turn_result", json!({"turnId": turn, "status": "completed"})),
+    ]
 }
 
 /// A daemon whose upgrade is a v1 request it does not know: the client gives one fallback

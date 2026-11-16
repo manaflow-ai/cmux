@@ -22,7 +22,7 @@ public import AppKit
 /// ```
 public final class FileGridView: NSView {
     private let cache: ThumbnailCache
-    private let scrollView = NSScrollView()
+    private let scrollView = FileGridScrollView()
     let collectionView = FileGridCollectionView()
     private let layoutValues = NSCollectionViewFlowLayout()
     private let emptyLabel = NSTextField(wrappingLabelWithString: "")
@@ -276,5 +276,16 @@ extension FileGridView: NSCollectionViewDelegate {
                                indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
         setDropHighlight(false)
         return onDrop?(draggingInfo.draggingPasteboard) ?? false
+    }
+}
+
+/// The grid's scroll view, overlay whatever the system's scroller style, as CmuxNextDesign's
+/// `OverlayScrollView` (this target links system frameworks only). A legacy style, which AppKit sets
+/// whenever a mouse comes or goes (Universal Control's shared mouse too), took the scroller's width
+/// from the clip and reflowed every tile.
+final class FileGridScrollView: NSScrollView {
+    override var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = .overlay }
     }
 }

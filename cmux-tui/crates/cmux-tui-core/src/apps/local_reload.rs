@@ -1,6 +1,10 @@
-//! Local apps reload when their files change (cx-swovq.1): the user's
-//! customization folder (`Sources::customize`, id `local/customize`) and the
-//! local development folder (`<state>/apps/local`). A file watch (FSEvents on
+//! Apps in the folders a person writes reload when their files change
+//! (cx-swovq.1): the user's customization folder (`Sources::customize`, id
+//! `local/customize`), the local development folder (`<state>/apps/local`)
+//! and each `CMUX_APPS_DIRS` folder (`Sources::extra`: a checkout of an
+//! extension, or a fork of a first-party app). The shipped folders inside the
+//! signed app (first-party, bundled samples) are not watched: nobody edits
+//! them in place. A file watch (FSEvents on
 //! macOS, inotify on Linux) wakes one thread; no timer, no polling. A burst of
 //! events is drained before one catalog read. Only an app whose files changed
 //! restarts its host (its mounts are sent again, so a hover card or a section
@@ -25,17 +29,26 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, PoisonError, Weak};
 
 use notify::event::{AccessKind, AccessMode, EventKind};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::catalog::{self, CUSTOMIZE_APP, Package};
 use super::mirror::{self, Op, Source};
-use super::supervisor::{Out, Supervisor};
+use super::supervisor::{ApiError, Out, Supervisor};
 
 /// Fingerprints of the local packages (`fingerprint`), by app id.
 type Prints = HashMap<String, u64>;
+
+/// What one pass applied: the apps reloaded, the saves refused (the last
+/// good script keeps running) with their init error, the apps removed.
+#[derive(Default)]
+struct Report {
+    changed: Vec<String>,
+    refused: Vec<(String, String)>,
+    removed: Vec<String>,
+}
 
 /// Files read per package for its fingerprint (a runaway folder costs no more).
 pub(super) const MAX_FILES: usize = 2_000;
@@ -46,45 +59,187 @@ pub(super) const MAX_FILES: usize = 2_000;
 const MAX_HASHED_BYTES: u64 = 4 << 20;
 
 impl Supervisor {
-    /// Starts the watch thread; returns at once. `prints` are the startup
-    /// catalog's, taken before its read (`PrintsBefore`). In-crate tests
-    /// build many supervisors and read no real folders.
-    pub(crate) fn start_local_watch(self: &Arc<Self>, prints: Prints) {
+    /// Starts the watch thread; returns at once. Its passes start from the
+    /// startup catalog's prints (`Inner::local_prints`, taken before its
+    /// read, `PrintsBefore`). In-crate tests build many supervisors and read
+    /// no real folders.
+    pub(crate) fn start_local_watch(self: &Arc<Self>) {
         if cfg!(test) {
             return;
         }
         let me = Arc::downgrade(self);
-        let local = self.config.sources.local.clone();
-        let customize = self.config.sources.customize.clone();
+        let dirs = watched_dirs(&self.config.sources);
         let spawned = std::thread::Builder::new()
             .name("apps-local-reload".into())
-            .spawn(move || watch(&me, local, customize, prints));
+            .spawn(move || watch(&me, dirs));
         if let Err(error) = spawned {
             eprintln!("cmux-tui: apps local reload thread did not start: {error}");
         }
     }
 
+    /// One local reload pass now: reads the watched folders and applies what
+    /// changed since the last pass, whoever ran it. The file watch runs it on
+    /// a save; `apps-reload-local` runs it when a caller that just wrote an
+    /// app's files (`cmux ext dev`) asks, so a reload never waits on file
+    /// events, which a loaded Mac delivers seconds late (Leo's NIGHTLY at load
+    /// average 93 to 105: `ext dev`'s copy waited 3.6 s, 22.7 s, then past its
+    /// 30 s cap three times for the watch's reload, ask-7fc19bd861). Passes
+    /// run one at a time, so a late event after an asked pass finds nothing
+    /// changed and restarts no host again. A person waits on each pass (they
+    /// just saved), so it runs at user-initiated QoS, as acpmux's reads for a
+    /// chat opened on screen do (`qos::on_screen`), ahead of default-priority
+    /// builds; then the thread's own QoS comes back.
+    ///
+    /// Answers what an asker cannot read from the pass's events: safe mode
+    /// held the pass (`safeMode`), and the watched folders the catalog
+    /// refused (`rejected`, each `{dir, issue}`; a refused new folder makes
+    /// no event, since it never had a print).
+    pub(crate) fn reload_local_apps_now(&self) -> Value {
+        self.reload_local_apps_now_with(|_| {})
+    }
+
+    /// `reload_local_apps_now` from the last pass's prints as `adjust` leaves
+    /// them: a rollback drops its app's print so it reads as changed.
+    pub(crate) fn reload_local_apps_now_with(&self, adjust: impl FnOnce(&mut Prints)) -> Value {
+        let _pass = self.local_reload_pass.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut prints =
+            self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
+        adjust(&mut prints);
+        if self.safe_mode_on() {
+            return json!({ "safeMode": true, "rejected": [] });
+        }
+        let (_, rejected) = on_screen(|| self.pass(&prints, catalog::load));
+        let rejected: Vec<Value> = rejected
+            .into_iter()
+            .map(|(dir, issue)| json!({ "dir": dir.display().to_string(), "issue": issue }))
+            .collect();
+        json!({ "safeMode": false, "rejected": rejected })
+    }
+
+    /// `apps-reload` (`cmux ext reload [APP]`, `cmux reload-config`, the
+    /// palette's Reload Custom Views): one pass that reloads `app`, or every
+    /// local app, as a save of each would, whether or not its files changed
+    /// (a save the watch missed, a host to start over). A script that does
+    /// not load keeps the last good view (`refused_saves`); the answer names
+    /// it with its init error: `{reloaded, refused: [{app, reason}], removed}`.
+    pub fn reload_local_now(&self, app: Option<&str>) -> Result<Value, ApiError> {
+        if self.safe_mode_on() {
+            return Err(ApiError::new(
+                "apps.safe_mode",
+                "safe mode is on: no extension runs or reloads until it is off (cmux safe-mode off)",
+            ));
+        }
+        let _pass = self.local_reload_pass.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut prints =
+            self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
+        // `UNREAD` matches no read package, so the asked apps read as changed,
+        // and a folder deleted meanwhile still reads as removed. A folder the
+        // watch never reported is not in the prints yet: it reads as new, so
+        // naming it loads it.
+        match app {
+            Some(app) => {
+                if let Some(print) = prints.get_mut(app) {
+                    *print = UNREAD;
+                }
+            }
+            None => prints.values_mut().for_each(|print| *print = UNREAD),
+        }
+        let (next, _, report) = on_screen(|| self.pass_reporting(&prints, catalog::load));
+        if let Some(app) = app
+            && !next.contains_key(app)
+            && !report.removed.iter().any(|gone| gone == app)
+        {
+            let mut known: Vec<&String> = next.keys().collect();
+            known.sort();
+            let known = known.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", ");
+            return Err(ApiError::new(
+                "apps.local.unknown",
+                format!(
+                    "{app} is not an extension in a local folder (local: {})",
+                    if known.is_empty() { "none" } else { &known }
+                ),
+            ));
+        }
+        // A forced read of one app still applies the other saves the watch
+        // has not read yet; the answer is about the app asked for.
+        let asked = |id: &str| app.is_none_or(|app| app == id);
+        let mut reloaded: Vec<String> =
+            report.changed.into_iter().filter(|id| asked(id.as_str())).collect();
+        reloaded.sort();
+        let refused: Vec<Value> = report
+            .refused
+            .iter()
+            .filter(|(id, _)| asked(id.as_str()))
+            .map(|(id, reason)| json!({ "app": id, "reason": reason }))
+            .collect();
+        let mut removed = report.removed;
+        removed.sort();
+        Ok(json!({ "reloaded": reloaded, "refused": refused, "removed": removed }))
+    }
+
+    /// `start_local_watch` for a test that measures a save reaching the
+    /// running app through the real file watch (`supervisor_load_tests.rs`).
+    #[cfg(test)]
+    pub(super) fn start_local_watch_for_test(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        let dirs = watched_dirs(&self.config.sources);
+        let spawned = std::thread::Builder::new()
+            .name("apps-local-reload-test".into())
+            .spawn(move || watch(&me, dirs));
+        if let Err(error) = spawned {
+            eprintln!("cmux-tui: test apps local reload thread did not start: {error}");
+        }
+    }
+
     /// Reads the catalog again and applies what changed in local apps since
     /// `prints`; returns the new fingerprints.
+    #[cfg(test)]
     pub(crate) fn reload_local_apps(&self, prints: &Prints) -> Prints {
         self.reload_local_apps_from(prints, catalog::load)
     }
 
     /// `reload_local_apps` with the catalog read given: a test lands a save
     /// right after the read.
+    #[cfg(test)]
     pub(super) fn reload_local_apps_from(
         &self,
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
+        self.pass(prints, load).0
+    }
+
+    /// One pass: the new fingerprints, and the watched folders the catalog
+    /// refused with why.
+    fn pass(
+        &self,
+        prints: &Prints,
+        load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
+    ) -> (Prints, Vec<(PathBuf, String)>) {
+        let (next, rejected, _) = self.pass_reporting(prints, load);
+        (next, rejected)
+    }
+
+    /// `pass`, and what it applied.
+    fn pass_reporting(
+        &self,
+        prints: &Prints,
+        load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
+    ) -> (Prints, Vec<(PathBuf, String)>, Report) {
         // Safe mode: nothing reloads. The prints stay as they were, so the
         // saves made meanwhile apply when it ends (`safe_mode.rs`).
         if self.safe_mode_on() {
-            return prints.clone();
+            return (prints.clone(), Vec::new(), Report::default());
         }
         let before = PrintsBefore::take(&self.config.sources);
         let catalog = load(&self.config.sources);
         let next = before.of(&self.config.sources, &catalog);
+        let rejected: Vec<(PathBuf, String)> = catalog
+            .rejected
+            .iter()
+            .filter(|(dir, _)| is_watched_dir(&self.config.sources, dir))
+            .cloned()
+            .collect();
         let changed: Vec<String> = next
             .iter()
             .filter(|(id, print)| prints.get(*id) != Some(*print))
@@ -93,14 +248,23 @@ impl Supervisor {
         let removed: Vec<String> =
             prints.keys().filter(|id| !next.contains_key(*id)).cloned().collect();
         if changed.is_empty() && removed.is_empty() {
-            return next;
+            return (next, rejected, Report::default());
         }
         let refused = self.refused_saves(&changed, &catalog);
+        let report = Report {
+            changed: changed
+                .iter()
+                .filter(|app| !refused.iter().any(|(r, _)| r == *app))
+                .cloned()
+                .collect(),
+            refused: refused.clone(),
+            removed: removed.clone(),
+        };
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             let mut outs = Vec::new();
             for (dir, issue) in &catalog.rejected {
-                if is_local_dir(&self.config.sources, dir) {
+                if is_watched_dir(&self.config.sources, dir) {
                     let message = format!("{}: {issue}", dir.display());
                     outs.extend(self.log_locked(&mut inner, "cmux/supervisor", "warn", message));
                 }
@@ -156,7 +320,7 @@ impl Supervisor {
             outs
         };
         self.emit(outs);
-        next
+        (next, rejected, report)
     }
 
     /// The changed apps whose live host serves views and whose saved script
@@ -168,7 +332,7 @@ impl Supervisor {
         catalog: &catalog::Catalog,
     ) -> Vec<(String, String)> {
         let trials: Vec<(Package, super::grants::Grant)> = {
-            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             changed
                 .iter()
                 .filter_map(|app| {
@@ -194,23 +358,24 @@ impl Supervisor {
             .collect()
     }
 
-    /// Installs the customization app with its required scopes the first
-    /// time it appears; a record the user changed (uninstalled) stays.
+    /// Installs the customization app the first time it appears while cmux
+    /// runs, as it installs at start (`seed_customize`): its read scopes and
+    /// the sandbox, nothing more until the person allows it. A record the
+    /// user changed (uninstalled) stays. Base red: this path seeded every
+    /// required scope unsandboxed, so a customize folder that a shared
+    /// collection (`customize library import ... --on`) or a profile wrote
+    /// got `terminal:write` and `actions:run` with no card.
     pub(super) fn seed_customize_locked(&self, inner: &mut super::supervisor::Inner) {
-        let Some(facts) = inner.catalog.packages.get(CUSTOMIZE_APP).map(Package::facts) else {
+        let Some(next) = inner
+            .catalog
+            .packages
+            .get(CUSTOMIZE_APP)
+            .and_then(|package| seed_customize(&inner.mirror, package))
+        else {
             return;
         };
-        let seed = Op::Seed { app: CUSTOMIZE_APP.into(), hidden: false };
-        if let Ok(outcome) = mirror::reduce(&inner.mirror, &seed, Some(&facts))
-            && outcome.changed
-        {
-            // This app appeared after the migration snapshot. Preserve its
-            // eligibility if a failed migration retries on the next start.
-            let mut mirror = outcome.mirror;
-            mirror.sidebar_auto_place.insert(CUSTOMIZE_APP.into());
-            if self.persist(&mirror).is_ok() {
-                inner.mirror = mirror;
-            }
+        if self.persist(&next).is_ok() {
+            inner.mirror = next;
         }
     }
 }
@@ -283,24 +448,56 @@ pub(super) fn seed_customize(mirror: &mirror::Mirror, package: &Package) -> Opti
     Some(next)
 }
 
-fn is_local_dir(sources: &catalog::Sources, dir: &Path) -> bool {
-    sources.customize.as_deref() == Some(dir)
-        || sources.local.as_deref().is_some_and(|local| dir.starts_with(local))
+/// The folders the watch covers: the customization folder, then the
+/// folders that hold app packages (the local directory and each
+/// `CMUX_APPS_DIRS` folder).
+fn watched_dirs(sources: &catalog::Sources) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = sources.customize.iter().cloned().collect();
+    dirs.extend(package_dirs(sources).cloned());
+    dirs
 }
 
-/// Fingerprints of the watched local folders (the customization folder and
-/// each folder in the local directory), taken BEFORE the catalog read they
-/// describe. A save after them changes the next fingerprint, so its event
-/// reads again. Taken after the read, they could already hold a save the read
-/// missed, and that save's event saw no change: the app kept its old files
-/// until the next save.
+/// The watched folders whose subfolders are app packages. An empty entry
+/// (`CMUX_APPS_DIRS=":~/ext"` splits into "" and "~/ext") names no folder.
+fn package_dirs(sources: &catalog::Sources) -> impl Iterator<Item = &PathBuf> {
+    sources.local.iter().chain(&sources.extra).filter(|dir| !dir.as_os_str().is_empty())
+}
+
+/// Whether `dir` (a package folder) is one the watch covers: the
+/// customization folder, or a direct subfolder of a package folder, as
+/// `catalog::load` reads them. Not any path under one: `starts_with` an
+/// empty root or an outer folder would count a shipped package in it, which
+/// `PrintsBefore::take` never fingerprints, so it read as changed on every
+/// reload and its host restarted each time.
+fn is_watched_dir(sources: &catalog::Sources, dir: &Path) -> bool {
+    sources.customize.as_deref() == Some(dir)
+        || package_dirs(sources).any(|root| dir.parent() == Some(root.as_path()))
+}
+
+/// Whether `dir` holds an app manifest (`catalog::load` reads no other).
+fn is_package(dir: &Path) -> bool {
+    dir.join("cmux-app.json").is_file() || dir.join(catalog::V2_MANIFEST).is_file()
+}
+
+/// Fingerprints of the watched package folders (the customization folder and
+/// each folder in the local directory and the `CMUX_APPS_DIRS` folders),
+/// taken BEFORE the catalog read they describe. A save after them changes the
+/// next fingerprint, so its event reads again. Taken after the read, they
+/// could already hold a save the read missed, and that save's event saw no
+/// change: the app kept its old files until the next save.
 pub(super) struct PrintsBefore(HashMap<PathBuf, u64>);
 
 impl PrintsBefore {
     pub(super) fn take(sources: &catalog::Sources) -> Self {
         let mut dirs: Vec<PathBuf> = sources.customize.iter().cloned().collect();
-        if let Some(Ok(entries)) = sources.local.as_deref().map(std::fs::read_dir) {
-            dirs.extend(entries.flatten().map(|entry| entry.path()));
+        // Only folders with a manifest: a `CMUX_APPS_DIRS` folder may be a
+        // checkout whose other folders (`target/`, `docs/`) are no app, and
+        // each costs a fingerprint per reload. A folder whose manifest comes
+        // during the read gets `UNREAD` and is read on its next event.
+        for root in package_dirs(sources) {
+            if let Ok(entries) = std::fs::read_dir(root) {
+                dirs.extend(entries.flatten().map(|entry| entry.path()).filter(|p| is_package(p)));
+            }
         }
         let prints = dirs.into_iter().filter(|dir| dir.is_dir()).map(|dir| {
             let print = fingerprint(&dir);
@@ -309,21 +506,21 @@ impl PrintsBefore {
         Self(prints.collect())
     }
 
-    /// The fingerprints of `catalog`'s local packages, by app id, for a
-    /// catalog read after `take`. A watched folder made during the read has
-    /// no fingerprint from before it: it gets `UNREAD`, which no fingerprint
-    /// equals, so the next event reads it again. A local package outside the
-    /// watched folders (a `local/` id in an apps directory) is not watched;
-    /// its fingerprint is taken now.
+    /// The fingerprints of `catalog`'s watched and local packages, by app id,
+    /// for a catalog read after `take`. A watched folder made during the read
+    /// has no fingerprint from before it: it gets `UNREAD`, which no
+    /// fingerprint equals, so the next event reads it again. A local package
+    /// outside the watched folders (a `local/` id among the shipped samples)
+    /// is not watched; its fingerprint is taken now.
     pub(super) fn of(&self, sources: &catalog::Sources, catalog: &catalog::Catalog) -> Prints {
         catalog
             .packages
             .values()
-            .filter(|p| p.source == Source::Local)
+            .filter(|p| p.source == Source::Local || is_watched_dir(sources, &p.dir))
             .map(|p| {
                 let print = match self.0.get(&p.dir) {
                     Some(print) => *print,
-                    None if is_local_dir(sources, &p.dir) => UNREAD,
+                    None if is_watched_dir(sources, &p.dir) => UNREAD,
                     None => fingerprint(&p.dir),
                 };
                 (p.id.clone(), print)
@@ -401,12 +598,8 @@ fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64, u128)>) {
     }
 }
 
-fn watch(
-    me: &Weak<Supervisor>,
-    local: Option<PathBuf>,
-    customize: Option<PathBuf>,
-    mut prints: Prints,
-) {
+/// The watch thread over `dirs` (`watched_dirs`).
+fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>) {
     let (sender, events) = channel();
     let files = sender.clone();
     let watcher = notify::recommended_watcher(move |event| {
@@ -419,7 +612,6 @@ fn watch(
             return;
         }
     };
-    let dirs: Vec<PathBuf> = [customize.clone(), local.clone()].into_iter().flatten().collect();
     // Each folder's entry in its parent (or, while the parent is missing,
     // the nearest existing ancestor's next missing name) is watched for the
     // folder appearing, vanishing or being replaced (`Folders`). It is armed
@@ -444,13 +636,13 @@ fn watch(
     // Only events inside the watched app folders count. FSEvents names the
     // real path, so a folder under a symlink (`/tmp`, a linked `~/.config`)
     // is matched by its resolved spelling too.
-    let mut roots = watch_roots([customize.as_deref(), local.as_deref()]);
+    let mut roots = watch_roots(&dirs);
     // FSEvents reports only what changes after its stream starts, and the
-    // catalog in `prints` was read before this thread armed it: a write in
+    // startup catalog (`Inner::local_prints`) was read before this thread armed it: a write in
     // between (a loaded machine, an app saved as cmux starts) had no event
     // and was never read. Read once more now that the watch is on.
     match me.upgrade() {
-        Some(supervisor) => prints = supervisor.reload_local_apps(&prints),
+        Some(supervisor) => drop(supervisor.reload_local_apps_now()),
         None => return,
     }
     loop {
@@ -461,10 +653,10 @@ fn watch(
             // Armed before the read: the read sees every file written before
             // the new folder was watched, and the watch every write after.
             folders.arm(&mut watcher, &dirs);
-            roots = watch_roots([customize.as_deref(), local.as_deref()]);
+            roots = watch_roots(&dirs);
         }
         let Some(supervisor) = me.upgrade() else { return };
-        prints = supervisor.reload_local_apps(&prints);
+        supervisor.reload_local_apps_now();
     }
 }
 
@@ -524,9 +716,9 @@ impl Folders {
 /// Each folder as configured and, when it differs, as resolved: the folder
 /// itself when it exists, else its parent resolved with its name (a
 /// customize folder the user has not made yet).
-fn watch_roots(dirs: [Option<&Path>; 2]) -> Vec<PathBuf> {
+fn watch_roots(dirs: &[PathBuf]) -> Vec<PathBuf> {
     let mut roots = Vec::new();
-    for dir in dirs.into_iter().flatten() {
+    for dir in dirs {
         roots.push(dir.to_path_buf());
         let resolved = std::fs::canonicalize(dir).ok().or_else(|| {
             let parent = std::fs::canonicalize(dir.parent()?).ok()?;
@@ -589,6 +781,37 @@ fn is_change(event: &notify::Result<notify::Event>, relevant: &dyn Fn(&Path) -> 
         _ => {}
     }
     event.paths.iter().any(|path| relevant(path))
+}
+
+/// Runs `work` with the calling thread at user-initiated QoS, then puts its
+/// class back (acpmux `qos::ThreadOnScreen`: an unspecified class goes back
+/// as default, the class such a thread runs at). A thread already above
+/// user-initiated (a connection carrying the person's keys,
+/// `server/input_qos.rs`) keeps its class. Off macOS it only runs `work`.
+fn on_screen<T>(work: impl FnOnce() -> T) -> T {
+    #[cfg(target_os = "macos")]
+    {
+        use libc::qos_class_t::{
+            QOS_CLASS_DEFAULT, QOS_CLASS_UNSPECIFIED, QOS_CLASS_USER_INITIATED,
+        };
+        let mut was = QOS_CLASS_UNSPECIFIED;
+        let mut relative = 0;
+        // SAFETY: reads the calling thread's own class into locals.
+        unsafe { libc::pthread_get_qos_class_np(libc::pthread_self(), &mut was, &mut relative) };
+        // SAFETY: sets the calling thread's own class; no pointer is passed.
+        let raised = (was as u32) < (QOS_CLASS_USER_INITIATED as u32)
+            && unsafe { libc::pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0) } == 0;
+        let out = work();
+        if raised {
+            let back =
+                if was as u32 == QOS_CLASS_UNSPECIFIED as u32 { QOS_CLASS_DEFAULT } else { was };
+            // SAFETY: as above.
+            unsafe { libc::pthread_set_qos_class_self_np(back, relative) };
+        }
+        out
+    }
+    #[cfg(not(target_os = "macos"))]
+    work()
 }
 
 #[cfg(test)]
@@ -767,5 +990,26 @@ mod tests {
         let after = fingerprint(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         assert_ne!(before, after, "the content changed");
+    }
+
+    /// An empty `CMUX_APPS_DIRS` entry (a leading or trailing `:`) and an
+    /// outer folder watch nothing they do not hold directly: every path
+    /// starts with "", so a shipped package counted as watched, had no
+    /// fingerprint from before the read, and restarted on every reload.
+    #[test]
+    fn only_direct_subfolders_of_a_named_folder_are_watched() {
+        let sources = super::catalog::Sources {
+            local: Some(PathBuf::from("/state/apps/local")),
+            extra: vec![PathBuf::new(), PathBuf::from("/src/ext")],
+            customize: Some(PathBuf::from("/home/me/.config/cmux/customize")),
+            ..Default::default()
+        };
+        let watched = |dir: &str| super::is_watched_dir(&sources, Path::new(dir));
+        assert!(watched("/state/apps/local/spy"));
+        assert!(watched("/src/ext/fork"));
+        assert!(watched("/home/me/.config/cmux/customize"));
+        assert!(!watched("/Applications/cmux.app/Contents/Resources/apps/first-party/search"));
+        assert!(!watched("/src/ext/fork/nested"));
+        assert!(!super::watched_dirs(&sources).iter().any(|d| d.as_os_str().is_empty()));
     }
 }

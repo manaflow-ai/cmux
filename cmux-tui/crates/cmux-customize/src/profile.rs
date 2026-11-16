@@ -18,6 +18,7 @@ use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::library::keys::{self, KEYBINDINGS};
 use crate::redact::{self, find_secret};
 use crate::tree::{self, Part, SETTINGS};
 use crate::{Begun, Customize, Error, validate};
@@ -244,7 +245,7 @@ impl Customize {
                 )));
             }
         }
-        for path in profile.files.keys() {
+        for (path, text) in &profile.files {
             // Only a path the scan reads: anything else (a dot file like
             // `customize/.env`) would be overwritten with no generation
             // holding what was there.
@@ -252,6 +253,11 @@ impl Customize {
                 && !matches!(Part::of(path), Part::Settings | Part::Automations);
             if !owned {
                 return Err(Error::Profile(format!("{path}: a profile may not write there")));
+            }
+            if path == KEYBINDINGS && !keys::readable(text) {
+                return Err(Error::Profile(format!(
+                    "{path} in the profile is not a list of bindings ([{{ \"key\": ..., \"command\": ... }}])"
+                )));
             }
             // A name that reads as something else is refused by position,
             // never shown: the path would carry the hidden character.
@@ -291,12 +297,42 @@ impl Customize {
         // that merged into the same settings text would each write theirs
         // and the later one would drop the other's keys, in no generation.
         let _lock = self.store().lock()?;
+        self.preview_profile_locked(profile, origin, now_ms)
+    }
+
+    /// [`Customize::preview_profile`] for a caller that holds the store's
+    /// lock and goes on under it (a try-on applies what this wrote).
+    pub(crate) fn preview_profile_locked(
+        &self,
+        profile: &Profile,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Begun, Error> {
+        self.check_profile(profile)?;
         let schema = Schema::embedded();
         let mut files: BTreeMap<String, Vec<u8>> = profile
             .files
             .iter()
             .map(|(path, text)| (path.clone(), text.as_bytes().to_vec()))
             .collect();
+        // A profile's shortcuts are bindings to add, as its settings are keys
+        // to set: they go into the file you have, which keeps your own.
+        if let Some(text) = profile.files.get(KEYBINDINGS) {
+            let live = tree::read(self.roots(), KEYBINDINGS)?
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+            let merged =
+                keys::compose(live.as_deref(), &keys::winners(std::iter::once(text.as_str())))
+                    .map_err(|_| {
+                        Error::Profile(
+                            "your keybindings.json is not a list of bindings; fix its syntax first"
+                                .to_owned(),
+                        )
+                    })?;
+            match merged {
+                Some(merged) => files.insert(KEYBINDINGS.to_owned(), merged.into_bytes()),
+                None => files.remove(KEYBINDINGS),
+            };
+        }
         let settings_text = if profile.settings.is_empty() {
             None
         } else {
@@ -351,6 +387,15 @@ impl Customize {
         let label = format!("the preview before the profile {}", profile.name);
         self.keep_draft_locked(&label, origin, now_ms)?;
         let begun = self.begin_locked(&format!("profile {}", profile.name), origin, now_ms)?;
+        // The library entry this becomes says what the profile says it is.
+        let description = profile.description.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !description.is_empty()
+            && let Some(mut draft) = self.store().draft()?
+            && let Some(ask) = draft.asks.last_mut()
+        {
+            ask.description = Some(description);
+            self.store().put_draft(Some(&draft))?;
+        }
         let manifest_last = |path: &String| path.starts_with("customize/cmux-app");
         for (path, bytes) in
             files.iter().filter(|(path, _)| !manifest_last(path) && *path != SETTINGS)

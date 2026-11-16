@@ -79,7 +79,7 @@ struct CmuxToastStyleTests {
     // MARK: The playground
 
     /// The playground shows every style, or one alone (Debug Settings > Toasts > Playground shows), each with
-    /// every kind in a light and a dark sheet; its choices follow the styles.
+    /// every kind (and the sidebar refusal's copies) in a light and a dark sheet; its choices follow the styles.
     @Test func thePlaygroundShowsEveryStyleOrOne() {
         #expect(CmuxToastPlaygroundFocus.allCases.count == CmuxToastStyle.allCases.count + 1)
         #expect(CmuxToastPlaygroundFocus(rawValue: "removed-style") == nil)
@@ -89,7 +89,7 @@ struct CmuxToastStyleTests {
         #expect(every.rows.map(\.style) == CmuxToastStyle.allCases)
         for row in every.rows {
             #expect(row.sheets.map(\.isDark) == [false, true])
-            for sheet in row.sheets { #expect(sheet.toasts.map(\.toast.id) == CmuxToastPlaygroundSamples.kinds.map(\.id)) }
+            for sheet in row.sheets { #expect(sheet.toasts.map(\.toast.id) == CmuxToastPlaygroundSamples.sheet.map(\.id)) }
         }
         let one = CmuxToastPlaygroundView(center: center, themes: themes, focus: .only(.progressRing)) { _ in }
         #expect(one.rows.map(\.style) == [.progressRing])
@@ -132,14 +132,18 @@ struct CmuxToastStyleTests {
         }
     }
 
-    /// A capsule's corners are half its height; the others keep the toast role's radius.
+    /// A capsule's corners are half its height; the others round from their buttons: the button corner plus the
+    /// padding (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside").
     @Test func theCapsuleHasRoundEnds() {
         let capsule = CmuxToastView(toast: Self.everyKind[0], reduceTransparency: .alwaysOpaque, style: .capsule)
         capsule.setFrameSize(capsule.fittingSize)
         capsule.layoutSubtreeIfNeeded()
         #expect(abs(capsule.cornerRadius - capsule.bounds.height / 2) < 0.5)
         let standard = CmuxToastView(toast: Self.everyKind[0], reduceTransparency: .alwaysOpaque, style: .standard)
-        #expect(standard.cornerRadius == SurfaceRole.toast.cornerRadius)
+        standard.setFrameSize(standard.fittingSize)
+        standard.layoutSubtreeIfNeeded()
+        #expect(standard.cornerRadius == standard.geometry.outerRadius)
+        #expect(standard.cornerRadius < standard.bounds.height / 2, "a card, not a capsule")
     }
 
     /// The error tone shows as an error wherever a style marks the tone (the icon), and a refusal is an

@@ -62,6 +62,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_BTW_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
@@ -291,6 +292,8 @@ pub(super) fn advertised_capabilities(
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         ATTACH_OUTPUT_COALESCE_CAPABILITY,
+        AGENT_CLI_HYBRID_CAPABILITY,
+        AGENT_CLI_HYBRID_LEAN_CAPABILITY,
         ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
@@ -315,6 +318,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
         TERMINAL_LAST_COMMAND_CAPABILITY,
+        TERMINAL_COMMAND_CONTEXT_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -371,6 +375,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_CAPABILITY,
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY,
+        SCREEN_DEVICE_IDENTITY_CAPABILITY,
         TREE_SELECTION_DELTAS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,

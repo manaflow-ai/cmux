@@ -548,6 +548,7 @@
       "shell-stop",
       "split",
       "swap-pane",
+      "terminal-command-context",
       "terminal-events",
       "terminal-history",
       "terminal-last-command",
@@ -697,6 +698,18 @@
       "name": "agent-changed",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "agent-cli-frame",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
+      "name": "agent-cli-lean",
+      "streams": [
+        "attach-byte"
       ]
     },
     {
@@ -999,6 +1012,12 @@
       "name": "screen-changed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "screen-device-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {

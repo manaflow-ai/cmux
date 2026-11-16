@@ -34,6 +34,8 @@ pub(crate) struct Prepared {
     pub shortcuts: Vec<Option<Vec<Stroke>>>,
     /// Each row's handles, lowercased.
     pub handles: Vec<Vec<String>>,
+    /// Each row's own aliases, spacing collapsed and lowercased.
+    pub aliases: Vec<Vec<String>>,
 }
 
 impl Prepared {
@@ -62,6 +64,17 @@ impl Prepared {
                         .iter()
                         .map(|handle| js_trim(handle).to_lowercase())
                         .filter(|handle| !handle.is_empty())
+                        .collect()
+                })
+                .collect(),
+            aliases: entries
+                .iter()
+                .map(|entry| {
+                    entry
+                        .aliases
+                        .iter()
+                        .map(|alias| collapsed_lower(alias))
+                        .filter(|alias| !alias.is_empty())
                         .collect()
                 })
                 .collect(),
@@ -359,6 +372,12 @@ pub(crate) fn rank(
         .map(|hidden| hidden.iter().map(String::as_str).collect())
         .unwrap_or_default();
     let aliased = aliased_actions(request.aliases.as_ref(), raw);
+    // A row's own alias (the catalog's) names it as the user's alias does.
+    let alias_query = collapsed_lower(raw);
+    let names_alias = |index: usize, entry: &Entry| {
+        entry.action_id.as_ref().is_some_and(|id| aliased.contains(id))
+            || prepared.aliases.get(index).is_some_and(|aliases| aliases.contains(&alias_query))
+    };
     // A query that may name a row's handle (`a612`, `612`).
     let handle_query = js_trim(raw).to_lowercase();
     // A query that names a shortcut ("cmd i", "⌥⇧K"); plain words parse to nothing.
@@ -436,7 +455,7 @@ pub(crate) fn rank(
                 shortcut: entry.has_shortcut == Some(true),
                 chord: names_shortcut(index),
                 lifted: false,
-                aliased: enabled && entry.action_id.as_ref().is_some_and(|id| aliased.contains(id)),
+                aliased: enabled && names_alias(index, entry),
                 handle: enabled && handle,
                 highlights,
             });
@@ -464,14 +483,20 @@ pub(crate) fn rank(
             scored[position].lifted = true;
         }
     }
-    // The user's alias names its row, even when the query matches none of its text.
-    if !aliased.is_empty() {
-        let mut present: HashSet<Option<&str>> =
-            scored.iter().map(|item| entries[item.index].action_id.as_deref()).collect();
+    // An alias (the user's or the row's own) names its row, even when the query matches none of
+    // its text. One row per action id.
+    if !aliased.is_empty() || prepared.aliases.iter().any(|aliases| !aliases.is_empty()) {
+        let mut present: HashSet<&str> = scored
+            .iter()
+            .filter_map(|item| entries.get(item.index)?.action_id.as_deref())
+            .filter(|id| !id.is_empty())
+            .collect();
+        let mut present_rows: HashSet<usize> = scored.iter().map(|item| item.index).collect();
         for (index, entry) in entries.iter().enumerate() {
-            let Some(id) = entry.action_id.as_deref().filter(|id| !id.is_empty()) else { continue };
-            if !aliased.contains(id)
-                || present.contains(&Some(id))
+            let id = entry.action_id.as_deref().filter(|id| !id.is_empty());
+            if !names_alias(index, entry)
+                || present_rows.contains(&index)
+                || id.is_some_and(|id| present.contains(id))
                 || entry.is_enabled == Some(false)
             {
                 continue;
@@ -479,7 +504,14 @@ pub(crate) fn rank(
             if !shown_while_typing(entry, gated, raw) {
                 continue;
             }
-            present.insert(Some(id));
+            // A row the user hid stays hidden unless the user's own alias names it.
+            if !id.is_some_and(|id| aliased.contains(id))
+                && entry.frecency_key.as_deref().is_some_and(|key| hidden.contains(key))
+            {
+                continue;
+            }
+            present.extend(id);
+            present_rows.insert(index);
             scored.push(Scored {
                 index,
                 score: 0,

@@ -18,7 +18,7 @@ import Testing
         let url = home.appending(path: "cmux-next.json")
         try Data("{}".utf8).write(to: url)
         let registry = ActionRegistry.standard()
-        let settings = SettingsController(registry: registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         return (ContextMenusPageProvider { ContextMenusSettingsPage(registry: registry, settings: settings) }, registry, home)
