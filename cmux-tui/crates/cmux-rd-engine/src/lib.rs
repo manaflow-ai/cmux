@@ -575,7 +575,9 @@ impl MediaEngine {
                 }
                 None => state.last_frame,
             },
-            ltr_token: enc.ltr_token,
+            // VideoToolbox returns a token whenever the OS has LTR; only a viewer that
+            // negotiated it reads the token-prefixed layout.
+            ltr_token: enc.ltr_token.filter(|_| self.cfg.ltr_enabled),
             access_unit: enc.access_unit,
         };
         let data_shards = body.encode().len().div_ceil(self.packetizer.shard_len());
