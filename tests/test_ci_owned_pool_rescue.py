@@ -9822,8 +9822,12 @@ class StallMove(unittest.TestCase):
         six = rescue.STALL_DESTINATION
         clock = Clock()
 
+        routed = {"skipped": True}
+
         def jobs(attempt, seconds):
-            return [stall_job("cmux app scheme compile (Debug)", job_id=attempt * 10 + 1)]
+            route = stall_job(rescue.SAME_TREE_SKIPPED_JOB, job_id=attempt * 10 + 2, status="completed",
+                              label="ubuntu-24.04", conclusion="skipped" if routed["skipped"] else "success")
+            return [stall_job("cmux app scheme compile (Debug)", job_id=attempt * 10 + 1), route]
 
         def dispatch_api(text):
             api = StallAPI(clock, jobs, attempt=1, actor="teamleaderleo")
@@ -9847,6 +9851,12 @@ class StallMove(unittest.TestCase):
                 self.assertIn(f"workflow:{rescue.CMUX_NEXT_WORKFLOW_PATH}@{HEAD[:7]}", api.calls)
                 if not moved:
                     self.assertIn("no DISPATCH_PR_RESCUE clause", "\n".join(logs))
+        # A plain dispatch on the pull request's branch (its path routing ran) reads no same_tree_origin: it stays.
+        routed["skipped"] = False
+        api, logs = dispatch_api(fixed), []
+        self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append, moved=set(),
+                                           moves=[], start=lambda *args: None, destination=(six,), pull_only=True), 0)
+        self.assertIn("not a same-tree run", "\n".join(logs))
         self.assertTrue(rescue.dispatch_reruns_off_side(fixed))
         self.assertFalse(rescue.dispatch_reruns_off_side(old))
         self.assertFalse(rescue.dispatch_reruns_off_side(None))

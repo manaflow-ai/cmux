@@ -6042,6 +6042,17 @@ DISPATCH_PR_RESCUE = ("(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_
                       "inputs.same_tree_origin != 'pull_request' || github.run_attempt < 2)")
 
 
+# cmux-next.yml's path routing job, which a same-tree run skips (its `if` reads inputs.same_tree_sha == '') and a
+# plain dispatch on a pull request's branch runs. Both are named `cmux-next · <head>`, but only a same-tree run reads
+# same_tree_origin, so only its re-run leaves the side lane through DISPATCH_PR_RESCUE.
+SAME_TREE_SKIPPED_JOB = "cmux-next path routing"
+
+
+def same_tree_run(jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether an attempt's jobs are a same-tree run's: its path routing job is there and skipped."""
+    return any(job.get("name") == SAME_TREE_SKIPPED_JOB and job.get("conclusion") == "skipped" for job in jobs)
+
+
 def dispatch_reruns_off_side(workflow_text: str | None) -> bool:
     """Whether a dispatch's cmux-next.yml (`workflow_text`, at the run's head) sends a same-tree pull request run's
     bot re-run off the side lane under `pr-rescue` (DISPATCH_PR_RESCUE). Fails closed: no text is no."""
@@ -6669,6 +6680,10 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         what = "; ".join(str(stall) for stall in stalls)
         if blocked:
             log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {blocked}")
+            continue
+        if side_rerun and not same_tree_run(jobs):
+            log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but it is a dispatch that is not a same-tree run, whose "
+                "re-run takes the side lane under pr-rescue")
             continue
         if side_rerun:
             try:
