@@ -57,7 +57,7 @@ mod ports {
     use std::path::Path;
     use std::time::Duration;
 
-    use super::super::{OwnFolder, TooLarge, ports};
+    use super::super::{OwnFolder, ports};
 
     pub(super) fn lookup(common_dir: &Path, root: &Path) -> Option<u16> {
         ports::lookup(&OwnFolder::open(common_dir), root)
@@ -67,7 +67,7 @@ mod ports {
         common_dir: &Path,
         root: &Path,
         wait: Duration,
-    ) -> Result<Option<u16>, TooLarge> {
+    ) -> Result<Option<u16>, ports::NoList> {
         ports::allocate_within(&OwnFolder::open(common_dir), root, wait)
     }
 

@@ -185,10 +185,10 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
         started_ms: now_ms(),
         ..Status::default()
     };
-    if allocated.is_err() {
+    if let Err(why) = allocated {
         // The ports that other worktrees have are not known: nothing runs.
         if let Some(mut log) = open_log(&place.own) {
-            let _ = writeln!(log, "Setup did not start: {PORTS_NOT_READ}");
+            let _ = writeln!(log, "Setup did not start: {}", why.text());
         }
         finish(&mut status, &place.own, "failed", None);
         return json!({"state": "failed", "port": port});
@@ -752,10 +752,6 @@ fn read_status(folder: &OwnFolder) -> Option<Status> {
 /// A file that cmux keeps in a git folder is larger than [`MAX_OWN_BYTES`].
 #[derive(Clone, Copy, Debug)]
 struct TooLarge;
-
-/// What a setup's log says when the repository's ports file is not read.
-const PORTS_NOT_READ: &str =
-    "the file cmux-worktree-ports.json in the repository's git folder is larger than 1 MiB";
 
 /// The bytes of the small file `name` in the folder `folder` of a work
 /// tree, read as a file that cmux keeps in a git folder is read
