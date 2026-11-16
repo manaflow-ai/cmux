@@ -625,8 +625,7 @@ export function EnvironmentPicker({
       return;
     }
     const action = actions.find((candidate) => candidate.value === value);
-    // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
-    // stays open.
+    // Offline SSH starts can wait for the peer. Refusals that need a person remain unpickable.
     const machine = positions.get(value)?.environment;
     if (machine && !environmentReady(machine) && !environmentQueuesStart(machine) && !isCloudMachineRow(machine))
       return;

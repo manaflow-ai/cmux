@@ -23,7 +23,7 @@ afterAll(async () => {
 type Request = { method: string; params: Record<string, any> };
 type Daemon = { answer(method: string, params: Record<string, any>): Promise<unknown> };
 
-async function startFixture(previous: boolean, remote = false) {
+async function startFixture(previous: boolean, remote = false, holdFirstStart = true) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
@@ -41,7 +41,7 @@ async function startFixture(previous: boolean, remote = false) {
   let first = true;
   daemon.answer = async (method, params) => {
     requests.push({ method, params });
-    if (method === "session/new" && first) {
+    if (method === "session/new" && first && holdFirstStart) {
       first = false;
       entered({ method, params });
       return pending;
@@ -73,6 +73,11 @@ async function startFixture(previous: boolean, remote = false) {
     previousSession: mockHost.sessionId,
   };
 }
+
+const unsentPeerStart = () =>
+  Object.assign(new Error("peer unavailable"), {
+    data: { reason: "peer_unreachable", retryable: true, detail: "the request was not sent" },
+  });
 
 test("a canceled start's late Trust refusal cannot replace the newer start's retry", async () => {
   const fixture = await startFixture(false);
@@ -144,6 +149,81 @@ test("a retained New Tab start rejects Trust refusal when this remote origin can
     // Once the host has answered, an explicit retry must be able to start again.
     expect(await client.create("claude", undefined, undefined, true, undefined, true)).toBeDefined();
   } finally {
+    client.close();
+  }
+});
+
+test("an offline peer start retries the same session/new target until it is accepted", async () => {
+  const fixture = await startFixture(false, false, false);
+  const { client, daemon, requests } = fixture;
+  const { sendsHeldForHost } = await import("./sendWhenReady");
+  const answer = daemon.answer.bind(daemon);
+  let unavailable = 2;
+  const peerParams: Record<string, any>[] = [];
+  daemon.answer = async (method, params) => {
+    if (method === "session/new" && params._meta?.acpmux?.peer === "offline-box") peerParams.push(params);
+    if (method === "session/new" && params._meta?.acpmux?.peer === "offline-box" && unavailable > 0) {
+      unavailable -= 1;
+      throw unsentPeerStart();
+    }
+    return answer(method, params);
+  };
+  try {
+    const session = await client.create("claude", "/tmp/peer-start", "offline-box", false, undefined, true);
+    expect(session).toBeDefined();
+    expect(peerParams).toHaveLength(3);
+    expect(peerParams.every((params) => params._meta?.acpmux?.peer === "offline-box")).toBe(true);
+    expect(peerParams.every((params) => params.cwd === "/tmp/peer-start")).toBe(true);
+    expect(peerParams[1]).toEqual(peerParams[0]);
+    expect(peerParams[2]).toEqual(peerParams[0]);
+    expect(requests.filter((request) => request.method === "session/prompt")).toEqual([]);
+    expect(client.shownSession()?.sessionId).toBe(session);
+    expect(sendsHeldForHost.get()).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("canceling an offline peer start stops before a retry and clears the held start", async () => {
+  const fixture = await startFixture(false, false, false);
+  const { client, daemon, requests } = fixture;
+  const answer = daemon.answer.bind(daemon);
+  let attempts = 0;
+  daemon.answer = async (method, params) => {
+    if (method === "session/new" && params._meta?.acpmux?.peer === "offline-box") {
+      attempts += 1;
+      throw unsentPeerStart();
+    }
+    return answer(method, params);
+  };
+  const { sendsHeldForHost } = await import("./sendWhenReady");
+  let resolveHeld!: () => void;
+  const held = new Promise<void>((resolve) => {
+    resolveHeld = resolve;
+  });
+  let resolveReleased!: () => void;
+  const released = new Promise<void>((resolve) => {
+    resolveReleased = resolve;
+  });
+  let sawHeld = false;
+  const unsubscribe = sendsHeldForHost.subscribe(() => {
+    if (sendsHeldForHost.get() && !sawHeld) {
+      sawHeld = true;
+      resolveHeld();
+    }
+    if (sawHeld && !sendsHeldForHost.get()) resolveReleased();
+  });
+  try {
+    const start = client.create("claude", undefined, "offline-box", false, undefined, true);
+    await held;
+    client.close();
+    expect(await start).toBeUndefined();
+    await released;
+    expect(attempts).toBe(1);
+    expect(requests.filter((request) => request.method === "session/prompt")).toEqual([]);
+    expect(sendsHeldForHost.get()).toBe(false);
+  } finally {
+    unsubscribe();
     client.close();
   }
 });

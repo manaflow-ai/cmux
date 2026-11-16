@@ -31,7 +31,7 @@ export type PeerLink = {
 type Shown = { link: LinkState; reconnecting?: true; why?: LinkWhy; stuck?: true } | null;
 
 /// Every acpmux link state in the row's terms: a link that has not finished its handshake again is on
-/// its way (`degraded`, `restarting`, `reconnecting`); a refused token or an old build is down and waits
+/// its way (`restarting`, `reconnecting`); degraded is still connected. A refused token or an old build is down and waits
 /// for a person; a paused Cloud machine is the peer copy banner's (null).
 export const PEER_LINKS: Record<AcpmuxLink, Shown> = {
   connected: { link: "connected" },

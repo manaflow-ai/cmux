@@ -32,6 +32,27 @@ fn protocol_ir_is_current() {
     }
 }
 
+/// The schema endpoint embeds a readable contract separately from the generated IR.
+/// Adding a peer field must update both surfaces, including future outage metadata.
+#[test]
+fn peer_state_schema_documents_every_wire_field() {
+    let schema: serde_json::Value = serde_json::from_str(crate::schema::SCHEMA).unwrap();
+    let documented = schema["notifications"]["_acpmux/peer_state_changed"]["params"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let ir = super::ir();
+    let wire = ir["types"]["PeerStateChanged"]["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(documented, wire, "the readable peer-state contract must match its Rust type");
+}
+
 #[test]
 fn protocol_registry_names_are_unique() {
     let mut seen = BTreeSet::new();
