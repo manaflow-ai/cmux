@@ -206,6 +206,19 @@ class Result(unittest.TestCase):
         with self.assertRaises(hv.Refused):
             hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
 
+    def test_a_look_the_worker_stopped_says_why_not_just_no_marker(self) -> None:
+        # Runs 43779426587 (#44015: plan ran past 300 s on cmux17) and 43758485104 (#43472: a fetch timed out) ended
+        # as "the receipt has no hot-verify marker"; the reason was only in the out.tar's step.json.
+        why = "plan: Command '[...hot-verify.py, plan, ...]' timed out after 300 seconds"
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "worker": "cmux17", "error": why,
+                                                          "phases": {"plan": 300.26}}).encode(),
+                             "out/log.txt": b"plan: ...\n"})
+        with self.assertRaises(hv.Refused) as refused:
+            hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
+        self.assertIn("cmux17", str(refused.exception))
+        self.assertIn("timed out after 300 seconds", str(refused.exception))
+        self.assertIn("plan 300", str(refused.exception))
+
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
         self.assertEqual(hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt"),
