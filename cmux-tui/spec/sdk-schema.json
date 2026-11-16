@@ -26562,6 +26562,62 @@
     "The verified app connection only; the secret admits only that app process and is never logged or journaled."
    ]
   },
+  "device-setup": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "device-setup-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "device": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "A device id, name or address, as `cmux device list` shows it."
+     },
+     "verb": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "setup (every step) or start (reach, login item and start)."
+     },
+     "allow_agents": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Turn on the agents permission (the person's click in the app)."
+     },
+     "dry_run": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux device setup|start for the verified app connection only (origin.forbidden otherwise); runs off the connection's dispatcher.",
+    "Each step comes first as a device-setup-step control event on the asking connection; the reply (the summary line) ends the request, so no stream stays open.",
+    "Never quits or replaces a running app and never turns sharing on; the agents permission only with allow_agents."
+   ]
+  },
   "subscribe-activity": {
    "authority": "local-admin",
    "since": 12,
@@ -32268,6 +32324,68 @@
       "nullable": false
      },
      "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "device-setup-step": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "device-setup-step"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "device": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "step": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "state": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "detail": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "fix": {
       "type": {
        "kind": "scalar",
        "name": "string"

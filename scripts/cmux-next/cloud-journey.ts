@@ -896,6 +896,81 @@ export function ensureBenchMarkdown(runs: EnsureBenchRun[]): string {
   return `${lines.join("\n")}\n`;
 }
 
+/** Where each exec probe leaves its nonce on the guest, so a lost answer shows whether its command ran there. */
+export const EXEC_PROBE_NONCES = "/tmp/.cmux-exec-probe-nonces";
+const EXEC_PROBE_SHORT = 100;
+const EXEC_PROBE_WAITS = 5;
+const EXEC_PROBE_IDLE_S = [5, 5, 15, 15, 30, 30, 65, 65];
+/** Both cores busy for the loaded sweep, bounded by timeout, every descriptor closed so the exec answers at once. */
+const EXEC_PROBE_LOAD_START = "for i in 1 2; do setsid timeout 900 yes </dev/null >/dev/null 2>&1 & echo $! >> /tmp/.cmux-exec-probe-load; done; true";
+const EXEC_PROBE_LOAD_STOP = "kill $(cat /tmp/.cmux-exec-probe-load) 2>/dev/null; rm -f /tmp/.cmux-exec-probe-load; true";
+export type ExecProbeKind = "short" | "idle" | "wait";
+export type ExecProbeRun = { condition: EnsureBenchCondition; kind: ExecProbeKind; run: number; nonce: string; ms: number; status: number | null; code: string; cause: string; ranOnGuest: boolean | null };
+
+/** A probe's command: its nonce first, then `holdS` seconds of waiting (an `acp wait` read is about 20 s), then `ok`. */
+export function execProbeCommand(nonce: string, holdS: number): string {
+  return `echo ${nonce} >> ${EXEC_PROBE_NONCES}; ${holdS > 0 ? `sleep ${holdS}; ` : ""}echo ok`;
+}
+
+/**
+ * One probe through the machine exec route (POST /v1/cloud/machines/{machine}/exec, the route a staging machine's exec
+ * takes), kept whatever happens: the answer's status and refusal, or what the request threw with no answer
+ * (run 43918388959's claim 2 kept only "ECONNRESET").
+ */
+export async function execProbe(post: (body: unknown, timeoutMs: number) => Promise<Answer>, nonce: string, holdS: number): Promise<Pick<ExecProbeRun, "ms" | "status" | "code" | "cause">> {
+  const t0 = Date.now();
+  try {
+    const r = await post({ command: execProbeCommand(nonce, holdS), timeoutMs: (holdS + 30) * 1000 }, (holdS + 45) * 1000);
+    const v: any = r.body?.value ?? r.body;
+    if (r.status >= 200 && r.status < 300 && v?.ok !== false && Number(v?.exitCode) === 0 && String(v?.stdout ?? "").includes("ok")) return { ms: Date.now() - t0, status: r.status, code: "", cause: "" };
+    const code = v?.error ? String(v.error.reason ?? v.error.code ?? "error") : `exit ${v?.exitCode ?? "?"}`;
+    return { ms: Date.now() - t0, status: r.status, code, cause: String(v?.error?.message ?? v?.stderr ?? short(v)).slice(0, 200) };
+  } catch (error) {
+    const e = error as any;
+    return { ms: Date.now() - t0, status: null, code: String(e?.code ?? e?.cause?.code ?? e?.name ?? "error"), cause: String(e?.message ?? error).slice(0, 200) };
+  }
+}
+
+/** Where a failed probe ended, from its answer (MachineGuest.ts names each refusal) or, with none, the guest's nonces. */
+export function execProbeHop(r: ExecProbeRun): string | null {
+  if (r.status !== null && r.code === "") return null;
+  if (r.status === null) {
+    if (r.ranOnGuest === true) return "answer lost after the guest ran it";
+    if (r.ranOnGuest === false) return "request lost before the guest";
+    return "no answer; guest nonces unread";
+  }
+  if (r.status === 503 && ["overloaded", "restarted", "unreachable"].includes(r.code)) return `Worker → CloudDO (${r.code})`;
+  if (r.status === 502) return "CloudDO → provider exec";
+  if (r.status >= 520 && r.status <= 530) return `edge → Worker (HTTP ${r.status})`;
+  if (r.status >= 200 && r.status < 300) return `guest command (${r.code})`;
+  return `HTTP ${r.status} ${r.code}`;
+}
+
+/** The public table: per condition and kind the probes, failures, p50 and max; then one row per failed probe. */
+export function execProbeMarkdown(runs: ExecProbeRun[]): string {
+  const failed = runs.filter((r) => execProbeHop(r) !== null);
+  const lines = ["## Machine exec drops on a fresh staging machine", "", `- probes: ${runs.length}; failed: ${failed.length} (no answer: ${failed.filter((r) => r.status === null).length}, refused: ${failed.filter((r) => r.status !== null).length})`, "", "| condition | kind | probes | failed | p50 ms | max ms |", "|:---|:---|---:|---:|---:|---:|"];
+  for (const condition of ["boot", "settled", "loaded"] as const) {
+    for (const kind of ["short", "idle", "wait"] as const) {
+      const group = runs.filter((r) => r.condition === condition && r.kind === kind);
+      if (!group.length) continue;
+      const ms = group.map((r) => r.ms).sort((a, b) => a - b);
+      lines.push(`| ${condition} | ${kind} | ${group.length} | ${group.filter((r) => execProbeHop(r) !== null).length} | ${ms[Math.max(0, Math.ceil(ms.length * 0.5) - 1)]} | ${ms[ms.length - 1]} |`);
+    }
+  }
+  if (failed.length) {
+    lines.push("", "| condition | kind | run | ms | status | code | ran on guest | hop | cause |", "|:---|:---|---:|---:|---:|:---|:---|:---|:---|");
+    for (const r of failed) lines.push(`| ${r.condition} | ${r.kind} | ${r.run} | ${r.ms} | ${r.status ?? "-"} | ${r.code} | ${r.ranOnGuest === null ? "unread" : r.ranOnGuest ? "yes" : "no"} | ${execProbeHop(r)} | ${r.cause.replace(/\|/g, "\\|").replace(/\n/g, " ")} |`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/** Which failed probes' nonces the guest holds: null for every one when the nonce file could not be read. */
+export function markRanOnGuest(runs: ExecProbeRun[], nonces: string | null): ExecProbeRun[] {
+  const seen = nonces === null ? null : new Set(nonces.split("\n").map((l) => l.trim()).filter(Boolean));
+  return runs.map((r) => (r.status !== null ? r : { ...r, ranOnGuest: seen === null ? null : seen.has(r.nonce) }));
+}
+
 /**
  * --ensure-bench N: one fresh machine created as a cold claim is, its Claude login installed as a cold claim's is, then N
  * timed ensures right after it runs (first-boot work still going), N once boot settles (systemctl is-system-running
@@ -903,18 +978,33 @@ export function ensureBenchMarkdown(runs: EnsureBenchRun[]): string {
  */
 export async function runEnsureBench(args: { api: Api; journey: Journey; backend: string; tag: string; n: number; login: string; programs: ReturnType<typeof loginPrograms>; ownerScope: string; outDir: string | null; privateRowsPath?: string }): Promise<EnsureBenchRun[]> {
   const runs: EnsureBenchRun[] = [];
+  let probes: ExecProbeRun[] = [];
   const boot: Record<string, string> = {};
   const answer = await args.api.op("cloud.machine.create", { name: `cloud ensure bench ${args.tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-ensure-bench`);
   const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
   if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
   const write = () => {
-    if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), ensureBenchMarkdown(runs)); }
+    if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), `${ensureBenchMarkdown(runs)}\n${execProbeMarkdown(probes)}`); }
     const rows = runs.map((r) => ({ ...r, output: scrub(r.output, args.journey.secrets), slow: scrub(r.slow, args.journey.secrets).slice(-6000) }));
-    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend, summary: { runs: runs.length, crossed_120s: runs.filter((r) => r.ms !== null && r.ms > 120_000).length }, boot: Object.fromEntries(Object.entries(boot).map(([k, v]) => [k, scrub(v, args.journey.secrets).slice(-4000)])) }, rows }, null, 2)}\n`);
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend, summary: { runs: runs.length, crossed_120s: runs.filter((r) => r.ms !== null && r.ms > 120_000).length, probes: probes.length, probes_failed: probes.filter((r) => execProbeHop(r) !== null).length }, boot: Object.fromEntries(Object.entries(boot).map(([k, v]) => [k, scrub(v, args.journey.secrets).slice(-4000)])) }, rows, probes: probes.map((r) => ({ ...r, cause: scrub(r.cause, args.journey.secrets) })) }, null, 2)}\n`);
   };
   try {
     await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
     const exec = directExec(args.api, machine, args.journey);
+    const post = (body: unknown, timeoutMs: number) => args.api.raw("POST", `/v1/cloud/machines/${machine}/exec`, body, timeoutMs);
+    const probe = async (condition: EnsureBenchCondition, kind: ExecProbeKind, run: number, holdS: number) => {
+      const nonce = `${args.tag}-${condition}-${kind}-${run}`.replace(/[^A-Za-z0-9_.-]/g, "-");
+      probes.push({ condition, kind, run, nonce, ranOnGuest: null, ...(await execProbe(post, nonce, holdS)) });
+    };
+    // Short execs back to back, 20 s holds like an `acp wait` read, and (settled) one after each idle gap, where a
+    // pooled connection the far end already closed would be reused.
+    const sweep = async (condition: EnsureBenchCondition) => {
+      for (let i = 0; i < EXEC_PROBE_SHORT; i++) await probe(condition, "short", i, 0);
+      if (condition === "settled") for (const [i, gapS] of EXEC_PROBE_IDLE_S.entries()) { await sleep(gapS * 1000); await probe(condition, "idle", i, 0); }
+      for (let i = 0; i < EXEC_PROBE_WAITS; i++) await probe(condition, "wait", i, 20);
+      write();
+    };
+    await sweep("boot");
     boot.jobs_at_running = (await exec("systemctl list-jobs --no-pager 2>&1 | head -20; systemctl is-system-running 2>&1", 60_000)).stdout;
     await installPreclaimLogin(args.api, machine, exec, args.programs, args.login, 0, args.ownerScope);
     const timed = async (condition: EnsureBenchCondition) => {
@@ -927,7 +1017,13 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
     await timed("boot");
     boot.settle = (await exec("timeout 600 systemctl is-system-running --wait 2>&1; systemctl list-jobs --no-pager 2>&1 | head -10; systemd-analyze blame 2>/dev/null | head -15", 300_000)).stdout;
     await timed("settled");
+    await sweep("settled");
     await timed("loaded");
+    await exec(`${EXEC_PROBE_LOAD_START}`, 60_000).catch(() => undefined);
+    await sweep("loaded");
+    await exec(`${EXEC_PROBE_LOAD_STOP}`, 60_000).catch(() => undefined);
+    const nonces = await exec(`cat ${EXEC_PROBE_NONCES}`, 60_000).then((r) => (r.code === 0 ? r.stdout : null), () => null);
+    probes = markRanOnGuest(probes, nonces);
   } finally {
     write();
     await args.api.deleteMachine(machine, `${args.tag}-ensure-bench-delete`).catch(() => undefined);
@@ -3275,7 +3371,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return await J.step("ensure bench", async () => {
           const runs = await runEnsureBench({ api, journey: J, backend: backend.name, tag, n, login: claudeLogin, programs: loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(team)), ownerScope: team ? "owner or team" : "owner", outDir, privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS });
           const crossed = runs.filter((r) => r.ms !== null && r.ms > 120_000).length;
-          return { value: 0, detail: `${runs.length} ensures; crossed 120 s: ${crossed}; max ${Math.max(0, ...runs.map((r) => r.ms ?? 0))} ms` };
+          return { value: 0, detail: `${runs.length} ensures; crossed 120 s: ${crossed}; max ${Math.max(0, ...runs.map((r) => r.ms ?? 0))} ms; exec probes in ensure-bench.md` };
         });
       }
       const status = await J.step("preclaim burst", async () => {
