@@ -22,7 +22,6 @@
 //! finds it, and the record carries it as `preview`.
 
 use super::*;
-use serde::{Deserialize, Serialize};
 
 /// The reason of a process that ended with its harness.
 pub(super) const HARNESS_EXIT: &str = "harness_exit";
@@ -44,97 +43,7 @@ const TAIL_MAX: u64 = 1 << 20;
 /// unpaged list was serialized whole only to be refused as too large (2026-11-11).
 const PROCESS_PAGE_BUDGET: usize = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
 
-/// Where a process is in its life.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum ProcessState {
-    Running,
-    Exited,
-    Failed,
-    Killed,
-    /// It ended without anyone seeing how (its harness exited).
-    Lost,
-}
-
-/// One background process, as `_acpmux/process/list` and
-/// `_acpmux/process_update` carry it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct Process {
-    /// `<sessionId>/<harness task id>` (the tool call's id when the harness
-    /// never named a task).
-    id: String,
-    session_id: String,
-    /// The subagent whose tool call started it, if one did.
-    subagent_session_id: Option<String>,
-    tool_call_id: String,
-    task_id: String,
-    harness: String,
-    command: String,
-    /// What the call that started it says it does (Claude's Bash
-    /// `description`); none from Codex.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    cwd: String,
-    /// Unix ms.
-    started_at: u64,
-    ended_at: Option<u64>,
-    state: ProcessState,
-    /// Reported by Codex, not by Claude Code.
-    exit_code: Option<i64>,
-    signal: Option<String>,
-    /// Why it stopped: `person` (`_acpmux/process/kill`), `agent`, or
-    /// `harness_exit`.
-    reason: Option<String>,
-    /// The harness's own words on its end (Claude's reason or summary).
-    detail: Option<String>,
-    /// `background` (started there), `auto_backgrounded` (Claude Code moved
-    /// it there) or `user_backgrounded` (the person did, Ctrl-B).
-    origin: String,
-    /// The length of its output file when it was listed; null while
-    /// Claude Code has named no file.
-    output_bytes: Option<u64>,
-    /// The file Claude Code writes its output to (`output_file`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    output_file: Option<String>,
-    /// The loopback server it runs, found in its output (`process_preview.rs`);
-    /// only while it runs.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    preview: Option<ProcessPreview>,
-    /// Its latest state is in a logged `process_update`.
-    #[serde(skip)]
-    logged: bool,
-}
-
-/// The local URL a running process serves, as its output printed it and a
-/// loopback connect confirmed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct ProcessPreview {
-    url: String,
-    port: u16,
-}
-
-/// A session's processes, in the order they started.
-#[derive(Debug, Default)]
-pub(super) struct ProcessTable {
-    /// Read from the session's log (`Hub::process_table`).
-    loaded: bool,
-    /// The last log record the table holds.
-    through: u64,
-    processes: Vec<Process>,
-    /// Stable slots in `processes`: entries never move, even when an update replaces one.
-    by_id: std::collections::HashMap<String, usize>,
-    /// First process with a tool-call ID (the historical Vec::position behavior).
-    by_tool: std::collections::HashMap<String, usize>,
-    /// Only live process slots, ascending by append order. Completed history can grow
-    /// without making idle checks or lost-process propagation scan every old task.
-    running: std::collections::BTreeSet<usize>,
-    /// Processes a person asked to stop: their end is the person's.
-    stopping: std::collections::HashSet<String>,
-    /// Processes whose output a preview watch reads (`process_preview.rs`): one each.
-    watching: std::collections::HashSet<String>,
-}
+pub(super) use acpmux_core::chat::process::{Process, ProcessPreview, ProcessState, ProcessTable};
 
 #[cfg(test)]
 #[path = "processes_index_tests.rs"]

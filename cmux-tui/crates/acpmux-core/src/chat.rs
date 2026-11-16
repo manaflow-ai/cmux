@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub mod background_cause;
 pub mod meta;
+pub mod process;
 pub mod queue;
 pub mod record;
 pub mod source;
