@@ -12,6 +12,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
+import { COMPOSER_MD_FIELD } from "./composerSelectors";
 
 const BOX = ".acpmux-composer-box[data-composer-grid]";
 const FIELD = `${BOX} > .acpmux-composer-field-menu > .acpmux-md-field`;
@@ -37,7 +38,7 @@ const placement =
       ctx.document.head.append(style);
     }
     await ctx.waitFor(() => {
-      const field = ctx.document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field");
+      const field = ctx.document.querySelector<HTMLElement>(COMPOSER_MD_FIELD);
       return field !== null && field.scrollHeight > field.clientHeight + 1;
     });
   };
