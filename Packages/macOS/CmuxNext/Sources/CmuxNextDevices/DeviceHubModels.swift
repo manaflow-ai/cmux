@@ -4,8 +4,10 @@ public import Foundation
 /// other than ids decode leniently: a missing or differently typed optional
 /// field is nil, so a newer server never breaks an older app.
 
+/// A device's platform. `linux` is a Linux desktop that hosts its screen
+/// (`cmux-rd linux-host`); it is viewed like a Mac and never views.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
-    case macos, ios
+    case macos, ios, linux
 }
 
 /// What a viewer may do on a host's screen.
@@ -36,6 +38,13 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         self.id = id; self.name = name; self.platform = platform; self.signingKey = signingKey
         self.agreementKey = agreementKey; self.createdAt = createdAt; self.lastSeenAt = lastSeenAt
         self.macScreenShared = macScreenShared; self.online = online
+    }
+
+    /// Known Mac screen destinations, including Macs whose user has yet to allow sharing.
+    /// Lowercase device IDs are stable identity keys; display names never participate.
+    public static func macScreenAvailability(in devices: [HubDevice]) -> [String: Bool] {
+        Dictionary(devices.filter { $0.platform == .macos }.map { ($0.id.lowercased(), $0.online) },
+                   uniquingKeysWith: { first, _ in first })
     }
 
     /// The signing key's display fingerprint, when the key is valid.
