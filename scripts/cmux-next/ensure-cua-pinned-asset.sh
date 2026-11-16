@@ -4,7 +4,12 @@
 # (cua-driver-sdk.pin.json or cua-helper-dev.pin.json, written by
 # publish-cua-pinned-asset.sh) and prints its cached path on stdout.
 #
-#   ensure-cua-pinned-asset.sh PIN.json [--optional]
+#   ensure-cua-pinned-asset.sh PIN.json [--optional | --allow-no-source]
+#
+# --optional: an unavailable asset warns, prints no path and exits 0.
+# --allow-no-source: only "this machine has no source for the asset" (no cached or local copy,
+# none in the store, no read credentials) is not an error: it prints nothing and exits 3, and the
+# caller says what it leaves out. A failed download is still an error.
 #
 # Sources, each checked against the pin sha256 (a mismatch always fails,
 # also with --optional): the local cache; CMUX_CUA_ASSET_FILE (a local copy);
@@ -15,9 +20,13 @@
 # ~/.secrets/cmux-cef.env). CMUX_CUA_ASSET_NO_STORE=1 skips the store. CMUX_CUA_ASSET_CACHE_DIR overrides the
 # cache root (default <cef-cache-root>/cua-helper-v2).
 set -euo pipefail
-pin="${1:?usage: ensure-cua-pinned-asset.sh PIN.json [--optional]}"
+pin="${1:?usage: ensure-cua-pinned-asset.sh PIN.json [--optional | --allow-no-source]}"
 optional=0
-[[ "${2:-}" == "--optional" ]] && optional=1
+allow_no_source=0
+case "${2:-}" in
+  --optional) optional=1 ;;
+  --allow-no-source) allow_no_source=1 ;;
+esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 unavailable() {
   if (( optional )); then echo "warning: $(basename "$pin") unavailable: $*" >&2; exit 0; fi
@@ -80,8 +89,10 @@ else
   id="${CMUX_CEF_R2_ACCESS_KEY_ID:-}"; secret="${CMUX_CEF_R2_SECRET_ACCESS_KEY:-}"
   endpoint="${CMUX_CEF_R2_ENDPOINT:-}"
   [[ -z "$endpoint" && -n "${CMUX_CEF_R2_ACCOUNT_ID:-}" ]] && endpoint="https://$CMUX_CEF_R2_ACCOUNT_ID.r2.cloudflarestorage.com"
-  [[ -n "$id" && -n "$secret" && -n "$endpoint" && -n "$bucket" && -n "$key" ]] ||
+  if [[ -z "$id" || -z "$secret" || -z "$endpoint" || -z "$bucket" || -z "$key" ]]; then
+    (( allow_no_source )) && exit 3
     unavailable "no CMUX_CEF_R2_* read credentials"
+  fi
   echo "==> downloading $asset from R2 $bucket" >&2
   printf 'user = "%s:%s"\n' "$id" "$secret" |
     curl --config - --fail --silent --show-error --location --retry 5 --retry-delay 2 \
