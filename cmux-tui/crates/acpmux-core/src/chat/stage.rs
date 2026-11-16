@@ -4,7 +4,7 @@
 //! caller-side steps, the caller appends that record, then `after` commits repeat state and
 //! returns post-write steps. No step performs I/O or invokes a hub.
 
-use super::record::{Entry, Record, RecordState};
+use super::record::{Entry, EventRecord, Record, RecordState};
 
 /// Read-only values supplied by the caller for one harness entry.
 #[derive(Clone, Copy, Debug, Default)]
@@ -48,8 +48,12 @@ pub fn before<S: RecordState>(entry: Entry<'_>, context: &mut S, call: Call) -> 
 }
 
 /// Commit state only after the caller's append succeeds.
-pub fn after<S: RecordState>(mut before: Before, context: &mut S, logged: bool) -> After {
-    if logged {
+pub fn after<S: RecordState>(
+    mut before: Before,
+    context: &mut S,
+    written: Option<&EventRecord>,
+) -> After {
+    if written.is_some() {
         if let Some(record) = before.record.take() {
             record.note_logged(context);
         }

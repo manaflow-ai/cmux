@@ -19,10 +19,10 @@ impl acpmux_core::chat::record::RecordState for SessionRecordState<'_> {
         self.session.status() == SessionStatus::Closed
     }
     fn hibernate(&self) -> bool {
-        self.session.hibernated_at.load(Ordering::Acquire) != 0
+        self.session.hibernated_at.load(Ordering::SeqCst) != 0
     }
     fn loading(&self) -> bool {
-        self.session.loading.load(Ordering::Acquire)
+        self.session.loading.load(Ordering::SeqCst)
     }
     fn with_awaiting_first_delta<R>(&mut self, f: impl FnOnce(&AtomicBool) -> R) -> R {
         f(self.awaiting_first_delta)
@@ -331,7 +331,7 @@ impl Hub {
                 (Direction::In, Message::Request { method, .. }) => ("in", method.clone()),
                 (Direction::In, Message::Response { .. }) => ("in", "response".to_owned()),
                 (Direction::Out, Message::Request { method, .. }) => ("out", method.clone()),
-                (Direction::Out, Message::Notification { method, params })
+                (Direction::Out, Message::Notification { method, params: _ })
                     if method == "claude.stdin" =>
                 {
                     let mut state = SessionRecordState {
@@ -353,8 +353,13 @@ impl Hub {
                     let Some((dir, kind, line)) = before.record_parts() else {
                         return false;
                     };
-                    let logged = tap_hub.append_logged(&tap_session, dir, &kind, line, host_seq).1;
-                    let _ = acpmux_core::chat::stage::after(before, &mut state, logged);
+                    let (written, logged) =
+                        tap_hub.append_logged(&tap_session, dir, &kind, line, host_seq);
+                    let _ = acpmux_core::chat::stage::after(
+                        before,
+                        &mut state,
+                        logged.then_some(&written),
+                    );
                     return logged;
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
@@ -487,48 +492,45 @@ impl Hub {
             } else {
                 None
             };
-            // A state update that repeats what the log last kept is not logged again; the
-            // session's meta took it already (`update_repeats.rs`).
-            let repeats = if live_update
+            // The shared stage owns repeat filtering and commits its hashes only
+            // after the writer returns the EventRecord. Its eligibility matches
+            // v1's old branch exactly: side-effecting updates are always kept.
+            let eligible_update = if live_update
                 && !subagent_events
                 && !background_changed
                 && !running_changed
                 && todo_plan.is_none()
-                && let Some(update) = value.pointer_mut("/params/update")
             {
-                let repeats = tap_session
-                    .update_repeats
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .leave_out_repeats(&kind, update);
-                if repeats.nothing_left {
-                    tap_hub.touch(&tap_session);
-                    return true;
-                }
-                Some(repeats)
-            } else if d == "in" && kind == "response" {
-                // The `initialize` response repeats the commands the start before logged; a
-                // response is always logged (`hosts.rs` pairs a prompt with its response).
-                Some(
-                    tap_session
-                        .update_repeats
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .leave_out_repeats(&kind, &mut value),
-                )
+                true
             } else {
-                None
+                false
             };
-            let (rec, logged) = tap_hub.append_logged(&tap_session, d, &kind, value, host_seq);
-            // Only a logged update's sections count as logged: a retried write is compared with
-            // what the log holds.
-            if logged && let Some(repeats) = repeats {
-                tap_session
-                    .update_repeats
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .note_logged(repeats);
-            }
+            let mut state = SessionRecordState {
+                session: &tap_session,
+                awaiting_first_delta: &awaiting_first_delta,
+            };
+            let before = acpmux_core::chat::stage::before(
+                acpmux_core::chat::record::Entry::Notification {
+                    direction: acpmux_core::chat::record::Direction::In,
+                    method: "session/update",
+                    value,
+                },
+                &mut state,
+                acpmux_core::chat::stage::Call { eligible_update, mask: crate::secret_scan::mask },
+            );
+            let Some((record_dir, record_kind, record_value)) = before.record_parts() else {
+                tap_hub.touch(&tap_session);
+                let _ = acpmux_core::chat::stage::after(before, &mut state, None);
+                return true;
+            };
+            let (rec, logged) = tap_hub.append_logged(
+                &tap_session,
+                record_dir,
+                &record_kind,
+                record_value,
+                host_seq,
+            );
+            let _ = acpmux_core::chat::stage::after(before, &mut state, logged.then_some(&rec));
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
