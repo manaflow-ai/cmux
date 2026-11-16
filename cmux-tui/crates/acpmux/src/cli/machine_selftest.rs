@@ -15,7 +15,8 @@ use std::process::Command;
 use std::time::Instant;
 
 const DEFAULT_SCENARIO_ENV: &str = "CMUX_MACHINE_SELFTEST_SCENARIO";
-const REQUIRED_DOOR_A_STEPS: [&str; 2] = ["door-a-cli", "door-a-gui"];
+const REQUIRED_STEPS: [&str; 6] =
+    ["door-a-cli", "door-a-gui", "first-chat", "drop-10s", "drop-60s", "remove"];
 
 #[derive(Debug, Clone)]
 struct ScenarioStep {
@@ -83,15 +84,29 @@ fn parse_scenario(text: &str) -> Result<Vec<ScenarioStep>> {
                 line_no + 1
             ));
         }
+        let required_marker = match name {
+            "first-chat" => {
+                Some(("chat", "first-chat must start a chat and wait for its first reply"))
+            }
+            "drop-10s" => Some(("10", "drop-10s must exercise a ten-second link drop")),
+            "drop-60s" => Some(("60", "drop-60s must exercise a sixty-second link drop")),
+            "remove" => Some(("remove", "remove must remove both machines and verify cleanup")),
+            _ => None,
+        };
+        if let Some((marker, message)) = required_marker {
+            if !command_lower.contains(marker) {
+                return Err(anyhow!("scenario line {} {message}", line_no + 1));
+            }
+        }
         steps.push(ScenarioStep { name: name.to_owned(), actions, command: command.to_owned() });
     }
     if steps.is_empty() {
         return Err(anyhow!("scenario has no steps"));
     }
-    for required in REQUIRED_DOOR_A_STEPS {
+    for required in REQUIRED_STEPS {
         if !steps.iter().any(|step| step.name == required) {
             return Err(anyhow!(
-                "scenario is missing required {required} step (Door A is a required failing check)"
+                "scenario is missing required {required} step (the remote spin-up flow is not skippable)"
             ));
         }
     }
@@ -186,14 +201,24 @@ mod tests {
 
     #[test]
     fn parses_comments_and_tabs() {
-        let steps = parse_scenario("# comment\njoin\t1\ttrue\nchat\t2\tprintf ok\n").unwrap();
-        assert_eq!(steps.len(), 2);
-        assert_eq!(steps[1].actions, 2);
+        let steps = parse_scenario(
+            "# comment\ndoor-a-cli\t1\tssh vm join\ndoor-a-gui\t1\tcmux action run gui\nfirst-chat\t1\tfleet-driver chat-first-reply\ndrop-10s\t0\tfleet-driver drop-link 10\ndrop-60s\t0\tfleet-driver drop-link 60\nremove\t1\tfleet-driver remove\n",
+        )
+        .unwrap();
+        assert_eq!(steps.len(), 6);
+        assert_eq!(steps[2].actions, 1);
     }
 
     #[test]
     fn allows_wait_steps_without_an_action() {
-        assert_eq!(parse_scenario("wait\t0\ttrue\n").unwrap()[0].actions, 0);
+        assert_eq!(
+            parse_scenario(
+                "door-a-cli\t1\tssh vm join\ndoor-a-gui\t1\tcmux action run gui\nfirst-chat\t1\tfleet-driver chat-first-reply\ndrop-10s\t0\tfleet-driver drop-link 10\ndrop-60s\t0\tfleet-driver drop-link 60\nremove\t1\tfleet-driver remove\n"
+            )
+            .unwrap()[3]
+                .actions,
+            0
+        );
     }
 
     #[test]
@@ -201,12 +226,23 @@ mod tests {
         assert!(parse_scenario("door-a-cli\t1\tssh vm true\n").is_err());
         assert!(
             parse_scenario("door-a-cli\t1\tssh vm join\ndoor-a-gui\t1\tcmux action run gui\n")
-                .is_ok()
+                .is_err()
         );
     }
 
     #[test]
     fn rejects_cmux16() {
-        assert!(parse_scenario("door-a-cli\t1\tssh vm true\ndoor-a-gui\t1\tcmux16\n").is_err());
+        assert!(parse_scenario("door-a-cli\t1\tssh vm join\ndoor-a-gui\t1\tcmux16\n").is_err());
+    }
+
+    #[test]
+    fn requires_real_chat_and_link_drop_drivers() {
+        let scenario = "door-a-cli\t1\tssh vm join\n\
+            door-a-gui\t1\tcmux action run gui\n\
+            first-chat\t1\tfleet-driver chat-first-reply\n\
+            drop-10s\t0\tdrop\n\
+            drop-60s\t0\tdrop 60\n\
+            remove\t1\tfleet-driver remove\n";
+        assert!(parse_scenario(scenario).is_err());
     }
 }

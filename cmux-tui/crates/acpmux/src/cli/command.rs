@@ -351,7 +351,7 @@ pub enum Command {
         rotate_token: bool,
     },
     /// Remote daemons and machines: add, ls, status, place, setup, update, enroll, doctor, ticket and more.
-    #[command(subcommand, aliases = ["hosts", "peer"])]
+    #[command(subcommand, aliases = ["hosts", "peer", "machine", "machines"])]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
