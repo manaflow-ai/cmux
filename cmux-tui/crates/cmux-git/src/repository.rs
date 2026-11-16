@@ -337,7 +337,7 @@ fn says_no_repository(stderr: &str) -> bool {
 /// asks for the setting of no other git folder.
 fn core_worktree(git_dir: &Path, deadline: Option<Instant>) -> Result<Option<Vec<u8>>, GitFailure> {
     let own = file_settings(git_dir, "config", deadline)?;
-    if own.tree_config {
+    if !own.tree_config {
         return Ok(own.worktree);
     }
     let tree = file_settings(git_dir, "config.worktree", deadline)?;
