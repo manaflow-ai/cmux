@@ -14,7 +14,7 @@ import Testing
 // is measured in Rust, this is what follows it in Swift).
 //
 // The real coordinator, controller, pairing, acpmux hub, chat source and chat store run against
-// a fake Mac whose every message waits a one-way latency each way (RTT 80 ms and 200 ms). The
+// a fake Mac whose every message waits a one-way latency each way (RTT 80 ms). The
 // fake Mac answers as cmux-mobile-host and acpmux do: `auth` sends its challenge when it opens
 // and `{"ok":true}` for the signature; every channel opened after `auth` is held until it passes
 // (host.rs accept loop, `LinkAuth::gate`); acpmux answers `initialize`, `_acpmux/watch` and
@@ -22,8 +22,8 @@ import Testing
 //
 // Each run: background, foreground (`.resume` replaces the link), and marks every step in wall
 // time. Prints, per RTT, `CHAIN_STEP` (ms since the link was adopted, p50/p95 of 10 runs) and
-// `CHAIN_RTTS` ((attach answered - adopted) / RTT). Runs in about 20 s, with no timing bound:
-// it reports, it does not gate.
+// `CHAIN_RTTS` ((attach answered - adopted) / RTT), and expects at most three serial round trips
+// (pairing's two and the attach). Runs in about 5 s.
 
 /// Wall-clock marks of one run: the first time each step happened.
 // crash-allow: every mutable field is read and written only under `lock`
@@ -382,13 +382,8 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
     }
 }
 
-// Timed on real sleeps: runs only when asked (CMUX_RECONNECT_CHAIN_TIMING=1; scripts/ci/cmux-next-ios-sim.sh
-// sets it when its only= names this suite), never in a whole kit run.
 @MainActor
-@Suite(.serialized, .timeLimit(.minutes(2)),
-       .enabled(if: ProcessInfo.processInfo.environment["CMUX_RECONNECT_CHAIN_TIMING"] == "1",
-                "runs alone: CMUX_RECONNECT_CHAIN_TIMING=1"))
-struct ReconnectChainTimingTests {
+@Suite(.serialized, .timeLimit(.minutes(2))) struct ReconnectChainTimingTests {
     /// The steps, in chain order.
     static let steps = [
         "resume", "dial", "auth_open", "daemon_open", "adopted", "auth_challenge_in", "auth_signature_out", "auth_ok_in",
@@ -468,7 +463,7 @@ struct ReconnectChainTimingTests {
         }
 
         var reattach = 0
-        for rttMillis in [80, 200] {
+        for rttMillis in [80] {
             mac.oneWay = .milliseconds(rttMillis / 2)
             var values: [String: [Double]] = [:]
             var mainGaps: [Double] = []
@@ -520,6 +515,9 @@ struct ReconnectChainTimingTests {
             let resume = Self.percentile(values["resume"] ?? [0], 0.5)
             let serial = Int((attach / Double(rttMillis)).rounded())
             print(#"CHAIN_RTTS {"rtt_ms":\#(rttMillis),"serial_round_trips":\#(serial),"attach_in_p50":\#(Self.fmt(attach)),"live_applied_p50":\#(Self.fmt(liveApplied)),"resume_p50":\#(Self.fmt(resume))}"#)
+            // Pairing's two round trips, then the attach: `initialize` and the first page of
+            // chats ride behind `auth`, not after it (ask-48f698fc26; five before).
+            #expect(serial <= 3, "the chat's attach came back \(serial) round trips after the link")
         }
         // One attach per run (and the first open's): no retry hid in the numbers.
         #expect(mac.acpmux.attachCount == reattach + 1)
