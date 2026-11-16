@@ -19,6 +19,7 @@ use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_proto::{flags, DatagramHeader, DatagramKind};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -96,6 +97,17 @@ pub struct MediaSession {
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
 fn pacing_enabled() -> bool {
     std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
+}
+
+/// Original video and FEC shards are one replaceable frame. Key, recovery,
+/// tile, repair, and unknown datagrams must stay protected.
+fn frame_is_droppable(datagrams: &[Vec<u8>]) -> bool {
+    !datagrams.is_empty()
+        && datagrams.iter().all(|datagram| {
+            let Ok((header, _)) = DatagramHeader::decode(datagram) else { return false };
+            matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+                && header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0
+        })
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -502,10 +514,22 @@ impl MediaSession {
             }
             _ => None,
         };
-        let Some(pacer) = self.pacer.as_mut() else {
-            for datagram in &out.datagrams {
-                carrier.send_datagram(datagram)?;
+
+        // LinkCarrier owns the bounded whole-frame queue. Do not put a second
+        // pacer queue in front of it: hand over the complete frame and let the
+        // link drain/replacement policy decide what can wait.
+        if carrier.media_queue_stats().is_some() {
+            let droppable = frame_is_droppable(&out.datagrams);
+            carrier.send_datagram_frame(out.datagrams, droppable)?;
+            if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
+                timing.frame_sent(line, now_us());
             }
+            return Ok(());
+        }
+
+        let Some(pacer) = self.pacer.as_mut() else {
+            let droppable = frame_is_droppable(&out.datagrams);
+            carrier.send_datagram_frame(out.datagrams, droppable)?;
             if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
                 timing.frame_sent(line, now_us());
             }

@@ -1089,18 +1089,21 @@ impl Driver {
     }
 }
 
-/// Sample the protocol clock only after the complete payload is accepted.
+/// Read the host's absolute monotonic clock in the same domain as the ledger.
+fn monotonic_us() -> Option<u64> {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: the kernel writes a valid, live timespec; this is the host's clock domain.
+    (unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } == 0)
+        .then_some(ts.tv_sec as u64 * 1_000_000 + ts.tv_nsec as u64 / 1000)
+}
+
+/// Sample the absolute protocol clock only after the complete payload is accepted.
 fn send_to_observed(socket: &UdpSocket, packet: &[u8], addr: SocketAddr) -> Option<(u64, usize)> {
     let sent = socket.send_to(packet, addr).ok()?;
     if sent != packet.len() {
         return None;
     }
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-    // SAFETY: the kernel writes a valid, live timespec; this is the host's clock domain.
-    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
-        return None;
-    }
-    Some((ts.tv_sec as u64 * 1_000_000 + ts.tv_nsec as u64 / 1000, sent))
+    Some((monotonic_us()?, sent))
 }
 
 #[cfg(test)]
@@ -1112,9 +1115,11 @@ mod tests {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         assert!(send_to_observed(&socket, &[0; 65_536], peer.local_addr().unwrap()).is_none());
+        let before = monotonic_us().unwrap();
         let (departed, bytes) =
             send_to_observed(&socket, b"ok", peer.local_addr().unwrap()).unwrap();
-        assert!(departed > 0);
+        let after = monotonic_us().unwrap();
+        assert!((before..=after).contains(&departed));
         assert_eq!(bytes, 2);
     }
 
