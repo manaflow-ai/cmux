@@ -89,6 +89,8 @@ const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[
     ("machine.joined.check", JOINED_PALETTE_ROW),
     ("machine.joined.rotate", JOINED_PALETTE_ROW),
     ("machine.joined.revoke", JOINED_PALETTE_ROW),
+    // cmux#43962: `cmux action describe macScreen.open` says --device takes a name or id.
+    ("macScreen.open", &["/description"]),
 ];
 
 /// The fields a joined machine's action changed when it became a palette row that asks which
