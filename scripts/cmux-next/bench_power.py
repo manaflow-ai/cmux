@@ -748,6 +748,7 @@ def main():
     parser.add_argument("--load-closed", type=float, default=0.6, help="loaded: share of them closed")
     parser.add_argument("--load-remote", type=int, help="loaded: open chats on the peer (20; idle-chats 0)")
     parser.add_argument("--load-local", type=int, help="loaded: open chats on this Mac (5; idle-chats 40)")
+    parser.add_argument("--relaunch-rounds", type=int, help="relaunch-reconnect: rounds per mode (3)")
     parser.add_argument("--load-streaming", type=int, help="loaded: open chats streaming a reply (3; idle-chats 0)")
     parser.add_argument("--load-tabs", type=int, help="loaded: Chromium tabs (10; idle-chats 0)")
     parser.add_argument("--stream-rate", type=float, default=10, help="loaded: streamed chunks a second per chat")
@@ -807,6 +808,7 @@ def main():
             argv += ["--modes", "warm,new-version", "--shown", "idle", "--browser",
                      "--retheme", "GitHub Light Default,Rose Pine Dawn"]
         argv += ["--chats", str(args.load_local)] if args.load_local is not None else []
+        argv += ["--rounds", str(args.relaunch_rounds)] if args.relaunch_rounds is not None else []
         argv += ["--out", args.out] if args.out else []
         argv += ["--md", args.md] if args.md else []
         relaunch.main(argv)

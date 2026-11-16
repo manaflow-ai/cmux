@@ -4,10 +4,13 @@
 # commit's Rust part is applied to it, then rolled back, and each step is checked.
 #   cmux-ci run --class exclusive --label measure --display \
 #     --script scripts/measure/hot-apply-nightly.sh --ref <sha> \
-#     --arg=sha=<merged commit> [--arg=dmg=URL] \
+#     --arg=sha=<merged commit> [--arg=dmg=URL] [--arg=prefetch=1] [--arg=sessions=1] \
 #     --artifact .build/hot-apply-nightly/report.tgz --timeout 1800
 #   sha=SHA  the merged feat-cmux-next commit to apply (after the nightly's commit)
 #   dmg=URL  the nightly DMG (default: the newest in the NEXT feed)
+#   prefetch=1  `hot-apply.py prefetch SHA` first, so the apply only swaps (its time is in the receipt)
+#   sessions=1  a second session's daemon from the copy's bin, with a shell; `apply --restart-sessions` must
+#               hand it over and back, shell kept
 # Prints the receipt (scripts/measure/hot-apply-nightly.py) and keeps it, with both hot-apply receipts
 # and the copy's log, in report.tgz. The copy is removed at the end; the Mac's own apps are untouched.
 set -uo pipefail
@@ -15,11 +18,13 @@ cd "$(dirname "$0")/../.." || exit 3
 root="$PWD"
 out="$root/.build/hot-apply-nightly"
 rm -rf "$out" && mkdir -p "$out"
-sha="" dmg=""
+sha="" dmg="" prefetch=() sessions=()
 for arg in "$@"; do
   case "$arg" in
     sha=*) sha="${arg#sha=}" ;;
     dmg=https://*) dmg="${arg#dmg=}" ;;
+    prefetch=1) prefetch=(--prefetch) ;;
+    sessions=1) sessions=(--sessions) ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -54,7 +59,7 @@ hdiutil detach "$mnt" >/dev/null; mnt=""
 app="$("$side" path hotapply)"
 eval "$("$side" env hotapply)"
 "$side" launch hotapply >&2 || exit 3
-python3 scripts/measure/hot-apply-nightly.py --app "$app" --sha "$sha" --pid-file "$CMUX_SIDE_ROOT/hotapply/pid" \
+python3 scripts/measure/hot-apply-nightly.py --app "$app" --sha "$sha" --pid-file "$CMUX_SIDE_ROOT/hotapply/pid" ${prefetch[@]+"${prefetch[@]}"} ${sessions[@]+"${sessions[@]}"} \
   --out "$out" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 cp "$CMUX_HOT_APPLY_STATE_DIR/history.jsonl" "$out/hot-apply-history.jsonl" 2>/dev/null || true

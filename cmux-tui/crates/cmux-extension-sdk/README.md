@@ -12,7 +12,9 @@ One SDK, two languages, one version (1.0.0), made from the runtime's own tables 
 | Gives | places (`section`, `pane`, `newTab`, `chatWidget`, `command`), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
 
 The working example is [`examples/extensions/activity`](../../../examples/extensions/activity):
-a sidebar section and a pane, built only against this SDK.
+a sidebar section and a pane, built only against this SDK. A pane can also be your own HTML
+page (`render: web`): [`examples/extensions/web-pane`](../../../examples/extensions/web-pane)
+calls cmux through `cmux-extension-sdk/web`, with the same scopes as a script.
 
 ## Make one
 
@@ -94,6 +96,7 @@ Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with
 | `chat.changed` | `chat:read` | a listed field of a chat changes (`chat.list`; not `updated_ms` alone) |
 | `settings.changed` | `settings:read` | a cmux setting changes (the file, a managed layer, Settings, the CLI); names no keys, carries no values |
 | `theme.changed` | `settings:read` | the theme, app theme, theme file or edits, accent, hue, saturation or highlight color changes |
+| `github.changed` | `integration:github:read` | a pull request, review, check run or suite, or commit status changes on a repository a GitHub connection covers (the Cloud's GitHub App webhooks, within seconds); its body is `{"live": bool}` when the push channel goes up or down, and a new subscriber hears that first. `cmux.watch("github.pulls")` already re-reads on it |
 
 ## Test it
 
@@ -156,6 +159,35 @@ assert!(check_package(std::path::Path::new(".")).is_valid());
 
 `EVENTS`, `SIGNALS`, `event(name)` and `signal(name)` are the same tables the TypeScript package
 reads, as constants.
+
+## What you can customize, typed
+
+`cmux customize schema` (MCP: `customize_schema`) lists every setting key with its type, choices,
+range and default, what a theme file holds and the theme tokens, the view slots and where each
+goes, and every extension point with its options. Both SDKs carry the same list as types, written
+from that one source (`cmux_customize::schema`), so a key that does not exist is an error, not a
+guess:
+
+```ts
+import type { CmuxSettings, SettingKey, ViewSlot, CmuxViewSlots } from "cmux-extension-sdk/customize"
+
+const key: SettingKey = "appearance.themeFile"           // a misspelled key does not type-check
+const accent: CmuxSettings["appearance.accent"] = "blue"  // the value's own type
+const place: CmuxViewSlots["cmux.section/1"] = "top"      // "top" | "middle" | "bottom"
+```
+
+```rust
+use cmux_extension_sdk::customize::{self, keys};
+
+let row = customize::setting(keys::APPEARANCE_THEME_FILE).unwrap(); // one constant per key
+println!("{} is a {}, default {:?}", row.key, row.kind, row.default);
+```
+
+The TypeScript file (`typescript/src/generated/customize.ts`) is types only, so an `import type`
+adds nothing to a bundle. It is not committed: every build of this crate writes it (`build.rs`),
+`cmux ext dev` writes it beside the SDK it builds with, and `cmux customize schema --typescript`
+prints it. The crate's test `the_typescript_types_in_the_checkout_are_current` fails when a
+checkout's copy is stale.
 
 ## Versions
 

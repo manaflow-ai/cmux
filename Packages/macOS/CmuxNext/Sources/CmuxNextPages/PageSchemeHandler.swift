@@ -288,7 +288,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         guard page.owns(url) else { return nil }
         var components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        if components.isEmpty { components = [page.entry] }
+        if components.isEmpty { components = page.entry.split(separator: "/").map(String.init) }
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         if let prefix = components.first, page.dynamicPrefixes.contains(prefix) {
             return .dynamic(PageResourceRequest(prefix: prefix, path: Array(components.dropFirst()), url: url))

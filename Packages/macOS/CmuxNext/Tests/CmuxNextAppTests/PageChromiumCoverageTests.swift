@@ -35,6 +35,8 @@ import Testing
         PageDescriptor.iconPicker.id: .transparentOverlay,
         PageDescriptor.serverCards.id: .transparentOverlay,
         PageDescriptor.groupEditor.id: .transparentOverlay,
+        // Settings opens from the page host pool's parked WebKit document, so it paints with its tab.
+        PageDescriptor.settings.id: .pooledInstantOpen,
     ]
 
     /// A bundle with a resource folder for every shipped page, and the table Chromium gets for it.

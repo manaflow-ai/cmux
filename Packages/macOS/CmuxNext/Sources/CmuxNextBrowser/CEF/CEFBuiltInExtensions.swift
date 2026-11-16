@@ -67,10 +67,53 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
                       let entry = settings[adBlockerID] as? [String: Any] else { continue }
                 let path = entry["path"] as? String ?? ""
                 let location = (entry["location"] as? NSNumber)?.intValue ?? 0
-                if !path.isEmpty, ![5, 8, 10].contains(location), !isBuiltInPath(path) { return location }
+                guard !path.isEmpty, ![5, 8, 10].contains(location), !isBuiltInPath(path) else { continue }
+                // A copy below the security floor does not hold the built-in one back:
+                // nothing updates it (the MV2 build is off the Web Store), so it would
+                // stay exploitable. The built-in copy has the same id and storage, so
+                // the person's settings and filters carry over.
+                let version = personAdBlockerVersion(entry: entry, path: path, profile: profile, fileManager: fileManager)
+                if let version, !isAtLeast(version, adBlockerMinimumVersion) { continue }
+                return location
             }
         }
         return nil
+    }
+
+    /// The oldest uBlock Origin a person's own copy may be and still win over the
+    /// built-in one. 1.75.2 and older let any website frame and drive the element
+    /// picker and add trusted filters, a universal XSS (GHSA-cmqw-9r2w-6wv2, fixed
+    /// in 1.75.4); 1.76.0 also validates picker filters and refuses `war:` filters.
+    /// scripts/cmux-next/tests/ublock-pin.test.sh keeps the bundled pin at or above it.
+    static let adBlockerMinimumVersion = "1.76.0"
+
+    /// The version of a person's copy: the preference entry's manifest, the
+    /// manifest in its folder (an unpacked copy's absolute path, or an installed
+    /// copy's `<id>/<version>_0` under the profile's Extensions folder), or the
+    /// installed folder's name. Nil when none says.
+    static func personAdBlockerVersion(entry: [String: Any], path: String, profile: URL,
+                                       fileManager: FileManager = .default) -> String? {
+        if let version = (entry["manifest"] as? [String: Any])?["version"] as? String { return version }
+        let folder = path.hasPrefix("/") ? URL(fileURLWithPath: path)
+            : profile.appendingPathComponent("Extensions").appendingPathComponent(path)
+        if let data = fileManager.contents(atPath: folder.appendingPathComponent("manifest.json").path),
+           let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let version = manifest["version"] as? String { return version }
+        guard !path.hasPrefix("/") else { return nil }
+        let name = folder.lastPathComponent
+        let version = name.split(separator: "_").first.map(String.init) ?? ""
+        return version.first?.isNumber == true ? version : nil
+    }
+
+    /// Dotted numeric version comparison (`1.76.4` >= `1.76.0`); a missing part is 0.
+    static func isAtLeast(_ version: String, _ floor: String) -> Bool {
+        let a = version.split(separator: ".").map { Int($0) ?? 0 }
+        let b = floor.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(a.count, b.count) {
+            let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
+            if x != y { return x > y }
+        }
+        return true
     }
 
     /// A built-in copy's recorded path: some cmux app bundle's
@@ -81,7 +124,7 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
 
     /// SHA-256 of the staged manifest.json (scripts/cmux-next/fetch-ublock.sh
     /// UBLOCK_MANIFEST_SHA256 pins the same value; change both with a version).
-    static let adBlockerManifestSHA256 = "8736fdbd889f05a37c62b98da88ad3e9e2ae72a067f0909e18bc051792ab161d"
+    static let adBlockerManifestSHA256 = "e2736a359393899dc32875b9864e3ca4e2bd47d9011593c137bdb1314fce1d71"
 
     /// The running app's own built-in uBlock Origin folder (symlinks
     /// resolved) when its manifest matches the pin; nil otherwise.

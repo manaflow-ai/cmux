@@ -957,13 +957,13 @@ playwright-core 1.57.0, `LICENSE` from the npm package (Apache License 2.0; show
 
 - **License:** GNU General Public License v3.0 or later (GPL-3.0-or-later)
 - **Copyright:** Copyright (C) Raymond Hill and the uBlock Origin contributors
-- **Source:** https://github.com/gorhill/uBlock (tag 1.75.0; corresponding source
-  https://github.com/gorhill/uBlock/archive/refs/tags/1.75.0.tar.gz, sha256
-  a518c7d6e6b3f81d1a738befeb617abba59f93bd6b1e626da079a1003e9db52b)
+- **Source:** https://github.com/gorhill/uBlock (tag 1.76.4; corresponding source
+  https://github.com/gorhill/uBlock/archive/refs/tags/1.76.4.tar.gz, sha256
+  554815c21f0d0733de98c3a314f8cf827365184d004ae49b85697bdd25963344)
 
-The cmux-next app bundles the uBlock Origin 1.75.0 release build for
-Chromium (uBlock0_1.75.0.chromium.zip, sha256
-393cf95709d1074d4022970e9014e434395c53a822387f1e25f43be97cf4b582) in
+The cmux-next app bundles the uBlock Origin 1.76.4 release build for
+Chromium (uBlock0_1.76.4.chromium.zip, sha256
+4b1b27ed82e734d508ae6d255933c334f62f256e8a8aece92724b826828e3d5f) in
 `Contents/Resources/Extensions/ublock-origin`, with two changes: the manifest's
 `key` field (the Chrome Web Store extension id; the manifest is rewritten with
 two-space indentation), and, since 2026-11-12, the `_locales` catalogs of the
@@ -1106,6 +1106,9 @@ unchanged, for each rustc that built one of its binaries:
   binary built by that rustc
 - `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
   `bin/cmux-diff-sidecar`
+- `Contents/Resources/toolchain-licenses/rust-1.97.1/COPYRIGHT-library.html`:
+  `Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib`
+  (the pinned upstream Cua Driver SDK)
 
 The app (GhosttyNextKit), `bin/cmux` and `bin/cmux-tui-ssh/*` (libghostty-vt)
 link the Zig 0.17.0 standard library and compiler_rt, and `bin/ghostty` links

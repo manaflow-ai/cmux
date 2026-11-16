@@ -45,6 +45,7 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 struct Caller {
     verified_app: bool,
     peer_pid: Option<u32>,
+    peer_token: Option<cmux_link::app_caller::PeerToken>,
 }
 
 fn caller(mux: &Mux, client: u64) -> Result<Caller, RemoteRefused> {
@@ -68,7 +69,7 @@ fn caller(mux: &Mux, client: u64) -> Result<Caller, RemoteRefused> {
         .and_then(|key| key.strip_prefix("token:"))
         .and_then(|rest| rest.split('.').next())
         .and_then(|pid| pid.parse().ok());
-    Ok(Caller { verified_app, peer_pid })
+    Ok(Caller { verified_app, peer_pid, peer_token: record.origin.peer_token })
 }
 
 fn forbidden(reason: &str) -> RemoteRefused {
@@ -107,6 +108,15 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
     let caller = caller(mux, client)?;
     let host = &mux.control_clients.remote_host;
     match method {
+        "capture.prepare" | "capture.resume" | "capture.cleanup" => {
+            if !caller.verified_app || !super::origin_gate::app_process(mux, client) {
+                return Err(forbidden("capture needs a verified cmux app connection").into());
+            }
+            let pid =
+                caller.peer_pid.ok_or_else(|| forbidden("capture needs a known peer process"))?;
+            let stamp = app_stamp(pid).ok_or_else(|| forbidden("the app process is gone"))?;
+            return host.capture(method, params, stamp, caller.peer_token).map_err(unavailable);
+        }
         "status" | "refresh" | "request" | "open_settings" | "restart" | "screen.stop_session" => {}
         "screen.share" => {
             let on = params.get("on").and_then(Value::as_bool).ok_or_else(|| RemoteRefused {
@@ -192,3 +202,7 @@ fn app_stamp(pid: u32) -> Option<Value> {
 fn app_stamp(_pid: u32) -> Option<Value> {
     None
 }
+
+#[cfg(test)]
+#[path = "remote_host_capture_tests.rs"]
+mod capture_tests;

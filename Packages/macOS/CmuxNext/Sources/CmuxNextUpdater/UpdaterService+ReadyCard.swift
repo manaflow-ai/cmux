@@ -49,6 +49,7 @@ extension UpdaterService {
         case .ready(let version):
             if let version, stagedVersion != version { stagedVersion = version }
             loadStagedNotes()
+            prewarmStagedUpdate()
         case .installing:
             break
         case .hidden, .checking, .downloading, .available, .note:

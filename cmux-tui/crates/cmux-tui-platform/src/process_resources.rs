@@ -353,7 +353,11 @@ mod imp {
             else {
                 return false;
             };
-            own.0 == other.0 || (own.1.is_some() && own.1 == other.1)
+            if own.0 == other.0 || (own.1.is_some() && own.1 == other.1) {
+                return true;
+            }
+            // A terminal host on the slim sibling (host_exe/linux.rs) runs this daemon's build too.
+            crate::host_exe::linux_sibling_in_use().is_some_and(|sibling| other.0 == sibling)
         }
     }
 }

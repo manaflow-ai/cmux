@@ -45,6 +45,9 @@ declare global {
   };
 
   interface Window {
+    /// Set only by a bench (bench/transcript-scroll-up.bench.ts): told when the transcript asks for an older
+    /// page and when that ask settles, so the bench times ask to drawn. Unset in the app: one property read.
+    __cmuxOlderTrace?: (phase: "ask" | "settled", at: number, ask: number) => void;
     __cmuxPerformDiffViewerNavigationAction?: (action: string) => boolean;
     __cmuxDiffViewer?: {
       codeView?: unknown;

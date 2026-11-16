@@ -1263,6 +1263,10 @@ impl Brain {
                 "tools": tools,
                 "tool_errors": tool_errors,
                 "stopped": stopped,
+                // What the report says about its code (sub_watch.rs), as
+                // flags only: product analytics' "first landed work".
+                "landed": !stopped && crate::sub_watch::landed(&report),
+                "unlanded": land_followup,
             }),
         );
         (self.log)(&format!("subagent {id} finished"));

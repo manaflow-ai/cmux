@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -200,6 +200,21 @@ class RegressionTests(unittest.TestCase):
                             "floor": 0.1}]}
         rows = cron.rows_of_part(cron.PART_BY_NAME["throughput"], report, budgets_mod, {})
         self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.8)
+
+    def test_typing_stage_rows_are_stored_never_judged(self):
+        # CMUX-571 typing-latency: to_listener and to_work say where acp.<engine>.typing.to_frame's time goes; they are
+        # stored and shown (measurement only), while to_frame itself stays judged.
+        now = {"acp.chromium.typing.to_work@cmux20-bench": row(12.0), "acp.own.typing.to_listener@cmux20-bench": row(9.0),
+               "acp.chromium.typing.to_frame@cmux20-bench": row(14.0)}
+        base = {"acp.chromium.typing.to_work@cmux20-bench": row(3.0), "acp.own.typing.to_listener@cmux20-bench": row(1.0),
+                "acp.chromium.typing.to_frame@cmux20-bench": row(10.0)}
+        regs = cron.find_regressions(now, base, 8.33, 8.33, budgets_mod)
+        self.assertEqual([r["name"] for r in regs], ["acp.chromium.typing.to_frame@cmux20-bench"])
+        self.assertEqual(cron.part_for_row("acp.chromium.typing.to_work@cmux20-bench"), "chat-anim")
+        report = {"rows": [{"name": "acp.chromium.typing.to_work", "p50": 3.1, "p95": 6.0, "unit": "ms", "budget": None,
+                            "floor": 1.0}]}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["chat-anim"], report, budgets_mod, {})
+        self.assertEqual(rows["acp.chromium.typing.to_work"]["p95"], 6.0)
 
     def test_newly_over_target_regresses_under_ten_percent(self):
         # A frame row's target at 60 Hz is 20.8 ms: 20.0 -> 21.5 is +7.5 % but crosses it by more than the floor.
@@ -679,6 +694,19 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"])
         self.assertEqual(cwd, "/r/webviews")
 
+    def test_the_chat_disk_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("chat-disk"))
+        self.assertEqual(cron.part_for_row("webui.chat_disk.growth_ratio@linux"), "chat-disk")
+        self.assertEqual(cron.part_for_row("webui.chat_disk.long_mb_per_hour@linux"), "chat-disk")
+        runs = cron.linux_bench_runs("/r", "chat-disk")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/chat-disk-growth-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/chat-disk-growth-linux.sh"])
+        rows = cron.rows_of_part(cron.PART_BY_NAME["chat-disk"], {"rows": [
+            {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
+
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))
         self.assertEqual(cron.part_for_row("webui.million_event_chat.long.older_page@linux"), "web-ui-million")
@@ -739,6 +767,73 @@ class WebUiTests(unittest.TestCase):
         listed = cron.find_regressions(rows, {}, None, None, budgets_mod)
         self.assertIn("webui.god_ratio.chat_switch.unread.latest", {r["name"] for r in listed},
                       "a god row past 1.2x its twin is listed in the issue even before it has a reference")
+
+    @staticmethod
+    def paired_round(thought, token=1.0, heap=1.0):
+        """One paired round's PERF_ROW objects: the small chat's rows and the god chat's at the given ratios."""
+        small = {"thought_ms": 10.0, "token_ms": 8.0, "heap_mb": 40.0}
+        ratio = {"thought_ms": thought, "token_ms": token, "heap_mb": heap}
+        rows = []
+        for kind, v in small.items():
+            unit = "MB" if kind == "heap_mb" else "ms"
+            rows.append({"name": f"transcript_replay.long.{kind}", "p95": v, "unit": unit, "target": 10})
+            rows.append({"name": f"transcript_replay.god.long.{kind}", "p95": round(v * ratio[kind], 4), "unit": unit,
+                         "target": 10})
+        return rows
+
+    def test_the_god_part_plays_paired_rounds(self):
+        argv, cwd, env = cron.linux_bench_runs("/r", "web-ui-god")["paired"]
+        self.assertEqual(argv, ["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"])
+        self.assertEqual((cwd, env["PAIRED"]), ("/r/webviews", "1"), "god and small played at once (cmux#43874)")
+
+    def test_the_board_ratio_is_the_median_of_the_paired_rounds(self):
+        # The one-run ratio says 1.356; five paired rounds say 1.10..1.15 with one noisy round at 1.9.
+        report = {"rows": [
+            {"name": "transcript_replay.long.thought_ms", "p95": 10.0, "target": 10},
+            {"name": "transcript_replay.god.long.thought_ms", "p95": 13.56, "target": 10},
+        ], "failed": [], "paired": {"rounds": [{"rows": self.paired_round(t), "seconds": 200, "exit": 0}
+                                               for t in (1.10, 1.9, 1.12, 1.15, 1.11)], "stopped": "settled"}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui-god"], report, budgets_mod, {"rows": {}})
+        thought = rows["webui.god_ratio.transcript_replay.long.thought_ms"]
+        self.assertEqual(thought["p95"], 1.12, "the median of the rounds' ratios, not the one-run 1.356")
+        self.assertEqual((thought["rounds"], thought["paired"], thought["unit"], thought["budget"]), (5, True, "x", 1.2))
+        self.assertLessEqual(thought["ci_lo"], 1.12)
+        self.assertGreaterEqual(thought["ci_hi"], 1.12)
+        self.assertEqual(thought["round_ratios"], [1.1, 1.9, 1.12, 1.15, 1.11])
+        self.assertEqual(rows["webui.god_ratio.transcript_replay.long.token_ms"]["p95"], 1.0)
+        self.assertEqual(rows["webui.transcript_replay.god.long.thought_ms"]["p95"], 13.56, "the god row itself stays")
+        few = {**report, "paired": {"rounds": report["paired"]["rounds"][:4]}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui-god"], few, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.god_ratio.transcript_replay.long.thought_ms"]["p95"], 1.356,
+                         "under GOD_PAIRED_MIN_ROUNDS rounds the paired median is not published")
+
+    def test_paired_rounds_run_until_the_board_interval_is_narrow_or_the_deadline(self):
+        now = [0.0]
+
+        def clock():
+            return now[0]
+
+        def run_with(ratios, seconds):
+            calls = []
+
+            def run(argv, **kw):
+                calls.append(kw["env"]["PAIRED"])
+                now[0] += seconds
+                rows = self.paired_round(ratios[len(calls) - 1])
+                return mock.Mock(stdout="noise\n" + "".join(f"PERF_ROW {json.dumps(r)}\n" for r in rows), returncode=0)
+            return run, calls
+
+        run, calls = run_with([1.10, 1.12, 1.11, 1.13, 1.12] + [1.12] * 20, 200)
+        with contextlib.redirect_stdout(io.StringIO()):
+            got = cron.run_paired_rounds(["bun"], "/r", {"PAIRED": "1"}, 0.0, clock=clock, run=run)
+        self.assertEqual((len(got["rounds"]), got["stopped"]), (cron.GOD_PAIRED_MIN_ROUNDS, "settled"))
+        self.assertEqual(len(got["rounds"][0]["rows"]), 6)
+        now[0] = 0.0
+        run, calls = run_with([1.0, 1.5, 0.9, 1.6, 1.0, 1.4, 0.8, 1.7, 1.1, 1.3, 0.9, 1.6], 300)
+        with contextlib.redirect_stdout(io.StringIO()):
+            got = cron.run_paired_rounds(["bun"], "/r", {"PAIRED": "1"}, -900.0, clock=clock, run=run)
+        self.assertEqual(got["stopped"], "deadline", "a noisy run stops at the deadline, inside the job's cap")
+        self.assertLessEqual(900 + 300 * len(got["rounds"]), cron.GOD_PAIRED_DEADLINE_S)
 
     def test_a_regression_of_a_webui_row(self):
         name = "webui.chat_switch.unread.latest@linux"
