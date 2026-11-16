@@ -24,6 +24,8 @@ final class SectionHeaderRowView: SidebarRowView {
     let screenButton = SidebarIconButton(icon: .remoteDisplay, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.viewScreen)
     /// What the screen button sends, nil when it does not show.
     private(set) var screenAction: SidebarIntent?
+    /// This Mac shares its screen now: the button shows at rest, in the accent (the sharing badge).
+    private(set) var screenShared = false
     /// The machine status dot's color, resolved in `updateLayer`; `working` draws the spinner.
     enum StatusTone { case success, attention, quiet, danger, working }
     private(set) var statusTone: StatusTone?
@@ -166,6 +168,7 @@ final class SectionHeaderRowView: SidebarRowView {
         statusTip = nil
         cost = nil
         screenAction = nil
+        screenShared = false
         screenButton.isHidden = true
         screenButton.isEnabled = true
         collapsed = row.isCollapsed
@@ -207,20 +210,20 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityLabel(machine.name + ", " + words)
             setAccessibilityHelp(cost == nil ? machine.detail : themedToolTip)
             screenAction = Self.screenAction(machine)
+            screenShared = machine.kind == .local && machine.screenShared
+            // Share and View both draw a screen, never the generic share arrow (Leo 2026-11-16).
+            screenButton.icon = .remoteDisplay
+            screenButton.tintOverride = screenShared ? Palette.accent : nil
             switch machine.kind {
             case .local:
-                screenButton.icon = .actionShare
-                screenButton.label = Strings.shareScreen
+                screenButton.label = screenShared ? Strings.sharingScreen : Strings.shareScreen
             case .cloud:
-                screenButton.icon = .remoteDisplay
                 screenButton.label = Strings.viewScreen
             case .ssh, .server:
-                screenButton.icon = .remoteDisplay
                 screenButton.label = Strings.viewScreen
                 screenButton.isEnabled = machine.screenAvailable
                 if !machine.screenAvailable { screenButton.label += " — " + Strings.statusOffline }
             }
-            screenButton.isHidden = screenAction == nil
         }
         // The only machine needs no name or status: the header heads the
         // workspace list, apart from the destinations above it.
@@ -254,7 +257,7 @@ final class SectionHeaderRowView: SidebarRowView {
         addButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).newWorkspace")
         screenButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).screen")
         addButton.isHidden = true
-        screenButton.isHidden = screenAction == nil
+        screenButton.isHidden = screenAction == nil || !(isHovered || screenShared)
         needsLayout = true
         needsDisplay = true
     }
@@ -326,9 +329,11 @@ final class SectionHeaderRowView: SidebarRowView {
         if allowsAdd {
             addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: 0)
         }
-        // From the trailing edge: +, the screen button, the chevron, each on its own pitch, at rest too.
+        // From the trailing edge: +, the screen button, the chevron, each on its own pitch, at rest too. The screen
+        // button keeps its slot but draws only on hover, or at rest as the sharing badge (Leo 2026-11-16: nothing on
+        // every row at rest); VoiceOver reaches it through the header's custom action.
         let hasScreen = screenAction != nil
-        screenButton.isHidden = !hasScreen
+        screenButton.isHidden = !(hasScreen && (isHovered || screenShared))
         let screenSlot = allowsAdd ? 1 : 0
         if hasScreen {
             screenButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: screenSlot)
@@ -378,8 +383,22 @@ final class SectionHeaderRowView: SidebarRowView {
     /// Whether the machine's own icon shows before the name (tests).
     var showsMachineIcon: Bool { !machineIcon.isHidden }
 
-    /// Whether the header has a first-class screen action (tests and native gallery capture).
+    /// Whether the header has a first-class screen action, drawn or not (tests and native gallery capture).
+    var hasScreenAction: Bool { screenAction != nil }
+
+    /// Whether the screen button draws now: on hover, or as the sharing badge (tests and native gallery capture).
     var showsScreenButton: Bool { !screenButton.isHidden }
+
+    /// The screen button while it hides at rest: VoiceOver's way to Share or View.
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard screenAction != nil, screenButton.isEnabled else { return super.accessibilityCustomActions() }
+        let action = NSAccessibilityCustomAction(name: screenButton.label) { [weak self] in
+            guard let self, self.screenAction != nil, self.screenButton.isEnabled else { return false }
+            self.screenButton.onPress?()
+            return true
+        }
+        return (super.accessibilityCustomActions() ?? []) + [action]
+    }
 
     /// The screen action's frame (tests and native gallery geometry capture).
     var screenButtonFrame: NSRect { screenButton.frame }

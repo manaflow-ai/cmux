@@ -210,7 +210,7 @@ extension SidebarBridge {
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state.id, windows: services.windows.connectingRowWindows(making: state.id)) }
-        rows.show(SidebarScreenActions(macs: services.macScreenPages.hub?.macScreenAvailability ?? [:], aliases: DaemonService.screenDeviceAliases(in: services.machines.daemons)).applying(to: sections), shownAt: shownAt)
+        rows.show(SidebarScreenActions(macs: services.macScreenPages.hub?.macScreenAvailability ?? [:], aliases: DaemonService.screenDeviceAliases(in: services.machines.daemons), sharing: services.macScreenPages.hub?.thisDevice?.macScreenShared ?? false).applying(to: sections), shownAt: shownAt)
         model.profiles = SidebarSpaceBar.profiles(services.machines.local, window: state.id, windows: services.windows)
         groupFlow.openPendingEditor()
     }

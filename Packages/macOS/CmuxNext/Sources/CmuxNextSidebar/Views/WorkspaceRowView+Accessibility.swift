@@ -73,6 +73,16 @@ extension WorkspaceRowView {
                 return true
             })
         }
+        // Share or View shows on hover or selection only; VoiceOver reaches it here on every row.
+        if let screenAction, screenSlot.made?.isEnabled == true {
+            let name = screenSlot.made?.label ?? Strings.viewScreen
+            actions.append(NSAccessibilityCustomAction(name: name) { [weak self] in
+                guard let self, self.canPerformAccessibilityAction(for: actionKey), self.screenAction == screenAction,
+                      let onScreenAction = self.onScreenAction else { return false }
+                onScreenAction(screenAction)
+                return true
+            })
+        }
         if let group = standingGroup {
             var groupActions: [StandingGroupAction] = [.edit, .menu]
             if group.add != nil { groupActions.append(.add) }
