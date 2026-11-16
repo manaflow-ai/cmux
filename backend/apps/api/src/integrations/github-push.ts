@@ -59,7 +59,7 @@ export function githubChangeOf(event: ProviderEvent): GithubChange | null {
   if (!GITHUB_PUSH_EVENTS.has(kind)) return null
   const p = (event.payload ?? {}) as Record<string, any>
   const repo = p.repository?.full_name
-  if (typeof repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(repo)) return null
+  if (typeof repo !== "string" || !/^[a-z\d][a-z\d-]*\/(?!\.\.?$)[\w.-]+$/i.test(repo)) return null
   const number =
     num(p.pull_request?.number) ??
     num(p.number) ??
