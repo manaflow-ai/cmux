@@ -52,17 +52,25 @@ class Clock:
 
 
 BOUNDS = []
+WAITING = []  # not empty while the fake `wait` makes its reads
 
 
 def wait(test, seconds, step=0.25):
     """The session helper's `wait` for a fake that changes in the call itself: 3 reads, no sleep. It keeps the bound
-    that the script gave it."""
+    that the script gave it. As the helper's own `wait` (perf-stress-session.py), a read that raises is `no value`."""
     BOUNDS.append(seconds)
-    for _ in range(3):
-        value = test()
-        if value:
-            return value
-    return None
+    WAITING.append(seconds)
+    try:
+        for _ in range(3):
+            try:
+                value = test()
+            except Exception:  # noqa: BLE001  the helper's `wait` takes each fault of a read as `no value yet`
+                value = None
+            if value:
+                return value
+        return None
+    finally:
+        WAITING.pop()
 
 
 class World:
@@ -94,6 +102,13 @@ class World:
         # the fake shows it in 2 replies of `debug.toast` (with the fault `message-stays`: in each reply).
         self.dialogs = [{"id": 1, "title": "A question", "lines": ["of another act"], "visible": True}] if "dialog-open" in faults else []
         self.overlays, self.toasts, self.refusals, self.dismissals = ["palette"] if "overlay-open" in faults else [], [], [], []
+        # `layout-dead-from-the-take`: each layout read fails from the end of the check before a take (its last read
+        # is `debug.toast`).
+        self.layout_dead = False
+
+    def film(self, state):
+        """If the recorder of a FILM (not of the preflight) is in `state` now: `capturing` or `written`."""
+        return bool(self.record and self.record.get("film") and self.record[state])
 
     def page(self):
         """With the fault `page-takes-keys`, the app's design by a read of its code (ChildPageFocus.swift,
@@ -143,7 +158,9 @@ class World:
     def key(self, name, turned=False):
         space = self.spaces[self.shown]
         pane = next(p for p in space["panes"] if p["id"] == self.focus)
-        if name == "t":
+        if name in "tw" and "tab-keys-dead-in-a-film" in self.faults and self.sequences > PREFLIGHT_KEYS:
+            pass  # the app takes the key of a film, and no tab is made or closed
+        elif name == "t":
             pane["tabs"].append({"id": self.ident("tab"), "kind": "newtab"})
             self.held = "keys-move-late" in self.faults
             self.unplaced = bool(self.faults & {"page-window-late", "page-window-never"}) or (
@@ -185,6 +202,9 @@ class World:
             if "zoom-dead-in-a-film" in self.faults and self.sequences > PREFLIGHT_KEYS:
                 self.changed()  # the programs of the panes draw
                 return True  # the app takes the key of a film, and no pane is zoomed
+            if "second-zoom-key-dead" in self.faults and self.sequences > PREFLIGHT_KEYS and space["zoomed"]:
+                self.changed()
+                return True  # the app takes the second zoom key of a film, and the pane stays zoomed
             return self.zoom(self.focus, turned) or True
         self.changed()
         return True
@@ -224,6 +244,8 @@ class FakeApp:
         if method == "debug.dialog":
             if "no-overlay-reads" in world.faults:  # an older app: the command gives no list
                 return {}
+            if "dialog-read-fails-after-the-acts" in world.faults and world.film("written"):
+                return {"error": "a fake fault of the dialog read"}  # as the socket call gives a read that failed
             said = {}
             if params.get("dismiss"):  # the app's Cancel of the dialog `id`
                 world.dismissals.append(params.get("id"))
@@ -233,6 +255,9 @@ class FakeApp:
                     found["visible"] = False
             return {**said, "dialogs": [dict(dialog) for dialog in world.dialogs]}
         if method == "debug.toast":
+            if "message-read-fails-in-the-wait" in world.faults and WAITING:
+                return {"error": "a fake fault of the message read"}
+            world.layout_dead = "layout-dead-from-the-take" in world.faults
             shown = [{"id": toast["id"], "message": toast["message"]} for toast in world.toasts]
             for toast in world.toasts:
                 toast["replies_left"] -= "message-stays" not in world.faults
@@ -263,13 +288,21 @@ class FakeApp:
                     del said[name]
             if action == "read" and "speed-not-read" in world.faults:  # the fault: a reply with no speed word
                 del said["speed"]
+            if action == "stop" and "no-span-list" in world.faults:  # the fault: a span record with no list
+                del said["spans"]
             return said
         if method == "debug.motion":
             if params.get("action") == "record_start":
-                world.record = {"capturing": True, "written": False, "complete": 0, "frames": 0}
+                path = params.get("path") or ""
+                world.record = {"capturing": True, "written": False, "complete": 0, "frames": 0, "path": path,
+                                "film": not path.endswith("preflight.mov")}
                 return {"width": 1880, "height": 1135}
             if params.get("action") == "record_stop" and world.record:
                 world.record.update(capturing=False, written=True, frames=world.record["complete"], first_t=1.0, last_t=6.0, movie_status="completed")
+                # The recorder's 2 files, as the app writes them: the movie, and the frame file beside it.
+                for name in filter(None, (world.record["path"], world.record["path"] and world.record["path"] + ".frames.json")):
+                    with open(name, "w") as f:
+                        f.write("{}")
             return dict(world.record or {})
         if method == "debug.key" and "sequence" in params:
             wanted, page = params.get("key_window"), world.page()
@@ -335,6 +368,10 @@ class FakeStress:
 
     def workspace(self, ident):
         self.world.read()
+        world = self.world
+        if (world.layout_dead or ("layout-read-fails-in-the-take" in world.faults and world.film("capturing"))
+                or ("layout-read-fails-after-the-acts" in world.faults and world.film("written"))):
+            return None  # as the helper gives a layout read that failed
         space = self.world.spaces.get(ident)
         return space and {"id": ident, "screens": [{"zoomed_pane": space["zoomed"], "panes": space["panes"]}]}
 
@@ -356,6 +393,8 @@ class FakeStress:
         self.world.focus = pane
 
     def tabs(self, workspace, pane):
+        if "tab-read-fails-after-the-acts" in self.world.faults and self.world.film("written"):
+            return []  # as the helper gives a tab read that failed
         return next(p["tabs"] for p in self.world.spaces[workspace]["panes"] if p["id"] == pane)
 
     settled_tabs = tabs
@@ -445,6 +484,7 @@ class FilmsCase(unittest.TestCase):
         FakeApp.made, FakeApp.faults = [], set(faults)
         BOUNDS.clear()
         out, said = tempfile.mkdtemp(prefix="pane-films-test-"), io.StringIO()
+        self.out = out  # the folder of the run's files, for a test of their names
         self.addCleanup(shutil.rmtree, out, True)
         argv = ["pane-motion-films.py", "--app", BUNDLE, "--out", out, "--workspaces", "0", "--settle", "0", "--dock", "0", *args]
         with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
@@ -950,7 +990,7 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual([act["label"] for act in row["acts"]], ["Cmd-D", "read: the tabs of the pane with the focus"])  # no Cmd-W
         self.assertIn(f"the app refused in the film: {NO_ROOM}", row.get("reason", ""))
         self.assertIn("so the close was not sent", row.get("reason", ""))
-        self.assertEqual((world.dialogs, row.get("take_file"), "file" in row), ([], "P13.mov", False))
+        self.assertEqual((world.dialogs, row.get("take_file"), "file" in row), ([], "P13.not-made.mov", False))
         self.assertIn(f"PANE-FILMS not made: P13: {row.get('reason')}", self.printed)
 
     def test_a_close_that_the_app_asks_about_is_not_made_and_the_tool_sends_cancel(self):
@@ -1073,6 +1113,117 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual(M.new_refusals(["a", "b"], ["a", "b"]), [])
         self.assertEqual(M.new_refusals(["a", "b", "c"], ["b", "c", "d"]), ["d"])  # the app keeps 100: the oldest entry left
         self.assertEqual(M.new_refusals([], ["a"]), ["a"])
+
+    def test_a_layout_read_that_fails_before_a_take_is_not_made_and_is_no_pane_count(self):
+        # Each layout read fails from the take on: 0 panes before and 0 after would fit a film whose acts change no count.
+        code, report, lines, launches = self.run_films({"launch-activates", "layout-dead-from-the-take"}, "--films", "P06")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("reason")), (1, "not_made", "before the take: the layout read gave no workspace"))
+        self.assertNotIn("panes_before", row)  # a read that failed is no count
+
+    def test_a_layout_read_that_fails_after_the_acts_is_not_made_and_is_no_count_of_zoomed_panes(self):
+        # The pane stays zoomed and the read after the acts fails: 0 zoomed panes is the value that the check wants.
+        faults = {"launch-activates", "second-zoom-key-dead", "layout-read-fails-after-the-acts"}
+        code, report, lines, launches = self.run_films(faults, "--films", "T-Z")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("panes_after"), row.get("zoomed_end")), (1, "not_made", "not read", "not read"))
+        self.assertEqual(row.get("reason"), "the pane count after the acts was not read; the zoomed panes at the film's end were not read")
+
+    def test_a_layout_read_that_fails_between_the_zoom_keys_is_not_read_and_not_0(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "layout-read-fails-in-the-take"}, "--films", "T-Z")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row["acts"][0].get("zoomed_after")), (1, "not_made", "not read"))
+        self.assertEqual(row.get("reason"), "the zoomed panes after the act `Cmd-Shift-Enter` were not read")
+
+    def test_a_zoom_that_does_not_go_back_is_not_made(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "second-zoom-key-dead"}, "--films", "T-Z")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row["acts"][0].get("zoomed_after"), row.get("zoomed_end")), (1, "not_made", 1, 1))
+        self.assertEqual(row.get("reason"), "1 zoomed panes at the film's end, not 0")
+
+    def test_a_tab_count_that_does_not_fit_the_act_is_not_made(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "tab-keys-dead-in-a-film"}, "--films", "P04,P05")
+        rows = {row["id"]: row for row in report["films"]}
+        self.assertEqual((code, rows["P04"]["status"], rows["P05"]["status"]), (1, "not_made", "not_made"))
+        self.assertEqual(rows["P04"].get("reason"), "the tab count of the pane went from 4 to 4: the film's acts make a change of -1")
+        self.assertEqual(rows["P05"].get("reason"), "the tab count of the pane went from 1 to 1: the film's acts make a change of +1")
+
+    def test_a_tab_read_that_gives_no_tab_is_not_made_and_is_no_tab_count(self):
+        # A pane has 1 tab or more: a read with no tab is a read that failed (or the pane is gone), not a count of 0.
+        code, report, lines, launches = self.run_films({"launch-activates", "tab-read-fails-after-the-acts"}, "--films", "P04")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("tabs_before"), row.get("tabs_after")), (1, "not_made", 4, "not read"))
+        self.assertEqual(row.get("reason"), "the tab count of the pane after the acts was not read")
+
+    def test_a_span_record_with_no_list_is_not_made(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "no-span-list"}, "--films", "T-Z.2")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"], row.get("layout_spans")), (1, "not_made", "not read"))
+        self.assertEqual(row.get("reason"), "not read `layout` spans in the span record: the film's acts make 2")
+
+    def test_a_read_of_the_window_that_fails_after_the_acts_is_not_made(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "dialog-read-fails-after-the-acts"}, "--films", "T-D")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"]), (1, "not_made"))
+        self.assertEqual(row.get("reason"), "after the acts the tool does not know what is over the window: debug.dialog `dialogs`: "
+                                            "{'error': 'a fake fault of the dialog read'}")
+
+    @staticmethod
+    def over(**replies):
+        """`over_window` on the 3 replies of an app with nothing over its window, with the replies of the case in their place."""
+        said = {"debug.dialog": {"dialogs": []}, "debug.focus": {"windows": [{"id": "window1", "model": {"overlays": []}}]},
+                "debug.toast": {"windows": [{"window": "window1", "toasts": []}], "refusals": []}}
+        said.update({"debug." + name: reply for name, reply in replies.items()})
+        return M.over_window(lambda method, params=None: said[method])
+
+    def test_a_read_of_the_window_that_failed_or_has_no_list_is_not_known(self):
+        self.assertEqual(self.over(), ([], [], [], []))
+        dialog = {"id": 1, "title": "A question", "lines": [], "visible": True}
+        self.assertEqual(self.over(dialog={"dialogs": [dialog, {**dialog, "id": 2, "visible": False}]})[0], [dialog])
+        for name, reply in (("dialog", {"error": "a fault", "dialogs": []}), ("focus", {"error": "a fault"}),
+                            ("focus", {"windows": [{"id": "window1", "model": {}}]}), ("toast", {"error": "a fault"}),
+                            ("toast", {"windows": [{"window": "window1", "toasts": []}]})):
+            with self.subTest(read=name, reply=reply), self.assertRaises(M.NotKnown):
+                self.over(**{name: reply})
+
+    def test_a_reply_that_does_not_say_each_dialog_window_and_message_is_not_known_and_not_clear(self):
+        # A dialog with no `visible` word, no window, a window with no list of its messages: the tool cannot say that
+        # nothing is over the window.
+        window = {"window": "window1"}
+        for name, reply in (("dialog", {"dialogs": [{"id": 1, "title": "A question", "lines": []}]}), ("dialog", {"dialogs": ["a question"]}),
+                            ("focus", {"windows": []}), ("toast", {"windows": [], "refusals": []}),
+                            ("toast", {"windows": [window], "refusals": []}), ("toast", {"windows": ["window1"], "refusals": []}),
+                            ("toast", {"windows": [{**window, "toasts": ["a message"]}], "refusals": []})):
+            with self.subTest(read=name, reply=reply), self.assertRaises(M.NotKnown):
+                self.over(**{name: reply})
+
+    def test_a_message_read_that_fails_in_the_wait_is_not_known_and_is_no_message_that_stayed(self):
+        # P13's refused split leaves a message. At the next film the reads for it fail: the helper's `wait` takes a
+        # read that raises as `no value`, and that is not `the message stayed`.
+        code, report, lines, launches = self.run_films({"launch-activates", "room-for-3", "message-read-fails-in-the-wait"}, "--films", "P13,T-D")
+        rows = {row["id"]: row for row in report["films"]}
+        self.assertEqual((code, rows["P13"]["status"], rows["T-D"]["status"]), (1, "not_made", "not_made"))
+        self.assertEqual(rows["T-D"].get("reason"), "before the take: the tool does not know what is over the window (a read failed in the wait "
+                                                    "for a message): debug.toast `windows`: {'error': 'a fake fault of the message read'}")
+
+    def test_the_wait_for_a_message_is_longer_than_the_app_shows_a_message_of_a_film_s_act(self):
+        # By a read of the app's source, with its default tuning: a refusal shows for 8 s, the undo message of a
+        # close for 12 s, a refusal with a sign-in offer for 16 s.
+        self.assertGreater(M.OVERLAY_S, 16)
+
+    def test_the_movie_of_a_film_that_is_not_made_has_a_name_that_says_so(self):
+        # The step's artifact has each movie of the out folder: a person who opens it has no films.json beside it.
+        code, report, lines, launches = self.run_films({"launch-activates", "room-for-3"}, "--films", "P13,T-D")
+        rows = {row["id"]: row for row in report["films"]}
+        self.assertEqual((rows["P13"]["status"], rows["P13"].get("take_file"), rows["T-D"]["status"], rows["T-D"].get("file")),
+                         ("not_made", "P13.not-made.mov", "made", "T-D.mov"))
+        self.assertEqual(sorted(name for name in os.listdir(self.out) if name.startswith(("P13", "T-D"))),
+                         ["P13.not-made.mov", "P13.not-made.mov.frames.json", "T-D.mov", "T-D.mov.frames.json"])
+        # A film that the app refused a key of, after its recorder started: `not_run`, and its movie has that name too.
+        code, report, lines, launches = self.run_films({"launch-activates", "film-key-refused"}, "--films", "T-Z.N")
+        row = report["films"][0]
+        self.assertEqual((row["status"], row.get("take_file"), "file" in row), ("not_run", "T-Z.N.not-made.mov", False))
+        self.assertEqual(sorted(name for name in os.listdir(self.out) if name.startswith("T-Z.N")), ["T-Z.N.not-made.mov", "T-Z.N.not-made.mov.frames.json"])
 
     def test_a_film_that_fails_after_its_speed_is_set_stops_the_span_record_and_gives_the_speed_back(self):
         code, report, lines, launches = self.run_films({"launch-activates", "film-key-refused"}, "--films", "T-Z.N")
