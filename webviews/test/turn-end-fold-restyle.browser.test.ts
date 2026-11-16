@@ -8,7 +8,7 @@
 // The real pane (`?mock`) with a 700-turn chat (`cmuxAcpmuxDebug.loadSeed`), then one turn streamed
 // with tool calls (`loadRun`) so its end folds. The gate: no geometry read from turnEndFold.ts
 // follows an animation it started in the same script (each such read forces a style pass inside
-// the script). Reported with it, from Chromium's trace over the second after the fold starts: each
+// the script). Reported with it, from Chromium's trace from the fold's start to its end (at most a second): each
 // style pass's element count (UpdateLayoutTree elementCount) against the thread's, the style and
 // layout passes script forced, and the fold's own counters (turnEndFold.ts `turnEndFoldPerf`).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -181,7 +181,13 @@ await requireBrowserLane("turn-end-fold-restyle.browser.test.ts", async () => {
         scroll_speed: 0,
       }),
     )) as Record<string, any>;
-    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1200)));
+    // The fold has started and ended (its attribute set, then gone), and two frames have painted since.
+    await page.waitForFunction(
+      () => (window as any).__fold.started > 0 && !document.querySelector(".acpmux-thread[data-turn-end-folding]"),
+      null,
+      { timeout: 10_000 },
+    );
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const fold = (await page.evaluate(() => (window as any).__fold)) as {
       started: number;
       threadElements: number;
