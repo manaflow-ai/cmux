@@ -1,0 +1,154 @@
+# The device hub Worker (workers/device-hub, contract docs/device-hub/PROTOCOL.md): device
+# records, Mac Screen permissions, session tickets and signaling for Screen Sharing.
+#
+# Before this workflow, nothing tested the hub on a pull request and every deploy was a hand
+# `wrangler deploy` (DEPLOY.md), so a merged hub fix (one record per machine, Leo's Settings >
+# Screen Sharing listing the Mac he sat on twice) reached nobody until someone deployed it.
+#
+# - pull_request: typecheck, the vitest suite on workerd, and a Wrangler dry run.
+# - push to feat-cmux-next: the same, then deploys `cmux-device-hub-dev` and checks
+#   /v1/health serves every feature this tree declares (src/index.ts `features`).
+# - workflow_dispatch from feat-cmux-next with target `production`: the same gates, then
+#   deploys `cmux-device-hub` (the hub every non-DEV build uses) and checks its health. Run it
+#   after the dev deploy of the same commit is green. Rollback: `npx wrangler rollback --env=""`
+#   from workers/device-hub (DEPLOY.md).
+#
+# Durable Object migrations ride in wrangler.toml and apply with the deploy; column additions
+# are applied in place by each User DO when it starts (src/userDo.ts ADDED_COLUMNS).
+# Worker secrets (SESSION_KEY, TICKET_KEY, TURN) are set once per environment and survive
+# every deploy; this workflow never reads or writes them.
+#
+# Secrets: CLOUDFLARE_API_TOKEN from the environment (cmux-next-development for dev,
+# cmux-next-production for production; backend.yml deploys to the same Cloudflare account
+# from both). The account id is not a secret.
+
+name: device-hub
+
+on:
+  pull_request:
+    paths:
+      - workers/device-hub/**
+      - .github/workflows/device-hub.yml
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - workers/device-hub/**
+      - .github/workflows/device-hub.yml
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Worker to deploy"
+        type: choice
+        options:
+          - dev
+          - production
+        default: dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: device-hub-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: workers/device-hub
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Wrangler and workerd need Node >= 22; the Blacksmith ubuntu-2404 image ships Node 20.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests (vitest on workerd)
+        run: npx vitest run
+
+      - name: Wrangler dry run (production and dev)
+        run: |
+          npx wrangler deploy --dry-run --env="" --outdir "$RUNNER_TEMP/dh-prod"
+          npx wrangler deploy --dry-run --env dev --outdir "$RUNNER_TEMP/dh-dev"
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next'
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'production' && 'cmux-next-production' || 'cmux-next-development' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: workers/device-hub
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Check Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::The device hub deploy needs CLOUDFLARE_API_TOKEN in its environment."
+            exit 1
+          fi
+
+      - name: Deploy
+        # The target reaches the shell through env, never template interpolation, and anything
+        # but the two known targets fails closed instead of deploying production.
+        env:
+          TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'dev' }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: |
+          set -o pipefail
+          case "$TARGET" in
+            dev) npx wrangler deploy --env dev 2>&1 | tee "$RUNNER_TEMP/deploy.log" ;;
+            production) npx wrangler deploy --env="" 2>&1 | tee "$RUNNER_TEMP/deploy.log" ;;
+            *) echo "::error::Unsupported target '$TARGET'"; exit 1 ;;
+          esac
+          version="$(grep -oE 'Current Version ID: [0-9a-f-]+' "$RUNNER_TEMP/deploy.log" | tail -n 1 | sed 's/.*: //' || true)"
+          echo "Deployed the device hub ($TARGET) version ${version:-unknown} at $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Health check
+        env:
+          TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'dev' }}
+        run: |
+          case "$TARGET" in
+            dev) url=https://cmux-device-hub-dev.debussy.workers.dev/v1/health ;;
+            production) url=https://cmux-device-hub.debussy.workers.dev/v1/health ;;
+            *) exit 1 ;;
+          esac
+          # Every feature this tree's /v1/health declares must be served.
+          expected="$(grep -oE 'features: \[[^]]*\]' src/index.ts | grep -oE '"[a-z-]+"' | tr -d '"' | sort | tr '\n' ' ')"
+          for attempt in 1 2 3 4 5 6; do
+            body="$(curl -fsS --max-time 10 "$url" || true)"
+            served="$(printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write([...(JSON.parse(s).features??[])].sort().join(" ")+" ")}catch{}})')"
+            if [ -n "$expected" ] && [ "$served" = "$expected" ]; then
+              echo "$url serves features: $served" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "attempt $attempt: served '${served:-nothing}', expected '$expected'"
+            sleep 5
+          done
+          echo "::error::$url did not serve features '$expected' after the deploy."
+          exit 1

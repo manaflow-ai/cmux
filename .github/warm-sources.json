@@ -168,6 +168,8 @@
     "coderouter-release.yml:build": {"class": "mac-build", "warm": ["actions-cache"]},
     "coderouter-release.yml:build-linux": {"class": "linux-rust", "warm": ["actions-cache"]},
     "fast-checks.yml:checks": {"class": "linux-js", "warm": ["actions-cache"]},
+    "device-hub.yml:deploy": {"class": "linux-js", "warm": [], "exempt": "cold: npm ci, then wrangler deploy of a small Worker; compiles nothing"},
+    "device-hub.yml:test": {"class": "linux-js", "warm": [], "exempt": "cold: npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "dogfood-artifact-publish.yml:capture": {"class": "mac-run-product", "warm": [], "exempt": "captures a downloaded app archive; compiles nothing"},
     "fleet-artifact-cdn.yml:test": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "fleet-compile-check.yml:compile-check": {"class": "fleet-dispatch", "warm": ["linux-pool-warm"]},
