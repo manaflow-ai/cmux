@@ -768,6 +768,12 @@ mod encode_off_loop_tests {
     }
 
     impl Carrier for FakeCarrier {
+        fn drain_departures(&mut self, _out: &mut Vec<crate::carrier::DatagramDeparture>) {}
+
+        fn departure_overflows(&self) -> u64 {
+            0
+        }
+
         fn fds(&self) -> Vec<RawFd> {
             vec![self.ready.1.as_raw_fd()]
         }
