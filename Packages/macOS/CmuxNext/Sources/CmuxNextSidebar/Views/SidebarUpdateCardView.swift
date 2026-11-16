@@ -250,7 +250,7 @@ final class SidebarUpdateCardView: NSView {
         let th = ceil(Self.titleFont.boundingRectForFont.height)
         let closeWidth = closeButton.fittingWidth, closeHeight = SidebarCardTextButton.height
         let closeRoom = closeButton.isHidden ? 0 : closeWidth + Metrics.space1
-        closeButton.frame = NSRect(x: b.width - pad - closeWidth, y: pad, width: closeWidth, height: closeHeight)
+        closeButton.frame = NSRect(x: b.width - pad - closeWidth, y: pad, width: closeWidth, height: closeHeight) // concentric-allow: Hide sits `padding` from the top and the side of a card rounded by buttonContainer(padding:)
         // The title centres on Hide, which sits the padding from the top and trailing edge, in the corner.
         let titleY = closeButton.isHidden ? pad : pad + max(0, (closeHeight - th) / 2)
         titleLabel.frame = NSRect(x: pad, y: titleY, width: max(0, width - closeRoom), height: th)
@@ -277,7 +277,7 @@ final class SidebarUpdateCardView: NSView {
         closeButton.isHidden = card?.closeTitle == nil || card?.closeAction == nil
         let closeWidth = closeButton.fittingWidth, closeHeight = SidebarCardTextButton.height
         let closeRoom = closeButton.isHidden ? 0 : closeWidth + Metrics.space1
-        closeButton.frame = NSRect(x: bounds.width - pad - closeWidth, y: pad, width: closeWidth, height: closeHeight)
+        closeButton.frame = NSRect(x: bounds.width - pad - closeWidth, y: pad, width: closeWidth, height: closeHeight) // concentric-allow: Hide sits `padding` from the top and the side of a card rounded by buttonContainer(padding:)
         // The title centres on Hide, which sits the padding from the top and trailing edge, in the corner.
         let titleY = closeButton.isHidden ? pad : pad + max(0, (closeHeight - th) / 2)
         titleLabel.frame = NSRect(x: pad, y: titleY, width: max(0, width - closeRoom), height: th)

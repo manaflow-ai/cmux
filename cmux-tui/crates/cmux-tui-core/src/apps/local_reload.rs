@@ -107,6 +107,20 @@ impl Supervisor {
         json!({ "safeMode": false, "rejected": rejected })
     }
 
+    /// `start_local_watch` for a test that measures a save reaching the
+    /// running app through the real file watch (`supervisor_load_tests.rs`).
+    #[cfg(test)]
+    pub(super) fn start_local_watch_for_test(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        let dirs = watched_dirs(&self.config.sources);
+        let spawned = std::thread::Builder::new()
+            .name("apps-local-reload-test".into())
+            .spawn(move || watch(&me, dirs));
+        if let Err(error) = spawned {
+            eprintln!("cmux-tui: test apps local reload thread did not start: {error}");
+        }
+    }
+
     /// Reads the catalog again and applies what changed in local apps since
     /// `prints`; returns the new fingerprints.
     #[cfg(test)]
