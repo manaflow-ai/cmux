@@ -52,6 +52,17 @@ pub(super) const QUIET_INTERVAL: Duration = Duration::from_secs(15);
 /// After a mount, a tick, a tap or a show, a widget's batches go out at frame rate this long
 /// (a fetch the tick started answers within it).
 pub(super) const SETTLE: Duration = Duration::from_secs(5);
+/// Let it crash: the first remount after a widget's render throws, doubled on each failure in a
+/// row up to `RETRY_MAX`. A good render starts it over.
+pub(super) const RETRY_FIRST: Duration = Duration::from_secs(1);
+pub(super) const RETRY_MAX: Duration = Duration::from_secs(300);
+
+/// How long to wait before mounting a widget again after its `failures`-th failed render in a row.
+pub(super) fn retry_delay(failures: u32) -> Duration {
+    let doublings = failures.saturating_sub(1).min(16);
+    RETRY_FIRST.saturating_mul(1 << doublings).min(RETRY_MAX)
+}
+
 /// The layout document in the state directory.
 const LAYOUT_FILE: &str = "apps-widgets-layout.json";
 /// The most widgets one place holds.
@@ -424,6 +435,11 @@ pub(super) struct WidgetMount {
     /// When the clock last moved (the mount counts as one), Unix ms.
     pub last_tick_ms: u64,
     pub ticks: u64,
+    /// Renders that threw since the last good one (let it crash: the page keeps the last good
+    /// scene, marked stale, and the mount is tried again after `retry_delay`).
+    pub failures: u32,
+    /// The pending remount after a failure.
+    pub retry: Option<TimerId>,
 }
 
 /// The mount context a page's `{place, size, instance}` gets for a widget with `spec`, or why
@@ -480,6 +496,8 @@ pub(super) fn mount_context(
         epoch: 0,
         last_tick_ms: super::supervisor::now_ms(),
         ticks: 0,
+        failures: 0,
+        retry: None,
     };
     Ok((context, widget))
 }
@@ -712,6 +730,7 @@ impl Supervisor {
                     "everySeconds": widget.every,
                     "visible": widget.visible,
                     "ticks": widget.ticks,
+                    "failures": widget.failures,
                     "batches": mount.budget.batches_in,
                     "sent": mount.budget.batches_out,
                     "held": mount.budget.held,
@@ -774,6 +793,77 @@ impl Supervisor {
             process.send(&ToHost::Tick { mount: key.wire(), now_ms });
         }
     }
+
+    /// Let it crash: `key`'s render threw. The mount stays (the page keeps its last good scene and
+    /// marks it stale, never a blank tile), and it is mounted again after `retry_delay`.
+    pub(super) fn widget_mount_failed_locked(
+        &self,
+        inner: &mut Inner,
+        key: &MountKey,
+        reason: String,
+    ) -> Vec<Out> {
+        let Some(widget) = inner.mounts.get_mut(key).and_then(|m| m.widget.as_mut()) else {
+            return vec![];
+        };
+        widget.failures = widget.failures.saturating_add(1);
+        let delay = retry_delay(widget.failures);
+        if let Some(timer) = widget.retry.take() {
+            self.timers.cancel(timer);
+        }
+        let me = self.me.clone();
+        let timer_key = key.clone();
+        let epoch = widget.epoch;
+        widget.retry = Some(self.timers.schedule(delay, move || {
+            if let Some(me) = me.upgrade() {
+                me.widget_retry_fired(&timer_key, epoch);
+            }
+        }));
+        vec![Out::Client(
+            key.client,
+            json!({
+                "event": "apps-widget-health",
+                "mount_id": key.mount_id,
+                "stale": true,
+                "reason": reason,
+                "failures": widget.failures,
+                "retry_ms": u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
+            }),
+        )]
+    }
+
+    /// A widget's render answered: a stale one is fresh again and its backoff starts over.
+    pub(super) fn widget_mount_good_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
+        let Some(widget) = inner.mounts.get_mut(key).and_then(|m| m.widget.as_mut()) else {
+            return vec![];
+        };
+        if widget.failures == 0 {
+            return vec![];
+        }
+        widget.failures = 0;
+        vec![Out::Client(
+            key.client,
+            json!({ "event": "apps-widget-health", "mount_id": key.mount_id, "stale": false }),
+        )]
+    }
+
+    fn widget_retry_fired(&self, key: &MountKey, epoch: u64) {
+        let outs = {
+            let mut inner = self.inner.lock().recover_poison();
+            let Some(mount) = inner.mounts.get_mut(key) else { return };
+            let Some(widget) = mount.widget.as_mut() else { return };
+            if widget.epoch != epoch {
+                return;
+            }
+            widget.retry = None;
+            let (host, export, ctx) =
+                (mount.host.clone(), mount.export.clone(), mount.context.clone());
+            let wire = key.wire();
+            self.revive_host_locked(&mut inner, &host, |process| {
+                process.send(&ToHost::Mount { mount: wire, export, ctx });
+            })
+        };
+        self.emit(outs);
+    }
 }
 
 #[cfg(test)]
@@ -828,6 +918,13 @@ fn write_durably(dir: &std::path::Path, name: &str, value: &impl Serialize) -> s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failing_widget_waits_longer_each_time_up_to_five_minutes() {
+        let waits: Vec<u64> = (1..=11).map(|n| retry_delay(n).as_secs()).collect();
+        assert_eq!(waits, [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 300]);
+        assert_eq!(retry_delay(u32::MAX), RETRY_MAX);
+    }
 
     fn spec(options: Value) -> Spec {
         Spec::from_entry(&json!({ "export": "r", "options": options }))

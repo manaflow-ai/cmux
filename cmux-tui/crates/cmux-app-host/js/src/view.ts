@@ -48,6 +48,8 @@ export class ViewNode {
   secondary() { return this.set("color", "secondary") }
   lineLimit(v: Bindable<number>) { return this.set("lineLimit", v) }
   truncation(v: Bindable<"head" | "middle" | "tail">) { return this.set("truncation", v) }
+  /** Draws a line through the text (a done reminder, a struck price). */
+  strikethrough(v: Bindable<boolean> = true) { return this.set("strikethrough", v) }
   marquee(delaySeconds = 0.5) { return this.set("marquee", delaySeconds) }
   fade(width: Bindable<number>) { return this.set("fade", width) }
   // Layout
@@ -71,6 +73,18 @@ export class ViewNode {
   rotation(degrees: Bindable<number>) { return this.set("rotation", degrees) }
   cursor(v: "pointer" | "default") { return this.set("cursor", v) }
   help(v: Bindable<string>) { return this.set("help", v) }
+  // Motion: the host animates these (the app never runs a timer for them). Reduce Motion and
+  // cmux's calm motion turn each movement into a crossfade; motion off draws the end state.
+  /** How the node comes in and goes out when a render adds or removes it: `opacity` fades,
+   * `slide` comes up from below and leaves upward, `scale` grows from 90 %, `move` slides in
+   * from the leading edge and out to the trailing one. A node the first scene draws does not animate in. */
+  transition(v: "opacity" | "slide" | "scale" | "move") { return this.set("transition", v) }
+  /** How a Text's new content replaces the old: `numericText` rolls the changed digits (up when
+   * the number grows, down when it shrinks), `opacity` crossfades. */
+  contentTransition(v: "numericText" | "opacity") { return this.set("contentTransition", v) }
+  /** Animates this node's own prop changes (opacity, colors, rotation, strikethrough) with a
+   * curve: `smooth` (about 0.35 s), `snappy` (about 0.2 s), `none`. */
+  animation(v: "smooth" | "snappy" | "none" = "smooth") { return this.set("animation", v) }
   // Behavior
   fixed() { return this.set("fixed", true) }
   destructive() { return this.set("destructive", true) }

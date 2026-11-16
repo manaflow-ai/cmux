@@ -640,6 +640,9 @@
     truncation(v) {
       return this.set("truncation", v);
     }
+    strikethrough(v = true) {
+      return this.set("strikethrough", v);
+    }
     marquee(delaySeconds = 0.5) {
       return this.set("marquee", delaySeconds);
     }
@@ -702,6 +705,15 @@
     }
     help(v) {
       return this.set("help", v);
+    }
+    transition(v) {
+      return this.set("transition", v);
+    }
+    contentTransition(v) {
+      return this.set("contentTransition", v);
+    }
+    animation(v = "smooth") {
+      return this.set("animation", v);
     }
     fixed() {
       return this.set("fixed", true);

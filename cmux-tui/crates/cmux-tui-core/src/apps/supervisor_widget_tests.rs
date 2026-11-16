@@ -240,3 +240,51 @@ fn a_placed_tile_mounts_with_the_context_built_here_and_ticks_while_shown() {
     .unwrap_err();
     assert_eq!(refused.code, "apps.widgets.mount");
 }
+
+/// Let it crash: a widget whose render throws keeps its mount (the page keeps its last good scene,
+/// marked stale) and is mounted again after a backoff that doubles, instead of failing the tile.
+#[test]
+fn a_widget_that_throws_goes_stale_and_is_mounted_again_with_a_backoff() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    write_widget(&f.state, "broken", "renderFail", json!({ "sizes": ["small"] }));
+    f.supervisor.reload_local_apps(&prints);
+    f.install("local/broken");
+    edit(&f, "k1", "newtab", json!({ "op": "add", "app": "local/broken" })).unwrap();
+
+    f.supervisor
+        .mount(
+            CLIENT,
+            "w",
+            "local/broken",
+            "cmux.widget/1",
+            json!({ "place": "newtab", "size": "small", "instance": "w1" }),
+        )
+        .unwrap();
+    let not_failed = |e: &Value| {
+        assert!(e["event"] != "apps-mount-failed", "a widget never fails its tile: {e}")
+    };
+    let first = f.wait("the first stale", |e| {
+        not_failed(e);
+        e["event"] == "apps-widget-health" && e["failures"] == 1
+    });
+    assert_eq!(first["mount_id"], "w");
+    assert_eq!(first["stale"], true);
+    assert_eq!(first["reason"], "render failed");
+    assert_eq!(first["retry_ms"], 1000);
+    // The tile is not failed: no apps-mount-failed, and the mount is still metered.
+    let meters = call(&f, "apps.widgets.meters", json!({}), Origin::Script).unwrap();
+    assert_eq!(meters["meters"][0]["mount_id"], "w");
+    assert_eq!(meters["meters"][0]["failures"], 1);
+
+    // The retry mounts it again; it throws again, and the next wait doubles.
+    let second = f.wait("the retry's stale", |e| {
+        not_failed(e);
+        e["event"] == "apps-widget-health" && e["failures"] == 2
+    });
+    assert_eq!(second["retry_ms"], 2000);
+
+    // Unmounting cancels the pending retry.
+    f.supervisor.unmount(CLIENT, "w").unwrap();
+    assert_eq!(f.supervisor.widget_armed(CLIENT, "w"), None);
+}

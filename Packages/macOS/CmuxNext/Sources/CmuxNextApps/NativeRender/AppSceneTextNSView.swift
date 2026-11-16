@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// `Text`: a chrome label in the chrome type scale (`font`: a text style name or a point size;
-/// `weight`, `italic`, `monospaced`), the `color` tone (primary by default), `lineLimit` lines (no
+/// `weight`, `italic`, `monospaced`, `strikethrough`), the `color` tone (primary by default), `lineLimit` lines (no
 /// limit by default) and `truncation`.
 final class AppSceneTextNSView: AppSceneNodeNSView {
     let label = ChromeLabel(wrappingLabelWithString: "")
@@ -37,7 +37,23 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
     }
 
     /// The label's color from the theme in scope, on configure and on each draw.
-    private func paintContent() { label.textColor = node.props["color"]?.sceneColor ?? Palette.textPrimary }
+    /// `strikethrough` draws a line through the text in the same color (a done reminder).
+    private func paintContent() {
+        let color = node.props["color"]?.sceneColor ?? Palette.textPrimary
+        label.textColor = color
+        guard node.flag("strikethrough") else { return }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = label.lineBreakMode
+        label.attributedStringValue = NSAttributedString(
+            string: node.string("text") ?? "",
+            attributes: [
+                .font: label.font ?? Typography.body,
+                .foregroundColor: color,
+                .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                .paragraphStyle: paragraph,
+            ]
+        )
+    }
 
     override var contentNaturalWidth: CGFloat? { ceil(label.naturalSize.width) }
 

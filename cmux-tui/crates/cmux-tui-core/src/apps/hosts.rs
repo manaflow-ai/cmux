@@ -183,7 +183,7 @@ impl Supervisor {
 
     pub(super) fn unmount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
         let Some(mount) = inner.mounts.remove(key) else { return vec![] };
-        if let Some(timer) = mount.widget.as_ref().and_then(|w| w.timer) {
+        for timer in mount.widget.iter().flat_map(|w| [w.timer, w.retry]).flatten() {
             self.timers.cancel(timer);
         }
         if let Some(process) = inner.hosts.get(&mount.host).and_then(|h| h.process.clone()) {
@@ -558,7 +558,16 @@ impl Supervisor {
             }
             FromHost::Mounted { mount, error } => {
                 let Some(mount_key) = find_mount(inner, key, &mount) else { return vec![] };
-                let Some(reason) = error else { return self.good_mount_locked(inner, key) };
+                let Some(reason) = error else {
+                    let mut outs = self.widget_mount_good_locked(inner, &mount_key);
+                    outs.extend(self.good_mount_locked(inner, key));
+                    return outs;
+                };
+                // Let it crash: a widget whose render threw keeps its last good scene, marked
+                // stale, and mounts again after a bounded backoff (widgets.rs).
+                if inner.mounts.get(&mount_key).is_some_and(|m| m.widget.is_some()) {
+                    return self.widget_mount_failed_locked(inner, &mount_key, reason);
+                }
                 inner.mounts.remove(&mount_key);
                 let mut outs = vec![Out::Client(
                     mount_key.client,

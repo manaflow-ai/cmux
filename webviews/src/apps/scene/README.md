@@ -26,8 +26,11 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
   vertical stacks support `alignment`. Group and ForEach place children inline.
   Reorderable has the native renderer's current stack layout; list drag handling
   is not yet implemented in either renderer.
-- Text supports `text`, named or numeric `font`, `weight`, `italic`, `monospaced`,
-  `color` and `lineLimit`. Layout uses the pane's typography and spacing tokens.
+- Text supports `text`, named or numeric `font`, `weight`, `italic`, `monospaced`, `strikethrough`,
+  `color`, `lineLimit` and `contentTransition`. Layout uses the pane's typography and spacing tokens.
+- Motion (`sceneMotion.tsx`): `transition` animates a node in and out, `contentTransition` a Text's new
+  content, `animation` a node's own prop changes; behind the motion gate, which crossfades under
+  Reduce Motion and calm motion and draws the end state when motion is off.
 - Icon accepts `symbol`, `size` and `color`. Known SF symbols map to the cmux icon
   pack; an unknown symbol uses the pack's neutral missing glyph.
 - Row accepts `title`, `subtitle`, `symbol`, `tint`, `badge`, `accessory`, `unread`

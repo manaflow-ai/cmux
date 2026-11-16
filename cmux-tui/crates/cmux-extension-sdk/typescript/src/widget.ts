@@ -82,9 +82,10 @@ export function WidgetTitle(text: string | (() => string), options: { symbol?: s
   return HStack({ spacing: 4 }, [Icon(options.symbol).size(WIDGET_TYPE.label).color(tint), label])
 }
 
-/** The glanceable value: a large, semibold, single-line number or word (a time, a temperature, a count). */
+/** The glanceable value: a large, semibold, single-line number or word (a time, a temperature, a count). Its
+ * digits roll when it changes (Apple's numeric content transition; a crossfade under Reduce Motion). */
 export function BigNumber(text: string | number | (() => string | number), options: { size?: number; tint?: string } = {}): View {
-  const view = Text(text).font(options.size ?? WIDGET_TYPE.bigNumber).weight("semibold").lineLimit(1)
+  const view = Text(text).font(options.size ?? WIDGET_TYPE.bigNumber).weight("semibold").lineLimit(1).contentTransition("numericText")
   return options.tint ? view.color(options.tint) : view
 }
 
@@ -116,12 +117,14 @@ export function Gauge(value: number | (() => number), options: { label?: string 
   return VStack({ spacing: 2, alignment: "leading" }, [tinted, Caption(options.label)])
 }
 
-/** One row of a widget list: a tinted bar (as Apple's Calendar widget marks an event), a title and a detail. */
-export type ListItem = { id: string; title: string; detail?: string; trailing?: string; tint?: string; symbol?: string; onTap?: () => unknown }
+/** One row of a widget list: a tinted bar (as Apple's Calendar widget marks an event), a title and a detail.
+ * `done` strikes the title through and dims it (a checked reminder). */
+export type ListItem = { id: string; title: string; detail?: string; trailing?: string; tint?: string; symbol?: string; done?: boolean; onTap?: () => unknown }
 
 /**
  * A compact list for medium and large tiles: at most `max` rows (Apple's widgets show 2 to 4 in a
  * medium, 6 to 8 in a large), each a title, an optional detail under it and a trailing value.
+ * Rows slide in and out as the list changes; the host animates it.
  */
 export function RowList(items: () => readonly ListItem[], options: { max?: number; spacing?: number } = {}): View {
   const max = options.max ?? 4
@@ -133,12 +136,20 @@ export function RowList(items: () => readonly ListItem[], options: { max?: numbe
       const row = HStack({ spacing: 8 }, [
         leading,
         VStack({ spacing: 1, alignment: "leading" }, [
-          Text(() => item().title).font(WIDGET_TYPE.body).weight("semibold").lineLimit(1),
+          Text(() => item().title)
+            .font(WIDGET_TYPE.body)
+            .weight("semibold")
+            .lineLimit(1)
+            .strikethrough(() => item().done === true)
+            .color(() => (item().done ? "secondary" : "primary"))
+            .animation("smooth"),
           () => (item().detail ? Caption(() => item().detail ?? "") : null),
         ]),
         Spacer(),
         () => (item().trailing ? Text(() => item().trailing ?? "").font(WIDGET_TYPE.caption).color("secondary") : null),
       ])
+      // Rows slide in when added and out when removed (a crossfade under Reduce Motion).
+      row.transition("slide")
       const tap = item().onTap
       return tap ? row.onTap(tap) : row
     }),

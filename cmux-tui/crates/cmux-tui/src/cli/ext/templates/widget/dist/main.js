@@ -2355,7 +2355,7 @@
     return HStack({ spacing: 4 }, [Icon(options.symbol).size(WIDGET_TYPE.label).color(tint), label]);
   }
   function BigNumber(text, options = {}) {
-    const view = Text(text).font(options.size ?? WIDGET_TYPE.bigNumber).weight("semibold").lineLimit(1);
+    const view = Text(text).font(options.size ?? WIDGET_TYPE.bigNumber).weight("semibold").lineLimit(1).contentTransition("numericText");
     return options.tint ? view.color(options.tint) : view;
   }
   function Caption(text) {

@@ -591,3 +591,137 @@ test("failure copy matches the native AppFailureCopy cases", () => {
     detail: "the host stopped",
   });
 });
+
+const list: SceneOp[] = [
+  { op: "create", id: "root", type: "VStack" },
+  { op: "create", id: "a", type: "Text", props: { text: "Milk", transition: "slide" } },
+  { op: "create", id: "b", type: "Text", props: { text: "Eggs", transition: "slide", strikethrough: true } },
+  { op: "children", id: "root", children: ["a", "b"] },
+  { op: "root", id: "root" },
+];
+
+test("strikethrough draws a line through the text", () => {
+  const { container } = render(list);
+  const done = container.querySelector<HTMLElement>('[data-app-node="b"] .cmux-app-scene-text')!;
+  expect(done.style.textDecorationLine).toBe("line-through");
+  const open = container.querySelector<HTMLElement>('[data-app-node="a"] .cmux-app-scene-text')!;
+  expect(open.style.textDecorationLine).toBe("");
+});
+
+test("a transition animates a node in after the first frame and keeps a removed one until it has left", async () => {
+  const { container, store } = render(list);
+  // The first scene draws in place.
+  expect(container.querySelector('[data-app-node="a"]')!.hasAttribute("data-entering")).toBe(false);
+  act(() =>
+    store.apply([
+      { op: "create", id: "c", type: "Text", props: { text: "Bread", transition: "slide" } },
+      { op: "children", id: "root", children: ["a", "b", "c"] },
+    ]),
+  );
+  const added = container.querySelector('[data-app-node="c"]')!;
+  expect(added.getAttribute("data-transition")).toBe("slide");
+  expect(added.hasAttribute("data-entering")).toBe(true);
+
+  act(() =>
+    store.apply([
+      { op: "children", id: "root", children: ["b", "c"] },
+      { op: "remove", id: "a" },
+    ]),
+  );
+  // The removed row stays at its place, from its last props, and takes no input while it leaves.
+  const order = [...container.querySelectorAll("[data-app-node]")].map((n) => n.getAttribute("data-app-node"));
+  expect(order).toEqual(["root", "a", "b", "c"]);
+  const leaving = container.querySelector('[data-app-node="a"]')!;
+  expect(leaving.hasAttribute("data-leaving")).toBe(true);
+  expect(leaving.textContent).toBe("Milk");
+  await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  expect(container.querySelector('[data-app-node="a"]')).toBeNull();
+});
+
+test("with motion off a removed node goes at once", () => {
+  const { container, store } = render(list);
+  document.documentElement.dataset.cmuxMotion = "off";
+  act(() =>
+    store.apply([
+      { op: "children", id: "root", children: ["b"] },
+      { op: "remove", id: "a" },
+    ]),
+  );
+  expect(container.querySelector('[data-app-node="a"]')).toBeNull();
+});
+
+test("numericText rolls only the changed digits, up as the number grows and down as it shrinks", () => {
+  const { container, store } = render([
+    { op: "create", id: "t", type: "Text", props: { text: "9:41", contentTransition: "numericText" } },
+    { op: "root", id: "t" },
+  ]);
+  const digits = () =>
+    [...container.querySelectorAll(".cmux-app-scene-digit")].map((d) => [d.textContent, d.getAttribute("data-roll")]);
+  expect(digits()).toEqual([
+    ["9", null],
+    [":", null],
+    ["4", null],
+    ["1", null],
+  ]);
+  act(() => store.apply([{ op: "update", id: "t", props: { text: "9:42" } }]));
+  expect(digits()).toEqual([
+    ["9", null],
+    [":", null],
+    ["4", null],
+    ["2", "up"],
+  ]);
+  act(() => store.apply([{ op: "update", id: "t", props: { text: "9:39" } }]));
+  expect(digits()).toEqual([
+    ["9", null],
+    [":", null],
+    ["3", "down"],
+    ["9", "down"],
+  ]);
+});
+
+test("an opacity content transition crossfades the new text and animation marks the node", () => {
+  const { container, store } = render([
+    {
+      op: "create",
+      id: "t",
+      type: "Text",
+      props: { text: "Sunny", contentTransition: "opacity", animation: "smooth" },
+    },
+    { op: "root", id: "t" },
+  ]);
+  const node = container.querySelector('[data-app-node="t"]')!;
+  expect(node.getAttribute("data-animation")).toBe("smooth");
+  expect(node.querySelector(".cmux-app-scene-content")!.hasAttribute("data-roll")).toBe(false);
+  act(() => store.apply([{ op: "update", id: "t", props: { text: "Cloudy" } }]));
+  const content = node.querySelector(".cmux-app-scene-content")!;
+  expect(content.textContent).toBe("Cloudy");
+  expect(content.getAttribute("data-roll")).toBe("fade");
+});
+
+test("layout: HStack aligns top or bottom, ZStack centers, a shape's frame wins over size, accent is the theme's", () => {
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack" },
+    { op: "create", id: "top", type: "HStack", props: { alignment: "top" } },
+    { op: "create", id: "bottom", type: "HStack", props: { alignment: "bottom" } },
+    { op: "create", id: "middle", type: "HStack" },
+    { op: "create", id: "z", type: "ZStack" },
+    { op: "create", id: "bar", type: "Capsule", props: { frame: { width: 80, height: 6 }, fill: "accent" } },
+    { op: "create", id: "wide", type: "Rectangle", props: { frame: { maxWidth: "infinity", height: 4 } } },
+    { op: "create", id: "dot", type: "Circle", props: { size: 10 } },
+    { op: "children", id: "root", children: ["top", "bottom", "middle", "z", "bar", "wide", "dot"] },
+    { op: "root", id: "root" },
+  ]);
+  const style = (id: string) => container.querySelector<HTMLElement>(`[data-app-node="${id}"]`)!.style;
+  expect(style("top").alignItems).toBe("flex-start");
+  expect(style("bottom").alignItems).toBe("flex-end");
+  expect(style("middle").alignItems).toBe("");
+  expect(style("bar").width).toBe("80px");
+  expect(style("bar").height).toBe("6px");
+  expect(style("bar").backgroundColor).toBe("var(--cmux-accent, var(--agent-text))");
+  expect(style("wide").width).toBe("100%");
+  expect(style("wide").height).toBe("4px");
+  expect(style("dot").width).toBe("10px");
+  expect(style("dot").height).toBe("10px");
+  const css = require("node:fs").readFileSync(new URL("./scene.css", import.meta.url), "utf8") as string;
+  expect(css).toMatch(/\.cmux-app-scene-zstack \{\s*display: grid;\s*place-items: center;/);
+});
