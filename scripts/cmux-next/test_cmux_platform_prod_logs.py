@@ -161,6 +161,31 @@ class GuardTests(unittest.TestCase):
                 self.assertRegex(str(code), "exact vm_ or team_ id")
                 query.assert_not_called()
 
+    def test_window_counts_every_event_by_shape_with_no_id(self):
+        failed = event({"msg": "cloud machine guest rpc failed", "op": "exec", "failure": "unreachable", "team": TEAM,
+                        "machine": VM, "ms": 12, "why": "free text hunter2"}, status=503)
+        failed["$workers"]["scriptVersion"] = {"id": "0f0e0d0c-1111-2222-3333-444455556666"}
+        reset = event("not json", status=200)
+        reset["$workers"]["outcome"] = "canceled"
+        path = event_file({"service": PROD, "id": "window", "needles": "13:"})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-11T13:20:00Z", "--from-event", path],
+                                                response={"result": {"events": {"events": [failed, failed, reset]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        _, header, rows = upload.call_args.args
+        self.assertEqual((header["id_kind"], header["id"], header["events_scanned"]), ("window", "window", 3))
+        self.assertEqual(sorted(r["n"] for r in rows), [1, 2])
+        rpc = next(r for r in rows if r["n"] == 2)
+        self.assertEqual(rpc["log"], {"msg": "cloud machine guest rpc failed", "op": "exec", "failure": "unreachable",
+                                      "ms": 12})
+        self.assertEqual((rpc["status"], rpc["version"]), (503, logs.base.tag("0f0e0d0c-1111-2222-3333-444455556666")))
+        self.assertEqual(next(r for r in rows if r["n"] == 1)["outcome"], "canceled")
+        text = json.dumps(rows) + out
+        for leak in (TEAM, VM, logs.base.tag(TEAM), logs.base.tag(VM), "hunter2", "token=abc"):
+            self.assertNotIn(leak, text)
+
     def test_inputs_come_from_the_event_file_and_stdout_is_count_and_pointer(self):
         own = event({"msg": LISTED, "machine": VM, "outcome": "refused"})
         foreign = event({"msg": LISTED, "machine": "vm_foreign"})
