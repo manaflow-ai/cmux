@@ -1,0 +1,34 @@
+/* Gallery stand-in for the widget host's tile; the shipped tile is the cmux.widget/1 host's frame.
+   The widget draws its own insets, so the tile has none. */
+.gallery-todo-widget {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+}
+.gallery-todo-widget-row {
+  display: flex;
+  gap: 24px;
+}
+.gallery-todo-widget-tile {
+  box-sizing: border-box;
+  display: flex;
+  width: 170px;
+  height: 170px;
+  border-radius: 22px;
+  background: var(--agent-control);
+  color: var(--agent-text);
+  overflow: hidden;
+}
+.gallery-todo-widget-tile[data-size="medium"] {
+  width: 364px;
+}
+.gallery-todo-widget-tile[data-size="large"] {
+  width: 364px;
+  height: 382px;
+}
+.gallery-todo-widget-tile > * {
+  flex: 1;
+  min-width: 0;
+}
