@@ -372,7 +372,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut styles = PageStyles::default();
         let rules = Rules { hide: vec![".ad".into()], unstick: vec![] };
-        styles.set(Some(dir.as_path()), "local/x", "https://a.test".into(), rules.clone()).unwrap();
+        styles.set(Some(dir.as_path()), "local/x", "https://a.test".into(), rules).unwrap();
         let loaded = PageStyles::load(Some(dir.as_path()));
         assert_eq!(
             loaded.get("local/x", "https://a.test"),
