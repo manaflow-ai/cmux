@@ -21,11 +21,12 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
     let file: LaunchTimesFile
     let work: BackgroundWork
     let version: String, build: String, commit: String?
-    /// Whether the updater pre-warmed `build` before this launch (consumes its marker). Blocking.
-    let prewarmed: @Sendable (_ build: String) -> Bool
+    /// Whether the updater pre-warmed `build` before this launch, and why (consumes its marker). Blocking.
+    let prewarmed: @Sendable (_ build: String) -> (preWarmed: Bool, reason: String)
 
     /// - Parameter info: the bundle's Info.plist (`CFBundleShortVersionString`, `CFBundleVersion`, `CMUXCommit`).
-    public init(file: LaunchTimesFile, work: BackgroundWork, info: [String: Any], prewarmed: @escaping @Sendable (_ build: String) -> Bool) {
+    public init(file: LaunchTimesFile, work: BackgroundWork, info: [String: Any],
+                prewarmed: @escaping @Sendable (_ build: String) -> (preWarmed: Bool, reason: String)) {
         self.file = file
         self.work = work
         version = info["CFBundleShortVersionString"] as? String ?? ""
@@ -38,8 +39,9 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
     public func write(marks: [String: Double]) {
         let recorder = self
         work.post(.bestEffort, mayBlock: .files) {
+            let prewarm = recorder.prewarmed(recorder.build)
             let record = LaunchTimesRecord(marks: marks, startedAt: Self.processStart, version: recorder.version, build: recorder.build,
-                                           commit: recorder.commit, prewarmed: recorder.prewarmed(recorder.build))
+                                           commit: recorder.commit, prewarmed: prewarm.preWarmed, prewarmReason: prewarm.reason)
             let log = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
             do {
                 let line = try recorder.file.append(record)
@@ -78,6 +80,10 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// The updater pre-warmed this build before this launch (`StagedUpdatePrewarm`): this is the first
     /// launch of a build the running app ran once while the update waited.
     public var prewarmed: Bool
+    /// Why ``prewarmed`` is what it is, from the updater's marker: `main` or `full` (how far the pre-warm got),
+    /// `full_legacy` (a marker an older build wrote), `started_not_finished`, `skipped:<why>`, `other_build:<b>`
+    /// (a staged update not installed yet) or `no_record`. Nil in a record an older build wrote.
+    public var prewarmReason: String?
     /// The launch before this one (in the file) was another build or there was none: the first launch of
     /// this bundle's build, so likely the first exec of its files.
     public var firstLaunchOfBuild: Bool
@@ -86,12 +92,13 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         case startedAt = "started_at", version, build, commit
         case preMainMs = "pre_main_ms", mainMs = "main_ms", firstWindowFrameMs = "first_window_frame_ms"
         case homeFirstPageMs = "home_first_page_ms", homeRevealedBy = "home_revealed_by"
-        case prewarmed, firstLaunchOfBuild = "first_launch_of_build"
+        case prewarmed, prewarmReason = "prewarm_reason", firstLaunchOfBuild = "first_launch_of_build"
     }
 
     /// The record of a launch whose marks are `marks` (name to milliseconds since process start).
     /// ``firstLaunchOfBuild`` is set by ``LaunchTimesFile/append(_:)``, which knows the launch before.
-    public init(marks: [String: Double], startedAt: Date, version: String, build: String, commit: String?, prewarmed: Bool) {
+    public init(marks: [String: Double], startedAt: Date, version: String, build: String, commit: String?, prewarmed: Bool,
+                prewarmReason: String? = nil) {
         func round(_ ms: Double?) -> Double? { ms.map { ($0 * 10).rounded() / 10 } }
         self.startedAt = startedAt.formatted(.iso8601)
         self.version = version
@@ -103,6 +110,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         homeFirstPageMs = round(marks["home.first_page"])
         if marks["reveal.home"] != nil { homeRevealedBy = marks["reveal.home.by_deadline"] != nil ? "deadline" : "mark" }
         self.prewarmed = prewarmed
+        self.prewarmReason = prewarmReason
         firstLaunchOfBuild = true
     }
 

@@ -16,9 +16,10 @@ import Testing
             .appending(path: "launch-times-\(UUID().uuidString)/launch-times.jsonl"), capacity: capacity)
     }
 
-    static func record(build: String = "200", marks: [String: Double] = marks, prewarmed: Bool = false) -> LaunchTimesRecord {
+    static func record(build: String = "200", marks: [String: Double] = marks, prewarmed: Bool = false,
+                       prewarmReason: String? = nil) -> LaunchTimesRecord {
         LaunchTimesRecord(marks: marks, startedAt: Date(timeIntervalSince1970: 1_800_000_000), version: "1.0.0",
-                          build: build, commit: "31583607", prewarmed: prewarmed)
+                          build: build, commit: "31583607", prewarmed: prewarmed, prewarmReason: prewarmReason)
     }
 
     @Test func aRecordCarriesTheLaunchesTimes() {
@@ -42,13 +43,14 @@ import Testing
     @Test func aLaunchWritesOneLineThatReadsBack() throws {
         let file = Self.temporaryFile()
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
-        let line = try file.append(Self.record(prewarmed: true))
+        let line = try file.append(Self.record(prewarmed: true, prewarmReason: "main"))
         let text = try String(contentsOf: file.url, encoding: .utf8)
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "prewarmed", "first_launch_of_build"])
-        var expected = Self.record(prewarmed: true)
+                                   "home_first_page_ms", "home_revealed_by", "prewarmed", "prewarm_reason", "first_launch_of_build"])
+        #expect(json["prewarm_reason"] as? String == "main")
+        var expected = Self.record(prewarmed: true, prewarmReason: "main")
         expected.firstLaunchOfBuild = true
         #expect(file.records() == [expected])
     }
