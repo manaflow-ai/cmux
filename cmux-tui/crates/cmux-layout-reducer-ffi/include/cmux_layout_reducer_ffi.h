@@ -115,6 +115,22 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  *         problems:[{at, why, token?}]}
  * custom false: no layout applies and the row keeps its element switches.
  * Called once per (kind, agent) pair after a settings change, never per row. */
+/* The sidebar's section and workspace projection, operation
+ * "sidebar_section_customization" of cmux_layout_reducer_json
+ * (cmux-layout-reducer sidebar_section_customization.rs): the
+ * sidebar.sections / sidebar.workspaces settings over the document outline.
+ *   {sections?, workspaces?, outline:[{id, keys, region, groups:[{id, name?}]}],
+ *    locations:{workspace:{section, group?}}, selected?}
+ *     -> {section_order, hidden_sections, hidden_workspaces, workspace_groups,
+ *         workspace_orders, restorable:[{kind, id, key}], selection_overrides_hide,
+ *         revision, complete, problems:[{path, why}]}
+ * locations lists only the workspaces the settings name and the selected one,
+ * so the request is the same size at 30 and 3,000 rows. Called once per
+ * structural sidebar pass or settings change, never per frame.
+ * Its edits, operation "sidebar_projection_edit":
+ *   {sections?, workspaces?, edit:{op: hide_section|show_section|hide_workspace|
+ *    show_workspace|show_all|reset, id?}} -> {sections, workspaces, changed, refused?}
+ * null removes the key. */
 /* New > Kind > Placement, operation "new_placement" of cmux_layout_reducer_json
  * (cmux-layout-reducer new_placement.rs): open a terminal, browser, agent chat
  * or New Tab Page at one of the fork's ten places.
