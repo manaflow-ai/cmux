@@ -13,6 +13,7 @@ on "antialiased" (it must save AppleFontSmoothing 0 before AppKit reads it); the
 then changes while it runs to "auto" (the saved value must go, so the Mac's choice applies) and to
 "subpixel" (smoothing must be saved on), and the app quits and launches again. Both launches hold
 the 1% parity, and the stock label must draw thinner under "antialiased" than under "subpixel".
+Then each mode is written while the app is not running: the next launch must draw it at once.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   text-weight-e2e.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" [--tolerance 0.01]
@@ -176,6 +177,27 @@ try:
         check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window-subpixel.png ({shot})")
     finally:
         stop(app)
+    # A change made while cmux is not running (the file edited by hand, or an update that changes
+    # the default) holds at the first launch: AppKit reads the saved value before the launch's
+    # settings read, so the app must write it before NSApplication starts.
+    cold = {}
+    for mode in ("antialiased", "subpixel"):
+        write_config(mode)
+        app = launch(mode + " (changed while cmux was not running)")
+        try:
+            cold[mode] = weights(f"cold-{mode}")
+        finally:
+            stop(app)
+
+    def ink(values):
+        return sum(v for k, v in values.items() if k.startswith("stock."))
+
+    for mode, warm in (("antialiased", thin), ("subpixel", smooth)):
+        for theme in ("dark", "light"):
+            if theme in warm and theme in cold[mode]:
+                a, b = ink(cold[mode][theme]), ink(warm[theme])
+                check(b > 0 and abs(a / b - 1) <= 0.02,
+                      f"{theme}: {mode} changed while cmux was not running draws at once ({a / b * 100 if b else 0:.1f}% of the warm launch's stock ink)")
     for theme in ("dark", "light"):
         if theme not in thin or theme not in smooth:
             continue
