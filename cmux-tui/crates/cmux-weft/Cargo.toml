@@ -30,7 +30,6 @@ cmux-wg = { path = "../cmux-wg" }
 futures-util.workspace = true
 getrandom.workspace = true
 hex.workspace = true
-ip_network.workspace = true
 reqwest.workspace = true
 ring.workspace = true
 rusqlite.workspace = true
