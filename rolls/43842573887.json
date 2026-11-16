@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43842573887",
+  "recorded_at": "2026-11-16T10:00:48Z",
+  "reason": "cmux-tui 04780ddf3448 changes the image's cmux-tui (pinned 37b8e7f72d5f)",
+  "dry_run": false,
+  "cmux_tui": "04780ddf3448df6702d64c170b84a25e3c38c586",
+  "fixes": [
+    {
+      "sha": "04780ddf3448df6702d64c170b84a25e3c38c586",
+      "mergedAt": "2026-11-16T09:27:19Z",
+      "subject": "Sidebar: a new workspace made in a group stays in that group (#44267)"
+    },
+    {
+      "sha": "6720aa127e5124e9f5b98f5bccc42eb4668175ea",
+      "mergedAt": "2026-11-16T09:25:58Z",
+      "subject": "Cloud create: check-create reads the backend's client-config only for a field that needs a capability (#44317)"
+    },
+    {
+      "sha": "5006f3c7d0463f91d14c656815b759e43c8b2a2e",
+      "mergedAt": "2026-11-16T09:25:17Z",
+      "subject": "acpmux: a request on a silent link checks it in 2 s, and a network loss does not grow the silence budget (#44319)"
+    },
+    {
+      "sha": "a08a919afae803a17e3057d3aa5430f88c7865fb",
+      "mergedAt": "2026-11-16T01:09:36-08:00",
+      "subject": "cmux-tui: lean agent CLI frames (agent-cli-hybrid-v2), fewer bytes than the PTY on the viewer's link (#44245)"
+    },
+    {
+      "sha": "f41fedd239968a3b081871f135f8f5d82f884142",
+      "mergedAt": "2026-11-16T01:09:24-08:00",
+      "subject": "cmux-tui: carrier drill names the step it stopped in; bounded step is a timeout only at the deadline (#44260)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T10:00:48Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
