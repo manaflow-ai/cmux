@@ -375,7 +375,10 @@ impl Hub {
         // (`agent/command.rs`), so only those count as its sign-in (#43821).
         // Only an owner Cloud machine's Claude, so no other launch resolves its references twice.
         // A launcher that picks Claude's provider itself (`claude-sr`, `claude-cr`) owns it too.
-        let claude_on_cloud = crate::config::derive_family(&meta.harness, &p) == "claude"
+        // The owner's credential owns the provider, as for Codex above: a kept team choice on the
+        // machine must not clear the token the launch just set.
+        let claude_on_cloud = !direct
+            && crate::config::derive_family(&meta.harness, &p) == "claude"
             && !p.env.contains_key(crate::routes::NAME_KEY)
             && crate::claude_cloud_auth::launches_claude_itself(&p.argv)
             && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root());

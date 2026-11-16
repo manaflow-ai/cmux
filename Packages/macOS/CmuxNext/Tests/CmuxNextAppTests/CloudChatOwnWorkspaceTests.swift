@@ -90,6 +90,19 @@ struct CloudChatOwnWorkspaceTests {
         #expect(tries == 1)
     }
 
+    /// The daemon's restart can end the open's request (a closed connection) before the store hears the link dropped:
+    /// the epoch has not moved and the link still reads held. That is a drop too, and the open runs once more.
+    @Test func anOpenWhoseRequestClosedBeforeTheStoreHeardOpensOnceMore() async throws {
+        let store = connectedStore([])
+        var tries = 0
+        let opened = try await CloudMachineWorkspace.chatRelinked(in: store, held: { true }, relink: .seconds(20)) {
+            tries += 1
+            if tries == 1 { throw DaemonError.connectionClosed(reason: "EOF") }
+            return "chat"
+        }
+        #expect(opened == "chat" && tries == 2)
+    }
+
     /// The key is a UUID (acpmux names a session's display only for a UUID workspace key), fixed per start.
     @Test func theKeyIsAStableUUIDPerStart() {
         let one = CloudMachineWorkspace.chatKey(tabKey: "cloud-start-chat-k1")

@@ -368,10 +368,14 @@ public struct CloudMachineWorkspace {
     /// (up to `relink`). A new machine's link reconnects after its software update and when remote approvals come on,
     /// which can land on the open: the start read no connection and answered "didn't connect. Retry once it's online."
     /// half a second after the machine connected, then deleted the machine (DEV 0b53cf17, 2026-11-15). The open is keyed,
-    /// so the second try gets the same workspace and tab. A failure with the link up, or a link that stays down, throws as it is.
+    /// so the second try gets the same workspace and tab. A request that failed on a closed connection counts as a drop
+    /// too (``CloudWait/linkDropped(_:)``): the daemon's restart can end the request before the store hears of it. A
+    /// failure with the link up, or a link that stays down, throws as it is.
     public static func chatRelinked<T>(in store: DaemonStore, held: () -> Bool, relink: Duration = CloudWait.relinkWait,
                                        _ open: () async throws -> T) async throws -> T {
-        try await CloudWait.relinkedOnce(epoch: { store.connectionEpoch }, held: held, relink: { await live(store, within: relink) }, open)
+        let before = store.connectionEpoch
+        return try await CloudWait.retriedOnce(open, closed: { store.connectionEpoch != before || !held() || CloudWait.linkDropped($0) },
+                                               relink: { await live(store, within: relink) })
     }
 
     /// ``chat(tabKey:in:within:notConnected:open:create:)`` once its workspace mirrors (`anchor`: its first pane, by

@@ -2975,6 +2975,17 @@ async fn dispatch_request_with_identity(
             reply
         }
         name if super::connections::METHODS.contains(&name) => {
+            // A connection's token goes to the person's app, never to an agent acpmux runs: an
+            // agent's own connection is refused, as a launch credential is (`agent_credentials::admit`).
+            if matches!(
+                name,
+                method::MUX_CONNECTIONS_CREDENTIAL | method::MUX_CONNECTIONS_CHATGPT_TOKEN
+            ) && conn.caller().is_some()
+            {
+                return Err(RpcError::invalid_params(
+                    "a connection's token is read only by the person's app, not by an agent",
+                ));
+            }
             heap(|| super::connections::handle(hub, conn.origin, name, &params)).await
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
