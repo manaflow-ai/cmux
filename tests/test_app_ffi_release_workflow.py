@@ -510,7 +510,7 @@ elif args[0] == "api":
         # Named check-0, check-1, ...; at the staged-on commit, the test's base_checks. Served a page at a time
         # (per_page/page, as scripts/ci/gh_pages.py asks).
         base = state.get("staged_on") and f"/commits/{state['staged_on']}/" in endpoint
-        if base and state.get("base_checks_read") == "fail":
+        if state.get("base_checks_read" if base else "checks_read") == "fail":
             print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
         runs = [{"name": f"check-{i}", "conclusion": c}
                 for i, c in enumerate(state.get("base_checks" if base else "checks", []))]
@@ -564,7 +564,7 @@ class RePinPublication(unittest.TestCase):
                   runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
-                  staged_on=None, base_checks=(), base_checks_read="ok"):
+                  staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok"):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -616,7 +616,7 @@ class RePinPublication(unittest.TestCase):
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
                 "pin_age_min": pin_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
-                "base_checks_read": base_checks_read}))
+                "base_checks_read": base_checks_read, "checks_read": checks_read}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
                        BASE_TOKEN="base-token", BASE_PIN_ENABLED=base_enabled,
@@ -733,6 +733,22 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(state["published"], [])
         self.assertEqual(state["writes"], 0)
 
+    def test_a_failed_read_leaves_the_re_pin_branch_alone(self):
+        # 2026-11-16: the open-PR read hit the App's rate limit and moved #44074 from 8f7f9e7d to 1b93c4a6 (run
+        # 43937628010), restarting its CI; a failed read now leaves the branch for the next re-pin run.
+        cases = {
+            "a failed status read": {"status_read": "fail"},
+            "a failed check-run read": {"checks_read": "fail"},
+        }
+        for name, options in cases.items():
+            with self.subTest(name):
+                result, state = self.run_repin(head_age_min=20, **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("left app-ffi-repin alone", result.stdout)
+                self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                self.assertEqual(state["published"], [])
+                self.assertEqual(state["writes"], 0)
+
     def test_a_head_whose_only_failures_fail_on_its_base_is_kept(self):
         # 2026-11-16: #44074 had about 200 check runs and the cmux-next checks job red on base reds; one page and
         # any failure moved it at every publish (6f1d36c1, fe47e481, a30893db, c5a8aa57), and no head finished CI.
@@ -765,7 +781,6 @@ class RePinPublication(unittest.TestCase):
                                                           "base_checks_read": "fail"},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
-            "a failed status read": {"head_age_min": 20, "status_read": "fail"},
             "the PR is closed": {"head_age_min": 20, "closed": True},
         }
         for name, options in cases.items():
