@@ -69,6 +69,6 @@ test("Reduce Motion's zero move duration marks the root, so the fold's chevron s
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
   expect(css).toMatch(
-    /:root:is\(\[data-agent-move="instant"\], \[data-agent-motion="off"\]\) \.cv-rotor \{\s*transition: none;/,
+    /:root:is\(\s*\[data-agent-move="instant"\],\s*\[data-agent-motion="off"\][^)]*\)\s*\.cv-rotor \{\s*transition: none;/,
   );
 });

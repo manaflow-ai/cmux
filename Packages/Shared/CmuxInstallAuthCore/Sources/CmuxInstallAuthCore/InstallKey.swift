@@ -20,12 +20,31 @@ public enum InstallAuthError: Error, Hashable, Sendable {
     case unexpectedChallenge
     /// `user.ensure` answered for a different Stack user than the session's.
     case userMismatch
-    case transport
+    /// The request to `path` got no HTTP answer; `urlErrorCode` is the
+    /// transport's `URLError` code when it threw one (-1001: timed out).
+    case transport(path: String, urlErrorCode: Int?)
     case malformedReply
     /// The team requires a newer app (`updates.minimumVersion`); the owner
     /// names the minimum. Not an install problem: the key and record stay,
     /// and the same install mints again once the app is updated.
     case clientTooOld(minimumVersion: String?)
+}
+
+/// What a log line or a relay answer says of a failed mint: the step and its code. Never a token.
+extension InstallAuthError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .invalidPublicKey: "the install key is not a P-256 point"
+        case .noSession: "no sign-in session to register the install with"
+        case .refused(let code): "the cmux API refused the install token request (\(code))"
+        case .unexpectedChallenge: "the cmux API sent a challenge this install will not sign"
+        case .userMismatch: "the cmux API answered for another user"
+        case .transport(let path, let code):
+            "POST \(path) got no answer" + (code.map { " (URLError \($0))" } ?? "")
+        case .malformedReply: "the cmux API answered the install token request with no token"
+        case .clientTooOld(let minimum): "this cmux is too old for the team" + (minimum.map { " (needs \($0))" } ?? "")
+        }
+    }
 }
 
 /// The public JWK the owner stores for the install.

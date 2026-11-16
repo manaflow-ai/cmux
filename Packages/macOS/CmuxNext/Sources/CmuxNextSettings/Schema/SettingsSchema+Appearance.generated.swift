@@ -156,6 +156,12 @@ extension InterfaceSizeSetting {
     public nonisolated static let placeholder: Double = 12
 }
 
+extension FontSmoothingSetting {
+    /// `appearance.fontSmoothing`: Stem darkening of cmux's native text (AppleFontSmoothing in the app's domain, written at launch: ProcessFontSmoothing). Ghostty's font-thicken and web pages are not affected.
+    public nonisolated static let configPath = ["appearance", "fontSmoothing"]
+    public nonisolated static let fallback: FontSmoothing = .antialiased
+}
+
 extension InterfaceScaleSetting {
     /// `appearance.interfaceScale`.
     public nonisolated static let configPath = ["appearance", "interfaceScale"]
@@ -305,7 +311,7 @@ nonisolated enum AppearanceSettingsSchema {
                 help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
                 kind: .choice([
                     SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(NekoIconTheme.neko.rawValue, "Neko"),
+                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
                 ]),
                 default: .string(NekoIconThemeSetting.fallback.rawValue),
                 keywords: ["icons", "icon", "theme", "neko", "cat"]

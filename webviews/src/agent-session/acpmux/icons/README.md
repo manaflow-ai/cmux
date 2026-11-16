@@ -19,7 +19,9 @@ gaps. Selected Solid drawings retain their authored geometry. The shared Spinner
 brand marks retain their settled drawings. Gallery: `agent-pane.icon-system`.
 
 `nekoCandidate.json` is a gallery-only experiment generated from the existing Cat drawings and
-copy/pin fill-ins. It is not imported by the production icon map. The reserved `neko` family falls
+copy/pin fill-ins. `nekoRounds.json` holds the art-round directions (round 2 and 3) as pack overlays,
+so the gallery draws them through `Icon` like the default row. Neither is imported by the production
+icon map. The reserved `neko` family falls
 back to the default until a complete comparison clears the quality bar. See
 `design/icons/neko-evaluation.md` for provenance, coverage and evaluated rounds.
 

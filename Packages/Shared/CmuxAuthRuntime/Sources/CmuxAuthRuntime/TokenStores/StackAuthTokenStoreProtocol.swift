@@ -22,9 +22,14 @@ public protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
     /// - Returns: Whether the tokens were cleared.
     @discardableResult
     func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool
+    /// Joins store-owned migration or persistence work that may have started
+    /// during a token read before capture cleanup removes its namespace.
+    func captureAwaitIdle() async
 }
 
 extension StackAuthTokenStoreProtocol {
+    public func captureAwaitIdle() async {}
+
     public func seed(accessToken: String, refreshToken: String) async {
         await setTokens(accessToken: accessToken, refreshToken: refreshToken)
     }

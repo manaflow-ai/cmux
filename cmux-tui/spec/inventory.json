@@ -135,6 +135,7 @@
     "git.diff",
     "git.files.list",
     "git.files.search",
+    "git.fingerprint",
     "git.push",
     "git.status",
     "git.worktree.apply",
@@ -547,6 +548,7 @@
       "shell-stop",
       "split",
       "swap-pane",
+      "terminal-command-context",
       "terminal-events",
       "terminal-history",
       "terminal-last-command",
@@ -998,6 +1000,12 @@
       "name": "screen-changed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "screen-device-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {

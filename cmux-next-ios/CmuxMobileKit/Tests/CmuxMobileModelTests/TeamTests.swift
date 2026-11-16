@@ -84,16 +84,17 @@ import Testing
         #expect(TeamGlyph.character(from: "") == nil)
     }
 
-    @MainActor @Test func openingTabFollowsARequestNotTheLastUsed() {
+    @MainActor @Test func openingTabFollowsARequestThenTheLastActive() {
         let store = AppStore.mock(tabMemory: .inMemory())
         let ws = store.workspaces[0]
         #expect(store.openingTab(for: ws)?.id == "t-claude")
         store.noteOpened(tabID: "t-zsh", in: ws.id)
-        #expect(store.openingTab(for: ws)?.id == "t-claude")
-        store.requestOpen(tabID: "t-zsh", in: ws.id)
         #expect(store.openingTab(for: ws)?.id == "t-zsh")
+        store.requestOpen(tabID: "t-docs", in: ws.id)
+        #expect(store.openingTab(for: ws)?.id == "t-docs")
         store.takeRequestedTab(ws.id)
-        #expect(store.openingTab(for: ws)?.id == "t-claude")
+        // The requested tab was then on screen: the next open goes back to it.
+        #expect(store.openingTab(for: ws)?.id == "t-docs")
     }
 }
 

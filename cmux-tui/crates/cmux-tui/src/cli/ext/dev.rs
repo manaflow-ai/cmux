@@ -66,6 +66,46 @@ pub(super) const MARKER: &str = ".cmux-ext-dev.json";
 /// extension folder outside a cmux checkout builds the same way.
 const PACK_TS: &str = include_str!("../../../../cmux-app-host/tools/pack.ts");
 
+/// The extension SDK's source, embedded so `cmux-extension-sdk` resolves in a folder with
+/// no copy of its own (a sample copied out of a checkout, one a person installs): the
+/// packer gets it in `CMUX_EXTENSION_SDK`. Paths keep the checkout's layout, which the
+/// SDK's relative imports of its tables expect.
+const SDK_FILES: [(&str, &str); 3] = [
+    (
+        "cmux-extension-sdk/typescript/src/index.ts",
+        include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts"),
+    ),
+    (
+        "cmux-app-host/schema/v2/events.json",
+        include_str!("../../../../cmux-app-host/schema/v2/events.json"),
+    ),
+    (
+        "cmux-app-host/generated/scopes.json",
+        include_str!("../../../../cmux-app-host/generated/scopes.json"),
+    ),
+];
+
+/// Writes the packer and the SDK into `dir`; returns the SDK entry for `CMUX_EXTENSION_SDK`.
+pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
+    std::fs::write(dir.join("pack.ts"), PACK_TS)?;
+    for (path, text) in SDK_FILES {
+        let file = dir.join("sdk").join(path);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, text)?;
+    }
+    // `cmux-extension-sdk/customize`: the types of what this build lets you customize,
+    // written from the same schema `cmux customize schema` prints (not committed anywhere).
+    let types = dir.join("sdk/cmux-extension-sdk/typescript/src/generated/customize.ts");
+    if let Some(parent) = types.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let schema = cmux_customize::schema::Schema::current();
+    std::fs::write(types, cmux_customize::schema::typescript(&schema))?;
+    Ok(dir.join("sdk").join(SDK_FILES[0].0))
+}
+
 /// One problem with file and position where known.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct Problem {
@@ -254,10 +294,14 @@ pub(super) fn build(
             let packer = tempfile::Builder::new()
                 .prefix("cmux-ext-pack")
                 .tempdir()
-                .and_then(|dir| std::fs::write(dir.path().join("pack.ts"), PACK_TS).map(|()| dir));
-            let packer = packer.map_err(|e| vec![Problem::message(format!("packer: {e}"))])?;
+                .and_then(|dir| write_packer(dir.path()).map(|sdk| (dir, sdk)));
+            let (packer, sdk) =
+                packer.map_err(|e| vec![Problem::message(format!("packer: {e}"))])?;
             let mut pack = Command::new(bun);
-            pack.arg(packer.path().join("pack.ts")).arg(&pkg.dir).current_dir(&pkg.dir);
+            pack.arg(packer.path().join("pack.ts"))
+                .arg(&pkg.dir)
+                .current_dir(&pkg.dir)
+                .env("CMUX_EXTENSION_SDK", sdk);
             run_bounded(pack, deadline)
         }
     };
@@ -679,7 +723,7 @@ pub(super) fn write_types(dir: &Path, types: &str) -> std::io::Result<bool> {
 }
 
 /// Where each contribution shows, from the manifest.
-fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
+pub(super) fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
     let Some(implements) = manifest.get("implements").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -695,7 +739,22 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 }
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
+                "cmux.newtab/1" => {
+                    "the whole New Tab page, once you pick it (cmux settings set tabs.newTabApp <id>)"
+                        .into()
+                }
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
+                "cmux.composer.command/1" => "the agent chat composer's / menu".into(),
+                "cmux.composer.mention/1" => "the agent chat composer's @ completions".into(),
+                "cmux.chat.widget/1" => {
+                    match entry.pointer("/options/tools").and_then(Value::as_array) {
+                        Some(tools) if !tools.is_empty() => format!(
+                            "the agent chat, under tool calls named {}",
+                            tools.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
+                        ),
+                        _ => "the agent chat, for widget parts that name this extension".into(),
+                    }
+                }
                 other => other.to_string(),
             };
             json!({ "interface": interface, "where": place, "shown": shown })
@@ -707,7 +766,8 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 3] = ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1"];
+    const PREFERRED: [&str; 4] =
+        ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1", "cmux.newtab/1"];
     PREFERRED
         .iter()
         .find(|name| has_export(name))
@@ -1288,6 +1348,28 @@ pub(super) fn once(global: &GlobalArgs, options: &DevOptions, interrupts: bool) 
     Session::new(options.dir.clone(), options, daemon).reload(true)
 }
 
+/// The debounce after a file event: DEBOUNCE of quiet after the last one (a
+/// deadline only while file events come; log lines and other daemon events
+/// do not hold the reload back). Returns why the loop stops when a wake said
+/// so, else `None`: one reload is due.
+pub(super) fn settle(daemon: &mut Daemon) -> Option<(&'static str, i32)> {
+    let mut quiet_at = Instant::now() + DEBOUNCE;
+    loop {
+        let left = quiet_at.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        match daemon.next_wake_within(left) {
+            None => return None,
+            Some(Wake::Files) => quiet_at = Instant::now() + DEBOUNCE,
+            Some(Wake::Interrupt) => return Some(("stopped", exit::OK)),
+            Some(Wake::DaemonGone) => return Some(("the cmux daemon went away", exit::NO_DAEMON)),
+            Some(Wake::Installed(installed)) => super::daemon::print_installed(installed),
+            Some(Wake::Daemon(_)) => {}
+        }
+    }
+}
+
 /// `ext dev` without `--once`: reload, then reload on every save.
 pub(super) fn run_watch(
     global: &GlobalArgs,
@@ -1343,32 +1425,7 @@ pub(super) fn run_watch(
             }
             Some(Wake::Daemon(_)) => None,
             Some(Wake::Files) => {
-                // Debounce: DEBOUNCE of quiet after the last file event (a
-                // deadline only while file events come; log lines and other
-                // daemon events do not hold the reload back), then one reload.
-                let mut stop = None;
-                let mut quiet_at = Instant::now() + DEBOUNCE;
-                loop {
-                    let left = quiet_at.saturating_duration_since(Instant::now());
-                    if left.is_zero() {
-                        break;
-                    }
-                    match session.daemon.next_wake_within(left) {
-                        None => break,
-                        Some(Wake::Files) => quiet_at = Instant::now() + DEBOUNCE,
-                        Some(Wake::Interrupt) => stop = Some(("stopped", exit::OK)),
-                        Some(Wake::DaemonGone) => {
-                            stop = Some(("the cmux daemon went away", exit::NO_DAEMON));
-                        }
-                        Some(Wake::Installed(installed)) => {
-                            super::daemon::print_installed(installed);
-                        }
-                        Some(Wake::Daemon(_)) => {}
-                    }
-                    if stop.is_some() {
-                        break;
-                    }
-                }
+                let mut stop = settle(&mut session.daemon);
                 if stop.is_none() && !dir.is_dir() {
                     stop = Some(("the extension folder is gone", exit::OK));
                 }

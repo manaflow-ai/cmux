@@ -174,6 +174,83 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
+/// A peer's outbox sends an open delivery again under its own prompt id on every link of the
+/// peer (`open_delivery.rs`) and relies on the target to answer a resend with the first outcome.
+/// A daemon that restarted since the delivery (or kept so many newer ones that it let it go) has
+/// no memory of it: its session's log still says it went, so it is not delivered again
+/// (cmuxterm-hq#10904: lane reports reached their coordinator three and four times, the same
+/// prompt id under a new uuid each time, after the coordinator's daemon restarted).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_resend_after_the_daemon_forgot_the_delivery_is_not_delivered_again() {
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let config = scratch("restart");
+    let transcript = config.join("sid-r.jsonl");
+    std::fs::write(&transcript, "").unwrap();
+    let inbox = fake_claude(&config, "sid-r", transcript.clone());
+
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("sid-r".into());
+        meta.tags.insert(
+            "bridge".into(),
+            crate::store::Tag { value: "claude".into(), expires_at: None },
+        );
+        meta.watching = Some(Watching {
+            family: "claude".into(),
+            file: transcript,
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    hub.save_meta(&session);
+    hub.start_watch(&session);
+
+    let send = |hub: Arc<Hub>, session: Arc<Session>| async move {
+        let opts = PromptOptions { prompt_id: Some("p-report".into()), ..Default::default() };
+        let blocks = vec![json!({"type": "text", "text": "lane report"})];
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            hub.prompt_with(&session, blocks, "outbox", false, opts),
+        )
+        .await
+        .expect("answered within 20 s")
+        .unwrap()
+    };
+    let first = send(hub.clone(), session.clone()).await;
+    assert_eq!(first["_meta"]["acpmux"]["answered"], true, "{first}");
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    // What a daemon restart forgets: every delivery this process kept for the session.
+    deliveries().by_uuid.retain(|_, p| p.session_id != session.id);
+    forget_delivered_ids(&session.id);
+
+    let again = send(hub.clone(), session.clone()).await;
+    assert_eq!(again["_meta"]["acpmux"]["duplicate"], true, "{again}");
+    assert_eq!(
+        inbox.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "the same prompt id reached the app twice"
+    );
+    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
+    let delivered = events.iter().filter(|e| e.kind == "bridge_delivered").count();
+    assert_eq!(delivered, 1, "one delivery is logged");
+}
+
 /// A watched chat whose app is gone is still refused: Take Over runs it here.
 #[tokio::test]
 async fn a_watched_chat_with_no_live_app_is_still_read_only() {

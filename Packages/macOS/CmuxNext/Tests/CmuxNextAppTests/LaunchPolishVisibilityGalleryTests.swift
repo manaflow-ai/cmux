@@ -11,8 +11,8 @@ import Testing
 
 /// Native before/after stills for launch visibility (note: "remove app store for now / Remove what's new?").
 /// Every panel starts with the same stored ``SidebarLayoutDocument.defaults`` fixture:
-/// ``base`` is the pre-change projection, ``hidden`` is Labs off, and ``labs-on`` is Labs on
-/// with the real sidebar's "cmux Updated!" / What's New card. The output is deliberately a
+/// ``base`` is the pre-change projection, ``hidden`` has no updated card, and ``labs-on`` has
+/// the real sidebar's "cmux Updated!" / What's New card. The output is deliberately a
 /// test-owned gallery so it can run in a GUI package lane without leasing a live app window.
 @MainActor @Suite(.serialized, .closesItsWindows) struct LaunchPolishVisibilityGalleryTests {
     enum Variant: String, CaseIterable {
@@ -27,9 +27,8 @@ import Testing
     static func projection(_ variant: Variant) -> SidebarLayoutDocument {
         let stored = SidebarLayoutDocument.defaults
         switch variant {
-        case .base: return SidebarRows.visibleLayout(stored)
-        case .hidden: return SidebarRows.visibleLayout(stored, showAppStore: false)
-        case .labsOn: return SidebarRows.visibleLayout(stored, showAppStore: true)
+        // The App Store is drawn in every variant (no Labs gate since Leo 2026-11-14); only the card differs.
+        case .base, .hidden, .labsOn: return SidebarRows.visibleLayout(stored)
         }
     }
 

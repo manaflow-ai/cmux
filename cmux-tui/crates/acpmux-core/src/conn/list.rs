@@ -7,6 +7,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
+#[cfg(test)]
+mod replay_tests;
+
 #[derive(Default)]
 struct Held {
     bytes: AtomicUsize,
@@ -131,6 +134,10 @@ impl Source for HubSource {
         Ok(())
     }
     fn page(&self, page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
+        // A peer's `all` or `keys` page needs no sub (decision 266); its `live` walk does.
+        if self.peer && page.view != Some(crate::wire::ListView::Live) {
+            return Ok(self.hub.peer_page(page)?);
+        }
         let tasks = self
             .tasks
             .lock()
@@ -347,7 +354,10 @@ async fn pump(
                     receiver = delivery.receiver;
                     mode = delivery.mode;
                 }
-                Offer::NotFed => mode = Mode::Paused,
+                Offer::NotFed => {
+                    receiver.clear_replay_snapshot();
+                    mode = Mode::Paused;
+                }
                 _ => return,
             }
             continue;
@@ -448,7 +458,12 @@ async fn pump(
                 }
                 mode = next;
             }
-            Offer::NotFed => mode = Mode::Paused,
+            Offer::NotFed => {
+                // Credit resumes by opening a fresh receiver at its cursor.
+                // Nothing in this paused generation needs the replay bytes.
+                receiver.clear_replay_snapshot();
+                mode = Mode::Paused;
+            }
             _ => return,
         }
     }

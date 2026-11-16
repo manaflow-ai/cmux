@@ -27,6 +27,38 @@ marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-r
 from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
 
+## Linux desktop host (shared with cmux on a Mac)
+
+A Linux desktop joins the person's devices and shows up on the Mac's Screen Sharing page
+like a shared Mac. On the desktop, as the user who is signed in to its graphical session:
+
+```
+cmux-rd linux-host enable --stack-token-file ~/.config/cmux/stack-token [--allow-control]
+install -Dm644 systemd/cmux-screen-host.service ~/.config/systemd/user/cmux-screen-host.service
+systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host.service
+```
+
+- `enable` signs in once with a cmux access token (a file only this user can read, mode 0600,
+  or `-` for stdin; it is not stored), creates this desktop's device keys in
+  `~/.config/cmux/screen-host/` (0700; files 0600), registers it as a `linux` device, anchors
+  it and turns sharing on. The anchor lets the host renew its own session with its device key
+  for 30 days; after that, `share on --stack-token-file ...` again.
+- Consent is the Mac's: a viewer the person allowed on the hub (View or Full Control) is
+  served; anyone else's request waits for the person. `cmux-rd linux-host requests` lists
+  them (also logged: `journalctl --user -u cmux-screen-host`), `approve SESSION [--always]
+  [--scope view|full]` or `deny SESSION` answers. The host never answers one by itself.
+  Control is off unless `enable --allow-control`; a View session applies no input.
+- The unit is a user unit: it must run in the seat0 session's user manager, with that
+  session's D-Bus and `DISPLAY`/`XAUTHORITY`/`XDG_SESSION_TYPE` (see the unit file).
+- Capture: X11 sessions stream the X screen (`--display`, else `$DISPLAY`, else `:0`;
+  `--xauthority` or `XAUTHORITY`). A Wayland session (`XDG_SESSION_TYPE=wayland`) uses the
+  portal backend (xdg-desktop-portal ScreenCast and PipeWire); until that backend is built in,
+  its sessions end with "portal capture not built in". `--capture x11|portal` overrides.
+- Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
+  yet; its session ends with that reason.
+- Relays the person added by hand are sealed to the device's agreement key and not opened
+  yet: the host uses the hub's ICE servers.
+
 ## Build
 
 ### Observe a viewer's presented marker (macOS bench build)
@@ -72,6 +104,42 @@ wrap, stale timestamps, scaled marker decoding, occlusion and quantiles.
 The current passive `bench`/WebRTC test viewers do not present windows, so this
 observer must be paired with a real renderer before comparing them to Apple.
 Native compilation and unit tests alone do not validate presentation latency.
+
+For passive presented-frame samples, use the source marker mode with an explicit start signal:
+
+```
+cmux-rd observe --mode passive --pid VIEWER_PID --window CGWINDOW_ID \
+  --marker-origin X,Y --cell-size N --expected-nonce 00112233445566778899aabbccddeeff \
+  --start-file /tmp/scene-ready \
+  --duration-s 10 --interval-ms 1000
+```
+
+The observer decodes the marker on every complete ScreenCaptureKit callback into a bounded queue,
+reports callback count separately from distinct marker counters, accepts counter gaps as dropped
+frames, and reports repeats, invalid samples, and queue overflow. The optional expected nonce is
+eight rows below the counter row, each row using the same 16-bit LSB-first cells and `1010` guard;
+the eight little-endian words form 16 bytes rendered as canonical lowercase hex. Its
+`cmux.presented-marker-series/2` receipt measures the compositor display timestamp to callback
+arrival boundary and requires the exact visible PID/window geometry. With an expected nonce,
+`host_identity_verified` and `nonce_observed` are true only for matching samples; marker-only runs
+remain false. Because the observer seeds a baseline before the start-file signal,
+`first_changed_marker_ms` is change-after-signal timing; `session_ttff_ms` remains null until an
+external session-start timestamp is bound.
+
+For selected-process CPU, run the macOS bench command during the measured phase:
+
+```
+cmux-rd observe-cpu --pid VIEWER_PID --duration-ms 1000
+```
+
+The `cmux.process-cpu-interval/1` receipt divides the selected process's user plus system CPU
+nanosecond delta by the actual monotonic sample interval. Percentages use one CPU core as 100%,
+so a multithreaded process can exceed 100%. Process start timestamps reject PID reuse; unavailable
+samples have a null percentage and an explicit reason. `viewer` is the selected process and
+`observer` is this CPU sampler, not a separate ScreenCaptureKit observer. Sample that process by
+its own PID to keep capture overhead separate. `host_cpu_pct` stays null: the harness must identify
+and sample the remote host process separately, with the same phase boundaries. This standalone
+command is not yet connected to the comparison target adapters.
 
 This crate is its own Cargo workspace (excluded from the cmux-tui workspace) because it
 builds C code: openh264 from source (bench builds), and x264 only with `--features x264`. Build it on Linux (a Testbox or a
@@ -230,3 +298,32 @@ it only on the owner's grant for service `desktop`. Only then does the server co
 - UDP datagrams are accepted only from the viewer's exact socket (address and port named
   in the hello); a viewer behind NAT must use the stream carrier. Viewers send feedback at
   least once per second on both carriers; three silent seconds end the session.
+
+### Windows loopback performance proof
+
+The Windows selftest workflow builds with `--release --no-default-features --features bench`
+and runs two trials at each physical desktop resolution, 1920×1080 and 3840×2160:
+
+```powershell
+.\target\release\cmux-rd.exe windows-selftest --loopback 1 --width 1920 --height 1080 --duration-s 10 --codec openh264
+```
+
+Run `.github/scripts/cmux-rd-motion.ps1 -IntervalMs 16 -FullScreen` in a separate
+owned process to keep the desktop changing. The benchmark temporarily sets the
+desktop resolution and restores it on exit. A driver rejecting optional 4K with
+`DISP_CHANGE_BADMODE` reports `4K: not measured, no display mode` and succeeds
+without metrics. Missing 1080p or any capture/transport/viewer failure still fails.
+It uses the selected production capture backend, encoder, media engine, stream framing and
+feedback path over TCP loopback. The receiver reassembles and decodes the stream,
+presents it in a visible GDI window and checks its center pixel with `GetPixel`.
+At least two distinct presented colors are required. No tailnet or credentials
+are needed. This measures a local Windows viewer, not a Mac or iOS viewer.
+
+JSON reports `first_frame_ms` from connection start to the first presented pixel,
+`fps` over the steady interval after a one-second warmup, and nearest-rank
+`p50`/`p95` milliseconds for capture (including copy and change detection),
+conversion, encoding, decoding, and presentation (including RGB conversion and
+readback). Stage distributions include startup; sample vectors cap at 8192.
+Duration is bounded to 2–30 seconds, sockets have timeouts, and the host and
+viewer each have a deadline. Keep this harness and motion source unchanged
+when comparing before/after optimization results.

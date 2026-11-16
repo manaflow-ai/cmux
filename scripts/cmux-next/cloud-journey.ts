@@ -30,6 +30,9 @@
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
  *   agent daemon restart, each mid-turn and timed from a send at its end to the reply (cloud-chaos.ts).
+ *   --start-via app starts the agent the way the app does (`agent-session-start` over the carrier dial, needs --cmux),
+ *   not `acp ensure`: the step passes on a started session and fails with the refusal's code and `data.harness`
+ *   (cloud-chat-matrix.ts judges its `start` cells on that, hq#11225); the chat steps after it are skipped.
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -110,7 +113,8 @@ import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
+import { appStartDetail } from "./cloud-chat-matrix.ts";
+import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -210,11 +214,22 @@ export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<st
   return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
 }
 
-class Journey {
+/** Preclaim artifacts are public: retain only the step outcome, never an API response or identifier. */
+export function preclaimPublicStep(step: Step): Step {
+  return { ...step, detail: step.status };
+}
+
+/** Preclaim artifacts carry no account, team, install, or run identifiers in their metadata. */
+export function preclaimPublicMeta(): Record<string, string> {
+  return { mode: "preclaim" };
+}
+
+export class Journey {
   readonly steps: Step[] = [];
   readonly secrets: string[] = [];
   readonly firstText = new FirstTextTiming();
-  constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>) {}
+  preclaimRows: PreclaimClaimRecord[] | null = null;
+  constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
     try {
@@ -232,15 +247,17 @@ class Journey {
   record(s: Step): void {
     const fields = this.firstText.fields();
     if (fields.create_marks_ms) s.fields = { ...fields, ...s.fields };
-    s.detail = scrub(s.detail, this.secrets);
+    s = this.publicSafe ? preclaimPublicStep(s) : { ...s, detail: scrub(s.detail, this.secrets) };
     this.steps.push(s);
     console.log(`${s.status.toUpperCase().padEnd(4)} ${s.step} ${s.ms} ms :: ${s.detail}`);
     this.flush();
   }
   flush(): void {
     if (!this.outDir) return;
-    writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta: this.meta, steps: this.steps }, null, 2)}\n`);
-    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, this.meta));
+    const meta = this.publicSafe ? preclaimPublicMeta() : this.meta;
+    writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
+    const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows)}`;
+    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
   }
 }
 
@@ -338,14 +355,40 @@ export type PreclaimClaimSplit = {
   bound_ms: number | null;
 };
 
+export type PreclaimHealthSnapshot = {
+  http_status: number;
+  outcome: "ok" | "error";
+  commit: string | null;
+};
+
 export type PreclaimClaimRecord = {
   claim: number;
   machine: string | null;
   spare: string | null;
+  lease_id: string | null;
   lease_hit: boolean | null;
+  health_before: PreclaimHealthSnapshot;
+  health_after: PreclaimHealthSnapshot;
   claim_to_bound: PreclaimClaimSplit;
-  post_bind_login: "receipt" | "missing" | "not_checked";
+  post_bind_login: "receipt" | "post-bind" | "missing" | "not_checked";
+  first_chat_ms: number | null;
+  first_reply_ms: number | null;
 };
+
+export type PreclaimFailureRecord = {
+  claim: number;
+  outcome: "fail";
+  error: string;
+};
+
+/** A failed claim stays visible in the private evidence without exposing credentials publicly. */
+export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = []): PreclaimFailureRecord {
+  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600) };
+}
+
+export function preclaimRunComplete(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[], expectedClaims: number): boolean {
+  return rows.length === expectedClaims && failures.length === 0;
+}
 
 type WireEvent = { t?: string; event?: string; stream?: string; data?: Record<string, unknown>; spares_needing_login?: unknown };
 
@@ -392,8 +435,13 @@ export function preclaimClaimRecord(input: {
   spare?: unknown;
   answer?: unknown;
   brokerLog?: string;
+  leaseId?: unknown;
   leaseHit?: boolean | null;
-  postBindLogin?: "receipt" | "missing" | "not_checked";
+  healthBefore?: PreclaimHealthSnapshot;
+  healthAfter?: PreclaimHealthSnapshot;
+  postBindLogin?: "receipt" | "post-bind" | "missing" | "not_checked";
+  firstChatMs?: number | null;
+  firstReplyMs?: number | null;
 }): PreclaimClaimRecord {
   const answer = input.answer && typeof input.answer === "object" ? input.answer as Record<string, unknown> : {};
   const machine = typeof input.machine === "string" ? input.machine : typeof answer.machine_id === "string" ? answer.machine_id : null;
@@ -402,10 +450,38 @@ export function preclaimClaimRecord(input: {
     claim: input.claim,
     machine,
     spare,
+    lease_id: typeof input.leaseId === "string" ? input.leaseId : null,
     lease_hit: input.leaseHit !== undefined ? input.leaseHit : classifyLeaseHit(answer, input.brokerLog),
+    health_before: input.healthBefore ?? { http_status: 0, outcome: "error", commit: null },
+    health_after: input.healthAfter ?? { http_status: 0, outcome: "error", commit: null },
     claim_to_bound: claimToBoundSplit(answer.stages_ms ?? answer.claim_to_bound ?? answer.claimToBound),
     post_bind_login: input.postBindLogin ?? "not_checked",
+    first_chat_ms: input.firstChatMs ?? null,
+    first_reply_ms: input.firstReplyMs ?? null,
   };
+}
+
+/** Keep health evidence useful without copying response bodies or account identifiers into the run output. */
+export function preclaimHealthSnapshot(answer: Answer): PreclaimHealthSnapshot {
+  const body = answer.body && typeof answer.body === "object" ? answer.body as Record<string, unknown> : {};
+  const value = body.value && typeof body.value === "object" ? body.value as Record<string, unknown> : body;
+  const candidates = [value.commit, value.sha, value.revision, value.version];
+  const commit = candidates.find((v): v is string => typeof v === "string" && /^[0-9A-Za-z._-]{1,80}$/.test(v)) ?? null;
+  return { http_status: answer.status, outcome: answer.status >= 200 && answer.status < 300 ? "ok" : "error", commit };
+}
+
+/** Lease ids are correlation handles in the public summary, never bearer values or machine ids. */
+export function opaquePreclaimLeaseId(value: unknown): string | null {
+  if (typeof value !== "string" || value.length < 1) return null;
+  return `lease:${createHash("sha256").update(value).digest("hex").slice(0, 12)}`;
+}
+
+/** Public preclaim evidence is limited to timings, outcomes and opaque lease handles. */
+export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[]): string {
+  const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
+  const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
+  const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90 };
+  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
 }
 
 function normalizedWireValue(value: unknown): Record<string, unknown> {
@@ -475,6 +551,93 @@ async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "
   throw new Error("warm-spare returned no JSON answer");
 }
 
+export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number }> {
+  const started = Date.now();
+  const ensured = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m claude --json 2>&1; echo "@@exit $?"`, 120_000);
+  if (!/@@exit 0/.test(ensured.stdout)) throw new Error(`preclaim ${session}: agent start refused`);
+  const chatMs = Date.now() - started;
+  const sent = await exec(`${GUEST}printf '%s' ${shq(prompt)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
+  if (!/@@exit 0/.test(sent.stdout)) throw new Error(`preclaim ${session}: chat send refused`);
+  const waitStarted = Date.now();
+  while (Date.now() - waitStarted < budgetMs) {
+    const reply = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1`, 45_000);
+    const wait = /@@wait (\d+)/.exec(reply.stdout)?.[1];
+    const text = reply.stdout.replace(/@@wait \d+\n?/, "").trim();
+    if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted };
+    // The send is queued: an idle exit before the turn starts is not a failed reply.
+    if (wait && wait !== "0" && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}`);
+  }
+  throw new Error(`preclaim ${session}: no reply within ${budgetMs / 1000} s`);
+}
+
+/** A cold claim has no warm receipt, so it uses the same credential transfer after bind. */
+export function preclaimLoginMode(spare: string | null, machine: string | null = null): "preclaim" | "post-bind" {
+  return spare !== null && machine === spare ? "preclaim" : "post-bind";
+}
+
+async function installPreclaimLogin(api: Api, machine: string, exec: Exec, programs: ReturnType<typeof loginPrograms>, login: string, index: number, ownerScope: string): Promise<void> {
+  await waitPreflight(exec, programs.preflight, ownerScope, 300_000);
+  const folder = "/home/cmux/.cmux/credential-transfer";
+  const file = `${folder}/${randomUUID().toUpperCase()}.json`;
+  try {
+    const wrote = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: file, dataBase64: Buffer.from(login).toString("base64"), mode: 0o644 });
+    if (wrote.status < 200 || wrote.status >= 300 || wrote.body?.ok === false) throw new Error(`preclaim ${index}: credential stage refused`);
+    const installed = await exec(programs.install(file));
+    if (installed.code !== 0) throw new Error(`preclaim ${index}: credential installer refused`);
+  } finally {
+    await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
+  }
+}
+
+/** A spare warmed for the account with the person's login copied onto it on spare.ready, as the app's SpareReady path. */
+export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown> };
+
+/**
+ * The app's part on a warm spare (SpareReady): warm-spare names a spare, the journey waits for its cloud.spare.ready,
+ * marks it ready, copies the login through the existing transfer (preflight, fs/write, installer), checks the guest's
+ * launcher sees it, and reports it installed. A warm-spare that names no spare answers `spare: null`; the claim then
+ * makes a machine and the login is copied after bind.
+ */
+export async function prepareSpareLogin(a: {
+  api: Api;
+  cmux: string;
+  stateDir: string;
+  installToken: string;
+  request: Record<string, unknown>;
+  wireTeam?: string;
+  programs: ReturnType<typeof loginPrograms>;
+  login: string;
+  ownerScope: string;
+  index: number;
+  journey: Journey;
+  readyBudgetMs?: number;
+}): Promise<PreparedSpare> {
+  const warm = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, a.request);
+  const spare = typeof warm.machine === "string" ? warm.machine : null;
+  let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
+  let leaseId = opaquePreclaimLeaseId(warm.lease_id ?? warm.leaseId ?? warm.reservation_id ?? warm.reservationId);
+  if (spare) {
+    await waitForCloudSpareReady({ ...a.api, team: a.wireTeam }, spare, a.readyBudgetMs);
+    const ready = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, ready: spare });
+    leaseId ??= opaquePreclaimLeaseId(ready.lease_id ?? ready.leaseId ?? ready.reservation_id ?? ready.reservationId);
+    if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
+    const exec = directExec(a.api, spare, a.journey);
+    await waitMachine(a.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+    await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope);
+    const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
+    if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
+    if (copy.generation) await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
+  }
+  return { spare, generation: copy.generation, leaseId, request: a.request };
+}
+
+/** Whether the claim answer's machine carries the login the spare's copy installed (warm-spare loginReceipt). */
+export async function spareLoginReceipt(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, stateDir: string, installToken: string, prepared: PreparedSpare, machine: string): Promise<boolean> {
+  if (!prepared.generation) return false;
+  const receipt = await runWarmSpare(cmux, api, stateDir, installToken, { ...prepared.request, loginReceipt: { machine, provider: "claude" } }).catch(() => ({} as Record<string, any>));
+  return receipt.installed === true;
+}
+
 async function runPreclaimBurst(args: {
   backend: Backend;
   api: Api;
@@ -486,6 +649,7 @@ async function runPreclaimBurst(args: {
   tag: string;
   journey: Journey;
   outDir: string | null;
+  privateRowsPath?: string;
   team?: string;
   user: any;
 }): Promise<number> {
@@ -494,69 +658,73 @@ async function runPreclaimBurst(args: {
   if (!Number.isInteger(args.claims) || args.claims < 1 || args.claims > 20) throw new Error("--claims must be 1..20");
   const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-preclaim-"));
   const rows: PreclaimClaimRecord[] = [];
+  const failures: PreclaimFailureRecord[] = [];
+  let verificationFailed = false;
   const scopeTeam = args.team ?? args.install.team ?? String(args.user?.personal_team ?? args.user?.team ?? "");
   const wireTeam = scopeTeam || args.api.team;
   const scope = { platform: args.backend.api, team: scopeTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
   const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(args.team));
   const account = args.account;
   const writeOutput = () => {
-    if (!args.outDir) return;
-    mkdirSync(args.outDir, { recursive: true });
+    if (!args.outDir && !args.privateRowsPath) return;
+    if (args.outDir) mkdirSync(args.outDir, { recursive: true });
     const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
     const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
-    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, claim_to_bound_p90_ms: p90 };
-    writeFileSync(path.join(args.outDir, "preclaim.json"), `${JSON.stringify({ backend: args.backend.name, summary, claims: rows }, null, 2)}\n`);
-    writeFileSync(path.join(args.outDir, "summary.md"), ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease hit | spare | machine | claim answer | join | guest bind | connect_info | bound | receipt |", "|---:|:---:|---|---|---:|---:|---:|---:|---:|:---|", ...rows.map((r) => `| ${r.claim} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.spare ?? "-"} | ${r.machine ?? "-"} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} |`)].join("\n") + "\n");
+    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90, outcome: verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? "fail" : "pass", complete: preclaimRunComplete(rows, failures, args.claims) };
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary }, rows, failures }, null, 2)}\n`);
+    args.journey.preclaimRows = rows;
+    args.journey.flush();
   };
   try {
     for (let index = 0; index < args.claims; index++) {
+      let claimedMachine: string | null = null;
+      try {
+      const healthBefore = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
       const request = { platform: args.backend.api, account, scope, currentScope: scope };
-      const warm = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, request);
-      const spare = typeof warm.machine === "string" ? warm.machine : null;
-      let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
-      if (spare) {
-        await waitForCloudSpareReady({ ...args.api, team: wireTeam }, spare);
-        const ready = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, ready: spare });
-        if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
-        const exec = directExec(args.api, spare, args.journey);
-        await waitMachine(args.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
-        await waitPreflight(exec, programs.preflight, args.team ? "owner or team" : "owner");
-        const folder = "/home/cmux/.cmux/credential-transfer";
-        const file = `${folder}/${randomUUID().toUpperCase()}.json`;
-        try {
-          const wrote = await args.api.raw("POST", `/v1/cloud/machines/${spare}/fs/write`, { path: file, dataBase64: Buffer.from(args.login).toString("base64"), mode: 0o644 });
-          if (wrote.status < 200 || wrote.status >= 300 || wrote.body?.ok === false) throw new Error(`preclaim ${index}: credential stage refused`);
-          const installed = await exec(programs.install(file));
-          if (installed.code !== 0) throw new Error(`preclaim ${index}: credential installer refused`);
-        } finally {
-          await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
-        }
-        const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
-        if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${index}: guest receipt missing before claim`);
-        if (copy.generation) await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, installed: spare, generation: copy.generation });
-      }
+      const prepared = await prepareSpareLogin({ api: args.api, cmux: args.cmux, stateDir, installToken: args.install.token, request, wireTeam, programs, login: args.login, ownerScope: args.team ? "owner or team" : "owner", index, journey: args.journey });
+      const { spare, leaseId } = prepared;
       const answer = await args.api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
       const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
+      claimedMachine = typeof machine === "string" ? machine : null;
       const explicitLease = classifyLeaseHit(answer);
       const leaseHit = explicitLease ?? (spare === null ? false : typeof machine === "string" ? machine === spare : null);
       if (typeof machine === "string") {
         await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+        if (preclaimLoginMode(spare, machine) === "post-bind") {
+          await installPreclaimLogin(args.api, machine, directExec(args.api, machine, args.journey), programs, args.login, index, args.team ? "owner or team" : "owner");
+        }
       }
-      const receipt: Record<string, unknown> = copy.generation && typeof machine === "string"
-        ? await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, loginReceipt: { machine, provider: "claude" } }).catch(() => ({}))
-        : {};
-      const record = preclaimClaimRecord({ claim: index, machine, spare, answer, leaseHit, postBindLogin: spare === null ? "not_checked" : receipt.installed === true ? "receipt" : "missing" });
+      const receiptInstalled = typeof machine === "string" ? await spareLoginReceipt(args.cmux, args.api, stateDir, args.install.token, prepared, machine) : false;
+      let firstChatMs: number | null = null;
+      let firstReplyMs: number | null = null;
+      if (typeof machine === "string") {
+        const chat = await runPreclaimChat(directExec(args.api, machine, args.journey), `preclaim-${args.tag}-${index}`, `Reply with one short sentence for preclaim ${index}.`, 300_000);
+        firstChatMs = chat.chatMs;
+        firstReplyMs = chat.replyMs;
+      }
+      const healthAfter = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
+      const loginMode = preclaimLoginMode(spare, typeof machine === "string" ? machine : null);
+      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, postBindLogin: loginMode === "post-bind" ? "post-bind" : receiptInstalled ? "receipt" : "missing" });
       rows.push(record);
       if (typeof machine === "string") {
         await args.api.deleteMachine(machine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
+        claimedMachine = null;
       }
       writeOutput();
+      } catch (error) {
+        if (claimedMachine) await args.api.deleteMachine(claimedMachine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
+        failures.push(preclaimFailureRecord(index, error, args.journey.secrets));
+        writeOutput();
+        throw error;
+      }
     }
   } finally {
     writeOutput();
     rmSync(stateDir, { recursive: true, force: true });
   }
-  return rows.some((r) => r.lease_hit === true && r.post_bind_login !== "receipt") ? 1 : 0;
+  verificationFailed = rows.some((r) => r.lease_hit === true && r.post_bind_login !== "receipt");
+  writeOutput();
+  return verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? 1 : 0;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -796,6 +964,39 @@ export const GUEST_CARRIER_TIMELINE = [
  * exec's midpoint (`before`, `after`), so a time is good to about half the exec, whatever the guest's wall clock did.
  */
 export function guestTimeline(stdout: string, answeredAt: number, before: number, after: number, sentAt = answeredAt): string {
+  const t = readGuestTimeline(stdout, answeredAt, before, after, sentAt);
+  if (!t.clockRead) return `after create's answer (±${t.half} ms): no guest clock read`;
+  const rel = (ms: number) => `${ms >= 0 ? "+" : ""}${ms} ms`;
+  const parts = t.events.map((e) => `${e.name}${e.text ? ` "${e.text.slice(0, 80)}"` : ""} ${rel(e.ms)}`);
+  const spare = t.claimedSpare ? `; a claimed spare: bound ${t.boundBeforeAnswerMs} ms before create answered` : "";
+  return `after create's answer (±${t.half} ms${t.step ? `; the guest's wall clock stepped ${t.step >= 0 ? "+" : ""}${t.step} ms after boot` : ""}${spare}): ${parts.join("; ")}`;
+}
+
+/** The guest timeline's public facts for probe.json: event names and ms after create's answer, no text, no ids. */
+export type GuestTimelineFacts = { clock_read: boolean; uncertainty_ms: number; clock_step_ms: number; claimed_spare: boolean | null; events: Array<{ event: string; ms: number }> };
+
+/** A journal line's kind, from the words the timeline's reader selects it by, so no journal text reaches probe.json. */
+const JOURNAL_KINDS = ["carrier", "session host", "relay", "regist"];
+
+export function guestTimelineFacts(stdout: string, answeredAt: number, before: number, after: number, sentAt = answeredAt): GuestTimelineFacts {
+  const t = readGuestTimeline(stdout, answeredAt, before, after, sentAt);
+  return {
+    clock_read: t.clockRead,
+    uncertainty_ms: t.half,
+    clock_step_ms: t.step,
+    claimed_spare: t.claimedSpare,
+    events: t.events.map((e) => {
+      const kind = e.text ? JOURNAL_KINDS.find((k) => e.text!.toLowerCase().includes(k)) ?? "other" : null;
+      return { event: kind ? `journal:${kind.replace(" ", "_")}` : e.name, ms: e.ms };
+    }),
+  };
+}
+
+/**
+ * GUEST_CARRIER_TIMELINE's lines as ms after create's answer. `claimedSpare` is null when the guest showed no bind
+ * (bound.json), true when it bound before create was sent, false when it bound after.
+ */
+function readGuestTimeline(stdout: string, answeredAt: number, before: number, after: number, sentAt: number) {
   let wallNow = NaN;
   let upNow = NaN;
   const segments: Array<{ rt: number; boot: number }> = [];
@@ -809,7 +1010,9 @@ export function guestTimeline(stdout: string, answeredAt: number, before: number
     else if (kind === "journal") events.push({ name: "journal", mono: Number(a), text: [b, ...rest].join(" ") });
   }
   const half = Math.round((after - before) / 2);
-  if (!Number.isFinite(wallNow) || !Number.isFinite(upNow)) return `after create's answer (±${half} ms): no guest clock read`;
+  if (!Number.isFinite(wallNow) || !Number.isFinite(upNow)) {
+    return { clockRead: false, half, step: 0, claimedSpare: null as boolean | null, boundBeforeAnswerMs: NaN, events: [] as Array<{ name: string; text?: string; ms: number }> };
+  }
   const bootNow = wallNow - upNow;
   const clock = segments.filter((c) => Number.isFinite(c.rt) && Number.isFinite(c.boot));
   if (!clock.length || Math.abs(clock[clock.length - 1].boot - bootNow) > 500) clock.push({ rt: wallNow, boot: bootNow });
@@ -824,13 +1027,10 @@ export function guestTimeline(stdout: string, answeredAt: number, before: number
     return wall - bootNow;
   };
   const mid = Math.round((before + after) / 2);
-  const rel = (mono: number) => {
-    const ms = Math.round(mid - (upNow - mono) - answeredAt);
-    return `${ms >= 0 ? "+" : ""}${ms} ms`;
-  };
-  const parts = [`guest boot ${rel(0)}`, ...events.flatMap((e) => {
+  const rel = (mono: number) => Math.round(mid - (upNow - mono) - answeredAt);
+  const out = [{ name: "guest boot", ms: rel(0) } as { name: string; text?: string; ms: number }, ...events.flatMap((e) => {
     const mono = e.mono ?? (e.wall !== undefined ? toMono(e.wall) : NaN);
-    return Number.isFinite(mono) ? [`${e.name}${e.text ? ` "${e.text.slice(0, 80)}"` : ""} ${rel(mono)}`] : [];
+    return Number.isFinite(mono) ? [{ name: e.name, ...(e.text ? { text: e.text } : {}), ms: rel(mono) }] : [];
   })];
   const step = clock.length > 1 ? Math.round(clock[clock.length - 1].boot - clock[0].boot) : 0;
   // A machine bound before create was sent is a claimed spare (made and bound ahead, handed out at create); a cold
@@ -838,8 +1038,8 @@ export function guestTimeline(stdout: string, answeredAt: number, before: number
   // time is the snapshot base's, so the bind, not the boot, is what says so.
   const bound = events.find((e) => e.name === "bound.json" && e.wall !== undefined);
   const boundAt = bound ? mid - (upNow - toMono(bound.wall!)) : NaN;
-  const spare = boundAt < sentAt ? `; a claimed spare: bound ${Math.round(answeredAt - boundAt)} ms before create answered` : "";
-  return `after create's answer (±${half} ms${step ? `; the guest's wall clock stepped ${step >= 0 ? "+" : ""}${step} ms after boot` : ""}${spare}): ${parts.join("; ")}`;
+  const claimedSpare = Number.isFinite(boundAt) ? boundAt < sentAt : null;
+  return { clockRead: true, half, step, claimedSpare, boundBeforeAnswerMs: Math.round(answeredAt - boundAt), events: out };
 }
 
 /** A carrier answer's `relay`, as the dial takes it (cmux-tui carrier/answer.rs relay_route): a bare `relay+do://<host>`. */
@@ -1227,15 +1427,155 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
  * was read back, with the existing ms from send to completed reply; otherwise fail with the first failed step.
  * Real-model runs separately carry create-to-streamed-first-text and cumulative phase marks.
  */
-export function probeRow(probe: string, steps: Step[], run?: string, at = new Date(), context?: { backend: string; model: "real" | "stub"; run_attempt?: number }): Record<string, unknown> {
+export function probeRow(probe: string, steps: Step[], run?: string, at = new Date(), context?: { backend: string; model: "real" | "stub"; run_attempt?: number }, extra: ProbeExtra = {}): Record<string, unknown> {
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
   const fields = context?.model === "real" ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...context, ...fields };
+  const { failure_facts, ...spare } = extra;
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
-  return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran" };
+  return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran", ...(failure_facts ? { failure_facts } : {}) };
 }
+
+/**
+ * What a row adds once create answered (probe.json is public: counts, reasons and relative times, never an id):
+ * the claim answer's spare_fallback and spare_skips (cmux-platform#1418; null while the answer has neither), whether
+ * the guest timeline showed a claimed spare, and on a failed run the facts read before anything was deleted.
+ */
+export type ProbeExtra = {
+  spare_fallback?: string | null;
+  spare_skips?: Record<string, number> | null;
+  claimed_spare?: boolean | null;
+  /** The claim answer's value.claim.behind (cmux-platform#1429): the spare taken was one image roll behind; null with no claim. */
+  claimed_behind?: boolean | null;
+  /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
+  login_path?: "receipt" | "copy";
+  failure_facts?: FailureFacts;
+};
+export type FailureFacts = {
+  machine: Record<string, string | number | boolean> | null;
+  machine_error?: string;
+  timeline: GuestTimelineFacts | null;
+  timeline_error?: string;
+};
+
+/** A reason or state as a bare token, or null: no id, address, path or free text gets through. */
+const TOKEN = /^[a-z][a-z0-9_]{0,39}$/;
+/** A version or image tag (`0.164.0`, `cloud-native-auto-70e5c08f-43720622282-1`); never an id or address. */
+const VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,79}$/;
+/** An id (`vm_01J...`, `team_8f...`): a prefix and 6 or more characters with a digit or a capital; `vm_unavailable` is a code. */
+const ID_WORD = "\\b(?:vm|team|user|inst|install|ws|org|acct|sess|mach|img)_(?=[A-Za-z0-9_-]*[0-9A-Z])[A-Za-z0-9_-]{6,}";
+const ID_SHAPE = new RegExp(`${ID_WORD}|[0-9a-f]{8}-[0-9a-f]{4}-|@|^\\d{1,3}(\\.\\d{1,3}){3}$`);
+/** A key whose value names a machine, host, person or place, whatever its shape. */
+const ID_KEY = /(^|_)(id|ids|target|host|hostname|machine|team|user|owner|url|addr|address|ip|name)$/i;
+const publicToken = (v: unknown): string | null => (typeof v === "string" && TOKEN.test(v) && !ID_SHAPE.test(v) ? v : null);
+const publicVersion = (v: unknown): string | null => (typeof v === "string" && VERSION.test(v) && !ID_SHAPE.test(v) ? v : null);
+
+/**
+ * The create answer's spare claim report (cmux-platform#1418), as counts by reason and a fallback reason, and whether
+ * the spare it took was one image roll behind (value.claim.behind, cmux-platform#1429; null when it took none).
+ */
+export function spareFields(value: unknown): { spare_fallback: string | null; spare_skips: Record<string, number> | null; claimed_behind: boolean | null } {
+  const v = (value ?? {}) as Record<string, unknown>;
+  const raw = v.spare_skips;
+  let skips: Record<string, number> | null = null;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    skips = {};
+    for (const [k, n] of Object.entries(raw as Record<string, unknown>)) {
+      if (TOKEN.test(k) && Number.isSafeInteger(n) && (n as number) >= 0) skips[k] = n as number;
+    }
+  }
+  const claim = v.claim && typeof v.claim === "object" && !Array.isArray(v.claim) ? (v.claim as Record<string, unknown>) : null;
+  return { spare_fallback: publicToken(v.spare_fallback), spare_skips: skips, claimed_behind: claim ? claim.behind === true : null };
+}
+
+/**
+ * One workflow notice per create with the claim's public fields, so every journey run's spare claim can be counted
+ * from its run's annotations (the image-skip share on staging: spare_skips.image, and claims served one roll behind,
+ * against claims served). Counts and reason tokens only, as probe.json.
+ */
+export function spareNotice(backend: string, phase: string, fields: ReturnType<typeof spareFields>): string {
+  const skips = JSON.stringify(fields.spare_skips);
+  return `::notice title=Cloud journey spare::backend=${backend} phase=${phase || "-"} fallback=${fields.spare_fallback} behind=${fields.claimed_behind} skips=${skips}`;
+}
+
+/** A cloud.machine.get answer's public facts: its status, readiness, versions and updater/flip state. No id or host. */
+export function publicMachineFacts(m: unknown): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  const row = (m ?? {}) as Record<string, unknown>;
+  const put = (key: string, v: unknown, version = false) => {
+    if (typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v))) out[key] = v;
+    else if (typeof v === "string") {
+      const t = version ? publicVersion(v) : publicToken(v);
+      if (t !== null) out[key] = t;
+    }
+  };
+  put("status", row.status);
+  put("ready", row.ready);
+  const image = (row.image ?? {}) as Record<string, unknown>;
+  put("daemon_version", image.daemon_version ?? row.daemon_version, true);
+  for (const k of ["version", "tag", "acpmux_version", "cmux_tui_version"]) put(`image_${k}`, image[k], true);
+  // Whatever the row says about readiness, restarts and the updater's flip, at the top level or one object down.
+  const facts = /ready|restart|updat|flip|health|daemon_state|state$/i;
+  for (const [k, v] of Object.entries(row)) {
+    if (k in out || !TOKEN.test(k) || ID_KEY.test(k)) continue;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      if (/updat|flip|daemon|health/i.test(k)) for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) if (TOKEN.test(k2) && !ID_KEY.test(k2)) put(`${k}_${k2}`, v2, /version/i.test(k2));
+    } else if (facts.test(k)) put(k, v, /version/i.test(k));
+  }
+  return out;
+}
+
+/** An error for probe.json: no secret, id, address or URL; short. */
+export function publicError(text: string, secrets: string[] = []): string {
+  return scrub(text, secrets)
+    .replace(/https?:\/\/\S+/g, "<url>")
+    .replace(new RegExp(ID_WORD, "g"), "<id>")
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<id>")
+    .replace(/\b\d{1,3}(\.\d{1,3}){3}\b/g, "<addr>")
+    .replace(/[0-9a-f]{16,}/gi, "<hex>")
+    // A bare host name (a guest's stderr, an error body): any dotted name with a letter in its last label.
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z][a-z0-9-]*\b/gi, "<host>")
+    .slice(0, 200);
+}
+
+/** A promise that rejects after `ms`, so a read on a broken machine cannot hold the cleanup behind it. */
+export function bounded<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${what}: no answer in ${ms} ms`)), ms); });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * The machine's exec, which says so when its first command meets an unavailable machine (HTTP 503 vm_unavailable on
+ * a machine create reported running), whichever step sends it: the `first exec` check now runs after the chat, so the
+ * login or the agent start is the first to reach the machine.
+ */
+export function namesUnavailableFirstExec(exec: Exec): Exec {
+  let reached = false;
+  const unavailable = (text: string) => /vm_unavailable|HTTP 503/.test(text);
+  const say = (text: string) => new Error(`the machine did not take its first exec, though create reported it running (the claimed machine is unavailable): ${text}`);
+  return async (command, timeoutMs) => {
+    if (reached) return exec(command, timeoutMs);
+    let r: ExecResult;
+    try {
+      r = await exec(command, timeoutMs);
+    } catch (error) {
+      const text = String((error as Error)?.message ?? error);
+      throw unavailable(text) ? say(text) : error;
+    }
+    if (r.code !== 0 && /vm_unavailable/.test(`${r.stdout}${r.stderr}`)) throw say(`exit ${r.code} ${`${r.stdout}${r.stderr}`.slice(-200)}`);
+    reached = true;
+    return r;
+  };
+}
+
+/** How long a failure-facts read may take: the cleanup waits on it before it deletes the machine. */
+const FACTS_READ_MS = 10_000;
+
+/** The checks only the journey runs, never part of a person's chat: they run after the reply, outside J.firstText. */
+export const JOURNEY_ONLY_STEPS = ["listed", "first exec", "machine facts", "GitHub on the machine (stub)", "GitHub on the machine (live)"] as const;
 
 /** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
 export function swiftRawString(source: string, name: string): string {
@@ -1359,7 +1699,7 @@ export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: 
 export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
-  // The chaos leg's counting turn (cloud-chaos.ts), played only for a prompt that carries its marker.
+  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker.
   turns: [countingTurnScript(), feltTurnScript()],
 };
 
@@ -2149,6 +2489,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
+  // --preclaim-login PATH: the app's part on a warm spare before create (prepareSpareLogin, with the cmux-tui at PATH
+  // for warm-spare); after the claim a login receipt for the machine makes the login step only the post-bind check.
+  const preclaimLoginCmux = argValue("--preclaim-login", argv);
   // --desktop-link: the desktop's UDP link readback instead of the chat (needs --cmux for the dial).
   const desktopLink = argv.includes("--desktop-link");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
@@ -2156,7 +2499,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
-  const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
+  // --start-via app: the app's own start (agent-session-start over the carrier dial) instead of `acp ensure`.
+  const startVia = argValue("--start-via", argv) ?? "acp";
+  if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
+  if (startVia === "app" && !cmux) throw new Error("--start-via app needs --cmux PATH: the app's start goes over the carrier dial");
+  const only =new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
   if (reuse) only.add("pause");
   // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
   // journey passes is then a made-up setup-token shape: the stub checks it arrived, and no real credential exists.
@@ -2189,7 +2536,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
   const machineName = keep ? `cloud journey ${tag}` : `cloud journey auto ${tag}`;
-  const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" });
+  const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" }, preclaim);
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
   if (codexLogin) {
@@ -2218,9 +2565,60 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let localGatewayDir: string | null = null;
   let deleted = false;
   let firstTextObserver: Promise<void> | undefined;
+  let createAnsweredAt: number | null = null;
+  let createSentAt: number | null = null;
+  // The chat machine's exec once the run has one, for the failure facts below.
+  let machineExec: Exec | null = null;
+  // The journey-only checks, once the machine runs: after the reply, or after the failure that cut the chat off.
+  let runJourneyOnly: (() => Promise<void>) | null = null;
+  // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
+  const probeExtra: ProbeExtra = {};
+  let factsRead = false;
+  // --preclaim-login's warm-spare state dir, removed by the cleanup.
+  let preclaimStateDir: string | null = null;
+  // Where the steps after create start: only a failure from there on reads the machine's facts.
+  let afterCreate = -1;
+  // On any failed step after create, what the machine says, read before anything is deleted (the app probe's rule):
+  // its cloud.machine.get row and the guest's carrier timeline, each bounded and scrubbed of ids and secrets. A read
+  // that fails is recorded as such, never thrown.
+  const readFailureFacts = async () => {
+    const id = machine ?? reuse;
+    if (factsRead || !id || afterCreate < 0 || !api.bearer || !J.steps.slice(afterCreate).some((s) => s.status === "fail")) return;
+    factsRead = true;
+    const t0 = Date.now();
+    const facts: FailureFacts = { machine: null, timeline: null };
+    const why = (e: unknown) => publicError(String((e as Error)?.message ?? e), J.secrets);
+    try {
+      facts.machine = publicMachineFacts(await bounded(api.read("cloud.machine.get", { machine: id }, FACTS_READ_MS), FACTS_READ_MS + 2_000, "cloud.machine.get"));
+    } catch (e) {
+      facts.machine_error = why(e);
+    }
+    if (!machineExec) facts.timeline_error = "not read: the run failed before it had an exec route to the machine";
+    else {
+      try {
+        const before = Date.now();
+        const r = await bounded(machineExec(GUEST_CARRIER_TIMELINE, FACTS_READ_MS), FACTS_READ_MS + 5_000, "guest carrier timeline");
+        const after = Date.now();
+        if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stderr.slice(-120)}`);
+        const timeline = guestTimelineFacts(r.stdout, createAnsweredAt ?? before, before, after, createSentAt ?? createAnsweredAt ?? before);
+        if (createAnsweredAt === null) timeline.claimed_spare = null;
+        else if (probeExtra.claimed_spare == null) probeExtra.claimed_spare = timeline.claimed_spare;
+        facts.timeline = timeline;
+      } catch (e) {
+        facts.timeline_error = why(e);
+      }
+    }
+    probeExtra.failure_facts = facts;
+    J.record({ step: "failure facts", status: "skip", ms: Date.now() - t0, detail: `read before any delete: ${JSON.stringify(facts)}` });
+  };
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = sharedCleanup(async () => {
+    await readFailureFacts();
+    if (preclaimStateDir) {
+      rmSync(preclaimStateDir, { recursive: true, force: true });
+      preclaimStateDir = null;
+    }
     if (localGateway?.pid) {
       // Only the process this run started, by its own pid.
       try { process.kill(localGateway.pid, "SIGTERM"); } catch {}
@@ -2267,10 +2665,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   });
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
-    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext))}\n`);
+    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext, probeExtra))}\n`);
   };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
+    // The runner kills the job about 10 s after a cancel; the facts reads (up to 27 s) would lose the delete. A
+    // cancel deletes first and reads no facts.
+    factsRead = true;
     for (const dial of carrierDials) dial.kill("SIGTERM");
     for (const dir of carrierStateDirs) rmSync(dir, { recursive: true, force: true });
     void cleanup().finally(() => {
@@ -2317,8 +2718,39 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: inst.id, nonce: ch.body.nonce, signature: await sign(pair.privateKey, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
       if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} ${short(tok.body)}`);
       J.secrets.push(tok.body.access_token);
-      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined }, detail: `install ${inst.id}` };
+      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
     });
+    // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
+    // heals a team TeamDO never mirrored from Stack. On production that mint ran past the app's 25 s limit
+    // (cmuxterm-hq run 43577358598, 2026-11-14) while the unscoped mint above passed. --team, else the account's
+    // first shared team; recorded, never fatal, so the rest of the journey still runs. user.teams.list heals an
+    // unmirrored team itself before the mint sees it, so only --team exercises the mint's own heal (review F2 on
+    // cmux#42958); the step says which it was. A list that failed or came back incomplete fails the step instead
+    // of skipping it as "no shared team".
+    const found: { team?: string; why?: string } = team ? { team } : await api.read("user.teams.list", {}).then(
+      (v: any) => {
+        const shared = Array.isArray(v?.teams) ? v.teams.find((t: any) => t?.kind !== "personal" && typeof t?.id === "string")?.id : undefined;
+        return shared ? { team: shared as string } : { why: v?.incomplete ? "user.teams.list came back incomplete with no shared team" : "" };
+      },
+      (error: unknown) => ({ why: `user.teams.list failed: ${String((error as Error)?.message ?? error).slice(0, 300)}` }),
+    );
+    const scopedTeam = found.team;
+    const via = team ? "--team" : "user.teams.list (which heals the team before the mint)";
+    if (!scopedTeam && !found.why) J.skip("team-scoped install token", "the account has no shared team (pass --team to name one)");
+    else if (!scopedTeam) await J.step("team-scoped install token", async () => { throw new Error(found.why); }).catch(() => undefined);
+    else await J.step("team-scoped install token", async () => {
+      const userId = user.id ?? user.user?.id;
+      const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: userId, install: install.id, team: scopedTeam }, {});
+      if (ch.status !== 200) throw new Error(`challenge HTTP ${ch.status} ${short(ch.body)}`);
+      const t0 = Date.now();
+      // 25 s: the app's own limit on this request.
+      const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {}, 25_000);
+      const ms = Date.now() - t0;
+      if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} after ${ms} ms ${short(tok.body.error ?? tok.body)}`);
+      J.secrets.push(tok.body.access_token);
+      if (tok.body.team !== scopedTeam) throw new Error(`token names team ${tok.body.team}, asked for ${scopedTeam}`);
+      return { value: null, detail: `team ${scopedTeam} via ${via}, minted in ${ms} ms` };
+    }).catch(() => undefined);
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
 
@@ -2327,19 +2759,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const accountTeam = team ?? String(user?.personal_team ?? user?.team ?? "");
       const account = `${userId}/${accountTeam}`;
       if (!userId) throw new Error("preclaim: user.ensure returned no user id");
-      const status = await runPreclaimBurst({
-        backend,
-        api,
-        cmux: cmux!,
-        install,
-        account,
-        login: claudeLogin,
-        claims: preclaimClaims,
-        tag,
-        journey: J,
-        outDir,
-        team,
-        user,
+      const status = await J.step("preclaim burst", async () => {
+        const value = await runPreclaimBurst({
+          backend,
+          api,
+          cmux: cmux!,
+          install,
+          account,
+          login: claudeLogin,
+          claims: preclaimClaims,
+          tag,
+          journey: J,
+          outDir,
+          privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS,
+          team,
+          user,
+        });
+        if (value !== 0) throw new Error("preclaim verification failed");
+        return { value, detail: `claims ${preclaimClaims}` };
       });
       return status;
     }
@@ -2379,10 +2816,37 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
       }
     }
-    let createAnsweredAt: number | null = null;
-    let createSentAt: number | null = null;
+    // The app's part on a warm spare (SpareReady), before create and so outside the first-text window: the login is
+    // copied on spare.ready. Anything short of a spare with the login installed leaves the copy after bind.
+    let prepared: PreparedSpare | null = null;
+    if (preclaimLoginCmux && !reuse) {
+      const t0 = Date.now();
+      const name = "preclaim login (spare.ready)";
+      if (provider !== "claude" || !login || gatewayAny || only.has("login") || only.has("chat")) {
+        J.skip(name, provider !== "claude" ? `agent ${agent}: the spare copy is Claude's` : gatewayAny ? "--gateway: the chat machine gets no login" : !login ? "no login to copy" : "--skip");
+      } else {
+        try {
+          if (!validLogin("claude", login)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
+          preclaimStateDir = mkdtempSync(path.join(tmpdir(), "cmux-preclaim-login-"));
+          const scopeTeam = team ?? install.team ?? String(user?.personal_team ?? user?.team ?? "");
+          const scope = { platform: backend.api, team: scopeTeam, install: install.id, credential: createHash("sha256").update(login).digest("hex") };
+          const account = `${String(user?.id ?? user?.user?.id ?? "")}/${team ?? String(user?.personal_team ?? user?.team ?? "")}`;
+          prepared = await prepareSpareLogin({
+            api, cmux: preclaimLoginCmux, stateDir: preclaimStateDir, installToken: install.token,
+            request: { platform: backend.api, account, scope, currentScope: scope }, wireTeam: scopeTeam || api.team,
+            programs: loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(team)), login,
+            ownerScope: team ? "owner or team" : "owner", index: 0, journey: J, readyBudgetMs: 120_000,
+          });
+          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login is copied after bind" });
+        } catch (e) {
+          prepared = null;
+          J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `the login is copied after bind: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+        }
+      }
+    }
     const created = reuse
       ? await J.step("use machine", async () => {
+          afterCreate = J.steps.length;
           const m = await api.read("cloud.machine.get", { machine: reuse });
           if (m.status === "paused") await api.op("cloud.machine.start", { machine: reuse }, `${tag}-wake`);
           return { value: m, detail: `${reuse} status ${m.status}${m.status === "paused" ? " (started)" : ""}, kept` };
@@ -2393,7 +2857,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
+          afterCreate = J.steps.length;
           J.firstText.mark("created");
+          // The claim's report (cmux-platform#1418): null until the answer carries it; claimed_spare once the guest says.
+          const spare = spareFields(v);
+          Object.assign(probeExtra, spare, { claimed_spare: null });
+          if (process.env.GITHUB_ACTIONS === "true") console.log(spareNotice(backendName, process.env.JOURNEY_PHASE ?? "", spare));
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
         });
     const bound = await J.step("running (status)", async () => {
@@ -2401,14 +2870,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.firstText.mark("running");
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
     });
-    await J.step("listed", async () => {
-      const v = await api.read("cloud.machine.list", {});
-      const rows: any[] = v.machines ?? v.items ?? (Array.isArray(v) ? v : []);
-      if (!rows.some((r) => r.id === created.id)) throw new Error(`${created.id} missing from ${rows.length} machines`);
-      return { value: null, detail: `${rows.length} machines` };
-    });
-
-    const exec = cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J);
+    const exec = namesUnavailableFirstExec(cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J));
+    machineExec = exec;
     if (reuse) {
       // A kept machine still has the last run's model stub and its endpoint in Claude Code's settings, which the
       // login installer refuses: put both back as a fresh machine has them.
@@ -2418,60 +2881,79 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: r.stdout.trim() || "clean" };
       });
     }
-    await J.step("first exec", async () => {
-      const r = await exec("echo journey-ok; uname -m");
-      if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
-      return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
-    });
-    // What the machine booted and what its agents reach their model with, so a reply that fails ("Not logged in")
-    // names the image, the daemon and the model plane in the same log: the image the platform recorded, acpmux's and
-    // cmux-tui's versions, and each model-plane file's CMUX_CODEROUTER_URL origin (a URL, no credential) and which
-    // CMUX_CLAUDE_TEAM_* names it sets (names only). Never fails the journey.
-    const factsAt = Date.now();
-    try {
-      const image = (bound as { image?: Record<string, unknown> } | null)?.image ?? (created as { image?: Record<string, unknown> }).image ?? {};
-      const r = await exec([
-        `echo "acpmux=$(acpmux --version 2>/dev/null | head -1) cmux-tui=$(cmux-tui --version 2>/dev/null | head -1)"`,
-        `for f in /etc/cmux/model-plane.env "$HOME/.config/cmux/model-plane.env"; do if [ -f "$f" ]; then u=$(sed -n 's/^\\(export \\)\\{0,1\\}CMUX_CODEROUTER_URL=//p' "$f" | tr -d "\\"'" | sed -E 's#^(https?://[^/]+).*#\\1#' | head -1); t=$(grep -oE '^(export )?CMUX_CLAUDE_TEAM_[A-Z_]+' "$f" | sed 's/^export //' | tr '\\n' ','); echo "$f: CMUX_CODEROUTER_URL=\${u:-unset} team=\${t:-none}"; else echo "$f: absent"; fi; done`,
-      ].join("; "));
-      const facts = r.stdout.trim().split("\n").join(" | ");
-      const imageFacts = JSON.stringify(image).slice(0, 300);
-      J.record({ step: "machine facts", status: "pass", ms: Date.now() - factsAt, detail: `image ${imageFacts}; ${facts}`.slice(0, 600) });
-    } catch (e) {
-      J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
-    }
-
-    // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md):
-    // scripts/cmux-next/cloud-github-e2e.sh on the guest. The stub run (a stand-in minter and GitHub MCP server) checks
-    // the wiring on every image whose acpmux has `github-mcp`; CMUX_JOURNEY_GITHUB_REPO=OWNER/REPO adds the live run
-    // (gh auth status, git push of a test branch, a GitHub MCP call, nothing at rest), which needs the team's GitHub
-    // connection. `--skip github` leaves both out.
-    if (!only.has("github")) {
-      const file = "/home/cmux/.cmux/cloud-github-e2e.sh";
-      const wrote = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: readFileSync(GITHUB_E2E_SH).toString("base64"), mode: 0o755 });
-      const has = wrote.status >= 200 && wrote.status < 300 && wrote.body?.ok !== false
-        ? await exec(`${GUEST}a="$c acp"; command -v acpmux >/dev/null && a=acpmux; : | timeout 20 $a github-mcp >/dev/null 2>&1; echo "@@has $?"`)
-        : null;
-      if (!has || !/@@has 0/.test(has.stdout)) {
-        J.skip("GitHub on the machine (stub)", has ? "this image's acpmux has no github-mcp yet (it predates the change)" : `fs/write: HTTP ${wrote.status}`);
-      } else {
-        await J.step("GitHub on the machine (stub)", async () => {
-          const r = await exec(`${GUEST}sh ${shq(file)} --stub 2>&1`, 180_000);
-          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-400)}`);
-          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
-        });
-        const repo = process.env.CMUX_JOURNEY_GITHUB_REPO?.trim();
-        if (!repo) J.skip("GitHub on the machine (live)", "CMUX_JOURNEY_GITHUB_REPO is not set");
-        else await J.step("GitHub on the machine (live)", async () => {
-          if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo)) throw new Error("CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO");
-          const r = await exec(`${GUEST}sh ${shq(file)} ${shq(repo)} 2>&1`, 300_000);
-          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-600)}`);
-          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
-        });
+    // The checks only the journey makes (JOURNEY_ONLY_STEPS): none is part of what a person's chat waits on, so they
+    // run after the reply, outside J.firstText's create-to-first-text window (they cost about 6 s at p50 inside it).
+    // A run cut off before the reply runs them after the failure, before cleanup, so each still passes or fails.
+    // `first exec` was the first to meet a claimed machine answering vm_unavailable; namesUnavailableFirstExec now
+    // says so for whichever step reaches the machine first.
+    let journeyOnlyStarted = false;
+    const journeyOnly = async () => {
+      if (journeyOnlyStarted) return;
+      journeyOnlyStarted = true;
+      await J.step("listed", async () => {
+        const v = await api.read("cloud.machine.list", {});
+        const rows: any[] = v.machines ?? v.items ?? (Array.isArray(v) ? v : []);
+        if (!rows.some((r) => r.id === created.id)) throw new Error(`${created.id} missing from ${rows.length} machines`);
+        return { value: null, detail: `${rows.length} machines` };
+      });
+      await J.step("first exec", async () => {
+        const r = await exec("echo journey-ok; uname -m");
+        if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+        return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
+      });
+      // What the machine booted and what its agents reach their model with, so a reply that fails ("Not logged in")
+      // names the image, the daemon and the model plane in the same log: the image the platform recorded, acpmux's and
+      // cmux-tui's versions, and each model-plane file's CMUX_CODEROUTER_URL origin (a URL, no credential) and which
+      // CMUX_CLAUDE_TEAM_* names it sets (names only). Never fails the journey.
+      const factsAt = Date.now();
+      try {
+        const image = (bound as { image?: Record<string, unknown> } | null)?.image ?? (created as { image?: Record<string, unknown> }).image ?? {};
+        const r = await exec([
+          `echo "acpmux=$(acpmux --version 2>/dev/null | head -1) cmux-tui=$(cmux-tui --version 2>/dev/null | head -1)"`,
+          `for f in /etc/cmux/model-plane.env "$HOME/.config/cmux/model-plane.env"; do if [ -f "$f" ]; then u=$(sed -n 's/^\\(export \\)\\{0,1\\}CMUX_CODEROUTER_URL=//p' "$f" | tr -d "\\"'" | sed -E 's#^(https?://[^/]+).*#\\1#' | head -1); t=$(grep -oE '^(export )?CMUX_CLAUDE_TEAM_[A-Z_]+' "$f" | sed 's/^export //' | tr '\\n' ','); echo "$f: CMUX_CODEROUTER_URL=\${u:-unset} team=\${t:-none}"; else echo "$f: absent"; fi; done`,
+        ].join("; "));
+        const facts = r.stdout.trim().split("\n").join(" | ");
+        const imageFacts = JSON.stringify(image).slice(0, 300);
+        J.record({ step: "machine facts", status: "pass", ms: Date.now() - factsAt, detail: `image ${imageFacts}; ${facts}`.slice(0, 600) });
+      } catch (e) {
+        J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
       }
-    }
+
+      // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md):
+      // scripts/cmux-next/cloud-github-e2e.sh on the guest. The stub run (a stand-in minter and GitHub MCP server) checks
+      // the wiring on every image whose acpmux has `github-mcp`; CMUX_JOURNEY_GITHUB_REPO=OWNER/REPO adds the live run
+      // (gh auth status, git push of a test branch, a GitHub MCP call, nothing at rest), which needs the team's GitHub
+      // connection. `--skip github` leaves both out.
+      if (!only.has("github")) {
+        const file = "/home/cmux/.cmux/cloud-github-e2e.sh";
+        const wrote = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: readFileSync(GITHUB_E2E_SH).toString("base64"), mode: 0o755 });
+        const has = wrote.status >= 200 && wrote.status < 300 && wrote.body?.ok !== false
+          ? await exec(`${GUEST}a="$c acp"; command -v acpmux >/dev/null && a=acpmux; : | timeout 20 $a github-mcp >/dev/null 2>&1; echo "@@has $?"`)
+          : null;
+        if (!has || !/@@has 0/.test(has.stdout)) {
+          J.skip("GitHub on the machine (stub)", has ? "this image's acpmux has no github-mcp yet (it predates the change)" : `fs/write: HTTP ${wrote.status}`);
+        } else {
+          await J.step("GitHub on the machine (stub)", async () => {
+            const r = await exec(`${GUEST}sh ${shq(file)} --stub 2>&1`, 180_000);
+            if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-400)}`);
+            return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+          });
+          const repo = process.env.CMUX_JOURNEY_GITHUB_REPO?.trim();
+          if (!repo) J.skip("GitHub on the machine (live)", "CMUX_JOURNEY_GITHUB_REPO is not set");
+          else await J.step("GitHub on the machine (live)", async () => {
+            if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo)) throw new Error("CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO");
+            const r = await exec(`${GUEST}sh ${shq(file)} ${shq(repo)} 2>&1`, 300_000);
+            if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-600)}`);
+            return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+          });
+        }
+      }
+    };
+    runJourneyOnly = journeyOnly;
 
     if (desktopLink) {
+      // A readback run ends here, before any login or first text: it keeps its old order, the checks first.
+      await journeyOnly();
       // The team the platform decides rd_link for: --team, else the account's personal team (user.ensure).
       const acting = team ?? (typeof user?.personal_team === "string" ? user.personal_team : null);
       const named = teamIdsIn(user, created, bound);
@@ -2638,7 +3120,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.skip(loginStep, !provider ? `agent ${agent}` : "--skip");
     } else if (!login) {
       J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
+    } else if (prepared?.spare === created.id && preclaimLoginCmux && preclaimStateDir && await spareLoginReceipt(preclaimLoginCmux, api, preclaimStateDir, install.token, prepared, created.id)) {
+      // The claim handed out the spare whose login was copied on spare.ready, and its receipt says installed: what is
+      // left of the login is the app's post-bind check that the launcher sees it.
+      probeExtra.login_path = "receipt";
+      await J.step(loginStep, async () => {
+        const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${provider} && echo own-login`);
+        if (!own.stdout.includes("own-login")) throw new Error(`the receipt says installed, but the image's launcher does not see an own ${provider} login`);
+        return { value: null, detail: "the person's own login, copied on spare.ready (receipt installed); the launcher picks it" };
+      });
     } else {
+      probeExtra.login_path = "copy";
       // CloudCredentialTransfer.perform on a Worker machines client: preflight (which also makes and checks the staging
       // folder as the work user), stage (fs/write as root puts the file in 0644), install, each through the routes the app uses.
       await J.step(loginStep, async () => {
@@ -2778,9 +3270,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
     };
     // An agent with no login to pass (OpenCode on its free Zen models) gets the later turns with --lifecycle.
-    const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle");
+    const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle") && startVia !== "app";
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
+      await journeyOnly();
+    } else if (startVia === "app") {
+      // The Cloud picker's start, as the app sends it: a chat tab on the machine, then agent-session-start with the
+      // harness and the owner word. A started session passes; a refusal fails the step with its code and data.harness.
+      await J.step(`start agent (${agent})`, async () => {
+        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+        const chat = new ChatClient({
+          cmux: cmux!, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
+          env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+          log: (line) => console.log(scrub(line, J.secrets)),
+        });
+        try {
+          await chat.openTab(agent);
+          const outcome = appStartDetail(await chat.start(agent));
+          if (!outcome.ok) throw new Error(outcome.detail);
+          return { value: null, detail: outcome.detail };
+        } finally {
+          chat.stop();
+        }
+      }).catch(() => undefined);
+      for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
       J.firstText.mark("session_start");
       await J.step(`start agent (${agent})`, async () => {
@@ -2839,6 +3352,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: last, detail: last.slice(0, 280) };
       });
       await firstTextObserver;
+      await journeyOnly();
       // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
       // assistant message in the session's Claude transcript, never the reply's own words (a model gets them wrong
       // about itself) and never `acp session info`, whose record names the model asked for and lists every model
@@ -3009,6 +3523,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const r = await exec(GUEST_CARRIER_TIMELINE);
         const after = Date.now();
         if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
+        probeExtra.claimed_spare = guestTimelineFacts(r.stdout, createAnsweredAt!, before, after, createSentAt ?? createAnsweredAt!).claimed_spare;
         return { value: null, detail: guestTimeline(r.stdout, createAnsweredAt!, before, after, createSentAt ?? createAnsweredAt!) };
       });
     }
@@ -3071,6 +3586,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (lifecycle) await J.step("turn after resume", async () => laterTurn("Back after a pause: answer in one short sentence."));
       else J.skip("turn after resume", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
     }
+    // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
+    await readFailureFacts();
     if (!keep) {
       await J.step("delete", async () => {
         await api.deleteMachine(created.id, `${tag}-delete`);
@@ -3080,7 +3597,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
   } catch {
-    // The failed step is recorded; cleanup below.
+    // The failed step is recorded. What the machine says, then the journey-only checks the failure cut off; cleanup below.
+    await readFailureFacts();
+    await runJourneyOnly?.().catch(() => undefined);
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
   }

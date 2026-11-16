@@ -32,7 +32,7 @@
             {
               "value": "neko",
               "title": {
-                "key": null,
+                "key": "settings.choice.neko",
                 "text": "Neko"
               }
             }
@@ -1161,6 +1161,55 @@
             "density",
             "interface size",
             "chromeFontSize"
+          ]
+        },
+        {
+          "key": "appearance.fontSmoothing",
+          "note": "Stem darkening of cmux's native text (AppleFontSmoothing in the app's domain, written at launch: ProcessFontSmoothing). Ghostty's font-thicken and web pages are not affected.",
+          "title": {
+            "key": "settings.appearance.fontSmoothing",
+            "text": "Text Smoothing"
+          },
+          "help": {
+            "key": "settings.appearance.fontSmoothing.help",
+            "text": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts."
+          },
+          "kind": "choice",
+          "swift_owner": "FontSmoothingSetting",
+          "swift_enum": {
+            "name": "FontSmoothing",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "antialiased",
+              "title": {
+                "key": "settings.choice.fontSmoothingThin",
+                "text": "Thin"
+              }
+            },
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.fontSmoothingSystem",
+                "text": "System"
+              }
+            }
+          ],
+          "default": "antialiased",
+          "keywords": [
+            "font",
+            "text",
+            "smoothing",
+            "antialiasing",
+            "antialiased",
+            "thin",
+            "bold",
+            "weight",
+            "rendering",
+            "crisp",
+            "AppleFontSmoothing"
           ]
         },
         {

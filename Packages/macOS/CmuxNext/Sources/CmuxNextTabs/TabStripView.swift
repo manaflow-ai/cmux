@@ -540,6 +540,9 @@ public final class TabStripView: NSView {
     /// Debug `tabs.chevronOnHover` (on by default, Lucas 2026-11-12): the ⌄ shows only while the + or the ⌄ is under
     /// the pointer or a new-tab menu is open. It keeps its slot (alpha, not hidden), so nothing moves as it shows.
     func updateChooserReveal() {
+        // A ⌄ in the strip's reveal fades with the + (`tabs.chevronOnHover` off, `tabs.plusButton` hover): its alpha is
+        // the reveal's, so setting it here would show it at rest beside a hidden +.
+        guard HoverReveal.owner(of: newTabMenuButton) == nil else { return }
         let reveal = Self.revealsChooser(onHoverOnly: TabTunables.chevronOnHover.value,
                                          plusHovered: newTabButton.isHovered, chooserHovered: newTabMenuButton.isHovered,
                                          menuOpen: newTabButton.isMenuOpen || newTabMenuButton.isHighlighted,

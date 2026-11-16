@@ -713,6 +713,9 @@ async fn forward_inner(
                 | method::ACP_SESSION_FORK
         ) {
             if m == method::MUX_ATTACH {
+                if let Some(error) = hold_attach_peer_refusal(params) {
+                    return Err(error);
+                }
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
@@ -1059,6 +1062,13 @@ async fn forward_inner(
     Ok(None)
 }
 
+fn hold_attach_peer_refusal(params: &Value) -> Option<RpcError> {
+    (params.get("hold") == Some(&Value::Bool(true))).then(|| {
+        RpcError::invalid_params("attach hold is local-only; peer chats retain the v1 attach")
+            .with_data(json!({"reason": "attach_hold.peer_refused"}))
+    })
+}
+
 /// A peer's `_acpmux/permission_groups` reply, as this daemon's client may draw it. This
 /// daemon's link is never the person on the peer, so the peer refuses every group allow it
 /// forwards (`hub/person.rs`), whatever its build says: the client draws none
@@ -1201,6 +1211,13 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_peer_hold_attach_is_refused_before_forwarding() {
+        let error = hold_attach_peer_refusal(&json!({"hold": true})).expect("refusal");
+        assert_eq!(error.data.unwrap()["reason"], "attach_hold.peer_refused");
+        assert!(hold_attach_peer_refusal(&json!({"hold": false})).is_none());
+    }
 
     /// A registration's NAME is never a destination: it is not forwarded to a peer session of that
     /// name, so the caller's messaging token never leaves this daemon.

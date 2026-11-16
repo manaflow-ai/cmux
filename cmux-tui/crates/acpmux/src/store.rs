@@ -24,7 +24,9 @@ mod cold;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
+mod kind_heads;
 mod kind_index;
+pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
 mod fork_view;
 pub use fork_view::{
@@ -33,7 +35,7 @@ pub use fork_view::{
 };
 mod log_bytes;
 pub use log_bytes::{
-    LogChunk, LogFilter, LogMark, LogMarks, STAMP as LOG_STAMP, line_seq as log_line_seq,
+    LogChunk, LogFilter, LogMark, LogMarks, LogPart, STAMP as LOG_STAMP, line_seq as log_line_seq,
 };
 mod meta_parts;
 pub use meta_parts::PARTS_FILE;
@@ -1142,6 +1144,33 @@ pub trait Store: Send + Sync {
         chunk.read = out.len() as u64;
         Ok(chunk)
     }
+    /// v2's `RawSource::read_at`: at most `max` bytes of chat `id`'s line at seq `seq`, from
+    /// `offset` in it, into `out`, read under count `stamp` with `marks`; and whether the line
+    /// ends there. A store whose lines are files reads that part alone; this default reads the
+    /// line whole through `read_log`.
+    #[allow(clippy::too_many_arguments)]
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        let chunk = self.read_log(id, seq, LogFilter::ALL, stamp, marks, out)?;
+        let line = out.iter().position(|b| *b == b'\n').unwrap_or(out.len());
+        out.truncate(line);
+        if log_line_seq(out) != Some(seq) {
+            anyhow::bail!("chat {id} holds no line at seq {seq}");
+        }
+        let start = usize::try_from(offset).unwrap_or(usize::MAX).min(line);
+        let end = start.saturating_add(max).min(line);
+        out.copy_within(start..end, 0);
+        out.truncate(end - start);
+        Ok(LogPart { ends: end == line, read: chunk.read })
+    }
     /// Chat `id`'s count of changes to lines already written (`store/log_bytes.rs`): 0 for a
     /// store whose lines never change.
     fn log_stamp(&self, _id: &str) -> Result<u64> {
@@ -1273,6 +1302,64 @@ pub trait Store: Send + Sync {
         self.scan_strict(id, 0, &mut |rec| {
             if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
         })
+    }
+    /// `scan_kinds` of the records past `after` only: a log load that begins at a restore point
+    /// (`hub/restore_point.rs`). A file store reads from the segment that holds `after + 1`.
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        if after == 0 {
+            return self.scan_kinds(id, kinds, visit);
+        }
+        self.scan(id, after, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
+    /// `scan_kinds_after`, strict as `scan_kinds_strict` is.
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        if after == 0 {
+            return self.scan_kinds_strict(id, kinds, visit);
+        }
+        self.scan_strict(id, after, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
+    /// `scan_kinds`, visiting only the records whose head (`store/kind_heads.rs`) `keep` keeps,
+    /// shown in order: a caller that wants one prompt's few records out of a chat's many says so,
+    /// and a file store reads and parses no other once it knows the chat's heads. `keep` may
+    /// keep more than the caller needs (an unread head, a list of prompts), never fewer, and may
+    /// be shown a head more than once (a fork's join, a segment read again whole).
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds(id, kinds, &mut |rec| {
+            let kept = keep(&KindHead::of(&rec));
+            !kept || visit(rec)
+        })
+    }
+    /// The restore point `id`'s last log load saved (`hub/restore_point.rs`), as saved. None in a
+    /// store that keeps none.
+    fn restore_point(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    /// Saves `bytes` as `id`'s restore point, whole or not at all. A store that keeps none
+    /// drops it.
+    fn save_restore_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
     }
     /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
     /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
@@ -1504,6 +1591,9 @@ pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 // ----------------------------------------------------------------- local
 
+/// A chat's restore point, beside its `session.json` (`hub/restore_point.rs`).
+const RESTORE_POINT: &str = "restore-point.json";
+
 pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
@@ -1525,6 +1615,8 @@ pub struct LocalStore {
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
+    /// The segments' record heads a keyed scan read (`store/kind_heads.rs`).
+    kind_heads: kind_heads::KindHeads,
     #[cfg(test)]
     pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
@@ -1582,6 +1674,7 @@ impl LocalStore {
             cold: Default::default(),
             rehydrate_hook: Default::default(),
             parts: Default::default(),
+            kind_heads: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
         })
@@ -2149,6 +2242,19 @@ impl Store for LocalStore {
         self.read_log_bytes(id, from, filter, stamp, marks, out)
     }
 
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        self.read_log_part_bytes(id, seq, offset, max, stamp, marks, out)
+    }
+
     fn log_stamp(&self, id: &str) -> Result<u64> {
         self.read_stamp(id)
     }
@@ -2274,6 +2380,53 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_in(id, kinds, true, visit)
+    }
+
+    /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
+    /// from the segment that holds `after + 1` parses that whole segment, for each fold of a
+    /// load, and read more than the copies do (`a_restored_chats_log_load_reads_the_copies_not_its_log`).
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, false, &mut |rec| rec.seq <= after || visit(rec))
+    }
+
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
+    }
+
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_keyed_in(id, kinds, keep, visit)
+    }
+
+    fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.dir(id).join(RESTORE_POINT)).ok()
+    }
+
+    fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        // A chat whose folder went away (a delete) gets no file of its own again. Read in the
+        // held home, never by path (#41721 review F1).
+        let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
+        anyhow::ensure!(folder, "no folder for {id}");
+        write_atomic(&dir.join(RESTORE_POINT), bytes)
     }
 
     fn text_entries(
@@ -2419,6 +2572,7 @@ impl Store for LocalStore {
     fn delete(&self, id: &str) -> Result<()> {
         let _open = self.writable()?;
         self.writers.lock_or_recover().open.remove(id);
+        self.kind_heads.forget(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
@@ -2634,7 +2788,8 @@ type Crash = Box<dyn FnOnce() + Send>;
 #[cfg(test)]
 static BETWEEN_SEGMENTS: std::sync::Mutex<Vec<(String, Crash)>> = std::sync::Mutex::new(Vec::new());
 
-/// Tests only: arms [`BETWEEN_SEGMENTS`] for chat `id`, once.
+/// Tests only: arms [`BETWEEN_SEGMENTS`] for chat `id`, once. The hook is process-wide and tests
+/// run in parallel: `id` is a chat no other test uses, or another test's commit takes the crash.
 #[cfg(test)]
 pub(crate) fn between_segments_once(id: &str, crash: Crash) {
     BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner()).push((id.to_owned(), crash));

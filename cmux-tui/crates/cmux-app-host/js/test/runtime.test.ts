@@ -217,6 +217,25 @@ describe("cmux global", () => {
     await host.settle()
     expect(host.eval("out")).toEqual([true, "https://api.github.com/x"])
   })
+
+  test("cmux.time.zone answers from the host's zone function, synchronously, and throws zone.unknown", () => {
+    const host = new FakeHost()
+    expect(host.eval(`cmux.time.zone("Asia/Tokyo", 0)`)).toEqual({ zone: "Asia/Tokyo", offsetMinutes: 540, abbreviation: "GMT+9" })
+    expect(host.eval(`cmux.time.zone("America/New_York", Date.UTC(2026, 6, 1, 12))`)).toEqual({ zone: "America/New_York", offsetMinutes: -240, abbreviation: "EDT" })
+    expect(host.eval(`cmux.time.zone("America/New_York", Date.UTC(2026, 0, 15, 12)).offsetMinutes`)).toBe(-300)
+    expect(host.eval(`(() => { try { cmux.time.zone("Mars/Olympus") } catch (e) { return [e.name, e.code] } })()`)).toEqual(["CmuxError", "zone.unknown"])
+    expect(host.calls).toEqual([])
+  })
+
+  test("cmux.time.zone falls back to Intl on a host without the zone function, and says so without either", () => {
+    const host = new FakeHost()
+    host.eval(`delete __cmuxAppNative.zone`)
+    expect(host.eval(`cmux.time.zone("Asia/Kolkata", 0).offsetMinutes`)).toBe(330)
+    expect(host.eval(`cmux.time.zone("America/New_York", Date.UTC(2026, 6, 1, 12) + 999).offsetMinutes`)).toBe(-240)
+    expect(host.eval(`(() => { try { cmux.time.zone("Mars/Olympus") } catch (e) { return e.code } })()`)).toBe("zone.unknown")
+    host.eval(`globalThis.Intl = undefined`)
+    expect(host.eval(`(() => { try { cmux.time.zone("Asia/Tokyo") } catch (e) { return e.code } })()`)).toBe("operation.unsupported")
+  })
 })
 
 describe("compat with old sidebars", () => {

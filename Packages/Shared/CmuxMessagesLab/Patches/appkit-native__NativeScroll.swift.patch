@@ -1,10 +1,9 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
-@@ -72,6 +72,36 @@
- 
+@@ -73,6 +73,36 @@
      /// The shared window view's transcript list (a layer-only scroll view).
      var collection: UIScrollView? { demo?.collection }
-+
+ 
 +    /// cmux: a wheel or trackpad event over the transcript: true when the open thread view took it.
 +    /// While a thread or reply view is open, every wheel is the view's (it scrolls when taller than its
 +    /// space, MessagesWindowView.scrollThread) and the dimmed transcript under it never moves; with no
@@ -34,9 +33,10 @@
 +        guard let frameView = window?.contentView?.superview else { return false }
 +        return frameView.hitTest(e.locationInWindow)?.isDescendant(of: self) ?? false
 +    }
- 
++
      func attach(_ demo: MessagesWindowView) {
          self.demo = demo
+         // The window view stays the list's delegate through this bridge.
 @@ -418,6 +448,9 @@
      /// following click (or a scroll) shows first are ready when it comes.
      private func prerenderPage(beyond dir: Int) {
@@ -59,3 +59,33 @@
      override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(at: hostPoint(event), event) }
      override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: hostPoint(event), event) }
      override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: hostPoint(event)) }
+@@ -563,6 +599,29 @@
+         get { super.knobProportion }
+         set { super.knobProportion = fixed?.proportion ?? newValue }
+     }
++    /// cmux: AppKit's arrow and page parts of this scroller are buttons with only a subrole, which
++    /// an accessibility client that reads names meets as unnamed controls (goal a11y-baseline:
++    /// the four after Home's Unread Messages filter). Named here; a part reads its attributes
++    /// through these children, so a read while naming gets them unnamed instead of recursing.
++    private var namingParts = false
++    override func accessibilityChildren() -> [Any]? {
++        let children = super.accessibilityChildren()
++        guard !namingParts else { return children }
++        namingParts = true
++        defer { namingParts = false }
++        for case let part as any NSAccessibilityProtocol in children ?? [] where part.accessibilityRole() == .button {
++            guard (part.accessibilityLabel() ?? "").isEmpty, let subrole = part.accessibilitySubrole() else { continue }
++            let name: String? = switch subrole {
++            case .incrementPage: CmuxStrings.scrollerPageDown
++            case .decrementPage: CmuxStrings.scrollerPageUp
++            case .incrementArrow: CmuxStrings.scrollerScrollDown
++            case .decrementArrow: CmuxStrings.scrollerScrollUp
++            default: nil
++            }
++            if let name { part.setAccessibilityLabel(name) }
++        }
++        return children
++    }
+     /// AppKit invalidates its own knob rect when the value changes; the drawn bar sits up to
+     /// `knobBottomInset` (plus pixel rounding) above it and spans the expanded width, so every
+     /// invalidation covers the scroller's full width and 2 pt more at each end. (Without it a

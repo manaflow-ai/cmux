@@ -181,10 +181,11 @@ fn own_tree_each_git_operation_refuses_a_folder_that_is_not_in_the_work_tree_tha
     git(&folder, &["config", "core.worktree", other.to_str().unwrap()]);
 
     // The reads give the problem text as the reason.
-    let reads: [(&str, &[(&str, &str)]); 5] = [
+    let reads: [(&str, &[(&str, &str)]); 6] = [
         ("git.status", &[]),
         ("git.branches", &[]),
         ("git.diff", &[("scope", "uncommitted")]),
+        ("git.fingerprint", &[("scope", "uncommitted")]),
         ("git.files.list", &[]),
         ("git.files.search", &[("query", "a")]),
     ];
@@ -285,6 +286,7 @@ fn own_tree_each_git_operation_of_the_catalog_refuses_a_refused_folder_and_chang
         ("git.status", json!({})),
         ("git.branches", json!({})),
         ("git.diff", json!({"scope": "uncommitted"})),
+        ("git.fingerprint", json!({"scope": "uncommitted"})),
         ("git.files.list", json!({})),
         ("git.files.search", json!({"query": "a"})),
         ("git.worktree.setup", json!({})),

@@ -51,7 +51,21 @@ fn scripted_app_host() {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
                 });
             }
-            ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
+            ToHost::Init { main, .. } => {
+                send(FromHost::Ready { runtime: "scripted".into() });
+                // Top-level code that subscribes, as `cmux.events.on(...)` does.
+                if let Some(stream) = main
+                    .split("SUBSCRIBE_AT_INIT ")
+                    .nth(1)
+                    .and_then(|rest| rest.split_whitespace().next())
+                {
+                    send(FromHost::Subscribe { sub: 1, stream: stream.into(), filter: json!({}) });
+                    send(FromHost::Log { level: "info".into(), message: "subscribed".into() });
+                }
+                if main.contains("EXIT_AFTER_READY") {
+                    std::process::exit(70);
+                }
+            }
             ToHost::Mount { mount, export, ctx } => {
                 // `timeout`: the render runs past its entry deadline, every time.
                 if ctx["timeout"] == true {
@@ -65,7 +79,7 @@ fn scripted_app_host() {
                 if export == "renderLive" {
                     send(FromHost::Subscribe {
                         sub: 1,
-                        stream: "workspace.changed".into(),
+                        stream: ctx["stream"].as_str().unwrap_or("workspace.changed").into(),
                         filter: json!({}),
                     });
                 }
@@ -121,9 +135,16 @@ fn scripted_app_host() {
                     ops: json!([{ "op": "update", "id": format!("r{cb}"), "props": { "result": { "ok": ok, "body": body } } }]),
                 });
             }
-            ToHost::Run { cb, export, gesture, .. } => {
+            ToHost::Run { cb, export, gesture, args } => {
                 if export == "crash" {
                     std::process::exit(70);
+                }
+                if export == "openLink" {
+                    // An opener (`cmux.opener/1`): the link it was asked to open.
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("open {}", args["url"]),
+                    });
                 }
                 if let Some(gesture) = &gesture {
                     send(FromHost::Log {
@@ -309,7 +330,7 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
             &bundled,
             "demo",
             "cmux/demo",
-            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n", "actions:run": "a", "terminal:write": "t", "integration:github:read": "g" }),
+            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n", "actions:run": "a", "terminal:write": "t", "integration:github:read": "g", "settings:read": "s" }),
         );
         write_app(
             &state.join("apps/local"),
@@ -337,7 +358,8 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
             sources: Sources {
                 first_party: None,
                 bundled: vec![bundled],
-                extra: vec![],
+                // `CMUX_APPS_DIRS`; empty until a test writes an app there.
+                extra: vec![root.0.join("extra")],
                 local: Some(state.join("apps/local")),
                 customize: None,
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
@@ -504,6 +526,7 @@ fn default_apps_are_installed_with_required_scopes() {
             "actions:run",
             "integration:github:read",
             "net:api.example.com",
+            "settings:read",
             "storage:local",
             "terminal:write",
             "workspace:read",
@@ -619,6 +642,31 @@ fn daemon_events_reach_subscribed_apps() {
     assert_eq!(log["message"], "event 1");
     let lines = f.supervisor.logs(CLIENT, "cmux/demo", false);
     assert!(lines["lines"].as_array().unwrap().iter().any(|l| l["message"] == "event 1"));
+}
+
+/// `settings.changed` and `theme.changed` reach an app granted `settings:read` (their declared
+/// `reads` op is `settings.get`, not a `settings.list`/`theme.list` family op), and only that app.
+#[test]
+fn settings_and_theme_events_reach_apps_that_read_settings() {
+    for stream in ["settings.changed", "theme.changed"] {
+        let f = fixture();
+        f.install("cmux/demo");
+        f.install("local/spy");
+        f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
+        f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+        f.supervisor.logs(CLIENT, "cmux/demo", true);
+        f.supervisor.publish(stream, json!({}));
+        f.wait(stream, |e| e["event"] == "apps-log" && e["message"] == "event 1");
+        let heard = |app: &str| {
+            f.supervisor.logs(CLIENT, app, false)["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line["message"] == "event 1")
+        };
+        assert!(heard("cmux/demo"), "{stream}: the app granted settings:read");
+        assert!(!heard("local/spy"), "{stream}: an app without settings:read");
+    }
 }
 
 #[test]
@@ -1011,10 +1059,16 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_chat_widget_tests.rs"]
+mod chat_widgets;
+#[path = "supervisor_composer_tests.rs"]
+mod composer;
 #[path = "supervisor_inventory_demand_tests.rs"]
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
 mod local_reload;
+#[path = "supervisor_opener_tests.rs"]
+mod openers;
 #[path = "supervisor_provider_changed_tests.rs"]
 mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
@@ -1034,3 +1088,6 @@ mod rollback_tolerance;
 
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
+
+#[path = "supervisor_activation_tests.rs"]
+mod activation;
