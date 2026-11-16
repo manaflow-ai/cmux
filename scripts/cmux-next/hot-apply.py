@@ -75,7 +75,7 @@ between the two, not only SHA's own. A SHA the app already contains is a no-op.
 Published keys first. CI publishes each feat-cmux-next commit's hot keys (`keys SHA`, written by
 cmux-tui-artifacts.yml to files.cmux.com/cmux-next/hot-keys/SHA.json): its tree key, web source key
 and web ABI, and one digest each over the paths and blobs of the files that need a new app (`shell`:
-Swift, resources and manifests), the Rust the app links (`ffi`), the bundled helpers' inputs
+Swift, resources and manifests), the pinned FFI release plus Rust the Swift build reads (`ffi`), the bundled helpers' inputs
 (`helpers`) and the web the app serves (`web`; the web key also covers web tests, so it only names
 what to fetch), sorted by the same rules as the diff below. When both the app's commit and SHA have
 them, `plan` compares the keys and nothing else (`via: published keys`): no fetch of SHA, no diff,
@@ -511,6 +511,11 @@ def ffi_input(repo: Path, path: str) -> bool:
             and not any(path.startswith(d + "/") for d in excluded))
 
 
+def swift_read_rust(repo: Path, paths: list[str]) -> list[str]:
+    """The Rust inputs the Swift build reads directly, excluding sources in the pinned FFI library."""
+    return [p for p in linked_rust(repo, paths) if not ffi_input(repo, p)]
+
+
 def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     """The changed Rust paths the app's other bundled helpers build from (the mobile host, the diff
     sidecar): those helpers keep the app's build."""
@@ -522,6 +527,27 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
 def set_digest(blobs: dict[str, str], paths: list[str]) -> str:
     """One sha256 over PATHS and their blobs: equal for two commits exactly when none of them changed."""
     return hashlib.sha256("".join(f"{p}\0{blobs[p]}\n" for p in sorted(set(paths))).encode()).hexdigest()
+
+
+def pinned_ffi_source(repo: Path, sha: str) -> str | None:
+    """None only before the pin exists; an unreadable or malformed pin is not compatibility evidence."""
+    if not git(repo, "ls-tree", "--name-only", sha, "--", ffi_part.PIN_FILE):
+        return None
+    return ffi_part.app_pin_source(repo, sha)
+
+
+def ffi_digest(repo: Path, sha: str, blobs: dict[str, str], daemon: list[str]) -> str:
+    """Digest what the app's linked FFI library and Swift build read at SHA.
+
+    FFI sources are built into the separately pinned binary release, so a source edit does not change the
+    library an app links until the pin moves. Rust inputs the Swift build reads directly still require an app.
+    """
+    pin_source = pinned_ffi_source(repo, sha)
+    if pin_source is None:
+        return set_digest(blobs, linked_rust(repo, daemon))
+    entries = [(p, blobs[p]) for p in swift_read_rust(repo, daemon)]
+    entries.append((ffi_part.PIN_FILE, pin_source))
+    return hashlib.sha256("".join(f"{p}\0{blob}\n" for p, blob in sorted(set(entries))).encode()).hexdigest()
 
 
 def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
@@ -544,7 +570,9 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
             "web": set_digest(blobs, files.get("web-live", [])),
             "web_key": web or _web_key(repo, sha), "web_abi": abi, "shell": set_digest(blobs, shell),
-            "ffi": set_digest(blobs, linked_rust(repo, daemon)), "helpers": set_digest(blobs, helper_rust(repo, daemon))}
+            # The app links the FFI release named by its pin, not the current FFI sources. Keep source-only
+            # FFI edits out of this key; a repin changes the pin source and therefore the linked library.
+            "ffi": ffi_digest(repo, sha, blobs, daemon), "helpers": set_digest(blobs, helper_rust(repo, daemon))}
 
 
 def valid_keys(keys, sha: str) -> bool:
@@ -647,10 +675,15 @@ def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None
         if not branch:
             app_base = base or app_commit(app, repo)
             planned = keys_plan(app, sha, app_base, bool(base), unsigned)
-            # The keys compare FFI sources, but an app links the release its commit pins, which lags them: a
-            # commit that moves the pin is planned from the diff, where the ffi part reads both pins.
-            if planned and not ffi_part.pin_moved(repo, app_base, sha):
-                return planned
+            # The keys compare the pinned release, but a repin also changes package files that keys classify as
+            # shell; the diff plan reads both pins to select the ffi part and remove only its packaging changes.
+            if planned:
+                # Published keys also work without a checkout. When both commits are here, a bad pin must
+                # fail rather than masquerade as an unchanged release on that fast path.
+                if not (have_commit(repo, app_base) and have_commit(repo, sha)):
+                    return planned
+                if pinned_ffi_source(repo, app_base) == pinned_ffi_source(repo, sha):
+                    return planned
         return _plan(repo, app, sha, branch, base, unsigned)
 
 
@@ -658,15 +691,23 @@ LIVE_FROM_MAX = 400  # a NIGHTLY is at most a day of merges behind feat-cmux-nex
 
 
 def pins_daemon(repo: Path, commit: str) -> list[str]:
-    """The paths of COMMIT's own change (against its first parent) that tie the daemon to the app: Rust
-    the app links through FFI. `plan` holds the Rust part back for exactly these; Swift, resources and
-    web left for a nightly do not stop it. A root commit pins it."""
+    """The paths of COMMIT's own change that alter what the app links.
+
+    The app links the release named by app-ffi-pin.json, so FFI source edits alone do not pin the daemon to
+    a new app. A repin does, as does Rust the Swift build reads outside the FFI release. A root commit pins it.
+    """
     parent = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^", check=False)
     if not SHA.fullmatch(parent or ""):
         return [f"{commit} has no parent here"]
     files = live_apply.classify_range(str(repo), parent, commit)["files"]
-    # The same files `plan` checks: its daemon part, cmux-tui's own native sources included.
-    return linked_rust(repo, sorted(set(files.get("daemon", []))))
+    daemon = sorted(set(files.get("daemon", [])))
+    before, after = pinned_ffi_source(repo, parent), pinned_ffi_source(repo, commit)
+    if before is None and after is None:
+        return linked_rust(repo, daemon)
+    paths = swift_read_rust(repo, daemon)
+    if before != after:
+        paths.append(ffi_part.PIN_FILE)
+    return paths
 
 
 def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
@@ -742,17 +783,22 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         linked = linked_rust(repo, rust)
         out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, since)
         if linked:
-            # The app FFI library, when the app carries it as one (Contents/Frameworks/libcmux_app_ffi.dylib), swaps
-            # warm (hot_apply_ffi.py): SHA's published release, paired with the app's pin. The daemon part then
-            # goes with it. Rust the Swift build itself reads (the swift test job's inputs) still needs an app.
-            swift_read = [p for p in linked if not ffi_input(repo, p)]
+            # The app links the release its pin names, not the current FFI sources. A source-only FFI edit stays
+            # in the daemon build; only a re-pin swaps the separately published library. Rust the Swift build
+            # reads directly still needs an app.
+            swift_read = swift_read_rust(repo, linked)
             try:
                 if swift_read:
                     raise ffi_part.Left("the Swift build reads " + ", ".join(swift_read[:3]))
-                if branch:
-                    raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
-                out["ffi"] = {**ffi_part.plan(repo, None if given_base else app, sha, base), "files": linked}
-                out["parts"].append("ffi")
+                if pinned_ffi_source(repo, base) is None or pinned_ffi_source(repo, sha) is None:
+                    raise ffi_part.Left("no app FFI pin to establish the linked release: it needs a new app")
+                if pinned_ffi_source(repo, base) != pinned_ffi_source(repo, sha):
+                    if branch:
+                        raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
+                    moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
+                    if moved:
+                        out["ffi"] = {**moved, "files": linked}
+                        out["parts"].append("ffi")
                 linked = []
             except ffi_part.Left as why:
                 out["notes"].append(f"ffi: {why}")
@@ -775,6 +821,13 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
                 out["parts"].append("ffi")
         except ffi_part.Left as why:
             out["notes"].append(f"ffi: {why}")
+    if pinned_ffi_source(repo, base) != pinned_ffi_source(repo, sha) and "ffi" not in out["parts"]:
+        # A repin ties even an unrelated daemon edit to the new library. A refused library swap must
+        # hold that daemon back, just as the signed live_from floor does.
+        if "rust" in out["parts"]:
+            out["parts"].remove("rust")
+        if rust:
+            out["left"].setdefault("Rust the app links (FFI)", [ffi_part.PIN_FILE])
     if "ffi" in out["parts"]:
         # Moving the pin is the ffi part's own change, not a Swift one.
         packaging = ffi_part.pin_packaging(repo, since, sha)
