@@ -3,9 +3,9 @@ import CmuxNextActions
 import CmuxNextSettings
 import Testing
 
-/// `cmux remote-host share on` asked "Share This Mac?" on every call, even when this Mac already
-/// shared, with no way to say yes for good (Leo, 2026-11-16: "i dont want to have to click share
-/// this mac allow every single time when screen sharing"). The dialog now offers Always Allow,
+/// `cmux remote-host share on` showed the "Share This Mac" sheet on every call, even when this Mac
+/// already shared, with no way to say yes for good (Leo, 2026-11-16: "i dont want to have to click
+/// share this mac allow every single time when screen sharing"). The sheet now offers Always Allow,
 /// which turns on the user-only `remote.shareWithoutAsking`; an agent cannot turn it on itself.
 @MainActor
 @Suite struct RemoteShareWithoutAskingTests {
@@ -18,10 +18,11 @@ import Testing
         #expect(Env.shareStep(alreadyShared: true, withoutAsking: true) == .nothing)
     }
 
-    @Test func theShareDialogOffersAlwaysAllowAndTheAccessDialogDoesNot() {
-        #expect(CmuxRemoteActionEnvironment.confirmButtons(always: true).map(\.id) == ["cancel", "always", "confirm"])
-        #expect(CmuxRemoteActionEnvironment.confirmButtons(always: false).map(\.id) == ["cancel", "confirm"])
-        #expect(CmuxRemoteActionEnvironment.confirmButtons(always: true).last?.role == .default)
+    @Test func theShareRequestsSheetOffersAlwaysAllowAndTheShareButtonsSheetDoesNot() {
+        let request = CmuxRemoteSharingSetup.spec(.overview, offerAlways: true).buttons
+        #expect(request.map(\.id) == ["cancel", "always", "continue"])
+        #expect(request.last?.role == .default)
+        #expect(CmuxRemoteSharingSetup.spec(.overview).buttons.map(\.id) == ["cancel", "continue"])
     }
 
     @Test func theSettingIsOffByDefaultAndOnlyThePersonTurnsItOn() throws {
