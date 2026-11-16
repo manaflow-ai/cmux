@@ -85,7 +85,7 @@ impl Entry {
         Rank {
             first: Number(first),
             second: Number(second),
-            id: self.row["sessionId"].as_str().unwrap_or(&self.key).to_owned(),
+            id: self.row.get("sessionId").and_then(Value::as_str).unwrap_or(&self.key).to_owned(),
             key: self.key.clone(),
         }
     }

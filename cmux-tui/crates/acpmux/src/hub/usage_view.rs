@@ -37,6 +37,18 @@ const PASS_IDLE: u8 = 0;
 const PASS_RUNNING: u8 = 1;
 const PASS_WANTED: u8 = 2;
 
+/// Finish a worker pass, preserving a concurrently requested follow-up pass.
+/// A successful RUNNING -> IDLE transition is the only way the worker exits.
+fn finish_usage_pass(state: &AtomicU8) -> bool {
+    if state.compare_exchange(PASS_RUNNING, PASS_IDLE, Ordering::AcqRel, Ordering::Acquire).is_ok()
+    {
+        true
+    } else {
+        state.store(PASS_RUNNING, Ordering::Release);
+        false
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct UsageCache {
     trackers: Arc<StdMutex<HashMap<String, Tracker>>>,
@@ -120,13 +132,9 @@ impl Hub {
                             {
                                 continue;
                             }
-                            let _ = hub.usage_stats.pass_state.compare_exchange(
-                                PASS_RUNNING,
-                                PASS_IDLE,
-                                Ordering::AcqRel,
-                                Ordering::Acquire,
-                            );
-                            break;
+                            if finish_usage_pass(&hub.usage_stats.pass_state) {
+                                break;
+                            }
                         }
                     });
                     return;
@@ -384,14 +392,25 @@ impl Hub {
             return;
         };
         // Copy only Usage's own small fields, never the transcript-sized metadata fields.
-        let (mut row, family, status, size) = session.read_meta(|m| (
-            serde_json::json!({"sessionId": m.id, "name": m.name, "title": m.title, "harness": m.harness}),
-            m.family.clone(), m.status,
-            m.usage.as_ref().and_then(|u| u.get("size")).and_then(Value::as_u64),
-        ));
+        let (mut row, family, status, size) = session.read_meta(|m| {
+            let mut row = serde_json::Map::new();
+            row.insert("sessionId".into(), serde_json::json!(m.id));
+            row.insert("name".into(), serde_json::json!(m.name));
+            row.insert("title".into(), serde_json::json!(m.title));
+            row.insert("harness".into(), serde_json::json!(m.harness));
+            (
+                row,
+                m.family.clone(),
+                m.status,
+                m.usage.as_ref().and_then(|u| u.get("size")).and_then(Value::as_u64),
+            )
+        });
         Self::overlay_usage(session, family.as_deref(), status, size, &mut stats);
-        row["usageStats"] = serde_json::to_value(stats).unwrap_or_default();
-        order.replace(&session.id, super::usage_order::Entry::new(session.id.clone(), &row));
+        row.insert("usageStats".into(), serde_json::to_value(stats).unwrap_or_default());
+        order.replace(
+            &session.id,
+            super::usage_order::Entry::new(session.id.clone(), &Value::Object(row)),
+        );
     }
 }
 
@@ -444,6 +463,18 @@ impl Hub {
         let cache = &self.usage_stats;
         (cache.passes.load(Ordering::SeqCst), cache.sources_read.load(Ordering::SeqCst))
     }
+}
+
+#[cfg(test)]
+#[test]
+fn finishing_usage_pass_only_exits_from_running() {
+    let state = AtomicU8::new(PASS_RUNNING);
+    assert!(finish_usage_pass(&state));
+    assert_eq!(state.load(Ordering::Acquire), PASS_IDLE);
+
+    state.store(PASS_WANTED, Ordering::Release);
+    assert!(!finish_usage_pass(&state));
+    assert_eq!(state.load(Ordering::Acquire), PASS_RUNNING);
 }
 
 #[cfg(test)]

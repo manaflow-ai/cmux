@@ -13,7 +13,7 @@ use super::Hub;
 use super::usage_order::{MAX_BYTES, MAX_KEYS, Rank, Sort, UsageOrder};
 use crate::rpc::RpcError;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -55,10 +55,20 @@ impl Hub {
         let local = self.usage_stats.order.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let remote = self.remote_sessions.read();
         let remote = &remote.usage;
-        let mut reply = json!({"rows": [], "count": local.len() + remote.len(),
-            "totals": local.totals_with(remote), "nextCursor": null,
-            "lastPassAt": self.usage_stats.last_pass_at.load(std::sync::atomic::Ordering::Acquire),
-            "ready": self.usage_stats.ready.load(std::sync::atomic::Ordering::Acquire)});
+        let mut reply = Map::from_iter([
+            ("rows".into(), json!([])),
+            ("count".into(), json!(local.len() + remote.len())),
+            ("totals".into(), local.totals_with(remote)),
+            ("nextCursor".into(), Value::Null),
+            (
+                "lastPassAt".into(),
+                json!(self.usage_stats.last_pass_at.load(std::sync::atomic::Ordering::Acquire)),
+            ),
+            (
+                "ready".into(),
+                json!(self.usage_stats.ready.load(std::sync::atomic::Ordering::Acquire)),
+            ),
+        ]);
         if let Some(ids) = params.get("sessionIds") {
             if params.contains_key("sort") || params.contains_key("cursor") {
                 return Err(invalid("usage sessionIds cannot be combined with rank parameters"));
@@ -98,9 +108,9 @@ impl Hub {
                 bytes += entry.bytes + 1;
                 rows.push(entry.row.clone());
             }
-            reply["rows"] = json!(rows);
-            reply["missing"] = json!(missing);
-            reply["rest"] = json!(rest);
+            reply.insert("rows".into(), json!(rows));
+            reply.insert("missing".into(), json!(missing));
+            reply.insert("rest".into(), json!(rest));
         } else {
             let cursor: Option<Cursor> = match params.get("cursor") {
                 None | Some(Value::Null) => None,
@@ -133,7 +143,7 @@ impl Hub {
                 last = Some(entry.rank(sort));
                 rows.push(entry.row.clone());
             }
-            reply["rows"] = json!(rows);
+            reply.insert("rows".into(), json!(rows));
             if more && let Some(after) = last {
                 let cursor = Cursor { epoch: self.events.list_epoch().to_owned(), sort, after };
                 let text = serde_json::to_string(&cursor)
@@ -141,7 +151,7 @@ impl Hub {
                 if text.len() > 4096 {
                     return Err(row_too_large());
                 }
-                reply["nextCursor"] = Value::String(text);
+                reply.insert("nextCursor".into(), Value::String(text));
             }
         }
         // Hard bound, including missing/rest and totals. Never return a too-large first row.
@@ -150,7 +160,7 @@ impl Hub {
         {
             return Err(row_too_large());
         }
-        Ok(reply)
+        Ok(Value::Object(reply))
     }
 }
 
