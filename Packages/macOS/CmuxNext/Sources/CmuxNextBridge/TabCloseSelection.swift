@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextTabs
 
@@ -16,7 +17,9 @@ public import CmuxNextTabs
 /// crosses panes: a tab that leaves its pane (closed, or moved) leaves the state.
 ///
 /// A tab that takes another tab's place (a stand-in's daemon tab, what a New Tab page turns into) is the
-/// same item: the state keeps the first id and maps the later ones to it.
+/// same item: the state keeps the first id and maps the later ones to it. Which tab a creation's stand-in
+/// became is the store's record of that creation (``standIns(of:lists:fate:)``), so that two or more
+/// stand-ins that get their tabs in one change of the pane keep their relations, each its own.
 ///
 /// Cost: with no relation held, a selection change is two emptiness checks and one dictionary read, and a
 /// close picks by position over the pane's tabs. With some held, each call asks about the tabs of those
@@ -74,7 +77,7 @@ public final class TabCloseSelection {
 
     /// Runs the selection a close causes (the pick after the selected tab left, or a move at the press of a
     /// close). The rule does not hear of that move: the committed close ends the tab's relations
-    /// (``settle(_:lists:before:closing:)``), and a close that is cancelled or refused leaves them as they
+    /// (``settle(_:lists:before:waiting:closing:)``), and a close that is cancelled or refused leaves them as they
     /// were, a quick look-up's too. Nothing is kept after `body` returns.
     public func closeSelects<T>(_ body: () -> T) -> T {
         let outer = inClosePick
@@ -122,7 +125,7 @@ public final class TabCloseSelection {
     /// opener, its group's next tab (else the one before it in the group), else the next shown tab, and the
     /// previous one only when it was the last. `old` is the pane's order before, `tabs` its tabs now,
     /// `hidden` the members of a collapsed group, `groups` each grouped tab's group (the closed tab's too). Call it
-    /// before ``settle(_:lists:before:closing:)`` for the tabs that left in this change.
+    /// before ``settle(_:lists:before:waiting:closing:)`` for the tabs that left in this change.
     public func successor(of closed: String, old: [String], tabs: [String], hidden: Set<String> = [],
                           groups: [String: String] = [:]) -> String? {
         let shown = hidden.isEmpty ? Set(tabs) : Set(tabs).subtracting(hidden)
@@ -158,6 +161,27 @@ public final class TabCloseSelection {
         forgetWhenEmpty()
     }
 
+    /// The stand-in tabs of the state that `pane` no longer lists (`tabs`: its tabs now), each by what the store's
+    /// record of its creation says (`fate`). One whose tab `tabs` lists is that tab from now on. One whose tab is
+    /// not listed yet, or whose creation is still under way, waits: the result, which
+    /// ``settle(_:lists:before:waiting:closing:)`` keeps in the state. One that ended is a tab that left the
+    /// pane. Call it before the pick and before `settle`. `fate` is asked only for a stand-in of the state that is
+    /// not listed; with no relation held it reads nothing.
+    func standIns(of pane: String, lists tabs: [String], fate: (String) -> StandInFate) -> Set<String> {
+        guard !home.isEmpty else { return [] }
+        var waiting: Set<String> = []
+        for (item, itemPane) in home where itemPane == pane {
+            let shown = shownAs[item] ?? item
+            guard ProvisionalTab.isProvisional(shown), !tabs.contains(shown) else { continue }
+            switch fate(shown) {
+            case .became(let tab) where tabs.contains(tab): adopt(tab, inPlaceOf: shown)
+            case .became, .underway: waiting.insert(shown)
+            case .ended: break
+            }
+        }
+        return waiting
+    }
+
     /// `pane` lists `tabs` now. A tab of the state that it no longer lists left its strip (its close is
     /// committed, or it moved to another pane), so its relations end: a relation holds inside one pane.
     /// A tab that a pending close only hides (`closing`: the store's close intents) stays: the press of a
@@ -165,14 +189,19 @@ public final class TabCloseSelection {
     /// the committed close ends it. Call it after the pick; and before the pick with `old`, the pane's
     /// order before this change, so that a tab whose close was committed since the last call leaves first
     /// (the tabs it opened take its opener) while the tabs that leave in this change still count.
-    /// `closing` is asked only when a tab of the state is not listed.
-    func settle(_ pane: String, lists tabs: [String], before old: [String] = [], closing: () -> Set<String> = { [] }) {
+    /// `closing` is asked only when a tab of the state is not listed. `waiting`: the stand-ins that wait for their
+    /// tabs (``standIns(of:lists:fate:)``); they stay too.
+    func settle(_ pane: String, lists tabs: [String], before old: [String] = [], waiting: Set<String> = [],
+                closing: () -> Set<String> = { [] }) {
         if !expected.isEmpty, let made = expected[pane], !tabs.contains(made.opener) { expected[pane] = nil }
         guard !home.isEmpty else { return }
         let held = home.filter { $0.value == pane }.map(\.key)
         guard !held.isEmpty else { return }
         let live = Set(tabs).union(old)
-        let gone = held.filter { !live.contains(shownAs[$0] ?? $0) }
+        let gone = held.filter { item in
+            let shown = shownAs[item] ?? item
+            return !live.contains(shown) && !waiting.contains(shown)
+        }
         if !gone.isEmpty {
             let pending = closing()
             for item in gone where !pending.contains(shownAs[item] ?? item) { left(item) }
