@@ -319,6 +319,43 @@ describe("cmux.watch: github.pulls reader", () => {
   })
 })
 
+describe("cmux.watch: usage.meter reader", () => {
+  const chat = (id: string, family: string | null, harness: string, extra: Record<string, unknown> = {}) => ({
+    id, title: id, harness, family, state: "idle", updated_ms: "1000", usage: null, limits: null, ...extra
+  })
+  test("folds chat.list per provider: sums known counts, keeps the newest limits, never polls", async () => {
+    const host = new FakeHost(app(`return { render: () => { const w = cmux.watch("usage.meter"); globalThis.w = w; return Text(() => "status=" + w.status()) } }`))
+    let rows: unknown[] = [
+      chat("a", "claude", "claude", { state: "working", usage: { tokens_24h: 1000, cost_usd_24h: 1.5, calls_24h: 4 },
+        limits: { plan: null, windows: [{ id: "session", used_percent: 40, resets_at: 1_790_000_000 }] } }),
+      chat("b", "claude", "claude-sr2", { updated_ms: "2000", usage: { tokens_24h: 500, cost_usd_24h: null, calls_24h: null },
+        limits: { plan: null, windows: [{ id: "session", used_percent: 90, resets_at: null }, { id: "weekly", used_percent: 12, resets_at: 1_790_500_000 }] } }),
+      chat("c", "codex", "codex", { usage: { tokens_24h: 3000, cost_usd_24h: 2, calls_24h: 9 } }),
+      chat("d", null, "gemini")
+    ]
+    host.handlers["chat.list"] = () => ok(rows)
+    host.mount("m", "render")
+    await host.settle()
+    const v = host.eval("w().value")
+    expect(v.providers.map((p: any) => [p.provider, p.chats, p.working, p.tokens24h, p.costUsd24h, p.calls24h])).toEqual([
+      ["codex", 1, 0, 3000, 2, 9],
+      ["claude", 2, 1, 1500, 1.5, 4],
+      ["gemini", 1, 0, null, null, null]
+    ])
+    expect(v.providers[1].limits).toEqual({
+      plan: null, chat: "b", reportedAtMs: 2000,
+      windows: [{ id: "session", usedPercent: 90, resetsAtMs: null }, { id: "weekly", usedPercent: 12, resetsAtMs: 1_790_500_000_000 }]
+    })
+    expect(v.totals).toEqual({ chats: 4, working: 1, tokens24h: 4500, costUsd24h: 3.5, calls24h: 13 })
+    expect(host.timers.size).toBe(0)
+    rows = [chat("c", "codex", "codex", { usage: { tokens_24h: 3500, cost_usd_24h: 2.25, calls_24h: 10 } })]
+    host.emit("chat.changed")
+    await host.settle()
+    expect(host.eval("w().value.totals.tokens24h")).toBe(3500)
+    expect(reads(host, "chat.list")).toBe(2)
+  })
+})
+
 describe("cmux.watch: refresh and scene cost", () => {
   test("refresh re-reads now and coalesces with a read in flight", async () => {
     const host = githubHost(section("github.pulls", `{ roles: ["author"] }`))
