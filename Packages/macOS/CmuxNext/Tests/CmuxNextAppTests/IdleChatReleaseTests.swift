@@ -221,7 +221,8 @@ import Testing
             Self.hide(key, planner, host)
             host.elapsed += .seconds(5)
         }
-        // All due at once: asked oldest hidden first.
+        // All due at once: asked oldest hidden first (the hides above already asked for the chats past the warm set).
+        host.requested = []
         host.elapsed += .seconds(10 * 60)
         planner.replan()
         #expect(host.requested == order, "released out of least-recently-seen order: \(host.requested)")

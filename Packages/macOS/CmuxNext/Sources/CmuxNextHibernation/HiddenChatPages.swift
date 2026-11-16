@@ -94,6 +94,11 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     package static var idleRelease: Double { 60 }
     /// The same under warning memory pressure.
     package static var idleReleaseUnderWarning: Double { 30 }
+    /// How many hidden idle chats keep their page for the idle wait: the most recently hidden ones, so a look
+    /// at another tab and back stays warm. Every other hidden idle chat gives back its page after
+    /// ``minimumHidden``, so open chats cost the drawn pages plus this set, not a page each (Leo, 2026-11-16:
+    /// "the dream is infinite chats of infinite length with flat or no growth in cpu/memory/even disk").
+    package static var warmHidden: Int { 2 }
     /// This planner's idle wait at normal pressure, ``idleRelease`` (tests of the freeze alone set it past their clock).
     package var idleWait: Double = HiddenChatPages<Host>.idleRelease
     /// Tab `key` is the chat face of a session whose terminal face its pane draws now (Toggle Terminal and Chat): its
@@ -310,8 +315,13 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         retryAt = retryAt.filter { hiddenAt[$0.key] != nil }
         var next: Double?
         // The least recently seen first: under pressure the oldest hidden chat goes before the others.
-        for (key, at) in hiddenAt.sorted(by: { $0.value < $1.value })
-        where !releasing.contains(key) && keepsPage(key, onScreen: false) == nil {
+        let due = hiddenAt.sorted(by: { $0.value < $1.value })
+            .filter { !releasing.contains($0.key) && keepsPage($0.key, onScreen: false) == nil }
+        // The warm set: the newest hidden chats that may go. A working chat, one its release kept (an unsaved edit)
+        // and an untouched New Tab past its cap take no place in it.
+        let warm = Set(due.lazy.map(\.key).filter { self.retryAt[$0] == nil && !(self.excessNewTabs.contains($0) && host.pageIsUntouchedNewTab($0)) }
+            .suffix(Self.warmHidden))
+        for (key, at) in due {
             // Its release kept it a moment ago: it is asked again once its recheck comes.
             if let retry = retryAt[key] {
                 let wait = (retry - current).seconds
@@ -322,7 +332,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
                 retryAt[key] = nil
             }
             let newTab = excessNewTabs.contains(key) && host.pageIsUntouchedNewTab(key)
-            let threshold = newTab ? Self.minimumHidden : chatThreshold
+            let threshold = newTab || !warm.contains(key) ? Self.minimumHidden : chatThreshold
             // Its workspace hibernates, or the chat is archived: due now.
             let dueNow = workspaceDue.contains(key) || (!newTab && host.pageArchived(key))
             let remaining = dueNow ? 0 : threshold - (current - at).seconds
