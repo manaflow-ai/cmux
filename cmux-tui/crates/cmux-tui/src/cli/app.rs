@@ -685,6 +685,17 @@ pub(super) fn run_action(
                 index += 1;
                 continue;
             }
+            // `--no-focus` (the CLI's word: `workspace create`, `agent start`, `app open`): the run may not change
+            // what the app shows, said in the request (`focus: false`), never sent as an argument the action
+            // does not take. An agent's or a probe's `cloud start-session` passes it (cloud_start_chat.rs).
+            "no-focus" => {
+                if super::action_hint::action_takes_argument(action, "focus") {
+                    arguments.insert("focus".into(), json!(false));
+                }
+                params.insert("focus".into(), json!(false));
+                index += 1;
+                continue;
+            }
             _ => {}
         }
         // `--name value`, `--name=value`, or a bare `--name` (true) when no
@@ -1145,6 +1156,10 @@ fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
 /// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.
 fn created_target(output: OutputMode, params: &Value, value: &Value) -> Option<String> {
     if output != OutputMode::Human || params.get("action")?.as_str()? != "cloud new-machine" {
+        return None;
+    }
+    // `--no-focus`: the run asked to leave the app's view alone, so nothing opens after it either.
+    if params.get("focus").and_then(Value::as_bool) == Some(false) {
         return None;
     }
     let result = value.get("result")?;
