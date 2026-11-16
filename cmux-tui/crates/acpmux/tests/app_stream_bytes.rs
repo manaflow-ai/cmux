@@ -1,0 +1,461 @@
+//! What the daemon sends the app's chat panes while chats stream, by message kind, and the
+//! daemon's CPU for it (CMUX-571).
+//!
+//! Leo, 2026-11-16: "for ios i mean but i guess you can look at the bandwidth of the regar app
+//! too". On his nightly, nettop showed acpmux sending about 5.3 MB/s over its WebSocket to the app
+//! with chats open.
+//!
+//! The app opens one WebSocket per chat pane (`AgentPaneTransport`), and each pane's page
+//! (`webviews/src/agent-session/acpmux/direct.ts` `open`) sends `initialize`, `_acpmux/status`,
+//! `_acpmux/watch {enabled, limit}` (every chat's row changes) and `_acpmux/attach` of its own chat
+//! with `eventStream: true`, the kinds of `attachParams.ts` `plainAttach` and `visible` (a pane in
+//! a background tab attaches `visible: false` and sends `_acpmux/view {visible}` when that
+//! changes). This harness opens those panes on a real daemon, some shown and some hidden, has every
+//! chat stream a reply, and counts each pane's received bytes by method (and record kind).
+//!
+//! Run by hand, as the other acpmux benches:
+//! `cargo test -p acpmux --release --test app_stream_bytes -- --ignored --nocapture`
+//! (`ACPMUX_BENCH_CHATS`, `ACPMUX_BENCH_SHOWN`, `ACPMUX_BENCH_TICKS`, `ACPMUX_BENCH_TICK_MS`).
+//! It prints one `app-stream-bytes: {json}` line. The plain tests below hold the fix: a hidden
+//! pane hears no stream of its chat until it is shown, and then it is told to read again.
+#![cfg(unix)]
+
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_BENCH_CHATS",
+    "ACPMUX_BENCH_SHOWN",
+    "ACPMUX_BENCH_TICKS",
+    "ACPMUX_BENCH_TICK_MS",
+]);
+
+use futures_util::{SinkExt, StreamExt};
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
+use std::process::{Child, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
+
+const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const PANE: &str = "cmux-agent://pane";
+
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+struct Daemon {
+    child: Option<Child>,
+    home: PathBuf,
+    socket: PathBuf,
+    ws: String,
+    listener_token: String,
+}
+
+impl Daemon {
+    fn start(tag: &str) -> Self {
+        let home = std::env::temp_dir().join(format!("asb-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join("work")).unwrap();
+        std::fs::write(
+            home.join("config.json"),
+            json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake",
+                "permissionPolicy": "approve-all"})
+            .to_string(),
+        )
+        .unwrap();
+        let socket = home.join("s.sock");
+        let mut child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])
+            .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "error"])
+            .env("ACPMUX_HOME", &home)
+            .env("ACPMUX_SOCKET", &socket)
+            .env("ACPMUX_CATALOG_FETCH", "0")
+            .env("ACPMUX_LOGIN_ENV", "0")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut out = BufReader::new(stdout);
+            let mut line = String::new();
+            while out.read_line(&mut line).unwrap_or(0) > 0 {
+                if line.contains("\"ready\":true") {
+                    let _ = tx.send(line.clone());
+                    return;
+                }
+                line.clear();
+            }
+        });
+        let ready: Value =
+            serde_json::from_str(&rx.recv_timeout(Duration::from_secs(30)).unwrap()).unwrap();
+        let url = ready["webUrl"].as_str().unwrap();
+        let (base, token) = url.split_once("/#token=").unwrap();
+        let socket = ready["socket"].as_str().map_or(socket, PathBuf::from);
+        Self {
+            child: Some(child),
+            ws: format!("{}/", base.replace("http://", "ws://")),
+            listener_token: token.to_owned(),
+            home,
+            socket,
+        }
+    }
+
+    fn pid(&self) -> u32 {
+        self.child.as_ref().unwrap().id()
+    }
+
+    /// The daemon's CPU time so far (user + system), from /proc; None where there is none.
+    fn cpu(&self) -> Option<Duration> {
+        let stat = std::fs::read_to_string(format!("/proc/{}/stat", self.pid())).ok()?;
+        // After the command's closing paren: state is field 3, utime 14, stime 15.
+        let rest = &stat[stat.rfind(')')? + 2..];
+        let fields: Vec<&str> = rest.split_whitespace().collect();
+        let ticks: u64 =
+            fields.get(11)?.parse::<u64>().ok()? + fields.get(12)?.parse::<u64>().ok()?;
+        // SAFETY: sysconf reads a constant.
+        let hz = u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok()?.max(1);
+        Some(Duration::from_micros(ticks * 1_000_000 / hz))
+    }
+
+    fn local_token(&self) -> String {
+        std::fs::read_to_string(self.home.join("run/localapp.token")).unwrap()
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        for dir in [self.home.join("hosts"), self.home.join("hosts/pool")] {
+            for r in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let Ok(v) =
+                    serde_json::from_slice::<Value>(&std::fs::read(r.path()).unwrap_or_default())
+                else {
+                    continue;
+                };
+                for pid in [v["harness_pid"].as_i64(), v["host_pid"].as_i64()].into_iter().flatten()
+                {
+                    // Only a real group this daemon made: never 0 or 1 (this test's own group, init).
+                    if pid > 1 {
+                        // SAFETY: a process group this test's daemon created.
+                        unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+                    }
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(&self.home);
+    }
+}
+
+/// The driver: the unix socket, as the CLI uses it.
+struct Rpc {
+    lines: tokio::io::Lines<tokio::io::BufReader<tokio::net::unix::OwnedReadHalf>>,
+    wr: tokio::net::unix::OwnedWriteHalf,
+    next: i64,
+}
+
+impl Rpc {
+    async fn connect(d: &Daemon) -> Self {
+        let s = tokio::net::UnixStream::connect(&d.socket).await.expect("connect to daemon socket");
+        let (rd, wr) = s.into_split();
+        Self { lines: tokio::io::BufReader::new(rd).lines(), wr, next: 0 }
+    }
+
+    async fn call(&mut self, method: &str, params: Value) -> Value {
+        self.next += 1;
+        let id = self.next;
+        let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        self.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(120), self.lines.next_line())
+                .await
+                .expect("daemon answered in time")
+                .unwrap()
+                .expect("daemon closed the socket");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                assert!(v.get("error").is_none(), "{method} failed: {v}");
+                return v["result"].clone();
+            }
+        }
+    }
+}
+
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Bytes and messages one pane received, by label.
+#[derive(Default)]
+struct Counts {
+    by_kind: BTreeMap<String, (u64, u64)>,
+    /// Records of the pane's own chat's stream (`session/update`, `_acpmux/event`).
+    own_stream: u64,
+    /// `_acpmux/lagged` notices: read again from your cursor.
+    lagged: u64,
+    counting: bool,
+}
+
+/// What a frame is: its method, with the record kind of an event or row change.
+fn label(v: &Value) -> String {
+    let Some(method) = v.get("method").and_then(Value::as_str) else {
+        return "reply".to_owned();
+    };
+    let params = v.get("params").unwrap_or(&Value::Null);
+    let kind = match method {
+        "_acpmux/event" => params.get("kind").and_then(Value::as_str),
+        "_acpmux/session_changed" => params.get("kind").and_then(Value::as_str),
+        "session/update" => params.pointer("/update/sessionUpdate").and_then(Value::as_str),
+        _ => None,
+    };
+    match kind {
+        Some(kind) => format!("{method}:{kind}"),
+        None => method.to_owned(),
+    }
+}
+
+struct Pane {
+    session: String,
+    tx: futures_util::stream::SplitSink<Ws, Message>,
+    replies: tokio::sync::mpsc::UnboundedReceiver<Value>,
+    counts: Arc<Mutex<Counts>>,
+    next: i64,
+}
+
+impl Pane {
+    /// A chat pane as the app opens it: the LocalApp hello, the status read, the row watch, the
+    /// plain attach of its chat (`attachParams.ts`), shown or not.
+    async fn open(d: &Daemon, session: &str, visible: bool) -> Self {
+        let mut req = d.ws.as_str().into_client_request().unwrap();
+        let h = req.headers_mut();
+        h.insert("authorization", format!("Bearer {}", d.listener_token).parse().unwrap());
+        h.insert("origin", PANE.parse().unwrap());
+        let (ws, _) = tokio_tungstenite::connect_async(req).await.expect("upgrade");
+        let (tx, mut rx) = ws.split();
+        let counts = Arc::new(Mutex::new(Counts::default()));
+        let (reply_tx, replies) = tokio::sync::mpsc::unbounded_channel();
+        let own = session.to_owned();
+        let counted = counts.clone();
+        tokio::spawn(async move {
+            while let Some(Ok(frame)) = rx.next().await {
+                let text = match frame {
+                    Message::Text(t) => t.to_string(),
+                    Message::Close(_) => break,
+                    _ => continue,
+                };
+                let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
+                {
+                    let mut c = counted.lock().unwrap();
+                    let method = v.get("method").and_then(Value::as_str).unwrap_or("");
+                    let params = v.get("params").unwrap_or(&Value::Null);
+                    let of_own =
+                        params.get("sessionId").and_then(Value::as_str) == Some(own.as_str());
+                    if of_own && matches!(method, "session/update" | "_acpmux/event") {
+                        c.own_stream += 1;
+                    }
+                    if method == "_acpmux/lagged" {
+                        c.lagged += 1;
+                    }
+                    if c.counting {
+                        let e = c.by_kind.entry(label(&v)).or_default();
+                        e.0 += text.len() as u64;
+                        e.1 += 1;
+                    }
+                }
+                if v.get("id").is_some() && v.get("method").is_none() {
+                    let _ = reply_tx.send(v);
+                }
+            }
+        });
+        let mut pane = Self { session: session.to_owned(), tx, replies, counts, next: 0 };
+        let init = pane
+            .call("initialize", json!({"protocolVersion": 1,
+                "clientInfo": {"name": "cmux-react-agent-pane", "version": "1"}, "clientCapabilities": {},
+                "_meta": {"acpmux": {"localAppToken": d.local_token()}}}))
+            .await;
+        assert_eq!(init["result"]["_meta"]["acpmux"]["origin"], "local", "{init}");
+        pane.call("_acpmux/status", json!({})).await;
+        pane.call("_acpmux/watch", json!({"enabled": true, "limit": 50})).await;
+        let kinds = json!([
+            "transcript",
+            "available_commands_update",
+            "usage_update",
+            "config_option_update",
+            "bookmarks",
+            "secret_request",
+            "secret_decision",
+            "subsession",
+            "queue_order",
+            "queue_updated",
+            "prompt_refused",
+            "elevation_request",
+            "elevation_decision",
+            "preset_approval_request",
+            "preset_approval_decision"
+        ]);
+        let attached = pane
+            .call(
+                "_acpmux/attach",
+                json!({"sessionId": session, "waitLogs": false, "limit": 400,
+                "maxBytes": 4 << 20, "kinds": kinds, "eventStream": true, "visible": visible}),
+            )
+            .await;
+        assert!(attached.get("error").is_none(), "{attached}");
+        pane
+    }
+
+    async fn call(&mut self, method: &str, params: Value) -> Value {
+        self.next += 1;
+        let id = self.next;
+        let req = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        self.tx.send(Message::Text(req.to_string().into())).await.unwrap();
+        loop {
+            let v = tokio::time::timeout(Duration::from_secs(60), self.replies.recv())
+                .await
+                .expect("an answer in time")
+                .expect("open");
+            if v.get("id") == Some(&json!(id)) {
+                return v;
+            }
+        }
+    }
+
+    /// `_acpmux/view`: the page's `syncView` as its pane shows or hides.
+    async fn view(&mut self, visible: bool) {
+        let session = self.session.clone();
+        let done =
+            self.call("_acpmux/view", json!({"sessionId": session, "visible": visible})).await;
+        assert!(done.get("error").is_none(), "{done}");
+    }
+
+    fn counting(&self, on: bool) {
+        self.counts.lock().unwrap().counting = on;
+    }
+
+    fn own_stream(&self) -> u64 {
+        self.counts.lock().unwrap().own_stream
+    }
+
+    fn lagged(&self) -> u64 {
+        self.counts.lock().unwrap().lagged
+    }
+}
+
+async fn new_chat(rpc: &mut Rpc, d: &Daemon, n: usize) -> String {
+    let r = rpc
+        .call(
+            "session/new",
+            json!({"cwd": d.home.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"name": format!("chat-{n}")}}}),
+        )
+        .await;
+    r["sessionId"].as_str().unwrap().to_owned()
+}
+
+/// Every chat streams `ticks` chunks `tick_ms` apart at once; answers when every turn ended.
+async fn stream_all(d: &Daemon, chats: &[String], ticks: usize, tick_ms: usize) {
+    let mut turns = Vec::new();
+    for chat in chats {
+        let mut rpc = Rpc::connect(d).await;
+        let chat = chat.clone();
+        turns.push(tokio::spawn(async move {
+            rpc.call(
+                "session/prompt",
+                json!({"sessionId": chat,
+                "prompt": [{"type": "text", "text": format!("ticking:{ticks}:{tick_ms}")}]}),
+            )
+            .await;
+        }));
+    }
+    for turn in turns {
+        turn.await.unwrap();
+    }
+}
+
+struct Report {
+    seconds: f64,
+    cpu_ms: Option<f64>,
+    shown: BTreeMap<String, (u64, u64)>,
+    hidden: BTreeMap<String, (u64, u64)>,
+}
+
+fn total(m: &BTreeMap<String, (u64, u64)>) -> u64 {
+    m.values().map(|(b, _)| b).sum()
+}
+
+fn as_json(m: &BTreeMap<String, (u64, u64)>, seconds: f64) -> Value {
+    let mut rows: Vec<(&String, &(u64, u64))> = m.iter().collect();
+    rows.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+    Value::Array(
+        rows.into_iter()
+            .map(|(k, (b, n))| json!({"kind": k, "bytesPerSec": (*b as f64 / seconds).round(), "messages": n}))
+            .collect(),
+    )
+}
+
+async fn measure(chats: usize, shown: usize, ticks: usize, tick_ms: usize) -> Report {
+    let d = Daemon::start("bench");
+    let mut rpc = Rpc::connect(&d).await;
+    let mut ids = Vec::new();
+    for n in 0..chats {
+        ids.push(new_chat(&mut rpc, &d, n).await);
+    }
+    // Warm every agent: the first turn starts it.
+    stream_all(&d, &ids, 1, 0).await;
+    let mut panes = Vec::new();
+    for (n, id) in ids.iter().enumerate() {
+        panes.push((n < shown, Pane::open(&d, id, n < shown).await));
+    }
+    for (_, p) in &panes {
+        p.counting(true);
+    }
+    let cpu0 = d.cpu();
+    let t0 = Instant::now();
+    stream_all(&d, &ids, ticks, tick_ms).await;
+    // What the daemon queued by the turn's end reaches the panes.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let seconds = t0.elapsed().as_secs_f64();
+    let cpu_ms = d.cpu().zip(cpu0).map(|(b, a)| (b - a).as_secs_f64() * 1000.0);
+    let mut report = Report { seconds, cpu_ms, shown: BTreeMap::new(), hidden: BTreeMap::new() };
+    for (visible, p) in &panes {
+        p.counting(false);
+        let into = if *visible { &mut report.shown } else { &mut report.hidden };
+        for (k, (b, n)) in &p.counts.lock().unwrap().by_kind {
+            let e = into.entry(k.clone()).or_default();
+            e.0 += b;
+            e.1 += n;
+        }
+    }
+    report
+}
+
+/// The bench: N chats streaming, S panes shown and the rest hidden. One `app-stream-bytes:` line.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "bench: run by hand with --ignored --nocapture"]
+async fn app_stream_bytes_bench() {
+    let chats = env_usize("ACPMUX_BENCH_CHATS", 8);
+    let shown = env_usize("ACPMUX_BENCH_SHOWN", 2).min(chats);
+    let ticks = env_usize("ACPMUX_BENCH_TICKS", 400);
+    let tick_ms = env_usize("ACPMUX_BENCH_TICK_MS", 10);
+    let r = measure(chats, shown, ticks, tick_ms).await;
+    let s = r.seconds;
+    let out = json!({
+        "chats": chats, "shown": shown, "ticks": ticks, "tickMs": tick_ms,
+        "seconds": (s * 1000.0).round() / 1000.0,
+        "totalBytesPerSec": ((total(&r.shown) + total(&r.hidden)) as f64 / s).round(),
+        "shownBytesPerSec": (total(&r.shown) as f64 / s).round(),
+        "hiddenBytesPerSec": (total(&r.hidden) as f64 / s).round(),
+        "daemonCpuMsPerSec": r.cpu_ms.map(|ms| (ms / s * 10.0).round() / 10.0),
+        "shownKinds": as_json(&r.shown, s),
+        "hiddenKinds": as_json(&r.hidden, s),
+    });
+    println!("app-stream-bytes: {out}");
+}
