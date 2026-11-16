@@ -317,6 +317,18 @@ cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp 
 DRIVER_SHA is any commit with this script; each `--commit` is the cmux revision measured. A
 prebuilt binary runs with `--bin LABEL=PATH` instead of `--commit`.
 
+The build controller's Linux pool has `sch_netem` too and runs it from this repository directly
+(the script exits 3 before measuring when `modprobe sch_netem` fails):
+
+```
+cmux-ci submit --kind fast-checks --label cmux-next-linux --repo https://github.com/manaflow-ai/cmux.git \
+  --ref DRIVER_SHA --command 'set -e; out=${FAST_CHECKS_OUT:-$PWD/rd-netem-out}; mkdir -p "$out";
+  python3 -u scripts/measure/screen-stream-eval/rd-netem-linux.py --deps --out "$out" --commit FULL_SHA'
+cmux-ci wait JOB && cmux-ci log JOB
+```
+
+The JSON lines and the table are in the job's log.
+
 ## Two Macs
 
 By default host and viewer run on one Mac, so the network leg is loopback. For the LAN row, run two
