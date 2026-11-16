@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4397060643101",
+  "notes": "notes/4397060643101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44717,
+      "title": "fix(measure): a held new tab row is valid, INVALID or a finding, by the proof of the order of its keys",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44605,
+      "title": "Tabs: a tab closed before a new tab's answer stays closed",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44349,
+      "title": "Agent chat: a chat at rest after a switch wakes for nothing (idle wakeups)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44620,
+      "title": "feat(cmux-tui): a create request puts its tab at its place (tab-create-place-v1)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
