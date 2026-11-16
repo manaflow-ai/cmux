@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43877515576",
+  "recorded_at": "2026-11-16T13:53:27Z",
+  "reason": "cmux-tui 4b0fa010b5b5 changes the image's cmux-tui (pinned 2b2a04135275)",
+  "dry_run": false,
+  "cmux_tui": "4b0fa010b5b50df5bd576ec8d5bbe7b727e9c317",
+  "fixes": [
+    {
+      "sha": "4b0fa010b5b50df5bd576ec8d5bbe7b727e9c317",
+      "mergedAt": "2026-11-16T05:19:04-08:00",
+      "subject": "acpmux: two units a writer turn, and each turn starts after the last origin (decisions 298, 279) (#44124)"
+    },
+    {
+      "sha": "8544038cd74b51e0590b08943157613082e1178e",
+      "mergedAt": "2026-11-16T05:09:30-08:00",
+      "subject": "cmux-tui-core: a ports file that gives no list starts no setup, and a worktree create gives only a worktree that its repository keeps (#44447)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T13:53:27Z",
+    "snapshot_id": "sh-b9d9791ade774e1e8e6890c620584c17",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43877515576): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a740bdbc17930f3e79b82667bd3d062e475bcc0c",
+    "image": "cloud-native-auto-4b0fa010-43877515576-1",
+    "revision": "ci-43877515576-1",
+    "at": "2026-11-16T13:53:27Z"
+  },
+  "rolled_back": false
+}
