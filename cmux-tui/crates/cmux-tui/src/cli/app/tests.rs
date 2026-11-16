@@ -11,19 +11,7 @@ fn args(words: &[&str]) -> Vec<String> {
 fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. }
-        | AppCommand::Events { .. }
-        | AppCommand::DebugCall { .. }
-        | AppCommand::Screenshot { .. }
-        | AppCommand::Right { .. }
-        | AppCommand::Renderers { .. }
-        | AppCommand::ChatPerf { .. }
-        | AppCommand::Settings(_)
-        | AppCommand::Nightly(_)
-        | AppCommand::Live(_)
-        | AppCommand::Version => {
-            panic!("expected a call")
-        }
+        other => panic!("expected a call, got {other:?}"),
     }
 }
 
@@ -354,6 +342,21 @@ fn remote_views_reads_the_release_remote_view_state() {
     assert_eq!(params, json!({ "tab": "tab_1" }));
     assert!(parse(&args(&["app", "remote-views", "connect"])).is_err());
     assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
+}
+
+/// `cmux app mac-screens` reads the app's release Mac Screen state, all tabs or
+/// one; it is a read, never an `action.run`, and takes no other word.
+#[test]
+fn mac_screens_reads_the_release_mac_screen_state() {
+    let (method, params) = call(parse(&args(&["app", "mac-screens"])).unwrap().unwrap());
+    assert_eq!(method, "mac_screen.state");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "mac-screens", "--tab", "tab_1"])).unwrap().unwrap());
+    assert_eq!(method, MAC_SCREENS_METHOD);
+    assert_eq!(params, json!({ "tab": "tab_1" }));
+    assert!(parse(&args(&["app", "mac-screens", "connect"])).is_err());
+    assert!(parse(&args(&["app", "mac-screens", "--input", "x"])).is_err());
 }
 
 /// `cmux app machines` and `cmux app join-line` call the app's every-build
@@ -1210,6 +1213,8 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Live(_)
+        | AppCommand::Try(_)
+        | AppCommand::LaunchTimes(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }

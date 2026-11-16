@@ -27,7 +27,7 @@ import sys
 import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,7 +59,6 @@ class Step:
 class Table:
     jobs: dict[str, str]
     steps: dict[str, Step]
-    budget: dict[str, int] = field(default_factory=dict)
 
 
 def glob_pattern(glob: str) -> re.Pattern[str]:
@@ -125,7 +124,7 @@ def parse(doc: dict) -> Table:
         if not isinstance(step.timeout, int) or step.timeout <= 0:
             raise TableError(f"step {name}: `timeout` is a positive number of seconds")
         steps[name] = step
-    return Table(jobs=dict(jobs), steps=steps, budget=dict(doc.get("budget") or {}))
+    return Table(jobs=dict(jobs), steps=steps)
 
 
 def load(path: Path = TABLE) -> Table:

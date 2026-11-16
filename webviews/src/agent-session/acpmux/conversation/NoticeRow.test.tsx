@@ -160,6 +160,79 @@ test("a notice of a title alone is still a row", () => {
   expect(isVisiblyEmptyMessage(row)).toBe(false);
 });
 
+// Leo, 2026-11-14, on spend-watch's one-line WARN opened to "No message text", its words only under
+// Details: "this is weird". A notice of a title alone opens to that title, whole, never the empty
+// copy; its head stays on the line, and Details holds the raw prompt only.
+const SPEND =
+  "spend-watch on build-box is spending REST at 336/h against its cap of 150 (141 in the last 10 minutes; top: pulls 88, checks 31)";
+
+function senderNotice(text: string, body = ""): IncomingMessage {
+  const raw = `[notice from spend-watch on build-box · WARN] ${text}${body ? `\n${body}` : ""}`;
+  const provenance = {
+    kind: "notice",
+    from: "fromAgent",
+    fromName: "spend-watch",
+    to: "s-1",
+    notice: { sender: "spend-watch", host: "build-box", severity: "warn", title: text, links: [] },
+  };
+  const read = incomingPrompt(raw, { _meta: { provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  return read.message;
+}
+
+for (const [how, message] of [
+  ["recorded with its provenance", () => senderNotice(SPEND)],
+  [
+    "read from its rendered head alone",
+    () => {
+      const read = incomingPrompt(`[notice from spend-watch on build-box · WARN] ${SPEND}`, {
+        client: "acpmux-cli#01a2f3",
+      });
+      if (read?.kind !== "message") throw new Error("not a message");
+      return read.message;
+    },
+  ],
+  // The sender's copy of its title as the body (coord_inbox.py gave an empty body its title) shows once.
+  ["with its title again as its body", () => senderNotice(SPEND, SPEND)],
+] as const)
+  test(`a sender's one-line notice ${how} opens to its text, never "No message text"`, async () => {
+    const container = await render(
+      <IncomingMessageLine id={`spend-${how}`} message={message()} onOpen={() => undefined} />,
+    );
+    const line = container.querySelector(".cv-received.cv-notice")!;
+    expect(line.classList.contains("is-warn")).toBe(true);
+    expect(line.querySelector(".cv-received__from")?.textContent).toBe("spend-watch");
+    expect(line.querySelector(".cv-received__host")?.textContent).toBe("build-box");
+    await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
+    const text = container.querySelector(".cv-received__text")!.textContent!;
+    expect(text).not.toContain("No message text");
+    expect(text).toContain(SPEND);
+    expect(text.indexOf(SPEND)).toBe(text.lastIndexOf(SPEND));
+    // The head reads on the line (sender, machine, severity), never again as words.
+    expect(text).not.toContain("[notice from");
+    expect(text).not.toContain("WARN");
+  });
+
+test("a notice of a title alone says it once to Find, on its line; one with a body opens to the body", async () => {
+  const container = await render(
+    <>
+      <IncomingMessageLine id="spend-find-alone" message={senderNotice(SPEND)} onOpen={() => undefined} />
+      <IncomingMessageLine
+        id="spend-find-body"
+        message={senderNotice(SPEND, "Its share yields to the pool at 120/h.")}
+        onOpen={() => undefined}
+      />
+    </>,
+  );
+  for (const toggle of container.querySelectorAll(".cv-disclosure__toggle"))
+    await act(async () => (toggle as HTMLElement).click());
+  const [alone, withBody] = [...container.querySelectorAll(".cv-received__text")];
+  expect(findSkipped(alone!)).toBe(true);
+  expect(findSkipped(container.querySelector(".cv-notice__title"))).toBe(false);
+  expect(withBody!.textContent).toBe("Its share yields to the pool at 120/h.");
+  expect(findSkipped(withBody!)).toBe(false);
+});
+
 test("acpmux's own who-else notice (kind who_else) reads as a notice, not the person's prompt", () => {
   const title = "greet-codex also edits greeting.txt";
   const raw = `[notice from acpmux who-else] ${title}\nMessage it with acpmux send greet-codex.`;

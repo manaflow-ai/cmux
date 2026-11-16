@@ -73,6 +73,22 @@ export function pane(render: (context: MountContext) => View): (context: MountCo
   return render
 }
 
+/** Context a New Tab page render gets: the folder the new tab starts in, when it has one. */
+export type NewTabContext = { surface: "newTab"; cwd?: string }
+
+/**
+ * A whole New Tab page (`cmux.newtab/1`): the scene is the page's body, in place of cmux's own page.
+ * It shows only once the person picks the extension (`cmux settings set tabs.newTabApp <id>`); when
+ * it is hidden, disabled or its render fails, cmux draws its own page. Open the tab the person asks
+ * for with `cmux.actions.run` from a click (scope `actions:run`).
+ *
+ *     // cmux-app.json: "implements": { "cmux.newtab/1": { "export": "renderNewTab", "title": "Launcher" } }
+ *     export const renderNewTab = newTab(() => VStack([Text("Good morning")]))
+ */
+export function newTab(render: (context: NewTabContext) => View): (context: NewTabContext) => View {
+  return render
+}
+
 /** The tool call a chat widget draws: its name, and its input and result as the agent sent them (each cut to 16 KiB). */
 export type ChatWidgetTool = { name: string; title?: string; status?: string; input?: unknown; output?: string }
 
@@ -161,8 +177,10 @@ export const EVENT_STREAMS = Object.keys(eventTable.events) as EventStream[]
 
 /** The scope the manifest must ask for to hear `stream` (`workspace:read` for `workspace.changed`). */
 export function scopeFor(stream: EventStream): string {
-  const reads = eventTable.events[stream].reads as keyof typeof scopeTable.ops
-  return scopeTable.ops[reads].scope
+  const event = eventTable.events[stream] as { reads: string; scope?: string }
+  // A reads op with a placeholder scope (integration.request): the stream names its own (github.changed).
+  if (event.scope) return event.scope
+  return scopeTable.ops[event.reads as keyof typeof scopeTable.ops].scope
 }
 
 /**

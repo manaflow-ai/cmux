@@ -108,6 +108,14 @@ struct MachineIconTests {
         #expect(SidebarMapping.machineIcon(nil) == nil)
     }
 
+    /// With no icon of the person's own, a machine draws the symbol of the device its daemon says it
+    /// is (cmux-device-kind); the person's icon still wins.
+    @Test func noIconDrawsTheDeviceSymbol() {
+        #expect(SidebarMapping.machineIcon(nil, device: "macmini") == .symbol("macmini"))
+        #expect(SidebarMapping.machineIcon(Self.asset, device: "macmini") == .symbol("macmini"), "the device stands in while the asset loads")
+        #expect(SidebarMapping.machineIcon("star.fill", device: "macmini") == .symbol("star.fill"))
+    }
+
     /// The header draws a set icon before the name and nothing extra without one; the lone
     /// machine's "Projects" header is the list's title, not the machine's, and draws none.
     @Test func theSectionHeaderDrawsTheIconOnlyWhenTheMachineHasOne() {

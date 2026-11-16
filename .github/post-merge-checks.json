@@ -1,6 +1,5 @@
 {
-  "about": "Workflows a push to feat-cmux-next starts that no pull request into it can reach (tests/test_ci_post_merge_checks.py). kind check: a verdict about the code, to move onto pull requests. kind publish: a deploy, a publish, a bot or a probe of a live system. The list and check_budget only shrink; the target for checks is 0.",
-  "check_budget": 13,
+  "about": "Workflows a push to feat-cmux-next starts that no pull request into it can reach (tests/test_ci_post_merge_checks.py). kind check: a verdict about the code, to move onto pull requests. kind publish: a deploy, a publish, a bot or a probe of a live system.",
   "workflows": {
     "acpmux-sim-sweep.yml": {
       "kind": "check",
@@ -100,7 +99,7 @@
     },
     "cmux-rd-windows.yml": {
       "kind": "check",
-      "why": "the Windows host selftest and the Windows-to-Mac live proof (#42833, #42911); the proof needs the ios-e2e environment, which pull request events do not reach, and no PR job runs Windows under steps.toml's pr_jobs budget (cmuxterm-hq#10846)"
+      "why": "the Windows host selftest and the Windows-to-Mac live proof (#42833, #42911); the proof needs the ios-e2e environment, which pull request events do not reach (cmuxterm-hq#10846)"
     },
     "cmux-tui-artifacts.yml": {
       "kind": "check",
@@ -109,6 +108,10 @@
     "cmux-tui-headless-debug.yml": {
       "kind": "publish",
       "why": "publishes the headless debug daemon from the base"
+    },
+    "cmux-tui-team-signed.yml": {
+      "kind": "publish",
+      "why": "its push run only registers the workflow (every job skips); its dispatches sign and publish a landed tree"
     },
     "cmux-tui-tree-request.yml": {
       "kind": "publish",

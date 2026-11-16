@@ -24,6 +24,7 @@ import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { Popover } from "../../../ui/Popover";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -130,6 +131,42 @@ async function openMachines(button: HTMLElement) {
 function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
+
+test("New Tab suggestions keep the composer's page glass", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await typePrompt("fix the flaky test");
+  const popover = document.querySelector(".nt-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.hasAttribute("data-host-glass")).toBe(false);
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(false);
+});
+
+test("other popovers keep native popup glass", async () => {
+  await act(async () => {
+    root!.render(
+      <Popover open onOpenChange={() => {}} anchor={container} label="Details" initialFocus={false}>
+        Details
+      </Popover>,
+    );
+  });
+  const popover = document.querySelector(".ui-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.getAttribute("data-host-glass")).toBe("popover");
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(true);
+});
 
 test("New Tab exposes the chat composer attachment menu", async () => {
   await act(async () => {

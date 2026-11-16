@@ -91,15 +91,27 @@ public final class MemoryRelaySecretStore: RelaySecretStore {
 /// Enclave key, so it runs here too.
 actor RelaySecretVault {
     let store: any RelaySecretStore
+    private var frozenForCapture = false
 
     init(store: any RelaySecretStore) {
         self.store = store
     }
 
+    /// Capture cleanup calls this after the socket and all queued vault work
+    /// have drained. Actor ordering makes the barrier cover earlier calls;
+    /// later writes become no-ops until this retired hub is released.
+    func freezeForCapture() {
+        frozenForCapture = true
+    }
+
+    /// An actor turn used as a join point for already queued keychain work.
+    func awaitIdle() {}
+
     /// After a relays listing: drops the secrets of relays no longer listed (except
     /// `keeping`, just saved here), opens and keeps the secrets sealed to this
     /// device, and returns every secret this device holds for the listed and kept relays.
     func sync(listed: [HubRelay], keeping: Set<String>, identity: DeviceIdentity) -> [String: RelaySecret] {
+        guard !frozenForCapture else { return [:] }
         let ids = Set(listed.map(\.id))
         for id in store.relayIDs() where !ids.contains(id) && !keeping.contains(id) {
             store.remove(relayID: id)
@@ -122,10 +134,12 @@ actor RelaySecretVault {
     }
 
     func save(_ secret: RelaySecret, relayID: String) {
+        guard !frozenForCapture else { return }
         store.save(secret, relayID: relayID)
     }
 
     func remove(relayID: String) {
+        guard !frozenForCapture else { return }
         store.remove(relayID: relayID)
     }
 }

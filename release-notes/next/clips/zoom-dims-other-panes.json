@@ -1,0 +1,17 @@
+{
+  "caption": "Zoom a pane and back: the other panes dim while it moves, and only then.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A workspace of its own (launch focuses the agent chat, which no script splits)", "cmux": ["workspace", "new", "--name", "Panes"]},
+    {"title": "Show it (a new workspace takes no focus)", "cmux": ["workspace", "name:Panes", "focus"], "wait": 1.5},
+    {"title": "A second pane on the right", "cmux": ["action", "run", "splitRight"], "wait": 2},
+    {"title": "A third pane below it", "cmux": ["action", "run", "splitDown"], "wait": 2.5},
+    {"title": "Zoom the pane", "cmux": ["action", "run", "toggleSplitZoom"], "wait": 1.2, "clip": true},
+    {"title": "Back to the split", "cmux": ["action", "run", "toggleSplitZoom"], "wait": 1.2, "clip": true},
+    {"title": "Zoom it again", "cmux": ["action", "run", "toggleSplitZoom"], "wait": 1.2, "clip": true},
+    {"title": "And back", "cmux": ["action", "run", "toggleSplitZoom"], "wait": 1.2, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.19, 0, 0.81, 0.9]
+}

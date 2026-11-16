@@ -320,6 +320,12 @@ pub struct Session {
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.
     pub(super) replaced: AtomicBool,
+    /// Set while a delete (`kill` with purge) runs, before it counts its stop, and kept once the
+    /// chat is gone: no agent starts for it from then on (`ensure_child`). A request that read
+    /// the stop count after the delete counted it started a new agent once the delete had taken
+    /// the old one, and that agent, its host, its record and its temporary folder outlived the
+    /// chat (`tests/session_delete_disk.rs`). Cleared when the delete fails: the chat stays.
+    pub(super) purging: AtomicBool,
     /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
     /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
     pub(super) closing: AtomicBool,
@@ -927,19 +933,65 @@ pub fn live_tags(m: &SessionMeta) -> Value {
 /// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
 /// secret across the cut leaves no head: the sub-session tools' prompt
 /// preview and every summary's running turn (`TurnInfo::masked_preview`).
+///
+/// Only the head the preview can show is scanned: `PREVIEW_SCAN_MARGIN` bytes past it, so any
+/// secret that starts in the shown text ends inside the scanned head (a private key cut at the
+/// head's end is masked to it, `secret_scan`'s `\z`). A Chief compactor prompt is about 3.1 MB,
+/// and scanning all of it for a 200-character line, once per turn, was most of acpmux's CPU on
+/// Leo's laptop (2026-11-15, 115 % with ~55 compactor sessions a minute).
 pub(crate) fn masked_preview(s: &str, max: usize) -> String {
-    short_text(&crate::secret_scan::mask(s), max)
+    short_text(&crate::secret_scan::mask(preview_head(s, max)), max)
 }
 
-pub(crate) fn short_text(s: &str, max: usize) -> String {
-    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if s.chars().count() <= max {
-        s
-    } else {
-        let mut out: String = s.chars().take(max).collect();
-        out.push('…');
-        out
+/// Bytes scanned past what a preview of `max` characters can show.
+pub(crate) const PREVIEW_SCAN_MARGIN: usize = 64 * 1024;
+
+/// The head of `s` that holds its first `max` shown characters and `PREVIEW_SCAN_MARGIN` more
+/// bytes: all of `s` when it is shorter, or when whitespace runs leave too few characters in it.
+fn preview_head(s: &str, max: usize) -> &str {
+    // 4 bytes a character at most, then the margin.
+    let room = max.saturating_mul(4).saturating_add(PREVIEW_SCAN_MARGIN);
+    if s.len() <= room.saturating_mul(2) {
+        return s;
     }
+    let mut end = room.saturating_mul(2);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    let head = &s[..end];
+    // Whitespace the preview folds away may fill the head: then nothing proves a secret shown
+    // in it ends in it, and the whole text is scanned.
+    let shown: usize = head.split_whitespace().map(str::len).sum();
+    if shown < room {
+        return s;
+    }
+    head
+}
+
+/// `s` with its whitespace runs folded to one space, cut to `max` characters (and "…"). It reads
+/// only as far as it keeps, so a long text costs no more than a short one.
+pub(crate) fn short_text(s: &str, max: usize) -> String {
+    let mut out = String::new();
+    let mut count = 0usize;
+    for (i, word) in s.split_whitespace().enumerate() {
+        if i > 0 {
+            if count == max {
+                out.push('…');
+                return out;
+            }
+            out.push(' ');
+            count += 1;
+        }
+        for c in word.chars() {
+            if count == max {
+                out.push('…');
+                return out;
+            }
+            out.push(c);
+            count += 1;
+        }
+    }
+    out
 }
 
 /// The person's text of a prompt: its text blocks, without the hidden context acpmux added
@@ -1128,5 +1180,69 @@ impl Hub {
         let guard = session.spawn_lock.lock().await;
         self.events.row_changed(session);
         SpawnLease { guard: Some(guard), session, events: &self.events }
+    }
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    fn token() -> String {
+        // Assembled at run time, as in `secret_scan_tests.rs`.
+        let body: String = "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS".chars().cycle().take(36).collect();
+        format!("gh{}_{}", "p", body)
+    }
+
+    /// The old fold: every word joined, then cut.
+    fn folded(s: &str, max: usize) -> String {
+        let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+        if s.chars().count() <= max {
+            s
+        } else {
+            let mut out: String = s.chars().take(max).collect();
+            out.push('…');
+            out
+        }
+    }
+
+    #[test]
+    fn short_text_reads_as_the_full_fold_did() {
+        for s in ["", " ", "a", "ab cd", "  ab \n\t cd  ", "ééé ééé", "one two three four"] {
+            for max in 0..12 {
+                assert_eq!(short_text(s, max), folded(s, max), "{s:?} at {max}");
+            }
+        }
+    }
+
+    /// A Chief compactor prompt (about 3.1 MB): its preview reads the same as masking all of it,
+    /// a secret at its head is masked, and only a head is scanned.
+    #[test]
+    fn a_long_prompts_preview_masks_its_head_only() {
+        let secret = token();
+        let long = format!("Compaction: use {secret} now\n{}", "view line\n".repeat(320_000));
+        assert!(long.len() > 3_000_000);
+        let preview = masked_preview(&long, 200);
+        assert_eq!(preview, short_text(&crate::secret_scan::mask(&long), 200));
+        assert!(!preview.contains(&secret), "{preview}");
+        assert!(preview_head(&long, 200).len() < 200 * 1024);
+        let started = std::time::Instant::now();
+        for _ in 0..10 {
+            masked_preview(&long, 200);
+        }
+        let head = started.elapsed() / 10;
+        let started = std::time::Instant::now();
+        short_text(&crate::secret_scan::mask(&long), 200);
+        let whole = started.elapsed();
+        eprintln!("masked_preview of {} bytes: head {head:?}, whole {whole:?}", long.len());
+    }
+
+    /// Whitespace the preview folds away cannot hide a secret past the head: the whole text is
+    /// scanned then.
+    #[test]
+    fn a_head_of_whitespace_scans_the_whole_text() {
+        let secret = token();
+        let long = format!("a{}{secret} b", " ".repeat(400_000));
+        assert_eq!(preview_head(&long, 200).len(), long.len());
+        assert!(!masked_preview(&long, 200).contains(&secret));
     }
 }

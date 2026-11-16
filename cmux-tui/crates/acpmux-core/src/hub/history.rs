@@ -9,7 +9,13 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[cfg(test)]
+mod replay_tests;
+
 const CREDIT_WINDOW_BYTES: usize = 1024 * 1024;
+// Keep ordinary replay spans and their wire envelopes below large-allocation
+// sizes. One larger operation may exceed this target, never the wire budget.
+const REPLAY_FRAME_TARGET_BYTES: usize = 64 * 1024;
 // Every encoded op is longer than 32 bytes, including an empty gone at seq 0.
 const MIN_OP_BYTES: usize = 32;
 
@@ -57,6 +63,8 @@ pub(super) struct PeerHistory {
     last: u64,
     tail: usize,
     used: usize,
+    /// Ops encoded in peer form: one per local change, whatever the number of peers.
+    encodes: u64,
 }
 
 /// A comma-separated span of the already encoded operations in the ring.
@@ -153,7 +161,9 @@ impl HistorySnapshot {
         if count == 0 {
             return None;
         }
-        let max_bytes = max_bytes.min(256 * 1024);
+        let first_entry = self.entries.get((self.head + offset) % self.entries.len())?;
+        let max_bytes =
+            first_entry.len.max(REPLAY_FRAME_TARGET_BYTES).min(max_bytes.min(256 * 1024));
         #[cfg(test)]
         let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
         let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
@@ -557,11 +567,16 @@ impl PeerHistory {
             last: start,
             tail: 0,
             used: 0,
+            encodes: 0,
         }
     }
 
     pub(super) fn last_seq(&self) -> u64 {
         self.last
+    }
+
+    pub(super) fn encodes(&self) -> u64 {
+        self.encodes
     }
 
     pub(super) fn can_resume(&self, cursor: u64) -> bool {
@@ -610,6 +625,7 @@ impl PeerHistory {
     }
 
     fn append_bytes(&mut self, seq: u64, bytes: &[u8]) -> io::Result<()> {
+        self.encodes += 1;
         if bytes.len() > self.bytes.len() {
             self.clear(self.last);
             return Err(io::Error::other("peer list op exceeds history byte capacity"));

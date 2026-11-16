@@ -33,7 +33,6 @@
    "app/api/devices/route-classification.ts::eslint/complexity": 1,
    "app/api/devices/route.ts::eslint/complexity": 1,
    "app/api/enterprise/contact/route.ts::eslint/complexity": 1,
-   "app/api/freestyle/forward-auth/route.ts::eslint/complexity": 1,
    "app/api/stripe/founders-welcome/route.ts::eslint/complexity": 1,
    "app/api/support/contact/route.ts::eslint/complexity": 1,
    "app/handler/app-session-handoff/route.ts::eslint/complexity": 1,

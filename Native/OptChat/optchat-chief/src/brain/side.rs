@@ -279,9 +279,11 @@ impl Brain {
                 .filter(|p| p.kind == cmux_conversation::ParticipantKind::Human)
                 .and_then(|p| p.person.as_deref())
                 .filter(|id| *id != cmux_chief::rules::USER_LOCAL);
+            let from = super::inbox::message_from(summary, &message);
             self.trace.emit(
                 "usage.message",
-                serde_json::json!({"id": message.id, "person": person}),
+                serde_json::json!({"id": message.id, "person": person, "from": from,
+                    "images": has_images, "files": has_files, "remote": false, "side": true}),
             );
             let sender = self.settings.membership.agent_sender(summary, &message);
             let relay = sender

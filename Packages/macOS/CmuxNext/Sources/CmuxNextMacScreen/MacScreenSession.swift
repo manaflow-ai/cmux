@@ -60,6 +60,11 @@ public final class MacScreenSession {
 
     /// The display to show in the next session (nil: the host's main display).
     @ObservationIgnored var wantedDisplay: Int?
+    /// This session's connect start, first frame and recent round trips (`mac_screen.state`;
+    /// not observed: nothing on screen follows them).
+    @ObservationIgnored var timings = MacScreenConnectTimings()
+    /// The current transport's frame counter (the pane's decoder sets it), for its frame timings.
+    @ObservationIgnored var frameCounter: MacScreenFrameCounter?
     /// The pane attaches its decoder to each new transport.
     @ObservationIgnored public var onTransport: ((RemoteRdStreamTransport) -> Void)?
     /// The host's displays (pixel sizes) and the one streamed, from its answer.
@@ -94,9 +99,14 @@ public final class MacScreenSession {
             return
         }
         phase = .connecting
+        // The first decoder session in a process is the slow one: make it now, in parallel with
+        // signaling and the host's capture start, not on the first keyframe.
+        RemoteDecoderPrewarm.start()
         isStalled = false
         frameSize = .zero
         stats = LiveStats()
+        timings.connectStarted(at: Date(), .now)
+        frameCounter = nil
         let process = MacScreenRdProcess()
         do { try process.start(.connect) } catch {
             phase = .failed(message: L.t("macScreen.rd.noBinary", "cmux could not start its screen viewer."), needsSignIn: false)
@@ -229,6 +239,7 @@ public final class MacScreenSession {
                 logger.info("cmux rd: path \(path.kind ?? "-", privacy: .public) \(path.rttMs ?? -1, privacy: .public) ms")
                 streamPath = Self.pathLabel(path.kind)
                 stats.latencyMs = path.rttMs
+                timings.sampleRtt(path.rttMs)
                 if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
             }
             if let reason = line.ended {
@@ -271,7 +282,9 @@ public final class MacScreenSession {
         guard transport == nil, let socketPath else { return }
         let carrier = RemoteRdStreamCarrier(open: { try await MacScreenUnixStream.open(path: socketPath) })
         // The hub's identity is the viewer; the host does not read these claims.
-        let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil)
+        // `cursor`: the host leaves its cursor out of the pictures and the pane draws one cursor.
+        let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
+                                  caps: [RemoteRdHello.cursorCap])
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
                                                       control: true) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
@@ -292,7 +305,10 @@ public final class MacScreenSession {
                         transport.requestKeyframe()
                     }
                     if phase != .connected { phase = .connected }
-                    if let rtt = status.rttMs { stats.latencyMs = Double(rtt) }
+                    if let rtt = status.rttMs {
+                        stats.latencyMs = Double(rtt)
+                        timings.sampleRtt(Double(rtt))
+                    }
                 case let .ended(why):
                     if case .connectionLost = why {
                         fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
@@ -346,6 +362,17 @@ public final class MacScreenSession {
             stats.fps = Double(frameWindow.frames) / (Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
             frameWindow = (.now, 0)
         }
+    }
+
+    /// The current transport's counter heard from (every 15th frame, and the first): the first
+    /// frame's time and the frames the other Mac numbered that never showed here. An old
+    /// transport's late batch is not this session's.
+    func framesCounted(_ counter: MacScreenFrameCounter) {
+        guard counter === frameCounter else { return }
+        let frames = counter.timings
+        if let first = frames.firstPresentedAt { timings.firstFrame(at: first) }
+        let dropped = Double(frames.dropped)
+        if stats.framesDropped != dropped { stats.framesDropped = dropped }
     }
 
     public func setStreamFrameSize(_ size: CGSize) {

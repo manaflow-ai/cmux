@@ -308,7 +308,8 @@ jobs:
           bun ../images/cmux-vm/first-build.ts --mode after --snapshot "$SNAPSHOT" --tag "$TAG" --ref "$GITHUB_SHA" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-build-after.out"
 
       # The agent tools probe (agent-tools-probe.ts) on a clone of this image: the recorded MCP servers and
-      # skills, the agent display, computer use and the cmux-rd desktop socket (rd-* checks). The probe deletes
+      # skills, the agent display, computer use, the cmux-rd desktop socket (rd-* checks) and the harness gate (acp ensure
+      # for every harness the Cloud chat picker offers, harness-gate.ts). The probe deletes
       # its clone. --agent-tools images only, with probes on.
       - name: Agent tools probe
         if: inputs.mode == 'bake' && inputs.agent_tools && inputs.probes
@@ -351,6 +352,7 @@ jobs:
              {schema: 1, env: "dev", var: $var, snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate),
               bake: "\($bake) (CI run \($run))", smoke: {result: "PASSED", at: (now|todate), detail: "\($smoke) (CI run \($run)): \($s[0].checks | length) checks passed"}}
              + (if ($b[0].desktop // null) != null then {desktop: $b[0].desktop} else {} end)
+             + (if ($b[0].inputsSha256 // null) != null then {inputs_sha256: $b[0].inputsSha256} else {} end)
              + (if ($b[0].daemonIdentify.capabilities // [] | type) == "array" then {cmux_tui: {commit: ($b[0].daemonIdentify.build_commit // $sha), committed_at: (now|todate), capabilities: $b[0].daemonIdentify.capabilities}} else {} end)
              + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)' \
             > "$candidate"
@@ -475,6 +477,7 @@ jobs:
              {schema: 1, env: "production", copy_of: $dev, var: $var, snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate),
               bake: "\($bake) (CI run \($run))", smoke: {result: "PASSED", at: (now|todate), detail: "\($smoke) (CI run \($run)): \($s[0].checks | length) checks passed"}}
              + (if ($b[0].desktop // null) != null then {desktop: $b[0].desktop} else {} end)
+             + (if ($b[0].inputsSha256 // null) != null then {inputs_sha256: $b[0].inputsSha256} else {} end)
              + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)' \
             > "$OUT_DIR/channel-production.json"
           cat "$OUT_DIR/channel-production.json"
@@ -560,7 +563,7 @@ jobs:
           if-no-files-found: warn
           # Keep only candidates that passed every gate for delayed manual promotions; transient
           # and failed bakes expire quickly so they cannot consume the repository quota.
-          retention-days: ${{ fromJSON(((inputs.mode == 'prod-copy' && steps.prod_candidate.outcome == 'success') || (inputs.mode == 'bake' && steps.candidate.outcome == 'success')) && '30' || '3') }}
+          retention-days: ${{ fromJSON(((inputs.mode == 'prod-copy' && steps.prod_candidate.outcome == 'success') || (inputs.mode == 'bake' && steps.candidate.outcome == 'success')) && '7' || '3') }}
 
 
   # Time to first build on new machines of the dev channel's image, which has no dev tree:

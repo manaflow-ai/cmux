@@ -13,6 +13,40 @@ public nonisolated enum RemoteViewTabSource: Sendable, Hashable {
     case person
 }
 
+/// Human-facing context shared by remote connection gates. Machine ids stay in the transport
+/// record; the gate receives only the name and status a person needs.
+public nonisolated struct RemoteConnectionTarget: Sendable, Hashable {
+    public enum Kind: String, CaseIterable, Sendable, Hashable {
+        case desktop, terminal, browser, ports
+    }
+
+    /// A name a person reads; empty when there is none (the card says "Cloud machine"), never an id.
+    public var name: String
+    public var status: String?
+    public var region: String?
+    public var kind: Kind
+    /// Script, agent and restore opens require an explicit press. Person-opened targets skip the gate.
+    public var requiresConfirmation: Bool
+    /// The status is a live one (running, starting): the card's status dot is the success color.
+    public var isLive: Bool
+
+    public init(name: String, status: String? = nil, region: String? = nil, kind: Kind = .desktop,
+                requiresConfirmation: Bool = true, isLive: Bool = false) {
+        self.name = name
+        self.status = status
+        self.region = region
+        self.kind = kind
+        self.requiresConfirmation = requiresConfirmation
+        self.isLive = isLive
+    }
+
+    /// Builds the desktop variant used by Cloud connection gates.
+    public static func desktop(name: String, status: String?, region: String?, requiresConfirmation: Bool = true,
+                               isLive: Bool = false) -> Self {
+        Self(name: name, status: status, region: region, kind: .desktop, requiresConfirmation: requiresConfirmation, isLive: isLive)
+    }
+}
+
 /// What a `remote_view` tab shows.
 public nonisolated enum RemoteViewTabDecision: Sendable, Hashable {
     /// Start the pane for the record (the App picks the stream source).

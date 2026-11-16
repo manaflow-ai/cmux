@@ -608,6 +608,36 @@ impl Store for ForkView {
         }
         self.inner.scan_kinds(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
+    /// `scan_kinds`'s join, `keep` shown the heads of both sides: the parent's past the fork
+    /// point and the fork's own before it are shown and never visited, which only keeps more.
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else {
+            return self.inner.scan_kinds_keyed(id, kinds, keep, visit);
+        };
+        let shown: Vec<&str> = kinds.iter().copied().filter(|k| is_history(k)).collect();
+        let mut going = true;
+        if !shown.is_empty() {
+            self.scan_kinds_keyed(&r.session, &shown, keep, &mut |rec| {
+                if rec.seq > r.through_seq {
+                    return false;
+                }
+                going = visit(rec);
+                going
+            })?;
+        }
+        if !going {
+            return Ok(());
+        }
+        self.inner
+            .scan_kinds_keyed(id, kinds, keep, &mut |rec| rec.seq <= r.through_seq || visit(rec))
+    }
     fn scan_kinds_strict(
         &self,
         id: &str,

@@ -960,7 +960,7 @@ while True:
         if said.strip() == "compact-stop":
             compact_stop()
             continue
-        if said.strip() == "long-step":
+        if without_sender_line(said).strip() == "long-step":
             long_step(msg)
             continue
         if said.startswith("gated: "):

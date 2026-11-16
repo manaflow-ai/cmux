@@ -24,18 +24,13 @@ public nonisolated struct CmuxToastTunables {
         "toast.glass", section, "Glass",
         help: "The glass gallery look the toasts draw on. Reduce Transparency keeps the opaque surface.",
         default: .liquidVeil, code: "CmuxToastTunables.glass")
-    public static let horizontalPadding = Tunable<Double>.number(
-        "toast.horizontalPadding", section, "Leading padding",
-        help: "Room between the toast's leading edge and its message.",
-        default: 12, range: 4...32, step: 1, unit: .points, code: "CmuxToastTunables.horizontalPadding")
-    public static let trailingPadding = Tunable<Double>.number(
-        "toast.trailingPadding", section, "Trailing padding",
-        help: "Room between the close button and the toast's trailing edge.",
-        default: 8, range: 2...32, step: 1, unit: .points, code: "CmuxToastTunables.trailingPadding")
-    public static let verticalPadding = Tunable<Double>.number(
-        "toast.verticalPadding", section, "Vertical padding",
-        help: "Room above and below the toast's row.",
-        default: 8, range: 2...24, step: 1, unit: .points, code: "CmuxToastTunables.verticalPadding")
+    /// The one padding of a toast (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+    /// inside"): the same on the top, the bottom and the trailing side; the corner rounds from it
+    /// (``ConcentricContainer``) and the message starts the corner's radius in.
+    public static let padding = Tunable<Double>.number(
+        "toast.verticalPadding", section, "Padding",
+        help: "Room between the toast's edge and its buttons, the same on every side. The corner is the buttons' corner plus this.",
+        default: 8, range: 2...24, step: 1, unit: .points, code: "CmuxToastTunables.padding")
     public static let buttonSpacing = Tunable<Double>.number(
         "toast.buttonSpacing", section, "Button spacing",
         help: "Room between the toast's buttons (Don't Show Again, close).",
@@ -55,7 +50,7 @@ public nonisolated struct CmuxToastTunables {
         default: .all, code: "CmuxToastTunables.playgroundFocus")
 
     public static var all: [TunableDescriptor] {
-        [durationScale.descriptor, minimumSeconds.descriptor, glass.descriptor, horizontalPadding.descriptor, trailingPadding.descriptor,
-         verticalPadding.descriptor, buttonSpacing.descriptor, messageWidth.descriptor, rise.descriptor, playgroundFocus.descriptor]
+        [durationScale.descriptor, minimumSeconds.descriptor, glass.descriptor,
+         padding.descriptor, buttonSpacing.descriptor, messageWidth.descriptor, rise.descriptor, playgroundFocus.descriptor]
     }
 }

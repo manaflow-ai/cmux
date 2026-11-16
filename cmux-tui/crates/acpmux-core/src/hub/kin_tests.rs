@@ -15,6 +15,7 @@ fn page(filter: ListFilter) -> Page {
         filter: Some(filter),
         edition: None,
         fold: None,
+        turns: false,
     }
 }
 

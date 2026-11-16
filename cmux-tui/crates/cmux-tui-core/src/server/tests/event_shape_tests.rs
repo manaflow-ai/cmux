@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn screen_device_changed_event_preserves_identity_and_removal() {
+    assert_eq!(
+        subscribed_event_json(&MuxEvent::ScreenDeviceChanged(Some(
+            "550e8400-e29b-41d4-a716-446655440000".into(),
+        ))),
+        json!({
+            "event": "screen-device-changed",
+            "screen_device_id": "550e8400-e29b-41d4-a716-446655440000",
+        })
+    );
+    assert_eq!(
+        subscribed_event_json(&MuxEvent::ScreenDeviceChanged(None)),
+        json!({
+            "event": "screen-device-changed",
+            "screen_device_id": null,
+        })
+    );
+}
+
+#[test]
 fn agent_presence_changed_event_carries_the_target_and_clears_with_nulls() {
     let presence = crate::AgentPresence {
         activity: crate::AgentActivity::Reading,

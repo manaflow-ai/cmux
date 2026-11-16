@@ -29,7 +29,10 @@
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against a Debug app; with ui= and no only=, the kit run is skipped
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
-#               to ui-video.mp4 in the artifact: before/after videos of a change
+#               to ui-video.mp4 in the artifact: before/after videos of a change;
+#               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
+#               540 wide, H.264 CRF 30, no audio, small enough for PR media
+#               (lane-gh media takes at most 25 MiB)
 #             profile record a CPU stack-sampling profile of the UI test run:
 #               `xctrace record --instrument 'Time Profiler' --all-processes`
 #               on the host (a simulator app is a host process, so every launch
@@ -126,12 +129,20 @@
 #                          then head, on the one simulator (as listperf's base=)
 #             reps=N       repetitions of every case (1-5, default 1)
 #             seconds=S    seconds sampled per case (10-1800, default 30)
-#             cases=A,B    cases by label (default: every case but drift-30m
-#                          and hidden-terminals-4):
+#             cases=A,B    cases by label (default: every case but drift-30m,
+#                          hidden-terminals-4 and the running-chat ones):
 #                          idle-home idle-home-5000 idle-chat-400 tabs-10
 #                          scroll-chat-200 stream-chat background-home drift-30m
 #                          hidden-terminals-4 (4 warm terminal tabs streaming,
 #                          hidden behind the workspaces list)
+#                          idle-chat-40 working-chat working-chat-away working-chat-bg
+#                          (a chat with one running turn, its elapsed time live: on screen,
+#                          scrolled away, the app in the background; each counts the
+#                          time's redraws, `label ticks` in SUMMARY.md)
+#                          typical-hour-pty typical-hour-lean (10 minutes of a
+#                          visible Claude Code terminal replaying its recorded
+#                          session, as PTY bytes or as lean frames, the app's own
+#                          DaemonTerminalSession on a fake Mac; x6 for an hour)
 #           SUMMARY.md gets one row per run; the artifact keeps energy/.
 #
 # Isolation: the step makes its own simulator device set under its checkout
@@ -239,10 +250,18 @@ energy_table=(
   "idle-chat-400    chat    idle        -     LIST_COUNT=400 LIST_PASSES=0"
   "tabs-10          tabs    idle        -     LIST_COUNT=10 LIST_PASSES=0"
   "hidden-terminals-4 terminals stream -    LIST_COUNT=4 LIST_STREAM=1 LIST_PASSES=0"
+  "idle-terminal     terminals idle   -     LIST_COUNT=1 LIST_PASSES=0 LIST_TERMINAL_VISIBLE=1"
+  "visible-busy-terminal terminals stream - LIST_COUNT=1 LIST_STREAM=1 LIST_PASSES=0 LIST_TERMINAL_VISIBLE=1"
   "scroll-chat-200  chat    scroll      -     LIST_COUNT=200 LIST_PASSES=50 LIST_SETTLE=1"
   "stream-chat      chat    stream      -     LIST_COUNT=40 LIST_STREAM=1 LIST_PASSES=0"
   "background-home  home    background  -     LIST_COUNT=20 LIST_PASSES=0"
   "drift-30m        home    idle        1800  LIST_COUNT=20 LIST_PASSES=0"
+  "idle-chat-40      chat    idle        -     LIST_COUNT=40 LIST_PASSES=0"
+  "working-chat      chat    idle        -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1 LIST_LEAVE_NEWEST=0"
+  "working-chat-away chat    idle        -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1"
+  "working-chat-bg   chat    background  -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1 LIST_LEAVE_NEWEST=0"
+  "typical-hour-pty  hybrid  stream      600   HYBRID_BENCH_LOOP=1 HYBRID_BENCH_MODE=pty HYBRID_BENCH_FILE=@REPO@/cmux-next-ios/verify/agent-cli-hybrid/claude-code-2.1.310.json"
+  "typical-hour-lean hybrid  stream      600   HYBRID_BENCH_LOOP=1 HYBRID_BENCH_MODE=lean HYBRID_BENCH_FILE=@REPO@/cmux-next-ios/verify/agent-cli-hybrid/claude-code-2.1.310.json"
 )
 energy_reps=1 energy_seconds=30
 energy_cases=(idle-home idle-home-5000 idle-chat-400 tabs-10 scroll-chat-200 stream-chat background-home)
@@ -858,6 +877,19 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     kill -INT "$recorder" 2>/dev/null
     wait "$recorder"
     note "- UI test video: ui-video.mp4 ($(du -h "$out/ui-video.mp4" 2>/dev/null | cut -f1 || echo missing))"
+    ffmpeg_bin="$(command -v ffmpeg || true)"
+    [[ -n "$ffmpeg_bin" || ! -x /opt/homebrew/bin/ffmpeg ]] || ffmpeg_bin=/opt/homebrew/bin/ffmpeg
+    if [[ -s "$out/ui-video.mp4" && -n "$ffmpeg_bin" ]]; then
+      if "$ffmpeg_bin" -v error -y -i "$out/ui-video.mp4" -vf "scale=540:-2" -c:v libx264 -preset veryfast \
+          -crf 30 -pix_fmt yuv420p -an -movflags +faststart "$out/ui-video-small.mp4" </dev/null; then
+        note "- UI test video, small copy: ui-video-small.mp4 ($(du -h "$out/ui-video-small.mp4" | cut -f1))"
+      else
+        rm -f "$out/ui-video-small.mp4"
+        note "- UI test video, small copy: ffmpeg failed, none"
+      fi
+    elif [[ -s "$out/ui-video.mp4" ]]; then
+      note "- UI test video, small copy: no ffmpeg on this host, none"
+    fi
   fi
   if [[ $ui_profile -eq 1 ]]; then
     ui_profile_finish
@@ -1117,51 +1149,9 @@ if [[ "$mode" == energy ]]; then
   en="$out/energy"
   mkdir -p "$en"
   sides=(head)
+  label_ticks=()
   [[ -z "$base_app" ]] || sides=(base head)
   rusage=cmux-next-ios/verify/energy_rusage.py
-  # Every way this Mac has to read a process's wakeups and energy, over one window, side by side:
-  # ps, proc_pid_rusage (what the table uses), top, and an xctrace Activity Monitor recording.
-  # The head's first rep of each case runs it after its sampled window; energy/probe-RUN/ keeps it.
-  energy_probe() {
-    local run=$1 pid=$2 d="$en/probe-$1" rp tp schema
-    mkdir -p "$d"
-    {
-      echo "== probe $run (pid $pid)"
-      echo "-- ps"
-      ps -o pid,%cpu,rss,time,command -p "$pid" 2>&1 | cut -c1-160 || true
-      echo "-- proc_pid_rusage (one reading)"
-      python3 -I "$rusage" once "$pid" 2>&1 || true
-    } >"$d/probe.txt"
-    python3 -I "$rusage" sample "$pid" 12 "$d/rusage.jsonl" >/dev/null 2>&1 &
-    rp=$!
-    top -l 13 -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$d/top.txt" 2>&1 &
-    tp=$!
-    perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace record --template 'Activity Monitor' --attach "$pid" \
-      --time-limit 10s --output "$d/am.trace" --no-prompt >"$d/xctrace-record.txt" 2>&1 ||
-      echo "-- xctrace record --attach exited $? ($(tail -n 1 "$d/xctrace-record.txt"))" >>"$d/probe.txt"
-    if [[ ! -d "$d/am.trace" ]]; then
-      perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace record --template 'Activity Monitor' --all-processes \
-        --time-limit 10s --output "$d/am.trace" --no-prompt >>"$d/xctrace-record.txt" 2>&1 ||
-        echo "-- xctrace record --all-processes exited $? ($(tail -n 1 "$d/xctrace-record.txt"))" >>"$d/probe.txt"
-    fi
-    wait "$rp" 2>/dev/null || true
-    wait "$tp" 2>/dev/null || true
-    {
-      echo "-- proc_pid_rusage over the window (energy_summary.py; top beside it)"
-      python3 -I cmux-next-ios/verify/energy_summary.py "$d/rusage.jsonl" "$d/top.txt" "$pid" "probe-$run" probe 2>&1 || true
-      if [[ -d "$d/am.trace" ]]; then
-        perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace export --input "$d/am.trace" --toc >"$d/toc.xml" 2>&1 || true
-        echo "-- xctrace tables: $(grep -o 'schema="[^"]*"' "$d/toc.xml" | sort -u | tr '\n' ' ')"
-        for schema in $(grep -o 'schema="[^"]*"' "$d/toc.xml" | sed 's/schema="//; s/"$//' | sort -u | grep -i -E 'activity-monitor|process|energy|wake'); do
-          perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace export --input "$d/am.trace" \
-            --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$schema\"]" >"$d/$schema.xml" 2>&1 || continue
-          python3 -I "$rusage" xctrace-rows "$d/$schema.xml" "$pid" 2>&1 | head -n 20 || true
-        done
-        rm -rf "$d/am.trace"
-      fi
-    } >>"$d/probe.txt" 2>&1
-    cut -c1-400 "$d/probe.txt"
-  }
   # Where a busy case's CPU goes: a 15 s CPU stack-sampling recording of the app right after its
   # sampled window (first rep, each side), summarized per main-thread symbol by
   # ios_sim_time_profile.py. The instrument, not the 'Time Profiler' template (its os_log source
@@ -1198,13 +1188,19 @@ if [[ "$mode" == energy ]]; then
     if [[ -f "$d/time.trace.zip" ]]; then bytes=$(wc -c < "$d/time.trace.zip"); fi
     if (( bytes > 536870912 )); then rm -f "$d/time.trace.zip"; echo "$run: trace over 512 MiB zipped, dropped (the summary stays)"; fi
   }
+  # The last `received-bytes total=N` the app logged (0 before the first).
+  energy_received_total() {
+    local n
+    n="$(grep -oE 'FRAMELOG list-stress received-bytes total=[0-9]+' "$1" | tail -n 1 | sed 's/.*total=//')"
+    echo "${n:-0}"
+  }
   note ""
   note "## Battery and memory (Demo build, mock mode, ${device_type##*.} on ${runtime##*.}; cmux-next-ios/verify/energy.md)"
   note ""
   note "Kernel counters for the app's process (proc_pid_rusage, no root): CPU time, interrupt wakeups, ri_energy_nj as mW, phys_footprint."
   note ""
-  note "| Run | Phase | s | CPU % | Wakeups/s | Energy mW | MEM start MB | MEM end MB | MEM max MB |"
-  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+  note "| Run | Phase | s | CPU % | Wakeups/s | Energy mW | Received B/s | MEM start MB | MEM end MB | MEM max MB |"
+  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
   for rep in $(seq 1 "$energy_reps"); do
     for case_name in "${energy_cases[@]}"; do
       line="$(printf '%s\n' "${energy_table[@]}" | awk -v c="$case_name" '$1 == c')"
@@ -1220,7 +1216,8 @@ if [[ "$mode" == energy ]]; then
         side_app="$app"
         [[ "$side" == head ]] || side_app="$base_app"
         envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 "SIMCTL_CHILD_CMUX_MOBILE_LIST_SCREEN=$screen")
-        for kv in $settings; do envs+=("SIMCTL_CHILD_CMUX_MOBILE_$kv"); done
+        # @REPO@ is this checkout: a simulator app reads the host's files (the typical-hour session).
+        for kv in $settings; do envs+=("SIMCTL_CHILD_CMUX_MOBILE_${kv//@REPO@/$PWD}"); done
         # A clean install of this side's app: no data container carried over from the other side.
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
@@ -1257,21 +1254,34 @@ if [[ "$mode" == energy ]]; then
         # One kernel reading a second for case_seconds (energy_rusage.py); top beside it as a cross-check.
         top -l "$(( case_seconds + 1 ))" -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$en/$run.top.txt" 2>&1 &
         top_pid=$!
+        # A running chat (LIST_HOLD_TURN=1) logs each redraw of its elapsed time: count those in the sample.
+        ticks_before="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
+        # The bytes the app received (ReceivedByteCount.swift: the link's daemon channels, or the mock
+        # shells' output in mock mode): its last logged total before and after the window.
+        received_before="$(energy_received_total "$logf")"
         python3 -I "$rusage" sample "$pid" "$case_seconds" "$en/$run.rusage.jsonl" || echo "$run: rusage sampler exited $?"
         wait "$top_pid" 2>/dev/null || true
+        sleep 1  # the counter logs its total a second after bytes arrive
+        received_per_s=$(( ( $(energy_received_total "$logf") - received_before ) / case_seconds ))
+        # An app without the counter (an older base) logs no total: `-`, not 0.
+        grep -qF -- "FRAMELOG list-stress received-bytes" "$logf" || received_per_s=-
+        if [[ " $settings " == *" LIST_HOLD_TURN=1 "* ]]; then
+          ticks_after="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
+          label_ticks+=("- $run: label ticks $(( ticks_after - ticks_before )) in $case_seconds s (elapsed-time redraws while sampled)")
+        fi
         if [[ "$rep" == 1 && ( "$phase" == stream || "$phase" == scroll ) ]]; then energy_time_profile "$run" "$pid"; fi
-        [[ "$rep" != 1 || "$side" != head ]] || energy_probe "$run" "$pid"
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
         kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
-        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.rusage.jsonl" "$en/$run.top.txt" "$pid" "$run" "$phase" >"$en/$run.json" ||
+        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.rusage.jsonl" "$en/$run.top.txt" "$pid" "$run" "$phase" "$received_per_s" >"$en/$run.json" ||
           { echo "$run: no samples"; energy_status=1; continue; }
         python3 -I cmux-next-ios/verify/energy_summary.py --row "$en/$run.json" | tee -a "$summary"
       done
     done
   done
   simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
-  note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples and probes: energy/"
+  for line in ${label_ticks[@]+"${label_ticks[@]}"}; do note "$line"; done
+  note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples: energy/"
   [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID, no ready line or no samples; see energy/)"
 fi
 

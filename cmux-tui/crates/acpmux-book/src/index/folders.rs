@@ -621,6 +621,7 @@ mod tests {
 #[cfg(test)]
 mod release_gates {
     use super::*;
+    use crate::gate_rounds::{self, all_p95, best_p95};
     use std::fs::OpenOptions;
     use std::hint::black_box;
     use std::io::Write;
@@ -631,21 +632,15 @@ mod release_gates {
     const SAMPLES: usize = 200;
     const HELD_VERSIONS: usize = 1_000;
 
-    fn p95(samples: &[u128]) -> u128 {
-        let mut values = samples.to_vec();
-        values.sort_unstable();
-        values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
+    fn timed<F: FnMut() -> u128>(mut sample: F) -> Vec<Vec<u128>> {
+        (0..ROUNDS).map(|_| (0..SAMPLES).map(|_| sample()).collect()).collect()
     }
 
-    fn timed<F: FnMut() -> u128>(mut sample: F) -> (u128, u128) {
-        let mut rounds = Vec::with_capacity(ROUNDS * SAMPLES);
-        for _ in 0..ROUNDS {
-            for _ in 0..SAMPLES {
-                rounds.push(sample());
-            }
-        }
-        let best = rounds.chunks_exact(SAMPLES).map(p95).min().unwrap_or(1);
-        (best, p95(&rounds))
+    /// The row's rounds through [`gate_rounds::report`], then its line: each side's best round
+    /// and every god sample's p95.
+    fn gate_rounds_row(name: &str, small: &[Vec<u128>], god: &[Vec<u128>]) {
+        gate_rounds::report(name, &[("small", small), ("god", god)]);
+        gate(name, best_p95(small), best_p95(god), all_p95(god), "ns");
     }
 
     fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
@@ -800,9 +795,9 @@ mod release_gates {
             1,
         );
         let god_entry = small_entry.clone();
-        let (small_p95, _) = timed(|| apply_newest(&small, small_entry.clone()));
-        let (god_p95, god_p95_all) = timed(|| apply_newest(&god, god_entry.clone()));
-        gate("v2.pr05f.apply_newest", small_p95, god_p95, god_p95_all, "ns");
+        let small_rounds = timed(|| apply_newest(&small, small_entry.clone()));
+        let god_rounds = timed(|| apply_newest(&god, god_entry.clone()));
+        gate_rounds_row("v2.pr05f.apply_newest", &small_rounds, &god_rounds);
     }
 
     #[test]
@@ -818,9 +813,9 @@ mod release_gates {
             10_000,
             1,
         );
-        let (small_p95, _) = timed(|| apply_move(&small, remove.clone(), insert.clone()));
-        let (god_p95, god_p95_all) = timed(|| apply_move(&god, remove.clone(), insert.clone()));
-        gate("v2.pr05f.apply_move", small_p95, god_p95, god_p95_all, "ns");
+        let small_rounds = timed(|| apply_move(&small, remove.clone(), insert.clone()));
+        let god_rounds = timed(|| apply_move(&god, remove.clone(), insert.clone()));
+        gate_rounds_row("v2.pr05f.apply_move", &small_rounds, &god_rounds);
     }
 
     #[test]
@@ -828,9 +823,9 @@ mod release_gates {
     fn pr05f_first_window() {
         let small = fixture(5);
         let god = fixture(2_000);
-        let (small_p95, _) = timed(|| page_window(&small));
-        let (god_p95, god_p95_all) = timed(|| page_window(&god));
-        gate("v2.pr05f.first_window", small_p95, god_p95, god_p95_all, "ns");
+        let small_rounds = timed(|| page_window(&small));
+        let god_rounds = timed(|| page_window(&god));
+        gate_rounds_row("v2.pr05f.first_window", &small_rounds, &god_rounds);
     }
 
     #[test]
@@ -848,9 +843,9 @@ mod release_gates {
             .next()
             .map(|row| FolderCursor::new(row.at, row.key()))
             .expect("small cursor");
-        let (small_p95, _) = timed(|| deep_page(&small, &small_cursor));
-        let (god_p95, god_p95_all) = timed(|| deep_page(&god, &cursor));
-        gate("v2.pr05f.deep_page", small_p95, god_p95, god_p95_all, "ns");
+        let small_rounds = timed(|| deep_page(&small, &small_cursor));
+        let god_rounds = timed(|| deep_page(&god, &cursor));
+        gate_rounds_row("v2.pr05f.deep_page", &small_rounds, &god_rounds);
     }
 
     #[test]

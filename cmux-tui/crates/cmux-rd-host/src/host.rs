@@ -28,7 +28,8 @@ use std::time::Duration;
 const DEFAULT_DISPLAY: &str = ":99";
 #[cfg(target_os = "macos")]
 const DEFAULT_DISPLAY: &str = "main";
-/// Linux: Cisco's OpenH264 binary. macOS: the hardware encoder, fed the captured IOSurface.
+/// Linux: Cisco's OpenH264 binary (`--codec auto` opts into the GPU through VAAPI, else OpenH264;
+/// it becomes the default once it is measured on GPUs, hq#12040). macOS: the hardware encoder.
 #[cfg(target_os = "linux")]
 pub(crate) const DEFAULT_CODEC: &str = "openh264";
 #[cfg(target_os = "macos")]
@@ -133,7 +134,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         codec: opts.str_or("codec", DEFAULT_CODEC),
         content: opts.str_or("content", "screen"),
         openh264_lib: opts.get("openh264-lib").map(str::to_owned),
-        threads: opts.num_or("threads", 2)?,
+        threads: opts.num_or("threads", crate::encoder::default_threads())?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
         settle_us: opts.num_or("settle-us", DEFAULT_SETTLE_US)?,
         upstream_record: opts.get("upstream-record").map(std::path::PathBuf::from),
@@ -148,6 +149,13 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
             .transpose()?,
+        // The Cloud host streams its own virtual X display unless `--capture portal` asks
+        // for the compositor's screen (a Wayland desktop).
+        capture: opts
+            .get("capture")
+            .map(crate::capture_backend::CaptureBackend::parse)
+            .transpose()?
+            .unwrap_or_default(),
     })
 }
 
@@ -164,7 +172,7 @@ fn owner_policy(owner: String) -> HostPolicy {
 
 /// `--xauthority PATH`: the X cookie for the display connections (Linux), as `XAUTHORITY`.
 /// Set before any thread or X connection starts.
-fn set_xauthority(opts: &Opts) -> Res<()> {
+pub(crate) fn set_xauthority(opts: &Opts) -> Res<()> {
     let Some(path) = opts.get("xauthority") else {
         return Ok(());
     };
@@ -492,6 +500,10 @@ fn serve_viewer<S: ViewerStream>(
     // A UDP media link next to a stream carrier (the systemd socket), in a build with the link.
     if cfg!(feature = "link") && link.is_some() && udp.is_none() {
         host_caps.push(caps::LINK_UDP);
+    }
+    // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
+    if crate::desktop::reports_cursor() {
+        host_caps.push(caps::CURSOR);
     }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,

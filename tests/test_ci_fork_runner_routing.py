@@ -5,14 +5,17 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import yaml
-import workflow_jobs
-from job_lists_routing import (
+# workflow_jobs and job_lists_routing are beside this file: `python3 -I` puts no script folder on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+from job_lists_routing import (  # noqa: E402
     NIGHTLY,
     merge_gating_jobs,
     unresolved_name_jobs,
@@ -21,7 +24,6 @@ from job_lists_routing import (
     unresolved_environment_jobs,
     workflow_texts,
 )
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
@@ -675,6 +677,23 @@ FORK_WRAPPED_POOL_READ = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
 )
+# A route whose owned fallback is itself behind the macOS Blacksmith switch.
+# The fork branch still wins before the fallback; reduce the whole expression
+# to that branch so the detector does not mistake the guarded owner route for
+# an unguarded fork path. Since #43860 the fallback of some routes starts with
+# the switch's `pr-rescue` read: that clause is optional here, as an exact text.
+FORK_WRAPPED_GUARDED_POOL_READ = re.compile(
+    r"\((github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+    r"github\.repository && 'blacksmith-[^']+') \|\| "
+    r"\((?:\(vars\.CI_BLACKSMITH_MACOS != 'pr-rescue' \|\| github\.run_attempt < 2 \|\| "
+    r"github\.event_name != 'pull_request' && \(github\.event_name != 'workflow_dispatch' \|\| "
+    r"!contains\(fromJSON\('\[\"github-actions\[bot\]\",\"cmux-bot\[bot\]\"\]'\), github\.triggering_actor\) \|\| "
+    r"inputs\.same_tree_origin != '' && inputs\.same_tree_origin != 'pull_request' \|\| "
+    r"inputs\.dev_daily == true \|\| inputs\.tip_swift_suite == true \|\| inputs\.tip_daemon_suite == true \|\| "
+    r"inputs\.base_tier == true \|\| inputs\.no_reuse == true\)\) && )?"
+    r"vars\.CI_BLACKSMITH_MACOS != 'on' && vars\.CI_SIDE_LANE_RUNNER \|\| "
+    r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)\)"
+)
 
 
 def fork_pull_request_gate_error(
@@ -693,6 +712,7 @@ def fork_pull_request_gate_error(
     """
     if not selector.search(line):
         return None
+    line = FORK_WRAPPED_GUARDED_POOL_READ.sub(r"\1", line)
     line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
     try:
         outside = EXPRESSION.sub("", line)

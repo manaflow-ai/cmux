@@ -68,7 +68,7 @@ extension MotionGate {
             swell.values = [0, min(1, rest + Motion.steadyPulseRise), rest]
             swell.keyTimes = [0, 0.4, 1]
             swell.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut)]
-            swell.duration = Motion.steadyPulseDuration * speed.timeScale
+            swell.duration = policy.scaled(Motion.steadyPulseDuration)
             return swell
         case .blink:
             let count = min(max(settings.blinkCount, AttentionSettings.blinkRange.lowerBound), AttentionSettings.blinkRange.upperBound)

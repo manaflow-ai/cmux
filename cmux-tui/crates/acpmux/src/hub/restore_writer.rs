@@ -345,6 +345,34 @@ impl Hub {
         self.scan_kinds_and_kept(session, kinds, f)
     }
 
+    /// [`Self::scan_for_rebuild`] of the records whose head `keep` keeps
+    /// ([`crate::store::Store::scan_kinds_keyed`]), in order: the journal's, then the kept ones.
+    pub(super) fn scan_for_rebuild_keyed(
+        &self,
+        session: &Session,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&crate::store::KindHead<'_>) -> bool,
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        let mut going = true;
+        self.store.scan_kinds_keyed(&session.id, kinds, keep, &mut |e| {
+            going = f(e);
+            going
+        })?;
+        if self.at_918d() {
+            return Ok(());
+        }
+        for e in self.kept_unstored(session, kinds) {
+            if !going {
+                break;
+            }
+            if keep(&crate::store::KindHead::of(&e)) {
+                going = f(e);
+            }
+        }
+        Ok(())
+    }
+
     /// The records of `kinds` kept for `session` that are not in its journal yet: those the
     /// store refused ([`Session::unparked`]), then those parked while a restore owns it, in
     /// order, numbered past the journal's end as they go in. A rebuild of the queue reads them

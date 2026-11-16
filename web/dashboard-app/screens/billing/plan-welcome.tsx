@@ -24,7 +24,6 @@ export function PlanWelcome({ plan }: { readonly plan: WelcomePlan }) {
       </ul>
       <div className="mt-3 flex flex-wrap gap-2">
         <Link to="/dashboard/testflight" className={settingsButtonClass("primary", "sm")}>{t("welcome.ios")}</Link>
-        <Link to="/dashboard/cloud" className={settingsButtonClass("secondary", "sm")}>{t("welcome.cloud")}</Link>
         <Link to="/dashboard/teams/new" className={settingsButtonClass("secondary", "sm")}>{t("welcome.team")}</Link>
       </div>
     </section>

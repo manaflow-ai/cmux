@@ -130,11 +130,11 @@ struct CmuxToastNeverShowTests {
         store.activate(file: nil)
         store.set(CmuxToastTunables.durationScale.key, .number(3))
         store.set(CmuxToastTunables.glass.key, CmuxToastGlass.frost.tunableValue)
-        store.set(CmuxToastTunables.horizontalPadding.key, .number(20))
+        store.set(CmuxToastTunables.padding.key, .number(12))
         let tuning = CmuxToastTuning(store: store)
         #expect(tuning.durationScale == 3)
         #expect(tuning.glass == .frost)
-        #expect(tuning.horizontalPadding == 20)
+        #expect(tuning.padding == 12)
         #expect(tuning.shownDuration(of: CmuxToast(id: "a", message: "m")) == .seconds(18))
         #expect(CmuxToastTuning(store: TunableStore()) == CmuxToastTuning())
     }

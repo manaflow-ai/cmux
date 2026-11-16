@@ -7,7 +7,7 @@
 # optimization with the debug.* control methods kept) in a worktree of this checkout, then measured
 # interleaved on this host. The step runs at a reviewed commit that has this script; the arms can be any
 # commits (a PR head and its base). Runs alone on the worker because it builds and launches apps:
-#   cmux-ci run --class exclusive --measurement --label measure --pool perf-lead \
+#   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/devtools-calls.sh --ref <reviewed sha> \
 #     --arg=arms=base:<sha>,head:<sha> [--arg=--calls=20] [--arg=--rounds=3] [--arg=--sizes=64K,512K,2560K] \
 #     --artifact artifacts/devtools-calls.json --timeout 7200

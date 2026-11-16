@@ -318,11 +318,20 @@ impl Gate {
 
     /// The service started: no restart of it is pending any more.
     pub fn service_started(&self) {
+        let _ = self.service_started_at(0);
+    }
+
+    /// [`Gate::service_started`] at `now_ms`: true when this start is the restart a flip or a
+    /// rollback queued ([`Inside::restart_queued`], [`Inside::flip_restart_queued`]) and its mark
+    /// had not lapsed. The Cloud role then reports the machine degraded until the restarted
+    /// session host answers (`cloud/session.rs` `Session::after_restart`): its services are
+    /// restarting, and a spare in that state must not be handed out. A start the mark cannot be
+    /// cleared for is no such restart.
+    pub fn service_started_at(&self, now_ms: u64) -> bool {
         let _lock = self.lock();
         let mut state = self.read();
-        if state.restart_pending_until_ms.take().is_some() {
-            let _ = self.write(&state);
-        }
+        let Some(until) = state.restart_pending_until_ms.take() else { return false };
+        self.write(&state).is_ok() && until > now_ms
     }
 }
 

@@ -41,11 +41,11 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     /// Keys a theme file reads that are not settings.
     static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty"]
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
-    /// per-machine and per-display maps, and the saved custom densities.
+    /// per-machine and per-display maps, the sun location (where this Mac is), and the saved custom densities.
     static let excludedKeys: Set<String> = [
         ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
-        "appearance.customDensities",
+        "appearance.customDensities", "appearance.backgroundLocation",
     ]
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]
@@ -150,7 +150,8 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             guard ThemeFileOverlay.isLook(descriptor) else {
                 return refuse(descriptor.id, written, "a theme file sets only look settings")
             }
-            let value = descriptor.path == BackdropSelectionSetting.configPath ? picture(written) : written
+            let pictures = [BackdropSelectionSetting.configPath, BackdropSelectionSetting.lightPath, BackdropSelectionSetting.darkPath]
+            let value = pictures.contains(descriptor.path) ? picture(written) : written
             guard descriptor.accepts(value) else { return refuse(descriptor.id, value, OmnibarSettingsSchema.expectation(descriptor)) }
             // A key written twice (nested and dotted) keeps the later one in key order.
             values.removeAll { $0.path == descriptor.path }

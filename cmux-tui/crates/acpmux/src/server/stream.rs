@@ -54,16 +54,13 @@ pub(super) async fn serve_stream(
     let (last_tx, last_rx) = oneshot::channel();
     let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
     let reader_v2 = v2.clone();
-    let reader =
-        tokio::spawn(
-            async move { read_lines(rd, in_tx, last_tx, limits, reader_v2.as_deref()).await },
-        );
-    let may_upgrade = v2.is_some();
-    let writer = tokio::spawn(async move {
-        let wr = write_lines(wr, out_rx, last_rx).await;
-        // With v2 disabled, the task drops its write half just as v1 always did.
-        may_upgrade.then_some(wr)
+    // Set once the first line asked for a pipe (`cmux_tui_service.rs`), before the reader ends.
+    let piped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reader_piped = piped.clone();
+    let reader = tokio::spawn(async move {
+        read_lines(rd, in_tx, last_tx, limits, reader_v2.as_deref(), &reader_piped).await
     });
+    let writer = tokio::spawn(async move { write_lines(wr, out_rx, last_rx).await });
     serve_connection_from(
         hub,
         in_rx,
@@ -77,14 +74,66 @@ pub(super) async fn serve_stream(
         None,
         None,
         None,
+        None,
     )
     .await;
-    if let Some(v2) = v2
-        && let Ok(Some(upgrade)) = reader.await
-        && let Ok(Some(wr)) = writer.await
-    {
-        let _ = upgrade.serve(wr, &v1, &v2, daemon_id).await;
+    // Only a connection that may have been taken waits for its reader; any other ends here as
+    // it always did, and its writer task drops the write half when its queue is done.
+    if v2.is_none() && !piped.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
     }
+    match reader.await {
+        Ok(Some(Taken::V2(upgrade))) => {
+            if let Some(v2) = v2
+                && let Ok(wr) = writer.await
+            {
+                let _ = upgrade.serve(wr, &v1, &v2, daemon_id).await;
+            }
+        }
+        Ok(Some(Taken::Pipe(pipe))) => {
+            if let Ok(wr) = writer.await {
+                pipe.serve(wr, v1).await;
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A connection the first line took from JSON-RPC.
+enum Taken<R> {
+    /// Agent service v2 (`_acpmux/v2`).
+    V2(Upgrade<R>),
+    /// A pipe to a machine's cmux-tui remote daemon (`_acpmux/remote.pipe`).
+    Pipe(Pipe<R>),
+}
+
+/// A `_acpmux/remote.pipe` request and the rest of the connection.
+struct Pipe<R> {
+    reader: tokio::io::Chain<std::io::Cursor<Vec<u8>>, R>,
+    id: Value,
+    params: Value,
+}
+
+impl<R: AsyncRead + Unpin> Pipe<R> {
+    async fn serve<W: AsyncWrite + Unpin>(self, writer: W, hub: Arc<Hub>) {
+        #[cfg(feature = "hub-carrier")]
+        crate::cmux_tui_service::serve_pipe(hub, self.id, self.params, self.reader, writer).await;
+        #[cfg(not(feature = "hub-carrier"))]
+        {
+            let mut writer = writer;
+            let _ = (hub, self.params, self.reader);
+            let error = RpcError::new(-32000, "this acpmux was built without the hub carrier")
+                .with_data(json!({"reason": "carrier.off"}));
+            let _ = writer.write_all(Message::err(self.id, error).to_line().as_bytes()).await;
+        }
+    }
+}
+
+fn pipe_request(line: &str) -> Option<(Value, Value)> {
+    let Message::Request { id, method, params } = Message::parse(line).ok()? else {
+        return None;
+    };
+    (method == crate::rpc::method::MUX_REMOTE_PIPE).then(|| (id, params.unwrap_or(Value::Null)))
 }
 
 /// Each upgraded connection's number, as chat actors tell its subscriptions apart.
@@ -177,7 +226,8 @@ async fn read_lines<R: AsyncRead + Unpin>(
     last: oneshot::Sender<String>,
     limits: Limits,
     v2: Option<&acpmux_core::life::V2>,
-) -> Option<Upgrade<R>> {
+    piped: &std::sync::atomic::AtomicBool,
+) -> Option<Taken<R>> {
     let max = limits.line;
     // The codec counts a line's `\r` with it and strips it after, so it holds one byte more.
     let mut lines = FramedRead::new(rd, LinesCodec::new_with_max_length(max.saturating_add(1)));
@@ -222,11 +272,21 @@ async fn read_lines<R: AsyncRead + Unpin>(
         // this branch; later upgrades use the normal v1 method-not-found path.
         if is_first && let Some((id, surfaces)) = v2.and_then(|v2| v2_upgrade(&line, v2)) {
             let parts = lines.into_parts();
-            return Some(Upgrade {
+            return Some(Taken::V2(Upgrade {
                 reader: std::io::Cursor::new(parts.read_buf.to_vec()).chain(parts.io),
                 id,
                 surfaces,
-            });
+            }));
+        }
+        // A pipe is asked for on the first line too, and only there: the reply is its last line.
+        if is_first && let Some((id, params)) = pipe_request(&line) {
+            let parts = lines.into_parts();
+            piped.store(true, std::sync::atomic::Ordering::SeqCst);
+            return Some(Taken::Pipe(Pipe {
+                reader: std::io::Cursor::new(parts.read_buf.to_vec()).chain(parts.io),
+                id,
+                params,
+            }));
         }
         let sent = if line.len() > limits.small {
             // All the queue's room: every line before it was taken.

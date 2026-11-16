@@ -23,6 +23,8 @@ public final class DeviceHub {
     public private(set) var connection: DeviceHubSocket.State = .disconnected
     public private(set) var me: HubMe?
     public private(set) var devices: [HubDevice] = []
+    /// Verified Mac destinations for native screen actions, observed with the device list.
+    public var macScreenAvailability: [String: Bool] { HubDevice.macScreenAvailability(in: devices) }
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
     public private(set) var permissions: [String: [HubPermission]] = [:]
     public private(set) var relays: [HubRelay] = []
@@ -93,8 +95,29 @@ public final class DeviceHub {
 
     public var identity: DeviceIdentity { client.identity }
     public var thisDevice: HubDevice? { devices.first { $0.id == identity.id } }
-    /// The user's other devices.
-    public var otherDevices: [HubDevice] { devices.filter { $0.id != identity.id } }
+    /// The user's other devices, one per physical device (``DeviceList``): this Mac's other builds and
+    /// a Mac's stale records are not listed again (Leo, 2026-11-16: the same Mac listed two and three times).
+    public var otherDevices: [HubDevice] {
+        let byID = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return deviceList.others.compactMap { byID[$0.id] }
+    }
+
+    /// Every hub record of the device `id` lists as (``otherDevices``), `id` first; just `id` when unknown.
+    public func recordIDs(of id: String) -> [String] {
+        deviceList.others.first { $0.ids.contains(id) }?.ids ?? [id]
+    }
+
+    /// ``DeviceList`` of ``devices``, asked of Rust again only when the records or this identity change.
+    var deviceList: DeviceList {
+        let key = DeviceListKey(thisID: identity.id, name: deviceName, devices: devices)
+        if let cached = deviceListCache, cached.key == key { return cached.list }
+        let list = DeviceList.make(thisID: identity.id, thisName: deviceName, platform: platform, devices: devices)
+        deviceListCache = (key, list)
+        return list
+    }
+
+    struct DeviceListKey: Equatable { var thisID: String, name: String, devices: [HubDevice] }
+    @ObservationIgnored private var deviceListCache: (key: DeviceListKey, list: DeviceList)?
 
     /// What `viewer` may do on `host`'s screen; `ask` when no permission is stored.
     public func scope(host: String, viewer: String) -> DeviceScope {
@@ -106,7 +129,7 @@ public final class DeviceHub {
     /// Signed in: registers this device, then keeps the socket open (each
     /// connect refetches everything, so nothing missed while away is lost).
     public func start() async {
-        stopSocket()
+        _ = stopSocket()
         generation += 1
         let run = generation
         status = .starting
@@ -140,8 +163,34 @@ public final class DeviceHub {
 
     /// Signed out: closes the socket and forgets the account and every record.
     public func stop() {
+        let (client, socket) = resetForStop()
+        Task(priority: .utility) {
+            await socket?.value
+            await client.signOut()
+        } // task-owner: a one-shot reset of the client's cached session
+    }
+
+    /// Stops this hub and joins the client's cached account reset. Protected
+    /// capture cleanup uses this instead of `stop()` so no actor hop can write
+    /// after the keychain namespace has been verified absent.
+    public func stopAndWait() async {
+        let (client, socket) = resetForStop()
+        await socket?.value
+        await vault.awaitIdle()
+        await client.signOut()
+    }
+
+    /// Closes the relay vault for a protected capture. This is intentionally
+    /// separate from ordinary stop/restart so normal hubs remain reusable.
+    public func freezeForCapture() async {
+        await vault.freezeForCapture()
+    }
+
+    @discardableResult
+    private func resetForStop() -> (client: DeviceHubClient, socket: Task<Void, Never>?) {
+        let client = self.client
         generation += 1
-        stopSocket()
+        let socket = stopSocket()
         status = .idle
         connection = .disconnected
         me = nil
@@ -154,13 +203,15 @@ public final class DeviceHub {
         audit = []
         lastError = nil
         pushCount = 0
-        let client = self.client
-        Task { await client.signOut() } // task-owner: a one-shot reset of the client's cached session
+        return (client, socket)
     }
 
-    private func stopSocket() {
-        socketTask?.cancel()
+    @discardableResult
+    private func stopSocket() -> Task<Void, Never>? {
+        let task = socketTask
+        task?.cancel()
         socketTask = nil
+        return task
     }
 
     // MARK: Pushes
@@ -359,9 +410,11 @@ public final class DeviceHub {
     @discardableResult
     public func saveRelay(id: String? = nil, name: String, urls: [String], secret: RelaySecret, enabled: Bool = true,
                           priority: Int = 0) async throws -> HubRelay {
+        let run = generation
         let id = id ?? UUID().uuidString.lowercased()
         savedNotListed.insert(id)
         let current = try await perform { try await $0.devices() }
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         devices = current
         let sealed: [String: String]
         do { sealed = try RelaySealing.seal(secret, relayID: id, for: current) } catch {
@@ -369,18 +422,23 @@ public final class DeviceHub {
         }
         let update = RelayUpdate(id: id, name: name, urls: urls, authMode: secret.authMode, sealed: sealed, enabled: enabled, priority: priority)
         let relay = try await perform { try await $0.putRelay(update) }
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         openedSecrets[id] = secret
         await vault.save(secret, relayID: id)
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         await refreshRelays()
         return relay
     }
 
     public func deleteRelay(_ id: String) async throws {
+        let run = generation
         try await perform { try await $0.deleteRelay(id) }
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         savedNotListed.remove(id)
         openedSecrets[id] = nil
         relays.removeAll { $0.id == id }
         await vault.remove(relayID: id)
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
     }
 
     /// The opened secret of a relay, when this device has it. From memory: views
