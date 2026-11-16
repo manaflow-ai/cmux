@@ -328,6 +328,39 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "model", "picker", "harness", "placement", "left", "top", "symbols"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.composerLookPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.composerLook", "Composer Style"),
+                help: SettingsText.keyed("settings.agentPane.display.composerLook.help", "How the message box lays out its controls: Claude's quiet row under the box, or Codex's row inside it. The dots under the composer pick it too."),
+                kind: .choice([
+                    SettingChoice("claude", "Claude"),
+                    SettingChoice("codex", "Codex"),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.composerLookDefault),
+                keywords: ["agent", "chat", "acp", "display", "composer", "message", "box", "style", "look", "layout", "claude", "codex", "dots"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.modelChipIconPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.modelChipIcon", "Model Logo in Composer"),
+                help: SettingsText.keyed("settings.agentPane.display.modelChipIcon.help", "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.modelChipIconDefault),
+                keywords: ["agent", "chat", "acp", "display", "composer", "model", "chip", "logo", "icon", "provider", "picker"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.queueingPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.queueing", "Queue Prompts During a Turn"),
+                help: SettingsText.keyed("settings.agentPane.display.queueing.help", "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.queueingDefault),
+                keywords: ["agent", "chat", "acp", "composer", "queue", "queueing", "steer", "send", "turn", "prompt", "wait"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.railSidePath,
                 section: .appearance,
                 group: group,

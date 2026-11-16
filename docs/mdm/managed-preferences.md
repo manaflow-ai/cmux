@@ -327,6 +327,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.statusVerbs.mode` | string | `"thinking"` | `thinking`, `rotate`, `custom` | Working Status Verbs. Choose whether the live status line rotates through verbs or stays on Thinking. |
 | `agentPane.display.statusVerbs.custom` | string |  |  | Custom Working Verbs. Comma-separated -ing verbs for the live status line. |
 | `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Harness Placement |
+| `agentPane.display.composerLook` | string | `"codex"` | `claude`, `codex` | Composer Style. How the message box lays out its controls: Claude's quiet row under the box, or Codex's row inside it. The dots under the composer pick it too. |
+| `agentPane.display.modelChipIcon` | boolean | `true` |  | Model Logo in Composer. Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on. |
+| `agentPane.display.queueing` | boolean | `true` |  | Queue Prompts During a Turn. On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits. |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it. |
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |

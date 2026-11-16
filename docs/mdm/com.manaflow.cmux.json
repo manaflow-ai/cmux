@@ -63,6 +63,16 @@
       "title" : "Command Labels",
       "type" : "string"
     },
+    "agentPane.display.composerLook" : {
+      "default" : "codex",
+      "description" : "How the message box lays out its controls: Claude's quiet row under the box, or Codex's row inside it. The dots under the composer pick it too.",
+      "enum" : [
+        "claude",
+        "codex"
+      ],
+      "title" : "Composer Style",
+      "type" : "string"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
@@ -157,6 +167,12 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.modelChipIcon" : {
+      "default" : true,
+      "description" : "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on.",
+      "title" : "Model Logo in Composer",
+      "type" : "boolean"
+    },
     "agentPane.display.pinnedPlan" : {
       "default" : false,
       "description" : "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
@@ -177,6 +193,12 @@
       "default" : true,
       "description" : "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
       "title" : "Prompt Coach",
+      "type" : "boolean"
+    },
+    "agentPane.display.queueing" : {
+      "default" : true,
+      "description" : "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits.",
+      "title" : "Queue Prompts During a Turn",
       "type" : "boolean"
     },
     "agentPane.display.rail.side" : {

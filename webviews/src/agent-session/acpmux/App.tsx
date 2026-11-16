@@ -822,7 +822,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
-import { hatQuestionsShown, hatSeenKey, stackCardKeys } from "./question/hatSeen";
+import { hatSeenKey, hatQuestionsShown, stackCardKeys } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -1150,6 +1150,9 @@ const SCROLL_ANCHOR_READ_MS = 250;
 /// its open failed. A shorter hold showed a busy daemon's chat as an empty page with only its
 /// composer (Leo 2026-10-21: "I LOAD IN AND IT'S A BLACK SCREEN").
 const CHAT_DRAW_HOLD_MS = 10_000;
+/// The longest the first frame waits on the host's current events (`hostEventsIn`): a subscribe that
+/// never answers still lets the page draw, on the defaults.
+const HOST_EVENTS_HOLD_MS = 500;
 /// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
 const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
   const anchor = await Promise.race([
@@ -1643,6 +1646,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [statusCardOpen, setStatusCardOpen] = useState(false);
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
+  // The host's current events (the theme, the composer's and the chat's settings with the viewer's
+  // composer look) reached the page: on the shared page host they come by the event stream's replay
+  // after the first render, so the first paint report waits for them, and a launch never shows the
+  // default look for a frame before the one the viewer picked (Leo, 2026-11-14: "if i picked the
+  // claude style composer it should remember it after restart"). No page host: nothing to wait for.
+  const [hostEventsIn, setHostEventsIn] = useState(() => pageHostClient() === null);
   const handshakenRef = useRef(false);
   const reconnectingRef = useRef(false);
   /// The handshake named a chat acpmux still has to attach: the page draws it once the client's
@@ -7072,8 +7081,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       openRefused: clientSnapshot.connection === "failed",
       chatUnavailable: clientSnapshot.unavailable !== undefined && clientSnapshot.unavailable.reason !== "connecting",
     });
-  // No chat screen before the page knows it is no New Tab page (`contextKnown`).
-  const knowsWhatItIs = contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
+  // No chat screen before the page knows it is no New Tab page (`contextKnown`), nor before the
+  // host's current events: a Chromium page's window shows before `pane.painted`, and a New Tab
+  // drawn first would show the default composer look a frame before the viewer's (`hostEventsIn`).
+  const knowsWhatItIs = hostEventsIn && (contextKnown || newTab !== undefined || handshaken || hostError !== undefined);
+  useEffect(() => {
+    if (hostEventsIn) return;
+    const timer = window.setTimeout(() => setHostEventsIn(true), HOST_EVENTS_HOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [hostEventsIn]);
   useEffect(() => {
     if (!handshaken || chatDrawn) return;
     // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
@@ -7213,7 +7229,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const settledSession =
     clientSnapshot.settled !== undefined && clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
   useEffect(() => {
-    if (!showsWhatItIs) return;
+    if (!showsWhatItIs || !hostEventsIn) return;
     const settledNow = settledSession !== undefined && settledReported.current !== settledSession;
     if (paintReported.current && !settledNow) return;
     const first = !paintReported.current;
@@ -7233,7 +7249,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         void loadEditDiffHunks();
       }, 0),
     );
-  }, [showsWhatItIs, drewKeptTail, settledSession]);
+  }, [showsWhatItIs, hostEventsIn, drewKeptTail, settledSession]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
@@ -7954,7 +7970,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     // On the shared page host the host pushes arrive as events once the bridge exists.
     const pageHost = pageHostClient();
-    if (pageHost) void startHostEvents(pageHost).catch(() => undefined);
+    // Its replay is applied by the time the subscribe resolves (pageClient.ts holds early events);
+    // a failed subscribe shows the page anyway, on the defaults.
+    if (pageHost)
+      void startHostEvents(pageHost)
+        .catch(() => undefined)
+        .finally(() => setHostEventsIn(true));
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
       replaceRows(rows, fields) {
         rowsRef.current = rows;

@@ -755,6 +755,9 @@
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
         "agentPane.display.harnessPlacement",
+        "agentPane.display.composerLook",
+        "agentPane.display.modelChipIcon",
+        "agentPane.display.queueing",
         "agentPane.display.rail.side",
         "agentPane.display.commandLabels"
       ]

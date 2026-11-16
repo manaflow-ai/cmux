@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 619,
   "sections": [
     {
       "id": "general",
@@ -1786,6 +1786,18 @@
           }
         },
         {
+          "key": "agentPane.display.composerLook",
+          "title": "Composer Style",
+          "help": "How the message box lays out its controls: Claude's quiet row under the box, or Codex's row inside it. The dots under the composer pick it too.",
+          "kind": "choice",
+          "default": "codex",
+          "group": "Agent Chat",
+          "values": [
+            "claude",
+            "codex"
+          ]
+        },
+        {
           "key": "agentPane.display.environment.placement",
           "title": "Session Info Chip",
           "help": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
@@ -1904,6 +1916,14 @@
           ]
         },
         {
+          "key": "agentPane.display.modelChipIcon",
+          "title": "Model Logo in Composer",
+          "help": "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.pinnedPlan",
           "title": "Pin Task List in Chat",
           "help": "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
@@ -1927,6 +1947,14 @@
           "key": "agentPane.display.promptCoach",
           "title": "Prompt Coach",
           "help": "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.queueing",
+          "title": "Queue Prompts During a Turn",
+          "help": "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits.",
           "kind": "toggle",
           "default": true,
           "group": "Agent Chat"
@@ -2126,7 +2154,7 @@
         {
           "key": "appearance.background",
           "title": "Background",
-          "help": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun.",
+          "help": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
           "kind": "choice",
           "default": "none",
           "group": "Window Background",
@@ -2282,9 +2310,7 @@
             "dore-raven",
             "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
             "file:/Users/Shared/Harbor.png",
-            "folder:/Users/Shared/Wallpapers",
-            "appearance",
-            "schedule"
+            "folder:/Users/Shared/Wallpapers"
           ]
         },
         {
@@ -2302,54 +2328,6 @@
           ]
         },
         {
-          "key": "appearance.backgroundDark",
-          "title": "Dark Picture",
-          "help": "The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture.",
-          "kind": "choice",
-          "default": null,
-          "group": "Window Background",
-          "values": [
-            "desktop",
-            "munch-scream",
-            "system:/System/Library/Desktop Pictures/Sonoma.heic",
-            "file:/Users/Shared/Harbor.png"
-          ]
-        },
-        {
-          "key": "appearance.backgroundDynamic",
-          "title": "Dynamic Wallpaper",
-          "help": "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting.",
-          "kind": "choice",
-          "default": "appearance",
-          "group": "Window Background",
-          "values": [
-            "appearance",
-            "time"
-          ]
-        },
-        {
-          "key": "appearance.backgroundLight",
-          "title": "Light Picture",
-          "help": "The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture.",
-          "kind": "choice",
-          "default": null,
-          "group": "Window Background",
-          "values": [
-            "desktop",
-            "munch-scream",
-            "system:/System/Library/Desktop Pictures/Sonoma.heic",
-            "file:/Users/Shared/Harbor.png"
-          ]
-        },
-        {
-          "key": "appearance.backgroundLocation",
-          "title": "Sun Location",
-          "help": "Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location.",
-          "kind": "text",
-          "default": null,
-          "group": "Window Background"
-        },
-        {
           "key": "appearance.backgroundOpacity",
           "title": "Opacity",
           "help": "How much of the theme color covers the material behind the window.",
@@ -2365,18 +2343,15 @@
         {
           "key": "appearance.backgroundRotation",
           "title": "Change Picture",
-          "help": "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes.",
-          "kind": "choice_or_number",
+          "help": "How often a shuffled background turns to its next picture.",
+          "kind": "choice",
           "default": "daily",
-          "group": "Window Background"
-        },
-        {
-          "key": "appearance.backgroundSchedule",
-          "title": "Time of Day Pictures",
-          "help": "Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next.",
-          "kind": "string_map",
-          "default": null,
-          "group": "Window Background"
+          "group": "Window Background",
+          "values": [
+            "15m",
+            "hourly",
+            "daily"
+          ]
         },
         {
           "key": "appearance.borders",
@@ -3989,7 +3964,7 @@
         {
           "key": "sidebar.minimal",
           "title": "Minimal Mode",
-          "help": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change.",
+          "help": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"

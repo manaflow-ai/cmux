@@ -161701,6 +161701,798 @@
         }
       }
     },
+    "settings.agentPane.display.composerLook": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composer Style"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط مربع الكتابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil polja za pisanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivefeltets stil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil des Eingabefelds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo del campo de redacción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style de la zone de saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stile del campo di scrittura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄のスタイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មប្រអប់សរសេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력창 스타일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil på skrivefeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styl pola tekstowego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo do campo de texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль поля ввода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปแบบช่องเขียนข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma alanı stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль поля введення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu ô soạn thảo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入框樣式"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.composerLook.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How the message box lays out its controls: Claude's quiet row under the box, or Codex's row inside it. The dots under the composer pick it too."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف يرتّب مربع الرسالة عناصر التحكم: صف Claude الهادئ أسفل المربع، أو صف Codex داخله. يمكن اختياره أيضًا من النقاط أسفل مربع الكتابة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako polje za poruku raspoređuje kontrole: Claudeov tihi red ispod polja ili Codexov red unutar njega. Birate ga i tačkama ispod polja za pisanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan beskedfeltet placerer sine knapper: Claudes rolige række under feltet eller Codex' række inde i det. Prikkerne under skrivefeltet vælger det også."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie das Nachrichtenfeld seine Bedienelemente anordnet: Claudes ruhige Zeile unter dem Feld oder die Zeile von Codex darin. Die Punkte unter dem Eingabefeld wählen es ebenfalls."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo el cuadro de mensaje coloca sus controles: la fila discreta de Claude debajo del cuadro o la fila de Codex dentro de él. Los puntos debajo del campo de redacción también lo eligen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disposition des commandes de la zone de message : la ligne discrète de Claude sous la zone, ou la ligne de Codex à l'intérieur. Les points sous la zone de saisie permettent aussi de choisir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come il riquadro del messaggio dispone i controlli: la riga discreta di Claude sotto il riquadro o la riga di Codex al suo interno. Si sceglie anche con i punti sotto il campo di scrittura."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ欄のコントロールの配置です。Claude は欄の下に控えめな行を、Codex は欄の中に行を置きます。入力欄の下のドットでも選べます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដែលប្រអប់សារដាក់ការគ្រប់គ្រង៖ ជួរស្ងាត់របស់ Claude នៅក្រោមប្រអប់ ឬជួររបស់ Codex នៅខាងក្នុងប្រអប់។ ចំណុចនៅក្រោមប្រអប់សរសេរក៏ជ្រើសវាបានដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 상자에 컨트롤을 배치하는 방식입니다. Claude는 상자 아래의 조용한 줄, Codex는 상자 안의 줄을 씁니다. 입력창 아래의 점으로도 고를 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan meldingsfeltet plasserer kontrollene: Claudes rolige rad under feltet eller Codex' rad inne i det. Prikkene under skrivefeltet velger det også."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Układ elementów sterujących pola wiadomości: spokojny wiersz Claude pod polem albo wiersz Codex w jego wnętrzu. Można go też wybrać kropkami pod polem tekstowym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como a caixa de mensagem organiza os controles: a linha discreta do Claude abaixo da caixa ou a linha do Codex dentro dela. Os pontos abaixo do campo de texto também escolhem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как поле сообщения располагает элементы управления: тихая строка Claude под полем или строка Codex внутри него. Выбрать можно и точками под полем ввода."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีที่ช่องข้อความจัดวางปุ่มควบคุม: แถวเรียบ ๆ ของ Claude ใต้ช่อง หรือแถวของ Codex ภายในช่อง เลือกได้จากจุดใต้ช่องเขียนข้อความด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesaj kutusunun denetimleri nasıl yerleştirdiği: Claude'un kutunun altındaki sade satırı ya da Codex'in kutunun içindeki satırı. Yazma alanının altındaki noktalar da bunu seçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як поле повідомлення розміщує елементи керування: тихий рядок Claude під полем або рядок Codex усередині нього. Вибрати можна й крапками під полем введення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách ô tin nhắn sắp xếp các nút điều khiển: hàng gọn của Claude bên dưới ô, hoặc hàng của Codex bên trong ô. Các chấm bên dưới ô soạn thảo cũng chọn được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息框如何排列控件：Claude 在框下方放一行低调的控件，Codex 把这一行放在框内。也可以用输入框下方的圆点选择。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息框如何排列控制項：Claude 在框下方放一行低調的控制項，Codex 把這一行放在框內。也可以用輸入框下方的圓點選擇。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.modelChipIcon": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Logo in Composer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شعار النموذج في مربع الكتابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo modela u polju za pisanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modellogo i skrivefeltet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell-Logo im Eingabefeld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logotipo del modelo en el campo de redacción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo du modèle dans la zone de saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo del modello nel campo di scrittura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄にモデルのロゴを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "និមិត្តសញ្ញាម៉ូដែលក្នុងប្រអប់សរសេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력창에 모델 로고 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modellogo i skrivefeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo modelu w polu tekstowym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logotipo do modelo no campo de texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Логотип модели в поле ввода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โลโก้โมเดลในช่องเขียนข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma alanında model logosu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Логотип моделі в полі введення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo mô hình trong ô soạn thảo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在输入框中显示模型标志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在輸入框中顯示模型標誌"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.modelChipIcon.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض شعار المزوّد بجانب اسم النموذج في مربع الرسالة. انقر بزر الماوس الأيمن على النموذج لإيقافه أو تشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje logo dobavljača pored naziva modela u polju za poruku. Desnim klikom na model ga isključite ili uključite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser udbyderens logo ved siden af modellens navn i beskedfeltet. Højreklik på modellen for at slå det fra eller til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt das Logo des Anbieters neben dem Modellnamen im Nachrichtenfeld. Klicke mit der rechten Maustaste auf das Modell, um es aus- oder einzuschalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el logotipo del proveedor junto al nombre del modelo en el cuadro de mensaje. Haz clic derecho en el modelo para desactivarlo o activarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche le logo du fournisseur à côté du nom du modèle dans la zone de message. Cliquez avec le bouton droit sur le modèle pour le désactiver ou l'activer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il logo del fornitore accanto al nome del modello nel riquadro del messaggio. Fai clic destro sul modello per disattivarlo o attivarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ欄のモデル名の横にプロバイダのロゴを表示します。モデルを右クリックするとオン・オフを切り替えられます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញនិមិត្តសញ្ញារបស់អ្នកផ្តល់សេវានៅជាប់ឈ្មោះម៉ូដែលក្នុងប្រអប់សារ។ ចុចកណ្ដុរស្ដាំលើម៉ូដែលដើម្បីបិទ ឬបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 상자의 모델 이름 옆에 제공업체 로고를 표시합니다. 모델을 오른쪽 클릭해 끄거나 켤 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser leverandørens logo ved siden av modellnavnet i meldingsfeltet. Høyreklikk på modellen for å slå det av eller på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje logo dostawcy obok nazwy modelu w polu wiadomości. Kliknij model prawym przyciskiem, aby je wyłączyć lub włączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o logotipo do provedor ao lado do nome do modelo na caixa de mensagem. Clique com o botão direito no modelo para desativar ou ativar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает логотип поставщика рядом с названием модели в поле сообщения. Нажмите на модель правой кнопкой, чтобы выключить или включить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงโลโก้ของผู้ให้บริการข้างชื่อโมเดลในช่องข้อความ คลิกขวาที่โมเดลเพื่อปิดหรือเปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesaj kutusunda modelin adının yanında sağlayıcının logosunu gösterir. Kapatmak veya açmak için modele sağ tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує логотип постачальника поруч із назвою моделі в полі повідомлення. Клацніть модель правою кнопкою, щоб вимкнути або ввімкнути його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện logo của nhà cung cấp cạnh tên mô hình trong ô tin nhắn. Nhấp chuột phải vào mô hình để tắt hoặc bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在消息框中的模型名称旁显示提供方的标志。右键点按模型可将其关闭或打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在訊息框中的模型名稱旁顯示提供者的標誌。按右鍵點按模型可將其關閉或開啟。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.queueing": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queue Prompts During a Turn"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع الطلبات في قائمة الانتظار أثناء الدور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stavi upite u red tokom poteza"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sæt prompter i kø under en tur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompts während eines Durchgangs einreihen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poner en cola las instrucciones durante un turno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre les invites en file pendant un tour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metti in coda i prompt durante un turno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターン中のプロンプトをキューに入れる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដាក់ប្រអប់បញ្ចូលក្នុងជួររង់ចាំក្នុងវេន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "턴 중 프롬프트를 대기열에 넣기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett ledetekster i kø under en tur"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolejkuj polecenia podczas tury"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfileirar prompts durante um turno"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ставить запросы в очередь во время хода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดคิวพรอมต์ระหว่างรอบการทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tur sırasında istemleri sıraya al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ставити запити в чергу під час ходу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xếp hàng lời nhắc trong một lượt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回合进行中将提示加入队列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回合進行中將提示加入佇列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.queueing.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، يضع زر الإرسال و⌘Return الطلب المُرسل أثناء الدور في قائمة الانتظار، ويوجّهه Return إلى الدور الجاري. عند الإيقاف، يوجّه كل إرسال، فلا ينتظر شيء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključeno: Pošalji i ⌘Return stavljaju u red upit poslan tokom poteza, a Return ga usmjerava u potez. Isključeno: svako slanje usmjerava, pa ništa ne čeka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Til: Send og ⌘Return sætter en prompt sendt under en tur i kø, og Return styrer den ind i turen. Fra: hver afsendelse styrer, så intet venter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein: Senden und ⌘Return reihen einen Prompt, der während eines Durchgangs gesendet wird, ein, und Return lenkt ihn in den Durchgang. Aus: Jedes Senden lenkt, nichts wartet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activado: Enviar y ⌘Return ponen en cola una instrucción enviada durante un turno, y Return la dirige al turno. Desactivado: cada envío la dirige, así que nada espera."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé : Envoyer et ⌘Retour mettent en file une invite envoyée pendant un tour, et Retour l'oriente dans le tour. Désactivé : chaque envoi oriente, rien n'attend."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivo: Invia e ⌘Return mettono in coda un prompt inviato durante un turno, e Return lo indirizza nel turno. Disattivo: ogni invio lo indirizza, così niente resta in attesa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、ターン中に送ったプロンプトは送信と ⌘Return でキューに入り、Return でそのターンに割り込ませます。オフにすると、どの送信も割り込むので待つものはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក៖ ផ្ញើ និង ⌘Return ដាក់ប្រអប់បញ្ចូលដែលបានផ្ញើក្នុងវេនក្នុងជួររង់ចាំ ហើយ Return បញ្ជូនវាចូលវេន។ បិទ៖ ការផ្ញើនីមួយៗបញ្ជូនចូល ដូច្នេះគ្មានអ្វីរង់ចាំទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 턴 중에 보낸 프롬프트를 보내기와 ⌘Return이 대기열에 넣고, Return은 진행 중인 턴에 끼워 넣습니다. 끄면 모든 전송이 끼워 넣어지므로 기다리는 것이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På: Send og ⌘Return setter en ledetekst sendt under en tur i kø, og Return styrer den inn i turen. Av: hver sending styrer, så ingenting venter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włączone: Wyślij i ⌘Return kolejkują polecenie wysłane w trakcie tury, a Return kieruje je do tury. Wyłączone: każde wysłanie kieruje, więc nic nie czeka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativado: Enviar e ⌘Return enfileiram um prompt enviado durante um turno, e Return o direciona para o turno. Desativado: cada envio direciona, então nada espera."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включено: «Отправить» и ⌘Return ставят запрос, отправленный во время хода, в очередь, а Return направляет его в текущий ход. Выключено: каждая отправка направляет, ничего не ждёт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด: ส่งและ ⌘Return จะจัดคิวพรอมต์ที่ส่งระหว่างรอบ และ Return จะนำเข้าสู่รอบนั้น ปิด: ทุกการส่งจะนำเข้าทันที จึงไม่มีอะไรรอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık: Gönder ve ⌘Return, tur sırasında gönderilen istemi sıraya alır; Return onu tura yönlendirir. Kapalı: her gönderim yönlendirir, hiçbir şey beklemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнено: «Надіслати» і ⌘Return ставлять у чергу запит, надісланий під час ходу, а Return спрямовує його в хід. Вимкнено: кожне надсилання спрямовує, тож ніщо не чекає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật: Gửi và ⌘Return xếp hàng lời nhắc gửi trong một lượt, còn Return lái nó vào lượt đó. Tắt: mỗi lần gửi đều lái vào, nên không có gì phải chờ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开时，回合进行中发送的提示会通过“发送”和 ⌘Return 加入队列，Return 则将其插入当前回合。关闭时，每次发送都会插入，不会有任何等待。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟時，回合進行中傳送的提示會透過「傳送」和 ⌘Return 加入佇列，Return 則將其插入目前回合。關閉時，每次傳送都會插入，不會有任何等待。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.trayTucked": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",

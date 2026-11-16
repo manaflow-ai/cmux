@@ -12,9 +12,22 @@
 // `agent-pane.composer-look` `codex-chat-alt-in-box-row`. Dots pick it: on New Tab the page's three
 // (newtab/tabDots.ts: Claude Minimal, Claude Minimal with the quick actions, Codex Minimal), in a chat
 // two on hover in the composer's bottom area (LookSwitch.tsx). The choice is the viewer's, kept in
-// localStorage across chats, panes and launches (in step by the `storage` event), as the transcript's
-// wrap choice is (conversation/blockWrap.ts).
+// cmux-next.json as `agentPane.display.composerLook` (Settings > Agent Chat > Composer Style), which
+// the host sends every agent page with the chat's keys (chatDisplay.ts) and writes when a dot is
+// picked (`pane.setDisplay`). The page's localStorage is only the launch's copy: the agent pages'
+// store is not persistent (AgentPaneView.sharedDataStore, Chromium's off-the-record profile), so a
+// pick kept only there came back as Codex after every restart (Leo, 2026-11-14: "if i picked the
+// claude style composer it should remember it after restart instead of always only going to the
+// codex mode"). Until the host's value comes, the launch's copy shows (a page opened after a pick in
+// this launch draws it from its first frame); once it came, the host's value wins.
 import { useSyncExternalStore } from "react";
+import {
+  changeChatDisplay,
+  COMPOSER_LOOK_KEY,
+  notePickedElsewhere,
+  pickedDisplayValue,
+  subscribeChatDisplay,
+} from "./chatDisplay";
 
 export const COMPOSER_LOOKS = ["claude", "codex"] as const;
 export type ComposerLook = (typeof COMPOSER_LOOKS)[number];
@@ -29,6 +42,7 @@ export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
 
 /// New viewers use Codex's look across agent families; explicit choices remain saved.
 export const DEFAULT_COMPOSER_LOOK: ComposerLook = "codex";
+/// The launch's copy in storage (the host keeps the choice; see above).
 const KEY = "cmux.composer.look";
 
 function parse(value: unknown): ComposerLook {
@@ -41,13 +55,20 @@ let fallback: ComposerLook = DEFAULT_COMPOSER_LOOK;
 let shown: ComposerLook | undefined;
 const listeners = new Set<() => void>();
 
-/// The look the viewer chose (storage's, else the page's copy), under any gallery stage's shown one.
-export function savedComposerLook(): ComposerLook {
+/// This launch's copy: storage's, else the page's.
+function launchCopy(): ComposerLook {
   try {
     return globalThis.localStorage ? parse(globalThis.localStorage.getItem(KEY)) : fallback;
   } catch {
     return fallback;
   }
+}
+
+/// The look the viewer chose, under any gallery stage's shown one: the host's (cmux-next.json, the
+/// default when it holds none) once its value came, this launch's copy until then.
+export function savedComposerLook(): ComposerLook {
+  const kept = pickedDisplayValue(COMPOSER_LOOK_KEY);
+  return kept === undefined ? launchCopy() : parse(kept);
 }
 
 function current(): ComposerLook {
@@ -58,17 +79,25 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
     // A null key is the storage cleared (localStorage.clear()): the look is back to the default.
-    if (event.key === KEY || event.key === null) listener();
+    if (event.key !== KEY && event.key !== null) return;
+    // Another page's pick is the newest: it stands over the host's last value until the host's push.
+    if (event.key === KEY && (event.newValue === "claude" || event.newValue === "codex"))
+      notePickedElsewhere(COMPOSER_LOOK_KEY, event.newValue);
+    listener();
   };
   globalThis.addEventListener?.("storage", onStorage);
+  // The host's value came or changed (a pick in another pane, Settings, an edit of the file).
+  const unfollow = subscribeChatDisplay(listener);
   return () => {
     listeners.delete(listener);
     globalThis.removeEventListener?.("storage", onStorage);
+    unfollow();
   };
 }
 
-/// Sets every composer's look, and remembers it; with `remember: false` (a gallery stage) the page
-/// shows it without writing it.
+/// Sets every composer's look, and remembers it: in the page at once, in this launch's storage for
+/// pages opened next, and in cmux-next.json through the host, so the next launch opens on it. With
+/// `remember: false` (a gallery stage) the page shows it without writing it.
 export function setComposerLook(look: ComposerLook, { remember = true }: { remember?: boolean } = {}) {
   if (!remember) {
     shown = parse(look);
@@ -82,6 +111,8 @@ export function setComposerLook(look: ComposerLook, { remember = true }: { remem
   } catch {
     // Storage off: the page's copy still holds it.
   }
+  // Explicit either way, so a later change of the default never moves a viewer who picked.
+  changeChatDisplay(COMPOSER_LOOK_KEY, fallback);
   for (const listener of listeners) listener();
 }
 

@@ -99,6 +99,16 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let harnessPlacementPath = ["agentPane", "display", "harnessPlacement"]
     nonisolated static let harnessPlacementDefault = "symbols"
     nonisolated static let harnessPlacementValues = ["symbols", "left", "top", "compact"]
+    /// `agentPane.display.composerLook`: The composer's look (webviews composerLook.ts): Claude's quiet row under the box or Codex's row inside it. The look dots in the composer and on New Tab write it; the agent pages' storage ends with the launch, so the pick lives here (Leo, 2026-11-14: "if i picked the claude style composer it should remember it after restart instead of always only going to the codex mode").
+    nonisolated static let composerLookPath = ["agentPane", "display", "composerLook"]
+    nonisolated static let composerLookDefault = "codex"
+    nonisolated static let composerLookValues = ["claude", "codex"]
+    /// `agentPane.display.modelChipIcon`: Whether the composer's model chip draws its provider's logo left of the model's name (webviews modelChipIcon.ts, cmux#38053). The chip's right-click writes it; the agent pages' storage ends with the launch, so the pick lives here.
+    nonisolated static let modelChipIconPath = ["agentPane", "display", "modelChipIcon"]
+    nonisolated static let modelChipIconDefault = true
+    /// `agentPane.display.queueing`: Whether a prompt sent while a turn runs waits in the queue (webviews queueing.ts; Leo, 2026-10-21, after ChatGPT's and Codex's "Turn off queueing"). A queued row's menu and the composer's button row write it; the agent pages' storage ends with the launch, so the pick lives here.
+    nonisolated static let queueingPath = ["agentPane", "display", "queueing"]
+    nonisolated static let queueingDefault = true
     /// `agentPane.display.rail.side`.
     nonisolated static let railSidePath = ["agentPane", "display", "rail", "side"]
     nonisolated static let railSideDefault = "left"

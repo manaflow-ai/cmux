@@ -123,6 +123,21 @@ export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 /// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
 /// Not part of ChatDisplay.
 export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
+/// Settings > Agent Chat > Composer Style (composerLook.ts), Codex by default; the look dots write it.
+/// The agent pages' storage ends with the launch (AgentPaneView.sharedDataStore and Chromium's
+/// off-the-record profile), so a pick kept only there came back as Codex after every restart (Leo,
+/// 2026-11-14: "if i picked the claude style composer it should remember it after restart instead
+/// of always only going to the codex mode"). Not part of ChatDisplay.
+export const COMPOSER_LOOK_KEY = "agentPane.display.composerLook";
+/// Settings > Agent Chat > Model Logo in Composer (modelChipIcon.ts), on unless set false; the model
+/// chip's right-click writes it. Not part of ChatDisplay.
+export const MODEL_CHIP_ICON_KEY = "agentPane.display.modelChipIcon";
+/// Settings > Agent Chat > Queue Prompts During a Turn (queueing.ts), on unless set false; a queued
+/// row's menu and the composer's button row write it. Not part of ChatDisplay.
+export const QUEUEING_KEY = "agentPane.display.queueing";
+/// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
+/// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
+const PICKED_KEYS = [COMPOSER_LOOK_KEY, MODEL_CHIP_ICON_KEY, QUEUEING_KEY] as const;
 
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
@@ -345,6 +360,11 @@ let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 let commandLabels = "null";
 let promptCoachOn = true;
+/// The PICKED_KEYS values as JSON, so a change to one of them alone reaches its listeners.
+let picked = "[]";
+/// Whether a `display` value came (the host's, or the page's own change): until then the picks are
+/// unknown, and their modules keep the page's copy.
+let received = false;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -375,9 +395,14 @@ export function setChatDisplay(value: unknown): void {
   const tips = raw[FEATURE_TIPS_KEY] !== false;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
+  const pickedNow = JSON.stringify(PICKED_KEYS.map((key) => raw[key] ?? null));
+  const first = !received;
+  received = true;
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
     same &&
+    !first &&
+    pickedNow === picked &&
     minimap === minimapOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
@@ -391,6 +416,7 @@ export function setChatDisplay(value: unknown): void {
     coach === promptCoachOn
   )
     return;
+  picked = pickedNow;
   commandLabels = labels;
   promptCoachOn = coach;
   minimapOn = minimap;
@@ -486,6 +512,32 @@ const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };
+/// Calls `listener` on every change to the chat's keys (a pick's module re-reads its value).
+export const subscribeChatDisplay = subscribe;
+/// A pick the host keeps (PICKED_KEYS): its value as the host last sent it or the page last set it,
+/// null when the file has none (the default), undefined while no `display` value came yet.
+export function pickedDisplayValue(key: (typeof PICKED_KEYS)[number]): unknown {
+  if (!received) return undefined;
+  return raw[key] ?? null;
+}
+/// Another page of this launch picked (its `storage` event): this page shows the pick at once, as the
+/// host's push of it will say, without writing it again (that page's write does). `null` is the default.
+export function notePickedElsewhere(key: (typeof PICKED_KEYS)[number], value: unknown): void {
+  if (!received) return;
+  const next = { ...raw };
+  if (value === null || value === undefined) delete next[key];
+  else next[key] = value;
+  setChatDisplay(next);
+}
+/// Tests: the page starts again as a new page does, with no `display` value yet.
+export function resetChatDisplayForTests(): void {
+  for (const pending of unsent.values()) clearTimeout(pending);
+  unsent.clear();
+  displayHost = undefined;
+  raw = {};
+  picked = "[]";
+  received = false;
+}
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
