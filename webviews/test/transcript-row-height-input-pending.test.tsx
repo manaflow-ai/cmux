@@ -155,3 +155,63 @@ test("with input waiting, a followed row's new height waits for the frame's comm
   const synchronous = await growLastAnswer(false, 900);
   expect(after).toBe(synchronous.after);
 });
+
+// One placement per frame (chat-render-pipeline R5): the observer's callback places the rows once,
+// with one synchronous render and one read of what it placed. A row whose height moves again under
+// that placement (its text rewraps) used to be flushed and read up to three times in the one task,
+// a forced layout each; its next height now goes in the next commit.
+test("a followed row whose height moves under its placement is placed once in the observer's task", async () => {
+  observers.length = 0;
+  pending = false;
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    await act(nextFrame);
+    const answer = dom.window.document.querySelector<HTMLElement>('.acpmux-row[data-row-id="t2-answer"]')!;
+    const rowObserver = observers.find((observer) => observer.targets.has(answer));
+    expect(rowObserver).toBeDefined();
+    const spacer = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll > .acpmux-spacer")!;
+    // Every height the spacer is given in the callback's task: one per synchronous placement.
+    const placed: string[] = [];
+    let counting = false;
+    const style = spacer.style;
+    const proto = Object.getPrototypeOf(style) as object;
+    const descriptor =
+      Object.getOwnPropertyDescriptor(proto, "height") ??
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(proto) as object, "height")!;
+    Object.defineProperty(style, "height", {
+      configurable: true,
+      get() {
+        return descriptor.get!.call(style);
+      },
+      set(value: string) {
+        if (counting && value !== descriptor.get!.call(style)) placed.push(value);
+        descriptor.set!.call(style, value);
+      },
+    });
+    let height = 900;
+    await act(async () => {
+      // Each read of the row finds it taller: every placement rewraps it again.
+      Object.defineProperty(answer, "getBoundingClientRect", {
+        configurable: true,
+        value: () => rect((height += 24)),
+      });
+      sized.set(answer, height);
+      counting = true;
+      rowObserver!.callback([{ target: answer } as unknown as ResizeObserverEntry]);
+      counting = false;
+      await nextFrame();
+    });
+    expect(placed.length).toBe(1);
+    // The height read after that placement still lands, in the next commit.
+    expect(spacerHeight()).not.toBe(placed[0]);
+    delete (style as unknown as Record<string, unknown>).height;
+  } finally {
+    await act(async () => root.unmount());
+    pending = false;
+  }
+});

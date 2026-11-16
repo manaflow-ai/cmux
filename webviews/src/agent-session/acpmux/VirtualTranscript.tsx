@@ -1066,13 +1066,9 @@ function holdUnderStack(
 /// the last row under the stack. A fractional end is rounded up: WebKit floors a fractional offset
 /// while it rounds the content's height, so the end as written rested a pixel short of the
 /// scroller's own; past it, the browser clamps the offset to that end.
-function settleFollowBottom(node: HTMLElement, latest: number): boolean {
-  return settleFollowBottomAt(node, latest).moved;
-}
-
-/// `settleFollowBottom`, and the physical offset it left the scroller at: every read is before its
-/// style write, and the caller takes the offset from here, never from the scroller after this pass
-/// wrote to the page (each such read lays the page out again, per streamed token).
+/// Returns whether it moved, and the physical offset it left the scroller at: every read is before
+/// its style write, and the caller takes the offset from here, never from the scroller after this
+/// pass wrote to the page (each such read lays the page out again, per streamed token).
 function settleFollowBottomAt(node: HTMLElement, latest: number): { moved: boolean; top: number } {
   const end = Math.ceil(latest - 0.01);
   const current = node.scrollTop;
@@ -3209,13 +3205,15 @@ function TranscriptView({
                 foldHolding(foldAnchor.current) ||
                 inSight(ref.current, targets))
             ) {
-              for (let pass = 0; pass < 3; pass += 1) {
-                if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
-                  pendingDrawn.current = new Map();
-                  break;
-                }
+              // One synchronous placement per callback (one flush, one read of what it placed). A
+              // height that changed again under that placement goes in the next commit, not in
+              // another synchronous render and forced layout in this task.
+              if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
+              else {
                 acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
                 measure();
+                if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushDrawn();
+                else pendingDrawn.current = new Map();
               }
             } else flushDrawn();
           }),
@@ -5784,7 +5782,7 @@ function TranscriptView({
     // The placement pass already has the latest estimated total and measured viewport. Reusing
     // those values avoids forcing a style/layout flush from the send effect before the new row
     // paints; the following placement pass reconciles any drawn-height correction. A fractional
-    // end is rounded up, as settleFollowBottom does, so WebKit's floor never rests a pixel short.
+    // end is rounded up, as settleFollowBottomAt does, so WebKit's floor never rests a pixel short.
     clearScrollOrigin(node);
     const latest = Math.max(0, Math.ceil(layout.totalHeight - height - 0.01));
     const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -5984,8 +5982,8 @@ function TranscriptView({
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      settleFollowBottom(node, latest);
-      const resting = node.scrollTop;
+      // The offset it settled on, read before its origin's style write (never after it).
+      const resting = settleFollowBottomAt(node, latest).top;
       scrolledTo.current = { top: resting, atLatest: true };
       followTrace.set(resting);
       queueScroll(resting, true, immediate);
@@ -6401,17 +6399,21 @@ function TranscriptView({
       const physical = node.scrollTop;
       const was = layoutScrollTop(node);
       node.scrollTop = physical - held;
+      // Where the browser put it, read right after the scroll write and before the origin's style
+      // write: a scroll write leaves the page laid out, so this read lays nothing out again, and
+      // nothing below reads the scroller after the style write (each such read laid the page out).
+      const landed = node.scrollTop;
       retainScrollOrigin(node, top);
       // A write the scroller did not take (a scroll of its own still easing in), or a chase that is
       // not held after all, keeps the chase drawn where it is and the offset where it was.
-      if (Math.abs(layoutScrollTop(node) - top) > 1 || !chase.release(held)) {
+      if (Math.abs(landed - scrollOrigin(node) - top) > 1 || !chase.release(held)) {
         node.scrollTop = physical;
         retainScrollOrigin(node, was);
         return;
       }
-      scrolledTo.current = { top: node.scrollTop, atLatest: false };
+      scrolledTo.current = { top: landed, atLatest: false };
       scrollPacer.current?.cancel();
-      setScrollAt(node.scrollTop, 0);
+      setScrollAt(landed, 0);
     };
     const unsubscribeQuiet = intent.subscribeQuiet(() => {
       if (olderDragPending.current) {

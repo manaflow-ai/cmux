@@ -142,55 +142,62 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
 /// are) or its node is new, both known in the commit itself; or when a box resizes with no commit
 /// of the line (the pane's width, a font, a theme's slot), which a ResizeObserver on the line and
 /// its boxes marks for the next commit. Read in layout effects only, after this hook's own.
-function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly unknown[]): RefObject<boolean> {
-  const moved = useRef(true);
-  const seen = useRef<{
-    node?: HTMLDivElement;
-    drawn?: readonly unknown[];
-    resized: boolean;
-    observer?: ResizeObserver;
-    boxes: Map<Element, string>;
-  }>({ resized: false, boxes: new Map() });
-  // One observer for the line's life, disconnected when it unmounts.
-  useLayoutEffect(() => {
-    const state = seen.current;
-    if (typeof ResizeObserver === "undefined") return;
+/// The line's boxes as last observed (`useLineMoved`): one ResizeObserver from `connect` to its
+/// cleanup, which disconnects it, and the boxes it watches, kept to the line's current ones.
+class LineBoxes {
+  /// Whether the last commit's `check` found the boxes may have moved. Read in layout effects only.
+  moved = true;
+  private node: HTMLDivElement | undefined;
+  private drawn: readonly unknown[] | undefined;
+  private resized = false;
+  private observer: ResizeObserver | undefined;
+  private boxes = new Map<Element, string>();
+
+  /// One observer for the line's life; the returned cleanup disconnects it.
+  connect(): () => void {
+    if (typeof ResizeObserver === "undefined") return () => {};
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const box = entry.borderBoxSize?.[0];
         const size = box
           ? `${box.inlineSize}x${box.blockSize}`
           : `${entry.contentRect.width}x${entry.contentRect.height}`;
-        const before = state.boxes.get(entry.target);
-        state.boxes.set(entry.target, size);
+        const before = this.boxes.get(entry.target);
+        this.boxes.set(entry.target, size);
         // A box's first report is its size when observed, already read in that commit.
-        if (before !== undefined && before !== size) state.resized = true;
+        if (before !== undefined && before !== size) this.resized = true;
       }
     });
-    state.observer = observer;
+    this.observer = observer;
     return () => {
       observer.disconnect();
-      state.observer = undefined;
-      state.boxes = new Map();
+      if (this.observer === observer) this.observer = undefined;
+      this.boxes = new Map();
       // A remount (Strict Mode's second pass) reads and observes again.
-      state.drawn = undefined;
+      this.drawn = undefined;
     };
-  }, []);
-  useLayoutEffect(() => {
-    const state = seen.current;
-    const node = line.current ?? undefined;
+  }
+
+  /// This commit's check: sets `moved`, and observes the line's boxes again when what it draws changed.
+  check(node: HTMLDivElement | undefined, drawn: readonly unknown[]) {
+    const was = this.drawn;
     const changed =
-      node !== state.node ||
-      state.drawn === undefined ||
-      state.drawn.length !== drawn.length ||
-      drawn.some((value, index) => !Object.is(value, state.drawn![index]));
-    moved.current = changed || state.resized;
-    state.resized = false;
-    state.node = node;
-    state.drawn = drawn;
-    // What is drawn changed, so the boxes may be new: observe the line, its direct boxes (whose
-    // sizes place the counts) and the words' own box; let go of those gone.
-    if (!changed || !state.observer) return;
+      node !== this.node ||
+      was === undefined ||
+      was.length !== drawn.length ||
+      drawn.some((value, index) => !Object.is(value, was[index]));
+    this.moved = changed || this.resized;
+    this.resized = false;
+    this.node = node;
+    this.drawn = drawn;
+    if (changed) this.track(node);
+  }
+
+  /// Observe the line, its direct boxes (whose sizes place the counts) and the words' own box; let go
+  /// of those gone. Only while connected: the observer's cleanup lets go of every box.
+  private track(node: HTMLDivElement | undefined) {
+    const observer = this.observer;
+    if (!observer) return;
     const boxes = new Set<Element>();
     if (node) {
       boxes.add(node);
@@ -198,14 +205,30 @@ function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly un
       const words = node.querySelector("output.cv-thinking");
       if (words) boxes.add(words);
     }
-    for (const box of state.boxes.keys())
+    for (const box of this.boxes.keys())
       if (!boxes.has(box)) {
-        state.observer.unobserve(box);
-        state.boxes.delete(box);
+        observer.unobserve(box);
+        this.boxes.delete(box);
       }
-    for (const box of boxes) if (!state.boxes.has(box)) state.observer.observe(box);
+    for (const box of boxes) if (!this.boxes.has(box)) observer.observe(box);
+  }
+}
+
+/// Whether the live line's boxes may have moved since its last commit: the two hooks below read
+/// layout (a forced layout when the commit wrote the DOM) only then, never on a commit that changed
+/// nothing drawn, as each streamed chunk does (its new `quietKey` and `heardKey`). They move when
+/// what the line draws changes (`drawn`: its words, time, counts and look, compared as effect deps
+/// are) or its node is new, both known in the commit itself; or when a box resizes with no commit
+/// of the line (the pane's width, a font, a theme's slot), which a ResizeObserver on the line and
+/// its boxes marks for the next commit. Read `moved` in layout effects only, after this hook's own.
+function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly unknown[]): LineBoxes {
+  const [boxes] = useState(() => new LineBoxes());
+  // One observer for the line's life, disconnected when it unmounts.
+  useLayoutEffect(() => boxes.connect(), [boxes]);
+  useLayoutEffect(() => {
+    boxes.check(line.current ?? undefined, drawn);
   });
-  return moved;
+  return boxes;
 }
 
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
@@ -213,14 +236,14 @@ function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly un
 /// tail on past it. The width as last committed, one read of the line's own box a commit that moved
 /// it (`useLineMoved`), set on the roll's copies in the commit that makes them, before paint; refs
 /// only in the effect.
-function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, moved: RefObject<boolean>) {
+function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
   const drawn = useRef<{ turns: number; width?: number }>({ turns });
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
     const last = drawn.current;
     // Nothing drawn moved: the width read last still holds.
-    if (turns === last.turns && !moved.current) return;
+    if (turns === last.turns && !moved.moved) return;
     if (turns !== last.turns && last.width !== undefined) {
       const px = `${last.width}px`;
       const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
@@ -238,13 +261,13 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, 
 /// time grows a digit, its words change width under one key) slides from where it was drawn on the
 /// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
 /// (`useRoll`), and the gates that stop the roll stop this too.
-function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, moved: RefObject<boolean>) {
+function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
   const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
     // Nothing drawn moved: the counts sit where they were read last, so none glides.
-    if (turns === drawn.current.turns && !moved.current) return;
+    if (turns === drawn.current.turns && !moved.moved) return;
     const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
     const lefts = counts.map((count) => count.offsetLeft);
     const before = drawn.current;
