@@ -38,6 +38,7 @@ GLOBAL_INPUTS = (
     "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/run-swift-testing-suites.sh",
     "scripts/ci/swift_package_submodules.py",
+    "scripts/ci/swift_suite_names_precheck.py",
     "scripts/ci/swift-test-debug-info.sh",
     "scripts/ci/swiftpm-binary-module-guard.sh",
     "scripts/ci/run_with_timeout.py",

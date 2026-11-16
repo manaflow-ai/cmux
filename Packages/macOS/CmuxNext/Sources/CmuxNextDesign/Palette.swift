@@ -52,6 +52,8 @@ public struct Palette {
     /// The scrim's alpha: the most a translucent band over the window's
     /// backdrop may cover (the Home header's top fade peaks there).
     public static var legibilityScrimOpacity: CGFloat { CGFloat(ThemeTokens.legibilityScrimOpacity) }
+    /// The most the dim over the other panes covers them while a pane zooms (``ThemeTokens/zoomDim``).
+    public static var zoomDim: CGFloat { CGFloat((ThemeContext.active ?? ThemeScope.app.tokens).zoomDim) }
     /// The veil's alpha over an unfocused pane (``ThemeTokens/inactivePaneDim``).
     public static var inactivePaneDim: CGFloat { CGFloat((ThemeContext.active ?? ThemeScope.app.tokens).inactivePaneDim) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).

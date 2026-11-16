@@ -61,6 +61,11 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext shot [DIR] [--out PNG] [--json]
                                one reload, then what it rendered: the view's outline and a
                                picture of the cmux window that shows it; exit 6 no picture
+  cmux ext reload [NAME]       read the extension folders again now and rerun NAME (local/NAME,
+                               or every extension in a local folder): a save the watch missed
+                               shows, and a script that does not load names file:line while the
+                               last good view stays; exit 1 when one did not load
+  cmux reload-config           cmux-next.json, the Ghostty config and every local extension, at once
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
   cmux ext capabilities [--op NAME] [--json]
                                what an extension can read and do: each op's scope, risk class
@@ -98,6 +103,10 @@ pub(super) enum Request {
     List,
     Remove {
         app: String,
+    },
+    /// `ext reload [NAME]`: `apps-reload` for one app, or every local one.
+    Reload {
+        app: Option<String>,
     },
     /// The running cmux's capability manifest, or one op's row.
     Capabilities {
@@ -229,6 +238,14 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             }
         }
         "list" if rest.is_empty() => Ok(Request::List),
+        "reload" => match rest {
+            [] => Ok(Request::Reload { app: None }),
+            [name] if !name.starts_with('-') => match reload_target(name) {
+                Some(app) => Ok(Request::Reload { app: Some(app) }),
+                None => Err(usage(&format!("ext reload: {name} is not an extension name"))),
+            },
+            _ => Err(usage("ext reload takes at most one NAME")),
+        },
         "capabilities" => match rest {
             [] => Ok(Request::Capabilities { op: None }),
             [flag, op] if flag == "--op" && !op.starts_with('-') => {
@@ -353,7 +370,199 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
             shot::run(global, &options, &globals, json_out)
         }
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
+        Request::Reload { app } => reload(global, app.as_deref(), json_out),
         Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
+    }
+}
+
+/// The app id `ext reload NAME` asks for: `NAME` is `local/NAME`, and an
+/// id with its publisher (`local/x`, `acme/x` from `CMUX_APPS_DIRS`) is
+/// itself. `None` for a word that names no app.
+pub(super) fn reload_target(name: &str) -> Option<String> {
+    let ok = |part: &str| {
+        !part.is_empty()
+            && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    match name.split_once('/') {
+        Some((publisher, app)) if ok(publisher) && ok(app) => Some(name.to_string()),
+        None if ok(name) => Some(format!("local/{name}")),
+        _ => None,
+    }
+}
+
+/// `ext reload [NAME]`: one `apps-reload`, then a line per app. Exit 1 when
+/// a script did not load (the last good view stays), 3 with no daemon.
+fn reload(global: &GlobalArgs, app: Option<&str>, json_out: bool) -> i32 {
+    match reload_call(global, app) {
+        Ok(data) => {
+            if json_out {
+                println!("{data}");
+            } else {
+                print!("{}", reload_text(&data));
+            }
+            reload_exit(&data)
+        }
+        Err((code, message)) => {
+            eprintln!("cmux: {message}");
+            code
+        }
+    }
+}
+
+/// The daemon's `apps-reload` answer, or an exit code and message.
+fn reload_call(global: &GlobalArgs, app: Option<&str>) -> Result<Value, (i32, String)> {
+    let (sender, wakes) = channel();
+    let mut daemon = daemon::Daemon::connect(global, sender, wakes)
+        .map_err(|message| (exit::NO_DAEMON, message))?;
+    let mut request = json!({ "cmd": "apps-reload" });
+    if let Some(app) = app {
+        request["app"] = json!(app);
+    }
+    let older = || {
+        (
+            1,
+            format!(
+                "the running daemon cannot reload extensions on request (it is older than cmux ext reload); restart it with this cmux: {}",
+                super::fix_command::restart_routed_daemon()
+            ),
+        )
+    };
+    let data = match daemon.call(request) {
+        Ok(Ok(data)) => data,
+        // A daemon from before `apps-reload` refuses the request it cannot parse.
+        Ok(Err(message)) if message.contains("unknown variant `apps-reload`") => {
+            return Err(older());
+        }
+        Ok(Err(message)) => return Err((1, message)),
+        Err(_) => return Err((exit::NO_DAEMON, "the cmux daemon did not answer".to_string())),
+    };
+    if data.field("reloaded").as_array().is_none() {
+        return Err(older());
+    }
+    Ok(data)
+}
+
+/// 0 when every asked script loaded, else 1.
+pub(super) fn reload_exit(data: &Value) -> i32 {
+    if data.field("refused").as_array().is_some_and(|refused| !refused.is_empty()) {
+        exit::LOAD_FAILED
+    } else {
+        exit::OK
+    }
+}
+
+/// `reloaded local/x`, `local/y did not load (the last good version stays): REASON`,
+/// `removed local/z`; `no extensions in a local folder` when there was none.
+pub(super) fn reload_text(data: &Value) -> String {
+    let list =
+        |key: &str| -> Vec<Value> { data.field(key).as_array().cloned().unwrap_or_default() };
+    let mut out = String::new();
+    for app in list("reloaded") {
+        out.push_str(&format!("reloaded {}\n", app.as_str().unwrap_or("?")));
+    }
+    for row in list("refused") {
+        let reason = row.field("reason").as_str().unwrap_or("");
+        let reason = reason.strip_prefix("init: ").unwrap_or(reason);
+        out.push_str(&format!(
+            "{} did not load (the last good version stays):\n  {reason}\n",
+            row.field("app").as_str().unwrap_or("?")
+        ));
+    }
+    for app in list("removed") {
+        out.push_str(&format!("removed {} (its folder is gone)\n", app.as_str().unwrap_or("?")));
+    }
+    if out.is_empty() {
+        out.push_str("no extensions in a local folder (cmux ext new NAME makes one)\n");
+    }
+    out
+}
+
+/// `cmux [global options] reload-config [--json]`: one reload
+/// for cmux. The app reads `cmux-next.json` and the Ghostty config again
+/// (its Reload Configuration action), and the daemon reruns every local
+/// extension (`apps-reload`). Either half runs when the other cannot: with
+/// no app, the extensions still reload; the exit names the worse half.
+pub(super) fn run_reload_config_if_requested(args: &[String]) -> Option<i32> {
+    let (mut global, words) = super::parse_globals(args).ok()?;
+    let (verb, rest) = words.split_first()?;
+    if verb != "reload-config" {
+        return None;
+    }
+    let mut extra = Vec::new();
+    for word in rest {
+        match word.as_str() {
+            "--json" => global.output = OutputMode::Json,
+            "-h" | "--help" => {
+                println!(
+                    "usage: cmux reload-config [--json]\n\n  Reads cmux-next.json and the Ghostty config again, and reruns every extension in a\n  local folder (cmux ext reload). A file that does not parse, or a script that does not\n  load, keeps the last good version and is named with its file and line."
+                );
+                return Some(exit::OK);
+            }
+            other => extra.push(other.to_string()),
+        }
+    }
+    if !extra.is_empty() {
+        eprintln!("cmux: reload-config takes no arguments (got {})", extra.join(" "));
+        return Some(exit::USAGE);
+    }
+    let json_out = matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
+    let settings = reload_settings(&global);
+    let extensions = reload_call(&global, None);
+    let code = match (&settings, &extensions) {
+        (_, Ok(data)) if reload_exit(data) != exit::OK => exit::LOAD_FAILED,
+        (Err(_), Err((code, _))) => *code,
+        (Err(_), Ok(_)) | (Ok(()), Err(_)) => 1,
+        (Ok(()), Ok(_)) => exit::OK,
+    };
+    if json_out {
+        let half = |ok: bool, error: Option<String>| match error {
+            None if ok => json!({ "ok": true }),
+            error => json!({ "ok": false, "error": error }),
+        };
+        println!(
+            "{}",
+            json!({
+                "settings": half(settings.is_ok(), settings.as_ref().err().cloned()),
+                "extensions": match &extensions {
+                    Ok(data) => data.clone(),
+                    Err((_, message)) => json!({ "ok": false, "error": message }),
+                },
+            })
+        );
+    } else {
+        match &settings {
+            Ok(()) => println!("reloaded cmux-next.json and the Ghostty config"),
+            Err(message) => eprintln!("cmux: settings not reloaded: {message}"),
+        }
+        match &extensions {
+            Ok(data) => print!("{}", reload_text(data)),
+            Err((_, message)) => eprintln!("cmux: extensions not reloaded: {message}"),
+        }
+    }
+    Some(code)
+}
+
+/// The app's `reloadConfiguration` action (Reload Configuration in the
+/// palette and the app menu): settings and the Ghostty config.
+fn reload_settings(global: &GlobalArgs) -> Result<(), String> {
+    let describe = |error: &Value| {
+        error.field("message").as_str().map(str::to_string).unwrap_or_else(|| error.to_string())
+    };
+    let mut stream = super::app::connect_command(global).map_err(|error| describe(&error))?;
+    let mut params = Value::Object(super::app::action_run_params(
+        "reloadConfiguration",
+        super::app::ActionName::Any,
+        super::app::action_origin(),
+    ));
+    super::app::insert_run_key(&mut params, None)?;
+    match super::app::request_with_retry(
+        &mut stream,
+        "action.run",
+        &params,
+        std::time::Duration::from_secs(10),
+    )? {
+        Ok(_) => Ok(()),
+        Err(error) => Err(describe(&error)),
     }
 }
 
