@@ -189,7 +189,9 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     std::fs::write(&compact_fails, "").unwrap();
     let cut = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
     c.ok("session/prompt", prompt(&cut, "cache-probe")).await;
-    clock.advance(Duration::from_secs(275));
+    clock.advance(Duration::from_secs(200));
+    settle_until(Duration::from_millis(300), || false).await;
+    clock.advance(Duration::from_secs(75));
     settle_until(Duration::from_secs(20), || compactions(&hub, &cut) == 1).await;
     assert_eq!(compactions(&hub, &cut), 1, "{:?}", prompts(&hub, &cut));
     let resumes = |hub: &Hub| {
