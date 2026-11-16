@@ -5,6 +5,7 @@
 //! channel (`cmux-layout-reducer-ffi`, ops `cloud_*`).
 
 pub mod agent_check;
+pub mod approval_answer;
 pub mod ask;
 pub mod capability;
 pub mod harness_login;

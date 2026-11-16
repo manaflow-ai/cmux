@@ -128,6 +128,7 @@ pub mod op_names {
     pub const INSTALL_RENAME: &str = "install.rename";
     pub const INSTALL_REVOKE: &str = "install.revoke";
     pub const INSTALL_SIGN_OUT: &str = "install.sign_out";
+    pub const INTEGRATION_APPROVAL_APPROVE: &str = "integration.approval.approve";
     pub const INTEGRATION_APPROVAL_GET: &str = "integration.approval.get";
     pub const INTEGRATION_COMPLETE: &str = "integration.complete";
     pub const INTEGRATION_CONNECT: &str = "integration.connect";
@@ -357,6 +358,7 @@ pub mod op_names {
         INSTALL_RENAME,
         INSTALL_REVOKE,
         INSTALL_SIGN_OUT,
+        INTEGRATION_APPROVAL_APPROVE,
         INTEGRATION_APPROVAL_GET,
         INTEGRATION_COMPLETE,
         INTEGRATION_CONNECT,
@@ -589,6 +591,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "install.rename" => visitor.visit::<InstallRenameOp>(),
         "install.revoke" => visitor.visit::<InstallRevokeOp>(),
         "install.sign_out" => visitor.visit::<InstallSignOutOp>(),
+        "integration.approval.approve" => visitor.visit::<IntegrationApprovalApproveOp>(),
         "integration.approval.get" => visitor.visit::<IntegrationApprovalGetOp>(),
         "integration.complete" => visitor.visit::<IntegrationCompleteOp>(),
         "integration.connect" => visitor.visit::<IntegrationConnectOp>(),

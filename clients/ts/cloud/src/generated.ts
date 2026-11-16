@@ -3056,6 +3056,21 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: Install
   }
+  /** Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait. */
+  readonly "integration.approval.approve": {
+    readonly params: {
+      readonly request: string
+      readonly op: string
+      readonly params: unknown
+      readonly team: TeamId
+    }
+    readonly result: {
+      readonly request: string
+      readonly answered: "here" | "elsewhere"
+      readonly state?: string
+      readonly reply?: unknown
+    }
+  }
   /** Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it. */
   readonly "integration.approval.get": {
     readonly params: {
@@ -4302,6 +4317,7 @@ export const cloudOpMeta = {
   "install.rename": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.revoke": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
   "install.sign_out": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "integration.approval.approve": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
   "integration.approval.get": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
   "integration.complete": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.connect": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },

@@ -145,6 +145,25 @@ export class FeedDO extends OwnerDO<FeedState> {
     return null
   }
 
+  /**
+   * integration.approval.approve (approve-one-call.ts): the person's own approve item for exactly this Cloud approval,
+   * the same match the Mac made over feed.list (CloudApprovalAnswer.item): `request` and `digest`, the action's tool
+   * `op`, `team` both in the approval and in the poster scope `system:cloud:<team>`. Open: its id; only a closed one:
+   * answered elsewhere; none (another team's, an integrations item, nothing): null. Never binds a feed it does not serve.
+   */
+  async cloudApprovalItem(entity: string, a: { request: string; op: string; digest: string; team: string }): Promise<{ open: string } | { closed: true } | null> {
+    if (!this.isBound(entity) || !a.team) return null
+    let closed = false
+    for (const item of Object.values(this.bind(entity).currentState.items)) {
+      const found = approvalOf(item)
+      const tool = (item.prompt as { action?: { tool?: unknown } } | undefined)?.action?.tool
+      if (!found || found.source !== "cloud" || found.request !== a.request || found.digest !== a.digest || found.team !== a.team || tool !== a.op) continue
+      if (item.state === "open") return { open: item.id }
+      closed = true
+    }
+    return closed ? { closed: true } : null
+  }
+
   /** The Cloud approval (its team and request) the answered `params.item` carries, or null for any other item. */
   private cloudApprovalOf(entity: string, params: unknown): { team: string; request: string } | null {
     const id = (params as { item?: unknown } | null)?.item
