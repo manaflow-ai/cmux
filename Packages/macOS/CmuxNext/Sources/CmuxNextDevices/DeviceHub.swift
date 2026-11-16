@@ -23,6 +23,8 @@ public final class DeviceHub {
     public private(set) var connection: DeviceHubSocket.State = .disconnected
     public private(set) var me: HubMe?
     public private(set) var devices: [HubDevice] = []
+    /// Verified Mac destinations for native screen actions, observed with the device list.
+    public var macScreenAvailability: [String: Bool] { HubDevice.macScreenAvailability(in: devices) }
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
     public private(set) var permissions: [String: [HubPermission]] = [:]
     public private(set) var relays: [HubRelay] = []
