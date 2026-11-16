@@ -1,15 +1,8 @@
-ci-step focus-audit-58539eb6edf8-v1: scripts/ci/run-swift-testing-suites.sh Packages/macOS/CmuxNext at 58539eb6edf8f4b828b73b9a282ccc98b2aa9890: exit 1
-==> same-tree cmux-tui: source=published-after-fallback fallback_seconds=43 total_seconds=54
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: emit-module command failed with exit code 1 (use -v to see invocation)
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: fatalError
-ci-step focus-audit-58539eb6edf8-v1 exited 1
+ci-step compile-check-release-dd8ad409abf0-x86_64: scripts/cmux-next/check-release-compile.sh --archs x86_64 at dd8ad409abf0ca9741b01533a8be66b5c7d550ee: exit 0
+    private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+    private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+    static func interrupted(_ error: Error) -> Bool {
+    static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+private nonisolated func controlError(_ error: Error) -> ControlError {
+    nonisolated static func message(for error: Error) -> String {
+ci-step compile-check-release-dd8ad409abf0-x86_64 exited 0
