@@ -20,10 +20,9 @@
 //! than its `session.json` shows the older list until the agent's next report, never loses a
 //! person's setting.
 
-use super::{SessionMeta, ToolInventory, ToolRow};
+use super::{SessionMeta, SharedRows, SharedValue, ToolInventory, ToolRow};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::io::Write;
@@ -70,7 +69,7 @@ fn split<T>(f: impl FnOnce() -> T) -> T {
 }
 
 /// `SessionMeta::available_commands`' `skip_serializing_if`.
-pub(crate) fn skip_commands(commands: &Option<Value>) -> bool {
+pub(crate) fn skip_commands(commands: &Option<SharedValue>) -> bool {
     commands.is_none() || splitting()
 }
 
@@ -103,12 +102,12 @@ pub(crate) fn tools_without_rows<S: serde::Serializer>(
 struct PartsOut<'a> {
     fingerprint: &'a str,
     #[serde(skip_serializing_if = "no_value")]
-    available_commands: &'a Option<Value>,
+    available_commands: &'a Option<SharedValue>,
     #[serde(skip_serializing_if = "none_of")]
     tool_rows: &'a [ToolRow],
 }
 
-fn no_value(value: &&Option<Value>) -> bool {
+fn no_value(value: &&Option<SharedValue>) -> bool {
     value.is_none()
 }
 
@@ -122,15 +121,15 @@ struct PartsIn {
     #[serde(default)]
     fingerprint: String,
     #[serde(default)]
-    available_commands: Option<Value>,
+    available_commands: Option<SharedValue>,
     #[serde(default)]
-    tool_rows: Vec<ToolRow>,
+    tool_rows: SharedRows,
 }
 
 /// The fields hashed, in one order.
 #[derive(Serialize)]
 struct Hashed<'a> {
-    commands: &'a Option<Value>,
+    commands: &'a Option<SharedValue>,
     rows: &'a [ToolRow],
 }
 
