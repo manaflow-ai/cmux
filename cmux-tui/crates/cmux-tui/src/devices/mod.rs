@@ -11,6 +11,9 @@ use cmux_json::JsonSet as _;
 mod credential_env_tests;
 mod model;
 mod network;
+mod reach;
+#[cfg(test)]
+mod reach_tests;
 mod removal;
 pub(crate) mod removed;
 pub(crate) mod setup;
@@ -29,7 +32,7 @@ use model::{Listing, Role, Sources, State, Via};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
-       cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
+       cmux device list [--json [--probe]] [--no-probe] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
        cmux device add HOST --yes [--name NAME] [--json]
        cmux device invite [--role client|read-only] [--ttl 15m] [--label TEXT] [--json]
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
@@ -443,14 +446,22 @@ fn list(args: &[String]) -> anyhow::Result<()> {
     let flags = Flags::parse(
         args,
         &["network", JOIN_VALUES[0], JOIN_VALUES[1]],
-        &["json", "cloud-token-stdin"],
+        &["json", "cloud-token-stdin", "probe", "no-probe"],
     )?;
     let auth = JoinAuth::read(&flags)?;
     let mut notes = Vec::new();
-    let listing = current(&flags, &auth, &mut notes)?;
-    if flags.has("json") {
+    let mut listing = current(&flags, &auth, &mut notes)?;
+    // The human list probes so it never suggests an add that waits out ssh's timeout; `--json`
+    // (the app's refresh after every change) probes only when asked, so it pays nothing.
+    let json_out = flags.has("json");
+    let probe = !flags.has("no-probe") && (!json_out || flags.has("probe"));
+    let probe_ms = probe.then(|| probe_available(&mut listing.available, &reach::tcp_probe()));
+    if json_out {
         let mut v = serde_json::to_value(&listing)?;
         v.set("notes", json!(notes));
+        if let Some(ms) = probe_ms {
+            v.set("sshProbe", json!({"ms": ms, "budgetMs": reach::BUDGET.as_millis()}));
+        }
         println!("{v}");
         return Ok(());
     }
@@ -574,13 +585,8 @@ fn print_listing(listing: &Listing, notes: &[String]) {
     }
     if !listing.available.is_empty() {
         println!("\nNot added yet (your network and ~/.ssh/config):");
-        for a in &listing.available {
-            println!(
-                "  {:<28} {:<10} cmux device add {} --yes",
-                a.name,
-                a.os,
-                shell_word(&a.address)
-            );
+        for line in available_lines(&listing.available) {
+            println!("{line}");
         }
     }
     for pool in &listing.pools {
@@ -592,6 +598,56 @@ fn print_listing(listing: &Listing, notes: &[String]) {
     for note in notes {
         println!("\nNote: {note}");
     }
+}
+
+/// Probes ssh on every available computer at once ([`reach::probe_all`], one [`reach::BUDGET`]
+/// whatever their count) and records each answer in its row. Returns the pass's milliseconds.
+fn probe_available(available: &mut [model::Available], probe: &reach::Probe) -> u128 {
+    let started = std::time::Instant::now();
+    let hosts: Vec<String> = available.iter().map(|a| a.address.clone()).collect();
+    for (a, reach) in available.iter_mut().zip(reach::probe_all(&hosts, reach::BUDGET, probe)) {
+        a.ssh = Some(reach);
+    }
+    started.elapsed().as_millis()
+}
+
+/// Names a folded line spells out before "and N more".
+const UNREACHABLE_NAMES: usize = 12;
+
+/// The "Not added yet" rows: an add command for each computer ssh may reach, then one group for
+/// the ones whose ssh did not answer (their add would only wait out ssh's timeout), with the
+/// tailnet ACL hint once when any of them is a network computer.
+fn available_lines(available: &[model::Available]) -> Vec<String> {
+    let (silent, offered): (Vec<_>, Vec<_>) =
+        available.iter().partition(|a| a.ssh == Some(reach::SshReach::NoAnswer));
+    let mut lines: Vec<String> = offered
+        .iter()
+        .map(|a| {
+            format!(
+                "  {:<28} {:<10} cmux device add {} --yes",
+                a.name,
+                a.os,
+                shell_word(&a.address)
+            )
+        })
+        .collect();
+    if silent.is_empty() {
+        return lines;
+    }
+    let mut names: Vec<&str> =
+        silent.iter().take(UNREACHABLE_NAMES).map(|a| a.name.as_str()).collect();
+    let more = silent.len().saturating_sub(UNREACHABLE_NAMES);
+    let more_text = format!("and {more} more");
+    if more > 0 {
+        names.push(&more_text);
+    }
+    lines.push(format!("  ssh not reachable from here ({}): {}", silent.len(), names.join(", ")));
+    if silent.iter().any(|a| a.found == model::Found::Network) {
+        lines.push(
+            "    If `tailscale ping HOST` works, the tailnet's ACL does not let this computer reach its port 22: add a rule like { \"src\": [\"autogroup:member\"], \"dst\": [\"HOST\"], \"ip\": [\"tcp:22\"] } or turn on Tailscale SSH there, then list again.".into(),
+        );
+    }
+    lines
 }
 
 /// `text` as one shell word for a command a person copies: as is when it is
