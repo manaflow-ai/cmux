@@ -82,6 +82,23 @@ impl Checkout {
         self.refs.main_checkout()
     }
 
+    /// The GitHub `owner/name` of `remote`'s URL (`remote.<remote>.url`),
+    /// when that URL is on github.com. One `git config` run; `None` for a
+    /// remote name that is not a plain name, a remote with no URL, or a URL
+    /// on another host.
+    pub fn github_repo(&self, remote: &str) -> Option<String> {
+        let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
+        if remote.is_empty() || remote.starts_with(['-', '.']) || !remote.chars().all(plain) {
+            return None;
+        }
+        let key = format!("remote.{remote}.url");
+        let output = self.refs.run(&["config", "--get", &key], MAX_SMALL_OUTPUT_BYTES).ok()?;
+        if output.truncated {
+            return None;
+        }
+        github_slug(String::from_utf8_lossy(&output.stdout).trim())
+    }
+
     /// The headers of a HEAD that is on a branch that has a commit; `None`
     /// in each other form, which the refs do not answer.
     fn branch_from_refs(&self) -> Result<Option<BranchHeaders>, GitFailure> {
@@ -142,6 +159,29 @@ impl Checkout {
     }
 }
 
+/// `owner/name` of a github.com remote URL in the forms git takes:
+/// `https://github.com/o/r(.git)`, `ssh://git@github.com/o/r.git`,
+/// `git@github.com:o/r.git`. Any other host, or a path that is not two
+/// plain names, is `None`.
+fn github_slug(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))
+        .or_else(|| url.strip_prefix("ssh://git@github.com/"))
+        .or_else(|| url.strip_prefix("ssh://git@github.com:22/"))
+        .or_else(|| url.strip_prefix("git@github.com:"))
+        .or_else(|| url.strip_prefix("git://github.com/"))?;
+    let rest = rest.trim_end_matches('/');
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    let (owner, name) = rest.split_once('/')?;
+    let plain = |s: &str| {
+        !s.is_empty()
+            && !s.starts_with('.')
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    (plain(owner) && plain(name)).then(|| format!("{owner}/{name}"))
+}
+
 /// The headers in one `for-each-ref` line, when it is the line of
 /// `reference`. The pattern also matches the branches below a name
 /// (`refs/heads/a/b` for `refs/heads/a`), which are other branches.
@@ -180,7 +220,30 @@ fn tracking(track: &str) -> (u64, u64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{BranchHeaders, branch_line, tracking};
+    use super::{BranchHeaders, branch_line, github_slug, tracking};
+
+    #[test]
+    fn github_slug_reads_each_url_form_and_refuses_other_hosts() {
+        for url in [
+            "https://github.com/manaflow-ai/cmux.git",
+            "https://github.com/manaflow-ai/cmux",
+            "https://github.com/manaflow-ai/cmux/",
+            "ssh://git@github.com/manaflow-ai/cmux.git",
+            "git@github.com:manaflow-ai/cmux.git",
+        ] {
+            assert_eq!(github_slug(url).as_deref(), Some("manaflow-ai/cmux"), "{url}");
+        }
+        for url in [
+            "https://gitlab.com/a/b.git",
+            "https://github.com.evil.example/a/b",
+            "git@github.com:a/b/c.git",
+            "https://github.com/a",
+            "https://github.com/../b",
+            "/srv/git/a.git",
+        ] {
+            assert_eq!(github_slug(url), None, "{url}");
+        }
+    }
 
     #[test]
     fn head_tracking_reads_each_form_that_git_prints() {
