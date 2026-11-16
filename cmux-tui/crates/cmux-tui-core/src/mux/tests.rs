@@ -75,6 +75,8 @@ mod respawn_gate_jump;
 mod restart;
 mod rows;
 mod session_lists;
+#[cfg(unix)]
+mod session_release;
 mod signaled_mutex;
 mod single_reads;
 mod snapshot_read;

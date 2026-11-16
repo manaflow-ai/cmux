@@ -35,6 +35,10 @@ pub(super) struct ExitSettleTimer {
     running: Mutex<()>,
     /// The owner, bound once right after it is built.
     mux: OnceLock<Weak<Mux>>,
+    /// Test seam: runs once, on the thread of a settle run, after that run
+    /// read the owner's shutdown flag and before its detach.
+    #[cfg(test)]
+    before_detach: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 #[derive(Default)]
@@ -189,6 +193,8 @@ impl Mux {
             if self.shutting_down.load(Ordering::Acquire) {
                 return;
             }
+            #[cfg(test)]
+            self.run_exit_settle_hold_for_test();
             let Err(error) = self.detach_exited_terminal_topology(&terminal_id) else {
                 continue;
             };
@@ -204,6 +210,41 @@ impl Mux {
                     Deadline { until_ms: now_ms.saturating_add(delay_ms), failures },
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+impl Mux {
+    /// Test seam: the next settle run stops between its read of the owner's
+    /// shutdown flag and its detach. It sends on `reached`, then it waits
+    /// until `resume` gets a value or loses its sender, so a test that ends
+    /// (also by a panic) never leaves the run held. One run only.
+    pub(crate) fn hold_next_exit_settle_for_test(
+        &self,
+        reached: std::sync::mpsc::SyncSender<()>,
+        resume: std::sync::mpsc::Receiver<()>,
+    ) {
+        let hold: Box<dyn FnOnce() + Send> = Box::new(move || {
+            let _ = reached.send(());
+            let _ = resume.recv();
+        });
+        *self
+            .exit_settles
+            .before_detach
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(hold);
+    }
+
+    fn run_exit_settle_hold_for_test(&self) {
+        let hold = self
+            .exit_settles
+            .before_detach
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(hold) = hold {
+            hold();
         }
     }
 }
