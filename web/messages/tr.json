@@ -80,6 +80,11 @@
       "message": "Bu makine başlatılıyor, duraklatılıyor veya çalışmıyor; bu yüzden şu anda bunu yapamıyor.",
       "action": "Biraz bekleyip tekrar deneyin. Makinenin durumunu cmux vm ls ile kontrol edin ve duraklatılmışsa önce sürdürün."
     },
+    "hostRecovery": {
+      "title": "Makinenin ana bilgisayarı kurtarılıyor",
+      "message": "Bu makinenin diski kurtarılmakta olan bir Cloud ana bilgisayarında, bu yüzden henüz başlatılamıyor. Dosyaları korunuyor.",
+      "action": "Birkaç dakika sonra tekrar deneyin. Makineyi silmeyin veya yeniden oluşturmayın: diski korunuyor ve makineyle birlikte geri gelecek. Bir saat sonra hâlâ başlamazsa iz kimliğiyle destek ekibine başvurun."
+    },
     "networkRuleCapacity": {
       "title": "Ağ kuralları kapasitede",
       "message": "Ağ politikanız kaydedildi ancak uygulanmadı: cmux Cloud ağ kuralı kapasitesine ulaştı.",

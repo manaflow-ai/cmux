@@ -80,6 +80,11 @@
       "message": "Ova mašina se pokreće, pauzira ili ne radi, pa to sada ne može uraditi.",
       "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux vm ls i prvo je nastavite ako je pauzirana."
     },
+    "hostRecovery": {
+      "title": "Host mašine se oporavlja",
+      "message": "Disk ove mašine nalazi se na Cloud hostu koji se oporavlja, pa se još ne može pokrenuti. Njeni fajlovi su sačuvani.",
+      "action": "Pokušajte ponovo za nekoliko minuta. Nemojte brisati niti ponovo kreirati mašinu: njen disk je sačuvan i vraća se s njom. Ako se ni nakon sat vremena ne pokrene, kontaktirajte podršku s ID-om praćenja."
+    },
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",
       "message": "Vaša mrežna politika je sačuvana, ali nije primijenjena: cmux Cloud je dostigao kapacitet mrežnih pravila.",

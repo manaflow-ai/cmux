@@ -80,6 +80,11 @@
       "message": "Diese Maschine startet, pausiert oder läuft nicht und kann das gerade nicht ausführen.",
       "action": "Warte kurz und versuche es erneut. Prüfe den Status der Maschine mit cmux vm ls und setze sie zuerst fort, falls sie pausiert ist."
     },
+    "hostRecovery": {
+      "title": "Host der Maschine wird wiederhergestellt",
+      "message": "Die Festplatte dieser Maschine liegt auf einem Cloud-Host, der gerade wiederhergestellt wird, daher kann sie noch nicht starten. Ihre Dateien bleiben erhalten.",
+      "action": "Versuche es in ein paar Minuten erneut. Lösche die Maschine nicht und erstelle sie nicht neu: Ihre Festplatte bleibt erhalten und kommt mit ihr zurück. Wenn sie nach einer Stunde immer noch nicht startet, wende dich mit der Trace-ID an den Support."
+    },
     "networkRuleCapacity": {
       "title": "Netzwerkregeln ausgeschöpft",
       "message": "Ihre Netzwerkrichtlinie wurde gespeichert, aber nicht angewendet: cmux Cloud hat seine Kapazität für Netzwerkregeln erreicht.",

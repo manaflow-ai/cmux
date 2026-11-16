@@ -80,6 +80,11 @@
       "message": "Questa macchina si sta avviando, mettendo in pausa o non è in esecuzione, quindi ora non può farlo.",
       "action": "Attendi un momento e riprova. Controlla lo stato della macchina con cmux vm ls e riprendila prima se è in pausa."
     },
+    "hostRecovery": {
+      "title": "L'host della macchina è in fase di ripristino",
+      "message": "Il disco di questa macchina si trova su un host Cloud in fase di ripristino, quindi non può ancora avviarsi. I suoi file sono conservati.",
+      "action": "Riprova tra qualche minuto. Non eliminare né ricreare la macchina: il suo disco è conservato e torna con lei. Se dopo un'ora ancora non si avvia, contatta il supporto con l'ID di traccia."
+    },
     "networkRuleCapacity": {
       "title": "Regole di rete al limite",
       "message": "La tua policy di rete è stata salvata ma non applicata: cmux Cloud ha raggiunto la capacità massima di regole di rete.",
