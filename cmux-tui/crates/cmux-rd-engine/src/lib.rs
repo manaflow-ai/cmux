@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, VecDeque};
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, UltraConfig};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
-use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
+use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for, parity_for_ratio};
 use cmux_rd_core::probe::{ProbeConfig, ProbePlanner, ProbeReason};
 pub use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_core::profile::refine_after_us;
@@ -696,7 +696,10 @@ impl MediaEngine {
         let data_shards =
             (body.access_unit.len() + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
         // Tile frames are standalone, so they get keyframe-grade protection.
-        let parity = parity_for(data_shards, loss, enc.idr || tile);
+        let parity = self.cc.ultra_fec_ratio().map_or_else(
+            || parity_for(data_shards, loss, enc.idr || tile),
+            |ratio| parity_for_ratio(data_shards, ratio, enc.idr || tile),
+        );
         let flags = if tile {
             flags::TILE
         } else if enc.idr {

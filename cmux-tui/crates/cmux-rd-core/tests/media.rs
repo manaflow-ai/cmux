@@ -1,7 +1,7 @@
 //! FEC, packetizing and reassembly properties.
 
 use cmux_rd_core::fec;
-use cmux_rd_core::packetize::{Packetizer, parity_for};
+use cmux_rd_core::packetize::{Packetizer, parity_for, parity_for_ratio};
 use cmux_rd_core::reassembly::{FrameLoss, Reassembler};
 use cmux_rd_proto::{
     DatagramHeader, FRAME_PREFIX_LEN, FrameBody, HEADER_LEN, MAX_DATAGRAM_DEFAULT,
@@ -264,6 +264,13 @@ fn parity_scales_with_loss() {
     assert_eq!(parity_for(10, 0.02, false), 1);
     assert_eq!(parity_for(10, 0.30, false), 5);
     assert_eq!(parity_for(1, 0.01, true), 1);
+}
+
+#[test]
+fn explicit_ultra_ratio_reserves_the_total_wire_budget() {
+    assert_eq!(parity_for_ratio(10, 0.40, false), 4);
+    assert_eq!(parity_for_ratio(10, 0.60, false), 6);
+    assert_eq!(parity_for_ratio(10, 0.0, true), 1);
 }
 
 #[test]
