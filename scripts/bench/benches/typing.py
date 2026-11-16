@@ -1,7 +1,7 @@
 """Native composer typing under load, wrapping agent-engine-bench via split-spring.
 
-The paint metric is the existing DOM keydown-to-after-frame proxy. Native admission
-and driver lateness remain separate rows; this does not certify physical presentation.
+The paint metric is the existing DOM keydown-to-after-frame proxy. Same-host epoch
+timestamps also include native admission; this does not certify physical presentation.
 p99 is a distinct metric, so the shared v1 ledger/compare can compare it without a
 schema change. Failed/incomplete runs retain diagnostics but produce no timing rows.
 """

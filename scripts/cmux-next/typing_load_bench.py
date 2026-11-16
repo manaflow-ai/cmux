@@ -136,22 +136,25 @@ def run_loads(rpc, pane, open_chat, wait, modes, keys, gap_ms):
                 cores = os.cpu_count() or 1
                 # Only these recorded child PIDs are stopped; a wall-clock limit also bounds them.
                 program = "import time\nend=time.monotonic()+60\nx=1\nwhile time.monotonic()<end: x=(x*1664525+1013904223)%4294967296"
-                stress = [subprocess.Popen([sys.executable, "-c", program], stdout=subprocess.DEVNULL,
-                                           stderr=subprocess.DEVNULL) for _ in range(cores)]
-                row["stress_pids"] = [p.pid for p in stress]
                 row["stress_cores"] = cores
                 row["stress_cpu_before"] = resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime
                 row["stress_started"] = time.monotonic()
+                for _ in range(cores):
+                    stress.append(subprocess.Popen([sys.executable, "-c", program], stdout=subprocess.DEVNULL,
+                                                   stderr=subprocess.DEVNULL))
+                row["stress_pids"] = [p.pid for p in stress]
                 time.sleep(.5)  # intentional load warmup
             send_start = time.monotonic()
             wall_start = time.time()
             dispatch = []
             for index, letter in enumerate(expected):
+                if time.monotonic() > send_start + duration + 10:
+                    raise RuntimeError("native typing exceeded its scheduled duration by 10 seconds")
                 deadline = send_start + index * gap_ms / 1000
                 time.sleep(max(0, deadline - time.monotonic()))
                 start = time.monotonic()
                 epoch_ms = time.time() * 1000
-                reply = checked(rpc("debug.key", {"target": "page", "pane": target, "key": letter}))
+                reply = checked(rpc("debug.key", {"target": "page", "pane": target, "key": letter}, timeout=2))
                 dispatch.append({"index": index, "epoch_ms": epoch_ms, "late_ms": (start - deadline) * 1000,
                                  "rpc_ms": (time.monotonic() - start) * 1000, "reply": reply})
             row["send_started"], row["send_ended"] = send_start, time.monotonic()
@@ -173,7 +176,11 @@ def run_loads(rpc, pane, open_chat, wait, modes, keys, gap_ms):
             for process in stress:
                 if process.poll() is None:
                     process.terminate()
-                process.wait(timeout=10)
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()  # this exact child only
+                    process.wait(timeout=10)
             if stress:
                 elapsed = time.monotonic() - row["stress_started"]
                 used = resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime - row["stress_cpu_before"]
