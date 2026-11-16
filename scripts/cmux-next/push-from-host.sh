@@ -27,11 +27,11 @@
 # nothing is pushed.
 # --host may be given more than once (or CMUX_PUSH_HOST may list several, space-separated): the first host that
 # answers SSH and holds the clone is used. A host is HOST or HOST:REPO (REPO relative to HOST's home; without it,
-# CMUX_PUSH_HOST_REPO). With none given, DEFAULT_HOSTS below, in order: the Macs that have a full clone with the hooks
-# installed (machines/fleet-registry.json in leo-workspace: cmux16 is an owned mini with the mac-build role). Not a
-# Linux host: the hook runs SwiftFormat and SwiftLint. On 2026-11-12 at 00:40Z cmux-lawrence-2, then the only
-# default, stopped answering SSH (office power) and every sparse-worktree web push (web_lint_prepush.py sends them
-# here) failed with "no host answers".
+# CMUX_PUSH_HOST_REPO). With none given, the hosts with the registry's mac-build role are tried in registry order.
+# The registry's personal machines are never candidates, even when an environment variable names one. Not a Linux
+# host: the hook runs SwiftFormat and SwiftLint. A hand-kept list beside the registry caused a fallback onto Leo's
+# own machine when a fleet host's disk was full; the registry is now the only default source and personal markers are
+# enforced for explicit overrides too.
 # A host the fleet reserves for someone is skipped, whether it came from DEFAULT_HOSTS, CMUX_PUSH_HOST or --host:
 # before SSH, each host goes to leo-workspace's tools/fleet_reservations.py (the registry's dated reservations, the
 # build controller's pool holds, HQ's owner-only hosts), and when every host is reserved nothing is sent. A reader
@@ -43,13 +43,16 @@
 # Exit: 0 pushed (or already there), 1 refused by the hook or by GitHub (output above), 2 usage or setup (also: every
 # host reserved or unreachable). Without --rebase a non-fast-forward is refused by GitHub as always. It never forces.
 #
-# Environment: CMUX_PUSH_HOST [DEFAULT_HOSTS], CMUX_PUSH_HOST_REPO [fun/cmux, relative to HOST's home],
-# CMUX_FLEET_RESERVATIONS [~/Projects/leo-workspace/tools/fleet_reservations.py, the reader reach uses],
+# Environment: CMUX_PUSH_HOST [registry candidates], CMUX_FLEET_REGISTRY [fleet-registry.json],
+# CMUX_PUSH_HOST_REPO [fun/cmux, relative to HOST's home], CMUX_FLEET_RESERVATIONS
+# [~/Projects/leo-workspace/tools/fleet_reservations.py, the reader reach uses],
 # and the hook's own CMUX_WEB_LINT_SKIP_REASON / CMUX_NEXT_CHECKS_SKIP_REASON, passed through.
 set -euo pipefail
 
-# The fallback order (header). Each HOST:REPO; the first that answers SSH and has the clone is used.
-DEFAULT_HOSTS=(cmux-lawrence-2:fun/cmux cmux16:Projects/cmux)
+# Defaults come from the registry's mac-build role. There is deliberately no hard-coded fallback: Leo, 2026-11-16,
+# "cmux16 is not a fleet builder right now it runs MY stuff".
+REGISTRY="${CMUX_FLEET_REGISTRY:-$HOME/Projects/leo-workspace/machines/fleet-registry.json}"
+DEFAULT_HOSTS=()
 HOSTS=()
 WHICH_HOST=0
 REBASE=0
@@ -77,6 +80,28 @@ if (( ${#HOSTS[@]} == 0 )); then
     if [[ -n "${CMUX_PUSH_HOST:-}" ]]; then
         read -r -a HOSTS <<< "$CMUX_PUSH_HOST"
     else
+        if [[ -f "$REGISTRY" ]]; then
+            while IFS= read -r candidate; do
+                [[ -n "$candidate" ]] && DEFAULT_HOSTS+=("$candidate")
+            done < <(python3 - "$REGISTRY" <<'PY'
+import json, sys
+try:
+    registry = json.load(open(sys.argv[1]))
+except (OSError, ValueError, IndexError) as exc:
+    print(f"registry unreadable: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+for name, machine in (registry.get("machines") or {}).items():
+    roles = set(machine.get("roles") or [])
+    personal = bool(machine.get("personal")) or bool(roles & {"leo-apps", "leo-mac"}) or machine.get("approval") == "leo-own"
+    if "mac-build" in roles and not personal:
+        print(name)
+PY
+            ) || {
+                echo "push-from-host: could not read mac-build hosts from $REGISTRY; no default host is used." >&2
+            }
+        else
+            echo "push-from-host: no fleet registry at $REGISTRY; no default host is used. Set CMUX_PUSH_HOST explicitly." >&2
+        fi
         HOSTS=("${DEFAULT_HOSTS[@]}")
     fi
 fi
@@ -99,6 +124,38 @@ for spec in "${HOSTS[@]}"; do
     if [[ ! "$candidate" =~ ^[A-Za-z0-9._@-]+$ || ! "$repo" =~ ^[A-Za-z0-9._/-]+$ ]]; then
         echo "push-from-host: host '$spec' has characters this script does not pass to a shell" >&2
         exit 2
+    fi
+    if [[ -f "$REGISTRY" ]]; then
+        REGISTRY_STATUS="$(python3 - "$REGISTRY" "$candidate" <<'PY'
+import json, sys
+try:
+    registry = json.load(open(sys.argv[1]))
+    machine = (registry.get("machines") or {}).get(sys.argv[2])
+except (OSError, ValueError, IndexError):
+    print("unreadable")
+    raise SystemExit
+if machine is None:
+    print("unknown")
+else:
+    roles = set(machine.get("roles") or [])
+    personal = bool(machine.get("personal")) or bool(roles & {"leo-apps", "leo-mac"}) or machine.get("approval") == "leo-own"
+    print("personal" if personal else "allowed")
+PY
+        )"
+        case "$REGISTRY_STATUS" in
+            personal)
+                echo "push-from-host: skipping $candidate: the fleet registry marks it as a person's own machine." >&2
+                RESERVED+=("$candidate")
+                continue ;;
+            unknown)
+                echo "push-from-host: skipping $candidate: it is not declared in $REGISTRY." >&2
+                RESERVED+=("$candidate")
+                continue ;;
+            unreadable)
+                echo "push-from-host: skipping $candidate: the fleet registry cannot be read." >&2
+                RESERVED+=("$candidate")
+                continue ;;
+        esac
     fi
     if [[ -n "$RESERVATIONS" ]]; then
         # The reader exits 0 for a free host and 1 for a reserved one, printing who holds it. ssh's user@ is not

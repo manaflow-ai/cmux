@@ -8,6 +8,7 @@ bare repository. So the test runs the script's real steps: the bundle, the hook,
   python3 scripts/cmux-next/tests/test_push_from_host.py
 """
 import importlib.util
+import json
 import os
 import subprocess
 import tempfile
@@ -48,6 +49,8 @@ if host in os.environ.get("FAKE_UNREADABLE", "").split():
 print(f"{host}: free")
 """
 HOOK = """#!/bin/bash
+# prepush-gate (fixture marker: this is the reviewed cmux gate)
+# run_repo_hooks (fixture marker: shared hooks dispatches the repository gate)
 cat > /dev/null
 echo ran >> "$FAKE_HOST_HOME/hook.log"
 if [[ -f "$FAKE_HOST_HOME/refuse" ]]; then echo "pre-push: refused in fixture" >&2; exit 1; fi
@@ -78,11 +81,31 @@ class PushFromHostTests(unittest.TestCase):
             {key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
         reservations = self.root / "fleet_reservations.py"
         reservations.write_text(FAKE_RESERVATIONS)
+        registry = self.root / "fleet-registry.json"
+        registry.write_text(json.dumps({
+            "machines": {
+                "fake-host": {"roles": ["mac-build"], "approval": "manaflow-fleet"},
+                "perf-mini": {"roles": ["mac-build"], "approval": "manaflow-fleet"},
+                "other-mini": {"roles": ["mac-build"], "approval": "manaflow-fleet"},
+                "personal-mini": {"roles": ["mac-build"], "personal": True, "approval": "leo-own"},
+            }
+        }))
         self.env.update(PATH=f"{bin_dir}:{self.env.get('PATH', '')}", GIT_CONFIG_GLOBAL=str(config),
                         GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home),
-                        CMUX_FLEET_RESERVATIONS=str(reservations))
+                        CMUX_FLEET_RESERVATIONS=str(reservations), CMUX_FLEET_REGISTRY=str(registry))
         git_fixture_env.init_repo(self.origin, "--bare", env=self.env)
         self.run_ok("git", "clone", "--quiet", str(self.origin), str(self.work))
+        hook_installer = self.work / "scripts/install-git-hooks.sh"
+        hook_installer.parent.mkdir(parents=True)
+        hook_installer.write_text("""#!/bin/sh
+set -eu
+common=$(git rev-parse --git-common-dir)
+mkdir -p "$common/cmux-git-hooks"
+printf '#!/bin/sh\\n# prepush-gate\\n' >"$common/cmux-git-hooks/pre-push"
+chmod +x "$common/cmux-git-hooks/pre-push"
+git config core.hooksPath "$common/cmux-git-hooks"
+""")
+        hook_installer.chmod(0o755)
         self.commit(self.work, "base.txt", "base\n", "base")
         self.git(self.work, "push", "--quiet", "origin", "HEAD:refs/heads/feat-cmux-next")
         host_repo = self.host_home / "fun/cmux"
@@ -92,6 +115,11 @@ class PushFromHostTests(unittest.TestCase):
         hooks.mkdir()
         (hooks / "pre-push").write_text(HOOK)
         (hooks / "pre-push").chmod(0o755)
+        (hooks / "repo-hook").write_text("run_repo_hooks() { :; }\n")
+        own_hooks = host_repo / ".git/cmux-git-hooks"
+        own_hooks.mkdir()
+        (own_hooks / "pre-push").write_text(HOOK)
+        (own_hooks / "pre-push").chmod(0o755)
         self.git(host_repo, "config", "core.hooksPath", str(hooks))
 
     def run_ok(self, *command, cwd=None):
@@ -284,6 +312,17 @@ class PushFromHostTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.strip(), "fake-host fun/cmux")
         self.assertIn("no fleet reservation reader", done.stderr)
+
+    def test_a_personal_machine_is_never_picked_even_when_named_explicitly(self):
+        sha = self.commit(self.work, "personal-safe.txt", "safe\n", "personal routing guard")
+
+        done = self.push("personal-safe", hosts=("personal-mini", "fake-host"))
+
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.remote_head("personal-safe"), sha)
+        self.assertIn("skipping personal-mini: the fleet registry marks it as a person's own machine", done.stderr)
+        self.assertIn(f"{sha} -> personal-safe through fake-host", done.stderr)
+        self.assertFalse((self.host_home / "personal-mini.log").exists())
 
 
 if __name__ == "__main__":
