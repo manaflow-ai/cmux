@@ -740,6 +740,75 @@ async fn a_version_2_start_with_no_valid_mark_is_refused() {
     b.shutdown_all().await;
 }
 
+/// Machine B served over a real peer link as `box` to `a`: B's server task and the folder its peer
+/// key lives in (kept until the test ends).
+async fn linked_b(
+    a: &Arc<Hub>,
+    b: &Arc<Hub>,
+) -> (tokio::task::JoinHandle<anyhow::Result<()>>, tempfile::TempDir) {
+    let home = private_dir();
+    let auth = Arc::new(crate::server::peer_auth::PeerAuth::create(home.path()).unwrap());
+    let peer_token = std::fs::read_to_string(auth.path()).unwrap();
+    let listener = crate::server::bind_ws("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}", listener.local_addr().unwrap());
+    let served = tokio::spawn(crate::server::serve_ws_with(
+        b.clone(),
+        listener,
+        "start-test-token".into(),
+        crate::server::WsAuth { local_app: None, peer: Some(auth) },
+    ));
+    a.add_peer("box", &url, Some("start-test-token".into()), Some(peer_token.trim().into()), true)
+        .await
+        .unwrap();
+    (served, home)
+}
+
+/// The coordinator's ruling on #38377 at af6b6ea8: the linked-peer start takes the same caller
+/// check as a hub start (`forwarded_start`). An agent whose last turn a remote device drove,
+/// starting from A's unix socket, is refused (`mesh.local_only`) and nothing starts on the peer.
+#[tokio::test]
+async fn a_linked_peer_start_by_an_agent_a_remote_device_drives_is_refused() {
+    let (_dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let gates = tempfile::tempdir().unwrap();
+    gate(&b, gates.path());
+    let (agent_id, seed) = agent_record(&cwd);
+    let a = machine_a_seeded(Arc::new(Recorder::default()), &[seed]);
+    let (served, _home) = linked_b(&a, &b).await;
+    a.resolve(&agent_id).expect("the agent's chat on A").mark_last_turn_web_for_tests();
+    let mut socket = Client::agent(&a, &agent_id).await;
+    let refused =
+        socket.call("session/new", new_params(&cwd, "box", "driven-peer"), &mut Vec::new()).await;
+    assert!(b.resolve("driven-peer").is_err(), "a remote-driven agent's start ran on the peer");
+    assert_eq!(refused["error"]["data"]["reason"], "mesh.local_only", "{refused}");
+    a.peer_by_name("box").unwrap().stop();
+    served.abort();
+    a.shutdown_all().await;
+    b.shutdown_all().await;
+}
+
+/// The app's own start onto a linked peer has no proven caller: the caller check leaves it alone,
+/// and it goes marked (`via: app`), so the peer holds it to its folder-trust gate: a folder with no
+/// Trust answer there refuses it (`trust.pending`).
+#[tokio::test]
+async fn an_app_start_onto_a_linked_peer_still_goes_marked() {
+    let (_dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let gates = tempfile::tempdir().unwrap();
+    gate(&b, gates.path());
+    let a = machine_a(Arc::new(Recorder::default()));
+    let (served, _home) = linked_b(&a, &b).await;
+    let refused = Client::app(&a)
+        .call("session/new", new_params(&cwd, "box", "app-peer"), &mut Vec::new())
+        .await;
+    assert_eq!(refused["error"]["data"]["reason"], "trust.pending", "{refused}");
+    assert!(b.resolve("app-peer").is_err(), "the app's start ran on the peer unmarked");
+    a.peer_by_name("box").unwrap().stop();
+    served.abort();
+    a.shutdown_all().await;
+    b.shutdown_all().await;
+}
+
 /// The hub as a start sees it: keeps each `start` body it is sent and refuses it, so the start
 /// ends there and the body is what the machine would have run.
 #[derive(Default)]
