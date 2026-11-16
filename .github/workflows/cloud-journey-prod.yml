@@ -230,8 +230,8 @@ jobs:
   preclaim:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
     runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    # Room for spare_wait: ten claims that each wait up to five minutes for a ready spare, after the cmux-tui build.
-    timeout-minutes: 120
+    # Room for spare_wait (ten claims, each waiting up to five minutes for a ready spare); at most 90, the journey sweep's bound.
+    timeout-minutes: 90
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
