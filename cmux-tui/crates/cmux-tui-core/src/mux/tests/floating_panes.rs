@@ -5,9 +5,11 @@
 use cmux_layout_reducer::floating_panes::{FloatFrame, FloatMode, Floating};
 
 use super::*;
+use crate::workspace_registry::RegistryRow;
 use std::path::PathBuf;
 
 mod acts;
+mod load;
 
 fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
     Mux::from_workspace_registry(
@@ -50,8 +52,16 @@ fn seed(name: &str, edit: impl FnOnce(&mut RegistryScreen)) -> (PathBuf, String)
 
 /// The stored list of the fixture's first screen.
 fn stored_list(root: &Path, session: &str) -> Vec<Floating<PanePublicId>> {
-    let topology =
-        WorkspaceRegistry::open(root, session).unwrap().resource_topology_snapshot().unwrap();
+    stored_list_in(&WorkspaceRegistry::open(root, session).unwrap())
+}
+
+/// The stored list of the fixture's first screen, read from the store of a mux that runs.
+fn stored_list_of(mux: &Mux) -> Vec<Floating<PanePublicId>> {
+    stored_list_in(&mux.workspace_registry.lock().unwrap())
+}
+
+fn stored_list_in(registry: &WorkspaceRegistry) -> Vec<Floating<PanePublicId>> {
+    let topology = registry.resource_topology_snapshot().unwrap();
     topology
         .screens
         .into_iter()
@@ -158,6 +168,81 @@ fn floating_pane_records_load_by_the_rules() {
 
     let mux = open_restart_mux(&root, &session);
     assert_eq!(live_list(&mux), expected);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The store has the list of the live screen after each act that changes the list with no float request: a
+/// focus that brings a floating pane to the front, and a close of a pane.
+#[test]
+fn floating_panes_in_the_store_follow_a_focus_and_a_close() {
+    let (root, session) = seed("follow", |_| {});
+    let [one, two, low, right] = [1, 2, 3, 4].map(restore_pane_id);
+    let order = |list: &[Floating<PanePublicId>]| {
+        list.iter().map(|entry| entry.pane.clone()).collect::<Vec<_>>()
+    };
+
+    let mux = open_restart_mux(&root, &session);
+    for pane in [&right, &low] {
+        mux.float_pane_as(&Actor::Daemon, live_pane(&mux, pane), FloatMode::On, None, None)
+            .unwrap();
+    }
+    assert_eq!(order(&live_list(&mux)), [right.clone(), low.clone()]);
+    assert_eq!(stored_list_of(&mux), live_list(&mux), "after the two floats");
+
+    // The focus goes to a tiled pane, then to the floating pane behind: that pane comes to the front.
+    assert!(mux.focus_pane(live_pane(&mux, &one)));
+    assert!(mux.focus_pane(live_pane(&mux, &right)));
+    assert_eq!(order(&live_list(&mux)), [low.clone(), right.clone()]);
+    assert_eq!(stored_list_of(&mux), live_list(&mux), "after the focus");
+
+    // A tiled pane closes: the list stays.
+    assert!(mux.close_pane(live_pane(&mux, &two)).unwrap());
+    assert_eq!(order(&live_list(&mux)), [low.clone(), right.clone()]);
+    assert_eq!(stored_list_of(&mux), live_list(&mux), "after the close of a tiled pane");
+
+    // The front floating pane closes: it leaves the list.
+    assert!(mux.close_pane(live_pane(&mux, &right)).unwrap());
+    let expected = live_list(&mux);
+    assert_eq!(order(&expected), [low]);
+    assert_eq!(stored_list_of(&mux), expected, "after the close of a floating pane");
+    mux.shutdown();
+    drop(mux);
+
+    assert_eq!(stored_list(&root, &session), expected, "the store at rest");
+    let mux = open_restart_mux(&root, &session);
+    assert_eq!(live_list(&mux), expected, "a restart loads the same list");
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A pane of a column with rows never floats. A pane of another column of the same screen floats.
+#[test]
+fn floating_pane_refuses_a_pane_of_a_column_with_rows() {
+    let (root, session) = seed("rows", |screen| {
+        // The first column: the stack of panes 1 and 2 in the first row, pane 3 in the second row.
+        screen.viewport.columns[0].rows = vec![
+            RegistryRow { id: restore_split_id(9), height: 700 },
+            RegistryRow { id: restore_split_id(1), height: 300 },
+        ];
+    });
+    let mux = open_restart_mux(&root, &session);
+    mux.with_state(|state| {
+        let rows = state.workspaces[0].screens[0].layout_columns[0].rows.len();
+        assert_eq!(rows, 2, "the first column has its two rows");
+    });
+    let low = live_pane(&mux, &restore_pane_id(3));
+    assert_eq!(
+        mux.float_pane_as(&Actor::Daemon, low, FloatMode::On, None, None),
+        Err(FloatPaneError::FixedPane)
+    );
+    assert!(live_list(&mux).is_empty());
+
+    let right = live_pane(&mux, &restore_pane_id(4));
+    mux.float_pane_as(&Actor::Daemon, right, FloatMode::On, None, None).unwrap();
+    assert_eq!(live_list(&mux).len(), 1);
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();

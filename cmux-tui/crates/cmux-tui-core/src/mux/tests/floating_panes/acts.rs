@@ -64,6 +64,35 @@ fn layout_revision(mux: &Mux) -> u64 {
     mux.with_state(|state| state.workspaces[0].screens[0].layout_revision)
 }
 
+/// The commits of the float operation that the mutation ledger of the store holds.
+fn float_commits(mux: &Mux) -> i64 {
+    mux.read_registry_state(|connection| {
+        Ok(connection.query_row(
+            "SELECT COUNT(*) FROM resource_mutations WHERE operation = 'pane.float'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?)
+    })
+    .unwrap()
+}
+
+/// The two events of a float among `events`, in the order of `events`: the change of `screen` and the layout
+/// change of `screen`.
+fn float_events(events: &[MuxEvent], screen: ScreenId) -> Vec<&'static str> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            MuxEvent::TreeDelta(delta)
+                if delta.kind == TreeDeltaKind::ScreenChanged && delta.screen == Some(screen) =>
+            {
+                Some("screen change")
+            }
+            MuxEvent::LayoutChanged(changed, _) if *changed == screen => Some("layout change"),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The rules every act keeps: the list of the screen is the list the rules give for the panes of the tree, and
 /// one pane of the tree is tiled.
 fn assert_rules(mux: &Mux, context: &str) {
@@ -215,6 +244,8 @@ fn floating_pane_repeated_request_commits_nothing() {
     assert!(first.changed);
     assert_eq!(list(&mux), vec![Floating { pane: panes[0], frame }]);
     let revision = layout_revision(&mux);
+    assert_eq!(float_commits(&mux), 1, "the first request is one commit of the store");
+    let events = mux.subscribe();
 
     let again = float_at(&mux, panes[0], frame, None).unwrap();
     assert!(!again.changed, "the same frame again changes nothing");
@@ -223,17 +254,29 @@ fn floating_pane_repeated_request_commits_nothing() {
     assert!(!off.changed, "a tiled pane stays tiled");
     assert_eq!(off.frame, None);
     assert_eq!(layout_revision(&mux), revision, "no change, no layout revision");
+    assert_eq!(float_commits(&mux), 1, "no change, no commit of the store");
+    let events = events.try_iter().collect::<Vec<_>>();
+    assert!(float_events(&events, first.screen).is_empty(), "no change, no event: {events:?}");
+
+    // The newest entry of the layout history is the first request: one undo puts the pane back.
+    let undone = mux.undo_layout(panes[0], None, false).unwrap();
+    assert!(matches!(undone, LayoutUndoResult::Undone { .. }), "{undone:?}");
+    assert!(list(&mux).is_empty(), "the undo goes to the state before the first request");
 }
 
 #[test]
 fn floating_pane_change_emits_a_screen_change_and_a_layout_change() {
     let (mux, panes) = mux_with_panes(2);
     let events = mux.subscribe();
-    float_at(&mux, panes[1], CENTERED, Some(5)).unwrap();
+    let outcome = float_at(&mux, panes[1], CENTERED, Some(5)).unwrap();
     assert_eq!(floating(&mux), vec![panes[1]]);
 
     let events = events.try_iter().collect::<Vec<_>>();
-    assert!(events.iter().any(|event| matches!(event, MuxEvent::LayoutChanged(..))));
+    assert_eq!(
+        float_events(&events, outcome.screen),
+        ["screen change", "layout change"],
+        "one event of each kind, the screen change first"
+    );
     let delta = events
         .iter()
         .find_map(|event| match event {
