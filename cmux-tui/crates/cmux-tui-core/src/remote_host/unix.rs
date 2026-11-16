@@ -860,7 +860,7 @@ impl crate::mux::Mux {
             .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
         // An agent's share turns itself off with no viewer: the host's status says who views,
         // and the host's own session may turn sharing off (the hub allows it that much).
-        let agents = std::sync::Arc::clone(&self.control_clients.remote_agents);
+        let agents = Arc::clone(&self.control_clients.remote_agents);
         self.control_clients
             .remote_host
             .observe_viewer(Box::new(move |viewer| agents.viewer(viewer)));
