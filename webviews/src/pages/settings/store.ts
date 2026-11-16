@@ -606,12 +606,14 @@ export class SettingsStore {
   }
 
   /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists.
-   * Answers the host's refusal of the call itself (an on without the person's own click), else null; a
-   * write that failed says why in the host lists' `devices_join.error`. */
+   * Answers the host's refusal of the call itself (an on without the person's own click), or the reason a
+   * reply that ran carries (`error`: busy with another write), else null; a write that failed later says
+   * why in the host lists' `devices_join.error`. */
   async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<string | null> {
     const reply = await this.request("cmux.settings.devices.join_consent", { surface, on });
     await this.refreshHost();
-    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value.error || null;
   }
 
   /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */

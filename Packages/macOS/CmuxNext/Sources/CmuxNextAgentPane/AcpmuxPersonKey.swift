@@ -78,6 +78,15 @@ nonisolated enum AcpmuxPersonKey {
         }
     }
 
+    /// Gives back ``claimReenroll(for:pid:)``'s claim on `pid` when its enroll never reached the
+    /// daemon (cancelled, or a refusal that may pass), so a later read tries once more.
+    static func releaseReenroll(for socketPath: String, pid: Int32) {
+        keys.withLock { keys in
+            guard keys[socketPath]?.reenrolled == pid else { return }
+            keys[socketPath]?.reenrolled = nil
+        }
+    }
+
     /// The transport a proof names: the one this app knows it uses, never a value from the
     /// challenge (a relay that hands a unix connection's challenge to the pane's WebSocket gets
     /// a proof for the other transport).
@@ -140,6 +149,24 @@ nonisolated enum AcpmuxPersonKey {
     /// refusal is tried again a few times (``enrollRetryDelays``).
     static func enroll(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool = true,
                        retryDelays: [Duration] = enrollRetryDelays) async -> Bool {
+        await enrollOutcome(status, environment: environment, mayHandOff: mayHandOff, retryDelays: retryDelays) == .handedOff
+    }
+
+    /// What one ``enroll(_:environment:mayHandOff:retryDelays:)`` came to.
+    enum EnrollOutcome: Equatable {
+        /// The daemon took the key.
+        case delivered
+        /// It stopped the daemon; the caller starts a new one.
+        case handedOff
+        /// The daemon refused for good (another binary, user or launch's key; an older daemon).
+        case refused
+        /// The key never reached the daemon and may on a later try: cancelled, or a refusal that may pass.
+        case unsent
+    }
+
+    /// ``enroll(_:environment:mayHandOff:retryDelays:)`` that says whether the key reached the daemon.
+    static func enrollOutcome(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool = true,
+                              retryDelays: [Duration] = enrollRetryDelays) async -> EnrollOutcome {
         let key = enrollKey(for: environment.socketPath, pid: status.pid)
         var delays = retryDelays[...]
         // One attempt, then one more per delay: every pass returns or uses up a delay.
@@ -149,31 +176,31 @@ nonisolated enum AcpmuxPersonKey {
                 _ = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/person_enroll",
                                                     params: ["key": key], executable: environment.executable,
                                                     deadline: .seconds(5))
-                return false
+                return .delivered
             } catch let refusal as AcpmuxServerPeer.Refusal {
                 if let pid = status.pid, AcpmuxVersionHandoff.replaced(pid: pid) {
                     logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); acpmux \(pid) runs a replaced bundle")
                     return await handOff(status, environment: environment, mayHandOff: mayHandOff,
-                                         why: "runs a bundle an update replaced, which cannot take this launch's person key")
+                                         why: "runs a bundle an update replaced, which cannot take this launch's person key") ? .handedOff : .refused
                 }
                 // Another install's or another user's daemon refuses for good: no retry there.
                 guard Self.mayPass(refusal), let delay = delays.popFirst(), !Task.isCancelled else {
                     logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); this pane's prompts are not proven the person's")
-                    return false
+                    return Self.mayPass(refusal) ? .unsent : .refused
                 }
                 logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); trying again")
                 // wakeup-allow: a bounded enroll retry (three waits at most, only after a refusal)
                 try? await Task.sleep(for: delay)
             } catch let error as AcpmuxRPCError where error.name == enrollUnavailable {
                 return await handOff(status, environment: environment, mayHandOff: mayHandOff,
-                                     why: "has another launch's person key")
+                                     why: "has another launch's person key") ? .handedOff : .refused
             } catch {
                 // An older daemon without the method has no person rule to satisfy.
                 logger.info("acpmux person_enroll: \(String(describing: error), privacy: .public)")
-                return false
+                return error is CancellationError || Task.isCancelled ? .unsent : .refused
             }
         }
-        return false
+        return .unsent
     }
 
     /// Whether a peer refusal may pass on a later try: the daemon did not answer, closed, was

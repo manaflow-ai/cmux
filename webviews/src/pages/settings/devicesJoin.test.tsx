@@ -131,6 +131,24 @@ test("the host's refusal of an on that is not the person's own click shows under
   page.unmount();
 });
 
+test("a reply that carries the host's reason shows it under the switches", async () => {
+  const page = await renderPage({
+    path: "/settings/devices",
+    mock: { devicesJoin: mockDevicesJoin },
+    setup: (provider) => {
+      provider.joinConsentReplyError = "Still off: another change to these switches is being written.";
+    },
+  });
+  await settle();
+  await act(async () => toggle(page.container, "control").click());
+  await settle();
+  expect(group(page.container)!.querySelector('[role="alert"]')?.textContent).toBe(
+    "Still off: another change to these switches is being written.",
+  );
+  expect(toggle(page.container, "control").getAttribute("aria-checked")).toBe("false");
+  page.unmount();
+});
+
 test("a write the host could not make shows the host's reason under the switches", async () => {
   const page = await renderPage({
     path: "/settings/devices",

@@ -81,6 +81,11 @@ public final class AcpmuxPersonLine {
     /// while the app ran, or no pane enrolled it yet), it enrolls it the way Home does
     /// (``AcpmuxApprovalAnswerer/prepareForHome()``: never a hand-off) and connects once more.
     public static func connectEnrolling(_ environment: AcpmuxEnvironment) async -> Result<AcpmuxPersonLine, OpenFailure> {
+        await connectEnrolling(environment, enrollRetryDelays: AcpmuxPersonKey.enrollRetryDelays)
+    }
+
+    static func connectEnrolling(_ environment: AcpmuxEnvironment,
+                                 enrollRetryDelays: [Duration]) async -> Result<AcpmuxPersonLine, OpenFailure> {
         let first = await connect(environment, allowForeign: true)
         guard case .success(let line) = first, !line.isPerson, line.foreignPeerPath == nil, !environment.isAttached
         else { return first }
@@ -95,7 +100,13 @@ public final class AcpmuxPersonLine {
               AcpmuxPersonKey.claimReenroll(for: environment.socketPath, pid: pid) else { return first }
         // The first line's deadline runs from its connect: closed here, and the answer is a fresh line.
         line.close()
-        _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
+        let outcome = await AcpmuxPersonKey.enrollOutcome(status, environment: environment, mayHandOff: false,
+                                                          retryDelays: enrollRetryDelays)
+        // A key that never reached the daemon (cancelled, or a refusal that may pass) gives the claim
+        // back, so a later read enrolls that instance once more; a refusal for good keeps it.
+        if outcome == .unsent || Task.isCancelled {
+            AcpmuxPersonKey.releaseReenroll(for: environment.socketPath, pid: pid)
+        }
         return await connect(environment, allowForeign: true)
     }
 

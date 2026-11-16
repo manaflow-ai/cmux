@@ -152,6 +152,27 @@ import CmuxNextServer
         line.close()
     }
 
+    /// Codex P1-F1: the consent line re-enrolls an instance once, but an enroll that never reached it
+    /// (the connection closed: a refusal that may pass) gives that claim back, so the next read enrolls once more.
+    @Test func anEnrollThatNeverArrivedIsTriedAgainOnTheNextRead() async throws {
+        let socket = Self.socketPath()
+        // Each read: the first line, the status read, one enroll (closed, no retry here) and the line after it.
+        let daemon = try FakeAcpmux(socket: socket, key: AcpmuxPersonKey.newKey(), connections: 8,
+                                    statusPid: getpid(), enrollCloses: true)
+        defer { daemon.stop() }
+        let environment = try Self.environment(socket)
+        for _ in 0..<2 {
+            guard case .success(let line) = await AcpmuxPersonLine.connectEnrolling(environment, enrollRetryDelays: []) else {
+                Issue.record("no line to this app's own daemon")
+                return
+            }
+            #expect(!line.isPerson)
+            line.close()
+        }
+        daemon.waitForConnections()
+        #expect(daemon.methods.filter { $0 == "_acpmux/person_enroll" }.count == 2, "\(daemon.methods)")
+    }
+
     private static func socketPath() -> String {
         "/tmp/jcl-\(UUID().uuidString.prefix(8))/acpmux.sock"
     }
@@ -193,8 +214,15 @@ import CmuxNextServer
         var sets: [String] { lock.withLock { log.sets } }
         var consent: [String: String] { lock.withLock { record } }
 
-        init(socket: String, key: String, connections: Int = 1) throws {
+        private let statusPid: Int32?
+        private let enrollCloses: Bool
+
+        /// `statusPid`: `_acpmux/status` answers that pid (else "method not found"). `enrollCloses`:
+        /// `_acpmux/person_enroll` closes the connection unanswered.
+        init(socket: String, key: String, connections: Int = 1, statusPid: Int32? = nil, enrollCloses: Bool = false) throws {
             self.key = key
+            self.statusPid = statusPid
+            self.enrollCloses = enrollCloses
             expected = connections
             directory = (socket as NSString).deletingLastPathComponent
             try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
@@ -294,6 +322,10 @@ import CmuxNextServer
                             lock.withLock { log.refused.append(surface) }
                             reply["error"] = ["code": -32001, "message": "permission.person_required"] as [String: Any]
                         }
+                    case "_acpmux/status" where statusPid != nil:
+                        reply["result"] = ["pid": NSNumber(value: statusPid ?? 0)]
+                    case "_acpmux/person_enroll" where enrollCloses:
+                        return
                     case "_acpmux/machine_consent_get":
                         reply["result"] = ["consent": consent, "lastRefusal": NSNull()] as [String: Any]
                     default:

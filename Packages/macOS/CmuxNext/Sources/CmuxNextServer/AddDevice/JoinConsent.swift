@@ -805,23 +805,23 @@ public nonisolated struct JoinConsentStrings {
         s("devices.join.unread", "This Mac could not read what it allows, so Mac Screen is refused until it can. The switches come back when it reads again.")
     }
     static var notRunning: String {
-        s("devices.join.notRunning", "cmux's acpmux is not running on this Mac, so it can't read what this Mac allows. Mac Screen is refused until it can.")
+        s("devices.join.notRunning", "cmux's background service is not running on this Mac, so it can't read what this Mac allows. Mac Screen is refused until it can.")
     }
     static var refusedDaemon: String {
-        s("devices.join.refusedDaemon", "cmux did not trust what answers on its acpmux socket, so it can't read what this Mac allows. Mac Screen is refused until it can.")
+        s("devices.join.refusedDaemon", "cmux did not trust the program that answered for its background service, so it can't read what this Mac allows. Mac Screen is refused until it can.")
     }
     static var noAnswer: String {
-        s("devices.join.noAnswer", "This Mac's acpmux did not answer, so cmux can't read what this Mac allows. Mac Screen is refused until it can.")
+        s("devices.join.noAnswer", "cmux's background service did not answer, so cmux can't read what this Mac allows. Mac Screen is refused until it can.")
     }
     static var olderDaemon: String {
-        s("devices.join.olderDaemon", "This Mac's acpmux is too old to say what this Mac allows. Quit it so cmux runs its own.")
+        s("devices.join.olderDaemon", "An older copy of cmux's background service is running, so cmux can't read what this Mac allows. Quit it so cmux runs its own.")
     }
     /// Another install's acpmux (`path`) answers on cmux's socket: it shows what it holds, and cmux can't prove it's you there.
     static func otherDaemon(_ path: String) -> String {
-        String(format: s("devices.join.otherDaemon", "This Mac's acpmux is %@, not the one cmux runs, so cmux shows what it allows but can't change it. Quit that acpmux so cmux runs its own."), path)
+        String(format: s("devices.join.otherDaemon", "Another copy of cmux's background service is running (%@), so cmux shows what this Mac allows but can't change it. Quit it so cmux runs its own."), path)
     }
     static var notProven: String {
-        s("devices.join.notProven", "cmux could not prove it's you to this Mac's acpmux, so these can't change. Quit and reopen cmux to try again.")
+        s("devices.join.notProven", "cmux could not prove it's you to its background service, so these can't change. Quit and reopen cmux to try again.")
     }
     /// The Settings switch's or the sheet's Allow refused an input that is not the person's own click.
     public static var personOnly: String { s("devices.join.personOnly", "Only a click by the person at this Mac can allow this.") }
@@ -833,7 +833,7 @@ public nonisolated struct JoinConsentStrings {
         s("devices.join.confirmCancelled", "Still off: Touch ID or your login password was cancelled, so this Mac could not confirm it was you.")
     }
     static func acpmuxRefused(_ said: String) -> String {
-        String(format: s("devices.join.acpmuxRefused", "This Mac's acpmux did not take it: %@"), said)
+        String(format: s("devices.join.acpmuxRefused", "cmux's background service did not take it: %@"), said)
     }
     static var busy: String { s("devices.join.busy", "Still saving the last change. Try again in a moment.") }
     static var revokeAll: String { s("devices.join.revokeAllSurfaces", "Turn All Off") }
