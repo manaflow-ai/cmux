@@ -89,6 +89,21 @@ import Testing
         #expect(none.contains("no staged bundle of 300"))
     }
 
+    /// A pre-warm that ran leaves its build for that build's first launch, which consumes it (`cmux app launch-times`'
+    /// `prewarmed`); a relaunch of the same build and a launch of another build are not pre-warmed.
+    @Test func aPrewarmLeavesItsBuildForItsFirstLaunchOnly() async throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        try Self.stage(root, "u1", "x1", build: "200")
+        let marker = root.deletingLastPathComponent().appending(path: "support/launch-prewarm")
+        _ = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork(), marker: marker)
+        #expect(!FileManager.default.fileExists(atPath: marker.path), "no staged bundle ran: no marker")
+        _ = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork(), marker: marker)
+        #expect(!StagedUpdatePrewarm.consumeLaunchMarker(build: "199", at: marker), "another build's launch")
+        #expect(StagedUpdatePrewarm.consumeLaunchMarker(build: "200", at: marker))
+        #expect(!StagedUpdatePrewarm.consumeLaunchMarker(build: "200", at: marker), "a relaunch of the same build")
+    }
+
     /// The running app is build 100.
     static func updater(stagedBuild: String?) -> UpdaterService {
         let identity = UpdateBuildIdentity(bundleIdentifier: bundleID, shortVersion: "1.0.0", build: "100", minimumSystemVersion: nil,
