@@ -1,6 +1,11 @@
-// The detector for a reply the chat holds but does not paint (replyPainted.ts), as the transcript runs it: once the
-// turn has ended and the page has settled, the followed view must show its final reply, or the flicker ring file says
-// why (`reply-unpainted`). Each reply is judged once.
+// The detector for a reply the chat holds but does not paint (replyPainted.ts), as the transcript runs it: once a
+// turn this page watched has ended and the page has settled, the followed view must show its final reply, or the
+// flicker ring file says why (`reply-unpainted`). Each reply is judged once.
+//
+// Only a turn whose end this page saw is judged (Leo, 2026-11-12: "you should be able to detect that the messages
+// aren't coming out from the coordinator"). A chat opened or switched to at rest ended its turn long before: judging
+// it armed a REPLY_SETTLE_MS timer on every switch, which woke the pane at rest (CMUX-571, idle wakeups:
+// bench/chat-switch.bench.ts idle_wakeups; Leo: "Infinite everything feels like nothing").
 import { useEffect, useRef, type RefObject } from "react";
 import type { AcpmuxRow } from "../model";
 import { noteReplyUnpainted } from "../flickerLog";
@@ -21,6 +26,7 @@ export type EndedReplyCheck = {
 
 export function useEndedReplyCheck({
   rows,
+  sessionId,
   working,
   loading,
   dockSpace,
@@ -29,10 +35,18 @@ export function useEndedReplyCheck({
   atLatest,
 }: EndedReplyCheck): void {
   const judged = useRef<string | undefined>(undefined);
+  // The chat whose turn this page saw working; its next end is judged.
+  const watched = useRef<string | undefined>(undefined);
   const follows = useRef(atLatest);
   follows.current = atLatest;
   useEffect(() => {
-    if (working || loading) return;
+    // Another chat shown: the turn this page watched was that chat's.
+    if (watched.current !== sessionId) watched.current = undefined;
+    if (working) {
+      watched.current = sessionId;
+      return;
+    }
+    if (loading || !sessionId || watched.current !== sessionId) return;
     const id = finalReplyId(rows);
     if (!id || judged.current === id) return;
     const timer = window.setTimeout(() => {
@@ -47,5 +61,5 @@ export function useEndedReplyCheck({
       if (why) noteReplyUnpainted(why, Math.round(node?.getBoundingClientRect().height ?? 0));
     }, REPLY_SETTLE_MS);
     return () => window.clearTimeout(timer);
-  }, [rows, working, loading, dockSpace, scroller, host]);
+  }, [rows, sessionId, working, loading, dockSpace, scroller, host]);
 }
