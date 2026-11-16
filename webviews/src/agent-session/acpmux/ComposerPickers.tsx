@@ -84,7 +84,7 @@ import {
   MenuSeparator,
 } from "../../ui/Menu";
 import { cx } from "../../ui/cx";
-import { registerPicker } from "./pickerOpeners";
+import { ChatViewParked, registerPicker } from "./pickerOpeners";
 import { experimentArm } from "../../experiments/experiment";
 import { contextRingLook } from "./contextRingLook.experiment";
 import { contextRingMotion } from "./contextRingMotion.experiment";
@@ -1444,7 +1444,8 @@ function AccessMenu({
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, () => setOpen(true))), [label, parked]);
   // A pick draws at once, until the session reports a mode: the picked one, or (once the agent
   // answered) any other than the one the pick left, which the agent runs instead (it mapped the
   // pick onto its own mode, or another window changed it). A pick kept until the session reported

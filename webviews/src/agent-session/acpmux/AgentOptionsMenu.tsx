@@ -4,7 +4,7 @@ import { type ConfigOption, optionValueName } from "./agentOptions";
 import { ChevronIcon } from "./ComposerPickers";
 import { unrestricted } from "./composerPickerModel";
 import { useT } from "./i18n";
-import { registerPicker } from "./pickerOpeners";
+import { ChatViewParked, registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 
 /// The composer's Options chip: every config option the harness advertises that has no chip of
@@ -30,7 +30,8 @@ export function AgentOptionsMenu({
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   const label = t("picker.options");
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, () => setOpen(true))), [label, parked]);
   if (options.length === 0) return null;
   const only = options.length === 1 ? options[0] : undefined;
   const face = only ? `${only.name ?? only.id}: ${optionValueName(only) ?? ""}` : label;

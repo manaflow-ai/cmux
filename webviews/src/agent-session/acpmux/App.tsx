@@ -205,7 +205,7 @@ import { keptChips, type KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
-import { openPicker } from "./pickerOpeners";
+import { ChatViewParked, openPicker } from "./pickerOpeners";
 import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
@@ -1591,9 +1591,8 @@ export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
 /// No projects known (a stable value, so memos keyed on it hold).
 const NO_PROJECTS: Project[] = [];
 
-/// Experiment switch for the spare's parked chat view (App `parkedVisible`), set by the bench before load.
-const spareParkVisible = () =>
-  typeof window !== "undefined" && (window as { __cmuxSparePark?: unknown }).__cmuxSparePark === "visible";
+/// A chat view parked under a New Tab page (AcpmuxPane `parked`): laid out and drawn in place but unseen,
+/// over the page's area and taking no pointer.
 const PARKED_STYLE = {
   visibility: "hidden",
   position: "absolute",
@@ -11007,11 +11006,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat view (header, transcript, dock and composer) shows: no page or screen stands in its place.
   const showsChatView =
     !showNewTab && !harnessesOpen && !contextOpen && !(replaying && replaying === snapshot.sessionId);
-  /// A New Tab page (the prewarmed spare among them) keeps the chat view built and hidden under it
-  /// (`<Activity mode="hidden">`: rendered when React is idle, no effects), so a chat it takes
-  /// (`acpmux-session-adopt`, a start from the page) only shows it and draws the chat's rows: the
-  /// adopt event's task was one ~70 ms React pass building the whole view in New Tab's place. The
-  /// hidden view holds the (empty) transcript, not a new chat's hero and lists: a taken chat shows rows.
+  /// A New Tab page (the prewarmed spare among them) keeps the chat view built and parked under it,
+  /// so a chat it takes (`acpmux-session-adopt`, a start from the page) only shows it and draws the
+  /// chat's rows: the adopt event's task was one ~70 ms React pass building the whole view in New
+  /// Tab's place. The parked view holds the (empty) transcript, not a new chat's hero and lists: a
+  /// taken chat shows rows.
   const premountsChatView = showNewTab && !harnessesOpen;
   /// A chat view that showed and then went under a New Tab page (Cmd-T in this page, a host that
   /// answered after its error) is built again: the hidden one is always a fresh mount, as the view
@@ -11019,11 +11018,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const chatViewMount = useRef({ shown: showsChatView, key: 0 });
   if (chatViewMount.current.shown && !showsChatView) chatViewMount.current.key += 1;
   chatViewMount.current.shown = showsChatView;
-  /// Experiment (bench `PARK=visible`): park the view drawn but invisible and inert instead of under
-  /// `<Activity mode="hidden">`, so its effects run while parked and its reveal runs none.
-  const [parkVisible] = useState(spareParkVisible);
-  const parkedVisible = premountsChatView && !showsChatView && parkVisible;
-  const parkStyle = parkedVisible ? PARKED_STYLE : undefined;
+  /// The parked view is drawn but unseen (`visibility: hidden`) and `inert`, not under `<Activity
+  /// mode="hidden">`: its effects run while it is parked, so the adopt's task runs none of them (the
+  /// hidden Activity brought them all back in that task; 120 vs 127 ms p50, 142 vs 163 ms p95 at 10
+  /// turns, run 43931907760). Its menus and keys stay off (pickerOpeners.ts `ChatViewParked`), and
+  /// so does its composer's keyboard claim (useComposerKeyboard above).
+  const parked = premountsChatView && !showsChatView;
+  const parkStyle = parked ? PARKED_STYLE : undefined;
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
@@ -13714,12 +13715,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           ) : null}
           {(showsChatView || premountsChatView) && (
-            <Activity key={chatViewMount.current.key} mode={showsChatView || parkVisible ? "visible" : "hidden"}>
+            <ChatViewParked.Provider key={chatViewMount.current.key} value={parked}>
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
                 style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
-                inert={parkedVisible || undefined}
+                inert={parked || undefined}
               >
                 {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
                     (ui/titleTooltips.ts `data-tooltip-covered`). */}
@@ -14049,7 +14050,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   />
                 )}
               </div>
-              <div ref={setDock} className="acpmux-dock" style={parkStyle} inert={parkedVisible || undefined}>
+              <div ref={setDock} className="acpmux-dock" style={parkStyle} inert={parked || undefined}>
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
                 <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
@@ -14085,7 +14086,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
                 {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
               </div>
-            </Activity>
+            </ChatViewParked.Provider>
           )}
         </div>
         {!harnessesOpen &&

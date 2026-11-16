@@ -831,9 +831,6 @@ try {
     servingSpare = true;
     try {
       await prepare(page, null, 600_000);
-      // PARK=visible: the spare parks its chat view drawn but invisible (App SPARE_PARK_VISIBLE).
-      if (process.env.PARK)
-        await page.addInitScript((park) => Object.assign(window, { __cmuxSparePark: park }), process.env.PARK);
       await page.goto(spareUrl);
       await page.waitForFunction(
         (quietMs) => {
