@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1. */
+/* cmux-tui mux protocol 12, IR cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea. */
 
 
 import type * as T from "./types.js";
@@ -1222,6 +1222,19 @@ export interface DetachClientRequest extends CmuxRequestBase {
   "surface"?: (T.Id) | null;
 }
 export type DetachClientResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface DeviceSetupRequest extends CmuxRequestBase {
+  cmd: "device-setup";
+  /** Turn on the agents permission (the person's click in the app). */
+  "allow_agents"?: boolean;
+  /** A device id, name or address, as `cmux device list` shows it. */
+  "device": string;
+  "dry_run"?: boolean;
+  /** setup (every step) or start (reach, login item and start). */
+  "verb": string;
+}
+export type DeviceSetupResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface ExportLayoutRequest extends CmuxRequestBase {
@@ -3155,6 +3168,7 @@ export type CmuxRequest =
   | DeleteWorkspaceGroupRequest
   | DetachAttachedViewRequest
   | DetachClientRequest
+  | DeviceSetupRequest
   | ExportLayoutRequest
   | FeedLocalHandoffAbortRequest
   | FeedLocalHandoffBeginRequest
@@ -4221,6 +4235,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "device-setup": {
+    request: DeviceSetupRequest;
+    result: DeviceSetupResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "device-setup-v1";
     stream: null;
   };
   "export-layout": {

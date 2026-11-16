@@ -96,40 +96,40 @@ extension SettingsController {
         // Reset All changes user-only keys too: only the user may run it.
         guard writer == .user else { throw SettingUserOnly(key: "*", writer: writer) }
         let managed = file.managedGuard.managedKeys
+        // One publish per batch, not one daemon write per key: a reset row drops the objects it
+        // empties (cmux-config `remove_pruning`).
+        var edits: [SettingsFileEdit] = []
         for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
-            try await removePruning(descriptor.path)
+            edits.append(.reset(descriptor.path))
             // A renamed row's old key would apply again behind the reset (``RenamedSettingKeys``).
-            if let legacy = RenamedSettingKeys.legacyPath(for: descriptor.path) { try await removePruning(legacy) }
+            if let legacy = RenamedSettingKeys.legacyPath(for: descriptor.path) { edits.append(.reset(legacy)) }
         }
         for key in SettingsSchema.retiredKeys.keys.sorted() where managed[key] == nil {
-            try await removePruning(CmuxConfigFile.keyPath(from: key))
+            edits.append(.reset(CmuxConfigFile.keyPath(from: key)))
         }
-        try await file.remove(["shortcuts", "bindings"])
+        edits.append(.reset(["shortcuts", "bindings"]))
         if case .object(let members)? = try await file.value(at: ["shortcuts"]) {
             let reserved = CmuxConfigSnapshot.reservedShortcutKeys
-            for key in members.keys where !reserved.contains(key) {
-                try await file.remove(["shortcuts", key])
+            for key in members.keys.sorted() where !reserved.contains(key) {
+                edits.append(.reset(["shortcuts", key]))
             }
         }
-        try await pruneEmpty(["shortcuts"])
-    }
-
-    /// Removes `path`, then each parent object that became empty.
-    func removePruning(_ path: [String]) async throws {
-        try await file.remove(path)
-        var parent = Array(path.dropLast())
-        while !parent.isEmpty {
-            guard try await pruneEmpty(parent) else { break }
-            parent.removeLast()
+        edits.append(.resetUnchanged(["shortcuts"], .object([:])))
+        for start in stride(from: 0, to: edits.count, by: Self.editsPerWrite) {
+            try await file.edit(Array(edits[start..<min(start + Self.editsPerWrite, edits.count)]))
         }
         await reloadAfterWrite()
     }
 
-    /// Removes the object at `path` when it has no members, in one read and write of the file
-    /// (`CmuxConfigFile.removeEmptyObject`): an object that gains a member meanwhile stays. True
-    /// when removed.
-    @discardableResult
-    func pruneEmpty(_ path: [String]) async throws -> Bool {
-        try await file.removeEmptyObject(at: path)
+    /// The most edits one write sends (`settings.edit` takes at most 1000).
+    nonisolated static let editsPerWrite = 1000
+
+    /// Removes `path`, then each parent object that became empty.
+    func removePruning(_ path: [String]) async throws {
+        // Each parent goes only while it is still empty in the file the writer publishes, so an
+        // object that gains a member meanwhile stays.
+        let parents = (1..<max(path.count, 1)).reversed().map { SettingsFileEdit.resetUnchanged(Array(path.prefix($0)), .object([:])) }
+        try await file.edit([.reset(path)] + parents)
+        await reloadAfterWrite()
     }
 }

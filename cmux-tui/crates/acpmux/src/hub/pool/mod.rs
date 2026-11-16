@@ -379,7 +379,7 @@ impl Hub {
             system_prompt_sha256: sha,
             auth: format!("{:016x}", h.finish()),
             account,
-            machine: crate::login_env::machine_stamp(),
+            machine: crate::vault::machine_stamp(),
             prompt_suggestions: suggestions_at_start(
                 &spawn,
                 crate::claude_stdio::prompt_suggestions::enabled_in_settings,
@@ -410,6 +410,7 @@ impl Hub {
         cwd: PathBuf,
         spare: Option<Option<String>>,
     ) -> Result<PoolSpec, RpcError> {
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let r = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, None, false, None)?
@@ -818,7 +819,7 @@ impl Hub {
                     // A delivery or revocation since its key was made (also
                     // while this claim waited on its start): a cold start
                     // reads the machine's secrets afresh.
-                    if p.key.machine != crate::login_env::machine_stamp() {
+                    if p.key.machine != crate::vault::machine_stamp() {
                         tracing::info!(harness = %spec.key.harness, "pooled session discarded: the machine's delivered secrets changed");
                         self.pool_discard(vec![p]);
                         return None;

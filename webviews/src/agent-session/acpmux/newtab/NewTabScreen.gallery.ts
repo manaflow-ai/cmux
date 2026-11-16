@@ -215,6 +215,27 @@ async function typePrompt(ctx: PlayContext, text: string): Promise<void> {
   await ctx.type(text, { selector });
 }
 
+async function wrapPrompt(ctx: PlayContext, wrapped: boolean): Promise<void> {
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField));
+  const field = ctx.document.querySelector<MarkdownFieldElement>(".nt-field")!;
+  const prompt = "Check the composer layout and keep the first line steady while the prompt wraps. ".repeat(8);
+  const lines = (length: number) => {
+    field.acpmuxMarkdownField!.type(prompt.slice(0, length));
+    const paragraph = field.querySelector<HTMLElement>(".ProseMirror > p")!;
+    const lineHeight = Number.parseFloat(ctx.document.defaultView!.getComputedStyle(paragraph).lineHeight);
+    return Math.round(paragraph.offsetHeight / lineHeight);
+  };
+  let low = 1;
+  let high = prompt.length;
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2);
+    if (lines(middle) === 1) low = middle;
+    else high = middle;
+  }
+  lines(wrapped ? high : low);
+  await ctx.waitFor(() => field.getAnimations().length === 0);
+}
+
 /// A suggestion row as the popover draws it: its kind (`data-type`) and its title.
 type SuggestionRow = { type: string; title: string };
 
@@ -347,6 +368,7 @@ export default agentPaneEntry({
     ],
   },
   covers: [
+    "agent-session/acpmux/newtab/screen.css",
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
     "agent-session/acpmux/newtab/ChatCards.tsx",
     "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingPlayer",
@@ -369,6 +391,28 @@ export default agentPaneEntry({
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
+    ...Object.fromEntries(
+      [0.8, 0.9, 1, 1.1, 1.2].map((scale) => [
+        `density-${Math.round(scale * 100)}`,
+        {
+          note: `Composer and suggestions at ${scale} times Default.`,
+          ready: newTab({ template: "minimal", omnibar: FF_OMNIBAR }),
+          snapshot: reasoningChat(),
+          play: async (ctx: PlayContext) => {
+            for (const key of ["composer-zoom", "density-scale", "density-text-scale"]) {
+              ctx.document.documentElement.style.setProperty(`--cmux-${key}`, String(scale));
+            }
+            ctx.document.documentElement.style.setProperty("--cmux-row-text-scale", String(scale));
+            ctx.document.documentElement.style.setProperty(
+              "--cmux-row-icon-scale",
+              String(Math.round(16.5 * scale * 2) / 2 / 16.5),
+            );
+            ctx.document.defaultView?.dispatchEvent(new Event("cmux-ui-scale-change"));
+            await typedSuggestions(ctx, "ff", ffProblem);
+          },
+        },
+      ]),
+    ),
     "start-refused": {
       note: "A refused new chat keeps the typed prompt and SSH machine, says why in plain words, and keeps the host's reason under Details.",
       ready: newTab({ template: "minimal" }),
@@ -596,8 +640,20 @@ export default agentPaneEntry({
     // Minimal, the page as it opens by default (Leo 2026-10-20): the composer alone, no greeting (Leo
     // 2026-10-22) and no widgets (Lawrence 2026-11-09), with chats on this Mac it does not list.
     // `minimal-default` is a host that sends no template (the app's unset key).
+    "wrap-one-line": {
+      note: "One character before wrapping, with the typing caret at the end and suggestions below the box.",
+      ready: newTab({ template: "minimal", location: "Check composer wrapping" }),
+      snapshot: noChat(manySessions(3)),
+      play: (ctx) => wrapPrompt(ctx, false),
+    },
+    "wrap-two-lines": {
+      note: "One character after wrapping, with the same first line and controls, and the caret on the new line.",
+      ready: newTab({ template: "minimal", location: "Check composer wrapping" }),
+      snapshot: noChat(manySessions(3)),
+      play: (ctx) => wrapPrompt(ctx, true),
+    },
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: the composer alone, with its folder and machine, model, effort, mic and Send, and under the page the two dots (Claude Minimal, Codex Minimal), the first marked. No greeting and no widgets.",
+      note: "Minimal, New Tab's default layout: the composer alone, with its folder and machine, model, effort, mic and Send, and no look switcher. No greeting and no widgets.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
@@ -608,9 +664,9 @@ export default agentPaneEntry({
           throw new Error("an unset NewTabScreen template did not render Minimal");
         const extra = ctx.document.querySelector(".nt-greeting, .nt-stage, .nt-cards, .nt-create");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
-        // The look dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
-        const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
-        if (dots !== 2) throw new Error(`the minimal page shows ${dots} dots, not the two`);
+        if (ctx.document.querySelector(".nt-style")) throw new Error("the minimal page shows a look switcher");
+        if (ctx.document.querySelector(".nt-composer[data-composer-look]"))
+          throw new Error("the minimal page did not keep Claude's look");
       },
     },
     "fix-from-link": {

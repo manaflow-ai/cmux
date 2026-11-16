@@ -210,6 +210,61 @@ pub fn terminal_chat_session(
     Some(best.session_id.clone())
 }
 
+/// Which chat a terminal tab's chat face shows, and what the phone keeps of it on disk
+/// ([`terminal_chat_pairing`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
+pub struct TerminalChatPairing {
+    /// The acpmux chat the face shows; None: none yet (the phone asks the Mac for one).
+    pub chat: Option<String>,
+    /// The phone keeps `chat` as the tab's pairing (it is new, or another than the kept one).
+    pub keep: bool,
+    /// The kept pairing is stale (the Mac closed or dropped that chat): the phone forgets it.
+    pub forget: bool,
+}
+
+/// The chat terminal `harness` session `session` shows, and the pairing the phone keeps
+/// for a relaunch with the Mac out of reach (Leo, 2026-11-14: less reliant on the Mac and on
+/// the network; a relaunch offline draws the chat's kept turns at once).
+///
+/// In order: the Mac's own chat of the session ([`terminal_chat_session`] over `chats`), then
+/// the chat this phone had the Mac open (`opened`), then the `kept` pairing. A kept chat the
+/// Mac's list shows closed, watching another session or of another harness is stale; so is
+/// one missing from a whole list (`listed_whole`: every chat of the Mac is in `chats`).
+/// Offline the list is empty and not whole, so the kept chat shows.
+#[uniffi::export]
+pub fn terminal_chat_pairing(
+    chats: Vec<TerminalChatCandidate>,
+    listed_whole: bool,
+    harness: String,
+    session: String,
+    opened: Option<String>,
+    kept: Option<String>,
+) -> TerminalChatPairing {
+    let named =
+        |chat: Option<String>| chat.map(|chat| chat.trim().to_owned()).filter(|chat| !chat.is_empty());
+    let kept = named(kept);
+    let found =
+        terminal_chat_session(chats.clone(), harness.clone(), session.clone()).or_else(|| named(opened));
+    if let Some(chat) = found {
+        let keep = kept.as_deref() != Some(chat.as_str());
+        return TerminalChatPairing { chat: Some(chat), keep, forget: false };
+    }
+    let Some(kept) = kept else { return TerminalChatPairing::default() };
+    let family = family_of(&harness);
+    let stale = match chats.iter().find(|chat| chat.session_id == kept) {
+        Some(chat) => {
+            chat.status == "closed"
+                || chat.agent_session_id.as_deref().map(str::trim) != Some(session.trim())
+                || family_of(&chat.harness) != family
+        }
+        None => listed_whole,
+    };
+    if stale {
+        return TerminalChatPairing { chat: None, keep: false, forget: true };
+    }
+    TerminalChatPairing { chat: Some(kept), keep: false, forget: false }
+}
+
 /// The acpmux harness (`claude` or `codex`) an agent or chat harness names, a profile
 /// (`claude-cr`) as its family; None for one acpmux does not adopt.
 #[uniffi::export]
@@ -419,5 +474,71 @@ mod tests {
         assert_eq!(terminal_chat_harness("claude-cr".into()).as_deref(), Some("claude"));
         assert_eq!(terminal_chat_harness("Codex".into()).as_deref(), Some("codex"));
         assert_eq!(terminal_chat_harness("opencode".into()), None);
+    }
+
+    #[test]
+    fn a_terminal_s_chat_resolves_live_then_opened_then_kept() {
+        let watch = candidate("a-watch", "claude", "h-1", true, "idle");
+        let other = candidate("b-other", "codex", "h-7", true, "idle");
+        let pairing = |chat: Option<&str>, keep: bool, forget: bool| TerminalChatPairing {
+            chat: chat.map(str::to_owned),
+            keep,
+            forget,
+        };
+        let some = |chat: &str| Some(chat.to_owned());
+        type Row = (Vec<TerminalChatCandidate>, bool, Option<String>, Option<String>, TerminalChatPairing);
+        // (chats, listed_whole, opened, kept) -> pairing, for Claude session h-1.
+        let table: Vec<Row> = vec![
+            // Online, the Mac's chat shows it: kept when new or another than the kept one.
+            (vec![watch.clone()], true, None, None, pairing(Some("a-watch"), true, false)),
+            (vec![watch.clone()], true, None, some("a-watch"), pairing(Some("a-watch"), false, false)),
+            (vec![watch], true, None, some("a-kept"), pairing(Some("a-watch"), true, false)),
+            // The chat this phone had the Mac open comes next.
+            (vec![], false, some("w-9"), None, pairing(Some("w-9"), true, false)),
+            (vec![], false, some("w-9"), some("w-9"), pairing(Some("w-9"), false, false)),
+            // Offline relaunch: nothing listed, nothing opened this run; the kept chat shows.
+            (vec![], false, None, some("a-kept"), pairing(Some("a-kept"), false, false)),
+            (vec![], false, some(" "), some(" a-kept "), pairing(Some("a-kept"), false, false)),
+            // The link still listing (not whole), the kept chat not in it yet: it shows.
+            (vec![other.clone()], false, None, some("a-kept"), pairing(Some("a-kept"), false, false)),
+            // Listed and still the session's: it shows, nothing new to keep.
+            (
+                vec![candidate("a-kept", "claude-cr", "h-1", false, "idle")],
+                true,
+                None,
+                some("a-kept"),
+                pairing(Some("a-kept"), false, false),
+            ),
+            // Stale: closed, watching another session, of another harness, missing from a whole list.
+            (
+                vec![candidate("a-kept", "claude", "h-1", true, "closed")],
+                true,
+                None,
+                some("a-kept"),
+                pairing(None, false, true),
+            ),
+            (
+                vec![candidate("a-kept", "claude", "h-9", true, "idle")],
+                false,
+                None,
+                some("a-kept"),
+                pairing(None, false, true),
+            ),
+            (
+                vec![candidate("a-kept", "codex", "h-1", true, "idle")],
+                false,
+                None,
+                some("a-kept"),
+                pairing(None, false, true),
+            ),
+            (vec![other], true, None, some("a-kept"), pairing(None, false, true)),
+            // Nothing at all: the phone asks the Mac.
+            (vec![], false, None, None, pairing(None, false, false)),
+            (vec![], true, None, some(""), pairing(None, false, false)),
+        ];
+        for (row, (chats, whole, opened, kept, want)) in table.into_iter().enumerate() {
+            let got = terminal_chat_pairing(chats, whole, "claude".into(), "h-1".into(), opened, kept);
+            assert_eq!(got, want, "row {row}");
+        }
     }
 }
