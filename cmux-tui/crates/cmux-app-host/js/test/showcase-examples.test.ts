@@ -277,8 +277,8 @@ describe("local/changes", () => {
     const h = host("changes", settings)
     h.handlers["integration.request"] = (p) => {
       const path = new URL(`https://api.github.com${String(p.path)}`).pathname
-      if (path === "/search/issues") return ok({ items: Array.from({ length: count }, (_, i) => ({ number: i + 1, repository_url: "https://api.github.com/repos/manaflow-ai/cmux" })) })
-      if (path === "/repos/manaflow-ai/cmux/pulls") return ok([{ number: 2 }])
+      if (path === "/search/issues") return ok({ items: Array.from({ length: count }, (_, i) => ({ number: i + 1, state: "open", repository_url: "https://api.github.com/repos/manaflow-ai/cmux" })) })
+      if (path === "/repos/manaflow-ai/cmux/pulls") return ok([{ number: 2, state: "open" }])
       const m = path.match(/\/pulls\/(\d+)(\/reviews)?$/)
       if (m) return ok(m[2] ? [] : pull(Number(m[1]), `s${m[1]}`))
       const c = path.match(/\/commits\/(\w+)\/(check-runs|status)$/)

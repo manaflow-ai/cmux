@@ -76,7 +76,7 @@
             "enum": ["branch", "mine", "mentions", "review-requested", "search"],
             "description": "branch: the pull requests whose head is `branch` in `repo`. mine (default): the ones the person opened. mentions: the ones that mention them. review-requested: the ones that ask for their review. search: `query`, a GitHub search (is:pr is added)."
           },
-          "repo": { "type": "string", "maxLength": 140, "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", "description": "owner/name: the repository for show: branch; for the others it narrows the list to that repository." },
+          "repo": { "type": "string", "maxLength": 140, "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*/(\\.?[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.\\.[A-Za-z0-9._-]+)$", "description": "owner/name: the repository for show: branch; for the others it narrows the list to that repository." },
           "branch": { "type": "string", "maxLength": 255, "description": "The head branch for show: branch." },
           "query": { "type": "string", "maxLength": 256, "description": "The GitHub search for show: search, for example `repo:manaflow-ai/cmux label:bug`." },
           "include": { "enum": ["open", "open-and-merged"], "description": "open (default) or open-and-merged (closed unmerged ones are left out)." },

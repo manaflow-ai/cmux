@@ -28,8 +28,8 @@ function github() {
   const answer = (path: string): unknown => {
     const u = new URL(`https://api.github.com${path}`)
     const p = u.pathname
-    if (p === "/search/issues") return { items: [1, 2, 3].map((n) => ({ number: n, repository_url: "https://api.github.com/repos/o/r" })) }
-    if (p === "/repos/o/r/pulls") return [{ number: 2 }]
+    if (p === "/search/issues") return { items: [1, 2, 3].map((n) => ({ number: n, state: n === 3 ? "closed" : "open", pull_request: { merged_at: n === 3 ? "2026-11-15T00:00:00Z" : null }, repository_url: "https://api.github.com/repos/o/r" })).concat([{ number: 4, state: "closed", pull_request: { merged_at: null }, repository_url: "https://api.github.com/repos/o/r" }]) }
+    if (p === "/repos/o/r/pulls") return [{ number: 2, state: "open" }, { number: 5, state: "closed", merged_at: null }]
     const m = p.match(/^\/repos\/o\/r\/pulls\/(\d+)(\/reviews)?$/)
     if (m) {
       const n = Number(m[1])
@@ -60,7 +60,28 @@ describe("cmux.watch: github.changes", () => {
     expect(paths[0]).toBe("/search/issues?q=is:pr author:@me&sort=updated&order=desc&per_page=10")
     // The merged one reads only itself.
     expect(paths.filter((p) => p.includes("/pulls/3") || p.includes("c3"))).toEqual(["/repos/o/r/pulls/3"])
+    // A closed, unmerged one is dropped from the list before any read of its own.
+    expect(paths.some((p) => p.includes("/pulls/4"))).toBe(false)
     expect(host.calls.some((c) => c.name === "net.fetch")).toBe(false)
+  })
+
+  test("a row whose checks GitHub refuses keeps the row; a busy gateway is retried on the gateway, never the public API", async () => {
+    const { answer } = github()
+    const host = new FakeHost(section(`{ show: "mine" }`))
+    host.handlers["integration.request"] = (p) =>
+      String(p.path).includes("/commits/a1/check-runs")
+        ? { ok: false, body: { code: "integration.http", message: "GitHub answered 403", details: { status: 403 } } }
+        : ok(answer(String(p.path)))
+    host.mount("m", "render")
+    await host.settle(12)
+    const rows = host.eval("w().value") as Array<Record<string, any>>
+    expect(rows.map((r) => [r.number, r.checks.state])).toEqual([[2, "pending"], [1, "passing"]])
+
+    const busy = new FakeHost(section(`{ show: "mine" }`))
+    busy.handlers["integration.request"] = () => ({ ok: false, body: { code: "app.limit", message: "8 in flight", retryable: true } })
+    busy.mount("m", "render")
+    await busy.settle()
+    expect(busy.calls.some((c) => c.name === "net.fetch")).toBe(false)
   })
 
   test("show: branch reads the repository's pulls for that head, no search", async () => {
@@ -117,12 +138,21 @@ describe("cmux.watch: github.changes", () => {
     host.mount("m", "render")
     await host.settle(12)
     expect((host.eval("w().value") as unknown[]).length).toBe(2)
-    const firstRound = sent.length
+    // The list, then each open row's pull request and checks: no status or reviews on the public budget.
+    expect(sent.map((s) => new URL(s.url).pathname).sort()).toEqual([
+      "/repos/o/r/commits/a1/check-runs", "/repos/o/r/commits/b2/check-runs", "/repos/o/r/pulls/1", "/repos/o/r/pulls/2", "/search/issues"
+    ])
     expect(sent.every((s) => s.inm === undefined)).toBe(true)
+    // Read again at once: every path is within its age, so nothing goes out (a 304 costs there too).
     host.eval("w.refresh()")
     await host.settle(12)
-    const second = sent.slice(firstRound)
-    expect(second.length).toBe(firstRound) // the same paths, each conditional now
+    expect(sent.length).toBe(5)
+    // Sixteen minutes on: the same paths, each conditional.
+    host.eval("{ const t0 = Date.now(); Date.now = () => t0 + 16 * 60_000 }")
+    host.eval("w.refresh()")
+    await host.settle(12)
+    const second = sent.slice(5)
+    expect(second.length).toBe(5)
     expect(second.every((s) => s.inm !== undefined)).toBe(true)
     expect((host.eval("w().value") as unknown[]).length).toBe(2)
   })
