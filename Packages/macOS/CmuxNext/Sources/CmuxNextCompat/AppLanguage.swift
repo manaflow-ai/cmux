@@ -22,7 +22,7 @@ internal import ObjectiveC
 /// SwiftUI body, an `ObservationStream` or a `withObservationTracking` scope that looked up a cmux
 /// string runs again when the language changes, with its state kept. The menu bar and the action
 /// catalog (command titles) are made once per launch: those take the language at the next launch.
-public final class AppLanguage: Observable, @unchecked Sendable { // crash-allow: its only stored values are a Mutex and the Sendable ObservationRegistrar
+public final class AppLanguage: Observable, Sendable {
     private struct State {
         var code: String?
         /// Each adopted bundle's `.lproj` for ``code``, by bundle path (nil: the bundle has none).
