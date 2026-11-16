@@ -284,9 +284,12 @@ public struct WorkspaceFirstFrame {
         self.root = root
     }
 
-    /// Whether the window keeps the outgoing workspace until ``whenReady(_:)`` answers.
-    public func awaits(resized: Bool) -> Bool {
-        !UnpaintedPages(in: root).pages.isEmpty || resized && !DrawnPages(in: root).pages.isEmpty
+    /// Whether the window keeps the outgoing workspace until ``whenReady(_:)`` answers. `prerendered`: the view was laid
+    /// out and drawn off screen in the window before it was asked for (Cmd-N's reserved view, its settled design); it
+    /// shows at once, in the key's frame.
+    public func awaits(resized: Bool, prerendered: Bool = false) -> Bool {
+        guard !prerendered else { return false }
+        return !UnpaintedPages(in: root).pages.isEmpty || resized && !DrawnPages(in: root).pages.isEmpty
     }
 
     /// Runs `body` once every unpainted page painted and every drawn one drew at the size it shows at.

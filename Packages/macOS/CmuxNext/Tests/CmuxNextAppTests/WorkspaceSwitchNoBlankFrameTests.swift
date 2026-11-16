@@ -91,6 +91,22 @@ import Testing
         #expect(old.isHidden)
     }
 
+    /// Cmd-N's reserved view was pre-rendered off screen in the window before the key (`CmdNPrebuiltWorkspaceViewTests`):
+    /// the key shows it at once, as designed, even if its New Tab page has not reported a paint.
+    @Test func cmdNsReservedViewShowsAtOnce() {
+        let (window, root) = WorkspaceSwitchRedrawHoldTests.root()
+        defer { window.close() }
+        let old = WorkspaceSwitchRedrawHoldTests.workspace(NSView())
+        WorkspaceSwitchRedrawHoldTests.show(old, in: root)
+        let reserved = WorkspaceSwitchRedrawHoldTests.workspace(UnpaintedPage())
+        reserved.setParked(true)
+        reserved.alphaValue = 0
+        root.contentHost.addSubview(reserved)
+        root.show(reserved)
+        #expect(reserved.alphaValue == 1, "Cmd-N's pre-rendered view waited for its page")
+        #expect(old.isHidden)
+    }
+
     @Test func aWorkspaceWhosePagesPaintedShowsAtOnce() {
         let (window, root) = WorkspaceSwitchRedrawHoldTests.root()
         defer { window.close() }

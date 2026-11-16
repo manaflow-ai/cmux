@@ -8,7 +8,7 @@ import CmuxNextAgentPane
 extension WorkspaceContentView: PaneFirstPaintGated {
     var awaitsFirstPaint: Bool {
         let resized = isHidden && superview.map { frame.size != $0.bounds.size } == true
-        return WorkspaceFirstFrame(of: self).awaits(resized: resized)
+        return WorkspaceFirstFrame(of: self).awaits(resized: resized, prerendered: !isHidden && isParkedOffScreen) // Cmd-N's reserved view
     }
 
     func whenFirstPainted(_ body: @escaping () -> Void) {
