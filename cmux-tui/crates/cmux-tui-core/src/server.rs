@@ -301,12 +301,14 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod agent_cli_hybrid;
 mod attach_output_coalesce;
 mod connection_wait;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
+pub use agent_cli_hybrid::AGENT_CLI_HYBRID_CAPABILITY;
 pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
@@ -489,6 +491,10 @@ pub const TERMINAL_TAIL_PIN_CAPABILITY: &str = "terminal-tail-pin-v1";
 /// Advertises `terminal-last-command`: the newest command a live shell
 /// finished, for Run Last Command Again.
 pub const TERMINAL_LAST_COMMAND_CAPABILITY: &str = "terminal-last-command-v1";
+/// Advertises `terminal-command-context`: the newest command a live shell
+/// finished, with its output, status and directory, as chat text (Fix, Send
+/// Last Output to Chat).
+pub const TERMINAL_COMMAND_CONTEXT_CAPABILITY: &str = "terminal-command-context-v1";
 /// Advertises `terminal-resume-command`: a person's resume command for one
 /// terminal, typed on the new prompt when the terminal is respawned.
 pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
@@ -1324,6 +1330,16 @@ enum Command {
         surface: Option<SurfaceId>,
         #[serde(default)]
         terminal_id: Option<String>,
+    },
+    /// The newest command the shell of one PTY `surface` finished, read from
+    /// its screen when asked: command line, output (the newest rows), exit
+    /// status, directory, and `text`, the Markdown a chat takes for `intent`
+    /// (`context`, the default, or `fix`). Null without shell integration,
+    /// on the alternate screen and while a command runs.
+    TerminalCommandContext {
+        surface: SurfaceId,
+        #[serde(default)]
+        intent: crate::command_context::Intent,
     },
     /// New tab in a pane (default: the active pane).
     NewTab {
@@ -2475,6 +2491,13 @@ enum Command {
         /// (`attach-replay-history-window-v1`); omitted, the newest rows.
         #[serde(default)]
         replay_history_start: Option<u64>,
+        /// Bytes mode, `agent-cli-hybrid-v1`: the hybrid stream (`agent-cli-frame`
+        /// `stream`) and its last frame this viewer applied, to resume from it
+        /// instead of a keyframe. Both or neither; ignored without the capability.
+        #[serde(default)]
+        hybrid_stream: Option<String>,
+        #[serde(default)]
+        hybrid_frame: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -3176,6 +3199,10 @@ mod personal_tests;
 #[cfg(test)]
 #[path = "server/attach_output_coalesce_tests.rs"]
 mod attach_output_coalesce_tests;
+
+#[cfg(test)]
+#[path = "server/agent_cli_hybrid_tests.rs"]
+mod agent_cli_hybrid_tests;
 
 #[cfg(test)]
 #[path = "server/group_icon_raw_tests.rs"]

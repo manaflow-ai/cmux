@@ -5372,6 +5372,138 @@
         }
       }
     },
+    "control.error.secretHostMismatch": {
+      "comment": "Error when an agent fills a stored key into a browser tab on a site the key is not for. %1$@ is the sites the key is for; %2$@ is the tab's site.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This key is only for %1$@; the tab is on %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا المفتاح مخصص لـ %1$@ فقط؛ علامة التبويب على %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj ključ je samo za %1$@; kartica je na %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne nøgle er kun til %1$@; fanen er på %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Schlüssel ist nur für %1$@; der Tab ist auf %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta clave es solo para %1$@; la pestaña está en %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette clé est réservée à %1$@ ; l’onglet est sur %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chiave è solo per %1$@; la scheda è su %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このキーは %1$@ 専用です。タブは %2$@ にあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កូនសោនេះសម្រាប់តែ %1$@ ប៉ុណ្ណោះ; ផ្ទាំងស្ថិតនៅលើ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 키는 %1$@ 전용입니다. 탭은 %2$@ 에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne nøkkelen er bare for %1$@; fanen er på %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten klucz jest tylko dla %1$@; karta jest na %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta chave é só para %1$@; a aba está em %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот ключ только для %1$@; вкладка открыта на %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คีย์นี้ใช้ได้กับ %1$@ เท่านั้น แท็บอยู่ที่ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu anahtar yalnızca %1$@ için; sekme %2$@ üzerinde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей ключ лише для %1$@; вкладка відкрита на %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khóa này chỉ dành cho %1$@; thẻ đang ở %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此密钥仅用于 %1$@；标签页在 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此金鑰僅用於 %1$@；分頁在 %2$@"
+          }
+        }
+      }
+    },
     "control.error.pageTabNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -8774,137 +8906,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%1$@ 未變更：確認被拒絕"
-          }
-        }
-      }
-    },
-    "control.error.settingsBusy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "another cmux process holds the lock of the settings file; the write did not finish, send the request again"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عملية cmux أخرى تحتفظ بقفل ملف الإعدادات؛ لم تكتمل الكتابة، أرسل الطلب مرة أخرى"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "drugi cmux proces drži zaključavanje datoteke postavki; upis nije završen, pošaljite zahtjev ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "en anden cmux-proces holder låsen på indstillingsfilen; skrivningen blev ikke færdig, send anmodningen igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ein anderer cmux-Prozess hält die Sperre der Einstellungsdatei; der Schreibvorgang wurde nicht abgeschlossen, sende die Anfrage erneut"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "otro proceso de cmux mantiene el bloqueo del archivo de ajustes; la escritura no terminó, envía la solicitud de nuevo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "un autre processus cmux détient le verrou du fichier de réglages ; l’écriture n’est pas terminée, renvoyez la requête"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "un altro processo cmux detiene il blocco del file delle impostazioni; la scrittura non è terminata, invia di nuovo la richiesta"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "別の cmux プロセスが設定ファイルのロックを保持しています。書き込みは完了していません。リクエストをもう一度送信してください"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ដំណើរការ cmux ផ្សេងទៀតកំពុងកាន់សោឯកសារការកំណត់; ការសរសេរមិនបានបញ្ចប់ទេ សូមផ្ញើសំណើម្តងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다른 cmux 프로세스가 설정 파일의 잠금을 보유하고 있습니다. 쓰기가 완료되지 않았으니 요청을 다시 보내세요"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "en annen cmux-prosess holder låsen på innstillingsfilen; skrivingen ble ikke fullført, send forespørselen på nytt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "inny proces cmux trzyma blokadę pliku ustawień; zapis nie został ukończony, wyślij żądanie ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "outro processo do cmux mantém o bloqueio do arquivo de ajustes; a gravação não terminou, envie a requisição novamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "другой процесс cmux удерживает блокировку файла настроек; запись не завершена, отправьте запрос ещё раз"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "กระบวนการ cmux อื่นถือล็อกของไฟล์การตั้งค่าอยู่ การเขียนยังไม่เสร็จ ให้ส่งคำขออีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "başka bir cmux işlemi ayarlar dosyasının kilidini tutuyor; yazma tamamlanmadı, isteği yeniden gönderin"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "інший процес cmux утримує блокування файлу налаштувань; запис не завершено, надішліть запит ще раз"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "một tiến trình cmux khác đang giữ khóa của tệp cài đặt; thao tác ghi chưa hoàn tất, hãy gửi lại yêu cầu"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "另一个 cmux 进程持有设置文件的锁;写入未完成,请重新发送请求"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "另一個 cmux 程序持有設定檔的鎖;寫入未完成,請重新傳送請求"
           }
         }
       }
@@ -15740,6 +15741,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux Cloud đã gửi phản hồi mà cmux không dùng được. Hãy chạy lại cmux auth token."
+          }
+        }
+      }
+    },
+    "control.authToken.localFailure": {
+      "comment": "auth.token refusal: this Mac could not mint a token (a Keychain refusal, a cancelled mint); the cause follows in parentheses. Keep cmux auth token as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux on this Mac couldn't make a token. Run cmux auth token again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux auf diesem Mac konnte kein Token erstellen. Führe cmux auth token erneut aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux sur ce Mac n'a pas pu créer de jeton. Relancez cmux auth token."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux في هذا الـ Mac إنشاء رمز. شغّل cmux auth token مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux en este Mac no pudo crear un token. Vuelve a ejecutar cmux auth token."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 上的 cmux 無法產生權杖。請再次執行 cmux auth token。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 上的 cmux 无法生成令牌。请再次运行 cmux auth token。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 cmux가 토큰을 만들지 못했습니다. cmux auth token을 다시 실행하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac の cmux はトークンを作成できませんでした。cmux auth token をもう一度実行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux na ovom Macu nije mogao napraviti token. Ponovo pokreni cmux auth token."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux på denne Mac kunne ikke lave et token. Kør cmux auth token igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux su questo Mac non è riuscito a creare un token. Esegui di nuovo cmux auth token."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux នៅលើ Mac នេះមិនអាចបង្កើតថូខឹនបានទេ។ សូមដំណើរការ cmux auth token ម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux på denne Macen kunne ikke lage et token. Kjør cmux auth token igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux na tym Macu nie mógł utworzyć tokenu. Uruchom ponownie cmux auth token."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux neste Mac não conseguiu criar um token. Execute cmux auth token de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux на этом Mac не смог создать токен. Снова запустите cmux auth token."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บน Mac เครื่องนี้สร้างโทเค็นไม่ได้ เรียก cmux auth token อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'teki cmux bir belirteç oluşturamadı. cmux auth token komutunu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux на цьому Mac не зміг створити токен. Знову запустіть cmux auth token."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux trên máy Mac này không tạo được token. Hãy chạy lại cmux auth token."
           }
         }
       }

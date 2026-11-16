@@ -10,6 +10,7 @@ import Darwin
 import os
 import CmuxNextCompat
 import struct CmuxNextControl.LaunchMarkSink
+import struct CmuxNextControl.LaunchTimesRecorder
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette and icon
@@ -41,18 +42,12 @@ enum DebugTimings {
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
-    private nonisolated static let processStart: Date = {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
-        let start = info.kp_proc.p_un.__p_starttime
-        return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
-    }()
+    /// The launch marks so far, by name (`LaunchTimesRecorder.write(marks:)`).
+    nonisolated static func launchMarkTimes() -> [String: Double] { launchMarks.withLock { Dictionary($0.map { ($0.name, $0.ms) }, uniquingKeysWith: { first, _ in first }) } }
 
     /// Milliseconds since the process started, on the launch marks' clock.
     nonisolated static func millisecondsSinceProcessStart(at date: Date = Date()) -> Double {
-        date.timeIntervalSince(processStart) * 1_000
+        date.timeIntervalSince(LaunchTimesRecorder.processStart) * 1_000
     }
 
     /// Records a launch mark (milliseconds since process start) once per
@@ -138,7 +133,7 @@ enum DebugTimings {
             "launch_ms_since_process_start": .object(launch),
             // The launch marks' zero on the wall clock (ms since 1970), so a page's own marks
             // (`Date.now()`) line up with them (bench_relaunch_reconnect.py).
-            "process_start_epoch_ms": .number((processStart.timeIntervalSince1970 * 1_000).rounded()),
+            "process_start_epoch_ms": .number((LaunchTimesRecorder.processStart.timeIntervalSince1970 * 1_000).rounded()),
             "palette_opens": .array(paletteOpens.map { open in
                 ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
                  "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),
