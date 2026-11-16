@@ -1,21 +1,19 @@
+import CmuxNextCompat
 import CmuxNextDesign
-import Observation
+import CmuxNextWakeups
 
-/// A tracked read of the Floating Pane knobs for one screen's cards: a knob that changes shows on each open
-/// floating pane in the next turn of the main actor. No timer runs, and nothing is armed while no one reads.
+/// The one armed read of the Floating Pane knobs (`FloatingPaneTunables`) for a screen's cards. A layout pass reads
+/// the look through it; while no knob changed since the last read, the read registers nothing more.
 final class FloatingPaneLookWatch {
-    private var isArmed = false
+    private let tracking = SingleArmedTracking()
 
-    /// The look now. A read that is not armed arms one tracked read of the knobs: `onChange` runs once, in the next
-    /// turn of the main actor after a knob changes, and the next read arms again.
-    func read(onChange: @escaping @MainActor () -> Void) -> FloatingPaneLook {
-        guard !isArmed else { return FloatingPaneLook.current }
-        isArmed = true
-        return withObservationTracking { FloatingPaneLook.current } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.isArmed = false
-                onChange()
-            }
+    /// The look now. `onChange` runs once after a knob changed, in the main queue's next turn: the knob's write is
+    /// done then, so the pass that `onChange` asks for reads the new value.
+    func read(onChange: @escaping @MainActor @Sendable () -> Void) -> FloatingPaneLook {
+        tracking.track(shape: []) {
+            FloatingPaneLook.current
+        } onChange: {
+            MainDelivery().later(onChange)
         }
     }
 }
