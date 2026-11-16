@@ -36,6 +36,10 @@ final class AgentCLIHybridBenchUITests: XCTestCase {
                 attach(app, "\(name)-\(mode)-attach")
                 XCTAssertTrue(result.waitForExistence(timeout: 180), "\(name) \(mode): no result")
                 print("HYBRID_BENCH \(name) \(mode) \(result.label)")
+                let summary = XCTAttachment(string: result.label)
+                summary.name = "\(name)-\(mode)-result"
+                summary.lifetime = .keepAlways
+                add(summary)
                 attach(app, "\(name)-\(mode)-end")
                 XCTAssertFalse(result.label.contains("\"error\""), result.label)
                 app.terminate()
