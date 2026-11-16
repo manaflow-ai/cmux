@@ -62,12 +62,16 @@ class TypingReceipt(unittest.TestCase):
             BENCH.ingest(ctx, path)
         return ctx
 
+    def receipt(self, load="cpu"):
+        return {"load": load, "typing": self.report, "app_active_before": True, "app_active_after": True,
+                **verdict(self.report, self.text, self.dispatch)}
+
     def test_partial_run_keeps_integrity_diagnostic_without_fast_timing(self):
         ctx = self.ingest({"load": "cpu", "complete": False})
         self.assertEqual({r["metric"] for r in ctx.rows}, {"measurement_complete", "key_integrity"})
 
     def test_ledger_has_p99_and_native_dispatch(self):
-        row = {"load": "streaming-3", "typing": self.report, **verdict(self.report, self.text, self.dispatch)}
+        row = self.receipt("streaming-3")
         ctx = self.ingest(row)
         values = {r["metric"]: r["value"] for r in ctx.rows}
         self.assertEqual(values["keydown_to_paint_p99_ms"], 7)
@@ -79,17 +83,24 @@ class TypingReceipt(unittest.TestCase):
 
     def test_complete_flag_cannot_hide_bad_integrity(self):
         for field in ("text_exact", "key_order_ok"):
-            row = {"load": "cpu", "typing": self.report, **verdict(self.report, self.text, self.dispatch)}
+            row = self.receipt()
             row[field] = False
             with self.subTest(field=field), self.assertRaises(BenchError):
                 self.ingest(row)
 
     def test_ledger_derives_native_tail_from_samples(self):
-        row = {"load": "cpu", "typing": self.report, **verdict(self.report, self.text, self.dispatch)}
+        row = self.receipt()
         row["dispatch_to_after_frame_ms"][-4:] = [80] * 4
         ctx = self.ingest(row)
         values = {r["metric"]: r["value"] for r in ctx.rows}
         self.assertEqual(values["dispatch_to_after_frame_p99_ms"], 80)
+
+    def test_background_app_is_not_foreground_acceptance(self):
+        for field in ("app_active_before", "app_active_after"):
+            row = self.receipt()
+            row[field] = False
+            with self.subTest(field=field), self.assertRaises(BenchError):
+                self.ingest(row)
 
 
 if __name__ == "__main__":

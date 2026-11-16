@@ -132,6 +132,9 @@ def run_loads(rpc, pane, open_chat, wait, modes, keys, gap_ms):
             if not cleared:
                 raise RuntimeError("fresh composer is not empty or text readback is unavailable")
             checked(pane("reset_typing", pane=target))
+            row["app_active_before"] = checked(rpc("debug.focus")).get("app_active")
+            if row["app_active_before"] is not True:
+                raise RuntimeError("typing acceptance needs the isolated benchmark app in the foreground")
             if mode == "cpu":
                 cores = os.cpu_count() or 1
                 # Only these recorded child PIDs are stopped; a wall-clock limit also bounds them.
@@ -170,6 +173,8 @@ def run_loads(rpc, pane, open_chat, wait, modes, keys, gap_ms):
             row["complete"] = row["complete"] and row["cadence_valid"]
             row["complete"] = row["complete"] and row["wall_clock_drift_ms"] < 2 and abs(
                 row["typing"].get("epoch_clock_error_ms", math.inf)) < 2
+            row["app_active_after"] = checked(rpc("debug.focus")).get("app_active")
+            row["complete"] = row["complete"] and row["app_active_after"] is True
         except Exception as error:
             row.update(complete=False, error=str(error))
         finally:

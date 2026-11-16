@@ -28,7 +28,7 @@ class Typing(Bench):
         if not ref:
             raise BenchError("typing needs an exact source SHA (--build SHA or --arg ref=SHA)")
         result = ctx.fleet_step(self.harness, ["--config=bench", "--app-cache", "--vdisplay=120",
-            "--suite=typing-load", "--modes=chromium", f"--keys={ctx.arg('keys') or 500}",
+            "--suite=typing-load", "--modes=chromium", "--activate", f"--keys={ctx.arg('keys') or 500}",
             f"--key-gap-ms={ctx.arg('gap_ms') or 20}",
             f"--typing-loads={ctx.arg('loads') or 'idle,streaming-3,background-wake,cpu,100k'}"],
             "artifacts/split-spring/report.json", labels=("bench", "measure", "gui-session-v1"),
@@ -54,6 +54,8 @@ class Typing(Bench):
                     continue
                 if report.get("text_exact") is not True or report.get("key_order_ok") is not True:
                     raise BenchError("typing: complete run has no exact key/text integrity receipt")
+                if report.get("app_active_before") is not True or report.get("app_active_after") is not True:
+                    raise BenchError("typing: complete run has no foreground scheduling receipt")
                 samples = report.get("typing", {}).get("samples", [])
                 if len(samples) < 200 or len(samples) != report.get("expected_keys"):
                     raise BenchError("typing: complete run lacks the requested >=200 samples")

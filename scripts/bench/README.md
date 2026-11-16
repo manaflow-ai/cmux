@@ -53,6 +53,8 @@ process per logical CPU, and a 100,002-row transcript (the fixture emits three-r
 It uses the existing tagged app and 120 Hz display wrapper, 500 native `debug.key` events at
 20 ms intervals, and records each load independently in the shared ledger. It creates and closes
 only its own panes and stress processes. No CI budget or default is changed.
+The tagged app is activated on the isolated fleet Mac, and active state is read back before
+and after each mode; background-app scheduling is not a foreground typing acceptance result.
 For a managed worker reservation, add `--arg worker=WORKER --arg pool=POOL`; the
 shared fleet adapter forwards that reservation to `cmux-ci`.
 
