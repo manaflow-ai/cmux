@@ -125,7 +125,7 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
             try {
               const variant = `attachment-inline-compact-${look}-${surface}-${scene}`;
               await page.goto(
-                `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: WIDTH, frame: "component" })}`,
+                `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: WIDTH, frame: "component", colorScheme: scene === "text" ? "light" : "dark" })}`,
               );
               await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
                 timeout: 90_000,
@@ -135,6 +135,7 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
                 throw new Error(
                   `${variant}: ${JSON.stringify(await page.evaluate(() => window.cmuxGalleryPlayReport))}`,
                 );
+              if (scene !== "empty") expect(await page.locator(".acpmux-md").textContent()).toContain("Compare");
               report.push(`${engine} ${look} ${surface} ${scene}: ${proof}`);
               const before = await page
                 .locator(".acpmux-composer-box, .nt-composer")

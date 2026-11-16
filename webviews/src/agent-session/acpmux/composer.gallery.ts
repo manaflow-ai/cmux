@@ -167,12 +167,17 @@ async function pasteComparison(ctx: PlayContext) {
 
 // #38135: measure the real composer throughout a paste, including the asynchronous image read.
 // Hold only these fixture images' worker requests, then release the original worker unchanged.
-async function pasteCompactImages(ctx: PlayContext, count: number) {
+async function pasteCompactImages(ctx: PlayContext, count: number, draft: string) {
   const view = ctx.document.defaultView!;
   view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
   const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
   const editor = ctx.find({ selector: ".acpmux-md" });
   const box = ctx.find({ selector: ".acpmux-composer-box, .nt-composer" });
+  if (draft) {
+    await ctx.focus({ selector: ".acpmux-md" });
+    await ctx.type(draft);
+  }
+  await ctx.waitFor(() => field.acpmuxMarkdownField!.value() === draft);
   const measure = () => ({
     field: field.getBoundingClientRect().height,
     box: box.getBoundingClientRect().height,
@@ -1697,7 +1702,7 @@ export default agentPaneEntry({
               composerLook,
               snapshot: surface === "new-tab" ? onBranch("main") : chat(finished),
               ready: {
-                draft: scene === "empty" ? "" : "Compare",
+                draft: "",
                 ...(surface === "quick" ? { surface: "quick" } : {}),
                 ...(surface === "new-tab"
                   ? {
@@ -1712,7 +1717,8 @@ export default agentPaneEntry({
                     }
                   : {}),
               },
-              play: (ctx: PlayContext) => pasteCompactImages(ctx, scene === "pair" ? 2 : 1),
+              play: (ctx: PlayContext) =>
+                pasteCompactImages(ctx, scene === "pair" ? 2 : 1, scene === "empty" ? "" : "Compare"),
             },
           ]),
         ),
