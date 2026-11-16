@@ -11,8 +11,8 @@ public import CoreGraphics
 ///   the title, so a narrow selected tab is icon and x only;
 /// - a tab narrower than the minimum inactive width (closing, growing in)
 ///   shows nothing.
-/// Differences: a pinned tab keeps its centered icon on hover and never shows
-/// an x; it closes from its right-click menu (Lawrence msg 19392: "hover on
+/// Differences: a pinned tab never shows an x (titled, it shows its pin there; icon-only, it keeps its
+/// centered icon on hover); it closes from its right-click menu (Lawrence msg 19392: "hover on
 /// pinned tab should not have close button, should only be able to close in
 /// right click"; takes back HQ #4743's hover swap). A crowded inactive tab
 /// swaps its centered icon for the x on hover until both the icon and the x
@@ -46,10 +46,13 @@ public struct TabChromeVisibility: Hashable, Sendable {
         style: TabStripStyle,
         metrics: TabStripMetrics = .standard
     ) -> TabChromeVisibility {
-        if isPinned {
+        if isPinned, !metrics.pinnedKeepsTitle {
             // The pinned icon owns the one centered slot, hovered or not: no x (Lawrence msg 19392).
             return TabChromeVisibility(showsIcon: true, showsTitle: false, showsClose: false, centersContent: true)
         }
+        // A titled pinned tab (`tabs.pinnedKeepsTitle`) lays out as any tab but never shows an x (Lawrence msg
+        // 19392): its pin takes the x's place at the end of the title (`TabCell+PinMark`).
+        let isClosable = isClosable && !isPinned
         // Narrower than an icon-only tab (Chrome's inactive minimum, 32; an opening or closing tab): nothing
         // shows. Not the strip's crowding minimum, which keeps a title (cx-kp9b4) and in Scroll mode is 140.
         if width + 0.5 < min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth) { return .hidden }
@@ -122,11 +125,13 @@ public struct TabChromeVisibility: Hashable, Sendable {
         style: TabStripStyle,
         metrics m: TabStripMetrics = .standard
     ) -> [TabChromeVisibility] {
+        let isClosable = isClosable && !isPinned
         let rest = widths.map {
             resolve(width: $0, isPinned: isPinned, isSelected: isSelected, isHovered: isHovered, isClosable: isClosable,
                     hasStatus: hasStatus, style: style, metrics: m)
         }
-        guard !isPinned, let end = rest.last else { return rest }
+        // An icon-only pinned tab has one form; a titled one moves as any tab, with no x.
+        guard !isPinned || m.pinnedKeepsTitle, let end = rest.last else { return rest }
         let contents = widths.map { $0 - m.contentLeadingInset - m.contentTrailingInset }
         let shows = rest.map { !$0.isHidden }
         func available(_ index: Int, close: Bool) -> CGFloat {

@@ -26,12 +26,15 @@ public struct TabLayoutEngine {
         }
         let pinnedCount = items.count(where: \.isPinned)
         let unpinned = items.filter { !$0.isPinned }
+        // A titled pinned tab (`pinnedKeepsTitle`) shares the row like any tab: pinning never narrows it.
+        let pinnedShares = metrics.pinnedKeepsTitle
+        let fixedPinnedCount = pinnedShares ? 0 : pinnedCount
         // Chips and collapsed members have their own widths; the rest share.
-        let flexible = unpinned.filter { $0.fixedWidth == nil && !$0.isCollapsed }
+        let flexible = items.filter { isFlexible($0, pinnedShares: pinnedShares) }
         let fixedTotal = unpinned.reduce(CGFloat(0)) { $0 + ($1.isCollapsed ? 0 : ($1.fixedWidth ?? 0)) }
         let gap = (pinnedCount > 0 && !unpinned.isEmpty) ? metrics.pinnedGroupGap : 0
         // One reserved total, as `resized` subtracts it, so both give the same share to the last bit.
-        let reserved = CGFloat(pinnedCount) * metrics.pinnedTabWidth + gap + fixedTotal
+        let reserved = CGFloat(fixedPinnedCount) * metrics.pinnedTabWidth + gap + fixedTotal
         let share = rowShare(count: flexible.count, available: max(0, available - reserved), style: style, metrics: metrics)
 
         var slots: [TabLayoutSlot] = []
@@ -42,15 +45,16 @@ public struct TabLayoutEngine {
         for item in items {
             if !item.isPinned, previousWasPinned { x += metrics.pinnedGroupGap }
             let width: CGFloat
-            if item.isPinned {
+            let flexibleItem = isFlexible(item, pinnedShares: pinnedShares)
+            if flexibleItem {
+                width = share.width(at: flexibleIndex)
+                flexibleIndex += 1
+            } else if item.isPinned {
                 width = metrics.pinnedTabWidth
             } else if item.isCollapsed {
                 width = 0
-            } else if let fixed = item.fixedWidth {
-                width = fixed
             } else {
-                width = share.width(at: flexibleIndex)
-                flexibleIndex += 1
+                width = item.fixedWidth ?? 0
             }
             slots.append(TabLayoutSlot(
                 id: item.id,
@@ -60,7 +64,7 @@ public struct TabLayoutEngine {
                 groupID: item.groupID,
                 isGroupChip: item.isGroupChip,
                 isCollapsed: item.isCollapsed,
-                isFlexible: !item.isPinned && !item.isCollapsed && item.fixedWidth == nil
+                isFlexible: flexibleItem
             ))
             x += width
             previousWasPinned = item.isPinned
@@ -74,6 +78,12 @@ public struct TabLayoutEngine {
             flexibleCount: flexible.count,
             reservedWidth: reserved
         )
+    }
+
+    /// Whether `item` takes a share of the row: an unpinned tab without a width of its own, or any pinned tab
+    /// when pinned tabs keep their title.
+    private static func isFlexible(_ item: TabLayoutItem, pinnedShares: Bool) -> Bool {
+        item.isPinned ? pinnedShares : (item.fixedWidth == nil && !item.isCollapsed)
     }
 
     /// `result` laid out again at `availableWidth`, every other input as it was (SMOOTH-STRIP: a pane spring, a divider

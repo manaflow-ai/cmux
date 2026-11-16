@@ -13,6 +13,7 @@ import Testing
     private let metrics: TabStripMetrics = {
         var values = TabStripMetrics.standard
         values.minInactiveTabWidth = 32
+        values.pinnedKeepsTitle = false // the icon-only pinned form (PinnedTabKeepsWidthTests has the titled one)
         return values
     }()
 
