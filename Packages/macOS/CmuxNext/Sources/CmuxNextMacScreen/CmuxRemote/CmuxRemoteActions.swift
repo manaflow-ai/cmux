@@ -4,6 +4,7 @@ public import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextDevices
+import CmuxNextSettings
 import Foundation
 
 /// What cmux Remote's actions need from the app: the hub, a window to ask in, and Settings.
@@ -115,13 +116,29 @@ extension CmuxRemoteActionEnvironment {
                     : CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
                 let window = environment.window()
                 let remote = environment.remote
-                return .followUp {
-                    guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
-                    try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote)
-                    return ["ok": true]
-                }
+                return .followUp(Self.confirmedChange(
+                    confirm: { await Self.confirm(title: title, body: body, in: window) },
+                    apply: { try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote) }))
             }.withDeadline(.fixed(Self.confirmationTimeout)),
         ]
+    }
+
+    /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.
+    ///
+    /// The dialog outlives the request: the caller gives up after its deadline (the CLI waits
+    /// `confirmationTimeout`, 600 s), and the request's deadline cancels its follow-up. An Allow
+    /// after that is still the person's answer, so the dialog and the change run in their own
+    /// task, which the request's cancellation does not reach; the request only waits on it.
+    nonisolated static func confirmedChange(confirm: @escaping @MainActor @Sendable () async -> Bool,
+                                            apply: @escaping @Sendable () async throws -> Void) -> @Sendable () async throws -> CmuxNextSettings.JSONValue {
+        {
+            let answer = Task { () async throws -> CmuxNextSettings.JSONValue in
+                guard await confirm() else { return ["ok": false, "declined": true] }
+                try await apply()
+                return ["ok": true]
+            }
+            return try await answer.value
+        }
     }
 
     /// `remote.confirm {action: share, device}`: share another Mac of this account. The person

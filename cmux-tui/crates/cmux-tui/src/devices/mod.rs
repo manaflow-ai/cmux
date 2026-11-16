@@ -95,7 +95,11 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "audit" => show_audit(args),
         "network" => show_network(args),
         _ => {
-            println!("{USAGE}");
+            // Asked-for help also lists the cmux app's `device …` verbs (cli/app_action_help.rs).
+            match crate::cli::app_action_help::append("device", USAGE) {
+                Some(text) if matches!(verb, "help" | "-h" | "--help") => println!("{text}"),
+                _ => println!("{USAGE}"),
+            }
             return if matches!(verb, "help" | "-h" | "--help") { 0 } else { 2 };
         }
     };

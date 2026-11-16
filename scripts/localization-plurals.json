@@ -717,5 +717,47 @@
     "arguments": [
       1
     ]
+  },
+  "classicImport.preview.workspaces": {
+    "source": "%lld workspaces",
+    "arguments": [
+      1
+    ]
+  },
+  "classicImport.preview.browserTabs": {
+    "source": "%lld browser tabs",
+    "arguments": [
+      1
+    ]
+  },
+  "classicImport.preview.filePages": {
+    "source": "%lld file pages",
+    "arguments": [
+      1
+    ]
+  },
+  "classicImport.preview.sshWorkspaces": {
+    "source": "%lld SSH workspaces",
+    "arguments": [
+      1
+    ]
+  },
+  "classicImport.preview.agentChats": {
+    "source": "%lld agent chats",
+    "arguments": [
+      1
+    ]
+  },
+  "classicImport.preview.cloudVMsSkipped": {
+    "source": "%lld Cloud VM workspaces stay in classic cmux.",
+    "arguments": [
+      1
+    ]
+  },
+  "classicImport.preview.interruptedClose": {
+    "source": "%lld workspaces left by an interrupted import close first, and their terminals end.",
+    "arguments": [
+      1
+    ]
   }
 }

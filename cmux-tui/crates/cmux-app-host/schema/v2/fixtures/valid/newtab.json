@@ -1,0 +1,20 @@
+{
+  "manifestVersion": 2,
+  "id": "local/launcher",
+  "name": "Launcher",
+  "version": "1.0.0",
+  "description": "A calm New Tab page.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.newtab/1": {
+      "export": "renderNewTab",
+      "title": "Launcher",
+      "symbol": "house"
+    }
+  }
+}

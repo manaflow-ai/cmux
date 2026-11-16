@@ -132,4 +132,29 @@ impl Mux {
             terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
     }
+
+    /// A copy of the session state with its [`Self::tree_decorations`], for a
+    /// reader that builds the whole tree: one hold of the state lock, for the
+    /// copy. The walks of the decorations read the copy with no lock held, and
+    /// so does the reader's build of the tree, so a request that needs the
+    /// state waits for the copy only. Each durable mutation makes the same
+    /// copy; the routing tables in it are shared, not copied (route_table.rs).
+    #[track_caller]
+    pub(crate) fn tree_state_and_decorations(&self) -> (State, TreeDecorations) {
+        let presentation = self.presentation_snapshot();
+        let state = State::clone(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
+        let notifications = self.surface_notifications_in_state(&state);
+        let directories = self.resolve_tab_directories(surface_directories_in_state(&state), true);
+        let pending_terminals = self.pending_terminals_snapshot();
+        let terminal_ends = self.terminal_ends_snapshot();
+        let decorations = TreeDecorations {
+            notifications,
+            presentation,
+            directories,
+            pending_terminals,
+            terminal_ends,
+            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
+        };
+        (state, decorations)
+    }
 }

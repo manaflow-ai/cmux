@@ -8,11 +8,22 @@ use serde_json::value::RawValue;
 const MAX_WIRE_ROW_BYTES: usize = 6 * MAX_INDEX_RECORD_BYTES;
 
 impl Hub {
-    pub(super) fn keyed_page(&self, request: &Page, keys: &[PageKey]) -> Result<Frame, HubError> {
+    /// `peer`: the rows go out in peer form, and only this machine's rows are read (a peer's
+    /// keys are all `local`: `peer_page_shape`), so the provider never reads another machine's.
+    pub(super) fn keyed_page(
+        &self,
+        request: &Page,
+        keys: &[PageKey],
+        peer: bool,
+    ) -> Result<Frame, HubError> {
         let keys = keys
             .iter()
             .map(|key| {
                 let PageKey::Summary(key) = key else { return Err(HubError::InvalidPage) };
+                // A `past` key is a position, not a row (decision 290): no keyed page takes one.
+                if key.past {
+                    return Err(HubError::InvalidPage);
+                }
                 Ok(key)
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -50,7 +61,10 @@ impl Hub {
                 reply.rest.extend(keys.iter().skip(position).copied().cloned());
                 break;
             }
-            let row_key = book_key(key).row;
+            if peer && key.origin != "local" {
+                return Err(HubError::InvalidPage);
+            }
+            let row_key = book_key(key)?.row;
             let row = match index.get_row(&row_key) {
                 Some(row) => Some(row),
                 None => {
@@ -58,8 +72,12 @@ impl Hub {
                 }
             };
             if let Some(row) = row {
-                let raw =
-                    serde_json::value::to_raw_value(row.as_ref()).map_err(FrameError::Encode)?;
+                let raw = if peer {
+                    serde_json::value::to_raw_value(&PeerRow(row.as_ref()))
+                } else {
+                    serde_json::value::to_raw_value(row.as_ref())
+                }
+                .map_err(FrameError::Encode)?;
                 used = used - key_bytes + raw.get().len() + 1;
                 reply.rows.push(raw);
                 if used > max {

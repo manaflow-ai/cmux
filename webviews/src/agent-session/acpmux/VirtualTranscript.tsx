@@ -94,7 +94,7 @@ import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./co
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
-import { noteMounted, noteTranscriptMount, noteReplyUnpainted, noteUnmounted } from "./flickerLog";
+import { noteTranscriptMount, noteReplyUnpainted, noteMounted, noteUnmounted } from "./flickerLog";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
@@ -233,8 +233,6 @@ const LIVE_RESIZE_MS = 120;
 /// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
 /// stream changes them every frame, and the save reads every row.
 const PROMPT_TOPS_QUIET_MS = 1000;
-/// Entries the prepared-text cache may hold past twice the rows before it drops those of rows that left.
-const MEASURED_SLACK = 512;
 /// The rows past each end of the mounted ones a live resize's frame still measures at the new width.
 const LIVE_RESIZE_ROWS = 40;
 /// The live width steps before the rows flow (`FLOW_CLASS`).
@@ -1597,6 +1595,25 @@ function estimateFrom(
   return { kept: undefined, resizing: { rows: last.rows, layout: last.layout, from, to }, partial: true };
 }
 
+/// The rows around the ones the last placement mounted, in `rows` (layoutConversation `near`): the same
+/// rows by id, where `rows` kept their indices or took an older page before them. Undefined for another
+/// chat or rows it cannot find there, so every row is measured.
+function nearView(
+  placed: { rows: readonly AcpmuxRow[]; sessionId?: string; first: number; last: number } | undefined,
+  rows: readonly AcpmuxRow[],
+  sessionId: string | undefined,
+): { from: number; to: number } | undefined {
+  if (!placed || placed.sessionId !== sessionId) return undefined;
+  const id = placed.rows[placed.first]?.id;
+  if (id === undefined) return undefined;
+  const shift = rows[placed.first]?.id === id ? 0 : rows.length - placed.rows.length;
+  if (rows[placed.first + shift]?.id !== id) return undefined;
+  return {
+    from: Math.max(0, placed.first + shift - LIVE_RESIZE_ROWS),
+    to: placed.last + shift + LIVE_RESIZE_ROWS,
+  };
+}
+
 function TranscriptView({
   rows: paneRows,
   streams = false,
@@ -1629,6 +1646,7 @@ function TranscriptView({
   onAnchor,
   anchorNow,
   inViewNow,
+  heldWorkedClosing,
   onLoadOlder,
   sends = 0,
   onFollowingChange,
@@ -1671,6 +1689,11 @@ function TranscriptView({
   /// Filled with the ids of the rows in the reader's view now, or null while it follows the latest
   /// message (a turn's end keeps those rows open, conversation/turnEndHold.ts).
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
+  /// Set by the pane when the rows it hands over next close a turn's Worked for that was held open
+  /// while the reader was scrolled up (App.tsx `heldWorked`), the reader now back at the latest row.
+  /// That close folds in the turn's end motion (conversation/turnEndFold.ts). Only read here: the
+  /// pane lets the flag go once the render that reads it has committed.
+  heldWorkedClosing?: React.MutableRefObject<boolean>;
   /// A reply is streaming: Jump to latest remains static while the shared transcript spinner carries
   /// the working state.
   working?: boolean;
@@ -1704,7 +1727,8 @@ function TranscriptView({
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   /// `fill`: the loaded rows do not reach the view's top, so the first page that draws above them lands
   /// at once rather than with the pages read after it.
-  onLoadOlder?: (fill: boolean) => Promise<void>;
+  /// `rising`: the reader is scrolling up as it asks (OlderAhead), so the page is a big one, with more read ahead.
+  onLoadOlder?: (fill: boolean, rising: boolean) => Promise<void>;
   /// How many prompts this pane has sent: each new one puts the view at the latest message.
   sends?: number;
   /// Keeps the parent send path in sync with the reader's current follow state.
@@ -3467,8 +3491,15 @@ function TranscriptView({
   // A turn that ended while the reader was away (its end among the frames held while the chat was
   // hidden) draws ended in place: folding from the rows drawn before they left moved its rows by
   // all that came since.
-  if (sameChat && endsTurn(rowsBefore, rows) && !pageAway())
-    turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
+  // A Worked for held open while the reader was scrolled up over its work closes once they are back
+  // at the latest row (App.tsx `heldWorked`). Closed in one frame, it brought everything above the
+  // reply down by the work's height at once (Leo, 2026-11-14: "a resizing/re-adjustment of all chats
+  // after tool calls get folded"): it folds in the turn's end motion instead, the rows over it
+  // coming down together as the work leaves.
+  const closingHeld = heldWorkedClosing?.current === true && rows !== rowsBefore;
+  const turnEnds = endsTurn(rowsBefore, rows);
+  if (sameChat && (turnEnds || closingHeld) && !pageAway())
+    turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId, !turnEnds);
   else if (!sameChat) turnEndCapture.current = undefined;
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
   // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
@@ -3782,15 +3813,11 @@ function TranscriptView({
       kept,
       sessionId,
       resizing,
+      nearView(lastPlaced.current, rows, sessionId),
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
-    // Prepared text is kept by row id for every row measured. Rows that left (a chat that let go of its
-    // oldest records, direct.ts `shedOlderHeld`) take theirs with them, so the cache holds what the
-    // transcript holds: one pass over the rows, only once it holds a good many more entries than rows.
-    if (cache.size > rows.length * 2 + MEASURED_SLACK) {
-      const held = new Set(rows.map((row) => row.id));
-      for (const id of cache.keys()) if (!held.has(id)) cache.delete(id);
-    }
+    // Prepared text is kept for the PREPARED_ROWS most recently measured rows (model.ts), whatever the
+    // chat's length.
     return { layout, partial, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
   // A row that draws moves only the rows below it: place them again, measuring none.
@@ -3948,7 +3975,9 @@ function TranscriptView({
   // pass reads every prompt's top (O(rows)); armed on every placement, it ran between the frames of
   // a stream, about 3 ms of each token in a 35,000-row chat (bench/transcript-replay.bench.ts, god).
   useEffect(() => {
-    if (canLoadOlder || !sessionId || rows.length === 0) return;
+    // Rows away from the view still at another width's height (layoutConversation `near`) would keep
+    // tops that are not this width's.
+    if (canLoadOlder || !sessionId || rows.length === 0 || estimated.layout.remembered) return;
     const placed = measured.layout;
     const width = scaledRowWidth;
     const keep = () => {
@@ -3968,7 +3997,7 @@ function TranscriptView({
       clearTimeout(quiet);
       if (idle !== undefined) cancelIdleCallback(idle);
     };
-  }, [canLoadOlder, sessionId, rows, measured, scaledRowWidth]);
+  }, [canLoadOlder, sessionId, rows, measured, estimated, scaledRowWidth]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
@@ -6586,7 +6615,7 @@ function TranscriptView({
     };
     // Rows that do not reach the view's top leave a blank band above them until the page lands
     // (Leo's NIGHTLY, 2026-11-12: the top ~40% empty above "Received 3 messages").
-    onLoadOlder(node.scrollHeight - (layout.origin ?? 0) <= node.clientHeight).then(() => {
+    onLoadOlder(node.scrollHeight - (layout.origin ?? 0) <= node.clientHeight, olderAhead.rising(askedAt)).then(() => {
       if (ask === olderAsk.current) olderAhead.read(performance.now() - askedAt);
       settled();
     }, settled);

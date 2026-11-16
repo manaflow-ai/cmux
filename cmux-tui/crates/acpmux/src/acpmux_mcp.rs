@@ -351,9 +351,9 @@ fn served_with(
                     });
                 if bg::TOOLS.contains(&name) {
                     let mut args = args;
-                    if matches!(name, "bg_start" | "run_wait")
-                        && let Some(fields) = args.as_object_mut()
-                    {
+                    // Every bg call names its caller: a start runs as it, and a list or stop
+                    // acts on its own tasks (`hub::BgScope`). Never the agent's own value.
+                    if let Some(fields) = args.as_object_mut() {
                         fields.remove("callerSubagent");
                         if let Some(sub) = &sub {
                             fields.insert("callerSubagent".to_owned(), sub.clone());

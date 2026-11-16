@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a";
+inline constexpr std::string_view kProtocolIrSha256 = "d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -230,6 +230,9 @@ struct TerminalClipboardReplyResult;
 struct TerminalClipboardSubscribeResult;
 struct TerminalColorOverrides;
 struct TerminalColors;
+struct TerminalCommandContext;
+enum class TerminalCommandContextIntent;
+struct TerminalCommandContextResult;
 struct TerminalCommandDeleteResult;
 struct TerminalCommandHistoryResult;
 struct TerminalCommandList;
@@ -582,6 +585,7 @@ struct SubscribeActivityRequest;
 struct SwapPaneRequest;
 struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
+struct TerminalCommandContextRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
 struct TerminalLastCommandRequest;
@@ -617,6 +621,7 @@ struct WsListenRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
+struct AgentCliFrameEvent;
 struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
@@ -677,6 +682,7 @@ struct ResizedEvent;
 struct ScreenAddedEvent;
 struct ScreenChangedEvent;
 struct ScreenClosedEvent;
+struct ScreenDeviceChangedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
 struct SelectionChangedEvent;
@@ -825,6 +831,25 @@ struct AgentChangedEvent {
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
 };
 
+struct Base64 {
+    std::string value{};
+    friend bool operator==(const Base64&, const Base64&) = default;
+};
+
+struct AgentCliFrameEvent {
+    std::optional<std::uint64_t> base{};
+    std::uint16_t cols{};
+    bool cursor_visible{};
+    std::uint16_t cursor_x{};
+    std::uint16_t cursor_y{};
+    Base64 data{};
+    std::uint64_t frame{};
+    std::uint16_t rows{};
+    std::string stream{};
+    Id surface{};
+    friend bool operator==(const AgentCliFrameEvent&, const AgentCliFrameEvent&) = default;
+};
+
 struct AgentInventoryChangedEvent {
     std::string machine{};
     std::uint64_t revision{};
@@ -949,8 +974,12 @@ struct AttachSurfaceRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> expected_generation{};
     Field<std::string> expected_terminal_id{};
+    Field<std::uint64_t> hybrid_frame{};
+    Field<std::string> hybrid_stream{};
     Field<AttachSurfaceRequestMode> mode{};
+    Field<std::uint32_t> output_coalesce_ms{};
     Field<std::uint32_t> replay_history_rows{};
+    Field<std::uint64_t> replay_history_start{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
     std::optional<bool> snapshot_images{};
@@ -978,11 +1007,6 @@ struct AttachedViewResizeResult {
     std::optional<std::string> participant{};
     std::optional<std::uint64_t> reservation_id{};
     friend bool operator==(const AttachedViewResizeResult&, const AttachedViewResizeResult&) = default;
-};
-
-struct Base64 {
-    std::string value{};
-    friend bool operator==(const Base64&, const Base64&) = default;
 };
 
 struct BellEvent {
@@ -3412,13 +3436,16 @@ struct IdentifyResult {
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
     std::optional<std::vector<std::string>> machine_capabilities{};
+    std::optional<std::string> machine_device{};
     std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
     std::optional<MachinePlatform> machine_platform{};
+    std::optional<std::string> machine_symbol{};
     Field<std::uint32_t> min_api_revision{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    Field<std::string> screen_device_id{};
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
@@ -4876,6 +4903,7 @@ struct ResizedEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
     std::optional<Base64> data{};
+    std::optional<std::uint64_t> history_rows_omitted{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::optional<Base64> replay{};
@@ -5008,6 +5036,11 @@ struct ScreenClosedEvent {
     Id screen{};
     Id workspace{};
     friend bool operator==(const ScreenClosedEvent&, const ScreenClosedEvent&) = default;
+};
+
+struct ScreenDeviceChangedEvent {
+    std::optional<std::string> screen_device_id{};
+    friend bool operator==(const ScreenDeviceChangedEvent&, const ScreenDeviceChangedEvent&) = default;
 };
 
 struct ScreenRenamedEvent {
@@ -5971,6 +6004,32 @@ struct TerminalClipboardSubscribeResult {
     friend bool operator==(const TerminalClipboardSubscribeResult&, const TerminalClipboardSubscribeResult&) = default;
 };
 
+struct TerminalCommandContext {
+    std::optional<std::string> command{};
+    std::optional<std::string> cwd{};
+    std::optional<std::int32_t> exit_code{};
+    std::string output{};
+    std::string text{};
+    bool truncated{};
+    friend bool operator==(const TerminalCommandContext&, const TerminalCommandContext&) = default;
+};
+
+enum class TerminalCommandContextIntent {
+    context,
+    fix,
+};
+
+struct TerminalCommandContextRequest {
+    std::optional<TerminalCommandContextIntent> intent{};
+    Id surface{};
+    friend bool operator==(const TerminalCommandContextRequest&, const TerminalCommandContextRequest&) = default;
+};
+
+struct TerminalCommandContextResult {
+    std::optional<TerminalCommandContext> context{};
+    friend bool operator==(const TerminalCommandContextResult&, const TerminalCommandContextResult&) = default;
+};
+
 struct TerminalCommandDeleteResult {
     std::uint64_t deleted{};
     friend bool operator==(const TerminalCommandDeleteResult&, const TerminalCommandDeleteResult&) = default;
@@ -6416,6 +6475,7 @@ struct VtStateEvent {
     std::uint16_t cols{};
     Base64 data{};
     std::optional<std::uint64_t> history_rows_omitted{};
+    std::optional<std::uint64_t> history_rows_skipped{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::uint16_t rows{};
@@ -7841,6 +7901,24 @@ template <>
 struct Codec<TerminalColors> {
     static Result<Json> encode(const TerminalColors& value);
     static Result<TerminalColors> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContext> {
+    static Result<Json> encode(const TerminalCommandContext& value);
+    static Result<TerminalCommandContext> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContextIntent> {
+    static Result<Json> encode(const TerminalCommandContextIntent& value);
+    static Result<TerminalCommandContextIntent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContextResult> {
+    static Result<Json> encode(const TerminalCommandContextResult& value);
+    static Result<TerminalCommandContextResult> decode(const Json& value);
 };
 
 template <>
@@ -9956,6 +10034,12 @@ struct Codec<TerminalClipboardSubscribeRequest> {
 };
 
 template <>
+struct Codec<TerminalCommandContextRequest> {
+    static Result<Json> encode(const TerminalCommandContextRequest& value);
+    static Result<TerminalCommandContextRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalEventsRequest> {
     static Result<Json> encode(const TerminalEventsRequest& value);
     static Result<TerminalEventsRequest> decode(const Json& value);
@@ -10163,6 +10247,12 @@ template <>
 struct Codec<AgentChangedEvent> {
     static Result<Json> encode(const AgentChangedEvent& value);
     static Result<AgentChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliFrameEvent> {
+    static Result<Json> encode(const AgentCliFrameEvent& value);
+    static Result<AgentCliFrameEvent> decode(const Json& value);
 };
 
 template <>
@@ -10523,6 +10613,12 @@ template <>
 struct Codec<ScreenClosedEvent> {
     static Result<Json> encode(const ScreenClosedEvent& value);
     static Result<ScreenClosedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ScreenDeviceChangedEvent> {
+    static Result<Json> encode(const ScreenDeviceChangedEvent& value);
+    static Result<ScreenDeviceChangedEvent> decode(const Json& value);
 };
 
 template <>

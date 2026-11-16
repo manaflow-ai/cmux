@@ -47,7 +47,7 @@ use crate::panic_free::JsonFields;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -345,7 +345,7 @@ const INFO_ROWS: &str = "info-rows-v1";
 /// the daemon serves no v2 list (or no rows by key), and the caller reads v1 whole.
 fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize)>, Failure> {
     use crate::server::agent_session_attach::agent_session_link::list_source::{
-        self, Opened, bounded_away, extra, v1_status,
+        self, Opened, bounded_away, extras, v1_status,
     };
     use acpmux_client::wire::{ListFilter, ListView};
     use std::ops::ControlFlow;
@@ -365,24 +365,30 @@ fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize
                     by_key.push(summary.chat_id);
                     continue;
                 }
-                let tags = extra(&summary, "tags").unwrap_or_default();
-                let name = extra(&summary, "name").unwrap_or_default();
-                let chief = tags.get("cmux.chief").is_some()
-                    || name.as_str().unwrap_or_default().starts_with("optchat-")
+                let extra = extras(&summary);
+                let name = extra.get("name").and_then(Value::as_str).unwrap_or_default();
+                let chief = extra.get("tags").is_some_and(|tags| tags.get("cmux.chief").is_some())
+                    || name.starts_with("optchat-")
                     || summary.harness.starts_with("optchat-compact-");
                 if !chief {
-                    count(&v1_status(&summary), &mut live, &mut running);
+                    count(&v1_status(&summary, &extra), &mut live, &mut running);
                 }
             }
             ControlFlow::Continue(())
         })
         .map_err(list_failure)?;
-    // A reply past its byte budget answers some keys and names the rest (`rest`): asked again.
+    // A reply past its byte budget answers some keys and names the rest (`rest`): asked again,
+    // every request within one deadline, as the walk's are.
+    let deadline = Instant::now() + CALL_TIMEOUT;
     let mut queue: std::collections::VecDeque<String> = by_key.into();
     while !queue.is_empty() {
         let keys: Vec<String> = queue.drain(..queue.len().min(100)).collect();
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(Failure::Timeout);
+        }
         let reply = link
-            .call("_acpmux/info", json!({"sessionIds": keys, "row": true}), CALL_TIMEOUT)
+            .call("_acpmux/info", json!({"sessionIds": keys, "row": true}), left)
             .map_err(Failure::of)?;
         let rows = reply.field("rows");
         let rest: Vec<String> = reply
@@ -393,7 +399,8 @@ fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize
             .filter_map(Value::as_str)
             .map(str::to_owned)
             .collect();
-        if rows.as_array().is_none_or(Vec::is_empty) && !rest.is_empty() {
+        // A reply that leaves as many keys as were asked made no progress: never asked again.
+        if rest.len() >= keys.len() {
             return Err(Failure::AcpmuxUnavailable);
         }
         let (more_live, more_running) = threads(&json!({"sessions": rows}));

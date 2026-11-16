@@ -146,8 +146,8 @@ struct DeepLinkNavigator {
     /// else the acpmux chat the link names (`_acpmux/resolve` reads the link; it lists only this
     /// Mac's and its peers' chats, the reader's own), opened as a session link opens one. A link's
     /// `message=<id>` then scrolls that message into view (schemas/deeplinks/agent-link.json).
-    /// `notFound` runs when acpmux lists no such chat (nil: the refusal shows).
-    /// `bare`: a harness session id to resolve instead (a cmux.com link with no harness).
+    /// `notFound` runs when acpmux lists no such chat (nil: the refusal shows, "not available to you" for an `aid-` id).
+    /// `bare`: a harness session id, or a footer's opaque `aid-` id, to resolve instead (a cmux.com link with no harness).
     func openAgentLink(_ link: DeepLink?, bare: String? = nil, _ intent: WindowActivation.Intent, asking: Bool,
                        notFound: (@MainActor () -> Void)? = nil) throws {
         guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
@@ -158,7 +158,7 @@ struct DeepLinkNavigator {
             return
         }
         let (hud, window) = (services.refusalHUD, services.windows.active?.window)
-        let missing = notFound ?? { hud.show(Self.gone.message, in: window) }
+        let missing = notFound ?? { hud.show(bare.map(DeepLink.isAgentReference) == true ? RefusalStrings.agentReferenceUnavailable : Self.gone.message, in: window) }
         guard let socket = AgentLaneStore.shared.socketPath, let query = link?.url(scheme: DeepLink.chiefScheme)?.absoluteString ?? bare else { return missing() }
         // task-owner: one resolve, then one open.
         Task { @MainActor in
