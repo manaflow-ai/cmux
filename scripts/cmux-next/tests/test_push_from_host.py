@@ -29,6 +29,9 @@ TOKEN = "test-token-never-printed"
 FAKE_SSH = """#!/bin/bash
 while [[ "$1" == -o ]]; do shift 2; done
 echo "$1" >> "$FAKE_SSH_LOG"
+printf '%s\\n' "$*" >> "${FAKE_SSH_LOG%.log}-argv.log"
+# A host named in FAKE_SSH_HOSTS_OK answers a probe with success (for hosts the fixture has no clone name for).
+if [[ " ${FAKE_SSH_HOSTS_OK:-} " == *" $1 "* && "$2" == test\\ -e* ]]; then exit 0; fi
 shift  # the host
 export HOME="$FAKE_HOST_HOME"
 exec bash -c "$*"
@@ -366,6 +369,48 @@ git config core.hooksPath "$common/cmux-git-hooks"
                 done = self.push("--which-host", "topic")
                 self.assertEqual(done.returncode, 2, done.stderr)
                 self.assertFalse((self.root / "ssh.log").exists())
+
+    def test_without_leo_workspace_the_repo_registry_picks_cmux_lawrence_2(self):
+        # 2026-11-16: no Mac had ~/Projects/leo-workspace/machines/fleet-registry.json, so every push stopped here
+        # and agents hand-pushed through cmux-lawrence-2 (one printed a gh token doing so). With no registry named
+        # and none at the default path, the reviewed one in the repo (scripts/cmux-next/push-hosts.json) applies.
+        home = self.root / "home-without-leo-workspace"
+        home.mkdir()
+        self.env.pop("CMUX_FLEET_REGISTRY", None)
+        self.env.pop("CMUX_PUSH_HOST", None)
+        self.env["HOME"] = str(home)
+        self.env["FAKE_SSH_HOSTS_OK"] = "cmux-lawrence-2"
+        done = self.push("--which-host", "topic", hosts=())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "cmux-lawrence-2 fun/cmux")
+        self.assertIn("scripts/cmux-next/push-hosts.json", done.stderr)
+        self.assertEqual((self.root / "ssh.log").read_text(), "cmux-lawrence-2\n")
+
+    def test_the_repo_registry_admits_no_host_it_does_not_list(self):
+        home = self.root / "home-without-leo-workspace"
+        home.mkdir()
+        self.env.pop("CMUX_FLEET_REGISTRY", None)
+        self.env["HOME"] = str(home)
+        done = self.push("--which-host", "topic", hosts=("cmux16",))
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("skipping cmux16: not an eligible mac-build host", done.stderr)
+        self.assertFalse((self.root / "ssh.log").exists())
+
+    def test_the_repo_registry_has_only_fleet_builders(self):
+        machines = json.loads((SCRIPT.parent / "push-hosts.json").read_text())["machines"]
+        self.assertEqual(list(machines), ["cmux-lawrence-2"])
+        for machine in machines.values():
+            self.assertIn("mac-build", machine["roles"])
+            self.assertFalse(machine.get("personal"))
+
+    def test_the_token_reaches_no_ssh_argument_and_no_output(self):
+        sha = self.commit(self.work, "t.txt", "t\n", "token path")
+        done = self.push("topic")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.remote_head("topic"), sha)
+        argv = (self.root / "ssh-argv.log").read_text()
+        self.assertIn("run.sh", argv)
+        self.assertNotIn(TOKEN, argv, "the token goes over SSH stdin, never on a command line")
 
     def test_empty_default_role_directs_gates_to_managed_ci(self):
         Path(self.env["CMUX_FLEET_REGISTRY"]).write_text(json.dumps({"machines": {
