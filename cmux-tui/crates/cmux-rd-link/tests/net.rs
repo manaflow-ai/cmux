@@ -51,7 +51,7 @@ fn a_session_runs_over_real_udp_sockets() {
     assert!(wait(&host, &mut at_host, |e| e.contains(&hello)));
     assert!(wait(&viewer, &mut at_viewer, established));
 
-    host.send_datagram_frame((0..20u8).map(|i| vec![i; 1000]).collect());
+    host.send_datagram_frame((0..20u8).map(|i| vec![i; 1000]).collect(), true);
     host.send_control(b"control-after-frame".to_vec());
     let control =
         NetEvent::Endpoint(EndpointEvent::Link(Event::Control(b"control-after-frame".to_vec())));

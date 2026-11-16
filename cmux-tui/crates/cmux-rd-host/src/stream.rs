@@ -18,6 +18,7 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_proto::datagram::{flags, DatagramHeader, DatagramKind};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -465,7 +466,12 @@ impl MediaSession {
             // Too large to send (about 4.6 MB): the engine dropped it and asks for a keyframe.
             self.encoder.halve_bitrate();
         }
-        carrier.send_datagram_frame(out.datagrams)?;
+        let droppable = out.datagrams.iter().all(|datagram| {
+            let Ok((header, _)) = DatagramHeader::decode(datagram) else { return true };
+            header.kind != DatagramKind::Fec
+                && header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0
+        });
+        carrier.send_datagram_frame(out.datagrams, droppable)?;
         if let (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) =
             (self.timing.as_mut(), logged)
         {
