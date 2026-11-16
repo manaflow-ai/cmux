@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43839824564",
+  "recorded_at": "2026-11-16T09:37:04Z",
+  "reason": "cmux-tui f41fedd23996 changes the image's cmux-tui (pinned 37b8e7f72d5f)",
+  "dry_run": false,
+  "cmux_tui": "f41fedd239968a3b081871f135f8f5d82f884142",
+  "fixes": [
+    {
+      "sha": "f41fedd239968a3b081871f135f8f5d82f884142",
+      "mergedAt": "2026-11-16T01:09:24-08:00",
+      "subject": "cmux-tui: carrier drill names the step it stopped in; bounded step is a timeout only at the deadline (#44260)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T09:37:04Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
