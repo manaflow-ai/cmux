@@ -198,22 +198,59 @@ inline bool GrantsCmuxPageLocalNetwork(const std::string& requesting_origin, uin
   return requesting_origin.size() > prefix.size() && requesting_origin.compare(0, prefix.size(), prefix) == 0;
 }
 
+// Whether `url` is a document or file of the cmux page `domain` (cmux-page://<domain>, then
+// end, '/', '?' or '#').
+inline bool SameCmuxPageOrigin(const std::string& url, const std::string& domain) {
+  const std::string origin = std::string(kCmuxPageScheme) + "://" + domain;
+  return url.size() >= origin.size() && url.compare(0, origin.size(), origin) == 0 &&
+         (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
+          url[origin.size()] == '#');
+}
+
+// What the page scheme does with a request for a page's files.
+enum class PageRequestVerdict {
+  kAllow,
+  kRefuse,
+  // The requesting frame is a top frame the browser side still reads as empty or about:blank:
+  // its document has committed in the renderer, but CEF updates the frame's URL on the UI
+  // thread, after that document's own files are already asked for on the IO thread. The
+  // request waits until the browser knows the frame's URL (`frame_settled`), then is judged.
+  kWaitForFrame,
+};
+
 // Whether a request may load a page's files: a main-frame navigation, or a
 // request from a frame of the same cmux-page origin (a child frame being
 // navigated is judged by its parent). Normal web pages can neither embed
-// nor load cmux-page resources.
+// nor load cmux-page resources. `frame_settled` is false while the browser
+// side may not have the requesting frame's committed URL yet; a blank top
+// frame then waits instead of being refused (on a busy first launch every
+// script and style of a page was refused, and the page stayed blank). A
+// frame that stays blank is refused once settled, as before.
+inline PageRequestVerdict JudgePageRequest(bool main_frame, const std::string& frame_url, const std::string& parent_url,
+                                           const std::string& domain, bool frame_settled) {
+  if (main_frame) return PageRequestVerdict::kAllow;
+  if (ArtifactContextRestricted(frame_url, parent_url)) return PageRequestVerdict::kRefuse;
+  auto same = [&](const std::string& url) { return SameCmuxPageOrigin(url, domain); };
+  if (same(frame_url)) return PageRequestVerdict::kAllow;
+  if (!frame_url.empty() && frame_url != "about:blank") return PageRequestVerdict::kRefuse;
+  if (!parent_url.empty()) return same(parent_url) ? PageRequestVerdict::kAllow : PageRequestVerdict::kRefuse;
+  return frame_settled ? PageRequestVerdict::kRefuse : PageRequestVerdict::kWaitForFrame;
+}
+
+// A request that waited (kWaitForFrame), judged once the browser has the URL of its top frame
+// (`settled_url`): that frame must be the page's own document, and the request's own first party
+// (the top document that asked) must be the page too, so a document that replaces the page in
+// the same browser before the browser has seen it commit cannot load the page's files.
+inline bool DeferredPageRequestAllowed(const std::string& settled_url, const std::string& first_party,
+                                       const std::string& domain) {
+  return JudgePageRequest(false, settled_url, "", domain, true) == PageRequestVerdict::kAllow &&
+         SameCmuxPageOrigin(first_party, domain);
+}
+
+// JudgePageRequest once the frame is settled: allowed or not.
 inline bool PageRequestAllowed(bool main_frame, const std::string& frame_url, const std::string& parent_url,
                                const std::string& domain) {
-  if (main_frame) return true;
-  if (ArtifactContextRestricted(frame_url, parent_url)) return false;
-  const std::string origin = std::string(kCmuxPageScheme) + "://" + domain;
-  auto same = [&](const std::string& url) {
-    return url.size() >= origin.size() && url.compare(0, origin.size(), origin) == 0 &&
-           (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
-            url[origin.size()] == '#');
-  };
-  if (same(frame_url)) return true;
-  return (frame_url.empty() || frame_url == "about:blank") && same(parent_url);
+  return JudgePageRequest(main_frame, frame_url, parent_url, domain, true) == PageRequestVerdict::kAllow;
 }
 
 // Response headers of every cmux-page response. frame-ancestors 'self' is

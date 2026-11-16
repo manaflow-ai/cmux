@@ -1,0 +1,187 @@
+"""rfb-viewer.py against a fake Apple Screen Sharing server: login, ZRLE decode, marker latency,
+window rows and the nonce readiness check. Runs anywhere (no Mac):
+  python3 -m unittest scripts/measure/screen-stream-eval/test_rfb_viewer.py
+"""
+import importlib.util
+import json
+import os
+import socket
+import struct
+import tempfile
+import threading
+import time
+import unittest
+import zlib
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location("rfb_viewer", HERE / "rfb-viewer.py")
+rfb = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rfb)
+
+CELL, W, H = 16, 400, 200
+NONCE = "00112233445566778899aabbccddeeff"
+
+
+class FakeServer(threading.Thread):
+    """RFB 3.889, security type 30 only, a ZRLE framebuffer whose top rows are the marker:
+    the counter row (bumped by each key or click, and by every update while `tick`), then the
+    nonce rows when `nonce` is set."""
+
+    def __init__(self, nonce=None, tick=False, reject=False):
+        super().__init__(daemon=True)
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(1)
+        self.port = self.listener.getsockname()[1]
+        self.nonce, self.tick, self.reject = nonce, tick, reject
+        self.counter = 5
+        self.z = zlib.compressobj()
+        self.login = None
+
+    def frame(self):
+        px = bytearray(b"\xc0\xc0\xc0" * (W * H))
+        words = [self.counter] + (rfb.nonce_words(self.nonce) if self.nonce else [])
+        for row, word in enumerate(words):
+            for col in range(20):
+                on = (word >> col) & 1 if col < 16 else (1, 0, 1, 0)[col - 16]
+                for y in range(row * CELL, (row + 1) * CELL):
+                    for x in range(col * CELL, (col + 1) * CELL):
+                        px[(y * W + x) * 3:(y * W + x) * 3 + 3] = b"\xff\xff\xff" if on else b"\x00\x00\x00"
+        return px
+
+    def update(self, conn):
+        px = self.frame()
+        tiles = bytearray()
+        for ty in range(0, H, 64):
+            for tx in range(0, W, 64):
+                tiles.append(0)
+                for y in range(ty, min(H, ty + 64)):
+                    for x in range(tx, min(W, tx + 64)):
+                        r, g, b = px[(y * W + x) * 3:(y * W + x) * 3 + 3]
+                        tiles += bytes((b, g, r))
+        data = self.z.compress(bytes(tiles)) + self.z.flush(zlib.Z_SYNC_FLUSH)
+        conn.sendall(struct.pack("!BxH", 0, 1) + struct.pack("!HHHHi", 0, 0, W, H, 16)
+                     + struct.pack("!I", len(data)) + data)
+
+    def run(self):
+        conn, _ = self.listener.accept()
+        f = conn.makefile("rb")
+        conn.sendall(b"RFB 003.889\n")
+        f.read(12)
+        conn.sendall(bytes([1, 30]))
+        assert f.read(1) == b"\x1e"
+        prime = (2 ** 127 - 1).to_bytes(16, "big")
+        conn.sendall(struct.pack("!HH", 2, 16) + prime + pow(2, 12345, 2 ** 127 - 1).to_bytes(16, "big"))
+        self.login = f.read(128 + 16)
+        if self.reject:
+            conn.sendall(struct.pack("!I", 1) + struct.pack("!I", 4) + b"nope")
+            conn.close()
+            return
+        conn.sendall(struct.pack("!I", 0))
+        f.read(1)
+        conn.sendall(struct.pack("!HH", W, H) + bytes(16) + struct.pack("!I", 4) + b"fake")
+        try:
+            while True:
+                kind = f.read(1)
+                if not kind:
+                    return
+                kind = kind[0]
+                if kind == 0:
+                    f.read(19)
+                elif kind == 2:
+                    n = struct.unpack("!xH", f.read(3))[0]
+                    f.read(4 * n)
+                elif kind == 3:
+                    f.read(9)
+                    if self.tick:
+                        self.counter += 1
+                    time.sleep(0.01)
+                    self.update(conn)
+                elif kind == 4:
+                    down = f.read(7)[0]
+                    if down:
+                        self.counter += 1
+                elif kind == 5:
+                    mask = f.read(5)[0]
+                    if mask:
+                        self.counter += 1
+        except (OSError, ValueError):
+            return
+
+
+class RFBViewerTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.login = self.dir / "login"
+        self.login.write_text("cmux\nsecret\n")
+        os.chmod(self.login, 0o600)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_viewer(self, server, *args):
+        server.start()
+        return rfb.main([args[0], "--host", "127.0.0.1", "--port", str(server.port), "--login-file", str(self.login),
+                         "--timeout", "10", *args[1:]])
+
+    def test_aes_fips197_vector(self):
+        key = bytes(range(16))
+        plain = bytes.fromhex("00112233445566778899aabbccddeeff")
+        self.assertEqual(rfb.aes128_ecb_encrypt(key, plain).hex(), "69c4e0d86a7b0430d8cdb78070b4c55a")
+
+    def test_login_file_must_be_private(self):
+        os.chmod(self.login, 0o644)
+        with self.assertRaisesRegex(rfb.RFBError, "chmod 600"):
+            rfb.read_login(str(self.login))
+
+    def test_one_line_login_is_this_accounts_password(self):
+        import pwd
+        self.login.write_text("secret\n")
+        self.assertEqual(rfb.read_login(str(self.login)), (pwd.getpwuid(os.getuid()).pw_name, "secret"))
+
+    def test_rejected_login_fails(self):
+        self.assertEqual(self.run_viewer(FakeServer(reject=True), "probe"), 1)
+
+    def test_key_latency_reads_marker(self):
+        out = self.dir / "lat.json"
+        self.assertEqual(self.run_viewer(FakeServer(), "latency", "--input", "key", "--samples", "5", "--out", str(out)), 0)
+        result = json.loads(out.read_text())
+        self.assertEqual(result["g2g_ms"]["n"], 5)
+        self.assertEqual(result["lost"], 0)
+        self.assertEqual(result["geometry"]["cell"], CELL)
+
+    def test_pointer_latency_uses_marker_log_geometry(self):
+        log = self.dir / "marker.log"
+        # Stream pixels twice the framebuffer's: the log's numbers halve.
+        log.write_text(f"marker-origin 0,0 click-at 704,32\nmarker: stream width {W * 2} px, cell 16 pt, display (0,0)\n")
+        out = self.dir / "lat.json"
+        self.assertEqual(self.run_viewer(FakeServer(), "latency", "--input", "pointer", "--samples", "3",
+                                         "--marker-log", str(log), "--out", str(out)), 0)
+        result = json.loads(out.read_text())
+        self.assertEqual(result["geometry"]["at"], [352, 16])
+        self.assertEqual(result["g2g_ms"]["n"], 3)
+
+    def test_window_with_nonce_counts_bytes_and_frames(self):
+        out, frame, go = self.dir / "win.json", self.dir / "frame.png", self.dir / "go"
+        rc = self.run_viewer(FakeServer(nonce=NONCE, tick=True), "window", "--seconds", "2.2", "--frame", str(frame),
+                             "--go", str(go), "--out", str(out), "--nonce", NONCE)
+        self.assertEqual(rc, 0)
+        self.assertTrue(go.exists())
+        self.assertEqual(frame.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+        result = json.loads(out.read_text())
+        self.assertGreaterEqual(len(result["series"]), 2)
+        self.assertTrue(all(r["bytes"] > 0 and r["frames"] > 0 for r in result["series"]))
+        self.assertTrue(result["extra"]["readiness"]["nonce_observed"])
+
+    def test_window_refuses_another_nonce(self):
+        out, frame, go = self.dir / "win.json", self.dir / "frame.png", self.dir / "go"
+        rc = self.run_viewer(FakeServer(nonce="ff" * 16, tick=True), "window", "--seconds", "1", "--frame", str(frame),
+                             "--go", str(go), "--out", str(out), "--nonce", NONCE)
+        self.assertEqual(rc, 1)
+        self.assertFalse(go.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
