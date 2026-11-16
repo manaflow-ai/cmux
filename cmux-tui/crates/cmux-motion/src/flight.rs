@@ -14,7 +14,10 @@
 //!   change by that act until one duration passed with none (the quiet
 //!   time): a held key shows no motion, not motion, jump, motion, jump;
 //! - a duration that is not positive (speed off, Reduce Motion, a kind
-//!   switched off) applies at once.
+//!   switched off) applies at once: it ends the flight in the air, starts no
+//!   quiet time, and leaves a quiet time in place as it is, so a held key
+//!   stays without motion when a change of a kind that is off comes between
+//!   two of its repeats.
 //!
 //! Pure and synchronous like the tweens: no clock read (the host gives
 //! `now`, seconds on any monotonic clock), no allocation, no panic on any
@@ -62,7 +65,8 @@ pub enum FlightPhase {
 pub struct MotionFlight {
     /// When the flight in the air started or was last retargeted.
     pub start: f64,
-    /// The flight's length; 0 when no flight is in the air.
+    /// The flight's length; 0 after a `frame` or a `change` saw that no
+    /// flight is in the air.
     pub duration: f64,
     /// When the quiet time ends; changes by `quiet_act` before it apply at once.
     pub quiet_until: f64,
@@ -116,10 +120,10 @@ impl MotionFlight {
             self.land();
         }
         let animates = motion.duration.is_finite() && motion.duration > 0.;
-        if !animates || now.is_nan() {
-            // No motion at all (speed off, Reduce Motion, a kind off): no quiet time either.
+        if !animates || !now.is_finite() {
+            // No motion (speed off, Reduce Motion, a kind off) or no clock: no new quiet time.
+            // A quiet time in place stays: its act is still held.
             self.land();
-            self.quiet_act = Self::NO_ACT;
             return FlightStep::AtOnce;
         }
         let quiet = act == self.quiet_act && now < self.quiet_until - END_SLACK;
@@ -170,9 +174,12 @@ impl MotionFlight {
     }
 
     /// True while the flight has not reached its length at `now`. A clock
-    /// that is not a number flies nothing.
+    /// or a length that is not finite flies nothing.
     fn is_flying(&self, now: f64) -> bool {
-        self.duration > 0. && now < self.start + self.duration - END_SLACK
+        now.is_finite()
+            && self.duration.is_finite()
+            && self.duration > 0.
+            && now < self.start + self.duration - END_SLACK
     }
 
     fn land(&mut self) {
