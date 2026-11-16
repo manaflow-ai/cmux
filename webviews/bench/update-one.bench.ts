@@ -32,6 +32,7 @@ import { chromium } from "./browsers";
 import type { CDPSession, Page } from "playwright";
 import { SourceMapConsumer, type RawSourceMap } from "source-map-js";
 import { warmViteServer } from "../test/support/warmDevServer";
+import { requireProductionReact, installReactWatch } from "./support/benchPage";
 import { perfRow, TARGET_MS } from "./perfRow";
 
 const argv = process.argv.slice(2);
@@ -212,8 +213,16 @@ async function openPage(page: Page, port: number, size: number, surface: Surface
   await page.addInitScript((count) => {
     (globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize = count;
   }, size);
+  // Before the page's own code: the recorder has to see react-dom's request
+  // (bench/support/benchPage.ts installReactWatch).
+  await installReactWatch(page);
   await page.goto(`http://127.0.0.1:${port}/?mock`);
   await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  // After the pane is up, not right after `goto`: react-dom rides a lazy chunk the page fetches when
+  // it mounts, and asking before that read as "no react-dom on this page". This bench already asks
+  // Vite for production mode; the check says so from the code the page loaded, so a config change
+  // cannot turn these numbers into dev numbers quietly (bench/support/benchPage.ts).
+  await requireProductionReact(page, { dev: false });
   if (surface === "chat") {
     const seeded = (await page.evaluate(
       (turns) => (window as any).cmuxAcpmuxDebug.loadSeed(turns, { light: true }),
