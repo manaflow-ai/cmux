@@ -88,9 +88,7 @@ enum NewTabPage {
     /// the workspace the page's window shows (the active window's when nil).
     static func places(_ services: AppServices, excluding selectedID: String?, current: String? = nil)
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
-        let sources = services.machines.allWorkspaces.map { workspace, _ in
-            NewTabPlaces.Source(id: workspace.id, name: workspace.displayName, tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs))
-        }
+        let sources = services.machines.allWorkspaces.map { workspace, _ in services.newTabPlaceSource(workspace) }
         let current = current ?? services.windows.active?.state.workspaceID
         return NewTabPlaces(home: NSHomeDirectory()).places(sources, current: current, excluding: selectedID) {
             AppServices.dataURL(services.tabFavicon($0))

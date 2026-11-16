@@ -71,6 +71,8 @@ final class AppServices {
     /// The open files' quit documents, shared by the markdown and editor pages.
     private(set) lazy var fileQuitDocuments = FileQuitDocuments(drafts: recoveryDrafts, registry: quitUnsaved)
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
+    /// One workspace as a New Tab page's bar reads it (`NewTabPage.places`); a test passes one that counts its calls.
+    let newTabPlaceSource: @MainActor (WorkspaceModel) -> NewTabPlaces.Source
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
@@ -582,12 +584,12 @@ final class AppServices {
          launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
-         agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
+         agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles(), newTabPlaceSource: @escaping @MainActor (WorkspaceModel) -> NewTabPlaces.Source = { NewTabPlaces.Source($0) }) {
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain, appearance: ThemeScope.app), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
-        self.agentPaneStateFiles = agentPaneStateFiles
+        (self.agentPaneStateFiles, self.newTabPlaceSource) = (agentPaneStateFiles, newTabPlaceSource)
         agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         // Before the updater's What's New tracker writes its record: an install that ran before

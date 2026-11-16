@@ -30,6 +30,12 @@ public struct NewTabPlaces {
             self.name = name
             self.tabs = tabs
         }
+
+        /// A workspace of the store as the bar reads it: its id, its shown name and the tabs of each pane of each screen.
+        /// - Parameter workspace: The store's workspace.
+        public init(_ workspace: WorkspaceModel) {
+            self.init(id: workspace.id, name: workspace.displayName, tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs))
+        }
     }
 
     /// What one tab reads as in the bar: its kind, a title of its own and the line under it.
