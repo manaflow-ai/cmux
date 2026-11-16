@@ -19,6 +19,9 @@ import Testing
 /// - a key-down that is no repeat, or a repeat of another key;
 /// - the app is no longer the active app.
 ///
+/// The flags event is a usual end, not a corner: a person often lifts Command before the key, and then no key-up of
+/// the key with Command comes (`commandUpBeforeTheKeyMakesThePageAtTheNextFrame`).
+///
 /// A single key is not a repeat: it starts no hold, and its page comes as before.
 ///
 /// The events here are made in the test and go through the app's input dispatch context, the one place that gets
@@ -137,6 +140,23 @@ struct NewTabRepeatKeyTests {
                 withExtendedLifetime(router) { center.post(name: NSApplication.didResignActiveNotification, object: nil) }
             }
             await Self.expectOnePageForTheSelectedTab(after: held, "the end \(end.rawValue)", in: pane, services, built)
+        }
+    }
+
+    /// A person lifts Command first. No key-up of the key with Command comes: the flags event is the end. The system
+    /// then repeats the plain key (typed text, it opens nothing) and hands its key-up with no Command: neither
+    /// makes a second page view.
+    @Test func commandUpBeforeTheKeyMakesThePageAtTheNextFrame() async throws {
+        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-command-first") { services, window, pane, built in
+            let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, built)
+            try #require(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
+            Self.send(try Self.event(.flagsChanged, code: 55, flags: [], in: window), services)
+            #expect(built() == held, "\(built() - held) page views were made in the flags event's own turn, before a frame")
+            await NewTabPageAtItsFrameTests.frame(services)
+            #expect(built() <= held + 1, "\(built() - held) page views were made at the first frame after Command went up")
+            for _ in 0..<2 { Self.send(try Self.event(.keyDown, repeats: true, flags: [], in: window), services) }
+            Self.send(try Self.event(.keyUp, flags: [], in: window), services)
+            await Self.expectOnePageForTheSelectedTab(after: held, "Command up, then the plain key's repeats and its key-up", in: pane, services, built)
         }
     }
 
