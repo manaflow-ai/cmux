@@ -151,26 +151,9 @@ pub(super) fn drill_source(
         return Err(stopped(&trail, out_of_time()));
     }
     let asked = left(runner).min(TOKEN_TIMEOUT);
-    let token = runner.app("auth.token", json!({}), asked);
-    trail.ended(STEP_CREDENTIAL, runner.now(), matches!(token, Some(Ok(_))));
-    let token = match token {
-        Some(Ok(token)) => token,
-        Some(Err(error)) => {
-            return Err(stopped(
-                &trail,
-                refuse(
-                    "carrier_fault.no_credential",
-                    format!("the app gave no cmux credential: {error}"),
-                ),
-            ));
-        }
-        None => {
-            return Err(stopped(
-                &trail,
-                refuse("carrier_fault.no_credential", "no app answered auth.token".into()),
-            ));
-        }
-    };
+    let token = credential(runner.app("auth.token", json!({}), asked));
+    trail.ended(STEP_CREDENTIAL, runner.now(), token.is_ok());
+    let token = token.map_err(|why| stopped(&trail, refuse("carrier_fault.no_credential", why)))?;
     let left = left(runner);
     if left.is_zero() {
         trail.stop_at(STEP_DIAL);
@@ -190,6 +173,15 @@ pub(super) fn drill_source(
     match routes {
         Ok(routes) => Ok(Box::new(routes)),
         Err(why) => Err(stopped(&trail, refuse("carrier_fault.no_event_source", why))),
+    }
+}
+
+/// The app's `auth.token` answer as the drill's credential, or why there is none.
+fn credential(answer: Option<Result<Value, Value>>) -> Result<Value, String> {
+    match answer {
+        Some(Ok(token)) => Ok(token),
+        Some(Err(error)) => Err(format!("the app gave no cmux credential: {error}")),
+        None => Err("no app answered auth.token".into()),
     }
 }
 

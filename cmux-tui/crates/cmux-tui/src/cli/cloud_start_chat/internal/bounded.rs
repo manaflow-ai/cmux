@@ -30,9 +30,10 @@ pub(in crate::cli::cloud_start_chat) fn past_deadline() -> Value {
     json!({"code": "carrier_fault.timeout", "message": PAST_DEADLINE_SAID})
 }
 
+/// The error object itself on stderr (not under `{"ok": false, "error": ...}`), as `step_result` reads a step's
+/// error: its own code reaches the answer, never `step.failed` with the JSON as its message.
 fn ran_past_deadline() -> Ran {
-    let error = json!({"ok": false, "error": past_deadline()});
-    Ran { code: PAST_DEADLINE, stdout: String::new(), stderr: error.to_string() }
+    Ran { code: PAST_DEADLINE, stdout: String::new(), stderr: past_deadline().to_string() }
 }
 
 /// The process groups of the bounded steps still running (each step's leader is unreaped while its id is here, so
@@ -131,10 +132,10 @@ pub(in crate::cli::cloud_start_chat) fn output_by(
         // Only a deadline that came is a timeout. A step whose exit could not be read before it (another reaper
         // took it) is that step's own failure, with what it printed: never "--timeout ran out" with time left.
         _ if Instant::now() < until => {
-            let error = json!({"ok": false, "error": {
+            let error = json!({
                 "code": UNWAITED,
                 "message": format!("the step ended but its exit could not be read: {stderr}"),
-            }});
+            });
             Ran { code: 1, stdout, stderr: error.to_string() }
         }
         _ => ran_past_deadline(),

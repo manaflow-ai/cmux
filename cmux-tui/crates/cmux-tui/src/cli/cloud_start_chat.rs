@@ -704,16 +704,8 @@ pub(super) fn step_result(ran: &Ran) -> Result<Value, Value> {
     {
         return Ok(value.get("result").cloned().unwrap_or(value));
     }
-    // A step's error as it printed it: the object itself, or under `error` (`{"ok": false, "error": {...}}`, the
-    // envelope a bounded step past its deadline answers), so its own code reaches the answer, not `step.failed`.
     let error = parsed(&ran.stderr)
         .or_else(|| parsed(&ran.stdout))
-        .map(|value| match value.get("error") {
-            Some(inner) if inner.get("code").is_some() && value.get("code").is_none() => {
-                inner.clone()
-            }
-            _ => value,
-        })
         .filter(|value| value.get("code").is_some() || value.get("message").is_some())
         .unwrap_or_else(|| {
             let text = if ran.stderr.trim().is_empty() { &ran.stdout } else { &ran.stderr };
