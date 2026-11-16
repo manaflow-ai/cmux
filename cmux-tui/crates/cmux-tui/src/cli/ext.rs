@@ -55,6 +55,7 @@ cmux ext: make a cmux extension and watch it change as you work.
                                K: sidebar (default, a sidebar section), session-info (a section
                                in an agent chat's Session Info), pane (a view in a tab),
                                newtab (a whole New Tab page, picked in tabs.newTabApp),
+                               widget (a New Tab and sidebar widget, small/medium/large),
                                command (a palette command, `cmux NAME ...` and an agent tool)
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
@@ -148,11 +149,6 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 return Err(usage(&format!(
                     "{name}: a name is lowercase letters, digits and '-', starting with a letter or digit (not \"customize\")"
                 )));
-            }
-            if kind == "widget" {
-                return Err(usage(
-                    "--kind widget needs the new tab page's widget interface, which this cmux does not have yet; --kind section works",
-                ));
             }
             if let Some(problem) = scaffold::pending(&kind) {
                 return Err(usage(&problem));

@@ -19,11 +19,12 @@ use super::{Request, exit, parse, scaffold};
 const BUDGET: Duration = Duration::from_secs(1);
 
 /// The kinds that make a folder; `view` when the kind draws one.
-const KINDS: [(&str, bool); 5] = [
+const KINDS: [(&str, bool); 6] = [
     ("sidebar", true),
     ("session-info", true),
     ("pane", true),
     ("newtab", true),
+    ("widget", true),
     ("command", false),
 ];
 

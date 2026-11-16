@@ -179,6 +179,13 @@ fn scripted_app_host() {
                 }
             }
             ToHost::Unmount { .. } => {}
+            // A widget tick: the scripted render draws the clock it got.
+            ToHost::Tick { mount, now_ms } => {
+                send(FromHost::Scene {
+                    mount,
+                    ops: json!([{ "op": "update", "id": "n1", "props": { "tick": now_ms } }]),
+                });
+            }
             ToHost::Shutdown => break,
         }
     }
@@ -1115,6 +1122,8 @@ mod safe_mode;
 mod servers;
 #[path = "supervisor_subscription_tests.rs"]
 mod subscriptions;
+#[path = "supervisor_widget_tests.rs"]
+mod widget_tiles;
 
 #[path = "supervisor_run_lifecycle_tests.rs"]
 mod run_lifecycle;

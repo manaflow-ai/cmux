@@ -145,6 +145,40 @@ fn the_builder_makes_a_whole_new_tab_page_cmux_loads() {
     );
 }
 
+/// A widget (`cmux.widget/1`): the builder writes its sizes, refresh and places, cmux's validator
+/// takes it, and a large-only widget offered to the sidebar (which holds small and medium) is
+/// refused.
+#[test]
+fn the_builder_makes_a_widget_cmux_loads() {
+    let manifest = Manifest::new("local/clock", "Clock", "0.1.0", "The time, at a glance.").widget(
+        "renderClock",
+        "Clock",
+        "clock",
+        &["small", "medium"],
+        60,
+        &[],
+    );
+    let issues = manifest.validate();
+    assert!(is_valid(&issues), "{issues:?}");
+    let json = manifest.to_json();
+    let place = &json["implements"]["cmux.widget/1"];
+    assert_eq!(place["export"], "renderClock");
+    assert_eq!(place["options"]["sizes"], serde_json::json!(["small", "medium"]));
+    assert_eq!(place["options"]["refresh"], serde_json::json!({ "everySeconds": 60 }));
+    assert!(place["options"].get("places").is_none(), "no places means both");
+    assert_eq!(json["activation"], serde_json::json!(["onInterface:cmux.widget/1"]));
+
+    let wrong = Manifest::new("local/big", "Big", "0.1.0", "Large only.").widget(
+        "renderBig",
+        "Big",
+        "square",
+        &["large"],
+        300,
+        &["sidebar"],
+    );
+    assert!(!is_valid(&wrong.validate()), "the sidebar holds no large tile");
+}
+
 /// Composer places are data: the builder writes the slash commands and mention items into the
 /// options cmux's validator checks, with no export and no activation, and the validator takes it.
 #[test]

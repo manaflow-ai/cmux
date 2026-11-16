@@ -2708,7 +2708,8 @@
     return untracked(e);
   };
   var g = globalThis;
-  var RUNTIME_VERSION = "1.2.0";
+  var widgetClocks = new Map;
+  var RUNTIME_VERSION = "1.3.0";
   var exportsOf2 = () => g.__cmuxAppExports ?? {};
   var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
   function entry(name, fn, fallback) {
@@ -2767,6 +2768,12 @@
           if (typeof render !== "function")
             throw new Error(`the app does not export a function named ${exportName}`);
           const ctx = JSON.parse(ctxJSON || "{}");
+          widgetClocks.delete(mountId);
+          if (ctx && ctx.surface === "widget") {
+            const [now, setNow] = signal(Date.now());
+            widgetClocks.set(mountId, setNow);
+            ctx.now = now;
+          }
           state.context = ctx;
           mount(mountId, () => render(ctx), ctx);
           state.context = null;
@@ -2774,6 +2781,7 @@
         return "";
       } catch (e) {
         state.context = null;
+        widgetClocks.delete(mountId);
         unmount(mountId);
         const message = describe2(e);
         log("error", `mount ${exportName}: ${message}`);
@@ -2782,7 +2790,14 @@
         sendPendingOps();
       }
     };
-    g.__cmuxAppUnmount = (mountId) => entry("unmount", () => unmount(mountId), undefined);
+    g.__cmuxAppUnmount = (mountId) => entry("unmount", () => {
+      widgetClocks.delete(mountId);
+      unmount(mountId);
+    }, undefined);
+    g.__cmuxAppTick = (mountId, nowMs) => entry("tick", () => {
+      if (Number.isFinite(nowMs))
+        widgetClocks.get(mountId)?.(nowMs);
+    }, undefined);
     g.__cmuxAppDispatch = (mountId, nodeId, event, payloadJSON) => entry("dispatch", () => {
       if (!mountExists(mountId))
         return;

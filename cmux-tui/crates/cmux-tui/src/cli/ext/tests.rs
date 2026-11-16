@@ -81,7 +81,6 @@ fn parses_new_dev_list_remove_and_help() {
         "new Bad_Name",
         "new customize",
         "new a b",
-        "new a --kind widget",
         "dev a b",
         "dev --bogus",
         "dev --build",

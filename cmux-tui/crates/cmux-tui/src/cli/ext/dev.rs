@@ -70,10 +70,14 @@ const PACK_TS: &str = include_str!("../../../../cmux-app-host/tools/pack.ts");
 /// no copy of its own (a sample copied out of a checkout, one a person installs): the
 /// packer gets it in `CMUX_EXTENSION_SDK`. Paths keep the checkout's layout, which the
 /// SDK's relative imports of its tables expect.
-const SDK_FILES: [(&str, &str); 3] = [
+const SDK_FILES: [(&str, &str); 4] = [
     (
         "cmux-extension-sdk/typescript/src/index.ts",
         include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts"),
+    ),
+    (
+        "cmux-extension-sdk/typescript/src/widget.ts",
+        include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts"),
     ),
     (
         "cmux-app-host/schema/v2/events.json",
@@ -822,6 +826,7 @@ pub(super) fn placements(
                     "the whole New Tab page, once you pick it (cmux settings set tabs.newTabApp <id>)"
                         .into()
                 }
+                "cmux.widget/1" => "a widget the person adds from Edit Widgets > Add Widget (New Tab page or sidebar)".into(),
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 "cmux.composer.command/1" => "the agent chat composer's / menu".into(),
                 "cmux.composer.mention/1" => "the agent chat composer's @ completions".into(),
@@ -867,12 +872,40 @@ pub(super) fn web_check(manifest: &Value, record: Option<&Value>) -> Result<Vec<
     Ok(served)
 }
 
+/// The context the load check mounts `interface` with: a widget mounts as a tile of its default
+/// size in the first place it goes (the daemon builds the rest of its context); anything else
+/// renders with no context.
+fn probe_context(manifest: &Value, interface: &str) -> Value {
+    if interface != "cmux.widget/1" {
+        return json!({});
+    }
+    let options = manifest.pointer("/implements/cmux.widget~11/options");
+    let sizes: Vec<&str> = options
+        .and_then(|o| o.get("sizes"))
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let size = options
+        .and_then(|o| o.get("defaultSize"))
+        .and_then(Value::as_str)
+        .or_else(|| sizes.first().copied())
+        .unwrap_or("small");
+    let places = options.and_then(|o| o.get("places")).and_then(Value::as_array);
+    let newtab = places.is_none_or(|list| list.iter().any(|p| p == "newtab"));
+    let place = if newtab || size == "large" { "newtab" } else { "sidebar" };
+    json!({ "place": place, "size": size, "instance": "ext-dev-probe" })
+}
 /// The interface the load check mounts: a view that renders with no context.
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 4] =
-        ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1", "cmux.newtab/1"];
+    const PREFERRED: [&str; 5] = [
+        "cmux.section/1",
+        "cmux.pane/1",
+        "cmux.session.info.section/1",
+        "cmux.newtab/1",
+        "cmux.widget/1",
+    ];
     PREFERRED
         .iter()
         .find(|name| has_export(name))
@@ -1199,7 +1232,8 @@ impl Session {
         if outcome.changed || probe_unchanged {
             outcome.probe = probe_interface(&pkg.manifest);
             if let Some(interface) = outcome.probe.clone().filter(|_| enabled) {
-                match self.probe(&pkg.id, &interface, !installed) {
+                let base = probe_context(&pkg.manifest, &interface);
+                match self.probe(&pkg.id, &interface, base, !installed) {
                     Ok(Ok(ops)) => outcome.scene = super::scene::outline(&[&ops]),
                     Ok(Err(problem)) => {
                         outcome.logs = self.daemon.take_logs();
@@ -1325,11 +1359,11 @@ impl Session {
         &mut self,
         id: &str,
         interface: &str,
+        mut context: Value,
         preview: bool,
     ) -> Result<Result<Value, Problem>, Stop> {
         self.probes += 1;
         let mount_id = format!("ext-dev-probe-{}-{}", std::process::id(), self.probes);
-        let mut context = json!({});
         if preview {
             context.set("preview", json!(true));
         }

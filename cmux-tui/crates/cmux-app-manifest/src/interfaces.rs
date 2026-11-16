@@ -38,6 +38,7 @@ interfaces! {
     "cmux.terminal.backend/1" => "cmux.terminal.backend",
     "cmux.terminal.connector/1" => "cmux.terminal.connector",
     "cmux.viewer/1" => "cmux.viewer",
+    "cmux.widget/1" => "cmux.widget",
 }
 
 /// Host capabilities this cmux version provides (`requires.hostCapabilities`;
