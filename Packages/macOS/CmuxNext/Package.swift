@@ -261,11 +261,14 @@ let uiLayerPreviewTargets: [Target] = [
 // image it links, so it keeps the static link.
 let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"
 
-/// The framework's link, outside live code builds: it exports only the stub's
-/// entry point (`cmux_next_app_main`, CmuxNextApp.swift), as the static
-/// executable linked with `-no_exported_symbols` exported nothing, so dead code
-/// stripping keeps only what the entry reaches and dyld binds one symbol. The
-/// frameworks and flags the app target's OTHER_LDFLAGS gave the static link.
+/// The framework's link, outside live code builds: it exports only the C
+/// symbols named `cmux_next_*`, the stub's entry point (`cmux_next_app_main`,
+/// CmuxNextApp.swift) and, in a release `swift build --build-tests`, the test
+/// support's `cmux_next_test_window_owner` that the window census looks up with
+/// dlsym. The static executable linked with `-no_exported_symbols` exported
+/// nothing; dead code stripping keeps only what those reach and dyld binds one
+/// symbol. The frameworks and flags the app target's OTHER_LDFLAGS gave the
+/// static link come along.
 let appFrameworkLinkerSettings: [LinkerSetting] = [
     .linkedLibrary("c++"),
     .linkedFramework("Metal"),
@@ -276,7 +279,7 @@ let appFrameworkLinkerSettings: [LinkerSetting] = [
 ] + (appLinksStatically ? [] : [
     .unsafeFlags(["-Xlinker", "-objc_stubs_small"]),
     // Release only: a Debug or `swift test` link of a test bundle keeps every symbol.
-    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_app_main", "-Xlinker", "-dead_strip"],
+    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*", "-Xlinker", "-dead_strip"],
                  .when(configuration: .release)),
 ])
 
