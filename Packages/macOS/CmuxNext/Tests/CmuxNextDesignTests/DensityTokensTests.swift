@@ -20,6 +20,17 @@ import Testing
         }
     }
 
+    /// Lucas 2026-11-17: "the default omnibar should be the same as compact omnibar, we should match them exactly".
+    /// Every `omnibar*` size of Default is Compact's, and the bar, its text, icons and buttons resolve alike.
+    @Test func defaultsOmnibarIsCompacts() {
+        let cozy = DensityPreset.cozy.tokens, compact = DensityPreset.compact.tokens
+        let keys = compact.tokens.keys.filter { $0.hasPrefix("omnibar") }
+        #expect(keys.count > 10)
+        for key in keys { #expect(cozy.tokens[key] == compact.tokens[key], "omnibar token \(key)") }
+        #expect(cozy.fontToken("omnibarFontSize") == compact.fontToken("omnibarFontSize"))
+        #expect(cozy.toolbarButtonSize == compact.toolbarButtonSize)
+    }
+
     @Test func theInitialDensityIsCompact() {
         #expect(DesignSettings().densityTokens == DensityPreset.compact.tokens)
     }
@@ -41,10 +52,12 @@ import Testing
         let ratios = ["sidebarLineBoxBaseline", "omnibarLineBoxBaseline", "densityScale", "composerZoom"]
         let fonts = ["tabTitleSize", "sidebarTitleSize", "omnibarFontSize"]
         let exceptions = ratios + ["sidebarRowHeight", "browserRowHeight", "tabStripHeight"]
-        for (key, base) in reference.tokens where !exceptions.contains(key) {
+        // Default's omnibar is Compact's (`defaultsOmnibarIsCompacts`); everything else is Default's reference times t.
+        let omnibarT = preset == .cozy ? DensityPreset.compact.scaleFactor : t
+        func factor(_ key: String) -> Double { key.hasPrefix("omnibar") ? omnibarT : t }
+        for (key, unscaled) in DensityPreset.referenceTokens.tokens where !exceptions.contains(key) {
             let value = try #require(tokens.tokens[key])
-            let unscaled = try #require(DensityPreset.referenceTokens.tokens[key])
-            let expected = fonts.contains(key) ? base * t : half(unscaled * t)
+            let expected = fonts.contains(key) ? unscaled * factor(key) : half(unscaled * factor(key))
             #expect(value == expected, "\(preset): \(key)")
             if !fonts.contains(key) { #expect(value * 2 == (value * 2).rounded()) }
         }
@@ -68,12 +81,12 @@ import Testing
             #expect(Metrics.tabIconSize == CGFloat(half(16.5 * t)))
             let omnibarHeight = try #require(tokens.tokens["omnibarHeight"])
             let omnibarFont = try #require(tokens.tokens["omnibarFontSize"])
-            #expect(omnibarHeight == half(29 * t))
-            #expect(abs(omnibarFont / ((10 / 0.9 - 0.14) / 0.70459) - t) < 0.0001) // Helium's 10 px capitals at Compact
+            #expect(omnibarHeight == half(29 * omnibarT))
+            #expect(abs(omnibarFont / ((10 / 0.9 - 0.14) / 0.70459) - omnibarT) < 0.0001) // Helium's 10 px capitals at Compact
             for key in ["tabIconTitleGap", "sidebarIconGap", "omnibarTextGap"] {
                 let value = try #require(tokens.tokens[key])
-                let base = try #require(reference.tokens[key])
-                #expect(value == half(base * t), "\(preset): \(key)")
+                let base = try #require(DensityPreset.referenceTokens.tokens[key])
+                #expect(value == half(base * factor(key)), "\(preset): \(key)")
             }
         }
     }

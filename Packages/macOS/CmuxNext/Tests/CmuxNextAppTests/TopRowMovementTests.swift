@@ -112,7 +112,9 @@ import Testing
     /// to the gap below it (to the strip's bottom, the divider under the row), at every density, with
     /// the strip at the window's top or a few points under it (the card's top inset). Before, the pill
     /// moved inside its strip toward the traffic lights' line: Compact had 4 pt above and 0 below,
-    /// Comfortable 1 above and 5 below.
+    /// Comfortable 1 above and 5 below. The gap above starts under the window's 1 pt lit rim, the line
+    /// the eye reads as the edge: counted from the window's edge, Default showed 2 pt above and 3 below
+    /// (Lucas 2026-11-17).
     @Test func aTopRowPillHasEqualGapsAboveAndBelow() throws {
         for preset in [DensityPreset.ultraCompact, .compact, .cozy, .comfortable, .spacious] {
             try with(density: preset) {
@@ -126,7 +128,7 @@ import Testing
                     try #require(WindowTitlebar.isInTopRow(f.strip))
                     let pill = f.strip.convert(try #require(f.strip.firstTabPillFrame), to: nil)
                     let strip = f.strip.convert(f.strip.bounds, to: nil)
-                    let above = f.container.bounds.maxY - pill.maxY, below = pill.minY - strip.minY
+                    let above = f.container.bounds.maxY - PaneTabRowRim.height - pill.maxY, below = pill.minY - strip.minY
                     let pixel = 1 / f.window.backingScaleFactor
                     // Equal, or a device pixel apart where the room left is an odd number of pixels.
                     #expect(abs(above - below) <= pixel + 0.001, "\(preset) strip \(f.container.bounds.maxY - strip.maxY) pt down: \(above) above, \(below) below")
