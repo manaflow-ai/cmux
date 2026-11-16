@@ -347,4 +347,13 @@ int32_t acpmux_page_driver_page(void *handle, const uint8_t *request, size_t req
  */
 int32_t acpmux_page_driver_next(void *handle, const uint8_t *request, size_t request_len);
 
+/*
+ Returns the stable page error code text for a page status in `out`.
+
+ # Safety
+ `out` is an owned writable pointer; callers free its bytes with
+ `acpmux_client_bytes_free`.
+ */
+int32_t acpmux_page_driver_error_code(int32_t status, AcpmuxClientBytes *out);
+
 #endif  /* ACPMUX_CLIENT_H */
