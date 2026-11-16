@@ -247,9 +247,10 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   });
 
   // Review on #37507 (698288c9): a selection scrolled out of the visible transcript put the chip at
-  // the edge, over other text.
+  // the edge, over other text. A paragraph's end, whose inline spot is free in any view: in a dense
+  // paragraph taller than this short view every free spot lies outside it and the chip hides.
   test("a selection scrolled out of view hides the chip; scrolled back, it shows again", async () => {
-    const page = await open("chip-short-mid", 1040, 300);
+    const page = await open("chip-paragraph-end", 1040, 300);
     try {
       // The selection's last line in the middle of the visible transcript first.
       const start = await read(page);
