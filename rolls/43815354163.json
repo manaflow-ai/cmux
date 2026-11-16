@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43815354163",
+  "recorded_at": "2026-11-16T06:23:58Z",
+  "reason": "cmux-tui ddef325a5936 changes the image's cmux-tui (pinned 1404eabdde66)",
+  "dry_run": false,
+  "cmux_tui": "ddef325a593650e86583a17ecf7a3dd0c49868fa",
+  "fixes": [
+    {
+      "sha": "ddef325a593650e86583a17ecf7a3dd0c49868fa",
+      "mergedAt": "2026-11-15T21:58:27-08:00",
+      "subject": "Palette: a row's own aliases rank like yours, and words find their other forms (\"share screen\" finds Screen Sharing) (#44172)"
+    },
+    {
+      "sha": "ea3f028abf23da83f390edf8273014ece57f1e78",
+      "mergedAt": "2026-11-15T21:56:09-08:00",
+      "subject": "cmux-tui-core: 7c (b) kin readers on the v2 list (children, attach, chief work) (#43509)"
+    },
+    {
+      "sha": "df6d430db8a53495973db2a1ea7cce3503e70eb1",
+      "mergedAt": "2026-11-15T21:54:44-08:00",
+      "subject": "acpmux: chats with the same slash commands and tool rows hold one copy (896 MB to 110 MB over 1000 chats) (#44191)"
+    },
+    {
+      "sha": "90fcffb3574b867b9d26e0a8349128465728c29d",
+      "mergedAt": "2026-11-15T21:53:31-08:00",
+      "subject": "github.changes: pushed by webhooks; say why a read fails (sandboxed, public limit) (#44218)"
+    },
+    {
+      "sha": "dff77f46dea2a3b6ee44537f6b099532a32d721d",
+      "mergedAt": "2026-11-15T21:47:28-08:00",
+      "subject": "apps: GitHub read gateway for extensions (private repos, ETag/304 replay) (#44101)"
+    },
+    {
+      "sha": "2084c046a135576188bc1aa4330f771391e16c72",
+      "mergedAt": "2026-11-16T05:46:11Z",
+      "subject": "acpmux: relay seam for pages naming another origin (8b PR 2) (#44100)"
+    },
+    {
+      "sha": "814e01b5ffff135fc924e296f85979aeb4ac4ffc",
+      "mergedAt": "2026-11-15T21:43:07-08:00",
+      "subject": "cmux-tui: the sidebar document decides a new workspace's place (#44226)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T06:23:58Z",
+    "snapshot_id": "sh-44331ede629c4744af1e5e447a071e62",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43815354163): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "43c787f40e52b826170168ba5b842306ccd7416a",
+    "image": "cloud-native-auto-ddef325a-43815354163-1",
+    "revision": "ci-43815354163-1",
+    "at": "2026-11-16T06:23:58Z"
+  },
+  "rolled_back": false
+}
