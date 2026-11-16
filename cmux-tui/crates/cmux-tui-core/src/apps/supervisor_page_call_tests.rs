@@ -247,7 +247,11 @@ fn a_page_call_admitted_before_its_access_is_taken_back_never_runs() {
                 ..SetOp::default()
             };
             revoke(&mut op);
-            f.supervisor.commit_locked(&mut inner, op, "t-revoke", &mut outs).unwrap();
+            // The revoke commits while the calls are in flight, under the
+            // same lock (the disk write is skipped: nothing here reads it).
+            let facts = inner.catalog.packages.get(WEB_APP).map(Package::facts);
+            let outcome = mirror::reduce(&inner.mirror, &Op::Set(op), facts.as_ref()).unwrap();
+            f.supervisor.apply_commit_locked(&mut inner, outcome, WEB_APP, "t-revoke", &mut outs);
             outs
         };
         f.supervisor.emit(outs);

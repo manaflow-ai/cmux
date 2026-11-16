@@ -239,7 +239,10 @@ impl Supervisor {
             },
             move |exit| {
                 if let Some(me) = me_exit.upgrade() {
-                    me.on_host_exit(&key_exit, generation, exit);
+                    match exit {
+                        Ok(exit) => me.on_host_exit(&key_exit, generation, exit),
+                        Err(error) => me.on_host_start_failed(&key_exit, generation, &error),
+                    }
                 }
             },
         );
@@ -592,6 +595,29 @@ impl Supervisor {
         }
         inner.events_started = true;
         vec![Out::StartEvents]
+    }
+
+    /// The host's process did not start (`HostProcess::spawn` starts it on
+    /// the host's own thread, off this lock): the host fails, its mounts
+    /// with it, as an app that cannot run.
+    pub(super) fn on_host_start_failed(
+        &self,
+        key: &HostKey,
+        generation: u64,
+        error: &std::io::Error,
+    ) {
+        let outs = {
+            let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if inner.hosts.get(key).is_none_or(|h| h.generation != generation) {
+                return;
+            }
+            let reason = format!("spawn: {error}");
+            let mut outs = self.cancel_provider_calls_locked(&mut inner, key, "host_exited");
+            outs.extend(self.fail_host_locked(&mut inner, key, &reason));
+            outs.extend(Self::inventory_demand_locked(&mut inner));
+            outs
+        };
+        self.emit(outs);
     }
 
     pub(super) fn on_host_exit(&self, key: &HostKey, generation: u64, exit: Exit) {

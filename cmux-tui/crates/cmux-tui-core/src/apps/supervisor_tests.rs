@@ -1094,3 +1094,6 @@ mod page_calls;
 
 #[path = "supervisor_activation_tests.rs"]
 mod activation;
+
+#[path = "supervisor_load_tests.rs"]
+mod under_load;

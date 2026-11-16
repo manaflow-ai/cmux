@@ -10,6 +10,7 @@ import { composerStatePlays } from "../composerStatePlays";
 import { paneLanguage, translateKey } from "../i18n";
 import { newTabComposerTrailingGap } from "./composerGap.experiment";
 import { createStripLabelsFit } from "./createStripFit";
+import { MODEL_PICKER } from "../composerSelectors";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
@@ -582,8 +583,8 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: reasoningChat(),
       play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-picker-button") !== null);
-        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(MODEL_PICKER) !== null);
+        await ctx.click({ selector: MODEL_PICKER });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols-tune [role="switch"]') !== null);
       },
     },
