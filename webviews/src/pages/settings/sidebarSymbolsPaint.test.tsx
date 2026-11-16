@@ -60,7 +60,7 @@ test("Settings reports its first frame only once every sidebar icon it draws is 
   void gate!.then(() => (reported = true));
   // Let the page's reads answer and React draw the sidebar.
   for (let turn = 0; turn < 50 && document.querySelectorAll(".section-symbol").length === 0; turn++)
-    await act(async () => await new Promise((resolve) => setTimeout(resolve, 5)));
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
   const icons = () => [...document.querySelectorAll<HTMLElement>(".section-symbol")];
   const drawn = icons().map((icon) => icon.dataset.symbol);
   expect(drawn.length).toBeGreaterThan(10);
@@ -71,7 +71,8 @@ test("Settings reports its first frame only once every sidebar icon it draws is 
       .filter((icon) => icon.style.maskImage !== "")
       .map((icon) => icon.dataset.symbol),
   ).toEqual([]);
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+  // Flush the task and its promise reactions; only answering HeldImage can release the gate.
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
   expect(reported).toBe(false);
   // The host answers every icon: the first frame comes, with each icon the sidebar draws.
   await act(async () => {
