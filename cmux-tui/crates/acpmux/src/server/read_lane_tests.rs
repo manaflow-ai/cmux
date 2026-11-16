@@ -13,6 +13,8 @@ const READ_BUDGET: Duration = Duration::from_millis(200);
 /// The bulk replays that hold the connection, and each one's lines.
 const REPLAYS: usize = 4;
 const LINES_PER_REPLAY: usize = 1_500;
+/// The cheap reads asked under the flood: identify, the session list and host health.
+const READS: usize = 3;
 /// The link's bandwidth, as the test's reader takes lines: 8 MiB/s, so the 4 replays
 /// (about 12 MiB) take over a second to read.
 const BYTES_PER_MS: usize = 8 << 10;
@@ -88,8 +90,8 @@ async fn flood_bulk_cheap_reads_answer_while_four_replays_hold_the_link() {
     let reader = tokio::spawn(async move {
         let mut owed = 0usize;
         let mut next_seq = [0u64; REPLAYS];
-        let mut replayed = 0usize;
-        while replayed < REPLAYS * LINES_PER_REPLAY {
+        let (mut replayed, mut answered) = (0usize, 0usize);
+        while replayed < REPLAYS * LINES_PER_REPLAY || answered < READS {
             let line = tokio::time::timeout(Duration::from_secs(60), rx.recv())
                 .await
                 .expect("the replays keep coming")
@@ -101,6 +103,7 @@ async fn flood_bulk_cheap_reads_answer_while_four_replays_hold_the_link() {
             }
             let value: Value = serde_json::from_str(&line).unwrap();
             if value.get("method").is_none() {
+                answered += 1;
                 let _ = answers_tx.send((value, started.elapsed()));
                 continue;
             }
@@ -115,7 +118,7 @@ async fn flood_bulk_cheap_reads_answer_while_four_replays_hold_the_link() {
         }
     });
 
-    let reads = [
+    let reads: [(i64, &str, Value); READS] = [
         (2, method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": name}})),
         (3, method::SESSION_LIST, json!({})),
         (4, "_acpmux/host_health", json!({})),
