@@ -105658,7 +105658,7 @@
       },
       "help" : {
         "key" : "settings.remote.shareWithoutAsking.help",
-        "text" : "On, an agent or the cmux CLI turns on Share This Mac without asking you first. Each device keeps the access it has in Devices. It takes effect only after you choose Always Allow on the Share This Mac? dialog; signing out turns it off."
+        "text" : "On, an agent or the cmux CLI turns on Share This Mac without asking you first. Each device keeps the access it has in Devices. It takes effect only after you choose Always Allow on the Share This Mac sheet; signing out turns it off."
       },
       "kept_on_reset_all" : false,
       "key" : "remote.shareWithoutAsking",
