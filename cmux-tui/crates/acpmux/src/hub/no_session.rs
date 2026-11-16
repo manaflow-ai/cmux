@@ -59,6 +59,35 @@ impl Hub {
             && peer.rows_ready.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Peer `peer`'s link listed its whole list, applied just before (`PeerNotice::Listed`): a
+    /// name it lacks is no session there.
+    pub(super) fn peer_listed(&self, peer: &str, generation: u64) {
+        if let Some(p) = self.peer(peer).filter(|p| p.generation == generation) {
+            p.rows_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+            p.note_rows_applied();
+        }
+    }
+
+    /// Peer `peer`'s link is ready (`PeerNotice::Connected`). A first link's list came before
+    /// it; a later link reads its list after it (`Peer::lists_after_ready`), and until that
+    /// list is applied a name missing from the rows (the last link's) is not final, also after
+    /// a restart, which leaves the rows ready.
+    pub(super) fn peer_ready_rows(&self, peer: &str, generation: u64) {
+        if let Some(p) = self.peer(peer).filter(|p| p.generation == generation) {
+            p.rows_ready.store(p.rows_listed(), std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// `peer`'s whole list `rows` and its link ready, applied as a first link sends them: the
+    /// list, `Listed`, then `Connected`.
+    #[cfg(test)]
+    pub(crate) fn seed_peer_listed(&self, peer: &crate::peer::Peer, rows: Vec<Value>) {
+        use crate::peer::PeerNotice::{self, Connected, Listed};
+        for notice in [PeerNotice::sessions_from_values(rows), Listed, Connected] {
+            self.apply_peer_notice(&peer.name, peer.generation, notice);
+        }
+    }
+
     /// Whether a send to `key` goes to a peer whose link is down now: queued, and the answer
     /// says `hostUnreachable`. A row cached from before the peer went down does not make it
     /// reachable; a session here never counts.

@@ -237,7 +237,19 @@ async fn a_stalled_peer_is_kept_as_stale_refused_clearly_and_picked_up_again() {
     // B answers again: the next attempt picks it up and the rows are fresh.
     stall.send_replace(false);
     until_state(&a, "connected").await;
-    let fresh = a.remote_sessions();
+    // A reconnect reads its list after the link is ready: the rows are fresh once it is in.
+    let listed = async {
+        loop {
+            let fresh = a.remote_sessions();
+            if fresh.first().is_some_and(|row| row["stale"] == false) {
+                return fresh;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    let fresh = tokio::time::timeout(Duration::from_secs(30), listed)
+        .await
+        .unwrap_or_else(|_| panic!("the rows never came fresh: {:?}", a.remote_sessions()));
     assert_eq!(fresh.len(), 1, "{fresh:?}");
     assert_eq!(fresh[0]["stale"], false, "{fresh:?}");
     let _ = std::fs::remove_dir_all(&home);

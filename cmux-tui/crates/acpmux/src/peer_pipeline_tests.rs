@@ -146,7 +146,9 @@ async fn link_once_then(
         out_rx
     });
     let mut lists = Vec::new();
-    loop {
+    // Ready, and listed: a reconnect reads its list after it is ready.
+    let (mut took, mut listed) = (None, false);
+    while took.is_none() || !listed {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(30), notices.recv())
             .await
             .expect("the link connects")
@@ -158,11 +160,12 @@ async fn link_once_then(
                     .map(|r| r["sessionId"].as_str().unwrap_or_default().to_owned())
                     .collect(),
             ),
-            PeerNotice::Connected => break,
+            PeerNotice::Listed => listed = true,
+            PeerNotice::Connected => took = Some(started.elapsed()),
             _ => {}
         }
     }
-    let took = started.elapsed();
+    let took = took.unwrap_or_default();
     let received = match then {
         Some(rx) => Some(
             tokio::time::timeout(Duration::from_secs(30), rx.recv())
