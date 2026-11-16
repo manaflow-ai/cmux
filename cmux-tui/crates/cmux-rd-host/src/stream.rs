@@ -16,10 +16,10 @@ use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
 use cmux_rd_core::pacer::Pacer;
-use cmux_rd_proto::FrameTimes;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_proto::FrameTimes;
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -90,8 +90,8 @@ pub struct MediaSession {
     /// datagrams is queued or dropped by a Wi-Fi radio or the kernel.
     pacer: Option<Pacer>,
     frame_interval_us: u64,
-    /// Frames still in the pacer that a timing line or the ledger waits on, oldest first.
-    paced: VecDeque<PacedFrame>,
+    /// Frames still in the pacer that a timing line or the ledger waits on.
+    paced: PacedFrames,
     /// The viewer offered cap `ledger`: each frame's host times follow its last shard
     /// (a `FrameTimes` datagram).
     ledger: bool,
@@ -106,6 +106,40 @@ struct PacedFrame {
     times: FrameTimes,
     /// Its timing line, without the send times.
     line: Option<serde_json::Value>,
+}
+
+/// The frames in the pacer, oldest first, matched to the datagrams it releases. The pacer keeps
+/// frame order, so the oldest frame owns the first datagrams due.
+#[derive(Default)]
+struct PacedFrames(VecDeque<PacedFrame>);
+
+impl PacedFrames {
+    fn push(&mut self, frame: PacedFrame) {
+        self.0.push_back(frame);
+    }
+
+    /// `count` datagrams were handed to the carrier between `first_us` and `last_us`: stamps
+    /// each frame's first send and returns the frames whose last datagram went.
+    fn sent(&mut self, mut count: usize, first_us: u64, last_us: u64) -> Vec<PacedFrame> {
+        let mut done = Vec::new();
+        while count > 0 {
+            let Some(front) = self.0.front_mut() else { break };
+            if front.times.first_sent_us == 0 {
+                front.times.first_sent_us = first_us;
+            }
+            let take = count.min(front.remaining);
+            front.remaining -= take;
+            count -= take;
+            if front.remaining > 0 {
+                break;
+            }
+            if let Some(mut frame) = self.0.pop_front() {
+                frame.times.last_sent_us = last_us;
+                done.push(frame);
+            }
+        }
+        done
+    }
 }
 
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
@@ -291,7 +325,7 @@ impl MediaSession {
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
             pacer: pacing_enabled().then(Pacer::new),
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
-            paced: VecDeque::new(),
+            paced: PacedFrames::default(),
             ledger: negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::LEDGER),
         })
     }
@@ -551,7 +585,7 @@ impl MediaSession {
             return Ok(());
         }
         if line.is_some() || self.ledger {
-            self.paced.push_back(PacedFrame {
+            self.paced.push(PacedFrame {
                 remaining: out.datagrams.len(),
                 stream: req.stream,
                 frame: req.frame,
@@ -572,22 +606,7 @@ impl MediaSession {
             carrier.send_datagram(datagram)?;
             self.engine.datagram_sent(datagram, now);
         }
-        // The pacer keeps frame order, so the oldest tracked frame owns the first datagrams due.
-        let sent = now_us();
-        let mut left = due.len();
-        while left > 0 {
-            let Some(front) = self.paced.front_mut() else { break };
-            if front.times.first_sent_us == 0 {
-                front.times.first_sent_us = now;
-            }
-            let take = left.min(front.remaining);
-            front.remaining -= take;
-            left -= take;
-            if front.remaining > 0 {
-                break;
-            }
-            let Some(mut done) = self.paced.pop_front() else { break };
-            done.times.last_sent_us = sent;
+        for done in self.paced.sent(due.len(), now, now_us()) {
             if self.ledger {
                 // Measurement only: a lost one leaves the viewer's row without host times.
                 let _ = carrier.send_datagram(&done.times.datagram(done.stream, done.frame));
@@ -707,12 +726,35 @@ impl MediaSession {
 
 #[cfg(test)]
 mod tests {
-    use super::viewer_silent_too_long;
+    use super::{viewer_silent_too_long, FrameTimes, PacedFrame, PacedFrames};
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
         assert!(!viewer_silent_too_long(90_000_000));
         assert!(viewer_silent_too_long(90_000_001));
+    }
+
+    fn paced(frame: u32, remaining: usize) -> PacedFrame {
+        PacedFrame { remaining, stream: 0, frame, times: FrameTimes::default(), line: None }
+    }
+
+    #[test]
+    fn paced_frames_get_their_first_and_last_send_from_the_pacers_releases() {
+        let mut q = PacedFrames::default();
+        q.push(paced(1, 3));
+        q.push(paced(2, 2));
+        // Two of frame 1's three datagrams: nothing done yet.
+        assert!(q.sent(2, 10, 11).is_empty());
+        // Frame 1's last and frame 2's first.
+        let done = q.sent(2, 20, 21);
+        assert_eq!(done.len(), 1);
+        let (f1, t1) = (done[0].frame, done[0].times);
+        assert_eq!((f1, t1.first_sent_us, t1.last_sent_us), (1, 10, 21));
+        // Frame 2's last: its first send was the release at 20, not this one.
+        let done = q.sent(1, 30, 31);
+        let (f2, t2) = (done[0].frame, done[0].times);
+        assert_eq!((f2, t2.first_sent_us, t2.last_sent_us), (2, 20, 31));
+        assert!(q.sent(5, 40, 41).is_empty());
     }
 }
 
