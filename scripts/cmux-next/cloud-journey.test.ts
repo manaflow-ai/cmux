@@ -2402,10 +2402,16 @@ describe("claudeTranscriptModelsProgram", () => {
       const journey = new Journey(resolveBackend("staging"), null, {}, true);
       const code = runPreclaimBurst({
         backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: "user-1/team_0123456789abcdef0123",
-        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 2, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
         fetchJson: async () => ({ status: 200, body: { ok: true, commit: "0123456789abcdef" } }),
       });
-      await expect(code).rejects.toThrow("warm-spare refused (exit 1): stub: stub refused");
+      // A failed claim is recorded with its step and the burst goes on to the next (run 43918388959 stopped at claim 2
+      // of 20 on one reset); the burst still ends red.
+      expect(await code).toBe(1);
+      expect(journey.preclaimFailures.map((f) => [f.claim, f.error])).toEqual([
+        [0, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+        [1, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+      ]);
       const argv = readFileSync(join(dir, "argv"), "utf8").split("\n");
       const request = JSON.parse(argv[argv.indexOf("--request") + 1]);
       expect(request.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
@@ -2415,6 +2421,19 @@ describe("claudeTranscriptModelsProgram", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("a read that drops while the reply is awaited is not judged, and does not fail the claim", async () => {
+    // run 43918388959 claim 2: the session started and the prompt was taken, then a /exec read reset (ECONNRESET).
+    const replies: Array<string | Error> = ["@@exit 0", "@@exit 0", new Error("ECONNRESET: The socket connection was closed unexpectedly")];
+    const result = await runPreclaimChat(async () => {
+      const next = replies.shift();
+      if (next === undefined) throw new Error("unexpected extra command");
+      if (next instanceof Error) throw next;
+      return { code: 0, stdout: next, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(result.replyMs).toBeNull();
+    expect(result.replyNotJudged).toBe("reply wait read failed: ECONNRESET: The socket connection was closed unexpectedly");
   });
 
   test("a preclaim reply the model refuses is not judged, names the turn's error, and does not fail the claim", async () => {
