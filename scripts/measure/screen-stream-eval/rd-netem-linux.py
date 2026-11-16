@@ -211,6 +211,82 @@ def pct_of(sample_times, p: float):
     return round(g2g[min(len(g2g) - 1, int(round(p / 100.0 * (len(g2g) - 1))))], 2) if g2g else None
 
 
+def _overlap_us(a: float, b: float, holds: list[tuple[int, int]]) -> float:
+    """Microseconds of [a, b] that fall inside any (start_us, end_us) hold."""
+    return sum(max(0.0, min(b, e) - max(a, s)) for s, e in holds) if b > a else 0.0
+
+
+def press_rows(sample_times, timing_text: str, holds: list[tuple[int, int]] | None = None) -> list[dict]:
+    """One row per shown key press, every stage in ms, for tail attribution.
+
+    Joins the bench's `sample_times` (viewer: sent_ns, capture_us, first_rx_ns, complete_ns,
+    decoded_ns) to the host's CMUX_RD_TIMING_LOG for the same session (inject lines
+    {inject_us, recv_us}; frame lines whose release_us is the sample's capture_us). Host and viewer
+    share CLOCK_MONOTONIC on one machine. Stages: up (sent -> host read the input), inject (read ->
+    injected), to_release (injected -> the marker frame's encode released; it holds the capture tick,
+    the app's redraw and the gate), gate (the marker frame's damage -> release), encode, pace
+    (encoded -> last datagram sent), wire (last datagram sent -> frame complete at the viewer: netem,
+    holds, lost shards and their NACK rounds), rx_spread (first datagram -> complete), decode
+    (complete -> decoded). hold_up / hold_down: ms of the up stage / of [encoded, complete] inside a
+    netem hold; frames_skipped: frames released between the injection and the marker frame."""
+    injects, frames = [], {}
+    for line in timing_text.splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(r, dict):
+            continue
+        if _num(r.get("inject_us")) is not None:
+            injects.append(r)
+        elif _num(r.get("release_us")) is not None:
+            frames[r["release_us"]] = r
+    injects.sort(key=lambda r: r["inject_us"])
+    releases = sorted(frames)
+    holds = holds or []
+    out = []
+    for t in sample_times or []:
+        sent_us, cap = t.get("sent_ns", 0) / 1000, t.get("capture_us")
+        row = {"sent_us": int(sent_us), "total": round((t["decoded_ns"] - t["sent_ns"]) / 1e6, 2),
+               "frame": t.get("frame")}
+        inj = next((r for r in injects if r["inject_us"] >= sent_us), None)
+        f = frames.get(cap)
+        if inj:
+            recv = _num(inj.get("recv_us")) or inj["inject_us"]
+            row["up"] = round((recv - sent_us) / 1000, 2)
+            row["inject"] = round((inj["inject_us"] - recv) / 1000, 2)
+            row["to_release"] = round((cap - inj["inject_us"]) / 1000, 2) if cap else None
+            row["frames_skipped"] = sum(inj["inject_us"] < x < (cap or 0) for x in releases)
+            row["hold_up"] = round(_overlap_us(sent_us, recv, holds) / 1000, 2)
+        if f:
+            dmg = _num(f.get("damage_us"))
+            row["gate"] = round((f["release_us"] - dmg) / 1000, 2) if dmg is not None else None
+            row["encode"] = round((f["encoded_us"] - f["release_us"]) / 1000, 2)
+            sent_f = _num(f.get("sent_us")) or f["encoded_us"]
+            row["pace"] = round((sent_f - f["encoded_us"]) / 1000, 2)
+            row["wire"] = round((t["complete_ns"] / 1000 - sent_f) / 1000, 2)
+            row["idr"], row["bytes"] = f.get("idr"), f.get("encoded_bytes")
+            row["hold_down"] = round(_overlap_us(f["encoded_us"], t["complete_ns"] / 1000, holds) / 1000, 2)
+        row["rx_spread"] = round((t["complete_ns"] - t["first_rx_ns"]) / 1e6, 2)
+        row["decode"] = round((t["decoded_ns"] - t["complete_ns"]) / 1e6, 2)
+        out.append(row)
+    return out
+
+
+def key_frames(timing_text: str) -> list[list]:
+    """The session's encoded frames as [release_us, damage_us, encoded_us, sent_us, idr, bytes]."""
+    out = []
+    for line in timing_text.splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and _num(r.get("release_us")) is not None and _num(r.get("encoded_us")) is not None:
+            out.append([r["release_us"], r.get("damage_us"), r["encoded_us"], r.get("sent_us"),
+                        int(bool(r.get("idr"))), r.get("encoded_bytes")])
+    return out
+
+
 def summarize_key(report: dict | None) -> dict:
     """Key press to decoded marker from a `--input key` bench line."""
     if not report:
@@ -758,6 +834,7 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
         row["key"] = summarize_key(key)
         row["idr_passive"] = count_idrs(data[start:mid].decode(errors="replace"))
         row["idr_key"] = count_idrs(data[mid:end].decode(errors="replace"))
+        row["key_presses"] = press_rows((key or {}).get("sample_times"), data[mid:end].decode(errors="replace"))
         if not row["passive"]["ok"]:
             row["passive"]["stderr"] = perr
         if not row["key"]["ok"]:
@@ -817,6 +894,13 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
                 row["key"]["stderr"] = kerr
             row["drawdown"] = target_drawdown(row["passive"].get("target_kbps_per_s") or [])
             row["holds_applied"] = len(driver.stalls)
+            # Per-press tail attribution (press_rows), the key session's frames and holds, raw.
+            key_text = timing.read_bytes()[mid:].decode(errors="replace")
+            first = min((t["sent_ns"] // 1000 for t in (key or {}).get("sample_times") or []), default=0)
+            key_holds = [(h["start_us"], h["end_us"]) for h in driver.stalls if h["end_us"] >= first]
+            row["key_holds_us"] = key_holds
+            row["key_presses"] = press_rows((key or {}).get("sample_times"), key_text, key_holds)
+            row["key_frames"] = key_frames(key_text)
         data = timing.read_bytes()
         row["idr_passive"] = count_idrs(data[:mid].decode(errors="replace"))
         row["gate_wait"] = gate_wait(data[:mid].decode(errors="replace"))

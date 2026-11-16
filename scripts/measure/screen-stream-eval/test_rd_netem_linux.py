@@ -14,7 +14,7 @@ LEDGER = {'schema': 'cmux.rd-stage-ledger/1', 'stages': []}
 class ParseTests(unittest.TestCase):
     def test_profiles(self):
         self.assertEqual(list(rdnl.PROFILES), ['clean', 'jitter-5', 'jitter-15-burst', 'jitter-30-loss2', 'stall',
-                                               'wifi-away', 'wifi-away-short', 'wifi-away-long', 'wifi-away-loss'])
+                                               'wifi-away', 'wifi-away-short', 'wifi-away-long', 'wifi-away-loss', 'wifi-gate'])
         self.assertEqual(set(rdnl.PROFILES), set(rdnl.PROFILE_LABELS))
         self.assertEqual(rdnl.netem_args('jitter-5'), ['netem', 'delay', '5ms', '5ms', 'limit', '100000'])
         self.assertIn('gemodel', rdnl.netem_args('jitter-15-burst'))
@@ -189,6 +189,24 @@ class TableTests(unittest.TestCase):
             finally:
                 rdnl.OPENH264[:] = ['cisco']
 
+
+class PressRowTests(unittest.TestCase):
+    def test_press_rows_split_a_sample_into_stages_and_holds(self):
+        timing = "\n".join([json.dumps(r) for r in [
+            {'inject_us': 1_010_000, 'recv_us': 1_009_000},
+            {'release_us': 1_005_000, 'damage_us': 1_004_000, 'encoded_us': 1_007_000, 'sent_us': 1_008_000,
+             'idr': False, 'encoded_bytes': 10},
+            {'release_us': 1_030_000, 'damage_us': 1_020_000, 'encoded_us': 1_036_000, 'sent_us': 1_040_000,
+             'idr': True, 'encoded_bytes': 99}]] + ['{"partial'])
+        sample = {'sent_ns': 1_000_000_000, 'frame': 7, 'capture_us': 1_030_000, 'first_rx_ns': 1_045_000_000,
+                  'complete_ns': 1_100_000_000, 'decoded_ns': 1_104_000_000}
+        [row] = rdnl.press_rows([sample], timing, [(1_050_000, 1_090_000)])
+        self.assertEqual(row['total'], 104.0)
+        self.assertEqual((row['up'], row['inject'], row['to_release'], row['gate']), (9.0, 1.0, 20.0, 10.0))
+        self.assertEqual((row['encode'], row['pace'], row['wire'], row['rx_spread'], row['decode']),
+                         (6.0, 4.0, 60.0, 55.0, 4.0))
+        self.assertEqual((row['hold_up'], row['hold_down'], row['idr'], row['frames_skipped']), (0.0, 40.0, True, 0))
+        self.assertEqual(rdnl.key_frames(timing)[1], [1_030_000, 1_020_000, 1_036_000, 1_040_000, 1, 99])
 
 if __name__ == '__main__':
     unittest.main()
