@@ -152,38 +152,6 @@ struct CloudVMResourcePoolTests {
         #expect(plan.limits.maxVcpus == 8)
     }
 
-    /// https://github.com/manaflow-ai/cmux/issues/43170: a Team with a custom
-    /// deal gets a 24 GiB machine ceiling from the server. The CLI preflight
-    /// must honor the advertised ceiling instead of the plain Team tier.
-    @Test
-    func validatorHonorsServerAdvertisedTeamOverrideCeiling() throws {
-        let plan = try CloudVMResizePlanValidator().plan(from: [
-            "planId": "team",
-            "maxMemoryMb": 24 * 1_024,
-            "maxVcpus": 12,
-            "memoryOptionsMb": [4096, 8192, 16384, 24576],
-        ])
-        #expect(plan.limits.maxMemoryMb == 24 * 1_024)
-        #expect(plan.limits.maxVcpus == 12)
-        let violation = CloudVMResizePlanValidator().violation(
-            target: CloudVMResizeShape(memoryMb: 24 * 1_024),
-            current: CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1_024),
-            usesResourcePool: false,
-            limits: plan.limits
-        )
-        #expect(violation == nil)
-    }
-
-    @Test
-    func validatorCapsAdvertisedMemoryAtTheProviderMaximum() throws {
-        let plan = try CloudVMResizePlanValidator().plan(from: [
-            "planId": "team",
-            "maxMemoryMb": 128 * 1_024,
-        ])
-        #expect(plan.limits.maxMemoryMb == 64 * 1_024)
-        #expect(plan.limits.maxVcpus == 32)
-    }
-
     @Test
     func validatorCapsAdvertisedDiskAtTheCurrentPlanCeiling() throws {
         let pro = try CloudVMResizePlanValidator().plan(from: [

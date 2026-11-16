@@ -1686,6 +1686,59 @@ describe("VM Effect workflows", () => {
     expect(result.memoryTotalMb).toBe(24 * 1024);
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/44362: a deal up to the
+  // ladder top resizes to 64 GiB / 32 vCPU.
+  test("a Team with a 64 GiB custom deal can resize to 64 GiB and 32 vCPUs", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000152",
+      userId: "user-workflow-resize-team-deal-top",
+      billingTeamId: "team-workflow-resize-team-deal-top",
+      billingPlanId: "team",
+      providerVmId: "provider-vm-resize-team-deal-top",
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 8, memoryMb: 16 * 1024, diskMb: 65536 } },
+    });
+    let resized = false;
+    let resizeOptions: { cpu?: number; memoryMb?: number } | undefined;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: resized ? 32 : 8,
+        memoryTotalMb: resized ? 64 * 1024 : 16 * 1024,
+        diskTotalMb: 65536,
+      }),
+      resize: (_provider, _providerVmId, options) => Effect.sync(() => {
+        resizeOptions = options;
+        resized = true;
+      }),
+    };
+    const result = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "team",
+        maxActiveVms: 40,
+        cpu: 32,
+        memoryMb: 64 * 1024,
+        entitlementOverride: {
+          maxActiveVms: 40,
+          poolVcpus: 320,
+          poolMemoryMb: 640 * 1024,
+          maxMemoryMb: 64 * 1024,
+          planLabel: null,
+          monthlyPriceCents: null,
+        },
+      }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(resizeOptions).toEqual({ cpu: 32, memoryMb: 64 * 1024 });
+    expect(result.cpus).toBe(32);
+    expect(result.memoryTotalMb).toBe(64 * 1024);
+  });
+
   test("a Team over its custom deal's ceiling gets no Max upgrade hint", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000150",
