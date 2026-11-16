@@ -794,8 +794,7 @@ fn a_grant_survives_a_store_reload_and_later_connects_record_no_refusal_or_ask()
         assert!(status_fields(&again, Some(ACCOUNT_ID), None)["grantorAsk"].is_null());
     }
     let after = log(&authority);
-    assert_eq!(after.len(), lines, "a connect writes no refusal and no ask");
-    assert!(after.iter().all(|line| line["event"] != "refused"));
+    assert_eq!(after.len(), lines, "a connect writes no refusal and no ask: the log did not grow");
     // A later grant from the same key still counts after the reload: the pin persisted too.
     let again = reopened(&dir, &authority);
     let off = account_grant(&k, NOW + 1, |g| g["control"] = json!("off"));

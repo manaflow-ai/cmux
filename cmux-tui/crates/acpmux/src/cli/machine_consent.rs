@@ -21,6 +21,7 @@ impl Authority {
 
     /// The authority kept in `root`, with `legacy` as the daemon's own state: a test's, or a
     /// carrier test's machine (`consent_grant_service.rs`), never the OS account's.
+    #[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier tests' gate
     pub(crate) fn at(root: PathBuf, legacy: PathBuf) -> Self {
         Self { root, legacy }
     }
