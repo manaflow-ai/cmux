@@ -11956,22 +11956,6 @@
             }
           },
           "description": "Handles the row is known by: a query that is one ranks it first."
-        },
-        "aliases": {
-          "required": false,
-          "type": {
-            "kind": "nullable",
-            "value": {
-              "kind": "array",
-              "items": {
-                "kind": "primitive",
-                "name": "string",
-                "max_length": 400
-              },
-              "max_items": 64
-            }
-          },
-          "description": "Phrases that name the row (the catalog's built-in aliases): a query that is one ranks it like a palette.aliases match."
         }
       },
       "extra": false

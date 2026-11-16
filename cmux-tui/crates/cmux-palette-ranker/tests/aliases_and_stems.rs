@@ -112,7 +112,7 @@ fn a_word_finds_its_inflections() {
     assert_eq!(rank(&rows, "screen share").first(), Some(&1));
     assert_eq!(rank(&rows, "share").first(), Some(&1));
     assert_eq!(rank(&rows, "shared screens").first(), Some(&1));
-    assert_eq!(rank(&rows, "splits pane").first(), Some(&2));
+    assert_eq!(rank(&rows, "closes tab").first(), Some(&3));
     assert_eq!(rank(&rows, "closing tabs").first(), Some(&3));
     assert_eq!(rank(&rows, "setting").first(), Some(&0));
 }
@@ -132,7 +132,7 @@ fn a_stem_match_ranks_below_the_typed_words() {
 
 #[test]
 fn short_or_unrelated_words_are_no_stem_match() {
-    let rows = json!([{"title": "Sharing"}, {"title": "Use Tabs"}]);
+    let rows = json!([{"title": "Sharing"}, {"title": "Use Tabs"}, {"title": "Set Color"}]);
     let strict = |query: &str| rank_with(&rows, query, json!({"typoPass": false}));
     // Under three letters there is no stem to share.
     assert_eq!(strict("sh x"), Vec::<usize>::new());
@@ -140,4 +140,7 @@ fn short_or_unrelated_words_are_no_stem_match() {
     assert_eq!(strict("shark"), Vec::<usize>::new());
     // "using" is not "use": a stem keeps three letters before its suffix.
     assert_eq!(strict("using tabs"), Vec::<usize>::new());
+    // "settings" (and the typed start "sett") is not "Set": no doubled letters.
+    assert_eq!(strict("settings"), Vec::<usize>::new());
+    assert_eq!(strict("sett"), Vec::<usize>::new());
 }

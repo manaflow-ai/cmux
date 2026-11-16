@@ -376,10 +376,7 @@ pub(crate) fn rank(
     let alias_query = collapsed_lower(raw);
     let names_alias = |index: usize, entry: &Entry| {
         entry.action_id.as_ref().is_some_and(|id| aliased.contains(id))
-            || prepared
-                .aliases
-                .get(index)
-                .is_some_and(|aliases| aliases.iter().any(|alias| *alias == alias_query))
+            || prepared.aliases.get(index).is_some_and(|aliases| aliases.contains(&alias_query))
     };
     // A query that may name a row's handle (`a612`, `612`).
     let handle_query = js_trim(raw).to_lowercase();
