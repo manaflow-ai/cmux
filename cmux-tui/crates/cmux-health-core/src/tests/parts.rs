@@ -66,7 +66,9 @@ fn exhausted_connection(now: u64) -> Health {
     let mut h = model();
     register(&mut h, "acpmux", Kind::Acpmux, "Agent sessions", now);
     h.event("acpmux", "disconnected", now, None);
-    for (index, expected) in [Reconnect, RestartConnection, RestartConnection].into_iter().enumerate() {
+    for (index, expected) in
+        [Reconnect, RestartConnection, RestartConnection].into_iter().enumerate()
+    {
         let actions = h.tick(now);
         assert_eq!(actions.len(), 1);
         let action = &actions[0];
