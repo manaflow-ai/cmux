@@ -8,18 +8,18 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// New Tab, then a close of another tab of the pane before the daemon answered the creation: the closed tab stays out
-/// of the strip while the daemon's tab arrives.
+/// A new tab (the New Tab key, or an app page opened as a tab), then a close of another tab of the pane before the
+/// daemon answered the creation: the closed tab stays out of the strip while the daemon's tab arrives.
 ///
 /// Decision of 2026-11-16: a closed tab that shows again for one frame is a fault (a frame with a state that never
 /// was), not a known issue. `NewTabCloseInterleaveOrderTests` samples the strip against a real daemon, so it sees
 /// that frame only when a sample falls in it. This suite records the strip at the two points where it can change, so
 /// each run sees it.
 ///
-/// A whole window of the `large` session with no daemon. The test presses the key, closes the tab and gives the
-/// store the daemon's `tab-added` event of the creation in one turn of the main actor: no wait, no sample loop. The
-/// strip is recorded in the app's own selection move (`AgentTabs.moveSelection`, which the store's report of the
-/// created tab calls) and when the store's apply returns.
+/// A whole window of the `large` session with no daemon. The test makes the new tab, closes the other tab and gives
+/// the store the daemon's `tab-added` event of the creation in one turn of the main actor: no wait, no sample loop.
+/// The strip is recorded right after the app's own report of the created tab (`AgentTabs.moveSelection` for the New
+/// Tab key, the store's `onPageTabCreated` for a page tab) and when the store's apply returns.
 ///
 /// Limits: the close is the pane's own close (`PaneController.close`), which hides the tab by a close intent of the
 /// store at once. A person's close of a terminal hides it by the same intent while it asks the daemon what runs
@@ -30,6 +30,19 @@ struct ACloseInTheTurnOfANewTabStaysClosedTests {
     /// Which of the three tabs `a b c` (b selected, so the new tab goes between b and c) closes: the right neighbor
     /// of the selected tab, its left one, or the selected tab itself.
     enum Closed: String, CaseIterable, Sendable { case right, left, anchor }
+
+    /// What makes the new tab: the New Tab key (an agent tab's creation), or an app page opened as a tab (a page
+    /// tab's creation, which the store reports to the app on another path). The page rows do not check the place of
+    /// the new tab.
+    enum Made: String, CaseIterable, Sendable { case newTab, page }
+
+    /// An app page with an empty view: the page of the `page` rows.
+    private final class EmptyPage: InternalPageProvider {
+        let page = InternalPageID.settings
+        var title = "Settings"
+        var symbol = "gear"
+        func makeView(for key: String, in window: WindowController?) -> NSView { NSView() }
+    }
 
     /// The creation of one test: it waits here, so the daemon's side answers nothing before `release()`.
     @MainActor private final class HeldCreations {
@@ -54,7 +67,7 @@ struct ACloseInTheTurnOfANewTabStaysClosedTests {
         private let pane: PaneController
         private let letters: [String: String]
         private(set) var all: [String] = []
-        /// How many times the app moved the selection to a created tab.
+        /// How many times the app's report of a created tab ran.
         private(set) var moves = 0
 
         init(pane: PaneController, letters: [String: String]) {
@@ -70,25 +83,39 @@ struct ACloseInTheTurnOfANewTabStaysClosedTests {
         }
     }
 
-    @Test(arguments: Closed.allCases)
-    func aTabClosedBeforeTheNewTabsAnswerStaysOutOfTheStrip(closed: Closed) async throws {
+    @Test(arguments: Made.allCases, Closed.allCases)
+    func aTabClosedBeforeTheNewTabsAnswerStaysOutOfTheStrip(made: Made, closed: Closed) async throws {
         // An inert address for the New Tab page: the page loads nothing.
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
-        try await LargeSessionWindowFixture.withController(.large, agentPaneEnvironment: environment) { _, controller in
+        try await LargeSessionWindowFixture.withController(.large, agentPaneEnvironment: environment) { store, controller in
             let services = controller.services
-            let tabs = services.agentTabs
-            try #require(tabs.canHostChat, "setup: this build has no New Tab page")
             let pane = try #require(controller.focusedPane, "setup: the window has no focused pane")
             let held = HeldCreations()
-            tabs.localHost = AgentSessionRef.host(installID: "a-close-in-the-turn-of-a-new-tab")
-            tabs.holdsTabs = { _ in true }
-            tabs.reachable = { _ in true }
-            tabs.create = { _, _, _, _, _, _ in
-                await held.wait()
-                throw CancellationError()
+            switch made {
+            case .newTab:
+                let tabs = services.agentTabs
+                try #require(tabs.canHostChat, "setup: this build has no New Tab page")
+                tabs.localHost = AgentSessionRef.host(installID: "a-close-in-the-turn-of-a-new-tab")
+                tabs.holdsTabs = { _ in true }
+                tabs.reachable = { _ in true }
+                tabs.create = { _, _, _, _, _, _ in
+                    await held.wait()
+                    throw CancellationError()
+                }
+            case .page:
+                // The fixture's daemon with the capability that lets it hold page tabs.
+                let capabilities = [DaemonCapability.conversationTabs, .pageTabs].map { "\"\($0.rawValue)\"" }.joined(separator: ",")
+                let json = #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1","capabilities":["# + capabilities + "]}"
+                let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+                store.noteHandshake(identity)
+                services.pages.register(EmptyPage())
+                services.pages.createStoreTab = { _, _, _, _, _, _ in
+                    await held.wait()
+                    throw CancellationError()
+                }
             }
             var failure: (any Error)?
-            do { try Self.pressCloseAndAnswer(closed, pane: pane, services: services) } catch { failure = error }
+            do { try Self.makeCloseAndAnswer(made, closed, pane: pane, controller: controller) } catch { failure = error }
             // The creation ends before the window closes.
             held.release()
             await LargeSessionWindowFixture.drainMain()
@@ -96,10 +123,10 @@ struct ACloseInTheTurnOfANewTabStaysClosedTests {
         }
     }
 
-    /// The whole test in one turn of the main actor: the New Tab key, the close, the daemon's event, the checks.
-    private static func pressCloseAndAnswer(_ closed: Closed, pane: PaneController, services: AppServices) throws {
+    /// The whole test in one turn of the main actor: the new tab, the close, the daemon's event, the checks.
+    private static func makeCloseAndAnswer(_ made: Made, _ closed: Closed, pane: PaneController, controller: WindowController) throws {
         let store = pane.daemon.store
-        let tabs = services.agentTabs
+        let services = controller.services
         let start = pane.orderedIDs.map(\.rawValue)
         let records = pane.pane.tabs.map(\.id)
         try #require(start == records, "setup: the strip \(start) is not the store's list \(records)")
@@ -112,14 +139,22 @@ struct ACloseInTheTurnOfANewTabStaysClosedTests {
         pane.select(CmuxNextTabs.TabID(anchor))
         try #require(pane.stripModel.selectedID?.rawValue == anchor, "setup: the pane does not select its second tab")
 
-        try #require(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)),
-                     "setup: the New Tab key was refused")
-        let made = pane.orderedIDs.map(\.rawValue).filter { !start.contains($0) }
-        try #require(made.count == 1, "setup: the New Tab key added \(made.count) tabs to the strip in its own call, want 1")
-        let standIn = made[0]
-        var withNew = start
-        withNew.insert(standIn, at: 2)
-        try #require(pane.orderedIDs.map(\.rawValue) == withNew, "setup: the new tab is not directly after the selected tab")
+        switch made {
+        case .newTab:
+            try #require(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)),
+                         "setup: the New Tab key was refused")
+        case .page:
+            try #require(services.pages.openStoreTab(.settings, in: pane, window: controller, focus: true) != nil,
+                         "setup: the page did not open as a tab of the store")
+        }
+        let added = pane.orderedIDs.map(\.rawValue).filter { !start.contains($0) }
+        try #require(added.count == 1, "setup: the creation added \(added.count) tabs to the strip in its own call, want 1")
+        let standIn = added[0]
+        if made == .newTab {
+            var withNew = start
+            withNew.insert(standIn, at: 2)
+            try #require(pane.orderedIDs.map(\.rawValue) == withNew, "setup: the new tab is not directly after the selected tab")
+        }
         try #require(pane.stripModel.selectedID?.rawValue == standIn, "setup: the new tab is not selected")
         let created = store.intentLog.entries.last { entry in
             if case .createTab(_, let provisional) = entry.kind { return provisional.tabResourceID?.rawValue == standIn }
@@ -141,11 +176,21 @@ struct ACloseInTheTurnOfANewTabStaysClosedTests {
         try #require(store.closingTabIDs.contains(victim), "setup: no close intent of the store hides the closed tab")
         try #require(pane.stripModel.selectedID?.rawValue == standIn, "setup: the new tab is not selected after the close")
 
-        // The app's selection move, as the app set it: the strip is recorded right after each call.
-        let move = tabs.moveSelection
-        tabs.moveSelection = { provisional, surface in
-            move(provisional, surface)
-            frames.recordMove()
+        // The app's report of the created tab, as the app set it: the strip is recorded right after each call.
+        switch made {
+        case .newTab:
+            let tabs = services.agentTabs
+            let move = tabs.moveSelection
+            tabs.moveSelection = { provisional, surface in
+                move(provisional, surface)
+                frames.recordMove()
+            }
+        case .page:
+            let report = store.onPageTabCreated
+            store.onPageTabCreated = { provisional, tab in
+                report?(provisional, tab)
+                frames.recordMove()
+            }
         }
 
         // The daemon's event of the creation: its tab, last in the pane, with the creation's transaction.
@@ -167,7 +212,7 @@ struct ACloseInTheTurnOfANewTabStaysClosedTests {
         let seen = frames.all.joined(separator: ", ")
         try #require(store.tab(surface: surface) != nil, "setup: the store did not take the daemon's tab: \(seen)")
         try #require(frames.moves == 1,
-                     "setup: the store's report of the created tab moved the selection \(frames.moves) times, want 1: the test no longer reaches the step (\(seen))")
+                     "setup: the app's report of the created tab ran \(frames.moves) times, want 1: the test no longer reaches the step (\(seen))")
         let victimLetter = letters[victim] ?? "?"
         // The first record is the strip before the close.
         #expect(!frames.all.dropFirst().contains { $0.contains(victimLetter) },
