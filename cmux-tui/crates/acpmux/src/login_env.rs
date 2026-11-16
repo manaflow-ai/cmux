@@ -1059,6 +1059,7 @@ pub fn allowed_var(key: &str) -> Option<String> {
 /// Where [`vault_env`] reads the vault env: `vault::env_for_children`, set by the vault's
 /// worker when it starts (only a daemon starts it). The vault is a higher module, so it hands
 /// its reader down here instead of this module calling up into it.
+// test-hook-allow: not a test hook; the vault worker sets it once, and no test does
 static VAULT_ENV: std::sync::OnceLock<fn() -> Vec<(String, String)>> = std::sync::OnceLock::new();
 
 /// Called by the vault's worker (`vault::start_worker`) before it marks the vault active.
