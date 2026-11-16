@@ -45,6 +45,7 @@ import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
+import { DESKTOP_SESSION_UNIT } from "./agent-tools";
 import { GH_SHIM } from "./github-auth";
 import { HOST_CLI, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
@@ -320,6 +321,31 @@ export async function handshakeChecks(vm: Vm, report: Report, expected?: readonl
   }
 }
 
+/**
+ * The roles-off-fonts-on smoke check (cloud-automation.md 2): the roles manifest is written, no display runs at boot,
+ * the cua-video role (ffmpeg) is off, Xvfb and the CJK fonts are baked. The desktop roles follow the agent tools: an
+ * image whose agent tools are baked has the desktop session unit (agent-tools.ts DESKTOP_SESSION_UNIT), which runs
+ * openbox and xterm, so it must have both; any other image must have no openbox. Before, the check refused openbox on
+ * every image, so every agent-tools bake failed smoke once #44696 baked the display-wm role. Each failed condition is
+ * printed by name (the old check printed nothing). PATHS are the guest's; a test points them at a stand-in tree.
+ */
+export function rolesOffFontsOnCommand(paths: { manifest: string; fonts: string; units: string } = {
+  manifest: ROLES_MANIFEST_PATH,
+  fonts: "/usr/share/fonts/opentype/noto",
+  units: "/etc/systemd/system",
+}): string {
+  return [
+    "p=''",
+    `test -s ${sq(paths.manifest)} || p="$p no-roles-manifest"`,
+    `! pgrep -x Xvfb >/dev/null || p="$p xvfb-running"`,
+    `! command -v ffmpeg >/dev/null || p="$p ffmpeg-installed"`,
+    `command -v Xvfb >/dev/null || p="$p no-xvfb"`,
+    `ls ${sq(paths.fonts)}/ 2>/dev/null | grep -q '^NotoSansCJK' || p="$p no-cjk-fonts"`,
+    `if test -f ${sq(`${paths.units}/${DESKTOP_SESSION_UNIT}`)}; then desktop=baked; command -v openbox >/dev/null || p="$p desktop-without-openbox"; command -v xterm >/dev/null || p="$p desktop-without-xterm"; else desktop=off; ! command -v openbox >/dev/null || p="$p openbox-without-desktop"; fi`,
+    `if [ -z "$p" ]; then echo "roles-off-fonts-on desktop=$desktop"; else echo "roles-off-fonts-on desktop=$desktop problems:$p"; exit 1; fi`,
+  ].join("; ");
+}
+
 /** sshd trust (LINK-FILES) and roles that stay off (cloud-automation.md 5 and 2). Runs after the secret scan: the cert smoke makes a temp CA. */
 async function automationChecks(vm: Vm, report: Report): Promise<void> {
   const effective = await run(vm, `sshd -T -C user=${DEVBOX_WORK_USER},host=localhost,addr=127.0.0.1`);
@@ -331,7 +357,7 @@ async function automationChecks(vm: Vm, report: Report): Promise<void> {
   const probe = await run(vm, `${HOST_CLI} cloud probe-activity`, 60_000);
   const probed = probe.code === 0 && /"capability":true,"connected":true/.test(probe.stdout);
   check(report, "vm-activity-stream", probed, probe.stdout.trim().split("\n").at(-1) || probe.stderr.slice(-300));
-  const roles = await run(vm, `test -s ${ROLES_MANIFEST_PATH} && ! pgrep -x Xvfb >/dev/null && ! command -v openbox >/dev/null && ! command -v ffmpeg >/dev/null && command -v Xvfb >/dev/null && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK' && echo roles-off-fonts-on`);
+  const roles = await run(vm, rolesOffFontsOnCommand());
   check(report, "roles-off-fonts-on", roles.code === 0, roles.stdout.trim() || roles.stderr.slice(-300));
 }
 
