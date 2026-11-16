@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43819760692",
+  "recorded_at": "2026-11-16T07:04:59Z",
+  "reason": "cmux-tui d39c8b1e91aa changes the image's cmux-tui (pinned 732989aa09a0)",
+  "dry_run": false,
+  "cmux_tui": "d39c8b1e91aa4942c3ca76c59dd56e9f09be0393",
+  "fixes": [
+    {
+      "sha": "d39c8b1e91aa4942c3ca76c59dd56e9f09be0393",
+      "mergedAt": "2026-11-16T06:37:24Z",
+      "subject": "Extension web panes (render: web) on the shared page host, calls through the scoped page bridge (#43033)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T07:04:59Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
