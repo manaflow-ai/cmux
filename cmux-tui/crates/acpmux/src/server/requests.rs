@@ -1266,27 +1266,15 @@ async fn dispatch_request_with_identity(
             let query = Hub::validate_owner_selector(query)?;
             let bead_only = params.get("bead").and_then(Value::as_bool) == Some(true);
             // A peer request is always owner-only: it cannot ask this daemon to transit a
-            // selector to a third machine. Local callers use the owner index once a list-stream
-            // peer is present; without that feature the v1 mirrored-table resolver remains intact.
+            // selector to a third machine. Local callers stay on v1 until cut E removes the
+            // watched table; this additive cut must not change what a local reader sees.
             if conn.origin == Origin::Peer {
                 hub.locate_owner(query, bead_only, exact, names_hosts)
             } else {
-                let peers = hub.connected_peers();
-                let owner_mode = !peers.is_empty()
-                    && peers.iter().all(|peer| peer.lists(crate::link_v2::FEATURE));
-                if !owner_mode {
-                    return if exact {
-                        hub.locate_exact(query, names_hosts)
-                    } else {
-                        hub.locate(query, bead_only, names_hosts)
-                    };
-                }
-                match hub.locate_owner(query, bead_only, exact, names_hosts) {
-                    Ok(reply) => Ok(reply),
-                    Err(error) if error.code == -32002 => {
-                        hub.locate_owner_peers(query, bead_only, exact, names_hosts).await
-                    }
-                    Err(error) => Err(error),
+                if exact {
+                    hub.locate_exact(query, names_hosts)
+                } else {
+                    hub.locate(query, bead_only, names_hosts)
                 }
             }
         }

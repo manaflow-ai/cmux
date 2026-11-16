@@ -33,31 +33,82 @@ impl Hub {
         names_hosts: bool,
     ) -> Result<Value, RpcError> {
         let query = validate_owner_query(query)?;
-        let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
+        let own = crate::pairing::machine_name();
         let shown = names_hosts.then_some(own.as_str());
-        if let Some(id) = crate::opaque_agent_id::find(query) {
+        if !bead_only && let Some(id) = crate::opaque_agent_id::find(query) {
             return self.locate_opaque_owner(query, &id, &own, shown);
         }
-        if bead_only && !crate::beads::is_bead_id(query) {
-            return Err(RpcError::invalid_params(format!("{query:?} is not a bead id")));
+
+        let parsed = if bead_only { None } else { crate::agent_link::find(query) };
+        let mut summaries = self.owner_summaries(false);
+        let mut all = false;
+        if bead_only {
+            if !crate::beads::is_bead_id(query) {
+                return Err(RpcError::invalid_params(format!("{query:?} is not a bead id")));
+            }
+            let mut found = by_bead(&summaries, query);
+            if found.is_empty() {
+                summaries = self.owner_summaries(true);
+                all = true;
+                found = by_bead(&summaries, query);
+            }
+            if found.is_empty() {
+                return Err(RpcError::not_found(self.unfound(query, None, shown))
+                    .with_data(json!({"owner": true, "state": "missing"})));
+            }
+            let reply = self.owner_answer(found, all, &own, shown, None)?;
+            enforce_owner_reply(&reply)?;
+            return Ok(reply);
         }
-        let summaries: Vec<Value> = self
-            .live_session_summaries()
-            .into_iter()
-            .filter(|summary| summary.get("peer").and_then(Value::as_str).is_none())
-            .collect();
-        let found = if bead_only {
-            by_bead(&summaries, query)
-        } else if exact {
-            by_key_exact(&summaries, query, &own)
-        } else {
-            by_key(&summaries, query, &own)
+
+        let (mut link, mut found) = match parsed.clone() {
+            Some(Err(error)) => {
+                return Err(RpcError::invalid_params(format!("not a usable agent link: {error}")));
+            }
+            Some(Ok(link)) => {
+                let found = by_link(&summaries, &link, &own);
+                (Some(link), found)
+            }
+            None => {
+                let exact_live =
+                    if exact { by_key_exact(&summaries, query, &own) } else { Vec::new() };
+                if !exact_live.is_empty() {
+                    (None, exact_live)
+                } else {
+                    summaries = self.owner_summaries(true);
+                    all = true;
+                    let exact_all =
+                        if exact { by_key_exact(&summaries, query, &own) } else { Vec::new() };
+                    if !exact_all.is_empty() {
+                        (None, exact_all)
+                    } else if exact {
+                        (None, Vec::new())
+                    } else if (!crate::beads::is_bead_id(query)
+                        || by_bead(&summaries, query).is_empty())
+                        && let Some(route) = self.key_route(query)?.filter(|route| route != query)
+                    {
+                        return self.locate_owner(route, false, false, names_hosts);
+                    } else {
+                        (None, by_key(&summaries, query, &own))
+                    }
+                }
+            }
         };
+        if found.is_empty() && link.is_some() && !all {
+            summaries = self.owner_summaries(true);
+            all = true;
+            link = match parsed {
+                Some(Ok(link)) => Some(link),
+                _ => None,
+            };
+            found = link.as_ref().map(|link| by_link(&summaries, link, &own)).unwrap_or_default();
+        }
         if found.is_empty() {
-            return Err(RpcError::not_found(self.unfound(query, None, shown))
+            return Err(RpcError::not_found(self.unfound(query, link.as_ref(), shown))
                 .with_data(json!({"owner": true, "state": "missing"})));
         }
-        let reply = self.answer(found, false, &own, shown, None)?;
+        let answer_link = if names_hosts { link } else { None };
+        let reply = self.owner_answer(found, all, &own, shown, answer_link)?;
         enforce_owner_reply(&reply)?;
         Ok(reply)
     }
@@ -70,9 +121,17 @@ impl Hub {
         query: &str,
         bead_only: bool,
         exact: bool,
-        _names_hosts: bool,
+        names_hosts: bool,
     ) -> Result<Value, RpcError> {
         let query = validate_owner_query(query)?;
+        // The local index is authoritative for this daemon and is always answered first. A
+        // local miss is the only case that fans out to connected owners; malformed, ambiguous,
+        // or oversized questions remain final here.
+        match self.locate_owner(query, bead_only, exact, names_hosts) {
+            Ok(reply) => return Ok(reply),
+            Err(error) if error.code == -32002 => {}
+            Err(error) => return Err(error),
+        }
         if crate::opaque_agent_id::find(query).is_some() {
             return Err(RpcError::not_found(format!("no session matches {query:?}"))
                 .with_data(json!({"owner": true, "state": "missing"})));
@@ -100,7 +159,7 @@ impl Hub {
                 return Err(RpcError::not_found(format!("no session matches {query:?}"))
                     .with_data(json!({"owner": true, "state": "missing", "answered": []})));
             }
-            return Err(owner_unknown(unavailable));
+            return Err(owner_unknown(unavailable, names_hosts));
         }
         let params = json!({
             "query": query,
@@ -118,7 +177,12 @@ impl Hub {
         };
         let results = match tokio::time::timeout(OWNER_RESOLVE_DEADLINE, request).await {
             Ok(results) => results,
-            Err(_) => return Err(owner_unknown(peers.iter().map(|p| p.name.clone()).collect())),
+            Err(_) => {
+                return Err(owner_unknown(
+                    peers.iter().map(|p| p.name.clone()).collect(),
+                    names_hosts,
+                ));
+            }
         };
         let mut matches = Vec::new();
         let mut missing = Vec::new();
@@ -154,13 +218,17 @@ impl Hub {
                             }
                             let mut row = row.clone();
                             if let Some(object) = row.as_object_mut() {
-                                object.insert("peer".into(), Value::String(peer.clone()));
-                                object.insert("host".into(), Value::String(peer.clone()));
-                                if let Some(id) = object.get("sessionId").and_then(Value::as_str) {
-                                    object.insert(
-                                        "qualifiedSessionId".into(),
-                                        Value::String(format!("{peer}/{id}")),
-                                    );
+                                if names_hosts {
+                                    object.insert("peer".into(), Value::String(peer.clone()));
+                                    object.insert("host".into(), Value::String(peer.clone()));
+                                    if let Some(id) =
+                                        object.get("sessionId").and_then(Value::as_str)
+                                    {
+                                        object.insert(
+                                            "qualifiedSessionId".into(),
+                                            Value::String(format!("{peer}/{id}")),
+                                        );
+                                    }
                                 }
                             }
                             matches.push(row);
@@ -174,17 +242,30 @@ impl Hub {
         if let Some(target) = target_peer
             && missing.iter().any(|peer| peer.eq_ignore_ascii_case(&target))
         {
-            return Err(RpcError::not_found(format!("no session matches {query:?}"))
-                .with_data(json!({"owner": true, "state": "missing", "peer": target})));
-        }
-        if !unknown.is_empty() {
-            return Err(owner_unknown(unknown));
+            let data = if names_hosts {
+                json!({"owner": true, "state": "missing", "peer": target})
+            } else {
+                json!({"owner": true, "state": "missing"})
+            };
+            return Err(
+                RpcError::not_found(format!("no session matches {query:?}")).with_data(data)
+            );
         }
         if matches.is_empty() {
+            if !unknown.is_empty() {
+                return Err(owner_unknown(unknown, names_hosts));
+            }
             return Err(RpcError::not_found(format!("no session matches {query:?}"))
                 .with_data(json!({"owner": true, "state": "missing", "answered": missing})));
         }
         let mut reply = json!({"matches": matches});
+        if !unknown.is_empty() {
+            if names_hosts {
+                reply["unknownPeers"] = json!(unknown);
+            } else {
+                reply["unknownCount"] = json!(unknown.len());
+            }
+        }
         if let Some(first) = reply.get("matches").and_then(Value::as_array).and_then(|v| v.first())
         {
             reply["session"] = first.clone();
@@ -429,29 +510,72 @@ impl Hub {
         {
             hosts.push(host);
         }
-        let summaries = self
-            .live_session_summaries()
-            .into_iter()
-            .filter(|summary| summary.get("peer").and_then(Value::as_str).is_none())
-            .collect::<Vec<_>>();
-        let found: Vec<&Value> = summaries
-            .iter()
-            .filter(|summary| {
-                summary["agentSessionId"].as_str().is_some_and(|session| {
-                    hosts.iter().any(|host| {
-                        minted_harnesses(family_of(summary))
-                            .any(|harness| key.id(host, harness, session) == id)
+        for closed in [false, true] {
+            let summaries = self.owner_summaries(closed);
+            let found: Vec<&Value> = summaries
+                .iter()
+                .filter(|summary| {
+                    summary["agentSessionId"].as_str().is_some_and(|session| {
+                        hosts.iter().any(|host| {
+                            minted_harnesses(family_of(summary))
+                                .any(|harness| key.id(host, harness, session) == id)
+                        })
                     })
                 })
-            })
-            .collect();
-        if found.is_empty() {
-            return Err(RpcError::not_found(format!("no session matches {query:?}"))
-                .with_data(json!({"owner": true, "state": "missing"})));
+                .collect();
+            if !found.is_empty() {
+                let reply = self.owner_answer(found, closed, own, shown, None)?;
+                enforce_owner_reply(&reply)?;
+                return Ok(reply);
+            }
         }
-        let reply = self.answer(found, false, own, shown, None)?;
-        enforce_owner_reply(&reply)?;
-        Ok(reply)
+        Err(RpcError::not_found(format!("no session matches {query:?}"))
+            .with_data(json!({"owner": true, "state": "missing"})))
+    }
+
+    /// The v1 resolver's local rows only. Owner answers use the same key, link, bead and
+    /// closed-row passes as `locate`, but never copy a peer's mirrored table.
+    fn owner_summaries(&self, closed: bool) -> Vec<Value> {
+        let mut rows = if closed {
+            self.sessions().iter().map(|s| self.cached_closed_summary(s, true)).collect()
+        } else {
+            self.indexed_live_sessions().iter().map(|s| self.session_summary(s)).collect()
+        };
+        super::session_pages::sort_session_summaries(&mut rows);
+        rows
+    }
+
+    /// The v1 move-following pass, constrained to this daemon's own rows. An owner answer must
+    /// never pull a moved target from the mirrored peer table.
+    fn owner_answer(
+        &self,
+        found: Vec<&Value>,
+        all: bool,
+        own: &str,
+        shown: Option<&str>,
+        link: Option<AgentLink>,
+    ) -> Result<Value, RpcError> {
+        let targets: Vec<&str> =
+            found.iter().filter_map(|s| s.pointer("/movedTo/sessionId")?.as_str()).collect();
+        let summaries = self.owner_summaries(all);
+        let moved: Vec<&Value> = summaries
+            .iter()
+            .filter(|s| targets.contains(&s["sessionId"].as_str().unwrap_or_default()))
+            .copied()
+            .collect();
+        let found = follow_moves(found, &moved, own);
+        let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
+        Ok(json!({
+            "session": matches.first(),
+            "matches": matches,
+            "link": link.map(|l| json!({
+                "harness": l.harness,
+                "session": l.session,
+                "host": l.host,
+                "name": l.name,
+                "message": l.message,
+            })),
+        }))
     }
 
     /// The sessions `locate` reads, newest first: this daemon's (with `closed`, its closed ones
@@ -566,9 +690,13 @@ fn enforce_owner_reply(reply: &Value) -> Result<(), RpcError> {
     Ok(())
 }
 
-fn owner_unknown(peers: Vec<String>) -> RpcError {
-    RpcError::new(-32000, "owner resolve is unknown; peer answers are incomplete")
-        .with_data(json!({"owner": true, "state": "unknown", "peers": peers}))
+fn owner_unknown(peers: Vec<String>, names_hosts: bool) -> RpcError {
+    let data = if names_hosts {
+        json!({"owner": true, "state": "unknown", "peers": peers})
+    } else {
+        json!({"owner": true, "state": "unknown", "peerCount": peers.len()})
+    };
+    RpcError::new(-32000, "owner resolve is unknown; peer answers are incomplete").with_data(data)
 }
 
 /// That nothing `query` names was found `looked` ("on … or its peers").
@@ -1091,7 +1219,7 @@ mod tests {
 
     #[test]
     fn owner_unknown_names_peers_not_heard() {
-        let error = owner_unknown(vec!["alpha".into(), "beta".into()]);
+        let error = owner_unknown(vec!["alpha".into(), "beta".into()], true);
         assert_eq!(
             error.data.unwrap(),
             json!({"owner": true, "state": "unknown", "peers": ["alpha", "beta"]})
