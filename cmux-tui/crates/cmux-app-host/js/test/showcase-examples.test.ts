@@ -263,3 +263,79 @@ describe("local/showcase-workspace-notes", () => {
     expect(rows(h, "w2").map((r) => r.title)).toEqual(["Ship the weather sample"])
   })
 })
+
+describe("local/leo-gacha", () => {
+  let source = ""
+  beforeAll(async () => {
+    source = await pack(dir("leo-gacha"))
+  })
+  function gacha(store = new Map<string, unknown>(), settings: Record<string, unknown> = {}) {
+    const h = new FakeHost(source, { app: { id: "local/leo-gacha", version: "1.0.0" }, settings, apiVersion: "1.0.0" })
+    const state = { agentList: [] as unknown[] }
+    h.handlers["agent.list"] = () => ok(state.agentList)
+    h.handlers["app.storage.get"] = (p) => ok(store.get(p.key) ?? null)
+    h.handlers["app.storage.set"] = (p) => (store.set(p.key, p.value), ok(null))
+    // 0.99 rolls a common (the last one), and with the pity count reached an epic.
+    h.eval("Math.random = () => 0.99")
+    return { h, store, state }
+  }
+  const fire = (h: FakeHost) => {
+    for (const [id] of [...h.timers]) (h.timers.delete(id), h.global.__cmuxAppTimer(id))
+  }
+  const card = (h: FakeHost, m: string) => drawn(h, m).find((n) => n.props.transition === "pop" || n.props.transition === "scale")!.props
+  const pullButton = (h: FakeHost, m: string) => h.findNode(m, (n) => n.type === "Button" && /Pull/.test(String(n.props.title)))!
+
+  test("a pull shakes the card, then pops in a Chief, bursts sparkles and keeps it in the log", async () => {
+    const { h, store } = gacha()
+    expect(h.mount("p", "renderPane")).toBe("")
+    await h.settle(10)
+    expect(card(h, "p").loop).toEqual({ effect: "float" })
+    h.dispatch("p", pullButton(h, "p"), "tap", { gesture: "g1" })
+    await h.settle(10)
+    expect(card(h, "p").loop).toEqual({ effect: "wiggle", period: 0.25, amount: 1.6 })
+    fire(h)
+    await h.settle(10)
+    expect(card(h, "p")).toMatchObject({ transition: "pop", animation: "bouncy" })
+    expect(texts(h, "p")).toContain("Moon")
+    expect(drawn(h, "p").find((n) => n.type === "Particles" && n.props.preset === "sparkles")!.props.burst).toBe(1)
+    expect(store.get("log")).toMatchObject({ pulls: 1, last: "moon", owned: { moon: { count: 1 } } })
+    expect(texts(h, "p")).toContain("1/17 Chiefs · 1 pull")
+  })
+
+  test("ten pulls without an epic make the tenth one epic, with confetti", async () => {
+    const { h, store } = gacha(new Map([["log", { pulls: 9, sinceBig: 9, last: "moon", owned: { moon: { count: 9, first: 0 } } }]]))
+    h.mount("p", "renderPane")
+    await h.settle(10)
+    h.dispatch("p", pullButton(h, "p"), "tap", { gesture: "g1" })
+    fire(h)
+    await h.settle(10)
+    expect(store.get("log")).toMatchObject({ pulls: 10, sinceBig: 0, last: "orb-spark" })
+    expect(drawn(h, "p").find((n) => n.type === "Particles" && n.props.preset === "confetti")!.props.burst).toBe(1)
+    expect(card(h, "p").glow).toMatchObject({ color: "#AE81FF" })
+  })
+
+  test("an agent finishing a turn gives a free pull, unless the setting turns it off", async () => {
+    const { h, store, state } = gacha()
+    h.mount("s", "renderSection")
+    state.agentList = [{ id: "a1", state: "working" }]
+    h.emit("agent.changed")
+    await h.settle(10)
+    state.agentList = [{ id: "a1", state: "idle" }]
+    h.emit("agent.changed")
+    await h.settle(10)
+    fire(h)
+    await h.settle(10)
+    expect(store.get("log")).toMatchObject({ pulls: 1 })
+    expect(texts(h, "s")).toContain("Moon")
+
+    const off = gacha(new Map(), { agentPulls: false })
+    off.h.mount("s", "renderSection")
+    off.state.agentList = [{ id: "a1", state: "working" }]
+    off.h.emit("agent.changed")
+    await off.h.settle(10)
+    off.state.agentList = []
+    off.h.emit("agent.changed")
+    await off.h.settle(10)
+    expect(off.h.timers.size).toBe(0)
+  })
+})

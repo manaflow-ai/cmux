@@ -13,6 +13,7 @@ and the sample stays installed. `cmux ext remove ID` uninstalls it.
 | [Agent pet](agent-pet) | A cat that reacts as your agents work, wait or fail | `cmux ext dev examples/extensions/agent-pet` |
 | [Standup](agent-standup) | What your agents did since yesterday, by project | `cmux ext dev examples/extensions/agent-standup` |
 | [Workspace notes](workspace-notes) | A short to-do list for each workspace | `cmux ext dev examples/extensions/workspace-notes` |
+| [Chief gacha](leo-gacha) | Pull a Chief: a shaking card, a pop, a rarity glow and sparkles, and a collection log | `cmux ext dev examples/extensions/leo-gacha` |
 
 `cmux ext dev` packs `src/main.ts` with `bun`, so `bun` must be on your PATH. `bun
 examples/extensions/build.ts --check` packs every sample and validates its manifest.
