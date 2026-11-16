@@ -1894,7 +1894,9 @@ jobs:
             python3 scripts/cmux-next/tests/test_bench_launch.py
             python3 scripts/cmux-next/tests/test_bench_launch_calls.py
             python3 scripts/cmux-next/tests/test_bench_launch_executable.py
+            python3 scripts/cmux-next/tests/test_bench_launch_person_mac.py
             python3 scripts/cmux-next/tests/test_bench_memory_webkit_direct.py
+            python3 scripts/cmux-next/tests/test_bench_page_engine.py
             python3 scripts/cmux-next/tests/test_bench_power_guard.py
             python3 scripts/cmux-next/tests/test_bench_power_loaded.py
             python3 scripts/cmux-next/tests/test_bench_startup_agent_mark.py
@@ -1940,6 +1942,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_swift_logic_lines.py
             python3 scripts/cmux-next/tests/test_tab_switch_frames.py
             python3 scripts/cmux-next/tests/test_tab_switch_judge.py
+            python3 scripts/cmux-next/tests/test_tab_switch_settle.py
             python3 scripts/cmux-next/tests/test_tag_teardown.py
             python3 scripts/cmux-next/tests/test_teardown_clone_cleanup.py
             python3 scripts/cmux-next/tests/test_terminal_throughput_bench.py

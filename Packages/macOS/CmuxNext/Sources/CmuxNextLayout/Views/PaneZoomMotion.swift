@@ -10,8 +10,8 @@ import CoreGraphics
 /// dim; before, they were covered and never faded): `dim` is how far the zoom is, on the pane's
 /// spring and clock, and `PaneZoomDimView` draws it.
 /// The `zoom` spring (`PaneMotionVariant.expandSpring`) moves it in and the shorter `unzoom` spring
-/// (`restoreSpring`) moves it back; a second Cmd-Shift-Enter retargets it with its velocity, on the
-/// spring of the new way.
+/// (`restoreSpring`) moves it back; a second Cmd-Shift-Enter retargets it from its position, with its
+/// velocity when that points to the new target (`SpringParameters.admitted`), on the spring of the new way.
 struct PaneZoomMotion {
     /// The pane zooming in or back, until its spring lands.
     private(set) var pane: PaneID? { didSet { if pane == nil { dim = SpringValue(0) } } }

@@ -41,6 +41,7 @@ import zlib
 ENCODINGS = {"raw": 0, "copyrect": 1, "zlib": 6, "zrle": 16}
 PSEUDO_DESKTOP_SIZE = -223
 GUARD = (True, False, True, False)
+MESSAGE_S = 15  # the most one server message may take to arrive once it has started
 
 
 class RFBError(RuntimeError):
@@ -239,8 +240,11 @@ class Client:
         self.send(struct.pack("!BBHH", 5, 1, x, y) + struct.pack("!BBHH", 5, 0, x, y))
 
     def read_message(self, deadline: float | None) -> dict | None:
-        """One server message. A framebuffer update returns {"rects", "decode_ms"}; others None."""
+        """One server message. A framebuffer update returns {"rects", "decode_ms"}; others None.
+        The deadline bounds only the wait for a message to start: once its first byte is read the
+        rest is read whole (bounded by MESSAGE_S), since a message cut short would desync the stream."""
         kind = self.recv(1, deadline)[0]
+        deadline = time.monotonic() + MESSAGE_S
         if kind == 0:
             self.recv(1, deadline)
             count = struct.unpack("!H", self.recv(2, deadline))[0]
@@ -415,13 +419,21 @@ def write_png(path: str, width: int, height: int, rgb: bytes) -> None:
 # significant first, then the guard 1,0,1,0 (cmux-rd-host's mac-marker for latency; scene.swift's
 # counter row plus eight nonce rows for the window runs).
 
-def read_row(c: Client, ox: int, oy: int, cell: float) -> int | None:
+def read_row(c: Client, ox: int, oy: int, cell: float, strict: bool = False) -> int | None:
+    """One marker row's 16-bit word, or None when the guard is not there. `strict` (for finding
+    the marker) also asks each cell to read the same at four inner points, so a half-size or
+    shifted reading of a real marker, or text that happens to match the guard, does not pass."""
     bits = []
+    inner = ((0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)) if strict else ()
     for i in range(20):
         x, y = int(ox + (i + 0.5) * cell), int(oy + 0.5 * cell)
-        if x >= c.width or y >= c.height:
+        if int(ox + 20 * cell) > c.width or int(oy + cell) > c.height:
             return None
-        bits.append(c.pixel(x, y) >= 128)
+        bit = c.pixel(x, y) >= 128
+        for fx, fy in inner:
+            if (c.pixel(int(ox + (i + fx) * cell), int(oy + fy * cell)) >= 128) != bit:
+                return None
+        bits.append(bit)
     if tuple(bits[16:]) != GUARD:
         return None
     return sum(1 << i for i in range(16) if bits[i])
@@ -430,11 +442,18 @@ def read_row(c: Client, ox: int, oy: int, cell: float) -> int | None:
 def locate(c: Client, rows: int, max_y: int) -> tuple[int, float] | None:
     """The marker's top (y) and cell size in framebuffer pixels: the first place `rows` guarded rows
     stack. Needs the top of the framebuffer decoded."""
-    for cell in range(8, 130):
+    # Largest cell first: a real marker read at half its cell size can still look guarded.
+    for cell in range(129, 7, -1):
         for y in range(0, min(max_y, c.height - rows * cell)):
-            if all(read_row(c, 0, y + r * cell, cell) is not None for r in range(rows)):
-                # Cell edges as well as centres, so a half-size reading cannot pass.
+            if all(read_row(c, 0, y + r * cell, cell, strict=True) is not None for r in range(rows)):
+                # The cell edges too: the guard's white cell ends where the black one starts.
                 if c.pixel(int(16 * cell + cell - 2), y + cell // 2) >= 128 and c.pixel(int(17 * cell + 1), y + cell // 2) < 128:
+                    # The first matching y is up to a quarter cell above the row: move to the top
+                    # edge of the black guard cell, where the pixel above it is not black.
+                    gx = int(17.5 * cell)
+                    for top in range(y, y + cell):
+                        if c.pixel(gx, top) < 128 and (top == 0 or c.pixel(gx, top - 1) >= 128):
+                            return top, float(cell)
                     return y, float(cell)
     return None
 

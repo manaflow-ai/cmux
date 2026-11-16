@@ -347,6 +347,42 @@ class Inputs(unittest.TestCase):
         self.assertIn("v2.pr01.measure", md)
         self.assertIn("the gate did not report a measure", md)
 
+    def test_god_vs_small_lists_the_homes_errors(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "small_p95": 100, "god_p95": 110},
+        ], "errors": ["unknown v2 gate row v2.pr99.renamed", 7]}, None)
+        self.assertEqual(r["god_vs_small"]["errors"], ["unknown v2 gate row v2.pr99.renamed"])
+        for public in (False, True):
+            self.assertIn("unknown v2 gate row v2.pr99.renamed", qr.render_markdown(r, public=public))
+        self.assertEqual(qr.god_vs_small(None, "no input given")["errors"], [])
+        no_rows = qr.god_vs_small({"errors": ["unknown v2 gate row v2.x"]}, None)
+        self.assertEqual(no_rows["errors"], ["unknown v2 gate row v2.x"])
+
+    def test_merge_god_small_keeps_rows_and_errors_of_every_input(self):
+        """The nightly workflow merges the v2 home's input and the degenerate lab's with merge-god-small; the home's
+        `errors` reached the report only through its last stderr line before."""
+        with tempfile.TemporaryDirectory() as d:
+            home, lab, out = (os.path.join(d, name) for name in ("v2.json", "lab.json", "god-small.json"))
+            with open(home, "w") as f:
+                json.dump({"rows": [{"name": "v2.a", "small_p95": 1, "god_p95": 1}],
+                           "errors": ["unknown v2 gate row v2.b"]}, f)
+            with open(lab, "w") as f:
+                json.dump([{"name": "lab.c", "small_p95": 2, "god_p95": 2}], f)
+            self.assertEqual(qr.main(["merge-god-small", "--out", out, home, lab]), 0)
+            with open(out) as f:
+                merged = json.load(f)
+        self.assertEqual([row["name"] for row in merged["rows"]], ["v2.a", "lab.c"])
+        self.assertEqual(merged["errors"], ["unknown v2 gate row v2.b"])
+        self.assertEqual(qr.god_vs_small(merged, None)["errors"], ["unknown v2 gate row v2.b"])
+
+    def test_the_workflow_merges_through_merge_god_small(self):
+        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
+        with open(path) as f:
+            workflow = f.read()
+        self.assertIn('quality-report.py merge-god-small --out "$out/god-small.json" "${god_inputs[@]}"', workflow)
+        self.assertNotIn('json.dump({"rows": rows}', workflow)
+
     def test_anim_coverage_shapes(self):
         self.assertEqual(qr.anim_coverage({"coverage": 0.875}, None)["value"], 0.875)
         self.assertEqual(qr.anim_coverage({"covered": 3, "total": 4}, None)["value"], 0.75)
