@@ -77,6 +77,8 @@ import Testing
     enum Mutation: String, CaseIterable {
         // The wire can tell: the frame must fall back, never draw.
         case truncate, garbageLine, spanOutOfGrid, clearOutOfGrid, cursorOutOfGrid, shiftPastGrid, controlInCell
+        // A count, place, length or style at the edge of UInt64 or Int (review F1: these trapped).
+        case extremeVarint
         // v1 frames name their frame and base, so these are told too.
         case duplicate, reorder, drop, wrongBase, otherStream
         // Well-formed bytes that say something else: a lean frame that follows the last one names
@@ -200,6 +202,15 @@ import Testing
                     } else {
                         let length = Int.random(in: 0..<max(1, step.delta.count), using: &rng)
                         replace(at, HybridWire.v1Line(step, stream: fixture.stream, delta: step.delta.prefix(length)), bad: true)
+                    }
+                case .extremeVarint:
+                    if lean {
+                        let frames = HybridWire.extremeLeanFrames(stream: fixture.stream, columns: columns, rows: rows)
+                        replace(at, HybridWire.leanLine(frames[Int.random(in: 0..<frames.count, using: &rng)].frame), bad: true)
+                    } else {
+                        let deltas = HybridWire.extremeDeltas
+                        replace(at, HybridWire.v1Line(step, stream: fixture.stream,
+                                                      delta: deltas[Int.random(in: 0..<deltas.count, using: &rng)].delta), bad: true)
                     }
                 case .garbageLine:
                     insert(randomBytes(Int.random(in: 1...60, using: &rng), &rng) + Data([0x0A]), at: at, bad: true)
@@ -328,6 +339,31 @@ import Testing
         return object
     }
 
+    /// Review F1 on #44052: a count, place, length or style at the edge of `UInt64` or `Int`
+    /// trapped (`Int(UInt64.max)`, `abs(Int.min)`, an offset plus a length past `Int.max`) before
+    /// the frame could fall back. Every such frame, v1 or lean, must fall back and draw nothing.
+    @Test func extremeVarintsFallBackInsteadOfCrashing() {
+        for (name, delta) in HybridWire.extremeDeltas {
+            var parser = DaemonTerminalEventParser(surface: 7)
+            let events = parser.parse(FakeTerminalDaemon.line(v1Event(frame: 1, base: nil, data: delta)))
+            #expect(events.contains { if case .hybridFallback = $0 { true } else { false } }, "v1 \(name): \(events)")
+            #expect(!events.contains { if case .hybridFrame = $0 { true } else { false } }, "v1 \(name) drew")
+        }
+        for (name, frame) in HybridWire.extremeLeanFrames(stream: "s1", columns: 20, rows: 4) {
+            var parser = DaemonTerminalEventParser(surface: 1)
+            let events = parser.parse(HybridWire.leanLine(frame))
+            #expect(events.contains { if case .hybridFallback = $0 { true } else { false } }, "lean \(name): \(events)")
+            #expect(!events.contains { if case .hybridFrame = $0 { true } else { false } }, "lean \(name) drew")
+        }
+        // A keyframe numbered Int.max, then a frame that follows it: its number would be Int.max + 1.
+        var parser = DaemonTerminalEventParser(surface: 1)
+        let last = HybridWire.leanKeyframe(stream: "s1", columns: 20, rows: 4, frame: Int.max, row: 0, column: 0,
+                                           cells: [.init(text: "x", style: .plain)])
+        #expect(parser.parse(HybridWire.leanLine(last)).contains { if case .hybridFrame = $0 { true } else { false } })
+        let next = parser.parse(HybridWire.leanLine(HybridWire.leanFollowing()))
+        #expect(next.contains { if case .hybridFallback = $0 { true } else { false } }, "after frame Int.max: \(next)")
+    }
+
     @Test func aFrameThatDoesNotApplyFallsBackAndDrawsNothingAfter() {
         var parser = DaemonTerminalEventParser(surface: 7)
         #expect(!parser.parse(FakeTerminalDaemon.line(v1Event(frame: 1, base: nil))).isEmpty)
@@ -412,6 +448,52 @@ import Testing
     }
 
     // MARK: 4. Old viewers and old daemons
+
+    /// Review F2 on #44052: a reattach named the stream and frame to resume even when the
+    /// daemon's `identify` did not list `agent-cli-hybrid-v1`, and such a daemon refuses those
+    /// fields. The phone resumes only on a daemon that lists the capability, otherwise it
+    /// attaches for bytes as before.
+    @Test func aResumeGoesOnlyToADaemonThatListsTheHybridStream() async throws {
+        for daemonStillLists in [true, false] {
+            let daemon = FakeTerminalDaemon()
+            daemon.advertisesHybrid = true
+            daemon.hybridEvents = [v1Event(frame: 1, base: nil)]
+            let link = MockMacLink { service, line in daemon.respond(service, line) }
+            let channels = ChannelLog()
+            let session = DaemonTerminalSession(surface: 7) {
+                let channel = try await link.openChannel(service: "daemon", args: [:])
+                channels.append(channel)
+                return DaemonClient(channel: channel)
+            }
+            session.agentCLIHybridDefaults = try defaults(hybrid: true)
+            var events: [TerminalSessionEvent] = []
+            session.start { events.append($0) }
+            func output() -> String {
+                events.compactMap { event -> String? in
+                    if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+                    return nil
+                }.joined()
+            }
+            // The frame drew: the phone now has a stream and frame to resume from.
+            try await waitUntil { session.isAttached && output().contains("\u{1b}[?2026l") }
+            if !daemonStillLists {
+                // The Mac's daemon was replaced by one from before the hybrid stream.
+                daemon.advertisesHybrid = false
+                daemon.hybridEvents = []
+            }
+            await channels.last?.close(code: "link_closed", reason: "link dropped")
+            try await waitUntil { !session.isAttached }
+            session.reconnect()
+            try await waitUntil { attaches(daemon).count == 2 && session.isAttached }
+            let second = attaches(daemon)[1]
+            if daemonStillLists {
+                #expect(second["hybrid_stream"] as? String == "s1" && second["hybrid_frame"] as? Int == 1, "\(second)")
+            } else {
+                #expect(second["hybrid_stream"] == nil && second["hybrid_frame"] == nil, "resumed on an old daemon: \(second)")
+            }
+            session.stop()
+        }
+    }
 
     /// The screen's output and the commands of one attach, a link drop and a reattach.
     private func attachTwice(hybridSetting: Bool, daemonKnowsHybrid: Bool) async throws -> (output: String, daemon: FakeTerminalDaemon) {
