@@ -10,6 +10,7 @@
 //! reads them even while startup runs.
 
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
@@ -42,6 +43,62 @@ struct Phase {
     us: Option<u64>,
     /// CPU and scheduler counters from the thread that owns the phase.
     stats: ThreadStats,
+    threads_start: Option<Vec<ThreadInfo>>,
+    threads_end: Option<Vec<ThreadInfo>>,
+    threads_mark: Option<Vec<ThreadInfo>>,
+}
+
+#[derive(Clone)]
+struct ThreadInfo {
+    tid: u64,
+    name: String,
+    cpu_us: u64,
+}
+
+#[cfg(target_os = "linux")]
+fn thread_snapshot() -> Vec<ThreadInfo> {
+    let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    let ticks = u64::try_from(ticks).ok().filter(|ticks| *ticks > 0).unwrap_or(100);
+    let mut result = Vec::new();
+    let Ok(entries) = std::fs::read_dir("/proc/self/task") else { return result };
+    for entry in entries.flatten() {
+        let Ok(tid) = entry.file_name().to_string_lossy().parse::<u64>() else { continue };
+        let name = std::fs::read_to_string(entry.path().join("comm"))
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else { continue };
+        let Some(after_comm) = stat.rsplit_once(") ") else { continue };
+        let fields: Vec<&str> = after_comm.1.split_whitespace().collect();
+        let (Some(utime), Some(stime)) = (fields.get(11), fields.get(12)) else { continue };
+        let Ok(cpu_ticks) = utime.parse::<u64>().and_then(|u| stime.parse::<u64>().map(|s| u + s))
+        else {
+            continue;
+        };
+        result.push(ThreadInfo { tid, name, cpu_us: cpu_ticks.saturating_mul(1_000_000) / ticks });
+    }
+    result.sort_by_key(|thread| thread.tid);
+    result
+}
+
+#[cfg(not(target_os = "linux"))]
+fn thread_snapshot() -> Vec<ThreadInfo> {
+    Vec::new()
+}
+
+fn thread_json(threads: &[ThreadInfo]) -> Value {
+    threads
+        .iter()
+        .map(|thread| {
+            (
+                format!("{}:{}", thread.tid, thread.name),
+                json!({"tid": thread.tid, "name": thread.name, "cpuUs": thread.cpu_us}),
+            )
+        })
+        .collect::<BTreeMap<_, _>>()
+        .into_iter()
+        .collect::<serde_json::Map<_, _>>()
+        .into()
 }
 
 #[derive(Clone, Copy, Default)]
@@ -103,6 +160,7 @@ pub struct PhaseGuard {
     index: usize,
     started: Instant,
     thread_stats: ThreadStats,
+    threads_start: Option<Vec<ThreadInfo>>,
 }
 
 impl Drop for PhaseGuard {
@@ -115,6 +173,7 @@ impl Drop for PhaseGuard {
             phase.ms = Some(ms);
             phase.us = Some(us);
             phase.stats = stats;
+            phase.threads_end = self.threads_start.as_ref().map(|_| thread_snapshot());
         }
     }
 }
@@ -142,6 +201,7 @@ impl Gauges {
                 index: usize::MAX,
                 started,
                 thread_stats: thread_stats(),
+                threads_start: None,
             };
         }
         phases.push(Phase {
@@ -151,8 +211,21 @@ impl Gauges {
             ms: None,
             us: None,
             stats: ThreadStats::default(),
+            threads_start: None,
+            threads_end: None,
+            threads_mark: None,
         });
-        PhaseGuard { gauges: self, index: phases.len() - 1, started, thread_stats: thread_stats() }
+        let threads_start = (name == "hub construct").then(thread_snapshot);
+        if let Some(phase) = phases.last_mut() {
+            phase.threads_start = threads_start.clone();
+        }
+        PhaseGuard {
+            gauges: self,
+            index: phases.len() - 1,
+            started,
+            thread_stats: thread_stats(),
+            threads_start,
+        }
     }
 
     /// A point in startup (`socket ready`, `first list reply`), kept the first time only.
@@ -168,6 +241,9 @@ impl Gauges {
             ms: Some(0),
             us: Some(0),
             stats: ThreadStats::default(),
+            threads_start: None,
+            threads_end: None,
+            threads_mark: (name == "requests ready").then(thread_snapshot),
         });
     }
 
@@ -189,6 +265,9 @@ impl Gauges {
                         "minorFaults": p.stats.minor_faults,
                         "voluntarySwitches": p.stats.voluntary_switches,
                         "involuntarySwitches": p.stats.involuntary_switches,
+                        "threadsStart": p.threads_start.as_deref().map(thread_json),
+                        "threadsEnd": p.threads_end.as_deref().map(thread_json),
+                        "threads": p.threads_mark.as_deref().map(thread_json),
                     })
                 })
                 .collect()

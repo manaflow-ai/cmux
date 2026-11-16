@@ -20,7 +20,7 @@ pub mod fetch;
 pub mod schema;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, Once, PoisonError};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -64,7 +64,7 @@ struct StoredCopy {
 }
 
 struct State {
-    catalog: Arc<Catalog>,
+    catalog: Option<Arc<Catalog>>,
     source: Source,
     etag: Option<String>,
     fetched_at_ms: Option<u64>,
@@ -73,12 +73,15 @@ struct State {
 }
 
 pub struct CatalogService {
+    initialized: Once,
+    initial: Mutex<Option<Arc<Catalog>>>,
     state: Mutex<State>,
     dir: Mutex<Option<PathBuf>>,
     fetcher: Mutex<Option<Arc<dyn Fetcher>>>,
     /// One network read at a time.
     refreshing: tokio::sync::Mutex<()>,
     changed: broadcast::Sender<Value>,
+    startup_released: tokio::sync::watch::Sender<bool>,
 }
 
 fn now_ms() -> u64 {
@@ -104,6 +107,17 @@ fn bundled() -> Catalog {
     })
 }
 
+fn empty_catalog() -> Catalog {
+    Catalog {
+        schema_version: schema::SCHEMA_VERSION,
+        generated_at: "1970-01-01T00:00:00.000Z".into(),
+        source: "snapshot".into(),
+        harnesses: Vec::new(),
+        models: Default::default(),
+        providers: Default::default(),
+    }
+}
+
 /// Writes `bytes` to `path` through a temporary file in the same folder, so a reader sees the old
 /// or the new file ([`crate::config::write_atomic`], which also removes the copies of a writer
 /// stopped before its rename).
@@ -126,14 +140,21 @@ impl Default for CatalogService {
 impl CatalogService {
     /// The bundled copy, no stored copy, no fetcher.
     pub fn new() -> Self {
-        Self::with_bundled(bundled())
+        Self::with_initial(None)
     }
 
     /// Starts from `catalog` as the bundled copy (tests).
     pub fn with_bundled(catalog: Catalog) -> Self {
+        Self::with_initial(Some(Arc::new(catalog)))
+    }
+
+    fn with_initial(catalog: Option<Arc<Catalog>>) -> Self {
+        let (startup_released, _) = tokio::sync::watch::channel(false);
         Self {
+            initialized: Once::new(),
+            initial: Mutex::new(catalog),
             state: Mutex::new(State {
-                catalog: Arc::new(catalog),
+                catalog: Arc::new(empty_catalog()),
                 source: Source::Bundled,
                 etag: None,
                 fetched_at_ms: None,
@@ -144,6 +165,7 @@ impl CatalogService {
             fetcher: Mutex::new(None),
             refreshing: tokio::sync::Mutex::new(()),
             changed: broadcast::channel(16).0,
+            startup_released,
         }
     }
 
@@ -151,36 +173,47 @@ impl CatalogService {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Keeps copies in `dir` and fetches with `fetcher` (None: never fetches); loads the
-    /// stored copy when it is valid and not older than the one in use.
-    pub fn attach(&self, dir: PathBuf, fetcher: Option<Arc<dyn Fetcher>>) {
-        let stored = std::fs::read(dir.join(STORE_FILE)).ok().and_then(|bytes| {
-            let copy: StoredCopy = serde_json::from_slice(&bytes).ok()?;
-            let body = serde_json::to_vec(&copy.catalog).ok()?;
-            match schema::parse(&body) {
-                Ok(catalog) => Some((catalog, copy)),
-                Err(e) => {
-                    tracing::warn!("the stored model catalog is not used: {e}");
-                    None
-                }
-            }
-        });
-        *self.dir.lock().unwrap_or_else(PoisonError::into_inner) = Some(dir);
-        *self.fetcher.lock().unwrap_or_else(PoisonError::into_inner) = fetcher;
-        if let Some((catalog, copy)) = stored {
+    /// Performs the bundled/stored load once, on the first reader or refresh.
+    fn ensure_initialized(&self) {
+        self.initialized.call_once(|| {
+            let bundled = self
+                .initial
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+                .map_or_else(|| Arc::new(bundled()), |catalog| catalog);
+            let dir = self.dir.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            let stored = dir.and_then(|dir| {
+                std::fs::read(dir.join(STORE_FILE)).ok().and_then(|bytes| {
+                    let copy: StoredCopy = serde_json::from_slice(&bytes).ok()?;
+                    let body = serde_json::to_vec(&copy.catalog).ok()?;
+                    let catalog = schema::parse(&body).ok()?;
+                    Some((catalog, copy))
+                })
+            });
             let mut state = self.state();
-            // ISO-8601 UTC strings of the same shape order as text.
-            if catalog.generated_at >= state.catalog.generated_at {
+            state.catalog = bundled.clone();
+            if let Some((catalog, copy)) = stored
+                && catalog.generated_at >= bundled.generated_at
+            {
                 state.catalog = Arc::new(catalog);
                 state.source = Source::Stored;
                 state.etag = copy.etag;
                 state.fetched_at_ms = Some(copy.fetched_at_ms);
             }
-        }
+        });
+    }
+
+    /// Keeps copies in `dir` and fetches with `fetcher` (None: never fetches); loads the
+    /// stored copy when it is valid and not older than the one in use.
+    pub fn attach(&self, dir: PathBuf, fetcher: Option<Arc<dyn Fetcher>>) {
+        *self.dir.lock().unwrap_or_else(PoisonError::into_inner) = Some(dir);
+        *self.fetcher.lock().unwrap_or_else(PoisonError::into_inner) = fetcher;
     }
 
     /// The catalog in use.
     pub fn current(&self) -> Arc<Catalog> {
+        self.ensure_initialized();
         self.state().catalog.clone()
     }
 
@@ -197,6 +230,7 @@ impl CatalogService {
     /// `{schemaVersion, generatedAt, source, delivery, fetchedAt?}` of the catalog in use.
     /// `source` is the server's (`live` or `snapshot`); `delivery` is where this daemon got it.
     pub fn summary(&self) -> Value {
+        self.ensure_initialized();
         let state = self.state();
         let mut v = json!({"schemaVersion": state.catalog.schema_version, "generatedAt": state.catalog.generated_at, "source": state.catalog.source, "delivery": state.source});
         if let Some(at) = state.fetched_at_ms {
@@ -216,8 +250,14 @@ impl CatalogService {
         self.changed.subscribe()
     }
 
+    /// Releases the background fetcher after the daemon has advertised readiness.
+    pub fn release_startup(&self) {
+        self.startup_released.send_replace(true);
+    }
+
     /// Takes a fetched body when it is valid; true when the catalog in use changed.
     fn accept(&self, body: &[u8], etag: Option<String>) -> Result<bool, CatalogError> {
+        self.ensure_initialized();
         let catalog = schema::parse(body)?;
         let fetched_at = now_ms();
         let changed = {
@@ -247,6 +287,7 @@ impl CatalogService {
 
     /// Fetches the catalog now. `force` skips [`MIN_FETCH_SPACING`]. Never fails: a fetch error is in `error`.
     pub async fn refresh(&self, force: bool) -> Value {
+        self.ensure_initialized();
         let _one = self.refreshing.lock().await;
         let fetcher = self.fetcher.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let recent = self.state().last_fetch.is_some_and(|at| at.elapsed() < MIN_FETCH_SPACING);
@@ -294,6 +335,8 @@ impl CatalogService {
 
     /// Fetches at once and then every [`REFRESH_EVERY`], until the task is dropped.
     pub async fn run(self: Arc<Self>) {
+        let mut startup = self.startup_released.subscribe();
+        let _ = startup.wait_for(|released| *released).await;
         let mut every = tokio::time::interval(REFRESH_EVERY);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
@@ -306,3 +349,45 @@ impl CatalogService {
 #[cfg(test)]
 #[path = "log_lock_tests.rs"]
 mod log_lock_tests;
+
+#[cfg(test)]
+mod lazy_tests {
+    use super::*;
+
+    #[test]
+    fn construction_does_not_parse_or_read_the_catalog() {
+        let service = CatalogService::new();
+        assert!(!service.initialized.is_completed());
+        assert_eq!(service.state().catalog.generated_at, "1970-01-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn the_first_reader_prefers_a_valid_newer_stored_copy() {
+        let dir = tempfile::tempdir().expect("catalog tempdir");
+        let mut catalog: Value = serde_json::from_str(BUNDLED).expect("bundled JSON");
+        catalog["generatedAt"] = json!("2099-01-01T00:00:00.000Z");
+        let copy = StoredCopy { etag: Some("stored".to_owned()), fetched_at_ms: 7, catalog };
+        std::fs::write(dir.path().join(STORE_FILE), serde_json::to_vec(&copy).unwrap())
+            .expect("stored catalog");
+        let service = CatalogService::new();
+        service.attach(dir.path().to_owned(), None);
+        assert_eq!(service.summary()["delivery"], "stored");
+        assert_eq!(service.current().generated_at, "2099-01-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn a_catalog_is_loaded_once_per_service_start() {
+        let dir = tempfile::tempdir().expect("catalog tempdir");
+        let service = CatalogService::new();
+        service.attach(dir.path().to_owned(), None);
+        let first = service.current();
+        let mut catalog: Value = serde_json::from_str(BUNDLED).expect("bundled JSON");
+        catalog["generatedAt"] = json!("2099-01-01T00:00:00.000Z");
+        let copy = StoredCopy { etag: None, fetched_at_ms: 1, catalog };
+        std::fs::write(dir.path().join(STORE_FILE), serde_json::to_vec(&copy).unwrap())
+            .expect("stored catalog after initialization");
+        let second = service.current();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(second.generated_at, first.generated_at);
+    }
+}

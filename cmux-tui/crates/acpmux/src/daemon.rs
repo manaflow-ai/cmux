@@ -839,6 +839,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     });
     drop(_hub_ready_phase);
     gauges.mark("requests ready");
+    hub.catalog.release_startup();
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(
         "acpmux ready pid={} socket={} listen={}",

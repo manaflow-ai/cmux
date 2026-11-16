@@ -134,7 +134,17 @@ struct PhaseSamples {
     involuntary_switches: Vec<u64>,
 }
 
+#[derive(Default)]
+struct ThreadSamples {
+    start: Vec<u64>,
+    end: Vec<u64>,
+    ready: Vec<u64>,
+}
+
 fn distribution(values: &mut [u64]) -> serde_json::Value {
+    if values.is_empty() {
+        return json!({"p95": 0, "median": 0, "max": 0});
+    }
     values.sort_unstable();
     let p95 = values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)];
     let median = values[values.len() / 2];
@@ -192,6 +202,54 @@ fn startup_phase_summary(samples: &[serde_json::Value]) -> serde_json::Value {
             })
             .collect(),
     )
+}
+
+fn thread_cpu_by_name(value: &serde_json::Value) -> BTreeMap<String, u64> {
+    value
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(_, thread)| {
+            Some((thread["name"].as_str()?.to_owned(), thread["cpuUs"].as_u64()?))
+        })
+        .fold(BTreeMap::new(), |mut by_name, (name, cpu)| {
+            *by_name.entry(name).or_default() += cpu;
+            by_name
+        })
+}
+
+fn startup_thread_summary(samples: &[serde_json::Value]) -> serde_json::Value {
+    let mut by_name: BTreeMap<String, ThreadSamples> = BTreeMap::new();
+    for startup in samples {
+        let Some(phases) = startup.as_array() else { continue };
+        let find = |name: &str| phases.iter().find(|phase| phase["name"] == name);
+        let start = find("hub construct").map(|phase| thread_cpu_by_name(&phase["threadsStart"]));
+        let end = find("hub construct").map(|phase| thread_cpu_by_name(&phase["threadsEnd"]));
+        let ready = find("requests ready").map(|phase| thread_cpu_by_name(&phase["threads"]));
+        for (name, cpu) in start.into_iter().flatten() {
+            by_name.entry(name).or_default().start.push(cpu);
+        }
+        for (name, cpu) in end.into_iter().flatten() {
+            by_name.entry(name).or_default().end.push(cpu);
+        }
+        for (name, cpu) in ready.into_iter().flatten() {
+            by_name.entry(name).or_default().ready.push(cpu);
+        }
+    }
+    by_name
+        .into_iter()
+        .map(|(name, mut samples)| {
+            (
+                name,
+                json!({
+                    "hubStart": distribution(&mut samples.start),
+                    "hubEnd": distribution(&mut samples.end),
+                    "requestsReady": distribution(&mut samples.ready),
+                }),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into()
 }
 
 fn outside_session_file_sizes(root: &std::path::Path) -> BTreeMap<String, u64> {
@@ -319,9 +377,11 @@ fn v2_pr09_listen_start() {
     let god_p95 = best_p95(&god);
     let god_p95_all = all_p95(&god);
     eprintln!(
-        "v2.pr09.listen_start startup phases small={} god={} outside files small={} god={}",
+        "v2.pr09.listen_start startup phases small={} god={} startup threads small={} god={} outside files small={} god={}",
         startup_phase_summary(&startup_phases[0]),
         startup_phase_summary(&startup_phases[1]),
+        startup_thread_summary(&startup_phases[0]),
+        startup_thread_summary(&startup_phases[1]),
         outside_file_summary(&outside_files[0]),
         outside_file_summary(&outside_files[1])
     );
