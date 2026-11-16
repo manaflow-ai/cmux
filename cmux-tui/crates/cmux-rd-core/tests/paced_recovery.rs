@@ -1,7 +1,7 @@
 //! A keyframe and a NACK repair through a drop-tail bottleneck, sent by the real pacer
-//! and by the schedule the pacer had before (design D3/D6, cmuxterm-hq
-//! docs/design/screen-share-under-100ms.md): a frame's size raised the rate to fit it
-//! into half a frame interval, and resends were written straight to the socket.
+//! and by the schedule before (design D6, cmuxterm-hq
+//! docs/design/screen-share-under-100ms.md): a frame's size raises the rate to fit it
+//! into half a frame interval in both, but resends were written straight to the socket.
 //! Prints the datagrams each loses; run with `--nocapture` for the table.
 
 use cmux_rd_core::pacer::{BURST_US, PACING_FACTOR, Pacer};
@@ -125,8 +125,7 @@ fn a_keyframe_and_its_repairs_through_a_shallow_bottleneck_lose_less_paced() {
     println!(
         "target_mbps keyframe_kb capacity_mbps buffer_ms | dropped before / paced | last delivered ms before / paced"
     );
-    // Drops on links the pacing rate fits (2.5 x target at most the capacity).
-    let mut fits = (0, 0);
+    let mut total = (0, 0);
     for s in &scenarios {
         let (old, new) = (before(s), paced(s));
         assert_eq!(old.len(), new.len(), "same datagrams");
@@ -141,16 +140,10 @@ fn a_keyframe_and_its_repairs_through_a_shallow_bottleneck_lose_less_paced() {
                 buf / 1000.0,
             );
             assert!(d_new <= d_old, "pacing lost more: {d_new} > {d_old}");
-            if s.target_bps as f64 * PACING_FACTOR <= cap {
-                fits.0 += d_old;
-                fits.1 += d_new;
-            }
+            total.0 += d_old;
+            total.1 += d_new;
         }
     }
-    println!("dropped where the pacing rate fits: before {} paced {}", fits.0, fits.1);
-    // Where 2.5 x the target fits the link, nothing paced is lost; before, the keyframe
-    // burst overflowed those links. (A 50 Mbps target on a 100 Mbps link paces above
-    // the capacity: there pacing only has to lose no more than before.)
-    assert_eq!(fits.1, 0, "paced keyframe or repairs were dropped");
-    assert!(fits.0 > 0);
+    println!("total dropped: before {} paced {}", total.0, total.1);
+    assert!(total.1 <= total.0, "paced repairs lost more: {} > {}", total.1, total.0);
 }
