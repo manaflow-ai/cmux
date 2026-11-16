@@ -23,7 +23,7 @@
 //! default), revocable, and stored here only as its SHA-256. A device
 //! credential is stored the same way, so `pairing.json` holds no secret.
 //! Both travel only over `wss://` or `ws://` to a loopback host
-//! (`peer::carries_peer_token`): the joining side refuses anything else
+//! (`ws_auth::carries_peer_token`): the joining side refuses anything else
 //! before it sends a byte, and the listener accepts a ticket or a device
 //! credential only from a loopback address (the end of a TLS terminator or
 //! an ssh tunnel on this machine), as it does the peer token.
@@ -138,7 +138,8 @@ pub fn full_access_allows(name: &str) -> String {
 /// Whether a ticket or a device credential may arrive over `url`: `wss://`,
 /// or `ws://` to a loopback host.
 pub fn transport_ok(url: &str) -> bool {
-    (url.starts_with("ws://") || url.starts_with("wss://")) && crate::peer::carries_peer_token(url)
+    (url.starts_with("ws://") || url.starts_with("wss://"))
+        && crate::ws_auth::carries_peer_token(url)
 }
 
 /// Whether a connection from `from` may present a ticket or a device
