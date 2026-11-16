@@ -115,6 +115,15 @@ public nonisolated struct SiteStyleSnapshot: Sendable {
         return all
     }
 
+    /// An `apps-site-styles` payload as each origin's installers in order: `now` to run on open tabs
+    /// (removals included), `kept` for later document commits (removals dropped).
+    public static func installers(_ payload: AppJSON) -> (now: [String: [String]], kept: [String: [String]]) {
+        var snapshot = SiteStyleSnapshot()
+        let now = snapshot.replace(with: payload)
+        func byOrigin(_ entries: [SiteStyleEntry]) -> [String: [String]] { Dictionary(grouping: entries, by: \.origin).mapValues { $0.map(\.source) } }
+        return (byOrigin(now), byOrigin(snapshot.entries))
+    }
+
     /// The installers a document of `origin` runs at commit.
     public func sources(for origin: String) -> [String] {
         entries.filter { $0.origin == origin }.map(\.source)
