@@ -1122,7 +1122,7 @@ async fn a_kill_mid_replay_of_every_open_chat_repaints_each_from_its_log() {
     let shape =
         Shape { name: "replay-kill", chats: OPEN_CHATS, god_messages: 40, ..Shape::small() };
     let made = god_fixture::write_home(&home, &claude, &scratch.join("work"), &shape).unwrap();
-    write_config(&home, json!([]));
+    write_config(&home, json!({}));
     let chats: Vec<String> = std::iter::once(made.god).chain(made.others).collect();
     assert_eq!(chats.len(), OPEN_CHATS);
 
