@@ -596,6 +596,17 @@ public final class JoinConsentModel {
         return await line.call(method, params)
     }
 
+    /// Whether a Mac Screen request from the device hub's `viewerId` (named `viewerName`) is one of the
+    /// person's own devices with consent here for that surface (`control`, else screen), so it is allowed
+    /// with no approval panel: acpmux decides (`_acpmux/consent_screen_auto`), asked on every request.
+    /// False on any error, a missing answer, or a line that is not the person's: the panel asks as before.
+    /// The hub's user id is a sign-in provider's id, not the account id acpmux knows, so it is not sent.
+    public func screenAuto(control: Bool, viewerId: String, viewerName: String) async -> Bool {
+        let params: [String: Any] = ["surface": control ? "control" : "screen", "viewerId": viewerId, "viewerName": viewerName]
+        guard case .success(let answer) = await personCall("_acpmux/consent_screen_auto", params) else { return false }
+        return answer["allowed"] as? Bool == true
+    }
+
     private func setWriting(_ on: Bool) {
         writing = on
         if ask != nil { redraw() }

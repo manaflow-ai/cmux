@@ -176,6 +176,7 @@ extension AppServices {
                                                 userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
                                                 accessToken: { try await auth.tokens().access })
         let selection = services.cloud.configuration.runtimeSelection
+        services.macScreenPages.autoApprove = { [weak services] in await services?.joinConsent.screenAuto(control: $0.scope == .full, viewerId: $0.viewerId, viewerName: $0.viewerName) == true } // his own devices skip the approval panel
         let hubBundle = selection?.storageNamespace.map { "\(selection?.bundleId ?? "cmux").cloud.\($0)" } ?? services.environment.launch.bundleID
         return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: hubBundle,
                                 loginKeychain: services.loginKeychain, selectedBaseURL: selection?.deviceHubOrigin)
