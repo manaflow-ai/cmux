@@ -1612,15 +1612,19 @@ fn copy_shipped_first_party(root: &Path) -> Vec<String> {
 }
 
 /// What opening an installed app shows, by the rule every entry point uses
-/// (`AppOpenTarget` in CmuxNextApps): a `cmux.pane/1` the app draws (a scene
-/// export), hosts as a web page (`web_pages`) or cmux draws natively
-/// (`native`), else an https web app. `None` is an app with only commands:
-/// installing it adds nothing the person can open.
+/// (`AppOpenTarget` in CmuxNextApps, then `app.open`): a `cmux.pane/1` the app
+/// draws (a scene export) or hosts as a web page (`web_pages`), else an https
+/// web app. A pane cmux draws itself (`native`) opens only through its show
+/// action (`native_pane_show_action`, the table the sidebar item and
+/// `app.open` share); a native pane with none opens nothing. `None` is an app
+/// with nothing to open: installing it adds nothing the person can use.
 fn open_target(entry: &Value) -> Option<String> {
     let manifest = &entry["manifest"];
     let pane = &manifest["implements"]["cmux.pane/1"];
     if let Some(native) = pane["native"].as_str() {
-        return Some(format!("native pane {native}"));
+        let app = entry["id"].as_str().unwrap_or_default();
+        return cmux_layout_reducer::sidebar_bridge::native_pane_show_action(app)
+            .map(|action| format!("native pane {native} via {action}"));
     }
     if pane["export"].is_string() {
         return Some(format!("scene pane {}", pane["export"]));
@@ -1689,7 +1693,7 @@ fn install_every_listing(apps: &Apps) -> Vec<(String, Option<String>)> {
 /// Leo, 2026-11-16: "if i click install it means it works / these dont do
 /// anythin / stop shipping these into the app store if they're fucking busted".
 /// Every app the shipped App Store lists (the first-party directory as the Mac
-/// app hands it to its daemon, with no other app directory) installs for the
+/// app hands it to its daemon, with no other app directory, as after #44290) installs for the
 /// person and then has something to open: a pane or a web page. A
 /// command-only package (the old Standup sample) fails here.
 #[test]
@@ -1711,9 +1715,9 @@ fn every_shipped_store_listing_installs_and_has_something_to_open() {
     }
 }
 
-/// The check above catches the class Leo hit: with the old Standup sample on
-/// the shelf (the `CMUX_APPS_DIRS` the Mac app used to pass), its install
-/// succeeds, and nothing opens.
+/// The check above catches the class Leo hit: with the Standup sample on the
+/// shelf (the `CMUX_APPS_DIRS` the Mac app passes until #44290 drops it), its
+/// install succeeds, and nothing opens.
 #[test]
 fn a_command_only_store_listing_has_nothing_to_open_after_install() {
     let apps = Apps::new("command-only");
