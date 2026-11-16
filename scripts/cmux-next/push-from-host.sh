@@ -27,11 +27,11 @@
 # nothing is pushed.
 # --host may be given more than once (or CMUX_PUSH_HOST may list several, space-separated): the first host that
 # answers SSH and holds the clone is used. A host is HOST or HOST:REPO (REPO relative to HOST's home; without it,
-# CMUX_PUSH_HOST_REPO). With none given, DEFAULT_HOSTS below, in order: the Macs that have a full clone with the hooks
-# installed (machines/fleet-registry.json in leo-workspace: cmux16 is an owned mini with the mac-build role). Not a
-# Linux host: the hook runs SwiftFormat and SwiftLint. On 2026-11-12 at 00:40Z cmux-lawrence-2, then the only
-# default, stopped answering SSH (office power) and every sparse-worktree web push (web_lint_prepush.py sends them
-# here) failed with "no host answers".
+# CMUX_PUSH_HOST_REPO). With none given, the hosts with the registry's mac-build role are tried in registry order.
+# The registry's personal machines are never candidates, even when an environment variable names one. Not a Linux
+# host: the hook runs SwiftFormat and SwiftLint. A hand-kept list beside the registry caused a fallback onto Leo's
+# own machine when a fleet host's disk was full; the registry is now the only default source and personal markers are
+# enforced for explicit overrides too.
 # A host the fleet reserves for someone is skipped, whether it came from DEFAULT_HOSTS, CMUX_PUSH_HOST or --host:
 # before SSH, each host goes to leo-workspace's tools/fleet_reservations.py (the registry's dated reservations, the
 # build controller's pool holds, HQ's owner-only hosts), and when every host is reserved nothing is sent. A reader
@@ -43,13 +43,30 @@
 # Exit: 0 pushed (or already there), 1 refused by the hook or by GitHub (output above), 2 usage or setup (also: every
 # host reserved or unreachable). Without --rebase a non-fast-forward is refused by GitHub as always. It never forces.
 #
-# Environment: CMUX_PUSH_HOST [DEFAULT_HOSTS], CMUX_PUSH_HOST_REPO [fun/cmux, relative to HOST's home],
-# CMUX_FLEET_RESERVATIONS [~/Projects/leo-workspace/tools/fleet_reservations.py, the reader reach uses],
+# Environment: CMUX_PUSH_HOST [registry candidates], CMUX_FLEET_REGISTRY [leo-workspace's fleet-registry.json, else
+# this repo's scripts/cmux-next/push-hosts.json when that file is absent],
+# CMUX_PUSH_HOST_REPO [fun/cmux, relative to HOST's home], CMUX_FLEET_RESERVATIONS
+# [~/Projects/leo-workspace/tools/fleet_reservations.py, the reader reach uses],
 # and the hook's own CMUX_WEB_LINT_SKIP_REASON / CMUX_NEXT_CHECKS_SKIP_REASON, passed through.
 set -euo pipefail
 
-# The fallback order (header). Each HOST:REPO; the first that answers SSH and has the clone is used.
-DEFAULT_HOSTS=(cmux-lawrence-2:fun/cmux cmux16:Projects/cmux)
+# Defaults come from the registry's mac-build role. There is deliberately no hard-coded fallback: Leo, 2026-11-16,
+# "cmux16 is not a fleet builder right now it runs MY stuff".
+# Empty mac-build is intentional when only personal Macs remain. Verification then belongs on managed CI.
+ci_next() {
+    echo "next: cmux-ci test -- python3 scripts/cmux-next/prepush-gate.py" >&2
+    echo "push-from-host: if a remaining gate requires macOS, use a cmux-ci exclusive step or lease an authorized fleet Mac with: cmux-ci lease take HOST --for 1h --reason 'macOS push gate' (release after)." >&2
+}
+# The fleet registry: CMUX_FLEET_REGISTRY, else leo-workspace's. With neither named nor present, the reviewed one in
+# this repo (push-hosts.json: fleet builders only, today cmux-lawrence-2). On 2026-11-16 no Mac had leo-workspace's
+# file, so every push stopped before SSH and agents pushed by hand through cmux-lawrence-2; one printed a gh token
+# doing so. A registry that is named but missing, or present but malformed, still stops the push (fail closed).
+REGISTRY="${CMUX_FLEET_REGISTRY:-$HOME/Projects/leo-workspace/machines/fleet-registry.json}"
+if [[ -z "${CMUX_FLEET_REGISTRY:-}" && ! -e "$REGISTRY" ]]; then
+    REGISTRY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/push-hosts.json"
+    echo "push-from-host: no fleet registry at ~/Projects/leo-workspace; using scripts/cmux-next/push-hosts.json." >&2
+fi
+DEFAULT_HOSTS=()
 HOSTS=()
 WHICH_HOST=0
 REBASE=0
@@ -73,11 +90,40 @@ if [[ -z "$BRANCH" ]] || ! git check-ref-format "refs/heads/$BRANCH" || [[ ! "$B
     echo "push-from-host: give the branch to push to, for example: $0 feat-cmux-next" >&2
     exit 2
 fi
+# Read once before any SSH, including explicit overrides. Missing or malformed policy cannot authorize a host.
+if ! REGISTRY_HOSTS="$(python3 - "$REGISTRY" <<'PYREG'
+import json, sys
+try:
+    with open(sys.argv[1]) as source:
+        machines = json.load(source)["machines"]
+    for name, machine in machines.items():
+        roles = set(machine.get("roles") or []) - set(machine.get("excluded_roles") or [])
+        lanes = machine.get("lanes") or {}
+        personal = (bool(machine.get("personal")) or bool(lanes.get("personal"))
+                    or bool(set(machine.get("roles") or []) & {"leo-apps", "leo-mac"})
+                    or machine.get("approval") == "leo-own")
+        if "mac-build" in roles and not personal:
+            print(name)
+except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+    print(f"push-from-host: fleet registry cannot be read: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+PYREG
+)"; then
+    ci_next
+    exit 2
+fi
+while IFS= read -r candidate; do
+    [[ -z "$candidate" ]] || DEFAULT_HOSTS+=("$candidate")
+done <<< "$REGISTRY_HOSTS"
 if (( ${#HOSTS[@]} == 0 )); then
     if [[ -n "${CMUX_PUSH_HOST:-}" ]]; then
         read -r -a HOSTS <<< "$CMUX_PUSH_HOST"
-    else
+    elif (( ${#DEFAULT_HOSTS[@]} > 0 )); then
         HOSTS=("${DEFAULT_HOSTS[@]}")
+    else
+        echo "push-from-host: no eligible mac-build hosts in $REGISTRY; nothing was sent." >&2
+        ci_next
+        exit 2
     fi
 fi
 if [[ ! "$HOST_REPO" =~ ^[A-Za-z0-9._/-]+$ ]]; then
@@ -99,6 +145,19 @@ for spec in "${HOSTS[@]}"; do
     if [[ ! "$candidate" =~ ^[A-Za-z0-9._@-]+$ || ! "$repo" =~ ^[A-Za-z0-9._/-]+$ ]]; then
         echo "push-from-host: host '$spec' has characters this script does not pass to a shell" >&2
         exit 2
+    fi
+    # Explicit host lists choose among the same registry-authorized builders; they cannot grant eligibility.
+    eligible=0
+    for registered in $REGISTRY_HOSTS; do
+        if [[ "${candidate#*@}" == "$registered" ]]; then
+            eligible=1
+            break
+        fi
+    done
+    if (( ! eligible )); then
+        echo "push-from-host: skipping $candidate: not an eligible mac-build host in the fleet registry (personal, excluded or unknown)." >&2
+        RESERVED+=("$candidate")
+        continue
     fi
     if [[ -n "$RESERVATIONS" ]]; then
         # The reader exits 0 for a free host and 1 for a reserved one, printing who holds it. ssh's user@ is not
@@ -132,7 +191,8 @@ for spec in "${HOSTS[@]}"; do
 done
 if [[ -z "$HOST" ]]; then
     if (( ${#TRIED[@]} == 0 )); then
-        echo "push-from-host: every host is reserved or its reservation can't be read (${RESERVED[*]}); nothing was sent. Name a free one with --host HOST[:REPO]." >&2
+        echo "push-from-host: no candidate is eligible and unreserved (${RESERVED[*]}); nothing was sent." >&2
+        ci_next
     else
         # Not ${RESERVED[*]} on an empty array: macOS's bash 3.2 calls that unbound under set -u.
         SKIPPED=""
@@ -283,8 +343,16 @@ gate_hook_runs() {
     # other files than the ones git runs: refused.
     [[ "$hooks" == /* && -x "$hooks/pre-push" ]] || return 1
     [[ "$(cd "$hooks" && pwd -P)" == "$(cd "$own" && pwd -P)" ]] && return 0
-    # The wiring install-git-hooks.sh prints for a clone with hooks of its own: a pre-push that calls this one.
+    # The wiring install-git-hooks.sh prints for a clone with hooks of its own: a pre-push that calls this one. Its
+    # path may name the clone another way than git does (macOS: /var/folders is /private/var/folders; a symlinked
+    # ~/fun), so each .../cmux-git-hooks/pre-push it names is compared by real folder, not by text.
     grep -qF "$own/pre-push" "$hooks/pre-push" && return 0
+    local named own_real
+    own_real="$(cd "$own" && pwd -P)"
+    while IFS= read -r named; do
+        named="${named%/pre-push}"
+        [[ "$named" == /* && -d "$named" && "$(cd "$named" && pwd -P)" == "$own_real" ]] && return 0
+    done < <(grep -oE "/[^'\" ]*/cmux-git-hooks/pre-push" "$hooks/pre-push" || true)
     # A shared hooks folder that runs each repo's own hooks (run_repo_hooks, defined in the repo-hook beside it).
     [[ -f "$hooks/repo-hook" ]] && grep -q 'run_repo_hooks' "$hooks/pre-push" && grep -q '^run_repo_hooks()' "$hooks/repo-hook"
 }

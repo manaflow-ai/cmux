@@ -66,7 +66,7 @@ pub fn is_capacity_error(message: &str) -> bool {
 }
 
 /// An HTTP gateway failure is independent of account credentials.
-pub(super) fn is_gateway_error(message: &str) -> bool {
+pub(crate) fn is_gateway_error(message: &str) -> bool {
     let m = message.to_lowercase();
     (500..=599).any(|code| has_status(&m, &code.to_string())) || m.contains("harness_unavailable")
 }
@@ -182,7 +182,7 @@ pub fn transient_cause(error: &str) -> Option<&'static str> {
 }
 
 /// A process exit needs its stderr-enriched explanation; transport errors keep their raw cause.
-pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'a str {
+pub(crate) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'a str {
     match raw {
         Some(raw) if !raw.starts_with("agent process closed") => raw,
         _ => shown,
