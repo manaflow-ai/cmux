@@ -137,6 +137,27 @@ import Testing
         #expect(ends.calls.isEmpty)
     }
 
+    /// conn-quiet (Leo, 2026-11-14: "shut the f*** up"): a dropped stream reattaches over its
+    /// last frame with no card, no failed flash and no layout jump until the notice bound.
+    @Test func aDroppedStreamSaysNothingUnderTheNoticeBoundAndKeepsItsLayout() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s8", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s8", scope: .full)))
+        let screen = try #require(viewer.screen)
+        viewer.reattachSession = { _, _ in throw CancellationError() }
+        // The session's own give-up path hands the drop to the viewer at once.
+        let dropped = try #require(screen.onDropped)
+        #expect(dropped(), "the viewer takes the drop")
+        #expect(viewer.phase == .reconnecting(sessionID: "s8", scope: .full))
+        #expect(screen.phase == .connecting)
+        #expect(screen.isReconnecting)
+        #expect(!screen.reconnectNoticeDue)
+        #expect(screen.keepsLiveLayout)
+        #expect(ScreenSession.reconnectNoticeDelay == .seconds(10))
+        viewer.close(reason: .viewerDisconnected)
+    }
+
     /// Drop to the hub's reattach call, 8 drops in a row: the timing the conn-quiet table quotes
     /// (`drop_to_reattach_ms p50/p95`). Builds at base too, where every drop waited 1 s.
     @Test func dropToReattachIsUnder250MillisecondsAtP95() async throws {
