@@ -4,6 +4,7 @@
 
 use super::*;
 use std::collections::{HashMap, HashSet};
+use std::ffi::c_char;
 use std::sync::Mutex;
 
 #[derive(Default)]
