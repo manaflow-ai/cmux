@@ -610,3 +610,55 @@ fn own_tree_open_takes_the_work_tree_setting_of_the_file_config_worktree() {
     assert!(problem.contains("is a link"), "{problem}");
     assert!(names_no_command(&problem), "{problem}");
 }
+
+/// What the open says when the records of the 2 work tree settings in one config file of the
+/// git folder are longer than the read keeps.
+const SETTINGS_TOO_LONG: &str =
+    "a config file of the git folder has work tree settings that are longer than are read";
+
+/// Writes `more` at the end of the file `path`.
+fn add_to_file(path: &Path, more: &str) {
+    let mut all = std::fs::read_to_string(path).expect("read a file");
+    all.push_str(more);
+    std::fs::write(path, all).expect("write a file");
+}
+
+/// What an open gave, as a text: `opened`, or the problem text.
+fn outcome<T>(opened: Result<T, OpenError>) -> String {
+    match opened {
+        Ok(_) => "opened".to_string(),
+        Err(OpenError::Git(GitFailure::Exit(problem))) => problem,
+        Err(other) => format!("{other:?}"),
+    }
+}
+
+/// git reads the last value of the extension `worktreeConfig`. The open does not read a
+/// record of that setting that is longer than its limit, so it does not know the last value:
+/// it opens no folder by a setting then.
+#[test]
+fn own_tree_open_takes_no_work_tree_setting_when_a_record_of_the_extension_is_too_long() {
+    let scratch = Scratch::new("long-record");
+    let other = scratch.0.join("other");
+    new_repository(&other);
+    let folder = scratch.folder("folder");
+    let git_file = format!("gitdir: {}\n", text(&other.join(".git")));
+    std::fs::write(folder.join(".git"), git_file).expect("write a file");
+    // The extension two times: on, and then a number of 70,000 zeros, which is off.
+    let zeros = "0".repeat(70_000);
+    let twice = format!("[extensions]\n\tworktreeConfig = true\n\tworktreeConfig = {zeros}\n");
+    add_to_file(&other.join(".git/config"), &twice);
+    let setting = format!("[core]\n\tworktree = {}\n", text(&folder));
+    std::fs::write(other.join(".git/config.worktree"), setting).expect("write a file");
+    // The control: the extension is off for git, so git does not read the file
+    // `config.worktree`. With the extension on, git gives `folder` for the two.
+    assert_eq!(git(&other, &["rev-parse", "--show-toplevel"]), text(&other));
+    assert_eq!(git(&folder, &["rev-parse", "--show-toplevel"]), text(&folder));
+
+    let outcomes = [
+        outcome(Checkout::open(&folder).map(|_| ())),
+        outcome(Repository::open(&folder).map(|_| ())),
+    ];
+
+    assert_eq!(outcomes, [SETTINGS_TOO_LONG; 2], "the checkout's open, the repository's open");
+    assert_eq!(top_folder(&other), other, "the other work tree still opens");
+}
