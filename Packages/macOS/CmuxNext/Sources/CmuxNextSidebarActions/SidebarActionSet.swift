@@ -39,6 +39,7 @@ public struct SidebarActionSet {
         WorkspaceBulkArchiveActions(coordinator: autoArchive, host: host).bind(into: registry)
         SidebarGroupSortActions(host: host).bind(into: registry)
         SidebarCompactListToggle(settings: settings).bind(into: registry)
+        SidebarProjectionActions(settings: settings).bind(into: registry)
         let host = host
         SidebarRevealActions(workspace: { try? host.archiveWorkspace($0) }, sidebar: sidebar).bind(into: registry)
         SidebarStatesPlaygroundAction(themeColors: themeColors, sections: playgroundSections).bind(into: registry)
