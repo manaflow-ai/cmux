@@ -866,16 +866,14 @@ export const DISPLAY_WM_ROLE = "display-wm";
 export const AGENT_TOOLS_BAKED_ROLES = [BROWSER_ROLE, DISPLAY_WM_ROLE] as const;
 
 /**
- * The browser role's and role display-wm's first-use installs at bake (apt closures from the dated
- * snapshot, then programs; one apt update for both), then the apt lists go.
+ * The browser role's and role display-wm's first-use installs at bake (each closure's .debs by
+ * content, then programs), then the fetched files go.
  */
 export function browserRoleBakePhases(lock: InputsLock): Array<{ name: string; command: string }> {
   const manifest = rolesManifest(lock);
   return [
     ...firstUseInstallPhases(manifest, BROWSER_ROLE).map((p) => ({ name: `agent-tools-browser-${p.name}`, command: p.command })),
-    ...firstUseInstallPhases(manifest, DISPLAY_WM_ROLE)
-      .filter((p) => p.name !== "apt-update")
-      .map((p) => ({ name: `agent-tools-display-wm-${p.name}`, command: p.command })),
+    ...firstUseInstallPhases(manifest, DISPLAY_WM_ROLE).map((p) => ({ name: `agent-tools-display-wm-${p.name}`, command: p.command })),
     { name: "agent-tools-browser-lists", command: "rm -rf /var/lib/cmux/apt-snapshot && echo browser-role-baked" },
   ];
 }
