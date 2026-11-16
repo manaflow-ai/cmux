@@ -276,6 +276,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Native text keeps the
+    /// launch's value (``ProcessFontSmoothing/current``).
+    public var fontSmoothing: FontSmoothing = .auto
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
