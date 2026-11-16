@@ -12,6 +12,12 @@ nonisolated enum AppsStrings {
     /// A failed app view's error card: runs the app's script again from its saved files.
     static var reload: String { t("apps.mount.reload", "Reload") }
     static var reloadHelp: String { t("apps.mount.reload.help", "Run the script again from its saved files") }
+    /// Why an app's overlay did not open (``AppOverlayPresenter/Refusal``).
+    static var overlayGesture: String { t("apps.overlay.gesture", "An app overlay opens only when you open it in cmux") }
+    static var overlayUndeclared: String { t("apps.overlay.undeclared", "This app has no overlay") }
+    static var overlayNoWindow: String { t("apps.overlay.noWindow", "No window to show the overlay in") }
+    /// The palette row that opens an app's overlay (%@: the app's name).
+    static func overlayOpen(_ name: String) -> String { String(format: t("apps.overlay.open", "Open %@ Overlay"), name) }
     /// A failed mount's row (AppFailureCopy): its script threw or did not parse.
     static var failureScript: String { t("apps.failure.script", "This section's script has an error") }
     /// Where a script error is (`file` nil for an older host's unnamed `eval_script`), and the

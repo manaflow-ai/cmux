@@ -15,11 +15,14 @@ public final class AppMount: AppSceneInteraction, Identifiable {
     /// Bundle files the scene's images come from, when this Mac has them.
     public let bundleDirectory: URL?
     weak var client: AppsClient?
+    /// Who opened it: `user` for an overlay the person opened, nil (no origin) for every other view.
+    let origin: AppOrigin?
     /// Extra members of the mount's context (a hover card's `target`), passed to the export.
     let extraContext: [String: AppJSON]
 
     init(id: String, appID: String, implementation: AppImplementation, isPreview: Bool, surface: String, bundleDirectory: URL?,
-         client: AppsClient, extraContext: [String: AppJSON] = [:]) {
+         client: AppsClient, extraContext: [String: AppJSON] = [:], origin: AppOrigin? = nil) {
+        self.origin = origin
         self.extraContext = extraContext
         self.id = id
         self.appID = appID
@@ -58,10 +61,10 @@ extension AppsClient {
     /// not installed (`context.preview = true`: no grants, sample data).
     /// `context` adds members to the mount's context (a hover card's `target`).
     public func mount(_ app: String, implementation: AppImplementation, surface: String, preview: Bool = false,
-                      context: [String: AppJSON] = [:]) -> AppMount {
+                      context: [String: AppJSON] = [:], origin: AppOrigin? = nil) -> AppMount {
         let mount = AppMount(id: "mnt-\(keyPrefix)-\(nextMount)", appID: app,
                              implementation: implementation, isPreview: preview, surface: surface,
-                             bundleDirectory: bundleDirectory(for: app), client: self, extraContext: context)
+                             bundleDirectory: bundleDirectory(for: app), client: self, extraContext: context, origin: origin)
         nextMount += 1
         mounts[mount.id] = mount
         send(mount)
@@ -134,7 +137,12 @@ extension AppsClient {
         if !keepingScene || mount.model.status != .ready { mount.model.reset() }
         enqueue { [weak self] transport in
             do throws(AppsTransportError) {
-                try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id, context: mount.context)
+                if let origin = mount.origin {
+                    try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id,
+                                              context: mount.context, origin: origin)
+                } else {
+                    try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id, context: mount.context)
+                }
             } catch {
                 guard self?.mounts[mount.id] != nil, !error.connectionLost else { return }
                 mount.model.status = .failed(error.message)

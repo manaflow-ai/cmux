@@ -12,6 +12,9 @@ public nonisolated enum AppMountSurface: String, Sendable, Hashable, CaseIterabl
     case sidebarSection
     case hoverCard
     case sessionInfoSection
+    /// The app's `cmux.pane/1` scene in a floating panel over the window (`presentation.overlay`),
+    /// opened by the person's own gesture only (``AppOverlayPresenter``).
+    case overlay
     /// The whole New Tab page body, when the person named the app in `tabs.newTabApp`.
     case newTab
 
@@ -31,6 +34,9 @@ public nonisolated enum AppMountSurface: String, Sendable, Hashable, CaseIterabl
         case .sessionInfoSection:
             guard record.isVisible, let id else { return nil }
             return record.manifest.sessionInfoSections.first { $0.id == id }
+        case .overlay:
+            guard record.isVisible, record.manifest.presentation?.overlay != nil else { return nil }
+            return record.manifest.scenePane
         case .newTab:
             guard record.isVisible else { return nil }
             return record.manifest.sceneImplementation(interface: AppImplementation.newTab)

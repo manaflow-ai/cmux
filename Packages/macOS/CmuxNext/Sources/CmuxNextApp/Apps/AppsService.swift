@@ -20,6 +20,7 @@ final class AppsService {
     unowned let services: AppServices
     let transport: DaemonAppsTransport
     let client: AppsClient
+    let overlays: AppOverlayPresenter // app overlays (`presentation.overlay`), opened by the person only
     /// The control router once the socket starts (the CodeRouter page's ops run on it).
     private(set) var controlRouter: ControlRouter?
     /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
@@ -42,6 +43,7 @@ final class AppsService {
             machines?.agentInventoryWatchRoutes() ?? []
         })
         client = AppsClient(transport: transport)
+        overlays = AppOverlayPresenter(client: client)
     }
 
     /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
