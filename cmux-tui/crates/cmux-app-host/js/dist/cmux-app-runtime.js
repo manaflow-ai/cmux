@@ -1549,12 +1549,16 @@
   }
   var ETAGS = new Map;
   var ETAG_CAP = 256;
-  function keep(path, etag, body) {
+  function keep(path, etag, body, at) {
     ETAGS.delete(path);
-    ETAGS.set(path, { etag, body });
+    ETAGS.set(path, { etag, body, at });
     while (ETAGS.size > ETAG_CAP)
       ETAGS.delete(ETAGS.keys().next().value);
   }
+  var PUBLIC_LIST_AGE_MS = 300000;
+  var PUBLIC_DETAIL_AGE_MS = 900000;
+  var PUBLIC_ROWS = 5;
+  var NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connected", "scope.missing", "operation.unsupported", "op.unknown", "method.not_found"]);
   function githubGetter(call, signalName) {
     let viaGateway = true;
     let gatewayError = null;
@@ -1569,7 +1573,7 @@
         try {
           return await call("integration.request", { provider: "github", method: "GET", path });
         } catch (e) {
-          if (e instanceof CmuxError && e.code === "validation.invalid")
+          if (!NO_GATEWAY.has(codeOf(e)))
             throw e;
           viaGateway = false;
           gatewayError = e;
@@ -1578,12 +1582,16 @@
       if (path.includes("%40me"))
         throw refused();
       const known = ETAGS.get(path);
+      const now = Date.now();
+      const age = path.startsWith("/search/") || /\/pulls\?/.test(path) ? PUBLIC_LIST_AGE_MS : PUBLIC_DETAIL_AGE_MS;
+      if (known && now - known.at < age)
+        return known.body;
       let r;
       try {
         r = await call("net.fetch", {
           url: `https://api.github.com${path}`,
           method: "GET",
-          headers: { Accept: "application/vnd.github+json", ...known ? { "If-None-Match": known.etag } : {} },
+          headers: { Accept: "application/vnd.github+json", ...known?.etag ? { "If-None-Match": known.etag } : {} },
           body: null
         });
       } catch (e) {
@@ -1591,16 +1599,15 @@
           throw refused();
         throw e;
       }
-      if (r.status === 304 && known) {
-        keep(path, known.etag, known.body);
+      if (r.status === 304 && known?.etag) {
+        keep(path, known.etag, known.body, now);
         return known.body;
       }
       if (r.status < 200 || r.status >= 300)
         throw new CmuxError("upstream.failed", `GitHub answered ${r.status}`, { status: r.status }, r.status === 403 || r.status === 429 || r.status >= 500);
       const body = JSON.parse(r.body || "null");
       const etag = Object.entries(r.headers ?? {}).find(([k]) => k.toLowerCase() === "etag")?.[1];
-      if (etag)
-        keep(path, etag, body);
+      keep(path, etag ?? "", body, now);
       return body;
     };
     return { get, onGateway: () => viaGateway };
@@ -1685,6 +1692,8 @@
     const limit = typeof params.limit === "number" ? params.limit : 10;
     const login = typeof params.login === "string" ? params.login.trim() : "";
     const gh = githubGetter(call, "github.changes");
+    const merged = params.include === "open-and-merged";
+    const wanted = (p) => p.state === "open" || merged && !!p.merged_at;
     let refs;
     if (show === "branch") {
       if (!params.repo || !params.branch)
@@ -1693,7 +1702,7 @@
       const state = params.include === "open-and-merged" ? "all" : "open";
       const head = encodeURIComponent(`${owner}:${params.branch}`);
       const pulls = await gh.get(`/repos/${params.repo}/pulls?head=${head}&state=${state}&per_page=${limit}`);
-      refs = (pulls ?? []).map((p) => ({ repo: String(params.repo), number: Number(p.number) }));
+      refs = (pulls ?? []).filter(wanted).map((p) => ({ repo: String(params.repo), number: Number(p.number) }));
     } else {
       if (show === "search" && !String(params.query ?? "").trim())
         throw new CmuxError("signal.params", "github.changes: show: search needs query", { signal: "github.changes" });
@@ -1706,22 +1715,31 @@
           throw e;
         found = await gh.get(path(login || "@me"));
       }
-      refs = (found?.items ?? []).map((i) => ({ repo: repoOf(i.repository_url), number: Number(i.number) }));
+      refs = (found?.items ?? []).filter((i) => wanted({ state: i.state, merged_at: i.pull_request?.merged_at })).map((i) => ({ repo: repoOf(i.repository_url), number: Number(i.number) }));
     }
-    const rows = await pool(refs.slice(0, limit), 4, async ({ repo, number }) => {
+    const signedIn = gh.onGateway();
+    const rows = await pool(refs.slice(0, signedIn ? limit : Math.min(limit, PUBLIC_ROWS)), 4, async ({ repo, number }) => {
       const p = await gh.get(`/repos/${repo}/pulls/${number}`);
       const state = p.merged_at ? "merged" : p.state === "closed" ? "closed" : "open";
       const sha = String(p.head?.sha ?? "");
       let checks = { state: "none", failing: 0, pending: 0, passing: 0 };
       let review = "none";
       if (state === "open" && sha) {
-        const [runs, status, reviews] = await Promise.all([
-          gh.get(`/repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100`),
-          gh.get(`/repos/${repo}/commits/${sha}/status`),
-          gh.get(`/repos/${repo}/pulls/${number}/reviews?per_page=100`)
-        ]);
+        const part = async (path) => {
+          try {
+            return await gh.get(path);
+          } catch (e) {
+            if (e instanceof CmuxError && e.retryable)
+              throw e;
+            return null;
+          }
+        };
+        const runs = await part(`/repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100`);
+        const status = signedIn ? await part(`/repos/${repo}/commits/${sha}/status`) : null;
         checks = rollup(runs?.check_runs ?? [], status?.statuses ?? []);
-        review = decision(reviews ?? [], (p.requested_reviewers?.length ?? 0) + (p.requested_teams?.length ?? 0));
+        const requested = (p.requested_reviewers?.length ?? 0) + (p.requested_teams?.length ?? 0);
+        const reviews = signedIn ? await part(`/repos/${repo}/pulls/${number}/reviews?per_page=100`) : null;
+        review = decision(reviews ?? [], requested);
       }
       return {
         id: Number(p.id),
@@ -1741,7 +1759,6 @@
         updatedAt: String(p.updated_at ?? "")
       };
     });
-    const merged = params.include === "open-and-merged";
     return rows.filter((r) => r.state === "open" || merged && r.state === "merged").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
   var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges };
@@ -1985,7 +2002,7 @@
             repo: {
               type: "string",
               maxLength: 140,
-              pattern: "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+              pattern: "^[A-Za-z0-9][A-Za-z0-9-]*/(\\.?[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.\\.[A-Za-z0-9._-]+)$",
               description: "owner/name: the repository for show: branch; for the others it narrows the list to that repository."
             },
             branch: {

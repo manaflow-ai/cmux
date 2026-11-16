@@ -110,15 +110,28 @@ export interface Change {
  * out first), so its cost stays flat however many pull requests pass through. The gateway keeps
  * its own cache; this one is only for net.fetch.
  */
-const ETAGS = new Map<string, { etag: string; body: unknown }>()
+const ETAGS = new Map<string, { etag: string; body: unknown; at: number }>()
 const ETAG_CAP = 256
 export const etagCacheSize = () => ETAGS.size
 
-function keep(path: string, etag: string, body: unknown) {
+function keep(path: string, etag: string, body: unknown, at: number) {
   ETAGS.delete(path)
-  ETAGS.set(path, { etag, body })
+  ETAGS.set(path, { etag, body, at })
   while (ETAGS.size > ETAG_CAP) ETAGS.delete(ETAGS.keys().next().value as string)
 }
+
+/**
+ * The public route without a sign-in has 60 requests an hour per address, and a 304 counts there.
+ * So a path read within its age is answered from the cache with no request: a list every 5
+ * minutes, a pull request or a head's checks every 15, which with at most PUBLIC_ROWS rows stays
+ * near 50 an hour.
+ */
+const PUBLIC_LIST_AGE_MS = 300_000
+const PUBLIC_DETAIL_AGE_MS = 900_000
+const PUBLIC_ROWS = 5
+
+/** The gateway's answers that mean "no route here" (switch to the public API), not "try again". */
+const NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connected", "scope.missing", "operation.unsupported", "op.unknown", "method.not_found"])
 
 /**
  * One GitHub GET for a read: the gateway first; once it refuses, the public API with If-None-Match
@@ -143,20 +156,24 @@ function githubGetter(call: Caller, signalName: string) {
       try {
         return await call<T>("integration.request", { provider: "github", method: "GET", path })
       } catch (e) {
-        // A path the gateway refuses is a bug here, not a reason to change route.
-        if (e instanceof CmuxError && e.code === "validation.invalid") throw e
+        // Only "no gateway here" changes route: a busy gateway (app.limit), a rate limit or a 5xx
+        // is retried by the watch on the same route, so a private repository never goes public.
+        if (!NO_GATEWAY.has(codeOf(e))) throw e
         viaGateway = false
         gatewayError = e
       }
     }
     if (path.includes("%40me")) throw refused()
     const known = ETAGS.get(path)
+    const now = Date.now()
+    const age = path.startsWith("/search/") || /\/pulls\?/.test(path) ? PUBLIC_LIST_AGE_MS : PUBLIC_DETAIL_AGE_MS
+    if (known && now - known.at < age) return known.body as T
     let r: { status: number; headers?: Record<string, string>; body?: string }
     try {
       r = await call("net.fetch", {
         url: `https://api.github.com${path}`,
         method: "GET",
-        headers: { Accept: "application/vnd.github+json", ...(known ? { "If-None-Match": known.etag } : {}) },
+        headers: { Accept: "application/vnd.github+json", ...(known?.etag ? { "If-None-Match": known.etag } : {}) },
         body: null
       })
     } catch (e) {
@@ -164,14 +181,14 @@ function githubGetter(call: Caller, signalName: string) {
       if (e instanceof CmuxError && e.code === "scope.missing") throw refused()
       throw e
     }
-    if (r.status === 304 && known) {
-      keep(path, known.etag, known.body)
+    if (r.status === 304 && known?.etag) {
+      keep(path, known.etag, known.body, now)
       return known.body as T
     }
     if (r.status < 200 || r.status >= 300) throw new CmuxError("upstream.failed", `GitHub answered ${r.status}`, { status: r.status }, r.status === 403 || r.status === 429 || r.status >= 500)
     const body = JSON.parse(r.body || "null") as T
     const etag = Object.entries(r.headers ?? {}).find(([k]) => k.toLowerCase() === "etag")?.[1]
-    if (etag) keep(path, etag, body)
+    keep(path, etag ?? "", body, now)
     return body
   }
   return { get, onGateway: () => viaGateway }
@@ -254,6 +271,9 @@ async function githubChanges(params: Record<string, any>, call: Caller): Promise
   const limit = typeof params.limit === "number" ? params.limit : 10
   const login = typeof params.login === "string" ? params.login.trim() : ""
   const gh = githubGetter(call, "github.changes")
+  const merged = params.include === "open-and-merged"
+  // Closed-unmerged ones are dropped before their detail reads, so they never take a row.
+  const wanted = (p: { state?: unknown; merged_at?: unknown }) => p.state === "open" || (merged && !!p.merged_at)
   let refs: Array<{ repo: string; number: number }>
   if (show === "branch") {
     if (!params.repo || !params.branch) throw new CmuxError("signal.params", "github.changes: show: branch needs repo and branch", { signal: "github.changes" })
@@ -261,7 +281,7 @@ async function githubChanges(params: Record<string, any>, call: Caller): Promise
     const state = params.include === "open-and-merged" ? "all" : "open"
     const head = encodeURIComponent(`${owner}:${params.branch}`)
     const pulls = await gh.get<Array<Record<string, any>>>(`/repos/${params.repo}/pulls?head=${head}&state=${state}&per_page=${limit}`)
-    refs = (pulls ?? []).map((p) => ({ repo: String(params.repo), number: Number(p.number) }))
+    refs = (pulls ?? []).filter(wanted).map((p) => ({ repo: String(params.repo), number: Number(p.number) }))
   } else {
     if (show === "search" && !String(params.query ?? "").trim()) throw new CmuxError("signal.params", "github.changes: show: search needs query", { signal: "github.changes" })
     // Tried as the signed-in person first; the public route needs a login to stand for @me.
@@ -273,22 +293,34 @@ async function githubChanges(params: Record<string, any>, call: Caller): Promise
       if (gh.onGateway() || !login) throw e
       found = await gh.get(path(login || "@me"))
     }
-    refs = (found?.items ?? []).map((i) => ({ repo: repoOf(i.repository_url), number: Number(i.number) }))
+    refs = (found?.items ?? []).filter((i) => wanted({ state: i.state, merged_at: i.pull_request?.merged_at })).map((i) => ({ repo: repoOf(i.repository_url), number: Number(i.number) }))
   }
-  const rows = await pool(refs.slice(0, limit), 4, async ({ repo, number }): Promise<Change> => {
+  // Without a sign-in only the first few rows, and only the reads that fit the public budget.
+  const signedIn = gh.onGateway()
+  const rows = await pool(refs.slice(0, signedIn ? limit : Math.min(limit, PUBLIC_ROWS)), 4, async ({ repo, number }): Promise<Change> => {
     const p = await gh.get<Record<string, any>>(`/repos/${repo}/pulls/${number}`)
     const state = p.merged_at ? "merged" : p.state === "closed" ? "closed" : "open"
     const sha = String(p.head?.sha ?? "")
     let checks: Change["checks"] = { state: "none", failing: 0, pending: 0, passing: 0 }
     let review: Review = "none"
     if (state === "open" && sha) {
-      const [runs, status, reviews] = await Promise.all([
-        gh.get<{ check_runs?: Array<Record<string, any>> }>(`/repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100`),
-        gh.get<{ statuses?: Array<Record<string, any>> }>(`/repos/${repo}/commits/${sha}/status`),
-        gh.get<Array<Record<string, any>>>(`/repos/${repo}/pulls/${number}/reviews?per_page=100`)
-      ])
+      // One read at a time per row, so at most 4 are in flight for the list (the gateway takes 8
+      // across apps). A read GitHub refuses for this row (a token without Checks, a 404) leaves
+      // that part empty and keeps the row; a retryable one fails the read so the watch retries.
+      const part = async <T>(path: string): Promise<T | null> => {
+        try {
+          return await gh.get<T>(path)
+        } catch (e) {
+          if (e instanceof CmuxError && e.retryable) throw e
+          return null
+        }
+      }
+      const runs = await part<{ check_runs?: Array<Record<string, any>> }>(`/repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100`)
+      const status = signedIn ? await part<{ statuses?: Array<Record<string, any>> }>(`/repos/${repo}/commits/${sha}/status`) : null
       checks = rollup(runs?.check_runs ?? [], status?.statuses ?? [])
-      review = decision(reviews ?? [], (p.requested_reviewers?.length ?? 0) + (p.requested_teams?.length ?? 0))
+      const requested = (p.requested_reviewers?.length ?? 0) + (p.requested_teams?.length ?? 0)
+      const reviews = signedIn ? await part<Array<Record<string, any>>>(`/repos/${repo}/pulls/${number}/reviews?per_page=100`) : null
+      review = decision(reviews ?? [], requested)
     }
     return {
       id: Number(p.id),
@@ -308,7 +340,6 @@ async function githubChanges(params: Record<string, any>, call: Caller): Promise
       updatedAt: String(p.updated_at ?? "")
     }
   })
-  const merged = params.include === "open-and-merged"
   return rows.filter((r) => r.state === "open" || (merged && r.state === "merged")).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 

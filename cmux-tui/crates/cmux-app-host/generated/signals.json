@@ -78,7 +78,7 @@
           "repo": {
             "type": "string",
             "maxLength": 140,
-            "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*/(\\.?[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.\\.[A-Za-z0-9._-]+)$",
             "description": "owner/name: the repository for show: branch; for the others it narrows the list to that repository."
           },
           "branch": {

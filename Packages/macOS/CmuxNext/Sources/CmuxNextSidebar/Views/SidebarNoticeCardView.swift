@@ -65,7 +65,7 @@ final class SidebarNoticeCardView: NSView {
     /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
          motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
-        surface = CardSurfaceView(cornerRadius: Metrics.surfaceCornerRadius, reduceTransparency: reduceTransparency)
+        surface = CardSurfaceView(cornerRadius: Self.cardCornerRadius, reduceTransparency: reduceTransparency)
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
         wantsLayer = true
@@ -279,6 +279,8 @@ final class SidebarNoticeCardView: NSView {
     // MARK: Geometry
 
     private static var padding: CGFloat { Metrics.space3 }
+    /// The card's corner, concentric with its buttons: the button corner plus ``padding``, the gap from its edges to them.
+    static var cardCornerRadius: CGFloat { Metrics.buttonContainer(padding: padding).outerRadius }
     private static var lineHeight: (caption: CGFloat, body: CGFloat) {
         (ceil(Typography.caption.boundingRectForFont.height), ceil(Typography.bodyEmphasized.boundingRectForFont.height))
     }
@@ -482,8 +484,9 @@ final class SidebarNoticeCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding, line = Self.lineHeight, close = Self.closeSide
         surface.frame = b
-        surface.cornerRadius = Metrics.surfaceCornerRadius
-        content.layer?.cornerRadius = Metrics.surfaceCornerRadius
+        // Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside").
+        surface.cornerRadius = Self.cardCornerRadius
+        content.layer?.cornerRadius = Self.cardCornerRadius
         content.layer?.cornerCurve = .continuous
         content.frame = b
         eyebrowLabel.font = Typography.caption

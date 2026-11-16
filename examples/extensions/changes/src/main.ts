@@ -55,29 +55,37 @@ const shortRepo = (repo: string) => repo.split("/")[1] ?? repo
 
 /** The shell line that checks a pull request out in a new worktree (only digits and a checked slug reach it). */
 export function checkoutScript(c: Change, root: string | null): string | null {
-  if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(c.repo) || !Number.isInteger(c.number)) return null
+  // Neither part may start with "-" (it would read as an option to gh or cd).
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._][A-Za-z0-9._-]*$/.test(c.repo) || !Number.isInteger(c.number) || c.number <= 0) return null
   const name = `${shortRepo(c.repo)}-pr-${c.number}`
   const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
   const shell = 'exec "${SHELL:-/bin/zsh}" -l'
   if (root) {
     const dir = `${root.replace(/\/+$/, "")}-pr-${c.number}`
-    return `cd ${q(root)} && git fetch origin pull/${c.number}/head:pr-${c.number} && git worktree add ${q(dir)} pr-${c.number} && cd ${q(dir)}; ${shell}`
+    return `cd ${q(root)} && git fetch ${q(`https://github.com/${c.repo}.git`)} pull/${c.number}/head:pr-${c.number} && git worktree add ${q(dir)} pr-${c.number} && cd ${q(dir)}; ${shell}`
   }
   return `mkdir -p "$HOME/cmux-prs" && cd "$HOME/cmux-prs" && gh repo clone ${c.repo} ${name} -- --filter=blob:none && cd ${name} && gh pr checkout ${c.number}; ${shell}`
 }
 
-// The selected workspace's repository and branch, for show: branch. Re-read when the selection or
-// the workspace list changes (workspace.changed); git.status with github: true is one git run more.
+// The selected workspace's repository and branch, for show: branch. Re-read whenever the selected
+// workspace's entry changes (workspace.changed), not only when another one is selected; an answer
+// for a selection that has since moved on is dropped. git.status with github: true is one git run more.
 const [here, setHere] = signal<{ workspace: string; root: string; repo: string | null; branch: string | null } | null>(null)
 let hereFor = ""
+let asked = 0
 function follow(spaces: () => Array<{ id: string; focused: boolean }> | undefined) {
   const focused = (spaces() ?? []).find((w) => w.focused)
-  if (!focused || focused.id === hereFor) return
-  hereFor = focused.id
+  const key = focused ? JSON.stringify(focused) : ""
+  if (!focused || key === hereFor) return
+  hereFor = key
+  const mine = ++asked
+  const keepIf = (v: { workspace: string; root: string; repo: string | null; branch: string | null }) => {
+    if (mine === asked) setHere(v)
+  }
   cmux.git
     .status({ workspace: focused.id, github: true })
-    .then((s) => setHere({ workspace: focused.id, root: s.root, repo: s.github_repo ?? null, branch: s.branch ?? null }))
-    .catch(() => setHere({ workspace: focused.id, root: "", repo: null, branch: null }))
+    .then((s) => keepIf({ workspace: focused.id, root: s.root, repo: s.github_repo ?? null, branch: s.branch ?? null }))
+    .catch(() => keepIf({ workspace: focused.id, root: "", repo: null, branch: null }))
 }
 
 export function params(settings: Record<string, unknown>, at: { repo: string | null; branch: string | null } | null) {
