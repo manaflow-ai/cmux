@@ -24,6 +24,7 @@
 //! Bounded: at most [`MOST`] keys, each kept [`KEEP_FOR`] after its answer; the oldest go first.
 
 use crate::rpc::RpcError;
+use acpmux_core::life::StopFence;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
@@ -61,16 +62,39 @@ pub(super) enum Seen {
 /// The first copy's handle: [`First::finish`] publishes its outcome to any repeat.
 pub(super) struct First {
     key: Key,
+    generation: u64,
     tx: watch::Sender<Option<Outcome>>,
     /// Fires when a cancel of any copy stops this one ([`cancel`]); taken by the task that
     /// runs it ([`First::take_stop`]).
     stop: Option<oneshot::Receiver<()>>,
+    fence: StopFence,
+}
+
+impl Drop for First {
+    fn drop(&mut self) {
+        if !self.fence.is_cancelled() {
+            return;
+        }
+        let mut book = book();
+        let Some(entry) = book.entries.get_mut(&self.key) else { return };
+        if entry.generation != self.generation || entry.done_at.is_some() {
+            return;
+        }
+        // The repeat is fenced independently and must observe the stop, rather than receiving
+        // JSON-RPC's client-cancel code. Mark this generation complete without publishing an
+        // answer; a later generation with the same key is protected by the identity check.
+        entry.done_at = Some(Instant::now());
+        entry.stop = None;
+    }
 }
 
 impl First {
     pub(super) fn finish(self, outcome: Outcome) {
         self.tx.send_replace(Some(outcome));
-        if let Some(entry) = book().entries.get_mut(&self.key) {
+        let mut book = book();
+        if let Some(entry) = book.entries.get_mut(&self.key)
+            && entry.generation == self.generation
+        {
             entry.done_at = Some(Instant::now());
             entry.stop = None;
         }
@@ -86,6 +110,7 @@ impl First {
 pub(crate) type Key = (String, String);
 
 struct Entry {
+    generation: u64,
     tx: watch::Sender<Option<Outcome>>,
     /// The request it was made for (`digest`): a repeat must be the same request.
     digest: u64,
@@ -98,6 +123,7 @@ struct Entry {
 
 #[derive(Default)]
 struct Book {
+    next: u64,
     entries: HashMap<Key, Entry>,
     order: VecDeque<Key>,
 }
@@ -202,6 +228,16 @@ impl Book {
 impl Book {
     /// None for a key known for another request: it runs as any request does.
     fn admit(&mut self, key: Key, digest: u64, now: Instant) -> Option<Seen> {
+        self.admit_with_fence(key, digest, now, StopFence::new())
+    }
+
+    fn admit_with_fence(
+        &mut self,
+        key: Key,
+        digest: u64,
+        now: Instant,
+        fence: StopFence,
+    ) -> Option<Seen> {
         self.prune(now);
         if let Some(entry) = self.entries.get_mut(&key) {
             if entry.digest != digest {
@@ -210,19 +246,32 @@ impl Book {
             entry.copies = entry.copies.saturating_add(1);
             return Some(Seen::Repeat(entry.tx.subscribe()));
         }
+        let generation = self.next;
+        self.next = self.next.wrapping_add(1);
         let tx = watch::Sender::new(None);
         let (stop, stopped) = oneshot::channel();
-        let entry = Entry { tx: tx.clone(), digest, done_at: None, copies: 1, stop: Some(stop) };
+        let entry = Entry {
+            generation,
+            tx: tx.clone(),
+            digest,
+            done_at: None,
+            copies: 1,
+            stop: Some(stop),
+        };
         self.entries.insert(key.clone(), entry);
         self.order.push_back(key.clone());
-        Some(Seen::First(First { key, tx, stop: Some(stopped) }))
+        Some(Seen::First(First { key, generation, tx, stop: Some(stopped), fence }))
     }
 }
 
 /// A request with key and digest `seen` ([`key_for`]) arrived: the first copy runs it, a
 /// repeat waits on the first. None: it runs as any request does.
-pub(super) fn admit((key, digest): (Key, u64)) -> Option<Seen> {
-    book().admit(key, digest, Instant::now())
+pub(super) fn admit(seen: (Key, u64)) -> Option<Seen> {
+    admit_with_fence(seen, StopFence::new())
+}
+
+pub(super) fn admit_with_fence((key, digest): (Key, u64), fence: StopFence) -> Option<Seen> {
+    book().admit_with_fence(key, digest, Instant::now(), fence)
 }
 
 /// The client cancelled a copy of request `key` (`$/cancel_request` on the connection it came
@@ -338,6 +387,31 @@ mod tests {
         assert!(admit(other.unwrap()).is_none(), "another request under a known key runs");
         // A connection with no principal (the Web, a paired machine) uses no book at all.
         assert!(key_for(None, crate::rpc::method::MUX_STATS, Some(&stamped(&id))).is_none());
+    }
+
+    #[test]
+    fn an_evicted_first_cannot_finish_a_reused_key() {
+        let reused = key("reused");
+        let fence = StopFence::new();
+        let Some(Seen::First(old)) =
+            book().admit_with_fence(reused.clone(), 0, Instant::now(), fence.clone())
+        else {
+            panic!("the first copy runs")
+        };
+        fence.cancel();
+        for n in 0..=MOST {
+            let _ = book().admit(key(&format!("other-{n}")), 0, Instant::now());
+        }
+        let Some(Seen::First(new)) = book().admit(reused.clone(), 0, Instant::now()) else {
+            panic!("the reused key gets a new first copy")
+        };
+        drop(old);
+        let still_pending = book()
+            .entries
+            .get(&reused)
+            .is_some_and(|entry| entry.generation == new.generation && entry.done_at.is_none());
+        assert!(still_pending, "the old first changed the reused generation");
+        new.finish(Outcome::RunAgain);
     }
 
     /// What a request carries decides, not only its method: one bound to its connection, or

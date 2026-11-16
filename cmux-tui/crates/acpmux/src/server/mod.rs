@@ -1828,7 +1828,9 @@ async fn serve_connection_from(
                 // the copy read first runs it and the other answers with its answer.
                 let seen = dual_requests::key_for(conn.dual_principal, &m, params.as_ref());
                 let dual_key = seen.as_ref().map(|(key, _)| key.clone());
-                let dual = seen.and_then(dual_requests::admit);
+                let dual = seen.and_then(|seen| {
+                    dual_requests::admit_with_fence(seen, hub.request_stop.clone())
+                });
                 let dual_key = dual_key.filter(|_| dual.is_some());
                 // Registered in order, before the request is spawned: a `$/cancel_request` read
                 // after it finds it, and taking it frees its slot (`in_flight.rs`).

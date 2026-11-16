@@ -231,6 +231,23 @@ mod tests {
     }
 
     #[test]
+    fn dropping_a_connection_drains_tickets_without_a_late_gauge_decrement() {
+        let slots = Arc::new(Semaphore::new(1));
+        let gauge = Arc::new(AtomicUsize::new(0));
+        let flights = InFlight::counted(gauge.clone());
+        let ticket = flights.begin(
+            &json!(1),
+            "held",
+            Some(slots.clone().try_acquire_owned().unwrap()),
+            None,
+        );
+        drop(flights);
+        assert_eq!((gauge.load(Ordering::Relaxed), slots.available_permits()), (0, 1));
+        drop(ticket);
+        assert_eq!(gauge.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
     fn a_reused_id_keeps_its_own_slot_and_is_not_cancelled_for_the_first() {
         let flights = InFlight::default();
         let first = flights.begin(&json!("a"), "m", None, None);

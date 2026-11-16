@@ -33,16 +33,23 @@ where
         return None;
     }
     let checkpoint = Checkpoint { stop: stop.clone() };
-    let result = tokio::task::spawn_blocking(move || {
+    let mut task = tokio::task::spawn_blocking(move || {
         if !checkpoint.open() {
             return None;
         }
         Some(work(&checkpoint))
-    })
-    .await
-    .ok()
-    .flatten();
-    result.filter(|_| !stop.is_cancelled())
+    });
+    tokio::select! {
+        biased;
+        result = &mut task => result.ok().flatten().filter(|_| !stop.is_cancelled()),
+        _ = stop.cancelled() => {
+            // Abort prevents a queued worker from starting. Once its closure has started,
+            // Tokio cannot interrupt its syscall; dropping this handle still guarantees that
+            // its result is never observed by the request.
+            task.abort();
+            None
+        }
+    }
 }
 
 #[cfg(test)]
