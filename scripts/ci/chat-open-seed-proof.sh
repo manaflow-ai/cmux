@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The chat-open bench's seed with the acpmux that the app's bundle has, on a Mac. No app and no display.
-#   cmux-ci run --class light --script scripts/measure/chat-open-seed-proof.sh --ref SHA
+#   cmux-ci run --class light --script scripts/ci/chat-open-seed-proof.sh --ref SHA --os macos
 # Builds acpmux as the app's bundle has it (scripts/cmux-next/build-acpmux.sh: a release build with the
 # shipping features of scripts/ci/acpmux-build-features.sh) and runs
 # scripts/cmux-next/chat_open_seed_proof.py with that binary: the bench's subagent chat alone, after the
