@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 624,
   "sections": [
     {
       "id": "general",
@@ -2627,6 +2627,18 @@
           ]
         },
         {
+          "key": "appearance.fontSmoothing",
+          "title": "Text Smoothing",
+          "help": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.",
+          "kind": "choice",
+          "default": "antialiased",
+          "group": "Density and Motion",
+          "values": [
+            "antialiased",
+            "system"
+          ]
+        },
+        {
           "key": "appearance.highlightColor",
           "title": "Highlight Color",
           "help": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.",
@@ -5104,6 +5116,14 @@
           "group": "Saving"
         },
         {
+          "key": "editor.vimMode",
+          "title": "Vim Keys in the Editor",
+          "help": "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Editing"
+        },
+        {
           "key": "editor.wordBasedSuggestions",
           "title": "Suggest Words from the File",
           "help": "",
@@ -6071,6 +6091,18 @@
           "kind": "toggle",
           "default": false,
           "group": "Mac Screen"
+        },
+        {
+          "key": "shortcuts.keyPositions",
+          "title": "Shortcut Keys",
+          "help": "On Dvorak, Colemak or AZERTY, QWERTY Positions keeps Command and Control shortcuts on the keys they have on a US keyboard.",
+          "kind": "choice",
+          "default": "typed",
+          "group": "Layout and Vim",
+          "values": [
+            "typed",
+            "qwerty"
+          ]
         },
         {
           "key": "shortcuts.showModifierHoldHints",
