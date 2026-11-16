@@ -156,7 +156,6 @@ export const NOT_IN_CORPUS: readonly NotYet[] = [
   { field: "snapshot.since.turns", home: "d", builder: "2d", note: "turns ended since the seen row; not decided" },
   // The architect's.
   { field: "snapshot.presence", home: "f", builder: "A0", note: "with typing and the read mark (decision 234)" },
-  { field: "snapshot.earlierPrompts", home: "d", builder: "A0", note: "a page of turns (decision 235, 6d)" },
   { field: "row:frame", home: "b", builder: "A0", note: "untraced" },
   { field: "row:laneNoticeBatch", home: "b", builder: "A0", note: "untraced" },
   { field: "row:subagentReport", home: "b", builder: "A0", note: "untraced" },

@@ -114,18 +114,20 @@ export class ChatRowsHost {
   }
 
   /// Asks for the page before or after a row: `from`, or the edge of the stretch that holds the
-  /// anchor (a gap's row, `gapBefore`, pages before from itself). Or a fold's rows. False when
-  /// nothing is held to page from or a page is out: one page a sub at a time.
+  /// anchor (a gap's row, `gapBefore`, pages before from itself). Or a fold's rows, or the page of
+  /// turns (`turns`: the settled turns' group rows, for the rail). False when nothing is held to
+  /// page from or a page is out: one page a sub at a time.
   page(
     sid: string,
     side: "before" | "after",
-    options: { from?: number; fold?: number; maxBytes?: number } = {},
+    options: { from?: number; fold?: number; maxBytes?: number; turns?: boolean } = {},
   ): boolean {
     const rowId = options.from ?? this.store.edge(sid, side);
     if (rowId === null || this.store.pageOut(sid)) return false;
-    this.store.pageAsked(sid, side, rowId, options.fold);
+    this.store.pageAsked(sid, side, rowId, options.fold, options.turns);
     const params: Record<string, unknown> = { sid, [side]: rowId };
     if (options.fold !== undefined) params.fold = options.fold;
+    if (options.turns) params.turns = true;
     if (options.maxBytes !== undefined) params.maxBytes = options.maxBytes;
     this.post("chat.rows.page", params).catch(() => {
       // Refused (`chat.rows.busy`, or the sub is gone): the ask is not out.

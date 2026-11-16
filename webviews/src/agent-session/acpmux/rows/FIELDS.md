@@ -72,7 +72,7 @@ Sources cited:
 | newestOwnSteer                                                                  | App.tsx:7916                                                  | c                         | the same read, plus a user row's `author`. 2c                                                            |                                                                                |
 | sinceKey                                                                        | App.tsx:5982                                                  | d                         | window `seen` (wire.rs:655). Built                                                                       |                                                                                |
 | canLoadOlder                                                                    | App.tsx:3909                                                  | d                         | `hasBefore` (wire.rs:647). Built                                                                         |                                                                                |
-| earlierPrompts                                                                  | App.tsx:11588                                                 | d                         | a page of turns (decision 235). A0                                                                       |                                                                                |
+| earlierPrompts                                                                  | App.tsx:11588                                                 | d                         | a page of turns, the store's heads (decision 235). Built                                                 |                                                                                |
 | promptCount                                                                     | App.tsx:11591                                                 | e                         | `extra.turnCount` (list_tee:44). Built                                                                   |                                                                                |
 | historyFrom                                                                     | App.tsx:11641                                                 | d                         | `hasBefore`. Built                                                                                       | A0's answer                                                                    |
 | switching                                                                       | App.tsx:1516                                                  | g                         | Built                                                                                                    |                                                                                |
@@ -221,7 +221,8 @@ This section is the input for rows/notYet.ts.
 ### A0
 
 - `presence`, typing and the read mark (`_acpmux/view`): home f through the hold attach (decision 234). They leave this list once PR 3 sends the hold.
-- `earlierPrompts`: a page of turns, `page {turns: true}` (decision 235); the store holds one page of turn heads in 6d.
+- `earlierPrompts`: built in 6d. The store holds one page of turn heads (`page {turns: true}`, decision 235), asked after the first window, once an edition.
+  A head is drawn as its prompt's row id, `row-<turn>`, so a rail jump lands on that row once a page holds it.
 - Untraced and marked b?: `frame`, `laneNoticeBatch`, `subagentReport`, `subagentReportFirst`.
 
 ### row 11

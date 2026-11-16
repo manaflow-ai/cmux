@@ -10914,8 +10914,11 @@ export class AcpmuxDirectClient {
       catalog: NO_CATALOG,
       commands: this.commands,
       canLoadOlder: fromStore ? fromStore.canLoadOlder : this.seqHistoryLeft() || this.nativeBefore() !== undefined,
-      ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
-      ...(this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),
+      ...(fromStore
+        ? fromStore.earlierPrompts && { earlierPrompts: fromStore.earlierPrompts }
+        : this.shownEarlierPrompts().length > 0 && { earlierPrompts: this.shownEarlierPrompts() }),
+      // A chat on the store has no prompt count: its rail draws the page of turns it holds.
+      ...(!fromStore && this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
@@ -14947,6 +14950,10 @@ export class AcpmuxDirectClient {
   /// another chat, ends it.
   /// Resolves true once the prompt is held, false when the read stopped short of it.
   async loadThrough(seq: number): Promise<boolean> {
+    // A chat on the store: `seq` is the turn's prompt rowId (the rail's earlier prompt `row-<id>`),
+    // and the store pages from it.
+    const shown = this.selectedSessionId;
+    if (shown && this.chatRows.holds(shown)) return this.chatRows.through(shown, seq);
     const generation = this.selectionGeneration;
     const held = () => generation === this.selectionGeneration && this.firstSeq !== undefined && this.firstSeq <= seq;
     // The prompt index gives us the target's sequence before its transcript page is held. Fetch

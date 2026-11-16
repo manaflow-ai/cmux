@@ -11,7 +11,15 @@ import {
   type ChatRowsPost,
   chatRowsNamer,
 } from "./host";
-import { STORE_MAX_BYTES, STORE_MAX_ROWS, type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
+import {
+  STORE_MAX_BYTES,
+  STORE_MAX_HEADS,
+  STORE_MAX_HEAD_BYTES,
+  STORE_MAX_ROWS,
+  type ChatFall,
+  ChatRowStore,
+  type ChatRowsSnapshot,
+} from "./store";
 import type { ChatRow } from "./wire";
 
 type Call = { method: string; params: Record<string, unknown> };
@@ -648,5 +656,113 @@ describe("the cap", () => {
     expect(held.bytes).toBeLessThanOrEqual(STORE_MAX_BYTES);
     expect(store.snapshot("c")!.hasBefore).toBe(true);
     expect(store.snapshot("c")!.rows.at(-1)!.id).toBe(80);
+  });
+});
+
+describe("the page of turns", () => {
+  const group = (id: number, extra: Partial<ChatRow> = {}): ChatRow =>
+    row(id, {
+      kind: "group",
+      turn: id - 1,
+      body: { head: `prompt ${id - 1}`, prompt: id - 1, last: id + 1 },
+      ...extra,
+    });
+  const turnsPage = (rows: ChatRow[], extra: Record<string, unknown> = {}) => ({
+    kind: "chatPage",
+    page: { sid: "c", edition: 1, rows, hasBefore: false, hasAfter: false, turns: true, ...extra },
+  });
+
+  test("asks with turns and holds the group rows as heads, never as rows of the stretch", async () => {
+    const { host, store, send, calls } = await opened();
+    send(window(range(5, 100)));
+    expect(host.page("c", "before", { from: 105, turns: true })).toBe(true);
+    expect(calls.at(-1)).toEqual({ method: "chat.rows.page", params: { sid: "c", before: 105, turns: true } });
+    send(turnsPage([group(7), group(12)], { hasBefore: true }));
+    const snapshot = store.snapshot("c")!;
+    expect(snapshot.heads?.rows.map((head) => head.id)).toEqual([7, 12]);
+    expect(snapshot.heads?.hasBefore).toBe(true);
+    expect(ids(snapshot)).toEqual([100, 101, 102, 103, 104]);
+    expect(store.pageOut("c")).toBe(false);
+  });
+
+  test("turns_unsupported: no heads, the page slot is free and a new snapshot says so", async () => {
+    const { host, store, send, drawn } = await opened();
+    send(window(range(3)));
+    host.page("c", "before", { from: 4, turns: true });
+    const before = drawn.length;
+    send({ kind: "chatError", sid: "c", method: "page", id: null, code: "turns_unsupported" });
+    expect(store.snapshot("c")!.heads).toEqual({ rows: [], hasBefore: false, hasAfter: false, unsupported: true });
+    expect(store.pageOut("c")).toBe(false);
+    expect(drawn.length).toBe(before + 1);
+    // A turn that settles after is not a head of a daemon with none.
+    send(op({ op: "row", row: group(9) }));
+    expect(store.snapshot("c")!.heads?.rows).toEqual([]);
+  });
+
+  test("a group row that settles adjoining the run's last head is appended; past a jump it is not", async () => {
+    const { host, store, send } = await opened();
+    send(window(range(3, 20)));
+    host.page("c", "before", { from: 23, turns: true });
+    send(turnsPage([group(7), group(12)]));
+    send(op({ op: "row", row: group(22, { open: true }) }));
+    expect(store.snapshot("c")!.heads?.rows.map((head) => head.id)).toEqual([7, 12]);
+    send(op({ op: "patch", row: group(22, { rev: 2 }) }));
+    expect(store.snapshot("c")!.heads?.rows.map((head) => head.id)).toEqual([7, 12, 22]);
+    // A newer rev of a held head replaces it in place.
+    send(op({ op: "patch", row: group(12, { rev: 3, body: { head: "edited", prompt: 11 } }) }));
+    expect(store.snapshot("c")!.heads?.rows[1]!.rev).toBe(3);
+    // A rail jump's older page that does not adjoin: the run says rows follow it and takes no append.
+    host.page("c", "before", { from: 7, turns: true });
+    send(turnsPage([group(3)], { hasAfter: true }));
+    send(op({ op: "row", row: group(30) }));
+    expect(store.snapshot("c")!.heads?.rows.map((head) => head.id)).toEqual([3]);
+    expect(store.snapshot("c")!.heads?.hasAfter).toBe(true);
+  });
+
+  test("the heads stay within their cap: an append past it lets the oldest go", async () => {
+    const { host, store, send } = await opened();
+    send(window(range(3, 5000)));
+    host.page("c", "before", { from: 5003, turns: true });
+    const many = Array.from({ length: STORE_MAX_HEADS }, (_, index) => group(10 + index * 10));
+    send(turnsPage(many));
+    send(op({ op: "row", row: group(4990) }));
+    const heads = store.snapshot("c")!.heads!;
+    expect(heads.rows.length).toBe(STORE_MAX_HEADS);
+    expect(heads.rows[0]!.id).toBe(20);
+    expect(heads.hasBefore).toBe(true);
+    // Bytes too: a page of heads past STORE_MAX_HEAD_BYTES keeps those nearest the row asked from.
+    host.page("c", "before", { from: 5003, turns: true });
+    const big = Array.from({ length: 10 }, (_, index) =>
+      group(100 + index, { body: { head: "x".repeat(STORE_MAX_HEAD_BYTES / 4), prompt: 99 + index } }),
+    );
+    send(turnsPage(big));
+    const kept = store.snapshot("c")!.heads!;
+    expect(kept.rows.at(-1)!.id).toBe(109);
+    expect(kept.rows.length).toBeLessThan(10);
+    expect(kept.hasBefore).toBe(true);
+  });
+
+  test("another edition lets go of the heads; the same edition keeps them", async () => {
+    const { host, store, send } = await opened();
+    send(window(range(3)));
+    host.page("c", "before", { from: 4, turns: true });
+    send(turnsPage([group(2)]));
+    send(window(range(3)));
+    expect(store.snapshot("c")!.heads?.rows.length).toBe(1);
+    send(window(range(3), { edition: 2 }));
+    expect(store.snapshot("c")!.heads).toBeNull();
+    expect(store.snapshot("c")!.edition).toBe(2);
+  });
+
+  test("a page after a row not held marks what lies between as missing, on both sides", async () => {
+    const { host, store, send } = await opened();
+    send(window(range(10, 100), { hasBefore: true }));
+    expect(host.page("c", "after", { from: 40 })).toBe(true);
+    send({ kind: "chatPage", page: { sid: "c", edition: 1, rows: range(5, 41), hasBefore: true, hasAfter: true } });
+    const snapshot = store.snapshot("c")!;
+    expect(ids(snapshot)).toEqual([41, 42, 43, 44, 45, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109]);
+    const gaps = snapshot.rows.filter((entry) => entry.gapBefore).map((entry) => entry.id);
+    expect(gaps).toEqual([100]);
+    expect(snapshot.hasBefore).toBe(true);
   });
 });
