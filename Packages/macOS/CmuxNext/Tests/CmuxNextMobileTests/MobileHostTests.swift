@@ -410,7 +410,7 @@ import Testing
     @Test func directoryListsAndRemovesWithTheBearerToken() async throws {
         let base = try #require(URL(string: "https://cmuxMobile.test"))
         let log = RequestLog()
-        let directory = MobileHostDeviceDirectory(baseURL: base, buildSpace: nil) { request in
+        let directory = MobileHostDeviceDirectory(baseURL: base, buildSpace: .nightly) { request in
             await log.add(request)
             if request.httpMethod == "DELETE" {
                 return (Data(), request.url?.lastPathComponent == "b" ? 404 : 200)
@@ -424,7 +424,7 @@ import Testing
         let requests = await log.requests
         #expect(requests.map { "\($0.httpMethod ?? "GET") \($0.url?.path ?? "")" } == ["GET /v1/me/devices", "DELETE /v1/devices/a", "DELETE /v1/devices/b"])
         #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer tok" })
-        let failing = MobileHostDeviceDirectory(baseURL: base, buildSpace: nil) { _ in (Data(), 502) }
+        let failing = MobileHostDeviceDirectory(baseURL: base, buildSpace: .nightly) { _ in (Data(), 502) }
         await #expect(throws: MobileHostDeviceDirectory.Failure.status(502)) { try await failing.phones(token: "tok") }
     }
 

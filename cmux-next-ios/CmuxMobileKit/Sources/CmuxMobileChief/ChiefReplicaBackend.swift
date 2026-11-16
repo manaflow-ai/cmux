@@ -216,7 +216,8 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
 
         private func connectOnce() async -> Bool {
             guard let url = socketURL(), let token = try? await http.token(forceRefresh: false) else { return false }
-            let task = http.session.webSocketTask(with: http.socketRequest(url, token: token))
+            guard let request = try? http.socketRequest(url, token: token) else { return false }
+            let task = http.session.webSocketTask(with: request)
             socket = task
             task.resume()
             defer {

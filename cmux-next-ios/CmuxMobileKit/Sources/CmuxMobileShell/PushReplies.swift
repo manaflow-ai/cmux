@@ -28,7 +28,7 @@ extension LiveCoordinator {
             transport: transport.link,
             relayOnly: DeveloperOptions.relayOnly,
             blockUDP: DeveloperOptions.blockUDP,
-            dialer: FFIMacLinkDialer(buildSpace: auth.buildSpace?.headerValue),
+            dialer: FFIMacLinkDialer(buildSpace: Result { try auth.buildSpace.headerValue() }),
             keys: PhoneKeys(userID: user.id),
             push: PushKeys.current(),
             watchesConnectivity: watchesConnectivity

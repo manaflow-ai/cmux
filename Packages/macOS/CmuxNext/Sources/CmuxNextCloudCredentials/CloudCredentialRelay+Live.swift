@@ -6,7 +6,7 @@ import os
 
 public nonisolated extension CloudCredentialRelay {
     /// One install-bound relay shared by the app provider and private link carrier.
-    static func live(identity: MacInstallIdentity, baseURL: URL, buildSpace: CMUXBuildSpace?, capability: CloudPreApproval? = nil,
+    static func live(identity: MacInstallIdentity, baseURL: URL, buildSpace: CMUXBuildSpaceState, capability: CloudPreApproval? = nil,
                      signedIn: @escaping @Sendable () async -> Bool,
                      allowedOps: @escaping @Sendable () async -> Set<String>,
                      carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier) -> CloudCredentialRelay {
@@ -41,11 +41,11 @@ public struct CloudPreApproval: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
     private let platform: URL
     private let headers: [String: String]
-    private let buildSpace: CMUXBuildSpace?
+    private let buildSpace: CMUXBuildSpaceState
 
     /// `platform`: the origin that serves `POST /v1/cloud/capability`; `headers`: the install's request headers;
     /// `buildSpace`: a tagged dev build's cloud data space (``CloudConfiguration/buildSpace``).
-    public init(platform: URL, headers: [String: String], buildSpace: CMUXBuildSpace?) {
+    public init(platform: URL, headers: [String: String], buildSpace: CMUXBuildSpaceState) {
         self.platform = platform
         self.headers = headers
         self.buildSpace = buildSpace

@@ -181,6 +181,10 @@ public final class CloudAuth {
         let environment = useCaptureFixture ? [:] : (explicitEnvironment
             ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment))
         self.configuration = configuration
+        // A DEV build with no usable tag: every cloud client refuses (CMUXBuildSpaceError), never nightly's data.
+        if let refusal = configuration.buildSpace.refusal {
+            Self.fileLog.fault("cloud calls refused: \(refusal.localizedDescription, privacy: .public)")
+        }
         let launch = useCaptureFixture ? (signIn: LaunchSignIn.noSignIn, paths: [String]())
             : Self.launchSignIn(configuration: configuration, environment: environment)
         let signIn = launch.signIn

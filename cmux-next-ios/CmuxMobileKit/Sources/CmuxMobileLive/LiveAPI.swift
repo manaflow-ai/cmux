@@ -11,10 +11,11 @@ public struct LiveAPI: Sendable {
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
     let session: URLSession
     /// A dev build's cloud data space (`X-Cmux-Build-Space`), on every request and the signaling
-    /// upgrade; nil (nightly, TestFlight, App Store, Demo) sends no header.
-    public let buildSpace: CMUXBuildSpace?
+    /// upgrade; `.nightly` (nightly, TestFlight, App Store, Demo) sends no header, and a misconfigured
+    /// dev build's requests throw ``CMUXBuildSpaceError``.
+    public let buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, session: URLSession = .shared, buildSpace: CMUXBuildSpace? = nil,
+    public init(baseURL: URL, session: URLSession = .shared, buildSpace: CMUXBuildSpaceState = .nightly,
                 accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         self.baseURL = baseURL
         self.session = session
@@ -308,7 +309,7 @@ public struct LiveAPI: Sendable {
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(try await accessToken(false))", forHTTPHeaderField: "Authorization")
         request.setValue("cmux-mobile.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         return request
     }
 
@@ -321,7 +322,7 @@ public struct LiveAPI: Sendable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         return request
     }
 

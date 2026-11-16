@@ -10,8 +10,8 @@ public final class CloudMachineWire {
     private let apiBaseURL: URL
     private let token: @Sendable () async throws -> String
     private let team: @Sendable () async -> String?
-    /// A tagged dev build's cloud data space, on the ticket request and the socket's upgrade; nil sends none.
-    private let buildSpace: CMUXBuildSpace?
+    /// A tagged dev build's cloud data space, on the ticket request and the socket's upgrade; none for nightly; a misconfigured dev build opens none.
+    private let buildSpace: CMUXBuildSpaceState
     private var runner: Task<Void, Never>?
     private var generation = 0
     /// The person's spare that the platform says just became ready (`cloud.spare.ready`, for this socket's own team):
@@ -19,7 +19,7 @@ public final class CloudMachineWire {
     public var onSpareReady: @MainActor (String) -> Void = { _ in }
 
     public init(apiBaseURL: URL, token: @escaping @Sendable () async throws -> String,
-                team: @escaping @Sendable () async -> String?, buildSpace: CMUXBuildSpace?) {
+                team: @escaping @Sendable () async -> String?, buildSpace: CMUXBuildSpaceState) {
         self.apiBaseURL = apiBaseURL
         self.token = token
         self.team = team
@@ -103,7 +103,7 @@ public final class CloudMachineWire {
     /// The `/v1/wire/cloud` socket's upgrade: the one-use ticket and the team in the subprotocol, the app version and
     /// the build space, when there is one.
     nonisolated static func socketRequest(apiBaseURL: URL, ticket: String, team: String?, version: String?,
-                                          buildSpace: CMUXBuildSpace?) throws -> URLRequest {
+                                          buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
         var components = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
         components.scheme = components.scheme == "http" ? "ws" : "wss"
         components.path = "/v1/wire/cloud"
@@ -114,23 +114,23 @@ public final class CloudMachineWire {
             "cmux.wire.v1", "ticket.\(ticket)", teamProtocol,
         ].compactMap { $0 }).joined(separator: ", "), forHTTPHeaderField: "Sec-WebSocket-Protocol")
         if let version { request.setValue(version, forHTTPHeaderField: "x-cmux-client-version") }
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         return request
     }
 
     /// `POST /v1/wire/ticket` for the cloud scope, with the person's session and the build space, when there is one.
-    nonisolated static func ticketRequest(apiBaseURL: URL, access: String, buildSpace: CMUXBuildSpace?) -> URLRequest {
+    nonisolated static func ticketRequest(apiBaseURL: URL, access: String, buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
         var request = URLRequest(url: apiBaseURL.appendingPathComponent("v1/wire/ticket"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(#"{"scope":"cloud"}"#.utf8)
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         return request
     }
 
     private func mintTicket(access: String) async throws -> String {
-        let request = Self.ticketRequest(apiBaseURL: apiBaseURL, access: access, buildSpace: buildSpace)
+        let request = try Self.ticketRequest(apiBaseURL: apiBaseURL, access: access, buildSpace: buildSpace)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw CloudAPIError.transport("Cloud wire ticket refused")

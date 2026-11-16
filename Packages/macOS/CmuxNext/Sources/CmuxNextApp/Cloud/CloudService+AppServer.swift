@@ -166,11 +166,12 @@ extension CloudService {
         let auth = auth, base = FeedService.apiBaseURL(auth: auth), buildSpace = configuration.buildSpace
         let session = Self.sessionTransport
         return { path, body in
-            var request = URLRequest(url: base.appendingPathComponent(path), timeoutInterval: 15)
+            var request = URLRequest(url: base.appendingPathComponent(path))
             request.httpMethod = "POST"
+            request.timeoutInterval = 15
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
-            buildSpace?.apply(to: &request)
+            try buildSpace.apply(to: &request)
             request.httpBody = body
             return try await session.data(for: request).0
         }

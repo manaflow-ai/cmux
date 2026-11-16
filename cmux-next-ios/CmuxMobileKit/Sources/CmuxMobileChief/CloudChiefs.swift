@@ -57,18 +57,19 @@ public struct CloudChief: Sendable, Equatable {
 /// DEBUG builds. Empty: this build has no Cloud Chief.
 public struct ChiefCloudConfig: Sendable, Equatable {
     public var baseURL: URL
-    /// A dev build's cloud data space (`X-Cmux-Build-Space`), sent on every request and socket
-    /// upgrade to the Cloud service; nil sends no header. The app's composition root decides it.
-    public var buildSpace: CMUXBuildSpace?
+    /// The build's cloud data space: a dev build's `X-Cmux-Build-Space` on every request and socket
+    /// upgrade to the Cloud service; a misconfigured dev build's are refused. The app's composition
+    /// root decides it.
+    public var buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, buildSpace: CMUXBuildSpace? = nil) {
+    public init(baseURL: URL, buildSpace: CMUXBuildSpaceState = .nightly) {
         self.baseURL = baseURL
         self.buildSpace = buildSpace
     }
 
     /// The configured Cloud service, its requests in `buildSpace`.
     public static func current(environment: [String: String] = ProcessInfo.processInfo.environment,
-                               bundle: Bundle = .main, buildSpace: CMUXBuildSpace?) -> ChiefCloudConfig? {
+                               bundle: Bundle = .main, buildSpace: CMUXBuildSpaceState) -> ChiefCloudConfig? {
         #if DEBUG
         if let raw = environment["CMUX_MOBILE_CLOUD_API_BASE"] {
             return URL(string: raw).flatMap { $0.host() == nil ? nil : ChiefCloudConfig(baseURL: $0, buildSpace: buildSpace) }
@@ -87,8 +88,9 @@ struct ChiefCloudHTTP: Sendable {
     let base: URL
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
     var session: URLSession = .shared
-    /// A dev build's cloud data space: every request and socket upgrade to the Worker carries it.
-    var buildSpace: CMUXBuildSpace?
+    /// The build's cloud data space: every request and socket upgrade to the Worker carries it, and a
+    /// misconfigured dev build's throw ``CMUXBuildSpaceError`` before they are sent.
+    var buildSpace: CMUXBuildSpaceState = .nightly
 
     struct Reply: Sendable {
         var status: Int
@@ -105,7 +107,7 @@ struct ChiefCloudHTTP: Sendable {
         var forceRefresh = false
         while true {
             let token = try await accessToken(forceRefresh)
-            let request = makeRequest(method, path, token: token, body: body, team: team)
+            let request = try makeRequest(method, path, token: token, body: body, team: team)
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401, !forceRefresh {
@@ -117,7 +119,7 @@ struct ChiefCloudHTTP: Sendable {
     }
 
     /// The request ``send(_:_:body:team:)`` sends with `token`.
-    func makeRequest(_ method: String, _ path: String, token: String, body: Data? = nil, team: String? = nil) -> URLRequest {
+    func makeRequest(_ method: String, _ path: String, token: String, body: Data? = nil, team: String? = nil) throws -> URLRequest {
         var request = URLRequest(url: url(path))
         request.httpMethod = method
         request.timeoutInterval = 20
@@ -127,16 +129,16 @@ struct ChiefCloudHTTP: Sendable {
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.httpBody = body
         }
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         return request
     }
 
     /// A `cmux.wire.v1` socket upgrade to `url` with `token`.
-    func socketRequest(_ url: URL, token: String) -> URLRequest {
+    func socketRequest(_ url: URL, token: String) throws -> URLRequest {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
         request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         return request
     }
 
@@ -153,7 +155,7 @@ struct ChiefCloudHTTP: Sendable {
             if toWorker {
                 request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "authorization")
                 // A presigned bucket URL gets neither the bearer nor the build space.
-                buildSpace?.apply(to: &request)
+                try buildSpace.apply(to: &request)
             }
             let (data, response) = try await session.upload(for: request, from: body)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0

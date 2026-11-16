@@ -8,10 +8,10 @@ public import Foundation
 public struct InstallHTTPTransport: InstallAuthTransport {
     private let baseURL: URL
     private let session: URLSession
-    /// A tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); nil sends no header.
-    private let buildSpace: CMUXBuildSpace?
+    /// A tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); none for nightly; a misconfigured dev build's requests throw.
+    private let buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, buildSpace: CMUXBuildSpace?) {
+    public init(baseURL: URL, buildSpace: CMUXBuildSpaceState) {
         self.baseURL = baseURL
         self.buildSpace = buildSpace
         let configuration = URLSessionConfiguration.ephemeral
@@ -22,7 +22,7 @@ public struct InstallHTTPTransport: InstallAuthTransport {
     }
 
     public func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
-        let (data, response) = try await session.data(for: postRequest(path, json: json, bearer: bearer, headers: headers))
+        let (data, response) = try await session.data(for: try postRequest(path, json: json, bearer: bearer, headers: headers))
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
     }
 
@@ -32,12 +32,12 @@ public struct InstallHTTPTransport: InstallAuthTransport {
     }
 
     /// The request ``post(_:json:bearer:headers:)`` sends.
-    func postRequest(_ path: String, json: Data, bearer: String?, headers: [String: String]) -> URLRequest {
+    func postRequest(_ path: String, json: Data, bearer: String?, headers: [String: String]) throws -> URLRequest {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.httpBody = json
         request.setValue("application/json", forHTTPHeaderField: "content-type")
-        authorize(&request, bearer: bearer, headers: headers)
+        try authorize(&request, bearer: bearer, headers: headers)
         return request
     }
 
@@ -52,14 +52,14 @@ public struct InstallHTTPTransport: InstallAuthTransport {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "accept")
-        authorize(&request, bearer: bearer, headers: headers)
+        try authorize(&request, bearer: bearer, headers: headers)
         return request
     }
 
-    private func authorize(_ request: inout URLRequest, bearer: String?, headers: [String: String]) {
+    private func authorize(_ request: inout URLRequest, bearer: String?, headers: [String: String]) throws {
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization") }
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
     }
 }
 

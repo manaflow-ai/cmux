@@ -19,8 +19,8 @@ public final class CloudMachineStatePush {
     let accessToken: @Sendable () async throws -> String
     let teamID: CloudAPIClient.TeamID
     let session: URLSession
-    /// A tagged dev build's cloud data space, sent on every socket's upgrade; nil sends none.
-    let buildSpace: CMUXBuildSpace?
+    /// A tagged dev build's cloud data space, sent on every socket's upgrade; none for nightly; a misconfigured dev build opens none.
+    let buildSpace: CMUXBuildSpaceState
     /// The local daemon's connection the frames go to (the Cloud app server's host).
     public var connection: @MainActor () -> DaemonConnection? = { nil }
     /// A machine's record from its push.
@@ -65,17 +65,17 @@ public final class CloudMachineStatePush {
 
     /// `session` must refuse redirects (``CloudOwnerAPIClient/transport`` does): one would carry the bearer elsewhere.
     public init(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String, teamID: @escaping CloudAPIClient.TeamID,
-                session: URLSession? = nil, buildSpace: CMUXBuildSpace? = nil) {
+                session: URLSession? = nil, buildSpace: CMUXBuildSpaceState = .nightly) {
         (self.baseURL, self.accessToken, self.teamID, self.buildSpace) = (baseURL, accessToken, teamID, buildSpace)
         self.session = session ?? CloudOwnerAPIClient.transport
     }
 
     /// One state socket's upgrade: the person's bearer, the cmux team and the build space, when there is one.
-    nonisolated static func upgradeRequest(url: URL, token: String, team: String?, buildSpace: CMUXBuildSpace?) -> URLRequest {
+    nonisolated static func upgradeRequest(url: URL, token: String, team: String?, buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
         if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         return request
     }
 
@@ -150,7 +150,8 @@ public final class CloudMachineStatePush {
     private func connect(_ machine: String) async -> Bool {
         guard let url = url(machine), let token = try? await accessToken() else { return false }
         let team = await teamID()
-        let request = Self.upgradeRequest(url: url, token: token, team: team, buildSpace: buildSpace)
+        // A misconfigured dev build opens no socket (its refusal is CMUXBuildSpaceError).
+        guard let request = try? Self.upgradeRequest(url: url, token: token, team: team, buildSpace: buildSpace) else { return false }
         guard watches[machine] != nil, !Task.isCancelled else { return false }
         let task = session.webSocketTask(with: request)
         watches[machine]?.task = task

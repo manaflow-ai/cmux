@@ -1739,6 +1739,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemote",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Resources"),
@@ -2634,6 +2635,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWindowRules",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextWorkspaceRepair",
+                // BuildSpaceFailClosedTests builds the misconfigured build space a dev build refuses with.
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // GhosttyGlassMinimumContrastTests builds a Ghostty config.
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),

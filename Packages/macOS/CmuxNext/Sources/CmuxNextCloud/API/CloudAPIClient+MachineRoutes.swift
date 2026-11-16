@@ -21,7 +21,7 @@ extension CloudAPIClient {
                                       teamID: @escaping TeamID, session: URLSession = CloudAPIClient.noStoreTransport,
                                       appVersion: String = "cmux-next", machineIO: CloudMachineIO? = nil,
                                       installToken: (@Sendable () async throws -> String)? = nil,
-                                      buildSpace: CMUXBuildSpace? = nil) -> CloudAPIClient {
+                                      buildSpace: CMUXBuildSpaceState = .nightly) -> CloudAPIClient {
         var client = CloudAPIClient(baseURL: baseURL, tokens: { (try await accessToken(), "") }, teamID: teamID, session: session,
                                     appVersion: appVersion, buildSpace: buildSpace)
         client.machineIO = machineIO

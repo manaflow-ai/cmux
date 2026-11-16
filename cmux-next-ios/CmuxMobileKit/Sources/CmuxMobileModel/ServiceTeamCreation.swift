@@ -16,22 +16,23 @@ public struct ServiceTeamCreation: Sendable {
     }
 
     public let apiBase: URL
-    /// A dev build's cloud data space (`X-Cmux-Build-Space`); nil sends no header.
-    public let buildSpace: CMUXBuildSpace?
+    /// The build's cloud data space (a dev build's `X-Cmux-Build-Space`); a misconfigured dev build's
+    /// request throws ``CMUXBuildSpaceError``.
+    public let buildSpace: CMUXBuildSpaceState
 
-    public init(apiBase: URL, buildSpace: CMUXBuildSpace?) {
+    public init(apiBase: URL, buildSpace: CMUXBuildSpaceState) {
         self.apiBase = apiBase
         self.buildSpace = buildSpace
     }
 
     /// `POST /v1/teams {name}`.
-    public func request(accessToken: String, name: String) -> URLRequest {
+    public func request(accessToken: String, name: String) throws -> URLRequest {
         var request = URLRequest(url: apiBase.appending(path: "v1/teams"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["name": name])
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         return request
     }
 

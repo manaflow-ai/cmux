@@ -135,6 +135,20 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
         }
     }
 
+    /// Whether this build must have a cloud build space of its own: every DEV build (`com.cmuxterm.app.debug`,
+    /// tagged or not) and a tagged staging build (`com.cmuxterm.app.staging.<tag>`). Without a usable ``devTag``
+    /// such a build refuses cloud calls instead of sharing nightly's data (`CMUXBuildSpaceState`).
+    public var needsBuildSpace: Bool {
+        guard let bundleID else { return false }
+        let bytes = Array(bundleID.utf8)
+        func within(_ prefix: String, bare: Bool) -> Bool {
+            let head = Array(prefix.utf8)
+            if bytes == head { return bare }
+            return bytes.count > head.count && bytes.starts(with: head) && bytes[head.count] == UInt8(ascii: ".")
+        }
+        return within("com.cmuxterm.app.debug", bare: true) || within("com.cmuxterm.app.staging", bare: false)
+    }
+
     /// FNV-1a 32 of the key, 8 hex digits: for names that must stay short
     /// (socket paths, session names).
     public var keyHash: String { Self.fnv1a32(Array(key.utf8)) }

@@ -79,12 +79,13 @@ public actor WireHomeSource: HomeSource {
     ///   - sockets: Every WebSocket (the fake in tests).
     ///   - clock: Paces the backoff between dials and the keepalive pings.
     ///   - fetchDirectory: Where fetched attachments are written.
-    ///   - buildSpace: A dev build's cloud data space (`X-Cmux-Build-Space` on every request and
-    ///     socket upgrade to `baseURL`); nil for nightly and stable builds and self-hosted servers.
+    ///   - buildSpace: The build's cloud data space (a dev build's `X-Cmux-Build-Space` on every request
+    ///     and socket upgrade to `baseURL`); `.nightly` for nightly and stable builds and self-hosted
+    ///     servers. A misconfigured dev build's requests and sockets are refused.
     public init(baseURL: URL, auth: HomeWireAuth, displayName: String = "", http: any HomeWireHTTP,
                 sockets: any HomeWireSocketConnecting, clock: any Clock<Duration> = ContinuousClock(),
                 fetchDirectory: URL = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-wire", isDirectory: true),
-                buildSpace: CMUXBuildSpace? = nil) {
+                buildSpace: CMUXBuildSpaceState = .nightly) {
         client = HomeWireClient(baseURL: baseURL, auth: auth, http: http, buildSpace: buildSpace)
         self.sockets = sockets
         self.clock = clock
@@ -94,7 +95,7 @@ public actor WireHomeSource: HomeSource {
 
     /// The production source over one URLSession transport.
     public init(baseURL: URL, auth: HomeWireAuth, displayName: String = "",
-                transport: URLSessionHomeWireTransport = URLSessionHomeWireTransport(), buildSpace: CMUXBuildSpace? = nil) {
+                transport: URLSessionHomeWireTransport = URLSessionHomeWireTransport(), buildSpace: CMUXBuildSpaceState = .nightly) {
         self.init(baseURL: baseURL, auth: auth, displayName: displayName, http: transport, sockets: transport, buildSpace: buildSpace)
     }
 

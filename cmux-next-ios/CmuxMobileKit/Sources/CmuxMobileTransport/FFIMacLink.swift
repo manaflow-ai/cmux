@@ -4,18 +4,19 @@ import Foundation
 
 /// Dials Macs through the Rust cmux-mobile-link core (WebRTC or WireGuard).
 public struct FFIMacLinkDialer: MacLinkDialer {
-    /// A dev build's `X-Cmux-Build-Space` value (`dev:<slug>`), or nil to send none. The Rust core
-    /// puts it on every cmux-mobile-api request and the signaling upgrade it makes.
-    let buildSpace: String?
+    /// A dev build's `X-Cmux-Build-Space` value (`dev:<slug>`), nil to send none, or the refusal of a
+    /// misconfigured dev build (`CMUXBuildSpaceError`), which dials nothing. The Rust core puts the
+    /// value on every cmux-mobile-api request and the signaling upgrade it makes.
+    let buildSpace: Result<String?, any Error>
 
-    public init(buildSpace: String?) {
+    public init(buildSpace: Result<String?, any Error>) {
         self.buildSpace = buildSpace
     }
 
     /// The build space is process state in the Rust core, set before each call that reaches the
-    /// service, like the keepalive setting.
-    private func applyBuildSpaceToCore() {
-        setBuildSpace(value: buildSpace)
+    /// service, like the keepalive setting. Throws, setting nothing, for a misconfigured dev build.
+    private func applyBuildSpaceToCore() throws {
+        setBuildSpace(value: try buildSpace.get())
     }
 
     /// Settings → Transport → Ultra mode (`CmuxMobilePreferences.Key.ultra`, the same
@@ -29,7 +30,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
         let observer = StateObserver()
         // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
         KeepaliveBeat.applySettingToCore()
-        applyBuildSpaceToCore()
+        try applyBuildSpaceToCore()
         do {
             let handle = try await connectWithOptions(
                 baseUrl: endpoint.baseURL.absoluteString,
@@ -52,7 +53,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
         // The signaling socket opened here reads the setting at its ticks.
         KeepaliveBeat.applySettingToCore()
-        applyBuildSpaceToCore()
+        guard (try? applyBuildSpaceToCore()) != nil else { return [] }
         return await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
@@ -62,7 +63,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     }
 
     public func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
-        applyBuildSpaceToCore()
+        guard (try? applyBuildSpaceToCore()) != nil else { return [] }
         return await CmuxMobileLinkFFI.networkChanged(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
