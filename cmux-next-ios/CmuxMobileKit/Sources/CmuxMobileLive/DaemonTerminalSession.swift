@@ -109,6 +109,17 @@ public final class DaemonTerminalSession: TerminalSession {
     /// (`agent-cli-hybrid-v1`): a reattach names them, so the Mac sends what changed
     /// since that frame instead of the whole screen.
     private var hybridResume: (stream: String, frame: Int)?
+    /// Agent CLI frames this session could not draw (``DaemonTerminalInbound/hybridFallback(reason:)``).
+    /// The first makes a full resync (an attach that names no frame: a keyframe); after the
+    /// second the session attaches in bytes mode (it declares no hybrid capability).
+    private(set) var hybridFallbacks = 0
+    /// The attach whose frame failed is closing: attach again once it has.
+    private var resyncAfterClose = false
+    /// The session declares the hybrid capabilities: the setting is on and its frames did
+    /// not fail twice.
+    private var hybridWanted: Bool { Self.agentCLIHybridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2 }
+    /// Where the setting is read (tests give each session its own).
+    var agentCLIHybridDefaults: UserDefaults = .standard
     /// History rows the next attach asks for above the screen (nil: all of
     /// them). Grows by ``historyChunkRows`` with each ``loadOlderHistory()``,
     /// and a reattach keeps it, so a reader keeps the rows they had.
@@ -666,8 +677,9 @@ public final class DaemonTerminalSession: TerminalSession {
             inbox.setPaused(outputPaused)
             self.inbox = inbox
             let surface = surface
+            let resumeFrom = hybridWanted ? hybridResume : nil
             eventTask = Task.detached { [weak self] in
-                var parser = DaemonTerminalEventParser(surface: surface)
+                var parser = DaemonTerminalEventParser(surface: surface, hybridResume: resumeFrom)
                 for await line in events {
                     await inbox.push(parser.parse(line))
                 }
@@ -680,7 +692,7 @@ public final class DaemonTerminalSession: TerminalSession {
             sizeClaimed = false
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
-            info["capabilities"] = Self.capabilities(agentCLIHybrid: Self.agentCLIHybridEnabled())
+            info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
             let setup = await client.requests(
                 [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )
@@ -699,7 +711,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 func send(historyRows: Int?) async throws -> Data {
                     // Settings → Transport → Agent CLI Screen Changes: a reattach resumes
                     // the hybrid stream from the frame this mirror drew.
-                    if Self.agentCLIHybridEnabled(), let resume = hybridResume {
+                    if hybridWanted, let resume = hybridResume {
                         var params: [String: Any] = ["surface": surface, "hybrid_stream": resume.stream, "hybrid_frame": resume.frame]
                         if let size {
                             params["cols"] = size.columns
@@ -895,6 +907,12 @@ public final class DaemonTerminalSession: TerminalSession {
         markInputDetached()
         draining = false
         guard handler != nil, !ended else { return }
+        if resyncAfterClose {
+            // An agent CLI frame failed: attach again at once, for a keyframe or bytes.
+            resyncAfterClose = false
+            reconnect()
+            return
+        }
         handler?(.connection(connectionState))
         log.info("surface \(self.surface): link dropped, waiting to reattach")
     }
@@ -939,6 +957,14 @@ public final class DaemonTerminalSession: TerminalSession {
             historyRowsOmitted = rows
         case let .hybridFrame(stream, frame, _):
             hybridResume = (stream, frame)
+        case .hybridFallback(let reason):
+            // The screen may be behind the Mac's: never resume from it.
+            hybridResume = nil
+            hybridFallbacks += 1
+            log.error("surface \(self.surface, privacy: .public): agent CLI frame not drawn (\(reason, privacy: .public)): \(self.hybridFallbacks < 2 ? "full resync" : "bytes mode", privacy: .public)")
+            guard let client, !resyncAfterClose else { break }
+            resyncAfterClose = true
+            Task { await client.close() }
         case .resetMirror(let alternate):
             // A `resized` replay holds the whole history.
             historyRowsOmitted = 0

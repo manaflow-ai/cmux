@@ -49,7 +49,9 @@ import Testing
         #expect(style.sgr == "\u{1b}[0;4;38;2;1;2;3;101m")
         let frame = try #require(AgentCLIHybridFrame(event(frame: 1, base: nil, data: data)))
         let text = String(decoding: try #require(frame.terminalBytes), as: UTF8.self)
-        #expect(text.contains("\u{1b}[1;1H\u{1b}[0;4;38;2;1;2;3;101m界\u{1b}[0m"), "no blank after a wide glyph")
+        // The empty cell first, then the glyph over it: Ghostty decides whether 界 covers it
+        // (cmux-tui `vt::tests::a_wide_glyph_never_depends_on_a_width_table`).
+        #expect(text.contains("\u{1b}[1;1H\u{1b}[1;2H\u{1b}[0;4;38;2;1;2;3;101m \u{1b}[1;1H界\u{1b}[0m"), text)
     }
 
     @Test func truncatedOrTrailingBytesAreNotADelta() {
@@ -73,7 +75,7 @@ import Testing
     }
 
     @Test func aResumedAttachsFirstFrameKeepsTheScreen() {
-        var parser = DaemonTerminalEventParser(surface: 7)
+        var parser = DaemonTerminalEventParser(surface: 7, hybridResume: (stream: "s1", frame: 5))
         let events = parser.parse(line(event(frame: 9, base: 5, data: Data([0, 0, 0, 0]))))
         #expect(events.last == .hybridFrame(stream: "s1", frame: 9, resumed: true))
         #expect(!events.contains(.historyRowsOmitted(0)))
@@ -174,5 +176,18 @@ import Testing
             #expect(decoded.stream == expected.stream && decoded.frame == expected.frame && decoded.base == expected.base)
             #expect(decoded.terminalBytes == expected.terminalBytes, "frame \(expected.frame)")
         }
+    }
+
+    /// cmux-tui's `vt::tests::a_wide_glyph_never_depends_on_a_width_table`, byte for byte: a
+    /// glyph that is not ASCII never leaves the next cell where a width table guessed.
+    @Test func aWideGlyphNeverDependsOnAWidthTable() throws {
+        let style = AgentCLIHybridFrame.Style(fg: .rgb(1, 2, 3), bg: .palette(9), attrs: 0x100)
+        let cells = ["\u{1F680}", "", "a", "\u{E9}", "b"].map { AgentCLIHybridFrame.Cell(text: $0, style: style) }
+        let frame = AgentCLIHybridFrame(stream: "s1", frame: 1, base: nil, columns: 20, rows: 4,
+                                        delta: .init(shift: 0, spans: [.set(row: 0, column: 0, cells: cells)]),
+                                        cursorX: 0, cursorY: 0, cursorVisible: false)
+        let text = String(decoding: try #require(frame.terminalBytes), as: UTF8.self)
+        #expect(text == "\u{1b}[?2026h\u{1b}[?25l\u{1b}[0m\u{1b}[H\u{1b}[2J\u{1b}[1;1H\u{1b}[1;2H\u{1b}[0;4;38;2;1;2;3;101m "
+            + "\u{1b}[1;1H\u{1F680}\u{1b}[1;3Ha\u{E9}\u{1b}[1;5Hb\u{1b}[0m\u{1b}[1;1H\u{1b}[?2026l")
     }
 }

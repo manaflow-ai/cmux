@@ -68,30 +68,53 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
             out += "\u{1b}[\(-delta.shift)T"
         }
         var style: Style?
+        func use(_ want: Style) {
+            if style != want {
+                out += want.sgr
+                style = want
+            }
+        }
         for span in delta.spans {
             switch span {
             case let .set(row, column, cells):
                 out += "\u{1b}[\(row + 1);\(column + 1)H"
-                var afterWide = false
-                for cell in cells {
-                    if style != cell.style {
-                        out += cell.style.sgr
-                        style = cell.style
+                // Whether the cursor stands at the next cell's column. After a glyph that is not
+                // one ASCII character it may not: the phone's Ghostty gives it the width its own
+                // Unicode tables say (🚀 and ✅ are wide there), so the next cell is placed by
+                // column, and no width table here decides anything.
+                var placed = true
+                var skip = false
+                for (index, cell) in cells.enumerated() {
+                    let x = column + index
+                    if skip {
+                        skip = false
+                        continue
                     }
+                    let ascii = cell.text.utf8.count == 1 && (0x20...0x7E).contains(cell.text.utf8.first ?? 0)
+                    if !ascii, !cell.text.isEmpty, index + 1 < cells.count, cells[index + 1].text.isEmpty {
+                        // The empty cell right of a glyph first: a wide glyph then covers it, a
+                        // narrow one leaves it blank. Which it is is Ghostty's to say.
+                        out += "\u{1b}[\(row + 1);\(x + 2)H"
+                        use(cells[index + 1].style)
+                        out += " \u{1b}[\(row + 1);\(x + 1)H"
+                        use(cell.style)
+                        out += cell.text
+                        skip = true
+                        placed = false
+                        continue
+                    }
+                    if !placed { out += "\u{1b}[\(row + 1);\(x + 1)H" }
+                    use(cell.style)
                     if cell.text.isEmpty {
-                        // The trailing half of a wide glyph: the cursor is past it already.
-                        if !afterWide { out += " " }
-                        afterWide = false
+                        out += " "
+                        placed = true
                         continue
                     }
                     out += cell.text
-                    afterWide = Self.width(cell.text) == 2
+                    placed = ascii
                 }
             case let .clear(row, column, count):
-                if style != .plain {
-                    out += "\u{1b}[0m"
-                    style = .plain
-                }
+                use(.plain)
                 out += "\u{1b}[\(row + 1);\(column + 1)H\u{1b}[\(count)X"
             }
         }
@@ -101,17 +124,38 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         return Data(out.utf8)
     }
 
-    /// Columns `text` takes, as `cmux_agent_cli_render::char_width` counts them.
-    static func width(_ text: String) -> Int {
-        text.unicodeScalars.reduce(0) { total, scalar in
-            switch scalar.value {
-            case 0x0300...0x036F, 0x200B...0x200F, 0xFE00...0xFE0F: total
-            case 0x1100...0x115F, 0x2E80...0x303E, 0x3041...0x33FF, 0x3400...0x4DBF,
-                 0x4E00...0x9FFF, 0xA000...0xA4CF, 0xAC00...0xD7A3, 0xF900...0xFAFF,
-                 0xFE30...0xFE4F, 0xFF00...0xFF60, 0xFFE0...0xFFE6, 0x1F300...0x1F64F,
-                 0x1F900...0x1F9FF, 0x20000...0x3FFFD: total + 2
-            default: total + 1
+    /// Why this frame cannot be drawn on a grid of its size, or nil when it can: every span
+    /// inside the grid, the cursor on it, a scroll of at most its height, and no cell text that
+    /// a terminal would read as a control (an ESC in a cell would draw what it says, not the
+    /// cell). A frame that fails is never drawn: the attach falls back
+    /// (``DaemonTerminalInbound/hybridFallback(reason:)``).
+    var invalidReason: String? {
+        guard let delta else { return "data is not a delta" }
+        guard columns > 0, rows > 0, columns <= Int(UInt16.max), rows <= Int(UInt16.max) else { return "grid \(columns)x\(rows)" }
+        guard abs(delta.shift) <= rows else { return "shift \(delta.shift) on \(rows) rows" }
+        guard (0..<columns).contains(cursorX), (0..<rows).contains(cursorY) else { return "cursor \(cursorX),\(cursorY)" }
+        for span in delta.spans {
+            switch span {
+            case let .set(row, column, cells):
+                guard (0..<rows).contains(row), column >= 0, !cells.isEmpty, column + cells.count <= columns else {
+                    return "span at \(row),\(column) of \(cells.count) cells"
+                }
+                for cell in cells where !Self.drawable(cell.text) {
+                    return "a control character in a cell at row \(row)"
+                }
+            case let .clear(row, column, count):
+                guard (0..<rows).contains(row), column >= 0, count > 0, column + count <= columns else {
+                    return "clear at \(row),\(column) of \(count) cells"
+                }
             }
+        }
+        return nil
+    }
+
+    /// Whether `text` is a cell's glyph: no C0 or C1 control, no DEL.
+    static func drawable(_ text: String) -> Bool {
+        text.unicodeScalars.allSatisfy { scalar in
+            !(scalar.value < 0x20 || (0x7F...0x9F).contains(scalar.value))
         }
     }
 

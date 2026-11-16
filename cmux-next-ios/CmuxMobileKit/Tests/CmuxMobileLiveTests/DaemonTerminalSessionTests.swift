@@ -50,6 +50,11 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var historyRows = 0
     /// The lane refuses `replay_history_rows` (a Mac app older than its daemon).
     var laneRefusesHistoryRows = false
+    /// A daemon that knows the hybrid stream (`agent-cli-hybrid-v1`): an attach of a
+    /// connection that declared it gets these events after its reply instead of `afterAttach`
+    /// (empty: the daemon is older than the hybrid stream and ignores the capability).
+    var hybridEvents: [[String: Any]] = []
+    private var declaredHybrid = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -66,6 +71,10 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             Self.line(["id": id, "ok": true, "data": data])
         }
         switch cmd {
+        case "set-client-info":
+            let declared = (object["capabilities"] as? [String] ?? []).contains("agent-cli-hybrid-v1")
+            lock.withLock { declaredHybrid = declared }
+            return [reply()]
         case "send" where lock.withLock({ unansweredSends }):
             return []
         case "identify" where initialSize || sizeLease || sharedSizing || tailReplay:
@@ -138,10 +147,19 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                 state["history_rows_omitted"] = history - kept
                 state["data"] = Data("[\(kept) rows]\(replay)".utf8).base64EncodedString()
             }
-            return [
+            let lines: [Data] = [
                 Self.line(state),
                 reply(shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] as [String: Any] : ["lease": "l1"]),
             ] + (shared ? [Self.line(["event": "size-state", "surface": live, "self_participant": "c2", "state": sizeState(2)])] : [])
+            let hybrid: [[String: Any]] = lock.withLock { declaredHybrid ? hybridEvents : [] }
+            if !hybrid.isEmpty {
+                return lines + hybrid.map { event in
+                    var event = event
+                    event["surface"] = live
+                    return Self.line(event)
+                }
+            }
+            return lines
                 + (afterAttach.map { [Self.line(["event": "output", "surface": live, "data": Data($0.utf8).base64EncodedString()])] } ?? []) + [
                 Self.line(["event": "output", "surface": 8, "data": Data("other".utf8).base64EncodedString()]),
             ]
