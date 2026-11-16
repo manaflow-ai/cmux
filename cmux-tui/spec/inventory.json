@@ -707,6 +707,12 @@
       ]
     },
     {
+      "name": "agent-cli-lean",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
       "name": "agent-presence-changed",
       "streams": [
         "subscribe"

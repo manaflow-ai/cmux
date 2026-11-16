@@ -11,7 +11,7 @@ try to iron out all the lag spikes". This measures them:
   2. seeds a home while FROM runs: WORKSPACES terminal workspaces (half print in a loop, each with a second tab),
      one long agent chat on the app's own acpmux (chat_open_agent.py's realistic turns, CHAT_TURNS of them, opened
      as its own workspace), a couple of New Tabs and a typing workspace with scrollback; lets it settle 30 s;
-  3. stages the update (palette.checkForUpdates until updates.status is "installing"), quits (action quit: Sparkle
+  3. stages the update (updates.downloadAutomatically on, palette.checkForUpdates until updates.status is "installing"), quits (action quit: Sparkle
      installs on quit), waits until the bundle's CFBundleVersion is TO, and never lets Sparkle relaunch it;
   4. measures launch A (the first of TO, from the same home) and launch B (TO again after a normal quit) for
      SECONDS each from the launch, with the same script:
@@ -67,6 +67,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "ci"))
 import fresh_home_launch_smoke as smoke  # noqa: E402
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
 BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
@@ -412,7 +413,9 @@ class Recorder:
                 self.send("quit")
                 self.process.wait(timeout=10)
             except (OSError, subprocess.TimeoutExpired):
-                os.killpg(self.process.pid, signal.SIGKILL)  # this run's own recorder, by its own process group
+                pass
+        # this run's own recorder, by its own process group, whatever its leader's state: a child would outlive it
+        kill_group(self.process, signal.SIGKILL)
 
 
 def frame_times(path, w, h):
@@ -744,7 +747,7 @@ def seed_chat(app: App, opts):
     if not sock or not os.access(cli, os.X_OK):
         return {"error": f"no acpmux socket ({sock}) or CLI"}
     env = dict(os.environ, ACPMUX_SOCKET=sock, HOME=str(app.root / "h"))
-    made = subprocess.run([str(cli), "acp", "new", "--json", "-d", "-m", TURNS_AGENT[0], "turn: 0"],
+    made = subprocess.run([str(cli), "new", "--json", "-d", "-m", TURNS_AGENT[0], "turn: 0"],
                           capture_output=True, text=True, timeout=180, env=env)
     try:
         session = json.loads(made.stdout)["sessionId"]
@@ -901,12 +904,13 @@ def measure(app: App, name, opts, seed_info, recorder_bin, out: Path, resident_s
         if rec:
             rec.quit()
         result["status"] = app.call("updates.status", timeout=10)
-        if logger.poll() is None:
-            logger.terminate()  # this run's own log stream, by its pid
-            try:
-                logger.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                logger.kill()
+        # this run's own log stream, by its own process group (start_new_session), whatever its leader's state
+        kill_group(logger, signal.SIGTERM)
+        try:
+            logger.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        kill_group(logger, signal.SIGKILL)
         logs.close()
     result.update(socket_s=round(probe.socket_at, 3) if probe.socket_at is not None else None,
                   first_reply_s=round(probe.first_reply_at, 3) if probe.first_reply_at is not None else None,
@@ -1120,6 +1124,9 @@ def run(opts, root: Path, report):
         report["N_isolation"] = check_isolation(app, resident)
         seed_info = seed(app, opts, report)
         time.sleep(opts.settle)  # the asked settle before staging
+        # A fresh home downloads nothing on its own (updates.downloadAutomatically is off): turn it on, as a person
+        # who keeps automatic updates would have it, so the check downloads, verifies and stages the update.
+        report["download_setting"] = app.call("settings.set", {"path": "updates.downloadAutomatically", "value": True}, timeout=30)
         app.action("palette.checkForUpdates", focus=False)
         staged, deadline = None, time.monotonic() + 900
         while time.monotonic() < deadline and not staged:

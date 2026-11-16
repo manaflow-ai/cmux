@@ -11,6 +11,11 @@
 //! A box with no OS identity (a container without a machine id) has no fingerprint, and then
 //! nothing is compared.
 
+/// The marker's name in the acpmux home (`hub/clone_boot.rs`).
+pub const MARKER: &str = "clone-boot";
+/// What the marker becomes once every log was read.
+pub const DONE: &str = "clone-boot.done";
+
 /// The current box's fingerprint, or None when the OS names no machine.
 pub(crate) fn current() -> Option<String> {
     os_machine_identity().map(|raw| of(&raw))
@@ -42,7 +47,6 @@ fn machine_only() -> Option<String> {
 /// alone never counts in a home cmux-host marked as a copy (`clone-boot`, or `clone-boot.done`
 /// once spent: `hub/clone_boot.rs`).
 pub(crate) fn same_box(home: &std::path::Path, joined: &str, here: &str) -> bool {
-    use crate::hub::clone_boot::{DONE, MARKER};
     if joined == here {
         return true;
     }
