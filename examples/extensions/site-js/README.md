@@ -4,9 +4,9 @@
 this site** from the command palette and the site in the front browser tab stops running
 JavaScript, or starts again. A toast says which, and cmux reloads that site's open tabs.
 
-- `page.javascript.get()` reads the site's setting, the same one as Page Info's JavaScript row,
+- `site.javascript.get()` reads the site's setting, the same one as Page Info's JavaScript row,
   so either place shows the other's change.
-- `page.javascript.set()` needs a gesture: the command passes its own (`ctx.gesture`), so an agent
+- `site.javascript.set()` needs a gesture: the command passes its own (`ctx.gesture`), so an agent
   or a script can't flip it.
 
 ## Run it

@@ -11,18 +11,16 @@ beforeAll(async () => {
   built = await pack(dir)
 })
 
+const state = { tab: "t1", url: "https://News.test/story?x=1", title: "A story", profile: "default" }
 const read = {
-  tab: "t1",
-  url: "https://news.test/story",
-  origin: "https://news.test",
-  title: "A story",
   candidates: [
     { selector: "#ad-top", tag: "div", label: "Advertisement", width: 728, height: 90, fixed: false, area: 0.05 },
     { selector: "#cookie", tag: "div", text: "We use cookies", width: 1280, height: 120, fixed: true, area: 0.1 },
     { selector: "header.site", tag: "header", width: 1280, height: 64, fixed: true, area: 0.05 },
     { selector: "article.story", tag: "article", width: 700, height: 2000, fixed: false, area: 0.6 }
   ],
-  truncated: false
+  truncated: false,
+  main: "article.story"
 }
 
 function host(reply = '```json\n{"hide": ["#ad-top", "#cookie", "#invented", "article.story"], "unstick": ["header.site"]}\n```') {
@@ -30,9 +28,10 @@ function host(reply = '```json\n{"hide": ["#ad-top", "#cookie", "#invented", "ar
   const store = new Map<string, unknown>()
   const styles = new Map<string, unknown>()
   h.handlers = {
-    "page.read": () => ok(read),
+    "browser.page.state": () => ok(state),
+    "browser.page.eval": () => ok({ value: read }),
     "agent.ask": () => ok({ text: reply, ms: 900 }),
-    "page.style.set": (p) => {
+    "browser.site.style.set": (p) => {
       styles.set(p.origin, p)
       return ok({ origin: p.origin, rules: p.hide.length + p.unstick.length })
     },
@@ -58,6 +57,10 @@ describe("local/showcase-clean-page", () => {
     const { h, store, styles } = host()
     const result = await run(h, 1)
     expect(result).toEqual({ ok: true, body: { value: { origin: "https://news.test", hide: ["#ad-top", "#cookie"], unstick: ["header.site"] } } })
+    // The extension's own reader script, on the tab state named, with no promise to wait for.
+    const evaluated = named(h, "browser.page.eval")[0]!
+    expect(evaluated.params.tab).toBe("t1")
+    expect(evaluated.params.script).toContain("MAX_CANDIDATES")
     const ask = named(h, "agent.ask")[0]!
     expect(ask.options.gesture).toBe("g-1")
     expect(ask.params.prompt).toContain("#ad-top | div | 728x90")
@@ -86,25 +89,34 @@ describe("local/showcase-clean-page", () => {
     expect(named(h, "agent.ask").length).toBe(2)
   })
 
-  test("no browser tab: says to open one, asks nothing", async () => {
+  test("not a web page: says to open one, runs no script, asks nothing", async () => {
     const { h } = host()
-    h.handlers["page.read"] = () => fail("page.none", "No browser tab is open")
+    h.handlers["browser.page.state"] = () => ok({ ...state, url: "about:blank" })
     await run(h, 1)
+    expect(named(h, "browser.page.eval")).toEqual([])
     expect(named(h, "agent.ask")).toEqual([])
     expect(toasts(h)).toEqual([{ title: "Open a web page first", tone: "warning" }])
+  })
+
+  test("no browser tab: says it couldn't read the page", async () => {
+    const { h } = host()
+    h.handlers["browser.page.state"] = () => fail("browser.no_tab", "No browser tab is focused")
+    await run(h, 1)
+    expect(named(h, "agent.ask")).toEqual([])
+    expect(toasts(h)).toEqual([{ title: "Couldn't read this page", message: "No browser tab is focused", tone: "warning" }])
   })
 
   test("an answer with no list saves nothing", async () => {
     const { h, store } = host("I can't tell which parts are ads.")
     await run(h, 1)
-    expect(named(h, "page.style.set")).toEqual([])
+    expect(named(h, "browser.site.style.set")).toEqual([])
     expect(store.size).toBe(0)
     expect(toasts(h).at(-1)).toMatchObject({ title: "Couldn't clean news.test", tone: "danger" })
   })
 
   test("the agent failing says why", async () => {
     const { h } = host()
-    h.handlers["agent.ask"] = () => fail("app.busy","Another ask is running")
+    h.handlers["agent.ask"] = () => fail("app.busy", "Another ask is running")
     await run(h, 1)
     expect(toasts(h).at(-1)).toEqual({ title: "Couldn't clean news.test", message: "Another ask is running", tone: "danger" })
   })
