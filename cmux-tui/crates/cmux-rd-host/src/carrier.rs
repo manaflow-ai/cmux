@@ -74,12 +74,9 @@ pub trait Carrier {
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()>;
     /// Sends one complete encoded frame. Lossy carriers may replace an older
     /// pending frame, but control traffic remains independent and reliable.
-    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, _droppable: bool) -> io::Result<()> {
-        for datagram in &datagrams {
-            self.send_datagram(datagram)?;
-        }
-        Ok(())
-    }
+    /// Every adapter must explicitly preserve the frame boundary or choose
+    /// a transport fallback; a per-datagram default silently bypasses queues.
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()>;
     fn send_control(&mut self, control: &Control) -> io::Result<()>;
 }
 
@@ -153,6 +150,14 @@ impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
 
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
         self.out.send(self.stream, datagram)
+    }
+
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, _droppable: bool) -> io::Result<()> {
+        // This carrier sends synchronously and owns no replaceable frame queue.
+        for datagram in datagrams {
+            self.send_datagram(&datagram)?;
+        }
+        Ok(())
     }
 
     fn send_control(&mut self, control: &Control) -> io::Result<()> {
