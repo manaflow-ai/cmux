@@ -630,6 +630,55 @@ fn malformed_harness_lines_are_counted_and_do_not_block_replay() {
     assert_eq!(state.counters().invalid_records, 2);
 }
 
+#[test]
+fn codex_legacy_events_translate_prompt_answer_and_completion() {
+    let lines = [
+        r#"{"type":"event_msg","id":"p-event","payload":{"type":"user_message","id":"p","turn_id":"t","message":"Question"}}"#,
+        r#"{"type":"event_msg","id":"a-event","payload":{"type":"agent_message","id":"a","message":"Answer"}}"#,
+        r#"{"type":"event_msg","payload":{"type":"task_complete"}}"#,
+    ];
+    let mut state = State::default();
+    let mut mirror = Mirror::default();
+    for line in lines {
+        mirror.line(&mut state, Harness::Codex, line);
+    }
+    assert_eq!(mirror.reply("Answer").kind, RowKind::Text);
+    assert!(!mirror.reply("Answer").open);
+    assert!(mirror.rows.values().any(|row| row.kind == RowKind::User));
+}
+
+#[test]
+fn codex_response_items_filter_context_and_progress() {
+    let lines = [
+        r#"{"type":"response_item","payload":{"type":"message","role":"user","id":"ctx","content":[{"type":"text","text":"<environment_context>cwd=/tmp"}],"internal_chat_message_metadata_passthrough":{"content_item_kinds":["environment_context"]}}}"#,
+        r#"{"type":"response_item","payload":{"type":"message","role":"user","id":"p","turn_id":"t","content":[{"type":"text","text":"Question"}],"internal_chat_message_metadata_passthrough":{"content_item_kinds":["user.text"]}}}"#,
+        r#"{"type":"response_item","payload":{"type":"message","role":"assistant","id":"progress","phase":"commentary","content":[{"type":"text","text":"Working"}]}}"#,
+        r#"{"type":"response_item","payload":{"type":"message","role":"assistant","id":"a","phase":"final_answer","content":[{"type":"text","text":"Final"}]}}"#,
+    ];
+    let mut state = State::default();
+    let mut mirror = Mirror::default();
+    for line in lines {
+        mirror.line(&mut state, Harness::Codex, line);
+    }
+    assert!(mirror.reply("Final").kind == RowKind::Text);
+    assert!(!mirror.text.values().any(|text| text == "Working"));
+    assert_eq!(mirror.rows.values().filter(|row| row.kind == RowKind::User).count(), 1);
+}
+
+#[test]
+fn codex_answer_items_continue_by_native_id() {
+    let prompt = r#"{"type":"event_msg","payload":{"type":"user_message","id":"p","turn_id":"t","message":"Question"}}"#;
+    let first = r#"{"type":"event_msg","id":"a","payload":{"type":"agent_message","id":"a","message":"part one"}}"#;
+    let second = r#"{"type":"event_msg","id":"a","payload":{"type":"agent_message","id":"a","message":"part two"}}"#;
+    let mut state = State::default();
+    let mut mirror = Mirror::default();
+    mirror.line(&mut state, Harness::Codex, prompt);
+    mirror.line(&mut state, Harness::Codex, first);
+    mirror.line(&mut state, Harness::Codex, second);
+    assert!(mirror.text.values().any(|text| text == "part onepart two"));
+    assert_eq!(mirror.rows.values().filter(|row| row.kind == RowKind::Text).count(), 1);
+}
+
 fn json_value_end(bytes: &[u8], start: usize) -> Option<usize> {
     let first = *bytes.get(start)?;
     if first == b'"' {

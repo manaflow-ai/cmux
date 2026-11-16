@@ -12,6 +12,7 @@ mod cards_tests;
 mod checkpoint;
 pub use checkpoint::Saved;
 mod claude;
+mod codex;
 mod fold;
 mod input;
 mod kinds;
@@ -49,6 +50,7 @@ const MAX_KEY_BYTES: usize = 256;
 pub enum Harness {
     V1,
     Claude,
+    Codex,
 }
 
 /// Relative to exactly the bytes supplied to `translate`, never a raw-file offset.
@@ -472,6 +474,7 @@ pub fn translate(
     let valid = match harness {
         Harness::V1 => v1::validate(bytes),
         Harness::Claude => claude::validate(bytes),
+        Harness::Codex => codex::validate(bytes),
     };
     if valid.is_err() {
         state.invalid_records = state.invalid_records.saturating_add(1);
@@ -480,6 +483,7 @@ pub fn translate(
     let result = match harness {
         Harness::V1 => v1::line(state, place, span, bytes, &mut out),
         Harness::Claude => claude::line(state, bytes, &mut out),
+        Harness::Codex => codex::line(state, bytes, &mut out),
     };
     debug_assert!(result.is_ok(), "validated harness line failed during apply");
     if result.is_err() {
