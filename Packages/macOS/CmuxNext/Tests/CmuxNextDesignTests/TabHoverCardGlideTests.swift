@@ -82,6 +82,25 @@ import Testing
         #expect(abs(f.panel.cardFrame.minX - f.tab(2).minX) < 0.5, "the card does not rest under its tab")
     }
 
+    /// The live recording after the first fix: the tab's memory sample lands just after the retarget and
+    /// refits the card. That refit ended the morph and put the window back at the card plus its 48 pt
+    /// band, so the glide went on in a window that cut off all but the card's last 60 pt: the card
+    /// seemed to jump to the next tab and grow out of its left edge. A refit mid-glide waits for it.
+    @Test func aRefitMidGlideKeepsTheGlideAndItsWindow() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let f = Self.fixture()
+        defer { f.tearDown() }
+        let a = Self.body(width: 240, height: 60), b = Self.body(width: 240, height: 60)
+
+        f.present(tab: 0, body: a)
+        let drawn = f.panel.presentedCardFrame
+        f.present(tab: 2, body: b)
+        f.panel.refit()
+        #expect(f.panel.activeMorph != nil, "a refit ended the glide's morph")
+        #expect(f.panel.frame.contains(drawn), "after a refit the window \(f.panel.frame) cuts off the gliding card (\(drawn))")
+    }
+
     @Test func movingOnMidGlideRetargetsTheGlideFromWhereTheCardIsDrawn() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
