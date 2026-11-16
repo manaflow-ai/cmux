@@ -499,46 +499,19 @@ fn load_consent() -> Consent {
 
 /// Held until redeem and both local writes complete. A competing installer exits
 /// without redeeming; it can safely retry after this process finishes.
-#[cfg(unix)]
 pub(crate) fn join_lock() -> Result<HeldLock> {
     crate::config::private_state_dir(&state_dir())?;
     join_lock_at(&state_dir())
 }
 
 /// [`join_lock`] in acpmux home `home` (made private by the caller).
-#[cfg(unix)]
 fn join_lock_in(home: &std::path::Path) -> Result<HeldLock> {
     join_lock_at(home)
 }
 
-#[cfg(unix)]
 fn join_lock_at(dir: &std::path::Path) -> Result<HeldLock> {
     let file = crate::config::private_state_rw(&dir.join("machine-join.lock"))?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: this process owns the opened regular-file descriptor.
-        anyhow::ensure!(
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-            "another machine join is in progress; retry when it finishes"
-        );
-    }
-    Ok(HeldLock(file))
-}
-
-#[cfg(not(unix))]
-pub(crate) fn join_lock() -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_at(_: &std::path::Path) -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_in(_: &std::path::Path) -> Result<HeldLock> {
-    join_lock()
+    HeldLock::take(file, "another machine join is in progress; retry when it finishes")
 }
 
 pub(crate) fn credential_present() -> Result<bool> {
