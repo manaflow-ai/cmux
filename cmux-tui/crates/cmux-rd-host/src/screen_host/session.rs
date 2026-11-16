@@ -198,17 +198,18 @@ pub fn serve(
                                 match signed("answer", &doc.text(), &ticket.session_id, hub) {
                                     Ok(frame) => {
                                         if let Err(e) = ws.send_text(&frame) {
-                                            eprintln!("linux-host: answer not sent: {e}");
+                                            eprintln!("{}: answer not sent: {e}", super::TAG);
                                         }
                                     }
-                                    Err(e) => eprintln!("linux-host: answer not signed: {e}"),
+                                    Err(e) => eprintln!("{}: answer not signed: {e}", super::TAG),
                                 }
                             }
                         }
                         if line["connected"].as_bool() == Some(true) && !connected {
                             connected = true;
                             eprintln!(
-                                "linux-host: {} is {} this desktop",
+                                "{}: {} is {} this desktop",
+                                super::TAG,
                                 super::printable(&ticket.peer_name),
                                 if view_only { "viewing" } else { "controlling" }
                             );
@@ -220,7 +221,8 @@ pub fn serve(
                         }
                         if let Some(message) = line["status"]["message"].as_str() {
                             eprintln!(
-                                "cmux-rd linux-host: session {}: {}",
+                                "{}: session {}: {}",
+                                super::TAG,
                                 super::printable(&ticket.session_id),
                                 super::printable(message)
                             );
@@ -299,9 +301,8 @@ pub fn serve(
                     // A WebRTC viewer (the iPhone's, or an old Mac): this host serves cmux.rd/1 only.
                     let _ = ws.send_text(r#"{"type":"bye"}"#);
                     break Ended {
-                        reason:
-                            "the viewer offered WebRTC; this Linux host serves cmux.rd/1 viewers"
-                                .into(),
+                        reason: "the viewer offered WebRTC; this host serves cmux.rd/1 viewers"
+                            .into(),
                         connected,
                         tell_hub: Some("failed"),
                     };

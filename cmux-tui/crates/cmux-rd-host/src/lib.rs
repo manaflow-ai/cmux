@@ -9,15 +9,17 @@
 //!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
-//!            stdin and stdout (src/serve.rs); macOS and Linux
+//!            stdin and stdout (src/serve.rs; Windows: src/windows_serve.rs)
 //!   connect  the viewer side of a hub session: bridges the pane's framed byte stream on a
 //!            private Unix socket to the secure link (src/connect.rs)
 //!   linux-host enable|share on|off|run|requests|approve|deny|status   (Linux) this desktop as a
 //!            device hub screen host a Mac views: its own device key, the hub link and
 //!            consent, driving `serve` per approved session (src/linux_host/)
-//!   windows-host enable|run|status|share off   (Windows) this PC on the device hub as a
-//!            `windows` device with the same hub client (src/screen_host/, src/windows_host.rs);
-//!            it lists and captures, and serves no session until `serve` has a Windows port
+//!   windows-host enable|share on|off|run|requests|approve|deny|status   (Windows) this PC as a
+//!            device hub screen host, with linux-host's hub client, consent and session
+//!            serving (src/screen_host/, src/windows_host.rs)
+//!   windows-serve-selftest [--scope view|control] [--duration-s 4]   (Windows) one `serve`
+//!            session played by a viewer on this machine, no hub (src/windows_serve/selftest.rs)
 //!   permissions  read-only Screen Recording and Accessibility snapshot as JSON (macOS)
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
@@ -102,6 +104,8 @@ mod vtdecode;
 mod windows;
 #[cfg(windows)]
 mod windows_host;
+#[cfg(all(feature = "link", windows))]
+mod windows_serve;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod wire;
 #[cfg(target_os = "linux")]
@@ -159,6 +163,10 @@ pub fn run_cli(args: &[String]) -> i32 {
         "testapp" => testapp::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "serve" => serve::run(&opts),
+        #[cfg(all(feature = "link", windows))]
+        "serve" => windows_serve::run(&opts),
+        #[cfg(all(feature = "link", windows))]
+        "windows-serve-selftest" => windows_serve::selftest(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "connect" => connect::run(),
         "permissions" => permissions::run(),

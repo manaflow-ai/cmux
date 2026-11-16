@@ -1,23 +1,28 @@
 //! The device hub client a desktop host shares across operating systems: `cmux-rd linux-host`
 //! (src/linux_host/) and `cmux-rd windows-host` (src/windows_host.rs) both register this
 //! machine as a screen host of the account (docs/device-hub/PROTOCOL.md), with a device key
-//! in private files, the hub's HTTPS and WebSocket, and the same local consent model.
+//! in private files, the hub's HTTPS and WebSocket, and the same local consent model, and
+//! both serve approved sessions the same way.
 //!
 //!   b64       base64 (standard and url-safe) without a crate
 //!   consent   this machine's own consent file and the pending viewer requests
 //!   hub       device-signed hub calls, the account session and its renewal
 //!   identity  the device key and account, kept in this user's private files
 //!   net       HTTPS and WebSocket over rustls with the platform trust store
-
-// Windows serves no session yet (docs/device-hub/windows-host.md, step 4): the session-side
-// calls (signing a session key, the session socket, verifying a viewer) are Linux's until then.
-#![cfg_attr(windows, allow(dead_code))]
+//!   rd_doc    the cmux.rd/1 offer and answer documents and their signatures
+//!   requests  the person's answers to viewers waiting for them (`requests|approve|deny`)
+//!   serving   the running host: the hub socket's pushes, consent, one session at a time
+//!   session   one approved session, driving a `cmux-rd serve` child
 
 pub mod b64;
 pub mod consent;
 pub mod hub;
 pub mod identity;
 pub mod net;
+pub mod rd_doc;
+pub mod requests;
+pub mod serving;
+pub mod session;
 
 /// The platform this machine registers with the hub as (`POST /v1/devices`).
 #[cfg(target_os = "linux")]
@@ -30,6 +35,12 @@ pub const PLATFORM: &str = "windows";
 pub const COMMAND: &str = "cmux-rd linux-host";
 #[cfg(windows)]
 pub const COMMAND: &str = "cmux-rd windows-host";
+
+/// The prefix of this host's log lines.
+#[cfg(target_os = "linux")]
+pub const TAG: &str = "linux-host";
+#[cfg(windows)]
+pub const TAG: &str = "windows-host";
 
 /// Lowercase hex of `bytes`.
 pub fn hex(bytes: &[u8]) -> String {

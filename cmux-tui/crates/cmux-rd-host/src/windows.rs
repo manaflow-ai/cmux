@@ -9,16 +9,12 @@
 
 use crate::args::Opts;
 use crate::clock::now_ns;
-use crate::encoder::{self, EncCfg, H264Encoder};
+use crate::encoder::{self, EncCfg};
 use crate::Res;
 use cmux_encode::{bgrx_rect_to_i420, I420};
-use cmux_rd_core::cc::PathKind;
-use cmux_rd_core::flow::Rect;
-use cmux_rd_engine::{EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{InputEvent, MAX_DATAGRAM_DEFAULT};
-use std::collections::{hash_map::DefaultHasher, BTreeSet};
-use std::hash::Hasher;
+use std::collections::BTreeSet;
 use std::io::{self, Read, Write};
 use std::mem::{size_of, zeroed};
 use std::net::{IpAddr, TcpListener, TcpStream};
@@ -33,9 +29,12 @@ use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 
 #[cfg(feature = "bench")]
 mod loopback;
+mod session;
+use session::TcpWire;
+pub(crate) use session::{Incoming, WindowsSession, Wire};
 
 #[derive(Default, serde::Serialize)]
-struct HostMetrics {
+pub(crate) struct HostMetrics {
     capture_ms: Vec<f64>,
     convert_ms: Vec<f64>,
     encode_ms: Vec<f64>,
@@ -633,16 +632,15 @@ fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<HostMetrics> {
     )?;
     write_control(&mut stream, &Control::Started { session: 1 })?;
     stream.set_nonblocking(true)?;
+    let kbps = opts.num_or("kbps", 8_000)?;
     let mut session = WindowsSession::new(
         capture,
         encoder,
-        width,
-        height,
         max_datagram.min(MAX_DATAGRAM_DEFAULT),
         opts.num_or("max-fps", 60)?,
-        opts.num_or("kbps", 8_000)?,
-        opts.num_or("threads", 2)?,
-    )?;
+        kbps,
+        kbps,
+    );
     if opts.flag("loopback") {
         let duration = opts.num_or("duration-s", 10u64)?;
         if !(2..=30).contains(&duration) {
@@ -651,244 +649,8 @@ fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<HostMetrics> {
         session.metrics = Some(HostMetrics::default());
         session.deadline = Some(Instant::now() + Duration::from_secs(duration + 10));
     }
-    session.run(&mut stream)?;
+    session.run(&mut TcpWire { stream: &mut stream, input: Vec::new() })?;
     Ok(session.metrics.unwrap_or_default())
-}
-
-struct WindowsSession {
-    capture: GdiCapture,
-    encoder: Box<dyn H264Encoder>,
-    picture: I420,
-    engine: MediaEngine,
-    held_keys: BTreeSet<u16>,
-    held_buttons: BTreeSet<u8>,
-    last_frame_fingerprint: Option<u64>,
-    width: u32,
-    height: u32,
-    interval: Duration,
-    metrics: Option<HostMetrics>,
-    deadline: Option<Instant>,
-}
-
-impl WindowsSession {
-    fn new(
-        capture: GdiCapture,
-        encoder: Box<dyn H264Encoder>,
-        width: u32,
-        height: u32,
-        max_datagram: usize,
-        fps: u32,
-        kbps: u32,
-        _threads: u16,
-    ) -> Res<Self> {
-        let fps = fps.max(1);
-        Ok(Self {
-            capture,
-            encoder,
-            picture: I420::new(width as usize, height as usize),
-            engine: MediaEngine::new(
-                EngineConfig {
-                    width,
-                    height,
-                    max_fps: fps,
-                    start_bps: u64::from(kbps) * 1000,
-                    max_bps: u64::from(kbps) * 1000,
-                    max_datagram,
-                    path: PathKind::ViaCloudRegion,
-                    ..EngineConfig::default()
-                },
-                now_ns() / 1000,
-            ),
-            held_keys: BTreeSet::new(),
-            held_buttons: BTreeSet::new(),
-            last_frame_fingerprint: None,
-            width,
-            height,
-            interval: Duration::from_secs_f64(1.0 / f64::from(fps)),
-            metrics: None,
-            deadline: None,
-        })
-    }
-
-    fn run(&mut self, stream: &mut TcpStream) -> Res<()> {
-        let result = self.run_loop(stream);
-        let cleanup = self.release_all();
-        match (result, cleanup) {
-            (Err(error), _) => Err(error),
-            (Ok(()), Err(error)) => Err(error),
-            (Ok(()), Ok(())) => Ok(()),
-        }
-    }
-
-    fn run_loop(&mut self, stream: &mut TcpStream) -> Res<()> {
-        let mut input = Vec::new();
-        let mut next = Instant::now();
-        loop {
-            if self.deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                return Err("Windows loopback host exceeded its deadline".into());
-            }
-            loop {
-                let Some((ty, payload)) = read_frame(stream, &mut input)? else {
-                    return Ok(());
-                };
-                if payload.is_empty() && ty == 0 {
-                    break;
-                }
-                match ty {
-                    FRAME_CONTROL
-                        if matches!(
-                            serde_json::from_slice::<Control>(&payload),
-                            Ok(Control::Stop)
-                        ) =>
-                    {
-                        write_control(
-                            stream,
-                            &Control::Ended { reason: "stopped by viewer".into() },
-                        )?;
-                        return Ok(());
-                    }
-                    FRAME_DATAGRAM => {
-                        let output = self.engine.on_datagram(&payload, true, now_ns() / 1000);
-                        self.send_output(stream, output)?;
-                    }
-                    _ => {}
-                }
-            }
-            let now = Instant::now();
-            if now >= next {
-                let capture_started = self.metrics.as_ref().map(|_| Instant::now());
-                let now_us = now_ns() / 1000;
-                let pixels = self.capture.capture()?.to_vec();
-                let mut fingerprint = DefaultHasher::new();
-                fingerprint.write(&pixels);
-                let fingerprint = fingerprint.finish();
-                let changed =
-                    self.last_frame_fingerprint.map_or(true, |previous| previous != fingerprint);
-                self.last_frame_fingerprint = Some(fingerprint);
-                if let (Some(metrics), Some(start)) = (&mut self.metrics, capture_started) {
-                    sample(&mut metrics.capture_ms, start);
-                }
-                let request = if changed {
-                    self.engine.damage(
-                        0,
-                        Rect { x: 0, y: 0, width: self.width, height: self.height },
-                        now_us,
-                    )
-                } else {
-                    // Damage held by the fps cap still needs its due frame when the
-                    // desktop stops changing; no new damage event will wake it.
-                    self.engine.poll(now_us)
-                };
-                if let Some(req) = request {
-                    self.encode(stream, &req, &pixels)?;
-                }
-                let output = self.engine.tick(true, now_us);
-                self.send_output(stream, output)?;
-                next = now + self.interval;
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
-    }
-
-    fn encode(
-        &mut self,
-        stream: &mut TcpStream,
-        req: &cmux_rd_engine::EncodeRequest,
-        pixels: &[u8],
-    ) -> Res<()> {
-        let conversion_started = self.metrics.as_ref().map(|_| Instant::now());
-        bgrx_rect_to_i420(
-            pixels,
-            &mut self.picture,
-            0,
-            0,
-            self.width as usize,
-            self.height as usize,
-            2,
-        );
-        if let (Some(metrics), Some(start)) = (&mut self.metrics, conversion_started) {
-            sample(&mut metrics.convert_ms, start);
-        }
-        let mut au = Vec::new();
-        let encode_started = self.metrics.as_ref().map(|_| Instant::now());
-        let idr =
-            self.encoder.encode(&self.picture, req.force_idr, now_ns() as i64 / 1000, &mut au)?;
-        if let (Some(metrics), Some(start)) = (&mut self.metrics, encode_started) {
-            sample(&mut metrics.encode_ms, start);
-        }
-        let out = self
-            .engine
-            .encoded(
-                req,
-                Some(cmux_rd_engine::Encoded {
-                    access_unit: au,
-                    idr,
-                    t_capture_us: now_ns() / 1000,
-                }),
-                now_ns() / 1000,
-            )
-            .map_err(|e| format!("packetize: {e:?}"))?;
-        self.send_output(stream, out)
-    }
-
-    fn send_output(&mut self, stream: &mut TcpStream, out: Output) -> Res<()> {
-        for datagram in out.datagrams {
-            write_frame(stream, FRAME_DATAGRAM, &datagram)?;
-        }
-        if out.release_all {
-            self.release_all()?;
-        }
-        for event in out.inject {
-            apply_input(&event, self.width, self.height)?;
-            match event {
-                InputEvent::Key { usage, down } => {
-                    if let Some(scancode) = hid_to_scancode(usage) {
-                        if down {
-                            self.held_keys.insert(scancode);
-                        } else {
-                            self.held_keys.remove(&scancode);
-                        }
-                    }
-                }
-                InputEvent::Button { button, down } => {
-                    if mouse_button_event(button, down).is_some() {
-                        if down {
-                            self.held_buttons.insert(button);
-                        } else {
-                            self.held_buttons.remove(&button);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        if let Some(req) = out.encode {
-            // Feedback and recovery can open the frame gate. Ignoring this request
-            // leaves a frame marked in flight that was never encoded or sent.
-            let capture_started = self.metrics.as_ref().map(|_| Instant::now());
-            let pixels = self.capture.capture()?.to_vec();
-            if let (Some(metrics), Some(start)) = (&mut self.metrics, capture_started) {
-                sample(&mut metrics.capture_ms, start);
-            }
-            self.encode(stream, &req, &pixels)?;
-        }
-        Ok(())
-    }
-
-    fn release_all(&mut self) -> Res<()> {
-        let keys = std::mem::take(&mut self.held_keys);
-        for scancode in keys {
-            send_input_scancode(scancode, false)?;
-        }
-        let buttons = std::mem::take(&mut self.held_buttons);
-        for button in buttons {
-            let Some((flags, data)) = mouse_button_event(button, false) else {
-                continue;
-            };
-            send_mouse(0, 0, flags, data)?;
-        }
-        Ok(())
-    }
 }
 
 /// Windows host entry point. The stream carrier keeps this phase independent of

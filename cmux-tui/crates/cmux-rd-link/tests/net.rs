@@ -19,16 +19,15 @@ fn start(role: Role, local: &KeyPair, remote: [u8; 32]) -> Net {
     .unwrap()
 }
 
-/// Collects events until `done` holds or 5 s pass, waiting on the event fd.
+/// Collects events until `done` holds or 5 s pass, waiting on the driver's wake-up (a pipe on
+/// Unix, a loopback socket on Windows: this test runs on both).
 fn wait(net: &Net, seen: &mut Vec<NetEvent>, done: impl Fn(&[NetEvent]) -> bool) -> bool {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         if done(seen) {
             return true;
         }
-        let mut fd = libc::pollfd { fd: net.event_fd(), events: libc::POLLIN, revents: 0 };
-        // SAFETY: one valid pollfd.
-        unsafe { libc::poll(&mut fd, 1, 100) };
+        net.wait(Some(Duration::from_millis(100)));
         seen.extend(net.events());
     }
     done(seen)

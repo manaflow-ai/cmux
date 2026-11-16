@@ -21,27 +21,21 @@
 //! (consent.rs). A `view` session applies no input, and so does every session of a host that
 //! captures through the Wayland portal (it applies no input): there it is served view only.
 
-// The device hub client this host shares with `cmux-rd windows-host` (src/screen_host/).
-pub(crate) use crate::screen_host::printable;
-use crate::screen_host::{b64, consent, hub, identity, net};
-mod rd_doc;
-mod session;
+// The device hub client and the session serving this host shares with `cmux-rd windows-host`
+// (src/screen_host/).
+use crate::screen_host::printable;
+use crate::screen_host::serving::Host;
+use crate::screen_host::session::ServeArgs;
+use crate::screen_host::{hub, identity, requests};
 
 use crate::capture_backend::CaptureBackend;
+use crate::screen_host::consent::LocalConsent;
 use crate::Res;
-use consent::{LocalConsent, Pending};
 use hub::{now_ms, Hub, HubError};
 use identity::{Account, Device};
-use net::Message;
-use serde_json::Value;
-use session::{ServeArgs, Ticket};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 /// The production device hub (the Mac app's default).
 const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
-const PING_EVERY: Duration = Duration::from_secs(30);
 
 const USAGE: &str = "usage: cmux-rd linux-host enable --stack-token-file PATH|- [--hub URL] [--name NAME] [--allow-control]
        cmux-rd linux-host share on --stack-token-file PATH|- | share off
@@ -105,31 +99,6 @@ fn exit_code(e: &(dyn std::error::Error + Send + Sync + 'static)) -> i32 {
     } else {
         1
     }
-}
-
-/// One `requests` line.
-fn request_line(r: &consent::Request) -> String {
-    let what = if r.scope == "full" { "control" } else { "view" };
-    let fp = match r.viewer_key_fingerprint.as_deref().map(printable) {
-        // 16 characters, not bytes: a byte cut panics inside a multi-byte character.
-        Some(f) if !f.is_empty() => f.chars().take(16).collect(),
-        _ => "-".to_owned(),
-    };
-    format!(
-        "{}  {} (key {fp}) asks to {what} this desktop",
-        printable(&r.id),
-        printable(&r.viewer_name)
-    )
-}
-
-/// The journal line for a viewer waiting for the person.
-fn ask_line(r: &consent::Request) -> String {
-    let what = if r.scope == "full" { "control" } else { "view" };
-    let id = printable(&r.id);
-    format!(
-        "linux-host: {} asks to {what} this desktop. Allow: cmux-rd linux-host approve {id} [--always]; refuse: cmux-rd linux-host deny {id}",
-        printable(&r.viewer_name)
-    )
 }
 
 /// Flags that take no value.
@@ -336,61 +305,26 @@ fn share_off() -> Res<()> {
 }
 
 fn requests() -> Res<()> {
-    let list = Pending::new(&identity::runtime_dir()?).list(now_ms())?;
-    if list.is_empty() {
-        println!("No viewer is waiting.");
-    }
-    for r in list {
-        println!("{}", request_line(&r));
-    }
-    Ok(())
+    requests::list(&identity::runtime_dir()?)
 }
 
 fn approve(id: &str, args: &Args) -> Res<()> {
     let (dir, hub, _) = load()?;
-    let runtime = identity::runtime_dir()?;
-    let pending = Pending::new(&runtime);
-    let now = now_ms();
-    // Only a request this host recorded: an id from anywhere else is refused.
-    let request =
-        pending.list(now)?.into_iter().find(|r| r.id == id).ok_or_else(|| {
-            format!("no waiting request {id} (see `cmux-rd linux-host requests`)")
-        })?;
-    let applies_input = host_applies_input();
-    let scope = consent::decision_scope(
-        &request,
+    let no_input = (!host_applies_input()).then_some(NO_INPUT_NOTE);
+    requests::approve(
+        &dir,
+        &identity::runtime_dir()?,
+        &hub,
+        id,
         args.get("scope"),
-        LocalConsent::load(&dir)?,
-        applies_input,
-    )?;
-    let decision = if args.flag("always") { "always" } else { "once" };
-    hub.decide(id, decision, Some(&scope))?;
-    pending.remove(id, now)?;
-    let lowered = request.scope == "full" && scope == "view" && args.get("scope").is_none();
-    println!(
-        "Approved {} to {} this desktop{}{}.",
-        printable(&request.viewer_name),
-        if scope == "full" { "control" } else { "view" },
-        if decision == "always" { " from now on" } else { " once" },
-        if lowered { NO_INPUT_NOTE } else { "" }
-    );
-    Ok(())
+        args.flag("always"),
+        no_input,
+    )
 }
 
 fn deny(id: &str) -> Res<()> {
     let (_, hub, _) = load()?;
-    let runtime = identity::runtime_dir()?;
-    let pending = Pending::new(&runtime);
-    let now = now_ms();
-    pending
-        .list(now)?
-        .into_iter()
-        .find(|r| r.id == id)
-        .ok_or_else(|| format!("no waiting request {id}"))?;
-    hub.decide(id, "deny", None)?;
-    pending.remove(id, now)?;
-    println!("Denied.");
-    Ok(())
+    requests::deny(&identity::runtime_dir()?, &hub, id)
 }
 
 fn status() -> Res<()> {
@@ -442,68 +376,6 @@ fn host_applies_input() -> bool {
     host_capture(identity::runtime_dir().ok().as_deref()).applies_input()
 }
 
-/// A session this host serves: its id, its scope (`view`/`full`) and its stop flag.
-struct Served {
-    id: String,
-    scope: String,
-    stop: Arc<AtomicBool>,
-}
-
-/// The session this host serves now (one at a time; a newer ticket replaces it).
-type Current = Arc<Mutex<Option<Served>>>;
-
-/// How often the running host reads its consent file again.
-const CONSENT_EVERY: Duration = Duration::from_secs(1);
-
-/// Stops the session being served, if any; its id.
-fn stop_current(current: &Current) -> Option<String> {
-    let served = current.lock().unwrap_or_else(|e| e.into_inner()).take()?;
-    served.stop.store(true, Ordering::SeqCst);
-    Some(served.id)
-}
-
-/// Holds one hub link with `hold`; when it ends, for any reason, the session it served stops.
-/// The hub does not replay a revocation, an end or sharing turned off that it pushed while
-/// the link was down, so a session must not outlive the link that would hear them (fail
-/// closed). The result of `hold` and the id of the session stopped.
-fn hold_link(current: &Current, hold: impl FnOnce() -> Res<()>) -> (Res<()>, Option<String>) {
-    let result = hold();
-    (result, stop_current(current))
-}
-
-/// How a ticket with `scope` is served under the consent on disk now: `Some(view_only)`,
-/// or None when this desktop does not allow it or its consent file cannot be read.
-fn admit(dir: &std::path::Path, scope: &str, applies_input: bool) -> Option<bool> {
-    match LocalConsent::load(dir) {
-        Ok(consent) => consent.serve(scope, applies_input),
-        Err(e) => {
-            eprintln!("linux-host: consent unreadable, nothing is served: {e}");
-            None
-        }
-    }
-}
-
-/// Stops the session being served when `consent` (read again from disk; an error when it
-/// cannot be read) no longer allows its scope; its id.
-fn withdraw_unconsented(
-    current: &Current,
-    consent: Res<LocalConsent>,
-    applies_input: bool,
-) -> Option<String> {
-    let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
-    let allowed = match (&consent, guard.as_ref()) {
-        (_, None) => return None,
-        (Ok(consent), Some(served)) => consent.serve(&served.scope, applies_input).is_some(),
-        (Err(_), Some(_)) => false,
-    };
-    if allowed {
-        return None;
-    }
-    let served = guard.take()?;
-    served.stop.store(true, Ordering::SeqCst);
-    Some(served.id)
-}
-
 fn run(args: &Args) -> Res<()> {
     let (dir, hub, account) = load()?;
     let runtime = identity::runtime_dir()?;
@@ -526,240 +398,14 @@ fn run(args: &Args) -> Res<()> {
     if account.anchored_until != 0 && account.anchored_until <= now_ms() {
         return Err(Fatal::needs("This desktop's 30-day sign-in ended", Fatal::SHARE_ON).into());
     }
-    let hub = Arc::new(hub);
-    let current: Current = Arc::new(Mutex::new(None));
-    let mut backoff = Duration::from_secs(1);
     eprintln!(
         "linux-host: serving \"{}\" ({}){}",
         hub.device.name,
         hub.device.id,
         if applies_input { "" } else { NO_INPUT_NOTE }
     );
-    loop {
-        let started = Instant::now();
-        let (result, stopped) = hold_link(&current, || {
-            hold_socket(&hub, &dir, &runtime, &serve_args, &current, applies_input)
-        });
-        if let Some(id) = stopped {
-            eprintln!("linux-host: the hub link dropped; the session it served stopped");
-            end_later(&hub, &id, "peer_offline");
-        }
-        match result {
-            Ok(()) => {}
-            Err(e) => {
-                if let Some(fatal) = Fatal::from_hub(&*e) {
-                    return Err(fatal.into());
-                }
-                eprintln!("linux-host: hub link: {e}");
-            }
-        }
-        if started.elapsed() > Duration::from_secs(60) {
-            backoff = Duration::from_secs(1);
-        }
-        std::thread::sleep(backoff);
-        backoff = (backoff * 2).min(Duration::from_secs(30));
-    }
-}
-
-/// Holds one User DO socket until it closes; handles its pushes.
-fn hold_socket(
-    hub: &Arc<Hub>,
-    dir: &std::path::Path,
-    runtime: &std::path::Path,
-    serve_args: &ServeArgs,
-    current: &Current,
-    applies_input: bool,
-) -> Res<()> {
-    let mut ws = hub.user_socket()?;
-    let mut last_ping = Instant::now();
-    let mut last_consent = Instant::now();
-    loop {
-        if last_consent.elapsed() >= CONSENT_EVERY {
-            // `enable` without --allow-control while this runs: a control session stops now.
-            let consent = LocalConsent::load(dir);
-            if let Some(id) = withdraw_unconsented(current, consent, applies_input) {
-                eprintln!(
-                    "linux-host: this desktop's consent no longer allows the session; stopped"
-                );
-                end_later(hub, &id, "host_stopped");
-            }
-            last_consent = Instant::now();
-        }
-        if last_ping.elapsed() >= PING_EVERY {
-            // Exactly these bytes: the hub's auto-response matches them.
-            ws.send_text(r#"{"type":"ping"}"#)?;
-            last_ping = Instant::now();
-        }
-        match ws.recv(Duration::from_secs(1))? {
-            None => {}
-            Some(Message::Closed(code, reason)) => {
-                return match code {
-                    4001 => Err(HubError {
-                        status: 403,
-                        code: "device_removed".into(),
-                        message: "this desktop was removed from the account".into(),
-                    }
-                    .into()),
-                    4003 => Err(HubError {
-                        status: 403,
-                        code: "device_removed".into(),
-                        message: "this desktop was signed out".into(),
-                    }
-                    .into()),
-                    _ => Err(format!("socket closed ({code} {})", printable(&reason)).into()),
-                };
-            }
-            Some(Message::Text(text)) => {
-                let Ok(push) = serde_json::from_str::<Value>(&text) else { continue };
-                handle_push(hub, &push, dir, runtime, serve_args, current, applies_input);
-            }
-        }
-    }
-}
-
-/// What a host `session.ticket` push leads to.
-#[derive(Debug)]
-enum OnTicket {
-    /// Serve it; whether view only.
-    Serve(Ticket, bool),
-    /// End the session unserved: its id, the reason given to the hub, and why.
-    End(String, &'static str, String),
-    /// Nothing to serve or end: why.
-    Drop(String),
-}
-
-/// The answer to a host ticket `push`; `admit` maps its scope to `Some(view_only)` or None
-/// when this desktop does not allow it. A ticket that does not parse is ended too, as the
-/// Mac host does: the hub approved the session, and only `/end` closes it.
-fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket {
-    let ticket = match Ticket::from_push(push) {
-        Ok(t) => t,
-        Err(e) => {
-            return match push["sessionId"].as_str().filter(|id| !id.is_empty()) {
-                Some(id) => OnTicket::End(id.to_owned(), "failed", format!("ticket refused: {e}")),
-                None => OnTicket::Drop(e.to_string()),
-            }
-        }
-    };
-    match admit(&ticket.scope) {
-        Some(view_only) => OnTicket::Serve(ticket, view_only),
-        None => OnTicket::End(
-            ticket.session_id,
-            "failed",
-            format!("a {} session is not allowed on this desktop", printable(&ticket.scope)),
-        ),
-    }
-}
-
-fn handle_push(
-    hub: &Arc<Hub>,
-    push: &Value,
-    dir: &std::path::Path,
-    runtime: &std::path::Path,
-    serve_args: &ServeArgs,
-    current: &Current,
-    applies_input: bool,
-) {
-    let pending = Pending::new(runtime);
-    match push["type"].as_str() {
-        Some("session.request") => {
-            let Ok(mut request) =
-                serde_json::from_value::<consent::Request>(push["session"].clone())
-            else {
-                return;
-            };
-            request.received_ms = now_ms();
-            match consent::on_request(&request) {
-                consent::OnRequest::AskThePerson => {
-                    eprintln!("{}", ask_line(&request));
-                    if let Err(e) = pending.add(request, now_ms()) {
-                        eprintln!("linux-host: request not recorded: {e}");
-                    }
-                }
-            }
-        }
-        Some("session.ticket") if push["role"].as_str() == Some("host") => {
-            match on_ticket(push, |scope| admit(dir, scope, applies_input)) {
-                OnTicket::Serve(ticket, view_only) => {
-                    start_session(hub, ticket, view_only, serve_args, current);
-                }
-                OnTicket::End(id, reason, why) => {
-                    eprintln!("linux-host: {why}; ended");
-                    end_later(hub, &id, reason);
-                }
-                OnTicket::Drop(why) => eprintln!("linux-host: ticket refused: {why}"),
-            }
-        }
-        Some("session.revoked" | "session.ended" | "session.denied") => {
-            let Some(id) = push["sessionId"].as_str() else { return };
-            let _ = pending.remove(id, now_ms());
-            let guard = current.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(served) = guard.as_ref() {
-                if served.id == id {
-                    served.stop.store(true, Ordering::SeqCst);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn start_session(
-    hub: &Arc<Hub>,
-    ticket: Ticket,
-    view_only: bool,
-    serve_args: &ServeArgs,
-    current: &Current,
-) {
-    let stop = Arc::new(AtomicBool::new(false));
-    {
-        let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(old) = guard.take() {
-            // One viewer at a time, the newest. A reattach of the same session replaces its own.
-            old.stop.store(true, Ordering::SeqCst);
-            if old.id != ticket.session_id {
-                end_later(hub, &old.id, "replaced");
-            }
-        }
-        *guard = Some(Served {
-            id: ticket.session_id.clone(),
-            scope: ticket.scope.clone(),
-            stop: stop.clone(),
-        });
-    }
-    let (hub, args, current) = (hub.clone(), serve_args.clone(), current.clone());
-    let spawned = std::thread::Builder::new().name("linux-host-session".into()).spawn(move || {
-        eprintln!(
-            "linux-host: serving a {} session for {}",
-            if view_only { "view" } else { "control" },
-            printable(&ticket.peer_name)
-        );
-        let ended = session::serve(&hub, &ticket, view_only, &args, &stop);
-        eprintln!("linux-host: session ended: {}", ended.reason);
-        if let Some(reason) = ended.tell_hub {
-            if let Err(e) = hub.end(&ticket.session_id, reason) {
-                eprintln!("linux-host: end not sent: {e}");
-            }
-        }
-        let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
-        let ours = |s: &Served| s.id == ticket.session_id && Arc::ptr_eq(&s.stop, &stop);
-        if guard.as_ref().is_some_and(ours) {
-            *guard = None;
-        }
-    });
-    if let Err(e) = spawned {
-        eprintln!("linux-host: session not started: {e}");
-    }
-}
-
-/// `/end` off the socket thread.
-fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
-    let (hub, id) = (hub.clone(), id.to_owned());
-    let _ = std::thread::Builder::new().name("linux-host-end".into()).spawn(move || {
-        if let Err(e) = hub.end(&id, reason) {
-            eprintln!("linux-host: end not sent: {e}");
-        }
-    });
+    let host = Host::new(hub, dir, runtime, serve_args, applies_input);
+    host.run(|e| Fatal::from_hub(e).map(Into::into))
 }
 
 #[cfg(test)]
@@ -881,69 +527,6 @@ mod tests {
         );
     }
 
-    fn request(name: &str, fingerprint: Option<&str>) -> consent::Request {
-        consent::Request {
-            id: "s1".into(),
-            viewer_id: "v1".into(),
-            viewer_name: name.into(),
-            viewer_key_fingerprint: fingerprint.map(str::to_owned),
-            scope: "view".into(),
-            received_ms: 0,
-        }
-    }
-
-    #[test]
-    fn hub_text_is_printed_without_control_characters() {
-        assert_eq!(printable("Ann's Mac"), "Ann's Mac");
-        assert_eq!(printable("\u{1b}[2J\u{1b}[31mEvil\u{1b}[0m"), "Evil");
-        assert_eq!(printable("a\u{1b}]0;title\u{7}b"), "ab");
-        assert_eq!(printable("x\ny\rz\t\u{0}\u{7f}\u{9b}1m"), "xyz1m");
-        assert_eq!(printable("\u{202e}cod.exe\u{202c}\u{2066}\u{200f}"), "cod.exe");
-        let hostile = "\u{1b}[2J\u{202e}Mallory\nlinux-host: approved";
-        for line in [request_line(&request(hostile, None)), ask_line(&request(hostile, None))] {
-            assert!(
-                !line.chars().any(|c| c.is_control() || crate::screen_host::is_bidi_control(c)),
-                "{line:?}"
-            );
-            assert!(line.contains("Mallorylinux-host: approved"), "{line:?}");
-        }
-    }
-
-    /// A `Current` serving session `s1` with `scope`, and its stop flag.
-    fn serving(scope: &str) -> (Current, Arc<AtomicBool>) {
-        let stop = Arc::new(AtomicBool::new(false));
-        let served = Served { id: "s1".into(), scope: scope.into(), stop: stop.clone() };
-        (Arc::new(Mutex::new(Some(served))), stop)
-    }
-
-    fn is_empty(current: &Current) -> bool {
-        current.lock().unwrap().is_none()
-    }
-
-    #[test]
-    fn a_dropped_hub_link_stops_the_session_it_served() {
-        // Revocations sent while the link is down are never replayed: fail closed.
-        let (current, stop) = serving("full");
-        let held = stop.clone();
-        let (result, stopped) = hold_link(&current, || {
-            assert!(!held.load(Ordering::SeqCst), "stopped while the link was up");
-            Err("socket closed (1006 connection closed)".into())
-        });
-        assert!(result.is_err());
-        assert_eq!(stopped.as_deref(), Some("s1"));
-        assert!(stop.load(Ordering::SeqCst));
-        assert!(is_empty(&current));
-        // A link the hub closed cleanly too.
-        let (current, stop) = serving("view");
-        let (result, stopped) = hold_link(&current, || Ok(()));
-        assert!(result.is_ok());
-        assert_eq!(stopped.as_deref(), Some("s1"));
-        assert!(stop.load(Ordering::SeqCst));
-        // Nothing served, nothing stopped.
-        let current: Current = Arc::new(Mutex::new(None));
-        assert_eq!(hold_link(&current, || Ok(())).1, None);
-    }
-
     fn consent_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir()
             .join(format!("cmux-screen-host-consent-{tag}-{}", std::process::id()));
@@ -952,80 +535,9 @@ mod tests {
     }
 
     #[test]
-    fn consent_is_read_again_for_each_ticket() {
-        let dir = consent_dir("admit");
-        LocalConsent { view: true, full: true }.save(&dir).unwrap();
-        assert_eq!(admit(&dir, "full", true), Some(false));
-        // `enable` without --allow-control, the host still running.
-        LocalConsent { view: true, full: false }.save(&dir).unwrap();
-        assert_eq!(admit(&dir, "full", true), None);
-        assert_eq!(admit(&dir, "view", true), Some(true));
-        // A consent file it cannot trust admits nothing.
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir.join("consent.json"), std::fs::Permissions::from_mode(0o644))
-            .unwrap();
-        assert_eq!(admit(&dir, "view", true), None);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn withdrawn_consent_stops_the_session_it_no_longer_allows() {
-        let both = LocalConsent { view: true, full: true };
-        let view_only = LocalConsent { view: true, full: false };
-        let (current, stop) = serving("full");
-        assert_eq!(withdraw_unconsented(&current, Ok(both), true), None);
-        assert!(!stop.load(Ordering::SeqCst));
-        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true).as_deref(), Some("s1"));
-        assert!(stop.load(Ordering::SeqCst));
-        assert!(is_empty(&current));
-        // A view session goes on under view-only consent.
-        let (current, stop) = serving("view");
-        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
-        assert!(!stop.load(Ordering::SeqCst));
-        // An unreadable consent file stops it.
-        assert_eq!(
-            withdraw_unconsented(&current, Err("consent.json: bad mode".into()), true).as_deref(),
-            Some("s1")
-        );
-        assert!(stop.load(Ordering::SeqCst));
-        let current: Current = Arc::new(Mutex::new(None));
-        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
-    }
-
-    #[test]
-    fn fingerprints_are_cut_on_a_character_boundary() {
-        // 15 ASCII bytes then a 3-byte character across the 16-byte mark.
-        let fp = "0123456789abcde\u{20ac}\u{20ac}tail";
-        let line = request_line(&request("Ann", Some(fp)));
-        assert!(line.contains("(key 0123456789abcde\u{20ac})"), "{line}");
-        let line = request_line(&request("Ann", Some("\u{1b}[31m\u{e9}")));
-        assert!(line.contains("(key \u{e9})"), "{line}");
-        assert!(request_line(&request("Ann", None)).contains("(key -)"));
-    }
-
-    #[test]
-    fn a_deleted_consent_file_admits_nothing_and_stops_the_view_session() {
-        let dir = consent_dir("deleted");
-        LocalConsent { view: true, full: false }.save(&dir).unwrap();
-        let (current, stop) = serving("view");
-        assert_eq!(withdraw_unconsented(&current, LocalConsent::load(&dir), true), None);
-        std::fs::remove_file(dir.join("consent.json")).unwrap();
-        assert_eq!(admit(&dir, "view", true), None);
-        assert_eq!(
-            withdraw_unconsented(&current, LocalConsent::load(&dir), true).as_deref(),
-            Some("s1")
-        );
-        assert!(stop.load(Ordering::SeqCst));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_portal_host_serves_view_only_and_says_so() {
+    fn a_portal_host_says_it_serves_view_only() {
         let dir = consent_dir("portal");
         LocalConsent { view: true, full: true }.save(&dir).unwrap();
-        // The portal capture applies no input: a control ticket is served view only.
-        assert_eq!(admit(&dir, "full", false), Some(true));
-        assert_eq!(admit(&dir, "full", true), Some(false));
         let all = LocalConsent::load(&dir);
         assert_eq!(shares_line(&all, true), "view and control");
         let line = shares_line(&all, false);
@@ -1073,44 +585,6 @@ mod tests {
         });
         assert!(result.is_err());
         assert_eq!(tries, 2);
-    }
-
-    fn ticket_push(sid_in_jws: &str) -> Value {
-        let claims = serde_json::json!({"sid": sid_in_jws, "role": "host", "peerKey": "KEY"});
-        let payload = b64::encode(claims.to_string().as_bytes())
-            .trim_end_matches('=')
-            .replace('+', "-")
-            .replace('/', "_");
-        serde_json::json!({
-            "type": "session.ticket", "sessionId": "s1", "role": "host", "scope": "full",
-            "ticket": format!("eyJhbGciOiJFUzI1NiJ9.{payload}.c2ln"),
-            "signalURL": "wss://hub.example/v1/sessions/s1/ws", "ice": [],
-            "peer": {"id": "v1", "name": "Mac", "signingKey": "KEY"}
-        })
-    }
-
-    #[test]
-    fn a_refused_host_ticket_ends_its_session() {
-        assert!(matches!(on_ticket(&ticket_push("s1"), |_| Some(true)), OnTicket::Serve(_, true)));
-        assert!(matches!(
-            on_ticket(&ticket_push("s1"), |_| None),
-            OnTicket::End(id, "failed", _) if id == "s1"
-        ));
-        // A ticket that does not agree with its JWS is ended too, as the Mac host does: the
-        // approved session would otherwise stay open on the hub.
-        let mut malformed = ticket_push("s2");
-        assert!(matches!(
-            on_ticket(&malformed, |_| Some(true)),
-            OnTicket::End(id, "failed", _) if id == "s1"
-        ));
-        malformed["ticket"] = "not a jws".into();
-        assert!(matches!(
-            on_ticket(&malformed, |_| Some(true)),
-            OnTicket::End(id, "failed", _) if id == "s1"
-        ));
-        // With no session id there is nothing to end.
-        malformed["sessionId"] = Value::Null;
-        assert!(matches!(on_ticket(&malformed, |_| Some(true)), OnTicket::Drop(_)));
     }
 
     #[test]

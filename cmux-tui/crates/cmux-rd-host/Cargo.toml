@@ -42,11 +42,12 @@ cmux-codecs = { path = "../cmux-codecs", default-features = false, optional = tr
 ring = "0.17"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
+# The host's `cmux-rd serve` children (src/screen_host/session.rs): owned, ended with their
+# session.
+cmux-process = { path = "../cmux-process" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput"] }
-# The host's `cmux-rd serve` children: owned, ended with their session.
-cmux-process = { path = "../cmux-process" }
 # Wayland capture (feature `portal`: src/portal.rs, src/pipewire_capture.rs): the
 # xdg-desktop-portal ScreenCast handshake over D-Bus and the PipeWire stream it opens.
 # pipewire links libpipewire-0.3 (build needs libpipewire-0.3-dev, libspa-0.2-dev, clang).

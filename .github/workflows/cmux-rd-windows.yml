@@ -11,6 +11,7 @@ on:
       - "cmux-tui/crates/cmux-encode/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
+      - "cmux-tui/crates/cmux-rd-link/**"
       - ".github/workflows/cmux-rd-windows.yml"
   workflow_dispatch:
 
@@ -25,7 +26,7 @@ jobs:
   host:
     name: Windows capture and encode selftest
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
-    timeout-minutes: 20
+    timeout-minutes: 35
     # A runs-on expression hides the OS from actionlint; the steps are PowerShell, the Windows default.
     defaults:
       run:
@@ -52,13 +53,17 @@ jobs:
         shell: pwsh
         working-directory: cmux-tui/crates/cmux-rd-host
         run: |
-          cargo build --release --locked --no-default-features --features bench
+          cargo build --release --locked --no-default-features --features bench,link
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --release --locked --no-default-features --features bench optional_4k_mode
+          cargo test --release --locked --no-default-features --features bench,link optional_4k_mode
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # windows-host and its shared hub client (src/screen_host/): private files under the
-          # profile, sessions it cannot serve closed.
-          cargo test --release --locked --no-default-features --features bench -- windows_host screen_host
+          # windows-host, its shared hub client and session serving (src/screen_host/) and the
+          # Windows `serve` (src/windows_serve.rs).
+          cargo test --release --locked --no-default-features --features bench,link -- windows_host screen_host windows_serve
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The secure link's Windows driver (WSAPoll, loopback wake-ups): a session over real
+          # UDP sockets on this runner.
+          cargo test --release --locked --features net --manifest-path ../cmux-rd-link/Cargo.toml
 
       - name: Capture and encode a real desktop sample
         shell: pwsh
@@ -77,6 +82,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "windows-host status exited $LASTEXITCODE" }
           $status | Tee-Object -Append -FilePath "$env:GITHUB_STEP_SUMMARY"
           if (-not ($status -match '^Captured ')) { throw 'windows-host did not capture this desktop' }
+          # One hub session served by `cmux-rd serve` (as `windows-host run` drives it) to a
+          # viewer on this runner over the secure link: media arrives and the stop ends it.
+          foreach ($scope in @('view', 'control')) {
+            $serve = & .\target\release\cmux-rd.exe windows-serve-selftest --scope $scope --duration-s 3
+            if ($LASTEXITCODE -ne 0) { throw "windows-serve-selftest ($scope) exited $LASTEXITCODE; $serve" }
+            $serve | Tee-Object -Append -FilePath "$env:GITHUB_STEP_SUMMARY"
+            if (-not ($serve | ConvertFrom-Json).ok) { throw "windows-serve-selftest ($scope) saw no media" }
+          }
           $readyName = "cmux-rd-motion-$([guid]::NewGuid())"
           $ready = [System.Threading.EventWaitHandle]::new($false, [System.Threading.EventResetMode]::ManualReset, $readyName)
           $motion = $null
@@ -113,6 +126,25 @@ jobs:
             if ($motion -and -not $motion.HasExited) { Stop-Process -Id $motion.Id }
             $ready.Dispose()
           }
+
+      # The host as a person installs it: the secure link and Cisco's downloaded OpenH264,
+      # no OpenH264 built from source (that is the bench build above).
+      - name: Build the installable cmux-rd.exe
+        shell: pwsh
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: |
+          cargo build --release --locked --no-default-features --features link,openh264
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\cmux-rd-windows" | Out-Null
+          Copy-Item .\target\release\cmux-rd.exe "$env:RUNNER_TEMP\cmux-rd-windows\cmux-rd.exe"
+
+      - name: Upload cmux-rd.exe
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-rd-windows-x86_64-${{ github.sha }}
+          path: ${{ runner.temp }}/cmux-rd-windows/cmux-rd.exe
+          if-no-files-found: error
+          retention-days: 14
 
   live-windows-host:
     name: Windows live host (tailnet)
