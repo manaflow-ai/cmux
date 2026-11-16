@@ -30,7 +30,11 @@ resolve_runners: fleet=hosted (owner some-personal-account is not a mapped owner
 {"linux":"ubuntu-24.04","linux_arm64":"ubuntu-24.04-arm","macos_15":"macos-15", ...}
 ```
 
-Zero configuration. `owners` lists `manaflow-ai: blacksmith`; every other owner
+Zero configuration. `owners` lists `manaflow-ai: owned`: the GCP Linux pool
+(`cmux-fleet-linux-x64`) for the x86_64 Linux keys, and Blacksmith for arm64 and macOS,
+which no owned fixed label may answer yet. The `blacksmith` fleet is an explicit opt-in
+(`CMUX_CI_RUNNER_FLEET=blacksmith`). A caller a fork pull request can run puts its own
+fork branch first, so fork code never reaches the owned pool. Every other owner
 falls to `default_fleet`, which is the free GitHub-hosted fleet.
 
 The hosted fleet is a working fleet, not an identical one. `macos_26`,

@@ -11,7 +11,19 @@
     "",
     "Capability keys are requirements, not lanes. Who is asking (pull request,",
     "manual flake hunt, non-urgent background work) is cost policy and is not",
-    "expressed here."
+    "expressed here.",
+    "",
+    "manaflow-ai resolves to `owned`, not Blacksmith (Leo, 2026-11-14, on CI still",
+    "running on Blacksmith: owned fleet first). Its Linux keys name the GCP Linux pool,",
+    "cmux-fleet-linux-x64 (ephemeral 16 vCPU VMs, one job each, booted per queued job).",
+    "The other keys keep Blacksmith because nothing else is allowed there yet: there is",
+    "no owned arm64 Linux and no job in manaflow-ai may pick a GitHub-hosted runner",
+    "(check_no_github_hosted_runners); owned Macs are reached only through a picker's",
+    "output, never a fixed label, and the one macOS caller (ios-app-store.yml's",
+    "release-secret upload) may not land on a shared mini. A caller whose job a fork pull",
+    "request can run puts its own fork branch first, so fork code never reaches the owned",
+    "pool. The `blacksmith` fleet stays declared as an explicit opt-in:",
+    "vars.CMUX_CI_RUNNER_FLEET=blacksmith (or a caller's `fleet` input)."
   ],
   "capabilities": {
     "linux": "x86_64 Linux; the default for every non-macOS job",
@@ -49,10 +61,22 @@
       "macos_26": "macos-26",
       "macos_26_ios": "macos-26",
       "macos_26_large": "macos-26"
+    },
+    "owned": {
+      "linux": "cmux-fleet-linux-x64",
+      "linux_16": "cmux-fleet-linux-x64",
+      "linux_32": "cmux-fleet-linux-x64",
+      "linux_arm64": "blacksmith-4vcpu-ubuntu-2404-arm",
+      "macos_15": "blacksmith-6vcpu-macos-15",
+      "macos_15_gui": "blacksmith-6vcpu-macos-15",
+      "macos_15_sdk15": "blacksmith-6vcpu-macos-15",
+      "macos_26": "blacksmith-6vcpu-macos-26",
+      "macos_26_ios": "blacksmith-6vcpu-macos-26",
+      "macos_26_large": "blacksmith-12vcpu-macos-26"
     }
   },
   "owners": {
-    "manaflow-ai": "blacksmith"
+    "manaflow-ai": "owned"
   },
   "default_fleet": "hosted",
   "pools": {
