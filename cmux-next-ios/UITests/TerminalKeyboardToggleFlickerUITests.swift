@@ -86,21 +86,21 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         XCTAssertEqual(values["blank"], "0", "frames with a blank grid")
         XCTAssertEqual(values["note"], "0", "frames with the letterbox note")
         XCTAssertEqual(values["sized"], "0", "frames where the surface changed size")
-        // Every frame, single ones and the held still included: the grid's
-        // bottom row stays within 2 pt of where it rests on the composer.
-        XCTAssertEqual(values["off2"], "0", "frames with the grid's bottom off the composer: largest \(values["off2max"] ?? "?") pt at \(values["offlog"] ?? "?")")
-        XCTAssertEqual(values["snap"], "0", "frames where the grid moved while the composer stood still")
-        // The grid's first row is never under the toolbar.
-        XCTAssertEqual(values["clipped"], "0", "frames with the grid's top under the toolbar: largest \(values["clipmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
+        // Through every toggle the grid stays pinned to the top: row 1 at the
+        // toolbar's edge on every frame (held stills included), never riding
+        // the composer.
+        XCTAssertEqual(values["topoff"], "0", "frames with row 1 off the toolbar's edge: largest \(values["topmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
+        XCTAssertEqual(values["topmove"], "0", "frames where the grid's top moved without a swap: \(values["offlog"] ?? "?")")
+        // Hiding, the gap below the old grid is background only.
+        XCTAssertEqual(values["gaplive"], "0", "frames with live or stale rows below the grid: \(values["offlog"] ?? "?")")
+        // After the swap the bottom row rests on the composer.
+        XCTAssertEqual(values["off2"], "0", "frames with the swapped grid off the composer: largest \(values["off2max"] ?? "?") pt at \(values["offlog"] ?? "?")")
         // Ghostty never presents a grid of other rows than the area's without
         // a committed still over it (a torn frame).
         XCTAssertEqual(values["torn"], "0", "frames with the new grid in the old area: \(values["offlog"] ?? "?")")
-        // Measured, not asserted (the hide's band lasts the Mac's round trip).
-        XCTContext.runActivity(named: "band: \(values["bandf"] ?? "?") frames, largest \(values["bandpx"] ?? "?") pt") { _ in }
-        // The Mac's redraw lands about when the keyboard stops: no frame with
-        // the old grid once the composer has stopped (a band above it, or its
-        // top rows under the toolbar).
-        XCTAssertEqual(values["late"], "0", "frames with the old grid after the keyboard stopped")
+        // Measured, not asserted: the gap below the grid while hiding, the
+        // old grid after the composer stopped, toggle start to the swap.
+        XCTContext.runActivity(named: "gap below the grid: \(values["gapf"] ?? "?") frames, largest \(values["gappx"] ?? "?") pt; late \(values["late"] ?? "?"); swap \(values["swapms"] ?? "?") ms") { _ in }
     }
 
     private func checkShell(_ values: [String: String], following: Bool = false, motion: Bool = true) {

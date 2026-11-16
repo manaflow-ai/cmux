@@ -766,6 +766,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sample.gridTop = probe.onScreen(surface, in: view).minY + surface.gridPadding.y
             sample.gridRows = rows
             sample.pageRows = tuiRows
+            // Nothing covers the area below the grid (no background view yet).
+            sample.coverTop = probe.onScreen(tuiClip, in: view).maxY
             sample.clipTop = probe.onScreen(tuiClip, in: view).minY
             sample.cellHeight = cell.height
             sample.noteShown = !hostGridNote.isHidden
@@ -774,7 +776,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // The still itself (in its cover, for an area still).
                 let still = held.superview === view ? held : (held.subviews.first ?? held)
                 let drawn = probe.onScreen(still, in: view)
-                sample.heldCoverTop = probe.onScreen(held, in: view).minY
                 sample.heldTop = drawn.minY
                 sample.heldBottom = drawn.maxY
                 sample.heldIsArea = held.superview !== view

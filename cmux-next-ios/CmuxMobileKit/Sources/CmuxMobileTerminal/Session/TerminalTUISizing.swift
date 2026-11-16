@@ -52,6 +52,12 @@ public struct TerminalTUISizing: Equatable, Sendable {
         followsKeyboard = false
     }
 
+    /// The area's bottom (a page y): the resting top of the composer stack,
+    /// lifted by the settled keyboard for a TUI.
+    public func areaBottom(restingStackTop: CGFloat) -> CGFloat {
+        restingStackTop - (followsKeyboard ? keyboardLift ?? 0 : 0)
+    }
+
     /// The rows for the PTY: toolbar to the composer, lifted by the settled
     /// keyboard for a TUI.
     public func rows(restingStackTop: CGFloat, chromeTop: CGFloat, cellHeight: CGFloat) -> Int {
@@ -178,6 +184,18 @@ public struct TerminalResizeSettle: Equatable, Sendable {
         if pending == size { return .nothing }
         pending = size
         return .wait
+    }
+
+    /// A keyboard toggle's target size, sent at once (no settle): the target
+    /// is known (the keyboard's end, or the height it last had), not measured
+    /// mid-change. Nil when it is the size the Mac was last given: a toggle
+    /// reversed back to it sends nothing, and a reversal to anything else
+    /// sends that at once, so the size claimed is always the newest target.
+    public mutating func claim(_ size: Size) -> Size? {
+        pending = nil
+        guard size != applied else { return nil }
+        applied = size
+        return size
     }
 
     /// `settle` passed since the last change: the size to send, if any.

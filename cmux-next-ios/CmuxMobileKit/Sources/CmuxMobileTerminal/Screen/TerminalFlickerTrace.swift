@@ -9,34 +9,34 @@ import UIKit
 /// per frame to `Documents/terminal-flicker-trace.txt`, and counts on the
 /// `debug.terminal-flicker` probe.
 ///
-/// Counted from the demo's first toggle (`show0`) to its end (`done.`):
-/// - `jump`: frames where the rows on screen are not where they belong, two
-///   or more frames in a row (`jump1`: single frames, see `measure`). A
-///   full-screen app's grid ends on the composer stack's top (`pin`, its
-///   bottom edge minus the stack's top, against the value at rest); a
-///   shell's last row keeps its gap above the stack (`gap`). A held frame
-///   (the still over a mirror reset) is what was on screen and counts as
-///   placed.
-/// - `blank`: frames with nothing legible: a full-screen app's grid with no
-///   text, or a shell page showing background where it has rows.
+/// Counted from the demo's first toggle (`show0`) to its end (`done.`).
+/// A full-screen app (design/terminal R1-1, 2026-11-16): through a toggle
+/// its grid stays pinned to the top (row 1 at the toolbar's edge), the
+/// composer moves over its bottom rows or away from them, and the Mac's
+/// grid of the new rows swaps in once:
+/// - `topoff`: the grid's top (the held still's while it is up) above the
+///   toolbar's edge, or more than a row below it (`topmax`).
+/// - `topmove`: the same grid's top moving (riding the composer).
+/// - `gapf`/`gappx`: frames with a gap between the grid's last row and the
+///   composer (measured), `gaplive`: such a gap not covered by background.
+/// - `off2`: a grid of the page's rows with a gap above the composer, or off
+///   it by more than 2 pt once the composer stopped.
+/// - `late`: the old grid still up two frames after the composer stopped.
+/// - `torn`: Ghostty presented a grid of other rows than the area's with no
+///   committed still over it.
+/// - `swapms`: per step, toggle start to the Mac's grid on screen.
+/// A shell (primary screen):
+/// - `jump`/`jump1`: the last row off its gap to the composer, two or more
+///   frames in a row / single frames; `drift`: more than two rows off;
+///   `gapoff`/`gapmax`: a following page's last row as drawn off the
+///   composer by more than the row a stream writes ahead.
+/// - `rev`: frames where the rows moved against the keyboard.
+/// Both:
+/// - `blank`: frames with nothing legible.
 /// - `note`: frames that show the letterbox note ("53×25 · set by …").
-/// - `off2`: a full-screen app's grid bottom more than 2 pt from where it
-///   rests on the composer, any frame (single ones and held stills of the
-///   area included); `bandf`/`bandpx`: frames with background between the
-///   toolbar and the grid's top, and the largest such band.
-/// - `late`: frames where a full-screen app's grid is still not the area's
-///   (a band above it, or its top rows under the toolbar) though the
-///   composer has stopped for two frames.
-/// - `drift`: a shell's last row more than two rows off its gap to the
-///   composer, two or more frames in a row.
-/// - `band`: frames where a full-screen app's grid leaves more than a row
-///   of background between the toolbar and its first row (informational:
-///   the keyboard hiding over a grid the Mac has not grown yet).
 /// - `snap`: frames where the rows moved while the composer stood still.
-/// - `rev`: frames where a shell's rows moved against the keyboard.
 /// - `sized`: frames where the surface changed size.
 /// - `hitch1`/`hitch2`: frame intervals of two, and of three or more, frames.
-/// - `rz`: PTY resizes sent per demo step.
 @MainActor
 final class TerminalFlickerTrace: NSObject {
     static let flag = "-CmuxMobileTerminalFlickerTrace"
@@ -65,8 +65,8 @@ final class TerminalFlickerTrace: NSObject {
         var heldTop: CGFloat = 0
         var heldBottom: CGFloat = 0
         var heldIsArea = false
-        /// The top of what covers the area while held (the still's cover).
-        var heldCoverTop: CGFloat = 0
+        /// The top of the background below the area (`tuiBelowCover`).
+        var coverTop: CGFloat = 0
         /// The rows the page asks for now (the grid the Mac redraws to).
         var pageRows = 0
         // Shell.
@@ -102,8 +102,6 @@ final class TerminalFlickerTrace: NSObject {
     private let handle: FileHandle?
     private let probe = UILabel(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private let start = CACurrentMediaTime()
-    /// Main-thread time per frame: all of it, and the page's own measured work.
-    private let busyMeter = MainThreadBusyMeter()
     private var ours: [String: Double] = [:]
     private var oursTotal = 0.0
 
@@ -167,7 +165,6 @@ final class TerminalFlickerTrace: NSObject {
     }
 
     func stop() {
-        busyMeter.stop()
         link?.invalidate()
         link = nil
         updateLink?.isEnabled = false
@@ -210,8 +207,7 @@ final class TerminalFlickerTrace: NSObject {
             finished = true
             stepResizes.append("\(step):\(now.resizes - stepStartResizes)")
         }
-        let busy = busyMeter.take()
-        line += String(format: " busy=%.1f span=%.1f ours=%.1f", busy.busyMs, busy.longestMs, oursTotal)
+        line += String(format: " ours=%.1f", oursTotal)
         if !ours.isEmpty {
             line += " parts=" + ours.sorted { $0.value > $1.value }.prefix(6).map { String(format: "%@:%.1f", $0.key, $0.value) }.joined(separator: ",")
         }
@@ -232,25 +228,18 @@ final class TerminalFlickerTrace: NSObject {
         if interval > duration * 2.5 { count("hitch2") } else if interval > duration * 1.5 { count("hitch1") }
         if let previous, previous.surfaceSize != now.surfaceSize { count("sized") }
         let value: CGFloat
+        if let previous { stackStill = abs(now.stackTop - previous.stackTop) < 0.1 ? stackStill + 1 : 0 }
         if now.isTUI {
             value = now.gridTop + CGFloat(now.gridRows) * now.cellHeight - now.stackTop
             measureShown(now, t: t)
             if !now.held, now.noteShown { count("note") }
             if !now.held, now.nonBlankRows == 0 { count("blank") }
-            if !now.held, now.gridTop - now.clipTop > now.cellHeight { count("band") }
         } else {
             value = now.stackTop - now.contentBottom
             if drawnBlank(now) { count("blank") }
         }
         let reference = reference ?? value
         self.reference = reference
-        if let previous { stackStill = abs(now.stackTop - previous.stackTop) < 0.1 ? stackStill + 1 : 0 }
-        if now.isTUI, stackStill >= 2, !now.held,
-           now.gridTop - now.clipTop > now.cellHeight || now.clipTop - now.gridTop > 1 {
-            // The keyboard has stopped and the grid is still not the area's:
-            // a band above it, or its top rows under the toolbar.
-            count("late")
-        }
         if !now.isTUI, now.cellHeight > 0, now.following {
             // Following, the last row stays on the composer every frame: at
             // most the one row a stream writes ahead of the follow scroll
@@ -302,7 +291,9 @@ final class TerminalFlickerTrace: NSObject {
         // the new rows, its bottom stays on the composer): only a move off
         // the composer is a snap. The swap after a one-frame `jump1` reading
         // is not one either.
-        let moved = now.isTUI ? abs(value - previousValue) > 1 && abs(value - reference) > 1 : abs(rowsMoved) > 1
+        // A full-screen app's grid is checked by `topmove` (its top stands
+        // still between swaps; a swap changes its rows and its bottom).
+        let moved = now.isTUI ? false : abs(rowsMoved) > 1
         if abs(stackMoved) < 0.1, moved, !now.held, !previous.held { count("snap") }
         if !now.isTUI, abs(rowsMoved) > 0.5, abs(stackMoved) > 0.1, (rowsMoved > 0) != (stackMoved > 0) { count("rev") }
     }
@@ -313,6 +304,8 @@ final class TerminalFlickerTrace: NSObject {
     /// background between the toolbar and the grid's top (`bandf` frames,
     /// `bandpx` the largest, in points beyond the resting gap).
     private func measureShown(_ now: Sample, t: CFTimeInterval) {
+        // What shows of the grid: the held still while it is up (its top and
+        // bottom), else the live grid.
         let top: CGFloat, bottom: CGFloat
         if now.held {
             // A still of the whole page: where its grid is drawn is not known.
@@ -324,33 +317,63 @@ final class TerminalFlickerTrace: NSObject {
             bottom = now.gridTop + CGFloat(now.gridRows) * now.cellHeight
         }
         let pin = bottom - now.stackTop
-        let topGap = top - now.clipTop
-        let pinRest = shownPinRest ?? pin
-        let topRest = shownTopRest ?? topGap
-        shownPinRest = pinRest
-        shownTopRest = topRest
-        // The new grid's first row under the toolbar (its top above the
-        // clip's). The old grid riding a rising composer before the Mac's
-        // redraw is the design (R1-1: pinned to the composer until the new
-        // grid's first frame); a grid of the page's own rows is complete.
-        // Held: the live grid shows only above what covers the area.
-        let exposed = !now.held || now.gridTop < now.heldCoverTop - 1
-        let liveTop = now.held ? now.gridTop : top
-        if exposed, now.gridRows == now.pageRows, liveTop < now.clipTop - 1 {
-            count("clipped")
-            largestClip = max(largestClip, now.clipTop - liveTop)
-            if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:clip%.1f%@", t, now.demo, now.clipTop - liveTop, now.held ? "h" : "")) }
+        let swapped = !now.held && now.gridRows == now.pageRows
+        // Row 1 at the toolbar's edge, every frame (the area's sub-row rest is
+        // below it): never under the toolbar, never a band above the grid.
+        if top < now.clipTop - 1 || top > now.clipTop + now.cellHeight + 1 {
+            count("topoff")
+            largestTopOff = max(largestTopOff, abs(top - now.clipTop))
+            if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:top%.1f%@", t, now.demo, top - now.clipTop, now.held ? "h" : "")) }
         }
-        if abs(pin - pinRest) > 2 {
+        // While the same grid shows (no swap), its top stands still: it does
+        // not ride the composer.
+        if let last = lastShown, last.rows == now.gridRows, last.held == now.held, abs(top - last.top) > 1 {
+            count("topmove")
+            if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:move%.1f", t, now.demo, top - last.top)) }
+        }
+        lastShown = (now.gridRows, now.held, top)
+        // Below the grid's last row, down to the composer: background only
+        // (the area's cover starts at the grid's bottom).
+        if bottom < now.stackTop - 1 {
+            count("gapf")
+            largestGapBelow = max(largestGapBelow, now.stackTop - bottom)
+            if now.coverTop > bottom + 1 {
+                count("gaplive")
+                if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:live%.1f", t, now.demo, now.coverTop - bottom)) }
+            }
+        }
+        // The grid of the page's rows rests on the composer: never a gap above
+        // the composer after the swap, and on it once the composer stopped.
+        if swapped, pin < -2 || (stackStill >= 2 && abs(pin) > 2) {
             count("off2")
-            largestOff = max(largestOff, abs(pin - pinRest))
-            if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:%.1f%@", t, now.demo, pin - pinRest, now.held ? "h" : "")) }
+            largestOff = max(largestOff, abs(pin))
+            if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:pin%.1f", t, now.demo, pin)) }
         }
-        if topGap - topRest > 2 {
-            count("bandf")
-            largestBand = max(largestBand, topGap - topRest)
+        // The old grid still up once the composer stopped.
+        if stackStill >= 2, !now.held, now.gridRows != now.pageRows { count("late") }
+        // Toggle start to the swap (the Mac's grid of the page's rows on screen).
+        if now.demo != swapStep {
+            swapStep = now.demo
+            swapStart = t
+            swapAwaited = now.gridRows != now.pageRows || now.held
+            swapRowsAtStart = now.gridRows
+        }
+        if !swapAwaited, now.gridRows != swapRowsAtStart || now.gridRows != now.pageRows { swapAwaited = true }
+        if swapAwaited, swapped, swapLog.count < 12 {
+            swapLog.append(String(format: "%@:%.0f", now.demo, (t - swapStart) * 1000))
+            swapAwaited = false
+            swapRowsAtStart = -1
         }
     }
+
+    private var lastShown: (rows: Int, held: Bool, top: CGFloat)?
+    private var largestTopOff: CGFloat = 0
+    private var largestGapBelow: CGFloat = 0
+    private var swapStep = ""
+    private var swapStart: CFTimeInterval = 0
+    private var swapAwaited = false
+    private var swapRowsAtStart = -1
+    private var swapLog: [String] = []
 
     /// Background where the document has rows in the legible band (toolbar
     /// to composer), from the drawn geometry: the page's own check
@@ -374,22 +397,19 @@ final class TerminalFlickerTrace: NSObject {
         if offLog.count < 24 { offLog.append("torn:\(fed)in\(area)") }
     }
 
-    private var shownPinRest: CGFloat?
-    private var shownTopRest: CGFloat?
     private var largestOff: CGFloat = 0
-    private var largestBand: CGFloat = 0
-    private var largestClip: CGFloat = 0
     private var largestGap: CGFloat = 0
     private var drawnGapRest: CGFloat?
     private var offLog: [String] = []
 
     private func summary(demo: String) -> String {
-        let keys = ["frames", "off2", "clipped", "torn", "gapoff", "bandf", "jump", "jump1", "late", "drift", "blank", "note", "band", "snap", "rev", "sized", "hitch1", "hitch2"]
+        let keys = ["frames", "topoff", "topmove", "off2", "gaplive", "gapf", "torn", "gapoff", "jump", "jump1", "late", "drift", "blank", "note", "snap", "rev", "sized", "hitch1", "hitch2"]
         var parts = keys.map { "\($0)=\(counts[$0] ?? 0)" }
         parts.append(String(format: "jmax=%.1f", largestJump))
         parts.append(String(format: "off2max=%.1f", largestOff))
-        parts.append(String(format: "bandpx=%.1f", largestBand))
-        parts.append(String(format: "clipmax=%.1f", largestClip))
+        parts.append(String(format: "topmax=%.1f", largestTopOff))
+        parts.append(String(format: "gappx=%.1f", largestGapBelow))
+        parts.append("swapms=" + (swapLog.isEmpty ? "-" : swapLog.joined(separator: ",")))
         parts.append(String(format: "gapmax=%.1f", largestGap))
         parts.append("offlog=" + (offLog.isEmpty ? "-" : offLog.joined(separator: ",")))
         parts.append("demo=\(demo)")
