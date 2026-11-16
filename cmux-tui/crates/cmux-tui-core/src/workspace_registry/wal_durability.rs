@@ -166,16 +166,25 @@ impl OwnerRelease {
 
     /// The commit hook's part: true when the commit must fail. Says so on
     /// stderr the first time on each thread.
+    ///
+    /// The answer is decided when the release is read, and nothing after
+    /// that changes it (decision of 2026-11-16). The SQLite binding reads a
+    /// panic in a commit hook as "commit", so a panic of the line would let
+    /// that commit land after the release. The line's write is not
+    /// `eprintln!`, which panics when it fails; its result is dropped, and a
+    /// panic that still comes is caught here.
     fn refuses_commit(&self, database_path: &Path) -> bool {
         if !self.is_released() {
             return false;
         }
-        if !SAID_REFUSED.with(|said| said.replace(true)) {
-            // As `eprintln!` does: a line that cannot be written is a panic.
-            if let Err(error) = self.write_refused_line(database_path) {
-                panic!("failed printing to stderr: {error}");
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // A thread at its end has no value of its own any more: it says
+            // nothing.
+            let said = SAID_REFUSED.try_with(|said| said.replace(true)).unwrap_or(true);
+            if !said {
+                let _ = self.write_refused_line(database_path);
             }
-        }
+        }));
         true
     }
 
