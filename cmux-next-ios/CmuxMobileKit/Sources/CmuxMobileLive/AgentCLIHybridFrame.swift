@@ -137,7 +137,7 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         for span in delta.spans {
             switch span {
             case let .set(row, column, cells):
-                guard (0..<rows).contains(row), column >= 0, !cells.isEmpty, column + cells.count <= columns else {
+                guard column >= 0, !cells.isEmpty, column + cells.count <= columns else {
                     return "span at \(row),\(column) of \(cells.count) cells"
                 }
                 for cell in cells where !Self.drawable(cell.text) {
