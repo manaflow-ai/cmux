@@ -1,6 +1,10 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S]
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S] [shell]
+//
+// With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
+// person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
+// `first_shell_live` mark is that terminal's first shell output.
 //
 // Opens APP through LaunchServices (NSWorkspace.openApplication: a new instance, activated, as a Dock click does)
 // with a home under HOME_ROOT, and prints one `LR-RUN <json>` line. Times are ms from the app's process start
@@ -18,10 +22,12 @@ import Darwin
 
 let args = CommandLine.arguments
 guard args.count >= 4 else {
-    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S]\n".utf8)); exit(2)
+    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S] [shell]\n".utf8)); exit(2)
 }
 let appURL = URL(fileURLWithPath: args[1]), homeRoot = URL(fileURLWithPath: args[2]), label = args[3]
 let settle = args.count > 4 ? Double(args[4]) ?? 6 : 6
+let opensShell = args.count > 5 && args[5] == "shell"
+var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
     try? FileManager.default.createDirectory(at: home.appendingPathComponent(sub), withIntermediateDirectories: true)
@@ -56,10 +62,37 @@ markSource.setEventHandler {
         if parts.count >= 2, let ms = Double(parts[parts.count - 1]) {
             let name = parts[0..<(parts.count - 1)].joined(separator: " ")
             if marks[name] == nil { marks[name] = ms }
+            if name == "window_usable", opensShell, shellRequested == nil { shellRequested = now(); requestShell() }
         }
     }
 }
 markSource.resume()
+
+/// A person's first terminal: `action.run newSurface` on the app's socket, from a thread of its own (the reply waits
+/// for the terminal). The reply only goes to stderr (probe.log).
+func requestShell() {
+    let path = homeRoot.appendingPathComponent("app.sock").path
+    Thread.detachNewThread {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { raw in
+            let bytes = Array(path.utf8.prefix(raw.count - 1))
+            raw.copyBytes(from: bytes + [0])
+        }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        guard connected == 0 else { FileHandle.standardError.write(Data("launch-ready: shell request: connect failed \(errno)\n".utf8)); return }
+        let request = Data(#"{"id":1,"method":"action.run","params":{"action":"newSurface"}}"#.utf8 + [10])
+        _ = request.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        let count = read(fd, &buffer, buffer.count)
+        if count > 0 { FileHandle.standardError.write(Data("launch-ready: shell request reply: ".utf8) + Data(buffer[0..<count])) }
+    }
+}
 
 var environment: [String: String] = [
     "HOME": home.path, "CFFIXED_USER_HOME": home.path, "TMPDIR": tmp.path + "/",
@@ -122,7 +155,9 @@ extension Double { func rounded(toPlaces places: Int) -> Double { let p = pow(10
 let keep = ["main_start", "main.warmup_started", "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers",
             "main.nsapp_made", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "did_finish_launching_start",
             "dfl.settings_read", "dfl.theme", "services.crash_reporting", "dfl.services", "dfl.bind", "dfl.menu", "dfl.home_history",
-            "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home"]
+            "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
+            // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
+            "window_usable", "first_shell_live"]
 var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
@@ -132,6 +167,7 @@ var row: [String: Any] = [
     // the launch steps (dfl.*) and Home's (home.*), so a relaunch's cache read shows too.
     "marks": marks.filter { label == "prime" || keep.contains($0.key) || $0.key.hasPrefix("dfl.") || $0.key.hasPrefix("home.") },
     "all_marks": marks.count,
+    "shell_requested": rel(shellRequested),
 ]
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])

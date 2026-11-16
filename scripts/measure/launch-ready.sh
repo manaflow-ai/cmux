@@ -12,6 +12,10 @@
 #   runs=N       measured relaunches per side (1 to 10, default 5), after one priming launch
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
 #                and print its main thread from process start to the window on screen (launch-ready-profile.py)
+#   state=bare   every launch, the priming one included, starts with an empty home: nothing to restore, as a fresh
+#                install's window after its copy's first exec (the priming launch pays that exec). Default state=kept:
+#                the priming launch makes the home's state and every measured launch relaunches into it. With state=bare
+#                the probe also opens a terminal once Home takes keys (window_usable): shell_requested, first_shell_live.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
@@ -22,6 +26,7 @@ main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
+  LR_STATE=kept
   for arg in "$@"; do
     case "$arg" in
       dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
@@ -29,12 +34,14 @@ main() {
       head=*) headsha="${arg#head=}" ;;
       runs=*) runs="${arg#runs=}" ;;
       profile=0|profile=1) profile="${arg#profile=}" ;;
+      state=kept|state=bare) LR_STATE="${arg#state=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
+  echo "LR state $LR_STATE"
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   # Everything this run reads from the checkout is compiled or copied now: the builds below check out other commits.
   xcrun swiftc -O -o "$out/launch-ready" scripts/measure/launch-ready.swift >"$out/swiftc.log" 2>&1 \
@@ -100,7 +107,7 @@ rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
 for side in dict.fromkeys(r["side"] for r in rows):
     done = [r for r in rows if r["side"] == side and r["label"] != "prime" and r.get("window_on_screen") is not None]
     med = {"n": len(done)}
-    for key in ("finished_launching", "window_on_screen", "active", "request_to_start"):
+    for key in ("finished_launching", "window_on_screen", "active", "request_to_start", "shell_requested"):
         vals = [r[key] for r in done if r.get(key) is not None]
         med[key] = round(statistics.median(vals), 1) if vals else None
     names = dict.fromkeys(name for r in done for name in r["marks"])
@@ -121,13 +128,17 @@ probe() {
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
   quiesce "$app" "$side" "$label"
+  # state=bare: the launch finds an empty home (launch-ready.swift makes its folders again). Only this run's own home
+  # is removed; a daemon the last launch kept has its socket in the removed home and ends with the others at the end.
+  if [[ "$LR_STATE" == bare ]]; then rm -rf "$out/home-$side/h" "$out/home-$side/t"; fi
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
       >>"$out/xctrace.log" 2>&1 &
     recorder=$!
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
   fi
-  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" 2>>"$out/probe.log" | grep '^LR-RUN ')"
+  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" \
+    $([[ "$LR_STATE" == bare ]] && echo shell) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   if [[ -n "$recorder" ]]; then
     kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
   fi
