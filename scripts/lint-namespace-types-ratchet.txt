@@ -101,7 +101,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/LayoutBehaviorSetting.swift:Cen
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedPolicyKey.swift:ManagedPreferenceLocation
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedPreferencesManifest.swift:ManagedPreferencesManifest
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedStatusReport.swift:ManagedStatusReport
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/QuitBehaviorSetting.swift:QuitBehaviorSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema.swift:SettingsSchema
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/SidebarSectionsSetting.swift:SidebarSectionsSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/StripScrollbarSetting.swift:StripScrollbarSetting

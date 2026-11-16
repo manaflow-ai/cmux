@@ -142,10 +142,10 @@ test("a focused route reveals its row once values arrive and focuses its visible
     revealed.push(this.getAttribute("data-row-key") ?? this.tagName);
   };
   try {
-    page = await renderPage({ path: "/settings/general?focus=app.quitBehavior" });
-    expect(revealed).toEqual(["app.quitBehavior"]);
+    page = await renderPage({ path: "/settings/general?focus=navigation.historyScope" });
+    expect(revealed).toEqual(["navigation.historyScope"]);
     const active = document.activeElement as HTMLElement;
-    expect(active.closest('[data-row-key="app.quitBehavior"]')).not.toBeNull();
+    expect(active.closest('[data-row-key="navigation.historyScope"]')).not.toBeNull();
     expect(active.getAttribute("aria-hidden")).toBeNull();
   } finally {
     window.HTMLElement.prototype.scrollIntoView = original;

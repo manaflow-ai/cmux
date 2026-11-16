@@ -68,18 +68,6 @@ extension CmuxConfigSnapshot {
     public nonisolated static let showMenuBarIconDefault = true
 }
 
-extension QuitBehaviorSetting {
-    /// `app.quitBehavior`.
-    public nonisolated static let configPath = ["app", "quitBehavior"]
-    public nonisolated static let fallback: QuitBehavior = .keep
-}
-
-extension CmuxConfigSnapshot {
-    /// `app.confirmQuit`: Lawrence 2026-11-10: an accidental Cmd-Q ended every agent and terminal with no question. Asks only when the quit ends them.
-    public nonisolated static let confirmQuitPath = ["app", "confirmQuit"]
-    public nonisolated static let confirmQuitDefault = true
-}
-
 extension DefaultColumnWidthSetting {
     /// `layout.defaultColumnWidth`: Two thirds of the viewport; the range is the daemon's column width range (set-viewport-pane-width).
     public nonisolated static let configPath = ["layout", "defaultColumnWidth"]

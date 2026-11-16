@@ -8,8 +8,7 @@
   ],
   "shared_with_browser": [
     "layout.defaultColumnWidth",
-    "layout.minimumPaneWidth",
-    "app.quitBehavior"
+    "layout.minimumPaneWidth"
   ],
   "validation": {
     "keys": {
@@ -38,9 +37,6 @@
     ],
     "agents.subsessions.maxRunning": [
       16
-    ],
-    "app.quitBehavior": [
-      "ask"
     ],
     "appearance.chromeStyle": [
       "default",

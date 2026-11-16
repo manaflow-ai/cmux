@@ -5,7 +5,6 @@
   "lists": {
     "history": ["history", null],
     "window": ["window", null],
-    "quitting": ["quitting", null],
     "columns": ["columns", null],
     "layout": ["layout", null],
     "workspaceList": ["workspaceList", null],

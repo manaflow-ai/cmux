@@ -62,10 +62,9 @@
           "id": "general",
           "title": {"section": "general"},
           "symbol": "gearshape",
-          "note": "General holds the app itself: windows, quitting, history and housekeeping. The sidebar, tabs and panes, the New Tab page, the viewers and chats each have their own page (settings overhaul, 2026-11-07).",
+          "note": "General holds the app itself: windows, history and housekeeping. The sidebar, tabs and panes, the New Tab page, the viewers and chats each have their own page (settings overhaul, 2026-11-07).",
           "groups": [
             {"group": "settings.group.window"},
-            {"group": "settings.group.quit"},
             {"group": "settings.group.history"},
             {"group": "settings.group.workspaceHibernation"},
             {"group": "settings.group.autoArchive"},

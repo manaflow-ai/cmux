@@ -320,7 +320,7 @@ class Soak:
             json.dump({"harnesses": {FAKE_HARNESS: {"argv": [sys.executable, agent]}}}, handle)
         self.config = os.path.join(self.work, "cmux.json")
         with open(self.config, "w") as handle:
-            json.dump({"app": {"quitBehavior": "keep"}}, handle)
+            json.dump({}, handle)
         env = {"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
                "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": self.config,
                "ACPMUX_HOME": self.acpmux_home}
@@ -715,12 +715,8 @@ class Soak:
 
     def quit(self):
         try:
-            with open(self.config, "w") as handle:
-                json.dump({"app": {"quitBehavior": "end-everything"}}, handle)
-            time.sleep(2)  # soak script: the app reloads cmux.json from its file watcher
             pids = [pid for pid, kind in self.kinds().items() if kind == "app"]
-            # A remembered End Everything no longer deletes workspaces on a
-            # scripted quit (it keeps them); the flag asks for it outright.
+            # Only the End Everything flag ends the sessions and deletes the workspaces (one Quit, CMUX-630).
             Client(self.socket, timeout=10).call("action.run", {"action": "quit", "args": {"endEverything": True}, "wait": False})
             wait(lambda: not any(run("kill", "-0", str(pid)).returncode == 0 for pid in pids), 90)
         except (OSError, ValueError, KeyError) as error:
