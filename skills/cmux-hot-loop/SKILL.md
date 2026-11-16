@@ -17,6 +17,12 @@ then push it through the various testing instead of the other way around."
 
 Build only when `plan` says the change needs one.
 
+One command does steps 2 and 3 and leaves the proof: `scripts/cmux-next/hot-verify.py plan --source dir:. --app APP` says
+`needs_build: true|false`; `hot-verify.py look --source dir:.|pr:N --app APP --out DIR` puts the change into a side
+copy of APP, then writes before and after screenshots (light and dark), a click-through, a video and
+`receipt.json`. Post the receipt's `<!-- cmux-hot-verify ... -->` marker on the PR with the shots: cmuxterm-hq's
+`hot_verify_share` counts it (target 80% of the newest hot-eligible merged PRs; goal `hot-verify-share`).
+
 ## Which command, by layer
 
 | Layer | Put it in | Take it out |
@@ -31,7 +37,7 @@ Build only when `plan` says the change needs one.
 | Swift, Rust the app links, resources, manifests | a build (`plan` names it) | |
 
 Your code layers: `cmux customize library status` (what is on, one line), `library refresh` (pull each layer's
-newest build in place), `library off --all` (every code layer off; cmux serves its own pages).
+newest build in place; a fork's new code only through `use` again), `library off --all` (every code layer off; cmux serves its own pages).
 
 ## Examples
 
