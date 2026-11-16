@@ -34,7 +34,8 @@ describe("POST /v1/auth/machine", () => {
     const desktop = await Device.create({ userId: person.userId, session: "" }, "Desktop", "linux");
     const res = await machineSignIn(credential, desktop.id);
     expect(res.status, JSON.stringify(res.json)).toBe(200);
-    expect(res.json).toMatchObject({ userId: person.userId, scope: "machine" });
+    expect(res.json).toMatchObject({ userId: person.userId, scope: "machine", ownerKind: "user", teamId: "team_01" });
+    expect(res.json.machineId).toMatch(/^machine_/);
     expect(platformCalls).toContain(credential);
     const machine = await Device.create({ userId: person.userId, session: res.json.session }, "Desktop", "linux");
     Object.assign(machine, { id: desktop.id, signing: desktop.signing, signingKey: desktop.signingKey, agreementKey: desktop.agreementKey });

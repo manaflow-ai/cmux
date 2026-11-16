@@ -34,7 +34,7 @@ host-signed allow lists are later work.
   `Authorization: Bearer <session>` on every call.
 - **Machine sign-in**: a machine the person joined to cmux (`acpmux host
   join`) keeps a cmux-platform machine credential, not their Stack token. It
-  signs in with `POST /v1/auth/machine {credential, deviceId}` → `{session,
+  signs in with `POST /v1/auth/machine {credential, deviceId}` → `{session, ownerKind: "user", machineId, teamId,
   userId, scope: "machine", expiresAt}`. The hub asks cmux-platform (the origin
   `MACHINE_ORIGINS` names for a Stack project) `GET
   /v1/machines/credentials/self` with the credential as bearer, and trusts
@@ -120,7 +120,7 @@ end reason, the decision, or `old->new` for a permission change).
 |---|---|---|---|
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
-| `POST /v1/auth/machine` | `{credential, deviceId}` | `{session, userId, scope, expiresAt}` | A joined machine's sign-in (Identity, Machine sign-in): cmux-platform names the person; the `machine` session sets up and serves only `deviceId`. 401 when cmux-platform does not accept the credential or it expired, 403 `machine_no_person` or `account_not_on_hub`, 503 `machine_auth_unavailable`. |
+| `POST /v1/auth/machine` | `{credential, deviceId}` | `{session, userId, scope, ownerKind, machineId, teamId, expiresAt}` | A joined machine's sign-in (Identity, Machine sign-in): cmux-platform names the person; the `machine` session sets up and serves only `deviceId`. 401 when cmux-platform does not accept the credential or it expired, 403 `machine_no_person` or `account_not_on_hub`, 503 `machine_auth_unavailable`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
 | `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |

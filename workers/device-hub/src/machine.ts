@@ -57,6 +57,8 @@ export interface VerifiedMachine {
   projectId: string;
   platformUserId: string;
   machineId: string;
+  /** The team the machine was joined to. */
+  teamId: string;
   /** When the credential expires (ms). */
   expiresAt: number;
 }
@@ -79,13 +81,13 @@ export async function verifyMachineCredential(credential: string, env: Env, now:
     }
     if (!res.ok) continue;
     const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!body || typeof body.machineId !== "string" || !body.machineId) continue;
+    if (!body || typeof body.machineId !== "string" || !body.machineId || typeof body.teamId !== "string" || !body.teamId) continue;
     if (typeof body.userId !== "string" || !PLATFORM_USER_ID.test(body.userId)) {
       throw new ApiError(403, "machine_no_person", "this machine's join names no person; join it again");
     }
     const expiresAt = Date.parse(String(body.expiresAt));
     if (!Number.isFinite(expiresAt) || expiresAt <= now) throw unauthorized("machine credential expired");
-    return { projectId, platformUserId: body.userId, machineId: body.machineId, expiresAt };
+    return { projectId, platformUserId: body.userId, machineId: body.machineId, teamId: body.teamId, expiresAt };
   }
   throw unauthorized("machine credential not accepted");
 }

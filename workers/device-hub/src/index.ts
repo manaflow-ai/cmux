@@ -75,8 +75,10 @@ async function authMachine(request: Request, env: Env): Promise<Response> {
   const iat = Math.floor(now / 1000);
   const exp = Math.min(iat + SESSION_TTL_S, Math.floor(machine.expiresAt / 1000));
   if (exp <= iat) throw unauthorized("machine credential expired");
-  const session = await signEs256(env.SESSION_KEY, { iss: SESSION_ISSUER, sub: userId, iat, exp, scp: "machine", did: body.deviceId, mid: machine.machineId });
-  return json({ session, userId, scope: "machine", expiresAt: exp * 1000 });
+  const session = await signEs256(env.SESSION_KEY, { iss: SESSION_ISSUER, sub: userId, iat, exp, scp: "machine", did: body.deviceId, mid: machine.machineId, tid: machine.teamId });
+  // The owner is the person who joined it (`ownerKind: "user"`): same-account is decided from
+  // that authenticated owner, as for any of their devices.
+  return json({ session, userId, scope: "machine", ownerKind: "user", machineId: machine.machineId, teamId: machine.teamId, expiresAt: exp * 1000 });
 }
 
 /** The user ids /v1/auth/stack mints: `<projectId>:<sub>`. */
