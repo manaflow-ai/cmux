@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import CmuxNextAgentList
 
@@ -108,6 +109,72 @@ private func replay(_ bytes: Data, steps: [RecordedStep], chunkSize: Int) throws
     return actual
 }
 
+private actor BatchRecorder {
+    private(set) var batches: [Data] = []
+    private var waiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func append(_ batch: Data) {
+        batches.append(batch)
+        let ready = waiters.filter { batches.count >= $0.0 }
+        waiters.removeAll { batches.count >= $0.0 }
+        ready.forEach { $0.1.resume() }
+    }
+
+    func waitForCount(_ count: Int) async {
+        if batches.count >= count { return }
+        await withCheckedContinuation { waiters.append((count, $0)) }
+    }
+
+    func batch(_ index: Int) -> Data { batches[index] }
+    func count() -> Int { batches.count }
+}
+
+private final class UnixTestListener {
+    let path: String
+    let descriptor: Int32
+
+    init() throws {
+        descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        try #require(descriptor >= 0)
+        path = "/tmp/cmux-acpmux-\(UUID().uuidString).sock"
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        try path.withCString { bytes in
+            let capacity = MemoryLayout.size(ofValue: address.sun_path)
+            try #require(path.utf8.count < capacity)
+            withUnsafeMutableBytes(of: &address.sun_path) { target in
+                target.copyBytes(from: UnsafeRawBufferPointer(start: bytes, count: path.utf8.count))
+                target[path.utf8.count] = 0
+            }
+        }
+        unlink(path)
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        try #require(bound == 0)
+        try #require(Darwin.listen(descriptor, 1) == 0)
+    }
+
+    deinit {
+        Darwin.close(descriptor)
+        unlink(path)
+    }
+
+}
+
+private func writeAll(_ descriptor: Int32, _ data: Data) {
+    data.withUnsafeBytes { bytes in
+        guard let base = bytes.baseAddress else { return }
+        var offset = 0
+        while offset < data.count {
+            let written = Darwin.write(descriptor, base.advanced(by: offset), data.count - offset)
+            if written > 0 { offset += written } else if errno != EINTR { return }
+        }
+    }
+}
+
 @Suite("AcpmuxClientTests")
 struct AcpmuxClientTests {
     @Test("the wrapper requires the ABI-3 header")
@@ -153,6 +220,71 @@ struct AcpmuxClientTests {
         #expect(actual == steps[0].changes)
         try #require(actual.count == 1)
         #expect(actual[0] == Data("{\"bytes\":[],\"kind\":\"fallback\"}".utf8))
+    }
+
+    @Test("the byte driver stalls at one batch and resumes after acknowledgement")
+    func byteDriverStallsAndResumes() async throws {
+        let bytes = try fixture("mirror.bytes")
+        let steps = try recordedSteps(fixture("mirror.jsonl"))
+        let client = AcpmuxClient()
+        try #require(client.isAvailable)
+        for call in steps[0].calls { try apply(call, to: client) }
+
+        let recorder = BatchRecorder()
+        let driver = AcpmuxClientByteConnection(client: client)
+        driver.beginForTesting { batch in Task { await recorder.append(batch) } }
+        var payload = Data()
+        for _ in 0..<(10 * 1024 * 1024 / bytes.count + 1) { payload.append(bytes) }
+        driver.feedForTesting(payload)
+        await recorder.waitForCount(1)
+        #expect(await recorder.count() == 1)
+        #expect((await recorder.batch(0)).count <= AcpmuxClientByteConnection.maxUndeliveredBytes + bytes.count)
+
+        // A second arrival is held while the first batch is outstanding.
+        driver.feedForTesting(bytes)
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(await recorder.count() == 1)
+        driver.acknowledgeBatch()
+        await recorder.waitForCount(2)
+        #expect(await recorder.count() == 2)
+        driver.stop()
+    }
+
+    @Test("hand-back preserves fallback change, then partial input and lines")
+    func handBackPreservesLineOrder() async throws {
+        let bytes = try fixture("fallback.bytes")
+        let client = AcpmuxClient()
+        try #require(client.isAvailable)
+        let listener = try UnixTestListener()
+        let listenerDescriptor = listener.descriptor
+        let acceptTask = Task.detached {
+            let peer = Darwin.accept(listenerDescriptor, nil, nil)
+            try #require(peer >= 0)
+            return peer
+        }
+        let changes = BatchRecorder()
+        let lines = BatchRecorder()
+        let driver = AcpmuxClientByteConnection(client: client)
+        driver.start(path: listener.path,
+                     onChange: { batch in Task { await changes.append(batch) } },
+                     onClose: {})
+        let peer = try await acceptTask.value
+        defer { Darwin.close(peer) }
+        // The start path calls connected; these are the recorded subscription calls.
+        _ = client.subscribeMirror(Data("{\"held\":[],\"sub\":{\"rows\":\"v1\",\"sid\":\"sidebar\",\"stream\":\"list\",\"view\":\"live\"},\"whole\":false}".utf8))
+        _ = client.want(Data("{\"keys\":[],\"sid\":\"sidebar\"}".utf8))
+        writeAll(peer, Data(bytes[0..<100]))
+        await changes.waitForCount(1)
+        driver.handBackToLines(onLine: { line in Task { await lines.append(line) } }, onClose: {})
+        await lines.waitForCount(1)
+        writeAll(peer, Data(bytes[100...]))
+        await lines.waitForCount(4)
+        #expect(await lines.batch(0) == Data("{\"bytes\":[],\"kind\":\"fallback\"}".utf8))
+        let expectedRest = Data(bytes[90...]).split(separator: 0x0A, omittingEmptySubsequences: true).map(Data.init)
+        try #require(expectedRest.count == 3)
+        for (index, expected) in expectedRest.enumerated() {
+            #expect(await lines.batch(index + 1) == expected)
+        }
     }
 
     @Test("10,000 returned changes are copied and freed")

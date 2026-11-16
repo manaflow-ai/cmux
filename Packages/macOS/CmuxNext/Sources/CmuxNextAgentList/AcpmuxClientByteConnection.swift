@@ -13,6 +13,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     private var pending = Data()
     private var deferredChange: Data?
     private var pendingDelivery = false
+    private var deliveredPrefixCount = 0
     private var connection: AgentActivityLineConnection?
     private var onChange: (@Sendable (Data) -> Void)?
     private var onClose: (@Sendable () -> Void)?
@@ -67,7 +68,11 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
 
     public func acknowledgeBatch() {
         queue.async { [self] in
-            pending.removeAll(keepingCapacity: true)
+            if deliveredPrefixCount > 0 {
+                let count = min(deliveredPrefixCount, pending.count)
+                pending.removeSubrange(pending.startIndex..<pending.index(pending.startIndex, offsetBy: count))
+            }
+            deliveredPrefixCount = 0
             pendingDelivery = false
             processInput()
         }
@@ -84,6 +89,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
             input.removeAll()
             pending.removeAll()
             deferredChange = nil
+            deliveredPrefixCount = 0
             onChange = nil
             onClose = nil
         }
@@ -95,8 +101,24 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
                                 onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
             guard !closed, let connection else { return }
-            let prefix = input
+            var prefix = Data()
+            if !pending.isEmpty {
+                prefix.append(pending)
+                prefix.append(0x0A)
+            }
+            if let deferredChange {
+                prefix.append(deferredChange)
+                prefix.append(0x0A)
+                self.deferredChange = nil
+            }
+            if !input.isEmpty {
+                if !prefix.isEmpty, prefix.last != 0x0A { prefix.append(0x0A) }
+                prefix.append(input)
+            }
             input.removeAll()
+            pending.removeAll(keepingCapacity: true)
+            deliveredPrefixCount = 0
+            pendingDelivery = false
             closed = true
             client.setSendHandler(nil)
             _ = client.disconnected()
@@ -160,6 +182,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         guard !pendingDelivery, !pending.isEmpty, let onChange else { return }
         pendingDelivery = true
         let batch = pending
+        deliveredPrefixCount = batch.count
         onChange(batch)
     }
 
@@ -173,6 +196,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         input.removeAll()
         pending.removeAll()
         deferredChange = nil
+        deliveredPrefixCount = 0
         let callback = onClose
         onChange = nil
         onClose = nil
