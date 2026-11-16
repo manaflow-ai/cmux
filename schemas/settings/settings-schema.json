@@ -213,7 +213,7 @@
           "text" : "Personalization"
         },
         "trail" : [
-
+          "customizeLibrary"
         ]
       },
       {
@@ -1861,6 +1861,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "keys",
+        "lead" : [
+          "keys"
+        ],
+        "symbol" : "key",
+        "title" : {
+          "key" : "settings.category.keys",
+          "text" : "Keys"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.mobile",
             "rows" : [
@@ -2216,6 +2239,7 @@
       {
         "categories" : [
           "accounts",
+          "keys",
           "mobile",
           "devices"
         ],
@@ -60667,7 +60691,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.minimal.help",
-        "text" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+        "text" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.minimal",
@@ -60695,7 +60719,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.sidebar.minimal.summary",
-        "text" : "Buttons show on hover; rows show icon, name and unread mark"
+        "text" : "Buttons show only on hover"
       },
       "surfaces" : {
         "cli" : {

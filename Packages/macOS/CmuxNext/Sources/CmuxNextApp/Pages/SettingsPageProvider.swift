@@ -45,8 +45,10 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
+    /// Settings > Keys (CmuxNextKeys `SettingsKeys`): its `cmux.settings.keys.*` ops and stream; nil in tests without an app.
+    var keys: (any PageProvider)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
-    /// Parts another package serves whole, by op (Agent integrations, try on); empty in tests without an app.
+    /// Parts another package serves whole, by op (Agent integrations, try on, Customization Library); empty in tests without an app.
     var parts: [String: any PageProvider] = [:]
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
@@ -224,6 +226,8 @@ final class SettingsPageProvider: PageProvider {
             guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }
             return try await Self.host(sharesRevoke, "shares")(id)
         case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
+        case "cmux.settings.keys.list", "cmux.settings.keys.answer", "cmux.settings.keys.decline", "cmux.settings.keys.revoke":
+            return try await Self.host(keys, "keys").call(op, params: params, context: context)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
@@ -353,6 +357,7 @@ final class SettingsPageProvider: PageProvider {
                 Task { @MainActor in watching?(false) }
             }
         }
+        if stream == "cmux.settings.keys.changed", let keys { return try await keys.subscribe(stream, filter: filter, context: context, onEvent: onEvent) }
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
             return Self.watch(harnessesState, onEvent: onEvent)
         }

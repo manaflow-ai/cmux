@@ -913,8 +913,26 @@ async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, bas
     // own dial went through (its resumes, fresh sessions and exits), so a stall is told from a lost push.
     const lastAt = slice.length ? new Date(slice[slice.length - 1].at).toISOString().slice(11, 23) + "Z" : "never";
     ctx.log?.(`chaos: ${tag}: the client's last record came at ${lastAt}; its dial: ${(chat.dial.events ?? []).slice(-12).join(" | ") || "no route line or exit"}`);
+    if (!caught) ctx.log?.(`chaos: ${tag}: the machine at the stall: ${await machineAtStall(ctx)}`);
   }
   return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)${why}` };
+}
+
+/**
+ * What the machine says while a chat attachment that still answers pages pushes nothing ("attachment dead, transport
+ * fine", run 18:40Z 2026-11-15): acpmux's outbound queues (`gauges.queues`: a link whose queue grows holds its pushes),
+ * and the last 5 minutes of acpmux's and the host daemon's warnings and attachment lines, which tell acpmux that stopped
+ * fanning out from a daemon that stopped forwarding. For the job log only; it never changes a verdict.
+ */
+export const STALL_FACTS_COMMAND = [
+  `echo "@@queues $("$c" acp --json daemon status 2>&1 | tr -d '\\n' | grep -oE '"queues":\\{.{0,1500}' | head -c 1500)"`,
+  `for u in acpmux.service cmux-host.service; do echo "@@$u"; { sudo -n journalctl -u "$u" --since '5 min ago' --no-pager -o cat 2>/dev/null || journalctl -u "$u" --since '5 min ago' --no-pager -o cat 2>/dev/null; } | grep -iE 'warn|error|lag|overrun|overflow|attach|subscri|peer|fanout|closed|too.slow' | tail -n 15 | cut -c1-300; done`,
+  `echo "@@daemon.log"; tail -n 400 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -iE 'warn|error|lag|overrun|attach|subscri|peer|fanout|too.slow' | tail -n 15 | cut -c1-300`,
+].join("; ");
+
+async function machineAtStall(ctx: ChaosContext): Promise<string> {
+  const r = await ctx.exec(`${ctx.guest}${STALL_FACTS_COMMAND}`, 45_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+  return r.stdout.trim().split("\n").join(" | ").slice(0, 8000) || "nothing read";
 }
 
 async function terminalVerdict(ctx: ChaosContext, term: SeqTerminal | null, startError: string): Promise<LossVerdict> {

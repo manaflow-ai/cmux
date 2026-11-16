@@ -556,6 +556,28 @@ class ReferencedFilesExist(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+class ScriptTestsAreListed(unittest.TestCase):
+    """Every scripts/cmux-next test_*.py is run by a `python3` line of a workflow or a CI script.
+    test_hot_apply.py and 72 others were run by no line, so their reds went unseen (30 of
+    test_hot_apply's 100 failed on feat-cmux-next until #43831)."""
+
+    def test_no_test_file_is_left_out(self):
+        texts = [path.read_text(encoding="utf-8", errors="replace")
+                 for folder in (ROOT / ".github/workflows", ROOT / "scripts/ci") for path in sorted(folder.rglob("*"))
+                 if path.is_file() and path.suffix in (".yml", ".yaml", ".sh", ".py")]
+        run = set()
+        for text in texts:
+            for line in text.splitlines():
+                if not line.lstrip().startswith("#"):
+                    run |= set(re.findall(r"python3(?: -I)? (scripts/cmux-next/[A-Za-z0-9_./-]*test_[A-Za-z0-9_-]+\.py)", line))
+        tests = [path.relative_to(ROOT).as_posix() for path in (ROOT / "scripts/cmux-next").rglob("test_*.py")
+                 if not {"node_modules", "__pycache__"} & set(path.parts)]
+        self.assertGreater(len(tests), 90)
+        left_out = sorted(set(tests) - run)
+        self.assertEqual(left_out, [], "add each to the checks job's script tests in .github/workflows/cmux-next.yml "
+                                       "(a test that needs a Mac skips on Linux with its reason)")
+
+
 class GodfileScopes(unittest.TestCase):
     """`--only swift` and `--only rust` each check their half, at unchanged budgets."""
 

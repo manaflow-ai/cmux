@@ -58,6 +58,12 @@ ARMS = ("fresh-copy", "same-copy", "warm")
 EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
 # --arms=prewarm: the pre-warms only (the update path's pre-warm and what it could add), beside the base arms.
 PREWARM_ARMS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-home", "gktool-moved")
+# --arms=adhoc: whether an ad-hoc signed new copy (a tagged build's, dmg=build) pays the first-exec cost a Developer ID
+# signed one does, so a dmg=build A/B's fresh-copy result transfers to the published DMG:
+#   adhoc-copy      a new copy of the same DMG's app re-signed ad hoc from the inside out, as reload.sh signs a tagged
+#                   build (adhoc_sign: no flags, no entitlements), then the fresh-home launch: the same code on the same
+#                   Mac, only the signature differs
+ADHOC_ARMS = ("adhoc-copy",)
 PREWARM_BINS = ("cmux", "cmux-tui")
 # The unified log around a fresh copy's launch: who works on a new executable before main.
 FIRST_EXEC_LOG = ('process == "syspolicyd" OR process == "amfid" OR process == "XProtect" OR process == "trustd" '
@@ -240,6 +246,26 @@ def prewarm_until_main(smoke, root: Path, app: Path, executable: str, home_root:
     return {"seconds": round(time.monotonic() - started, 3), "main_start_at": None if seen is None else round(seen, 3)}
 
 
+def adhoc_sign(app: Path) -> str:
+    """Re-signs APP ad hoc from the inside out, as a tagged build is signed: each nested bundle, framework, dylib and
+    executable, deepest first, then APP, with no flags and no entitlements, as scripts/reload.sh signs a tagged build
+    (`codesign --force --sign - --timestamp=none`). The Developer ID build's team-restricted entitlements under an ad-hoc
+    signature got the process killed at exec (SIGKILL), and its hardened runtime kept made library validation refuse the
+    ad-hoc frameworks before `main` (SIGABRT). Returns the last lines of codesign's output."""
+    contents = app / "Contents"
+    items = [p for p in contents.rglob("*") if p.suffix in (".app", ".framework", ".dylib", ".xpc", ".appex")]
+    items += [p for d in ("MacOS", "Resources/bin") for p in (contents / d).glob("*")
+              if p.is_file() and not p.is_symlink() and os.access(p, os.X_OK)]
+    items += [p for p in (contents / "Frameworks").rglob("*") if p.is_file() and not p.is_symlink()
+              and os.access(p, os.X_OK) and p.parent.name in ("MacOS", "Helpers")]
+    out = []
+    for item in sorted(set(items), key=lambda p: len(p.parts), reverse=True) + [app]:
+        line = run_text(["/usr/bin/codesign", "--force", "--sign", "-", "--timestamp=none", str(item)], timeout=300)
+        if "error" in line.lower() or item == app:
+            out.append(f"{item.relative_to(app.parent)}: {line.strip()[-200:]}")
+    return "\n".join(out)[-800:]
+
+
 def first_exec_log(since: float, until: float) -> dict:
     """The unified log's FIRST_EXEC_LOG lines between SINCE and UNTIL (epoch seconds): a count per process and the
     first lines, best effort."""
@@ -294,6 +320,9 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                 started = time.monotonic()
                 before = {"spctl": run_text(["spctl", "--assess", "--type", "execute", "-vv", str(app)], timeout=600)[:400],
                           "seconds": round(time.monotonic() - started, 3)}
+            elif arm == "adhoc-copy":
+                started = time.monotonic()
+                before = {"codesign": adhoc_sign(app), "seconds": round(time.monotonic() - started, 3)}
             elif arm in ("gktool", "gktool-moved"):
                 started = time.monotonic()
                 before = {"gktool": run_text(["/usr/bin/gktool", "scan", str(app)], timeout=900)[-400:],
@@ -359,10 +388,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--rounds", type=int, default=2, choices=range(1, 6))
     parser.add_argument("--seconds", type=float, default=8.0)
-    parser.add_argument("--arms", choices=("base", "extra", "prewarm"), default="base",
+    parser.add_argument("--arms", choices=("base", "extra", "prewarm", "adhoc"), default="base",
                         help="extra: also the EXTRA_ARMS and the unified log around each fresh-copy launch; prewarm: also the PREWARM_ARMS")
     args = parser.parse_args(argv)
-    more = {"extra": EXTRA_ARMS, "prewarm": PREWARM_ARMS}.get(args.arms, ())
+    more = {"extra": EXTRA_ARMS, "prewarm": PREWARM_ARMS, "adhoc": ADHOC_ARMS}.get(args.arms, ())
     os.umask(0o022)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -387,7 +416,8 @@ def main(argv: list[str] | None = None) -> int:
             rows = round_once(smoke, apps[0], bundle_id, executable, args.seconds, index, report, more=more,
                               log_first_exec=args.arms == "extra")
             report["launches"].extend(rows)
-            if any(row["rendered_at"] is None for row in rows):
+            # A diagnostic arm that cannot launch (ADHOC_ARMS) is reported in its own NFL-LAUNCH line, not as the step's failure.
+            if any(row["rendered_at"] is None for row in rows if row["arm"] not in ADHOC_ARMS):
                 status = 1
     except (smoke.CannotRun, OSError, subprocess.SubprocessError) as error:
         print(f"NFL cannot run: {error}", flush=True)
