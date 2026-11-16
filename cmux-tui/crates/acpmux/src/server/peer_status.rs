@@ -58,6 +58,11 @@ pub(crate) async fn host_health_with(
         "build": crate::hub::build(),
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
+        // What kind of device this is (`cmux-device-kind`: `mac-mini`, `linux-server`), so every
+        // view of a machine draws its own glyph; read once per process.
+        "device": cmux_device_kind::this_device().kind.as_str(),
+        // The SF Symbol that kind draws, so a native view names it without a table of its own.
+        "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
         "liveSessions": hub.live_session_count(),
         "uptimeSecs": crate::store::now_ms().saturating_sub(hub.started_at) / 1000,

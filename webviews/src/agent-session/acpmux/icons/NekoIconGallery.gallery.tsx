@@ -6,6 +6,7 @@ import { Icon } from "./Icon";
 import { IconsProvider } from "./IconsContext";
 import { bundledIconPack, overlaidIconPack } from "./iconPack";
 import candidate from "./nekoCandidate.json";
+import rounds from "./nekoRounds.json";
 import type { IconPack } from "./types";
 
 // All candidate assets and packs are imported only by this gallery entry.
@@ -13,15 +14,15 @@ import noto from "../../../../../design/icons/neko-candidates/noto-emoji/cat.svg
 import fluent from "../../../../../design/icons/neko-candidates/fluent-emoji/cat-flat.svg?url";
 import lucide from "../../../../../design/icons/neko-candidates/lucide/cat.svg?url";
 
-import earfoldCopy from "../../../../../design/icons/neko-candidates/round2/01-earfold-copy.svg?url";
-import earfoldRetry from "../../../../../design/icons/neko-candidates/round2/01-earfold-retry.svg?url";
-import earfoldSpeak from "../../../../../design/icons/neko-candidates/round2/01-earfold-speak.svg?url";
-import tailtermCopy from "../../../../../design/icons/neko-candidates/round2/02-tailterm-copy.svg?url";
-import tailtermRetry from "../../../../../design/icons/neko-candidates/round2/02-tailterm-retry.svg?url";
-import tailtermSpeak from "../../../../../design/icons/neko-candidates/round2/02-tailterm-speak.svg?url";
-import whiskerCopy from "../../../../../design/icons/neko-candidates/round2/03-whisker-copy.svg?url";
-import whiskerRetry from "../../../../../design/icons/neko-candidates/round2/03-whisker-retry.svg?url";
-import whiskerSpeak from "../../../../../design/icons/neko-candidates/round2/03-whisker-speak.svg?url";
+// Art-round directions (scripts/icons/build_pack.py from neko-candidates/round2 and round3), drawn
+// through the shared renderer like the default row: currentColor and the pack's stroke normalization.
+type RoundName = keyof typeof rounds;
+const roundPacks = Object.fromEntries(
+  (Object.keys(rounds) as RoundName[]).map((name) => [
+    name,
+    overlaidIconPack(bundledIconPack, rounds[name] as IconPack),
+  ]),
+) as Record<RoundName, IconPack>;
 
 const candidatePack = overlaidIconPack(bundledIconPack, candidate as IconPack);
 // Explicit provider identity keeps a host's debug family out of the baseline comparison.
@@ -56,21 +57,35 @@ const sets = {
     license: "First-party",
     image: "",
     note: "An angular cue replaces part of the action silhouette. Unapproved round 2 experiment.",
-    drawings: { "action.copy": earfoldCopy, "action.retry": earfoldRetry, "media.audio": earfoldSpeak },
+    round: "earfold",
   },
   tailterm: {
     title: "cmux Tail terminals",
     license: "First-party",
     image: "",
     note: "One contour ends in a small curl. Unapproved round 2 experiment.",
-    drawings: { "action.copy": tailtermCopy, "action.retry": tailtermRetry, "media.audio": tailtermSpeak },
+    round: "tailterm",
   },
   whisker: {
     title: "cmux Whisker edges",
     license: "First-party",
     image: "",
     note: "Short rays share an exposed edge. Higher recognition risk; unapproved round 2 experiment.",
-    drawings: { "action.copy": whiskerCopy, "action.retry": whiskerRetry, "media.audio": whiskerSpeak },
+    round: "whisker",
+  },
+  r3tail: {
+    title: "cmux Tail, all six",
+    license: "First-party",
+    image: "",
+    note: "Round 3: one tail curl ends an open line on copy, retry, speak, bookmark and pin; More's dots become toe beans. Unapproved.",
+    round: "r3tail",
+  },
+  r3mix: {
+    title: "cmux Ears and tail, all six",
+    license: "First-party",
+    image: "",
+    note: "Round 3: ear corners on the copy sheet and the bookmark star, tail curls on retry, speak and pin, toe-bean More. Unapproved.",
+    round: "r3mix",
   },
 } as const;
 type SetName = keyof typeof sets;
@@ -118,41 +133,31 @@ const samples = [
 
 function TokenRow({
   experimental = false,
-  drawings,
+  round,
   scale,
-  dark = false,
 }: {
   experimental?: boolean;
-  drawings?: Readonly<Record<string, string>>;
+  round?: RoundName;
   scale: number;
-  dark?: boolean;
 }) {
   const glyphSize = BASE.glyph * scale;
   return (
     <IconsProvider pack={baselinePack}>
       <div
         style={{ display: "flex", flexWrap: "wrap", gap: px(BASE.rowGap), width: "100%" }}
-        data-token-row={experimental || drawings ? "candidate" : "default"}
+        data-token-row={experimental || round ? "candidate" : "default"}
       >
         {samples.map(([name, label]) => (
           <span
             key={name}
             style={{ display: "grid", justifyItems: "center", gap: px(BASE.itemGap), width: px(BASE.itemWidth) }}
           >
-            {drawings?.[name] ? (
-              <img
-                aria-hidden="true"
-                data-neko-drawing={drawings[name]}
-                src={drawings[name]}
-                alt=""
-                style={{
-                  display: "block",
-                  width: px(BASE.glyph),
-                  height: px(BASE.glyph),
-                  objectFit: "contain",
-                  filter: dark ? "invert(1)" : undefined,
-                }}
-              />
+            {round && Object.hasOwn(rounds[round].icons, name) ? (
+              <IconsProvider pack={roundPacks[round]}>
+                <span data-neko-drawing={name} style={{ display: "contents" }}>
+                  <Icon name={name} size={glyphSize} />
+                </span>
+              </IconsProvider>
             ) : experimental && Object.hasOwn(candidate.icons, name) ? (
               <IconsProvider pack={candidatePack}>
                 <Icon name={name} size={glyphSize} />
@@ -193,7 +198,8 @@ function NekoIconGallery({
 }) {
   const art = sets[set];
   const dark = mode === "dark";
-  const drawings = "drawings" in art ? art.drawings : undefined;
+  const round = "round" in art ? art.round : undefined;
+  const roundActions = round ? samples.filter(([name]) => Object.hasOwn(rounds[round].icons, name)).length : 0;
   const scale = interfaceScale(density, uiScale);
   const glyphSize = BASE.glyph * scale;
   return (
@@ -223,14 +229,14 @@ function NekoIconGallery({
       </div>
       <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
         <span style={{ fontSize: "var(--text-detail)" }}>Default shared tokens</span>
-        <TokenRow scale={scale} dark={dark} />
+        <TokenRow scale={scale} />
       </div>
-      {set === "authored" || drawings ? (
+      {set === "authored" || round ? (
         <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
           <span style={{ fontSize: "var(--text-detail)" }}>
-            Candidate · {drawings ? "3" : "2"}/6 actions · Shared spinner/status marks
+            Candidate · {round ? roundActions : 2}/{samples.length} actions · Shared spinner/status marks
           </span>
-          <TokenRow experimental={set === "authored"} drawings={drawings} scale={scale} dark={dark} />
+          <TokenRow experimental={set === "authored"} round={round} scale={scale} />
         </div>
       ) : (
         <div

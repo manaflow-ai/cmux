@@ -89,7 +89,7 @@ enum AgentHandlers {
                              } else { pane = try context.pane(invocation) }
                              guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
-                         }, refusal: { registry.refuse(thrown: $0) }).bind(into: registry)
+                         }, refusal: { registry.refuse(thrown: $0) }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
         context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
@@ -363,14 +363,14 @@ enum AgentHandlers {
             var seed = await inherited?.peek() ?? AgentPaneSeed()
             seed.cwd = requested.cwd ?? seed.cwd
             seed.harness = requested.harness ?? seed.harness
-            seed.model = requested.model ?? seed.model
+            (seed.model, seed.draft) = (requested.model ?? seed.model, requested.draft ?? seed.draft)
             return seed
         }, placed: placed)
     }
 
     static func seed(for invocation: ActionInvocation) -> AgentPaneSeed {
         let host = invocation["host"]?.targetValue?.id ?? invocation["host"]?.stringValue
-        return AgentPaneSeed(cwd: invocation["cwd"]?.stringValue,
+        return AgentPaneSeed(cwd: invocation["cwd"]?.stringValue, draft: invocation["draft"]?.stringValue,
                       harness: invocation["harness"]?.stringValue,
                       model: invocation["model"]?.stringValue,
                       host: host == MachineRegistry.localID ? nil : host)

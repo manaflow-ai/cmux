@@ -14,6 +14,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer-grow-no-thumb", "chromium", chromium))) return;
@@ -24,7 +25,7 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
   let browser: Browser;
   /** A blank page that decodes the lane captures, so the stage under test does no extra work. */
   let decoder: Page;
-  const FIELD = ".acpmux-composer-box .acpmux-md-field";
+  const FIELD = COMPOSER_MD_FIELD;
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),

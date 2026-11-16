@@ -244,7 +244,6 @@ cmux-tui/crates/cmux-remote/src/daemon.rs	8
 cmux-tui/crates/cmux-remote/src/http.rs	1
 cmux-tui/crates/cmux-remote/src/identity/auth_database.rs	2
 cmux-tui/crates/cmux-remote/src/link.rs	3
-cmux-tui/crates/cmux-remote/src/network_watch.rs	1
 cmux-tui/crates/cmux-remote/src/provider/iroh.rs	1
 cmux-tui/crates/cmux-remote/src/provider/relay.rs	5
 cmux-tui/crates/cmux-remote/src/provider/ssh.rs	2

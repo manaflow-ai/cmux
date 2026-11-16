@@ -10,6 +10,7 @@ import { filterRows } from "../search";
 import { managedOf, valueOf } from "../store";
 import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
+import { TryOnSlot } from "./TryOnBar";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
 import { personalizationPartOf } from "./PersonalizationCard";
@@ -130,6 +131,8 @@ export function SettingsApp() {
       revision: state.revision,
     })[0]?.rows[0];
     if (first) reveal(first.key);
+    // Nothing matches: Return asks cmux for it, as the row under "No settings match." does.
+    else if (query.trim()) void store.askCmux(query);
   };
 
   return (
@@ -152,6 +155,7 @@ export function SettingsApp() {
         </div>
         <div className="column">
           <ReadOnlyNotice connected={state.connected} loaded={state.loaded} readable={state.readable} />
+          <TryOnSlot />
           {searching ? <SearchResults query={shownQuery} /> : <Outlet />}
         </div>
       </main>

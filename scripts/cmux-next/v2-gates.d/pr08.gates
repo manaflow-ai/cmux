@@ -1,0 +1,7 @@
+# The gates whose tests write the design doc's row 8 (`v2.pr08.*`). A line is GROUP FILTER; see run-v2-gates.sh.
+core pr08_mirror_apply
+core pr08_mirror_local_row
+acpmux-lib v2_pr08_reconnect_30
+acpmux-lib v2_pr08_fanout_30
+acpmux-lib v2_pr08_dial_resume
+acpmux-lib v2_pr08_edition_walk

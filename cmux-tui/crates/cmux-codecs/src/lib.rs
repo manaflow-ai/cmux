@@ -53,9 +53,18 @@ impl H264Impl {
 /// The H.264 encoder `imp`, `None` when this platform has none (VideoToolbox off macOS,
 /// Media Foundation off Windows). `h264-mf` is a hardware MFT only: no fallback, so its
 /// rows are the hardware encoder's or an error.
+///
+/// Measurement knobs, read here only (never by a host): `CMUX_OPENH264_TUNING` holds
+/// [`cmux_encode::openh264::OpenH264Options::parse`]'s list and `CMUX_MF_TUNING`
+/// [`cmux_encode::mediafoundation::MfTuning::parse`]'s; unset is the shipped settings.
 pub fn open_h264(imp: H264Impl, cfg: &EncCfg) -> Res<Option<Box<dyn VideoEncoder>>> {
+    let tuning = |name: &str| std::env::var(name).unwrap_or_default();
     Ok(match imp {
-        H264Impl::OpenH264 => Some(Box::new(OpenH264::new(cfg, OpenH264Api::from_source())?)),
+        H264Impl::OpenH264 => {
+            let opts =
+                cmux_encode::openh264::OpenH264Options::parse(&tuning("CMUX_OPENH264_TUNING"))?;
+            Some(Box::new(OpenH264::with_options(cfg, OpenH264Api::from_source(), &opts)?))
+        }
         // Constrained baseline like OpenH264's, so both send the same profile.
         #[cfg(target_os = "macos")]
         H264Impl::VideoToolbox => Some(Box::new(cmux_encode::videotoolbox::VideoToolbox::new(
@@ -63,13 +72,14 @@ pub fn open_h264(imp: H264Impl, cfg: &EncCfg) -> Res<Option<Box<dyn VideoEncoder
         )?)),
         #[cfg(windows)]
         H264Impl::MediaFoundation | H264Impl::MediaFoundationSoftware => {
-            use cmux_encode::mediafoundation::{MediaFoundation, MftKind};
+            use cmux_encode::mediafoundation::{MediaFoundation, MfTuning, MftKind};
             let kind = if imp == H264Impl::MediaFoundation {
                 MftKind::Hardware
             } else {
                 MftKind::Software
             };
-            Some(Box::new(MediaFoundation::new(cfg, kind)?))
+            let t = MfTuning::parse(&tuning("CMUX_MF_TUNING"))?;
+            Some(Box::new(MediaFoundation::with_tuning(cfg, kind, &t)?))
         }
         #[allow(unreachable_patterns)]
         _ => None,

@@ -43,3 +43,44 @@ fn a_mark_queues_once_until_the_pass_takes_it() {
     mark.take();
     assert!(mark.mark(), "output after the pass queues it again");
 }
+
+/// The worker lets the mux go while it waits: a mux dropped while the
+/// worker idles frees the session at once, so the next daemon of the same
+/// session (a restart in the same process) opens it. A strong mux held
+/// across the idle wait kept the registry's session lease for
+/// [`IDLE_LINGER`], and every restart test failed with "workspace session is
+/// already owned by another daemon".
+#[test]
+fn cmux_next_an_idle_port_watch_worker_does_not_keep_a_dropped_mux() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-port-watch-reopen-{}", WorkspacePublicId::random().unwrap()));
+    let open = || {
+        let registry = WorkspaceRegistry::open(&root, "port-watch").unwrap();
+        Mux::from_workspace_registry(
+            "port-watch".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap()
+    };
+    let mux = open();
+    mux.reconcile_terminal_ports();
+    // The reconcile pass ran and the worker is in its idle wait.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let state = mux.terminal_port_watch.lock();
+        if state.worker && !state.reconcile && state.last_pass.is_some() {
+            break;
+        }
+        drop(state);
+        assert!(Instant::now() < deadline, "the reconcile pass never ran");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let weak = Arc::downgrade(&mux);
+    drop(mux);
+    assert!(weak.upgrade().is_none(), "the port watch worker still holds the mux");
+    drop(open());
+    let _ = std::fs::remove_dir_all(&root);
+}

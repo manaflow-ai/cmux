@@ -95,6 +95,61 @@ struct MacScreenStoreTests {
         await reloaded.load()
         #expect(reloaded.hubDeviceName == "Office" && reloaded.deviceNames[deviceID] == "Mac mini 2")
     }
+
+    /// The first-use guide hides for good after the first share: the mark is written and read back.
+    @Test func sharedBeforePersists() async throws {
+        let (store, file) = makeStore()
+        await store.load()
+        store.markSharedBefore()
+        await store.flush()
+        #expect(try String(contentsOf: file, encoding: .utf8).contains("hasSharedBefore"))
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hasSharedBefore)
+    }
+
+    /// A share marked before the file finished loading stays marked.
+    @Test func sharedBeforeMarkedDuringLoadIsKept() async throws {
+        let (store, file) = makeStore()
+        // A file from before the share, in a folder the mark's save cannot overwrite, so load reads `false`.
+        let folder = file.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(#"{"deviceNames":{},"hasSharedBefore":false,"linkPairingsRemoved":true}"#.utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+        store.markSharedBefore()
+        await store.flush()
+        await store.load()
+        #expect(store.hasSharedBefore)
+    }
+
+    /// Viewing another Mac once ends the first-use guide too, and the mark is written and read back.
+    @Test func viewedBeforePersistsAndEndsTheFirstUseGuide() async throws {
+        let (store, file) = makeStore()
+        await store.load()
+        #expect(MacScreenHomeSnapshot.showsFirstUse(store: store, isSharing: false))
+        store.markViewedBefore()
+        #expect(store.hasUsedBefore && !MacScreenHomeSnapshot.showsFirstUse(store: store, isSharing: false))
+        await store.flush()
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hasViewedBefore && !reloaded.hasSharedBefore)
+    }
+
+    /// A change made before the file is read never overwrites the file with the empty state: the names stay.
+    @Test func aChangeBeforeLoadKeepsTheSavedNames() async throws {
+        let (store, file) = makeStore()
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"hubDeviceName":"Office","deviceNames":{"\#(deviceID)":"Studio"},"linkPairingsRemoved":true}"#.utf8).write(to: file)
+        store.markSharedBefore()
+        await store.flush()
+        await store.load()
+        await store.flush()
+        #expect(store.hubDeviceName == "Office" && store.deviceNames[deviceID] == "Studio" && store.hasSharedBefore)
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hubDeviceName == "Office" && reloaded.deviceNames[deviceID] == "Studio" && reloaded.hasSharedBefore)
+    }
 }
 
 /// A pairing link pasted or typed in an address bar is refused with a word,

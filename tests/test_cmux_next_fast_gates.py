@@ -1401,6 +1401,8 @@ def shell_scripts(folder: Path) -> list[Path]:
 
 
 QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"|\'[^\']*\'')
+# A job whose runs-on can name a Mac: a macOS label or pool, or a nightly signing Mac.
+MAC_RUNS_ON = re.compile(r"'macos-\d|MACOS_RUNNER|RUNNER_POOLS\)\.macos|CI_NIGHTLY_|glaeda-nightly")
 
 
 def bare_timeout_calls(text: str) -> list[tuple[int, str]]:
@@ -1454,6 +1456,26 @@ class CiScriptsCallPortableTimeout(unittest.TestCase):
         self.assertEqual(len(bare_timeout_calls('out="$(FOO=1 gtimeout 9 cmd)"\n')), 1)
         self.assertEqual(bare_timeout_calls('# timeout 5 cmd\necho "no result in a timeout"\nbun test --timeout 5\n'
                                             'bash "$ci_timeout" 5 cmd\necho "$f: its own retry; timeout budget"\n'), [])
+
+    def test_no_mac_workflow_step_calls_timeout_bare(self):
+        # nightly-next-one's "Ask main's nightly-next tick at notarization" ran `timeout 60 gh workflow run ...`
+        # and exited 127 on a signing Mac with no GNU timeout (runs 43715748978, 43717516369); continue-on-error hid
+        # it, so the next nightly never set up during notarization. A `command -v timeout` on the line guards it.
+        offenders = []
+        for workflow_path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
+            jobs = (yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}).get("jobs") or {}
+            for job_id, job in jobs.items():
+                if not isinstance(job, dict) or not MAC_RUNS_ON.search(str(job.get("runs-on", ""))):
+                    continue
+                for step in job.get("steps") or []:
+                    run = step.get("run") if isinstance(step, dict) else None
+                    if not isinstance(run, str):
+                        continue
+                    for _, line in bare_timeout_calls(run):
+                        if "command -v timeout" not in line:
+                            offenders.append(f"{workflow_path.name} {job_id} [{step.get('name')}]: {line[:160]}")
+        self.assertEqual(offenders, [], "macOS runners have no `timeout`: run the command through "
+                         "`bash scripts/ci/timeout.sh [--kill-after=D] SECONDS CMD...` instead")
 
 
 class WebviewsChecksGate(unittest.TestCase):

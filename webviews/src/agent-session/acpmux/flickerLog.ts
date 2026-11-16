@@ -19,6 +19,8 @@
 //   (`what`: row or tool, `kind`): it draws again from nothing, a flash where nothing changed.
 // - `reply-unpainted`: a turn ended with a reply the chat holds, and once the page settled the
 //   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
+// - `focus-lost`: a text input lost the keyboard with no key or click in the last half second
+//   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
 //
 // Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
 // second after the last one, never a loop that runs while the page is still.
@@ -29,6 +31,7 @@
 // handler, and tests that hand it no sender, send nothing. Before the page host sent them (Leo's
 // NIGHTLY, 2026-11-11), the ring file held no page line at all, only the app's own.
 
+import { watchFocusLoss } from "./focusLossWatch";
 import { postNative } from "./native";
 
 export type FlickerEvent = { kind: string; at: number } & Record<string, string | number | boolean>;
@@ -47,6 +50,10 @@ export class FlickerLog {
   private held: FlickerEvent[] = [];
   private dropped = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  /// A flush waits for the end of the recording task (`soon`).
+  private queued = false;
+  /// When the last batch went out (`now`'s clock).
+  private sentAt = -Infinity;
   private mounts = 0;
 
   constructor(
@@ -55,6 +62,7 @@ export class FlickerLog {
     // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
     private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
       setTimeout(run, ms),
+    private readonly soon: (run: () => void) => void = (run) => queueMicrotask(run),
   ) {}
 
   record(kind: string, fields: Record<string, string | number | boolean> = {}): void {
@@ -62,8 +70,23 @@ export class FlickerLog {
       this.held.shift();
       this.dropped += 1;
     }
-    this.held.push({ ...fields, kind, at: this.now() });
-    this.timer ??= this.schedule(() => this.flush(), FLUSH_MS);
+    const at = this.now();
+    this.held.push({ ...fields, kind, at });
+    if (this.timer !== undefined || this.queued) return;
+    // A batch a second at most, sent at the end of the task that recorded it when the last one went out over a
+    // second ago: a page at rest arms no timer for the records a change left (a chat switch's mount and frames
+    // records woke the pane at rest a second later, bench/chat-switch.bench.ts idle_wakeups). Only a record
+    // within a second of the last batch waits, for the rest of that second.
+    const wait = this.sentAt + FLUSH_MS - at;
+    if (wait > 0) {
+      this.timer = this.schedule(() => this.flush(), wait);
+      return;
+    }
+    this.queued = true;
+    this.soon(() => {
+      this.queued = false;
+      this.flush();
+    });
   }
 
   /// The transcript's root mounted: the first is the page's own, any later one a remount.
@@ -80,6 +103,7 @@ export class FlickerLog {
     if (this.dropped) events[0] = { ...events[0]!, dropped: this.dropped };
     this.held = [];
     this.dropped = 0;
+    this.sentAt = this.now();
     this.send(events);
   }
 }
@@ -345,4 +369,6 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
     if (doc.visibilityState === "visible") watch.arm();
   });
   win.addEventListener("pagehide", () => flicker.flush());
+  // A text input that loses the keyboard with no key or click: the app's focus log (focusLossWatch.ts).
+  watchFocusLoss(win, (fields) => flicker.record("focus-lost", fields));
 }

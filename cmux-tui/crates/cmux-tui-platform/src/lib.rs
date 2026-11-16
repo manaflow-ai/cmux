@@ -13,6 +13,7 @@ pub mod file_birth;
 #[cfg(unix)]
 pub mod host_exe;
 mod kinfo_proc;
+pub mod malloc_arenas;
 pub mod platform;
 #[cfg(unix)]
 pub mod process_identity;

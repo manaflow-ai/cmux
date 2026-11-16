@@ -9,6 +9,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 import { teardownDom } from "./support/domTeardown";
+import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -108,8 +109,7 @@ for (const motion of ["off", "on"] as const) {
       const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const latest = scrollerEnd(scroller);
       expect(scroller.scrollTop).toBe(latest);
-      const button = () =>
-        dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")!;
+      const button = () => dom.window.document.querySelector<HTMLButtonElement>(JUMP_LATEST)!;
 
       // The reader flings up the chat; a few frames in, they press Jump to latest.
       for (const delta of fling.slice(0, 8)) await wheelFrame(scroller, delta);

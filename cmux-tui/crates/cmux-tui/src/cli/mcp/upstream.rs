@@ -176,6 +176,9 @@ pub(super) struct Upstream {
     /// The legacy computer use proxy's current endpoint, read when a call finds the
     /// helper unreachable (`cua_recovery.rs`); `None` for every other server.
     endpoint: Option<cua_recovery::EndpointSource>,
+    /// What kept the proxy off the current endpoint at the last read
+    /// (`cua_recovery::endpoint_note`), said when recovery gives up.
+    endpoint_note: Option<String>,
     /// When it last started or answered a call: its process ends [`IDLE_STOP`] after
     /// ([`stop_idle`]).
     used: Instant,
@@ -365,6 +368,7 @@ impl Upstream {
             failed: None,
             listings,
             endpoint,
+            endpoint_note: None,
             used: Instant::now(),
         }
     }
@@ -419,13 +423,28 @@ impl Upstream {
     /// Before a retry: the current endpoint goes in the spec, and the proxy starts again
     /// (it gives up on a helper for good after one failed connection).
     fn reconnect_for_retry(&mut self) {
-        if let Some(socket) = self.endpoint.as_ref().and_then(|source| source())
-            && cua_recovery::apply(&mut self.spec, &socket)
-        {
-            eprintln!("cmux mcp: the {} server moves to the current endpoint", self.spec.name);
+        if let Some(source) = self.endpoint.as_ref() {
+            let read = source();
+            if let Ok(Some(socket)) = &read
+                && cua_recovery::apply(&mut self.spec, socket)
+            {
+                eprintln!("cmux mcp: the {} server moves to the current endpoint", self.spec.name);
+            }
+            let note = cua_recovery::endpoint_note(&read);
+            if let Some(why) = &note
+                && self.endpoint_note.as_ref() != Some(why)
+            {
+                eprintln!("cmux mcp: the {} server keeps its endpoint: {why}", self.spec.name);
+            }
+            self.endpoint_note = note;
         }
         self.conn = None;
         self.failed = None;
+    }
+
+    /// What kept the proxy off the current endpoint at the last read, if anything.
+    fn endpoint_note(&self) -> Option<&str> {
+        self.endpoint_note.as_deref()
     }
 
     /// Whether the server's process runs.
@@ -750,7 +769,13 @@ impl ProxiedCall {
                 if !recovers {
                     return failure;
                 }
-                let error = cua_recovery::gave_up(&why, tries, restarted, started.elapsed());
+                let error = cua_recovery::gave_up(
+                    &why,
+                    tries,
+                    restarted,
+                    started.elapsed(),
+                    upstream.endpoint_note(),
+                );
                 return super::tool_error(super::envelope(error, "not_run", None));
             }
             // From the second retry on the helper itself may be down: the app restarts it.

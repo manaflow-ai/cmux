@@ -45,6 +45,8 @@ pub(crate) mod overlay;
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
 mod hub_path;
+#[path = "peer_network.rs"]
+pub(crate) mod network;
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
 #[path = "peer_tokens.rs"]
@@ -52,6 +54,8 @@ mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
 use wanted::BackoffWait;
+#[path = "peer_list_read.rs"]
+mod list_read;
 #[path = "peer_runtime.rs"]
 mod runtime;
 #[path = "peer_runtime_io.rs"]
@@ -140,6 +144,10 @@ pub fn hidden_attach_after(id: &str, after: u64) -> Value {
 #[derive(Debug)]
 pub enum PeerNotice {
     Connected,
+    /// The link's whole list (and the changes held while it came) went just before this: a
+    /// link sends it before `Connected`, one after a far restart or a path switch after it
+    /// (`Peer::lists_after_ready`).
+    Listed,
     Disconnected(String),
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
     Restarting,
@@ -164,6 +172,14 @@ pub enum PeerNotice {
         /// The link it came on (`Peer::link_epoch` when it was read).
         link: u64,
     },
+}
+
+impl PeerNotice {
+    /// A list's (or a follow's patch's) bytes of row text; None for any other notice.
+    pub(crate) fn list_bytes(&self) -> Option<u64> {
+        let (Self::Sessions(rows) | Self::SessionsPatch { rows, .. }) = self else { return None };
+        Some(rows.iter().map(|row| row.len() as u64).sum())
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -290,19 +306,19 @@ pub struct Peer {
     cancelled: Arc<StdMutex<crate::request_cancel::Cancelled>>,
     /// Accepted prompt identities survive transport loss; reconnect only reads their outcome.
     prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
-    /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
-    /// sessions listed): what `connected` reports. False from the moment the link drops.
+    /// The handshake finished on the live link (`initialize` answered, and the sessions listed on a
+    /// first link): what `connected` reports. False from the moment the link drops.
     pub connected: AtomicBool,
-    /// The hub applied this link's session list (its `Connected` notice, which follows the
+    /// The hub applied this link's session list (its `Listed` notice, which follows the
     /// list): until then a name missing from the rows may only not be listed yet, so a
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
-    /// hub's `Disconnected`.
+    /// hub's `Disconnected`, and from its `Connected` until this link's list is in.
     pub rows_ready: AtomicBool,
-    /// One more than the link epoch whose session list the hub applied last (its `Connected`
+    /// One more than the link epoch whose session list the hub applied last (its `Listed`
     /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
     rows_link: AtomicU64,
-    /// The links whose `Connected` notice is on its way to the hub, oldest first: the hub takes
-    /// one with each `Connected` it applies, so it knows which link's list that one follows.
+    /// The links whose `Listed` notice is on its way to the hub, oldest first: the hub takes
+    /// one with each `Listed` it applies, so it knows which link's list that one follows.
     listed_links: StdMutex<std::collections::VecDeque<u64>>,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
@@ -378,9 +394,16 @@ pub struct Peer {
     read_tokens: tokens::TokenCache,
     /// A link of this peer was connected once: a later read runs before its tunnel opens.
     linked_once: AtomicBool,
+    /// A link of this instance published a whole list, and every link since ended only for a far
+    /// restart or a path switch, which leave the rows usable (`Peer::lists_after_ready`).
+    whole_list: AtomicBool,
     /// An ssh attempt timed out in the banner exchange since the link was last ready: the host
     /// is slow, and its attempts get the long connect deadline (`ssh_connect_secs`).
     slow_banner: AtomicBool,
+    /// The last connect attempt failed because the remote refused this computer's ssh login
+    /// (a key or password it does not take, a host key that does not match): the next attempts
+    /// wait minutes (`Backoff::login_refused`), and no ask or open chat cuts the wait.
+    login_refused: AtomicBool,
     /// From the WebSocket opening until `stale_token` cleared it: callers'
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
@@ -419,6 +442,10 @@ pub struct Peer {
     stop_signal: Notify,
     /// Broadcasts explicit stop/replacement to callers waiting for a reconnect.
     stop_changed: tokio::sync::watch::Sender<bool>,
+    /// This computer's network changes (`peer_network.rs`), read only by `run`'s task: a live link
+    /// is probed at once, a backoff wait ends at once. One receiver for the peer's life, so a change
+    /// made while a link was being dialed still reaches it.
+    network: StdMutex<tokio::sync::watch::Receiver<u64>>,
     /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
     wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the
@@ -504,25 +531,6 @@ impl ReceivedBytes {
     /// (frame bytes, text bytes) since the link opened.
     pub fn read(&self) -> (u64, u64) {
         (self.frames.load(Ordering::SeqCst), self.text.load(Ordering::SeqCst))
-    }
-}
-
-impl Peer {
-    /// Reads every page after the watch reply `first` with `_acpmux/sessions {cursor}` on link
-    /// `link`; the reader gathers their rows (`watch_key`). A cursor given twice, or one that is
-    /// not a string, is an error that ends the handshake, never a loop or a short list.
-    async fn watch_pages(&self, first: Value, tools: bool, link: u64) -> Result<(), RpcError> {
-        let (mut seen, mut next) = (HashSet::new(), page_cursor(&first)?);
-        while let Some(cursor) = next {
-            if !seen.insert(cursor.clone()) {
-                let why = format!("the peer gave the watch page cursor {cursor:?} twice");
-                return Err(RpcError::internal(why));
-            }
-            let params = json!({"withTools": tools, "cursor": cursor});
-            let page = self.watch_request_on(method::MUX_SESSIONS, params, link).await?;
-            next = page_cursor(&page)?;
-        }
-        Ok(())
     }
 }
 
@@ -901,23 +909,7 @@ pub fn read_config_argv(destination: &str, connect_secs: u64) -> Vec<String> {
     .collect()
 }
 
-/// Whether a direct (not ssh) peer URL may carry the peer token: `wss://`,
-/// or `ws://` to a loopback host. Over plain `ws://` to any other host the
-/// token would cross a network in clear, and the peer serves it as Web
-/// anyway (`server/peer_auth.rs`). An `ssh://` peer connects through a
-/// tunnel to the remote's loopback, so it always may.
-pub fn carries_peer_token(url: &str) -> bool {
-    let Ok(uri) = url.parse::<tokio_tungstenite::tungstenite::http::Uri>() else { return false };
-    let host = uri.host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
-    match uri.scheme_str() {
-        Some("wss") => true,
-        Some("ws") => {
-            host.eq_ignore_ascii_case("localhost")
-                || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.to_canonical().is_loopback())
-        }
-        _ => false,
-    }
-}
+pub use crate::ws_auth::carries_peer_token;
 
 /// The output of `read_config_argv`: the config bytes and the peer token
 /// (None when absent or not a 64-digit hex token).
@@ -1530,9 +1522,23 @@ pub(crate) mod test_dial {
     pub(crate) type Attempt = (tokio::time::Instant, u64);
 
     thread_local!(static ATTEMPTS: RefCell<Option<Vec<Attempt>>> = const { RefCell::new(None) });
+    thread_local!(static AUTH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
 
     pub(crate) fn refuse_all() {
         ATTEMPTS.with(|a| *a.borrow_mut() = Some(Vec::new()));
+        AUTH.with(|a| a.set(false));
+    }
+
+    /// Every dial fails as ssh does when the remote refuses this computer's key or password
+    /// (`Permission denied`), and is recorded.
+    pub(crate) fn refuse_login_all() {
+        refuse_all();
+        AUTH.with(|a| a.set(true));
+    }
+
+    /// Whether the dials fail as a refused login.
+    pub(super) fn login_refused() -> bool {
+        AUTH.with(|a| a.get())
     }
 
     /// The dials so far; dials keep failing.
@@ -1543,6 +1549,7 @@ pub(crate) mod test_dial {
     /// Dials go out for real again.
     pub(crate) fn clear() {
         ATTEMPTS.with(|a| *a.borrow_mut() = None);
+        AUTH.with(|a| a.set(false));
     }
 
     pub(super) fn refused() -> bool {

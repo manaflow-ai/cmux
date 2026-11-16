@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 const SSH: &str = "ssh-box";
 
-fn v1_hub() -> Arc<Hub> {
+pub(super) fn v1_hub() -> Arc<Hub> {
     let mut config = crate::config::Config::default();
     config.store.mode = crate::config::StoreMode::Memory;
     config.peers.insert(
@@ -44,7 +44,7 @@ fn own(id: &str) -> crate::store::SessionMeta {
     .unwrap()
 }
 
-fn session(host: &str, id: &str, state: &str) -> BookSession {
+pub(super) fn session(host: &str, id: &str, state: &str) -> BookSession {
     BookSession {
         name: format!("chat-{id}"),
         session_id: id.into(),
@@ -117,7 +117,7 @@ async fn turn(v1: &Hub, index: SummaryIndex, state: &TeeState, reconcile: bool) 
 }
 
 /// The keys of a v2 walk of every row, closed ones too.
-fn v2_keys(index: &SummaryIndex) -> Vec<(String, String)> {
+pub(super) fn v2_keys(index: &SummaryIndex) -> Vec<(String, String)> {
     let mut keys = Vec::new();
     let mut anchor: Option<SortKey> = None;
     loop {
@@ -135,7 +135,7 @@ fn v2_keys(index: &SummaryIndex) -> Vec<(String, String)> {
 
 /// The keys of v1's whole list that the index stores: every own row, and another origin's live
 /// rows ("a peer's closed chats are not stored"; 7b's callers read v1 for those, decision 213).
-fn v1_keys(v1: &Hub) -> Vec<(String, String)> {
+pub(super) fn v1_keys(v1: &Hub) -> Vec<(String, String)> {
     let list = v1.list_rows(false, false);
     let mut keys: Vec<_> = list
         .rows()
@@ -147,7 +147,7 @@ fn v1_keys(v1: &Hub) -> Vec<(String, String)> {
     keys
 }
 
-fn origin(index: &SummaryIndex, id: &str) -> Option<OriginState> {
+pub(super) fn origin(index: &SummaryIndex, id: &str) -> Option<OriginState> {
     index.origin(id).map(|origin| origin.state)
 }
 

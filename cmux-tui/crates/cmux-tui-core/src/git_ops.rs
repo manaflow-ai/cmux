@@ -151,7 +151,8 @@ pub(crate) fn dispatch(
     };
     let directory = target::directory(mux, &request, operation)?;
     if operation == "git.status" {
-        return status(&directory);
+        let github = request.fields.get("github").and_then(Value::as_bool).unwrap_or(false);
+        return status(&directory, github);
     }
     if operation == "git.fingerprint" {
         return fingerprint::read(&directory, &request.fields);
@@ -180,8 +181,10 @@ fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> R
 /// What HEAD of the checkout `directory` is in is on. A view that shows a
 /// branch asks this often and a person waits for it, so it comes from the
 /// refs (`cmux_git::head`): no run looks at the work tree's files, whose
-/// count would set the cost.
-fn status(directory: &Path) -> Result<Value, ResourceError> {
+/// count would set the cost. `github` adds `github_repo`, the `owner/name`
+/// of the upstream's remote (else `origin`) on github.com: one more git run,
+/// so only a caller that asks pays it.
+fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.status";
     let repository =
         Checkout::open(directory).map_err(|error| open_failed(OPERATION, directory, error))?;
@@ -197,6 +200,16 @@ fn status(directory: &Path) -> Result<Value, ResourceError> {
     }
     if let Some(head) = headers.head {
         value.set("head", json!(head));
+    }
+    if github {
+        let remote = headers
+            .upstream
+            .as_deref()
+            .and_then(|upstream| upstream.split_once('/'))
+            .map_or("origin", |(remote, _)| remote);
+        if let Some(repo) = repository.github_repo(remote) {
+            value.set("github_repo", json!(repo));
+        }
     }
     if let Some(upstream) = headers.upstream {
         value.set("upstream", json!(upstream));

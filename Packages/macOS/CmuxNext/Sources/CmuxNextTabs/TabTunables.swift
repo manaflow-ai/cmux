@@ -93,7 +93,7 @@ public nonisolated enum TabTunables {
         BrowserChromeTuning.value(.closeInk)
     }
     public static let iconTitleSpacing = points("iconTitleSpacing", "Icon to title", help: "Gap between a tab's icon and its title.") {
-        Metrics.compactTabs ? Metrics.space2 : Metrics.space3
+        Metrics.compactTabs ? Metrics.space2 : (Metrics.densityToken("tabIconTitleGap") ?? Metrics.space3)
     }
     public static let titleCloseSpacing = points("titleCloseSpacing", "Title to close", help: "Gap between a tab's title and its close button.") { Metrics.space2 }
     public static let titleFadeWidth = points("titleFadeWidth", "Title fade", help: "Length of the fade that clips a long title.") { Metrics.space6 + Metrics.space2 }
@@ -127,10 +127,12 @@ public nonisolated enum TabTunables {
         default: 0.2, range: 0...1, step: 0.02, unit: .fraction, code: "TabTunables.separatorOpacity")
     // @intent Lawrence 2026-10-20 ("the plus and dropdown and 3 dots [must] not appear unless hovered in
     // tabbar area") over Leo 2026-10-19 (muted at rest): hidden at rest, shown on tab bar hover. A value
-    // above 0 shows them muted at rest again.
+    // above 0 shows them muted at rest again. Since the user's 2026-11-15 ask ("by default, all buttons
+    // should be visible, not fade into view on hover"), this applies only in Minimal Mode
+    // (``restingControlAlpha(crowded:minimal:in:)``); outside it the controls always show.
     public static let restingControlOpacity = Tunable<CGFloat>.number(
         "tabs.restingControlOpacity", .tabs, "Tab bar controls at rest",
-        help: "Opacity of the tab bar's plus and More while the pointer is elsewhere; hover shows them fully. 0 hides them.",
+        help: "In Minimal Mode, opacity of the tab bar's plus and pinned buttons while the pointer is elsewhere; hover shows them fully. 0 hides them. Outside Minimal Mode they always show.",
         default: 0, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.restingControlOpacity")
     // @intent Leo 2026-10-20 ("the rightmost area has a reservation of hidden icons"; "if you push or hover
     // then you cant access the rightmost tabs"): the room stays (no push, no overlay), and once the tabs
@@ -144,8 +146,11 @@ public nonisolated enum TabTunables {
         help: "Opacity of the tab bar's plus and More at rest while they show at rest (Tab bar controls when crowded).",
         default: 0.5, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.crowdedControlOpacity")
 
-    /// The trailing controls' opacity at rest; `crowded`: the tabs fill the bar (``TabStripView/isCrowded``).
-    public static func restingControlAlpha(crowded: Bool, in store: TunableStore = .shared) -> CGFloat {
+    /// The trailing controls' opacity at rest; `crowded`: the tabs fill the bar (``TabStripView/isCrowded``);
+    /// `minimal`: Minimal Mode (``SidebarSectionsPreferences/hidesControlsUntilHover``). Outside it they always
+    /// show (user 2026-11-15: "by default, all buttons should be visible, not fade into view on hover").
+    public static func restingControlAlpha(crowded: Bool, minimal: Bool, in store: TunableStore = .shared) -> CGFloat {
+        guard minimal else { return 1 }
         let rest = restingControlOpacity.value(in: store), shown = max(rest, crowdedControlOpacity.value(in: store))
         switch crowdedControls.value(in: store) {
         case .hiddenAtRest: return rest

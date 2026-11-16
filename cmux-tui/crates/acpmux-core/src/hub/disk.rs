@@ -255,7 +255,10 @@ impl HubWriter {
         let retry_budget = (self.origins.retry.len() + self.retry_log.len()).min(128);
         let arrival_budget = 256 - retry_budget;
         let used = self.advance_origins(if queued { arrival_budget / 2 } else { arrival_budget });
-        for (key, update) in self.updates.take_batch_limit(arrival_budget.saturating_sub(used)) {
+        let batch = self
+            .updates
+            .take_batch_limit(arrival_budget.saturating_sub(used), self.mirror.turn_changes);
+        for (key, update) in batch {
             // A refusal has its own counter; only storage counts here.
             if let Err(HubError::Log(_)) = self.dispatch_update(key, update) {
                 self.log_errors.fetch_add(1, Ordering::Relaxed);

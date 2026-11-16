@@ -766,7 +766,7 @@ reload_device_notify() {
 }
 
 # Auto-setup launch: relaunch the just-installed app signed in (dogfood creds
-# injected) and, unless --no-attach, auto-paired to the tagged Mac app. Delegates
+# injected), gated by the app's own signed-in receipt. Delegates
 # to scripts/mobile-dev-launch.sh so there is ONE signed-launch path. Returns
 # non-zero on any failure so callers can warn + leave the app installed (75
 # passes through mobile-dev-launch's phone-offline/locked deferred-delivery
@@ -792,13 +792,10 @@ auto_setup_launch() {
     [[ -n "$id" ]] && args+=(--simulator-id "$id")
     args+=(--auth-profile agent)
   fi
-  # Auto-pair by default (--ensure-mac enables the pairing host + launches the
-  # tagged Mac app if down, then mints a ticket). --no-attach must be forwarded
-  # explicitly: mobile-dev-launch now defaults DEVICE launches to --ensure-mac,
-  # so omitting the flag would silently override the caller's opt-out.
-  if [[ "$NO_ATTACH" -eq 0 ]]; then
-    args+=(--ensure-mac)
-  else
+  # The app's own signed-in receipt is the gate (auto readiness reads its
+  # app-receipt-v1 from CMUX_INSTALLED_APP_PATH); no Mac takes part, so there
+  # is nothing to pair. A human --no-attach opt-out is still forwarded.
+  if [[ "$NO_ATTACH" -eq 1 ]]; then
     args+=(--no-attach)
   fi
   if [[ ! -x "$MOBILE_DEV_LAUNCH" ]]; then
@@ -852,35 +849,6 @@ if [[ "$RELOAD_DEVICE" -eq 1 ]]; then
     echo "==> Device signing backend: local Xcode account"
   fi
 fi
-
-# Tell the mobile-attach QR server (scripts/mobile-attach-qr-server.sh) which
-# iOS tag is freshest, so the QR's "Open" button + bundle id track this reload
-# without restarting the server. Merges into the shared marker so a concurrent
-# macOS reload's mac_tag is preserved. Best-effort: never fail the reload over
-# the marker (e.g. no python3, read-only TMPDIR).
-update_qr_tag_marker() {
-  # FIXED /tmp path (not TMPDIR): the QR server runs in a different shell whose
-  # per-session TMPDIR differs, so the rendezvous file must be machine-shared.
-  local marker="/tmp/cmux-mobile-attach-qr-tags.json"
-  command -v python3 >/dev/null 2>&1 || return 0
-  IOS_TAG="$TAG" MARKER="$marker" python3 - <<'PY' 2>/dev/null || true
-import json, os
-marker = os.environ["MARKER"]
-data = {}
-try:
-    with open(marker) as fh:
-        loaded = json.load(fh)
-        if isinstance(loaded, dict):
-            data = loaded
-except (FileNotFoundError, ValueError, OSError):
-    pass
-data["ios_tag"] = os.environ["IOS_TAG"]
-tmp = marker + ".tmp"
-with open(tmp, "w") as fh:
-    json.dump(data, fh)
-os.replace(tmp, marker)
-PY
-}
 
 run_and_capture() {
   local log_path="$1"
@@ -1537,5 +1505,3 @@ if [[ "$REVIEW" -eq 1 ]]; then
 elif [[ "$RELOAD_DEVICE" -eq 1 ]]; then
   reload_device
 fi
-
-update_qr_tag_marker
