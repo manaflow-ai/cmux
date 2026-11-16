@@ -80,6 +80,15 @@ def main_window():
     return None
 
 
+def off_card(point, frame):
+    """A window point away from the row and from its card, at the row's height: near the window's right edge. The card
+    opens beside the sidebar and lingers while the pointer is on it, so a point just right of the sidebar can sit on
+    the card and keep it open: step 8003f043 (cmux20-bench, 2026-11-16, real glides) parked 260 px right of the
+    sidebar and every sample after the first read "not cold" with the first card still shown."""
+    width = ((main_window() or {}).get("frame") or {}).get("width") or 0
+    return [max(frame[0] + frame[2] + 260, width - 40), point[1]]
+
+
 def workspace_count():
     snap = rpc("snapshot.get", timeout=60)
     return len(((snap.get("topology") or {}) if isinstance(snap, dict) else {}).get("workspaces") or [])
@@ -345,7 +354,7 @@ def app_saw(move, route):
         return None
     key, point, frame = found[0]
     before = cards()
-    move(to_screen([frame[0] + frame[2] + 260, point[1]]))
+    move(to_screen(off_card(point, frame)))
     move(to_screen(point))
     seen = wait(lambda: (lambda c: c.get("events") != before.get("events") or c.get("last_hit", "-") != "-"
                          or c.get("pending_target", "-") != "-")(cards()), 1.5)
@@ -355,7 +364,7 @@ def app_saw(move, route):
         "route": route, "row": key, "row_hovered": hovered, "pointer": where(),
         "events": [before.get("events"), after.get("events")], "last_hit": after.get("last_hit"),
         "app_active": (rpc("debug.focus") or {}).get("app_active")})
-    move(to_screen([frame[0] + frame[2] + 260, point[1]]))  # off the row again: the first sample starts cold
+    move(to_screen(off_card(point, frame)))  # off the row again: the first sample starts cold
     return bool(seen) or bool(hovered)
 
 
@@ -460,7 +469,7 @@ def row_target(key):
 
 
 def sample(count, index, key, point, frame):
-    off = [frame[0] + frame[2] + 260, point[1]]  # right of the sidebar, in the content, at the row's height
+    off = off_card(point, frame)  # in the content, clear of the card, at the row's height
     move_path(point, off, 3)
     # Cold start: no card open and the coordinator idle, or the sample is not counted (a card already open would
     # read as shown in a few ms with no pending phase, as the 200 workspace cell did in step b13acff317b8d8977670a944).
