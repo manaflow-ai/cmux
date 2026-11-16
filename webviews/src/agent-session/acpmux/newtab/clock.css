@@ -24,6 +24,7 @@
   font-size: calc(clamp(56px, 13cqi, 112px) * var(--cmux-interface-scale, 1));
   line-height: 1;
   letter-spacing: -0.02em;
+  font-weight: var(--nt-clock-weight, 600);
 }
 .nt-clock[data-font="system"] .nt-clock-time { font-family: var(--font-ui); }
 .nt-clock[data-font="rounded"] .nt-clock-time { font-family: ui-rounded, var(--font-ui); }
@@ -36,10 +37,10 @@
   transform: scaleY(1.18);
   transform-origin: bottom;
 }
-.nt-clock[data-weight="thin"] .nt-clock-time { font-weight: 200; }
-.nt-clock[data-weight="regular"] .nt-clock-time { font-weight: 400; }
-.nt-clock[data-weight="bold"] .nt-clock-time { font-weight: 700; }
-.nt-clock[data-weight="heavy"] .nt-clock-time { font-weight: 900; }
+.nt-clock[data-weight="thin"] { --nt-clock-weight: 200; }
+.nt-clock[data-weight="regular"] { --nt-clock-weight: 400; }
+.nt-clock[data-weight="bold"] { --nt-clock-weight: 700; }
+.nt-clock[data-weight="heavy"] { --nt-clock-weight: 900; }
 .nt-clock[data-color="accent"] { color: var(--agent-accent); }
 .nt-clock[data-color="muted"] { color: var(--agent-muted); }
 /* Glass: the numerals take the page's own text at a translucent tint with a soft rim of light, the
