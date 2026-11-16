@@ -109,7 +109,7 @@ const anyElement = (compound: string) => !named(compound) && !/^[a-z]/i.test(own
 /// The argument of each `:is(...)` and `:where(...)` in `compound`, nested ones too.
 function listArguments(compound: string): string[] {
   const out: string[] = [];
-  for (const match of compound.matchAll(/:(?:is|where)\(/g)) {
+  for (const match of compound.matchAll(/:(?:is|where|matches|-webkit-any)\(/g)) {
     let depth = 1;
     let end = match.index! + match[0].length;
     for (; end < compound.length && depth; end++) {
@@ -176,6 +176,5 @@ test("the detector catches each kind", () => {
   expect(findings("x.css", ".tag.is-open:hover ~ svg[data-icon]")).toEqual([]);
   expect(findings("x.css", '.goal:is([data-look="head"], li) + .x')).toEqual([]);
   expect(findings("x.css", ".a:not(.b) + .d")).toEqual([]);
-  expect(findings("x.css", ":root:not([data-a], [data-b]) .x + .d")).toEqual([]);
   expect(findings("x.css", ":root:not([data-a], [data-b]) .x + .d")).toEqual([]);
 });

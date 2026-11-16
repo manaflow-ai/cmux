@@ -14,9 +14,10 @@ export const FOCUS_RING_GATE = ':where(:not(:root[data-focus-modality="pointer"]
  * selectors stay. Each selector of a list is gated on its own. */
 export function gateFocusVisible(selector) {
   if (!selector.includes(":focus-visible") || selector.includes(FOCUS_RING_GATE)) return selector;
-  return splitTopLevel(selector, ",")
-    .map((one) => gateSiblingLeft(one) ?? gateInPlace(one))
-    .join(", ");
+  const parts = splitTopLevel(selector, ",");
+  const gated = parts.map((one) => gateSiblingLeft(one) ?? gateInPlace(one));
+  // Nothing gated (a `:focus-visible` only inside an attribute value): the selector as written.
+  return gated.every((one, index) => one === parts[index]) ? selector : gated.join(", ");
 }
 
 /** A `:focus-visible` left of a `+` or `~` gets its gate on the subject instead. Left of a sibling
@@ -35,13 +36,19 @@ function gateSiblingLeft(selector) {
   const left = selector.slice(0, cut).trimEnd();
   const spots = focusVisibleSpots(left);
   if (!spots.length || spots.some((spot) => spot.names.some((name) => name !== "has"))) return undefined;
+  // A subject with a pseudo-element other than one plain one at its end (`:before`, `::after:hover`,
+  // `::slotted(:is(.x))`) keeps the gate in place: after it, the selector would be invalid.
+  const subject = selector.slice(cut);
+  const pseudo = /::[\w-]+(\([^()]*\))?$/.exec(subject);
+  const rest = pseudo ? subject.slice(0, pseudo.index) : subject;
+  if (/::|:(?:before|after|first-line|first-letter)\b/.test(rest)) return undefined;
   // The right side (from the combinator on) gated as before; gateInPlace may list it twice.
-  return splitTopLevel(gateInPlace(selector.slice(cut)), ",")
+  return splitTopLevel(gateInPlace(subject), ",")
     .map((right) => withSubjectGate(`${left} ${right}`))
     .join(", ");
 }
 
-/** `selector` with the gate at the end of its subject, before a pseudo-element. */
+/** `selector` with the gate at the end of its subject, before its pseudo-element. */
 function withSubjectGate(selector) {
   const pseudo = /::[\w-]+(\([^()]*\))?$/.exec(selector);
   const at = pseudo ? pseudo.index : selector.length;
