@@ -4,13 +4,10 @@
 //! socket closes and the child is reaped.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::fd::AsRawFd;
+use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
-#[cfg(not(target_os = "macos"))]
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-#[cfg(not(target_os = "macos"))]
-use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 
 use cmux_app_host::protocol::MAX_LINE_BYTES;
@@ -106,8 +103,8 @@ impl HostProcess {
             let started = start_process(&binary, &args, &theirs);
             // The child holds its own copy now (or never will).
             drop(theirs);
-            let pid = match started {
-                Ok(pid) => pid,
+            let mut child = match started {
+                Ok(child) => child,
                 Err(error) => {
                     let _ = reader.shutdown(std::net::Shutdown::Both);
                     on_exit(Err(error));
@@ -128,9 +125,12 @@ impl HostProcess {
                 }
             }
             // A malformed or oversized line, or the socket closed: end the process.
-            // SAFETY: signalling our own child by pid; it is not reaped yet, so the pid is still ours.
-            unsafe { libc::kill(pid, libc::SIGKILL) };
-            on_exit(Ok(reap(pid)));
+            let _ = child.kill();
+            let exit = match child.wait() {
+                Ok(status) => Exit { code: status.code(), signal: status.signal() },
+                Err(_) => Exit { code: None, signal: None },
+            };
+            on_exit(Ok(exit));
         })?;
         Ok(Self { queue, socket: ours })
     }
@@ -182,167 +182,26 @@ fn write_loop(mut socket: UnixStream, outgoing: Receiver<Outgoing>) {
     }
 }
 
-/// Waits for `pid` (our child) and reads how it ended.
-fn reap(pid: libc::pid_t) -> Exit {
-    let mut status: libc::c_int = 0;
-    loop {
-        // SAFETY: waiting on our own child; `status` is a valid out pointer.
-        let rc = unsafe { libc::waitpid(pid, &mut status, 0) };
-        if rc == pid {
-            break;
-        }
-        if rc == -1 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Exit { code: None, signal: None };
-    }
-    if libc::WIFEXITED(status) {
-        Exit { code: Some(libc::WEXITSTATUS(status)), signal: None }
-    } else if libc::WIFSIGNALED(status) {
-        Exit { code: None, signal: Some(libc::WTERMSIG(status)) }
-    } else {
-        Exit { code: None, signal: None }
-    }
-}
-
 /// Starts `binary` with an empty environment, null stdio and `channel` on
-/// fd 3, and no other descriptor of this process. macOS: one
-/// `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT` (no fork of this large
-/// multithreaded process, no descriptor loop), and a missing or unusable
-/// binary is its error.
-#[cfg(target_os = "macos")]
+/// fd 3, and no other descriptor of this process. Through `cmux_process`:
+/// on macOS one `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT`, so no fork
+/// of this large multithreaded process and no descriptor loop in a child (it
+/// was up to 65,536 `fcntl` calls at the daemon's open-file limit); a
+/// missing or unusable binary is its error.
 fn start_process(
     binary: &Path,
     args: &[String],
     channel: &UnixStream,
-) -> std::io::Result<libc::pid_t> {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-
-    unsafe extern "C" {
-        fn posix_spawn_file_actions_addinherit_np(
-            actions: *mut libc::posix_spawn_file_actions_t,
-            fd: libc::c_int,
-        ) -> libc::c_int;
-    }
-    /// `POSIX_SPAWN_CLOEXEC_DEFAULT` in <spawn.h>.
-    const CLOEXEC_DEFAULT: libc::c_short = 0x4000;
-
-    let path = CString::new(binary.as_os_str().as_bytes())?;
-    let mut owned = vec![path.clone()];
-    for arg in args {
-        owned.push(CString::new(arg.as_bytes())?);
-    }
-    let mut argv: Vec<*mut libc::c_char> =
-        owned.iter().map(|arg| arg.as_ptr().cast_mut()).collect();
-    argv.push(std::ptr::null_mut());
-    let envp: [*mut libc::c_char; 1] = [std::ptr::null_mut()];
-    let null = c"/dev/null";
-    let fd = channel.as_raw_fd();
-    let check = |rc: libc::c_int| {
-        if rc == 0 { Ok(()) } else { Err(std::io::Error::from_raw_os_error(rc)) }
-    };
-    // SAFETY: the actions and attributes are initialized before use and
-    // destroyed once on every path; every pointer passed outlives the call.
-    unsafe {
-        let mut actions: libc::posix_spawn_file_actions_t = std::ptr::null_mut();
-        check(libc::posix_spawn_file_actions_init(&mut actions))?;
-        let mut attr: libc::posix_spawnattr_t = std::ptr::null_mut();
-        if let Err(error) = check(libc::posix_spawnattr_init(&mut attr)) {
-            libc::posix_spawn_file_actions_destroy(&mut actions);
-            return Err(error);
-        }
-        let result = (|| {
-            for (stdio, mode) in [(0, libc::O_RDONLY), (1, libc::O_WRONLY), (2, libc::O_WRONLY)] {
-                let null = null.as_ptr();
-                check(libc::posix_spawn_file_actions_addopen(&mut actions, stdio, null, mode, 0))?;
-            }
-            if fd == 3 {
-                check(posix_spawn_file_actions_addinherit_np(&mut actions, 3))?;
-            } else {
-                check(libc::posix_spawn_file_actions_adddup2(&mut actions, fd, 3))?;
-            }
-            // The daemon ignores SIGPIPE; the host starts with it at its
-            // default and no signal blocked, as `Command` would.
-            let mut empty: libc::sigset_t = std::mem::zeroed();
-            libc::sigemptyset(&mut empty);
-            check(libc::posix_spawnattr_setsigmask(&mut attr, &empty))?;
-            let mut pipe: libc::sigset_t = std::mem::zeroed();
-            libc::sigemptyset(&mut pipe);
-            libc::sigaddset(&mut pipe, libc::SIGPIPE);
-            check(libc::posix_spawnattr_setsigdefault(&mut attr, &pipe))?;
-            let flags = CLOEXEC_DEFAULT
-                | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short
-                | libc::POSIX_SPAWN_SETSIGDEF as libc::c_short;
-            check(libc::posix_spawnattr_setflags(&mut attr, flags))?;
-            let mut pid: libc::pid_t = 0;
-            check(libc::posix_spawn(
-                &mut pid,
-                path.as_ptr(),
-                &actions,
-                &attr,
-                argv.as_ptr(),
-                envp.as_ptr(),
-            ))?;
-            Ok(pid)
-        })();
-        libc::posix_spawnattr_destroy(&mut attr);
-        libc::posix_spawn_file_actions_destroy(&mut actions);
-        result
-    }
-}
-
-/// Elsewhere (Linux): fork and exec through `Command`, with the channel on
-/// fd 3 and every other descriptor close-on-exec in one `close_range` call.
-#[cfg(not(target_os = "macos"))]
-fn start_process(
-    binary: &Path,
-    args: &[String],
-    channel: &UnixStream,
-) -> std::io::Result<libc::pid_t> {
-    let fd = channel.as_raw_fd();
-    let mut command = Command::new(binary);
-    command.args(args).env_clear().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    // SAFETY: sysconf before the fork; only async-signal-safe calls in pre_exec.
-    let max_fd = match unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } {
-        n if n > 0 => n.min(65_536) as libc::c_int,
-        _ => 4096,
-    };
-    // SAFETY: only async-signal-safe calls between fork and exec.
-    unsafe { command.pre_exec(move || child_fds(fd, max_fd)) };
-    // The child is reaped by pid (`reap`); `Child` does not wait on drop.
-    let child = command.spawn()?;
-    Ok(child.id() as libc::pid_t)
-}
-
-/// In the child before exec: the channel on fd 3 without close-on-exec, and
-/// every other inherited descriptor above 3 close-on-exec.
-#[cfg(not(target_os = "macos"))]
-fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
-    // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
-    unsafe {
-        if fd == 3 {
-            if libc::fcntl(3, libc::F_SETFD, 0) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        } else if libc::dup2(fd, 3) != 3 {
-            return Err(std::io::Error::last_os_error());
-        }
-        // Close-on-exec, not closed: `Command::spawn` reports a failed exec
-        // over a private pipe, and closing it aborts the child instead.
-        // One call where the kernel has it (Linux 5.11).
-        #[cfg(target_os = "linux")]
-        {
-            const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
-            if libc::syscall(libc::SYS_close_range, 4_u32, u32::MAX, CLOSE_RANGE_CLOEXEC) == 0 {
-                return Ok(());
-            }
-        }
-        for other in 4..max_fd {
-            libc::fcntl(other, libc::F_SETFD, libc::FD_CLOEXEC);
-        }
-    }
-    Ok(())
+) -> std::io::Result<cmux_process::Child> {
+    let mut command = cmux_process::Command::new(binary);
+    command
+        .args(args)
+        .env_clear()
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .inherit_fd(channel.as_fd(), 3)?;
+    command.spawn()
 }
 
 /// A slow process start on demand: a loaded machine stretches fork, exec
