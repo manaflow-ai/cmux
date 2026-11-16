@@ -2666,106 +2666,161 @@ mod q5 {
         }
     }
 
-    /// LTR on both encoders: EnableLTR read back, tokens on frames, and a ForceLTRRefresh
-    /// after an acknowledged token: a P frame (NAL 1, not sync) or an IDR.
+    /// LTR on both encoders (#44354 review F1). Pass "as-ours": EnableLTR set and no per-frame
+    /// option, as videotoolbox.rs on lane/rd-ltr-recovery does: is
+    /// kVTSampleAttachmentKey_RequireLTRAcknowledgementToken on any frame? Pass "requested":
+    /// the same key also passed as a per-frame option (the only request form this probe
+    /// knows of). Each pass then acknowledges the first token at frame 12 and forces an LTR
+    /// refresh at frame 20 (P or IDR). Frames 0-2 also print every sample attachment.
     fn ltr(log: &mut Log) {
-        log.line("## Q5c long-term references (EnableLTR, RequireLTRAcknowledgementToken, AcknowledgedLTRTokens, ForceLTRRefresh)");
-        for low_latency in [true, false] {
-            let (w, h, fps) = (1920usize, 1080usize, 60u32);
-            let mut src: Box<dyn Source> = Box::new(TextPage::new(w, h, 40, 24, false));
-            let setup = Setup { min_qp: None, low_latency, limits: true };
-            let tag =
-                format!("Q5c {}", if low_latency { "RTVC (low-latency RC)" } else { "ave.avc" });
-            let (mut enc, label) = match session(w, h, fps, 8_000, setup, src.as_mut()) {
-                Ok(x) => x,
-                Err(e) => {
-                    log.line(format!("{tag} error={e}"));
-                    continue;
-                }
-            };
-            let set = enc.set("EnableLTR", yes());
-            let readback = enc.get("EnableLTR");
-            let mut cache = None;
-            let mut log_frames = vec![];
-            let mut acked: Option<i64> = None;
-            let mut refresh_result = String::from("not reached");
-            for f in 0..30usize {
-                src.prepare(f);
-                write(enc.pb, src.as_ref(), h, true);
-                let mut pairs: Vec<(Ref, Ref)> = vec![];
-                let mut owned: Vec<Ref> = vec![];
-                if f == 0 {
-                    pairs.push((k("kVTEncodeFrameOptionKey_ForceKeyFrame"), yes()));
-                }
-                // Acknowledge the first token seen, two frames later; force a refresh at 20.
-                if f == 12 {
-                    if let Some(t) = acked {
-                        let n = unsafe { CFNumberCreate(null(), 4, (&t as *const i64).cast()) };
-                        let arr = unsafe {
-                            CFArrayCreate(
-                                null(),
-                                [n].as_ptr(),
-                                1,
-                                (&raw const kCFTypeArrayCallBacks).cast(),
-                            )
-                        };
-                        pairs.push((k("kVTEncodeFrameOptionKey_AcknowledgedLTRTokens"), arr));
-                        owned.push(n);
-                        owned.push(arr);
+        log.line("## Q5c long-term references (#44354 F1): per frame, is RequireLTRAcknowledgementToken attached, and its value");
+        let names = [
+            "kVTCompressionPropertyKey_EnableLTR",
+            "kVTSampleAttachmentKey_RequireLTRAcknowledgementToken",
+            "kVTEncodeFrameOptionKey_AcknowledgedLTRTokens",
+            "kVTEncodeFrameOptionKey_ForceLTRRefresh",
+            "kVTEncodeFrameOptionKey_RequireLTRAcknowledgementToken",
+            "kVTCompressionPropertyKey_MaxLTRFrames",
+            "kVTCompressionPropertyKey_LTRFrameCount",
+        ];
+        log.line(format!(
+            "Q5c symbols: {}",
+            names
+                .iter()
+                .map(|n| format!(
+                    "{n}={}",
+                    if k(n).is_null() { "absent".into() } else { string(k(n)) }
+                ))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
+        let token_key = k("kVTSampleAttachmentKey_RequireLTRAcknowledgementToken");
+        let request_key = {
+            let own = k("kVTEncodeFrameOptionKey_RequireLTRAcknowledgementToken");
+            if own.is_null() { token_key } else { own }
+        };
+        for request in [false, true] {
+            for low_latency in [true, false] {
+                let (w, h, fps) = (1920usize, 1080usize, 60u32);
+                let mut src: Box<dyn Source> = Box::new(TextPage::new(w, h, 40, 24, false));
+                let setup = Setup { min_qp: None, low_latency, limits: true };
+                let tag = format!(
+                    "Q5c {} {}",
+                    if request { "requested" } else { "as-ours(no request)" },
+                    if low_latency { "RTVC(low-latency RC)" } else { "ave.avc" }
+                );
+                let (mut enc, label) = match session(w, h, fps, 8_000, setup, src.as_mut()) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        log.line(format!("{tag} error={e}"));
+                        continue;
                     }
-                }
-                let refresh = f == 20;
-                if refresh {
-                    pairs.push((k("kVTEncodeFrameOptionKey_ForceLTRRefresh"), yes()));
-                }
-                let props = if pairs.is_empty() { null() } else { dict(&pairs) };
-                let st = unsafe {
-                    let mut info = 0u32;
-                    let s = VTCompressionSessionEncodeFrame(
-                        enc.s,
-                        enc.pb,
-                        micros(f as i64 * 16_667),
-                        INVALID,
-                        props,
-                        null_mut(),
-                        &mut info,
-                    );
-                    if s == 0 { VTCompressionSessionCompleteFrames(enc.s, INVALID) } else { s }
                 };
-                unsafe {
-                    if !props.is_null() {
-                        CFRelease(props);
+                let set = enc.set("EnableLTR", yes());
+                let readback = enc.get("EnableLTR");
+                let mut cache = None;
+                let mut frames = vec![];
+                let mut with_token = 0usize;
+                let mut acked: Option<i64> = None;
+                let mut refresh_result = String::from("not reached");
+                for f in 0..30usize {
+                    src.prepare(f);
+                    write(enc.pb, src.as_ref(), h, true);
+                    let mut pairs: Vec<(Ref, Ref)> = vec![];
+                    let mut owned: Vec<Ref> = vec![];
+                    if f == 0 {
+                        pairs.push((k("kVTEncodeFrameOptionKey_ForceKeyFrame"), yes()));
                     }
-                    for o in owned {
-                        CFRelease(o);
+                    if request && !request_key.is_null() {
+                        pairs.push((request_key, yes()));
                     }
-                }
-                if st != 0 {
-                    log_frames.push(format!("{f}:err{st}"));
-                    continue;
-                }
-                for o in collect(&enc, &mut cache) {
-                    if acked.is_none() {
-                        acked = o.ltr_token;
+                    if f == 12 {
+                        if let Some(t) = acked {
+                            let n = unsafe { CFNumberCreate(null(), 4, (&t as *const i64).cast()) };
+                            let arr = unsafe {
+                                CFArrayCreate(
+                                    null(),
+                                    [n].as_ptr(),
+                                    1,
+                                    (&raw const kCFTypeArrayCallBacks).cast(),
+                                )
+                            };
+                            pairs.push((k("kVTEncodeFrameOptionKey_AcknowledgedLTRTokens"), arr));
+                            owned.push(n);
+                            owned.push(arr);
+                        }
                     }
-                    log_frames.push(format!(
-                        "{f}:{}{}",
-                        if o.key { "I" } else { "P" },
-                        o.ltr_token.map_or(String::new(), |t| format!("(tok {t})"))
-                    ));
+                    let refresh = f == 20;
                     if refresh {
-                        refresh_result = format!(
-                            "{} ({} B)",
-                            if o.key { "IDR/sync" } else { "P frame, not sync" },
-                            o.bytes
+                        pairs.push((k("kVTEncodeFrameOptionKey_ForceLTRRefresh"), yes()));
+                    }
+                    let props = if pairs.is_empty() { null() } else { dict(&pairs) };
+                    let st = unsafe {
+                        let mut info = 0u32;
+                        let s = VTCompressionSessionEncodeFrame(
+                            enc.s,
+                            enc.pb,
+                            micros(f as i64 * 16_667),
+                            INVALID,
+                            props,
+                            null_mut(),
+                            &mut info,
                         );
+                        if s == 0 { VTCompressionSessionCompleteFrames(enc.s, INVALID) } else { s }
+                    };
+                    unsafe {
+                        if !props.is_null() {
+                            CFRelease(props);
+                        }
+                        for o in owned {
+                            CFRelease(o);
+                        }
+                    }
+                    if st != 0 {
+                        frames.push(format!("{f}:err{st}"));
+                        continue;
+                    }
+                    // Raw attachments of the first frames, before collect() releases them.
+                    if f <= 2 {
+                        let peek = enc.out.lock().unwrap();
+                        for s in peek.iter().filter(|s| !s.sb.is_null()) {
+                            let a = unsafe { CMSampleBufferGetSampleAttachmentsArray(s.sb, 0) };
+                            log.line(format!("{tag} frame {f} attachments: {}", string(a)));
+                        }
+                    }
+                    let outs = collect_all(&enc, &mut cache);
+                    if outs.is_empty() {
+                        frames.push(format!("{f}:no-output"));
+                    }
+                    for o in outs {
+                        let Some(o) = o else {
+                            frames.push(format!("{f}:dropped"));
+                            continue;
+                        };
+                        with_token += usize::from(o.ltr_token.is_some());
+                        if acked.is_none() {
+                            acked = o.ltr_token;
+                        }
+                        frames.push(format!(
+                            "{f}:{} tok={}",
+                            if o.key { "I" } else { "P" },
+                            o.ltr_token.map_or("absent".to_string(), |t| t.to_string())
+                        ));
+                        if refresh {
+                            refresh_result = format!(
+                                "{} ({} B)",
+                                if o.key { "IDR/sync" } else { "P frame, not sync" },
+                                o.bytes
+                            );
+                        }
                     }
                 }
+                log.line(format!(
+                    "{tag} | EnableLTR set status={set} readback={readback} | frames with a token: {with_token}/30 | first token={acked:?}, acknowledged at frame 12: {} | ForceLTRRefresh at frame 20 -> {refresh_result} | {label}",
+                    if acked.is_some() { "yes" } else { "nothing to acknowledge" }
+                ));
+                log.line(format!("{tag} per frame: {}", frames.join(" ")));
             }
-            log.line(format!(
-                "{tag} | set EnableLTR={set} readback={readback} | first token={acked:?} acknowledged at frame 12 | ForceLTRRefresh at frame 20 -> {refresh_result} | frames {} | {label}",
-                log_frames.join(" ")
-            ));
         }
     }
 
