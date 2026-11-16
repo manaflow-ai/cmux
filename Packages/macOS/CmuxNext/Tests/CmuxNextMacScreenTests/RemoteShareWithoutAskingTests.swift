@@ -10,10 +10,12 @@ import Testing
 @MainActor
 @Suite struct RemoteShareWithoutAskingTests {
     @Test func asksOnlyWhenSharingWouldChangeAndThePersonHasNotSaidAlways() {
-        #expect(CmuxRemoteActionEnvironment.asksToShare(alreadyShared: false, withoutAsking: false))
-        #expect(!CmuxRemoteActionEnvironment.asksToShare(alreadyShared: true, withoutAsking: false))
-        #expect(!CmuxRemoteActionEnvironment.asksToShare(alreadyShared: false, withoutAsking: true))
-        #expect(!CmuxRemoteActionEnvironment.asksToShare(alreadyShared: true, withoutAsking: true))
+        typealias Env = CmuxRemoteActionEnvironment
+        #expect(Env.shareStep(alreadyShared: false, withoutAsking: false) == .ask)
+        #expect(Env.shareStep(alreadyShared: false, withoutAsking: true) == .apply)
+        // Already sharing: no dialog and no write, so a hub list that is behind cannot turn sharing back on.
+        #expect(Env.shareStep(alreadyShared: true, withoutAsking: false) == .nothing)
+        #expect(Env.shareStep(alreadyShared: true, withoutAsking: true) == .nothing)
     }
 
     @Test func theShareDialogOffersAlwaysAllowAndTheAccessDialogDoesNot() {

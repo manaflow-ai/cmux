@@ -4,7 +4,7 @@ public import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextDevices
-import CmuxNextSettings
+public import CmuxNextSettings
 import Foundation
 
 /// What cmux Remote's actions need from the app: the hub, a window to ask in, and Settings.
@@ -114,26 +114,42 @@ extension CmuxRemoteActionEnvironment {
                 let window = environment.window()
                 let remote = environment.remote
                 let settings = environment.settings()
-                let asks = !share || Self.asksToShare(alreadyShared: hub.thisDevice?.macScreenShared == true,
-                                                      withoutAsking: settings?.snapshot.remote.shareWithoutAsking == true)
+                let step = !share ? ShareStep.ask : Self.shareStep(alreadyShared: hub.thisDevice?.macScreenShared == true,
+                                                                     withoutAsking: settings?.snapshot.remote.shareWithoutAsking == true)
                 return .followUp(Self.confirmedChange(
                     confirm: {
-                        guard asks else { return true }
+                        guard step == .ask else { return true }
                         let answer = await Self.confirm(title: title, body: body, always: share, in: window)
                         if answer == .always, let settings { await Self.shareWithoutAsking(settings) }
                         return answer != .cancel
                     },
-                    apply: { try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote) }))
+                    apply: {
+                        guard step != .nothing else { return }
+                        try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote)
+                    }))
             }.withDeadline(.fixed(.seconds(130))),
         ]
     }
 
-    /// Whether `remote.confirm {action: share}` shows "Share This Mac?". It does not when this Mac
-    /// already shares (nothing would change) or the person chose Always Allow
-    /// (`remote.shareWithoutAsking`, user-only, so an agent cannot turn it on), Leo, 2026-11-16:
-    /// "i dont want to have to click share this mac allow every single time when screen sharing".
-    nonisolated static func asksToShare(alreadyShared: Bool, withoutAsking: Bool) -> Bool {
-        !alreadyShared && !withoutAsking
+    /// The `remote.confirm` dialog's id (`DebugDialog.userOnly` lists it: no debug press answers it).
+    public static let confirmIdentifier = "cmux.dialog.remote.confirm"
+
+    /// What `remote.confirm {action: share}` does.
+    nonisolated enum ShareStep: Equatable, Sendable {
+        /// Show "Share This Mac?".
+        case ask
+        /// Turn sharing on with no dialog: the person chose Always Allow.
+        case apply
+        /// Nothing: this Mac already shares. No write either, so a hub list that is behind (the
+        /// person just stopped sharing on another device) never turns sharing back on.
+        case nothing
+    }
+
+    /// The share request's step. Leo, 2026-11-16: "i dont want to have to click share this mac
+    /// allow every single time when screen sharing". `remote.shareWithoutAsking` is user-only:
+    /// settings.set from an agent, the CLI or MCP is refused.
+    nonisolated static func shareStep(alreadyShared: Bool, withoutAsking: Bool) -> ShareStep {
+        alreadyShared ? .nothing : withoutAsking ? .apply : .ask
     }
 
     /// Always Allow: the person's click turns on `remote.shareWithoutAsking` (the user writer: the
@@ -171,7 +187,7 @@ extension CmuxRemoteActionEnvironment {
         guard let window else { return .cancel }
         return await withCheckedContinuation { continuation in
             let spec = CmuxDialogSpec(title: title, lines: [body], buttons: Self.confirmButtons(always: always),
-                                      identifier: "cmux.dialog.remote.confirm")
+                                      identifier: Self.confirmIdentifier)
             CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
                 continuation.resume(returning: answer.button == "confirm" ? .allow : answer.button == "always" ? .always : .cancel)
             }

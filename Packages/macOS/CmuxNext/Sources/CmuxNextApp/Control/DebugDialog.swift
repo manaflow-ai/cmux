@@ -31,7 +31,7 @@ enum DebugDialog {
     /// (it exposes the chat's transcript, #30263).
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.firstLoginIdentifier, CloudLoginCopyConsent.identifier, CloudChangeRequest.identifier, CloudCodexSignInConsent.identifier, CloudPresenter.codexDeviceCodeIdentifier,
                                         CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
-                                        SessionLinkGate.dialogIdentifier]
+                                        SessionLinkGate.dialogIdentifier, "cmux.dialog.remote.confirm"]
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let center = CmuxDialogCenter.shared
