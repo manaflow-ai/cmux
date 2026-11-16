@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
+import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
@@ -2402,10 +2403,16 @@ describe("claudeTranscriptModelsProgram", () => {
       const journey = new Journey(resolveBackend("staging"), null, {}, true);
       const code = runPreclaimBurst({
         backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: "user-1/team_0123456789abcdef0123",
-        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 2, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
         fetchJson: async () => ({ status: 200, body: { ok: true, commit: "0123456789abcdef" } }),
       });
-      await expect(code).rejects.toThrow("warm-spare refused (exit 1): stub: stub refused");
+      // A failed claim is recorded with its step and the burst goes on to the next (run 43918388959 stopped at claim 2
+      // of 20 on one reset); the burst still ends red.
+      expect(await code).toBe(1);
+      expect(journey.preclaimFailures.map((f) => [f.claim, f.error])).toEqual([
+        [0, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+        [1, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+      ]);
       const argv = readFileSync(join(dir, "argv"), "utf8").split("\n");
       const request = JSON.parse(argv[argv.indexOf("--request") + 1]);
       expect(request.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
@@ -2415,6 +2422,19 @@ describe("claudeTranscriptModelsProgram", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("a read that drops while the reply is awaited is not judged, and does not fail the claim", async () => {
+    // run 43918388959 claim 2: the session started and the prompt was taken, then a /exec read reset (ECONNRESET).
+    const replies: Array<string | Error> = ["@@exit 0", "@@exit 0", new Error("ECONNRESET: The socket connection was closed unexpectedly")];
+    const result = await runPreclaimChat(async () => {
+      const next = replies.shift();
+      if (next === undefined) throw new Error("unexpected extra command");
+      if (next instanceof Error) throw next;
+      return { code: 0, stdout: next, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(result.replyMs).toBeNull();
+    expect(result.replyNotJudged).toBe("reply wait read failed: ECONNRESET: The socket connection was closed unexpectedly");
   });
 
   test("a preclaim reply the model refuses is not judged, names the turn's error, and does not fail the claim", async () => {
@@ -2655,5 +2675,50 @@ describe("a preclaim agent start that fails says why", () => {
     expect(record.guest).toContain("== own login\nyes");
     expect(record.guest).toContain("== acp tail s");
     expect(record.guest!.length).toBeLessThanOrEqual(12_000);
+  });
+});
+
+describe("exec probe bench", () => {
+  const run = (over: Partial<ExecProbeRun>): ExecProbeRun => ({ condition: "settled", kind: "short", run: 0, nonce: "n0", ms: 300, status: 200, code: "", cause: "", ranOnGuest: null, ...over });
+
+  test("a probe leaves its nonce on the guest before it waits", () => {
+    expect(execProbeCommand("p-1", 0)).toBe(`echo p-1 >> ${EXEC_PROBE_NONCES}; echo ok`);
+    expect(execProbeCommand("p-2", 20)).toBe(`echo p-2 >> ${EXEC_PROBE_NONCES}; sleep 20; echo ok`);
+  });
+
+  test("a request that throws with no answer is kept as a probe with its code, not thrown", async () => {
+    const reset = Object.assign(new Error("The socket connection was closed unexpectedly."), { code: "ECONNRESET" });
+    const r = await execProbe(async () => { throw reset; }, "p-1", 0);
+    expect(r).toMatchObject({ status: null, code: "ECONNRESET", cause: "The socket connection was closed unexpectedly." });
+  });
+
+  test("each answer names its hop", async () => {
+    const answer = (status: number, body: unknown) => execProbe(async () => ({ status, body }), "p", 0);
+    expect(await answer(200, { ok: true, value: { exitCode: 0, stdout: "ok\n", stderr: "" } })).toMatchObject({ status: 200, code: "" });
+    const doReset = await answer(503, { ok: false, error: { code: "vm_unavailable", message: "the Cloud service restarted during the call; retry", reason: "restarted" } });
+    expect(execProbeHop(run(doReset))).toBe("Worker → CloudDO (restarted)");
+    expect(execProbeHop(run(await answer(502, { ok: false, error: { code: "vm_unavailable", message: "the machine did not answer; retry" } })))).toBe("CloudDO → provider exec");
+    expect(execProbeHop(run(await answer(524, { raw: "<html>" })))).toBe("edge → Worker (HTTP 524)");
+    expect(execProbeHop(run(await answer(200, { ok: true, value: { exitCode: 1, stdout: "", stderr: "x" } })))).toBe("guest command (exit 1)");
+    expect(execProbeHop(run({}))).toBeNull();
+  });
+
+  test("a probe with no answer is placed by whether the guest holds its nonce", () => {
+    const lost = [run({ nonce: "a", status: null, code: "ECONNRESET" }), run({ nonce: "b", status: null, code: "ECONNRESET" }), run({ nonce: "c" })];
+    const marked = markRanOnGuest(lost, "a\nc\n");
+    expect(marked.map((r) => execProbeHop(r))).toEqual(["answer lost after the guest ran it", "request lost before the guest", null]);
+    expect(markRanOnGuest(lost, null).map((r) => execProbeHop(r))).toEqual(["no answer; guest nonces unread", "no answer; guest nonces unread", null]);
+  });
+
+  test("the table counts failures per condition and kind and lists each one", () => {
+    const md = execProbeMarkdown([
+      run({ condition: "boot", nonce: "a", ms: 100 }),
+      run({ condition: "boot", nonce: "b", ms: 900, status: null, code: "ECONNRESET", cause: "socket | closed", ranOnGuest: true }),
+      run({ condition: "settled", kind: "wait", nonce: "c", ms: 20_400 }),
+    ]);
+    expect(md).toContain("- probes: 3; failed: 1 (no answer: 1, refused: 0)");
+    expect(md).toContain("| boot | short | 2 | 1 | 100 | 900 |");
+    expect(md).toContain("| settled | wait | 1 | 0 | 20400 | 20400 |");
+    expect(md).toContain("| boot | short | 0 | 900 | - | ECONNRESET | yes | answer lost after the guest ran it | socket \\| closed |");
   });
 });
