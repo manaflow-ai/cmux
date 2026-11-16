@@ -1,6 +1,606 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.keyStyle": {
+      "comment": "Settings > Keyboard card title: the key style and keyboard layout rows.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key Style"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenstil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style de touches"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط المفاتيح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de teclas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按鍵風格"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按键风格"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키 스타일"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キースタイル"
+          }
+        }
+      }
+    },
+    "settings.app.keyStyle": {
+      "comment": "Settings row title: which keys lists answer to (Standard, Vim or Emacs).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key Style"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenstil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style de touches"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط المفاتيح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de teclas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按鍵風格"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按键风格"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키 스타일"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キースタイル"
+          }
+        }
+      }
+    },
+    "settings.app.keyStyle.help": {
+      "comment": "Settings help under Key Style. j, k, gg, G and / are Vim keys; Control-N, P, F, B, A and E are Emacs keys; keep the key letters as they are.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim bewegt sich mit j, k, gg, G und / durch Listen. Emacs nutzt Control-N, P, F, B, A und E."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim parcourt les listes avec j, k, gg, G et /. Emacs utilise Contrôle-N, P, F, B, A et E."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتنقّل Vim في القوائم باستخدام j وk وgg وG و/. ويستخدم Emacs مفاتيح Control-N وP وF وB وA وE."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim recorre las listas con j, k, gg, G y /. Emacs usa Control-N, P, F, B, A y E."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim 使用 j、k、gg、G 和 / 在列表中移動。Emacs 使用 Control-N、P、F、B、A 和 E。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim 使用 j、k、gg、G 和 / 在列表中移动。Emacs 使用 Control-N、P、F、B、A 和 E。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim은 j, k, gg, G, /로 목록을 이동합니다. Emacs는 Control-N, P, F, B, A, E를 사용합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim は j、k、gg、G、/ でリストを移動します。Emacs は Control-N、P、F、B、A、E を使います。"
+          }
+        }
+      }
+    },
+    "settings.choice.keyStyleStandard": {
+      "comment": "Key Style choice: the standard macOS keys, no extra list keys.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قياسي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estándar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标准"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표준"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "settings.choice.keyStyleVim": {
+      "comment": "Key Style choice: the Vim editor's keys (a product name).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim"
+          }
+        }
+      }
+    },
+    "settings.choice.keyStyleEmacs": {
+      "comment": "Key Style choice: the Emacs editor's keys (a product name).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emacs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emacs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emacs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emacs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emacs"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emacs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emacs"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emacs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emacs"
+          }
+        }
+      }
+    },
+    "settings.app.shortcutLayout": {
+      "comment": "Settings row title: whether shortcuts follow the keyboard layout's letters or the US key positions.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard Layout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastaturbelegung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disposition du clavier"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخطيط لوحة المفاتيح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribución del teclado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鍵盤配置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "键盘布局"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키보드 레이아웃"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーボードレイアウト"
+          }
+        }
+      }
+    },
+    "settings.app.shortcutLayout.help": {
+      "comment": "Settings help under Keyboard Layout. Dvorak, Colemak, AZERTY, QWERTZ and QWERTY are layout names; keep them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QWERTY-Positionen behalten legt Kurzbefehle auf die US-Tasten, für Dvorak, Colemak, AZERTY und QWERTZ."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les positions QWERTY place les raccourcis sur les touches US, pour Dvorak, Colemak, AZERTY et QWERTZ."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضع خيار الإبقاء على مواضع QWERTY الاختصارات على مفاتيح التخطيط الأمريكي، لمستخدمي Dvorak وColemak وAZERTY وQWERTZ."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener posiciones QWERTY pone los atajos en las teclas de EE. UU., para Dvorak, Colemak, AZERTY y QWERTZ."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「保留 QWERTY 位置」會將快速鍵放在美式鍵盤的按鍵位置上，適用於 Dvorak、Colemak、AZERTY 和 QWERTZ。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“保留 QWERTY 位置”会将快捷键放在美式键盘的按键位置上，适用于 Dvorak、Colemak、AZERTY 和 QWERTZ。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QWERTY 위치 유지는 단축키를 미국식 키 위치에 둡니다. Dvorak, Colemak, AZERTY, QWERTZ용입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「QWERTY の位置を保つ」はショートカットを US キーの位置に置きます。Dvorak、Colemak、AZERTY、QWERTZ 向けです。"
+          }
+        }
+      }
+    },
+    "settings.choice.shortcutLayoutFollow": {
+      "comment": "Keyboard Layout choice: a shortcut is the letter the current layout types (Command-Z is the key that types Z).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow My Layout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meiner Belegung folgen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivre ma disposition"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتباع تخطيطي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir mi distribución"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟隨我的配置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随我的布局"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 레이아웃 따르기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のレイアウトに従う"
+          }
+        }
+      }
+    },
+    "settings.choice.shortcutLayoutQwerty": {
+      "comment": "Keyboard Layout choice: shortcuts stay on the US QWERTY key positions whatever the layout types.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep QWERTY Positions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QWERTY-Positionen behalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les positions QWERTY"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإبقاء على مواضع QWERTY"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener posiciones QWERTY"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留 QWERTY 位置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留 QWERTY 位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QWERTY 위치 유지"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QWERTY の位置を保つ"
+          }
+        }
+      }
+    },
     "settings.choice.backgroundFollowAppearance": {
       "comment": "Settings choice: the background switches between a light and a dark picture with the appearance.",
       "extractionState": "manual",

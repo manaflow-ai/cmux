@@ -29,6 +29,8 @@ extension SettingsSchema {
         // Whether a chat shows the live view of the app its agent uses: looks only.
         "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
+        // Which keys lists answer to and how shortcuts find their key: the person's keyboard habits, nothing private or destructive, and `cmux settings set app.keyStyle vim` is the documented way to set it.
+        "app.keyStyle", "app.shortcutLayout",
         // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
         "contextMenus.showCustomizeItem",
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",

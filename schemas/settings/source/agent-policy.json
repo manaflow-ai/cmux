@@ -40,6 +40,14 @@
     },
     {
       "agent": "settable",
+      "why": "Which keys lists answer to and how shortcuts find their key: the person's keyboard habits, nothing private or destructive, and `cmux settings set app.keyStyle vim` is the documented way to set it.",
+      "keys": [
+        "app.keyStyle",
+        "app.shortcutLayout"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
       "keys": [
         "contextMenus.showCustomizeItem"

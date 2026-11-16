@@ -236,6 +236,7 @@ extension SettingsPageLayout {
     private static let keyboardCategory = CategorySpec(
         id: "keyboard", title: section(.keyboard), symbol: "keyboard",
         groups: [
+            GroupSpec(group: "settings.group.keyStyle"),
             GroupSpec(group: "settings.shortcuts.hintsGroup"),
             GroupSpec(keys: ["tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"], title: SettingsText.keyed("settings.pageGroup.sidebarKeys", "Sidebar Navigation")),
             GroupSpec(group: "settings.group.palette"),

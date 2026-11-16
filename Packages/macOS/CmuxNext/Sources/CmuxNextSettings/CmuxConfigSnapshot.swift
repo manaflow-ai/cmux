@@ -296,6 +296,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var commandRetentionDays = Int(CmuxConfigSnapshot.commandRetentionDefault)
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
+    /// `app.keyStyle` and `app.shortcutLayout`: list keys and how shortcuts find their key.
+    public var keyboardStyle = KeyboardStyleSettings()
     /// `updates.*`: automatic update behavior (R114).
     public var updates = UpdatesSettings()
     /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
@@ -360,6 +362,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(BrowserVimKeysSetting().parse(root), \.browserVimKeys)
+        snapshot.keyboardStyle = KeyboardStyleSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        // The Vim key style turns the browser's vim page keys on too (design/keyboard-style.md).
+        if snapshot.keyboardStyle.keyStyle == .vim { snapshot.browserVimKeys = true }
         snapshot.take(BrowserLoadingBarSetting().parse(root), \.browserShowLoadingBar)
         snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
         snapshot.take(BrowserCookieBannerSetting.parse(root), \.browserImportCookieBanner)
