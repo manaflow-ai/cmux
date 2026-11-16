@@ -405,7 +405,9 @@ class SidebarItemRowView: NSView {
         // row, so a word that is mostly lowercase read higher than the glyph, whose mass sits low (Lucas 2026-11-13:
         // "Home is still a bit too high up" at Spacious). On the pixel grid; a flipped view, so down is +y.
         let scale = window?.backingScaleFactor ?? 2
-        let opticalDrop = style == .builtIn && !bare && !isRailButton
+        // A browser density places every title on Chromium's baseline (`SidebarStyle.lineBoxBaseline`), as Helium does,
+        // with no drop.
+        let opticalDrop = style == .builtIn && !bare && !isRailButton && SidebarStyle.capCenteredBaseline(title.font ?? SidebarStyle.titleFont, centerY: 0) == nil
             ? (SidebarStyle.titleFont.pointSize * 0.04 * scale).rounded() / scale : 0
         title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY) + opticalDrop,
                              width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)

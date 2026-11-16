@@ -32,7 +32,8 @@ import Testing
     private func strip() -> (NSWindow, TabStripView) {
         _ = NSApplication.shared
         let items = (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "lawrence@cmux \($0)", icon: .icon(.tabTerminal)) }
-        let strip = TabStripView(model: TabStripModel(tabs: items, selectedID: TabID("tab0")))
+        // The second tab is selected: a selected tab runs down into the page card, so the first is a plain pill.
+        let strip = TabStripView(model: TabStripModel(tabs: items, selectedID: TabID("tab1")))
         strip.dragsWindowFromEmptySpace = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -98,11 +99,12 @@ import Testing
         return inkSpan(rep, pointWidth: size.width)
     }
 
+    /// The tab pill is the density's tab and the back button and omnibar its location bar: Helium's 28 pt at Default,
+    /// Chrome's 28 pt tab and 34 pt bar at Comfortable (Lucas 2026-11-14). The compact densities keep one row for all.
     @Test(arguments: DensityPreset.allCases, SidebarDensity.allCases)
-    func tabNavigationAndOmnibarAreOneSidebarRowTall(preset: DensityPreset, sidebar: SidebarDensity) throws {
+    func tabNavigationAndOmnibarTakeTheDensitysHeights(preset: DensityPreset, sidebar: SidebarDensity) throws {
         defer { reset() }
         load(preset, sidebar)
-        // The row as the sidebar draws it: at Default its fill takes the gap under it (30, not 28).
         let row = SidebarRowTokens.current.listRowHeight
         let (stripWindow, strip) = strip()
         defer { stripWindow.close() }
@@ -111,11 +113,15 @@ import Testing
         defer { window.close() }
         let back = chrome.backButton.convert(chrome.backButton.bounds, to: nil)
         let bar = chrome.addressBar.convert(chrome.addressBar.bounds, to: nil)
-        let label = "\(preset) / sidebar \(sidebar): row \(row)"
-        #expect(abs(pill.height - row) <= 0.5, "\(label), tab \(pill.height)")
-        #expect(abs(back.height - row) <= 0.5, "\(label), back button \(back.height)")
-        #expect(abs(back.width - row) <= 0.5, "\(label), back button is square: \(back.width)")
-        #expect(abs(bar.height - row) <= 0.5, "\(label), omnibar \(bar.height)")
+        let omnibar = OmnibarMetrics.current.barHeight
+        let label = "\(preset) / sidebar \(sidebar): row \(row), tab \(Metrics.tabHeight), omnibar \(omnibar)"
+        #expect(abs(pill.height - Metrics.tabHeight) <= 0.5, "\(label), pill \(pill.height)")
+        #expect(abs(back.height - omnibar) <= 0.5, "\(label), back button \(back.height)")
+        #expect(abs(back.width - omnibar) <= 0.5, "\(label), back button is square: \(back.width)")
+        #expect(abs(bar.height - omnibar) <= 0.5, "\(label), omnibar \(bar.height)")
+        if preset == .compact || preset == .ultraCompact {
+            #expect(abs(pill.height - row) <= 0.5 && abs(bar.height - row) <= 0.5, "\(label): one row for all")
+        }
     }
 
     @Test(arguments: DensityPreset.allCases)

@@ -102,11 +102,15 @@ public struct Metrics {
         // density and text size as a row is, without the sidebar list's Codex fill.
         if let row = BrowserChromeTuning.override(.rowHeight) ?? tokens.tokens["browserRowHeight"].map({ CGFloat($0) }), MetricTunables.sidebarRowHeight.tunable.override == nil,
            DesignSettings.shared.overrides[.sidebarRowHeight] == nil {
-            return scale(row) + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2)
+            // Every preset scales Default's fill gain. Only the sidebar's Compact setting draws it.
+            let codex = tokens.usesDefaultRowFill
+            let fill = SidebarRowTokens.listFillGain(isCodexDensity: codex, density: sections.density, space1: space1)
+                - SidebarRowTokens.listFillGain(isCodexDensity: codex, density: .compact, space1: space1)
+            return scale(row) + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2) + fill
         }
         // The row as drawn: at Default the list row's fill takes the gap under it (``SidebarRowTokens/listRowHeight``).
         return sidebarRowHeight + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2)
-            + SidebarRowTokens.listFillGain(isCodexDensity: tokens.id == DensityPreset.cozy.rawValue, density: sections.density, space1: space1)
+            + SidebarRowTokens.listFillGain(isCodexDensity: tokens.usesDefaultRowFill, density: sections.density, space1: space1)
     }
 
     /// A tab pill's height: the chrome row (``chromeRowHeight``), the Compact tabs option's tighter
@@ -211,18 +215,28 @@ public struct Metrics {
     /// Half the gap between neighboring tab pills. Each pill leaves the
     /// whole gap at its trailing side, so the first pill starts on the
     /// chrome line.
-    public static var tabBackgroundInset: CGFloat { scale(ChromeTunables.tabBackgroundInset.value) }
+    /// A density's `tabGap` sets the whole gap instead (Helium's 3, Chrome's 6).
+    public static var tabBackgroundInset: CGFloat {
+        if ChromeTunables.tabBackgroundInset.override == nil, let gap = densityToken("tabGap") { return gap / 2 }
+        return scale(ChromeTunables.tabBackgroundInset.value)
+    }
+    /// A density's exact value for `name` (`DensityTokens.tokens`), at the interface scale; nil when the density
+    /// derives it. The browser densities set their browser's own geometry this way (Lucas 2026-11-14).
+    public static func densityToken(_ name: String) -> CGFloat? { tokens.tokens[name].map { scale(CGFloat($0)) } }
     /// Inset of a tab's icon from its pill's leading edge: a set `chrome.tabContentLeadingInset` (under
     /// Compact tabs `chrome.compactTabContentLeadingInset`), else ``tabIconEvenLeadingInset``.
     public static var tabContentLeadingInset: CGFloat {
         let set = (compactTabs ? ChromeTunables.compactTabContentLeadingInset : ChromeTunables.tabContentLeadingInset).override
-        return set.map(scale) ?? tabIconEvenLeadingInset
+        // A density's `tabIconLeading` (Helium's favicon 6 pt into the tab, Chrome's 8).
+        return set.map(scale) ?? densityToken("tabIconLeading") ?? tabIconEvenLeadingInset
     }
     /// The tab icon's inset that leaves its glyph as far from the pill's leading edge as from the
     /// pill's top and bottom, at every tab height and icon size (``evenIconLeadingInset(rowHeight:iconSize:scale:)``).
     /// Lawrence 2026-11-12: "space on left/top of tab is not even" (a fixed 8 pt put the terminal
     /// glyph 10 pt from the edge and 8 pt from the top at Compact density).
-    public static var tabIconEvenLeadingInset: CGFloat { evenIconLeadingInset(rowHeight: tabHeight, iconSize: iconSize) }
+    public static var tabIconEvenLeadingInset: CGFloat { evenIconLeadingInset(rowHeight: tabHeight, iconSize: tabIconSize) }
+    /// A tab's icon box: the density's `tabIconSize` (Helium's and Chrome's 16 pt favicon), else ``iconSize``.
+    public static var tabIconSize: CGFloat { densityToken("tabIconSize") ?? iconSize }
     /// The leading inset of an icon box `iconSize` square, centered in a row `rowHeight` tall, that
     /// gives its ink the same gap to the row's leading edge as to its top and bottom: the box's own
     /// vertical inset plus the icon grid's optical difference. The cmux pack draws on a 24 pt grid
@@ -237,12 +251,19 @@ public struct Metrics {
         let pixels = max(scale, 1)
         return max(0, (((rowHeight - iconSize) / 2 + iconSize / 16) * pixels).rounded() / pixels)
     }
-    /// Where the first tab's icon starts in a pane's strip: the strip's leading padding (none under
-    /// the flush corner) plus the icon's inset in its pill. The browser's back arrow starts its ink
-    /// there (`OmnibarStyle.toolbarInset`).
-    public static var firstTabIconLeading: CGFloat {
-        (CornerFlush.current.isOn ? 0 : paneChromeInset) + tabContentLeadingInset
+    /// The one gap at both ends of a tab strip, the same at every density: from the strip's leading edge (the
+    /// sidebar or the pane's edge) to the first tab, and from the last tab to the + button (Lucas 2026-11-15: "the
+    /// padding to the left is always the same ... the padding between the + and the last tab is also the same ... the
+    /// padding is the same for left tab and sidebar as it is for + and the last tab").
+    public static var tabStripEndGap: CGFloat {
+        // A set corner (`layout.cornerPadding`, `layout.paneCornerRadius`) keeps the first pill `cornerPadding` in from
+        // the card, so its corner stays concentric with the card's (ConcentricCornerSettingTests).
+        if DesignSettings.shared.paneChrome.cornerPadding != nil || cornerRadiusIsSet { return paneChromeInset }
+        return scale(4)
     }
+    /// Where the first tab's icon starts in a pane's strip: the strip's end gap plus the icon's inset in its pill.
+    /// The browser's back arrow starts its ink there (`OmnibarStyle.toolbarInset`).
+    public static var firstTabIconLeading: CGFloat { tabStripEndGap + tabContentLeadingInset }
     /// The opt-in tight tab strip (`ChromeTunables.compactTabs`), at compact density only.
     public static var compactTabs: Bool { density == .compact && ChromeTunables.compactTabs.value }
     /// The chrome line: tab pills and toolbar button shapes, from the
@@ -444,9 +465,21 @@ public struct Typography {
     /// `appearance.metrics.tabFontSize` overrides that size, times the interface scale when enabled.
     public static var tabTitle: NSFont {
         guard let points = DesignSettings.shared.overrides[.tabFontSize] else {
-            return system(.default, size: max(12, Metrics.tokens.bodySize - 2) * scale, weight: .regular)
+            return system(.default, size: tabTitleSize(Metrics.tokens) * scale, weight: .regular)
         }
         return system(.default, size: Metrics.scale(points), weight: .regular)
+    }
+    /// A tab title's size at `tokens`, before the user's text scale: the density's `tabTitleSize` (Helium's and
+    /// Chrome's 12 pt at Default and Comfortable), else its body size less one point, never under 12.
+    public static func tabTitleSize(_ tokens: DensityTokens) -> CGFloat {
+        tokens.fontToken("tabTitleSize") ?? max(12, tokens.bodySize - 2)
+    }
+    /// A sidebar row's title, before the sidebar's own text size step: the density's `sidebarTitleSize` (Helium's
+    /// vertical tab title, 12 pt at Default), else the body size, times the user's text scale.
+    public static var sidebarTitle: NSFont { system(.default, size: sidebarTitleSize(Metrics.tokens) * scale, weight: .regular) }
+    /// ``sidebarTitle``'s size at `tokens`, before the user's text scale.
+    public static func sidebarTitleSize(_ tokens: DensityTokens) -> CGFloat {
+        tokens.fontToken("sidebarTitleSize") ?? tokens.textSize(compact: 12, comfortable: 13)
     }
     /// Selected or emphasized row titles.
     public static var bodyEmphasized: NSFont { system(.default, size: size(12, 13), weight: .medium) }

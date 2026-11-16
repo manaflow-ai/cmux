@@ -111,9 +111,11 @@ import Testing
         #expect(cell.titleLayer.mask != nil, "the clipped title fades out at the tab's trailing end")
     }
 
-    @Test func aTabTitleIsChromesTwelvePoints() {
+    /// The density's `tabTitleSize`, 12.75 pt at Default (9 pt capitals, Lucas 2026-11-15), else Chrome's 12.
+    @Test func aTabTitleIsTheDensitysTitleSize() {
         let harness = Harness()
         defer { harness.window.closeAfterTest() }
-        for cell in harness.strip.cells.values { #expect(cell.titleFont.pointSize == 12 * Typography.userScale) }
+        let size = CGFloat(DesignSettings.shared.densityTokens.tokens["tabTitleSize"] ?? 12) * Typography.userScale
+        for cell in harness.strip.cells.values { #expect(cell.titleFont.pointSize == size) }
     }
 }

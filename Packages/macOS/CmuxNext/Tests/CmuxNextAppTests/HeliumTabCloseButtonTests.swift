@@ -33,12 +33,12 @@ import Testing
         }
     }
 
-    /// Helium's hover corner is the x's own, not nested in the pill: at Default the 14 pt square in the 28 pt,
+    /// Helium's hover corner is the x's own, not nested in the pill: at Default the 14.5 pt square in the 29 pt,
     /// 8 pt pill rounds 4 pt, where the concentric rule would give 1.
     @Test func theHoverCornerIsTheXsOwnAtDefault() {
         withDensity(.cozy) { m, row in
-            #expect(row == 28)
-            #expect(m.closeButtonSize == 14)
+            #expect(row == 29)
+            #expect(m.closeButtonSize == 14.5)
             #expect(m.closeCornerRadius == 4)
         }
     }

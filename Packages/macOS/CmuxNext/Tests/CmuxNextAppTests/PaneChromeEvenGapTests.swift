@@ -128,8 +128,9 @@ import Testing
         let reload = topLeft(chrome.reloadButton.bounds, in: chrome.reloadButton, window: window)
         let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
         let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
-        let row = Metrics.chromeRowHeight
-        #expect(reload.width == row && reload.height == row, "\(style): the reload button is \(reload.size), the chrome row \(row)")
+        // The toolbar buttons are the location bar's height (Helium's `kToolbarButtonHeight`, 28 at Default).
+        let row = OmnibarStyle.barHeight
+        #expect(reload.width == row && reload.height == row, "\(style): the reload button is \(reload.size), the bar \(row)")
         #expect(abs(reload.midY - bar.midY) <= 0.5, "\(style): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
         let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
         let below = page.minY - reload.maxY
