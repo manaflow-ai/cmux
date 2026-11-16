@@ -1739,10 +1739,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextRemoteViewTests",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextCompat",
-                "CmuxNextRemoteView",
-            ],
+            dependencies: ["CmuxNextRemoteView"],
             swiftSettings: uiSwiftSettings
         ),
         // The Mac Screen against cmux-rd-proto's golden app lines (cmux rd serve|connect stdout).
@@ -1751,6 +1748,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextControl",
+                "CmuxNextDevices",
                 "CmuxNextMacScreen",
                 "CmuxNextRemoteView",
                 "CmuxNextSettings",

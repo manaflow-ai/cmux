@@ -1,5 +1,4 @@
 @testable import CmuxNextRemoteView
-import CmuxNextCompat
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -104,12 +103,12 @@ nonisolated struct RemoteDecodeRangeBenchTests {
         var times: [Double] = []
         for sample in samples {
             let start = DispatchTime.now().uptimeNanoseconds
-            let got = Mutex<OSType>(0)
+            let got = PixelFormatBox()
             let decoded = VTDecompressionSessionDecodeFrame(decoder, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { status, _, image, _, _ in
-                if status == noErr, let image { got.withLock { $0 = CVPixelBufferGetPixelFormatType(image) } }
+                if status == noErr, let image { got.set(CVPixelBufferGetPixelFormatType(image)) }
             }
             times.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
-            #expect(decoded == noErr && got.withLock { $0 } == pixelFormat)
+            #expect(decoded == noErr && got.value == pixelFormat)
         }
         return times
     }
@@ -122,4 +121,13 @@ private nonisolated final class Collected: @unchecked Sendable {
     private var samples: [CMSampleBuffer] = []
     func append(_ sample: CMSampleBuffer) { lock.withLock { samples.append(sample) } }
     var all: [CMSampleBuffer] { lock.withLock { samples } }
+}
+
+/// The decode handler's output format; VideoToolbox calls the handler before `DecodeFrame` returns.
+private nonisolated final class PixelFormatBox: @unchecked Sendable {
+    // @unchecked: `stored` is only touched under `lock`.
+    private let lock = NSLock()
+    private var stored: OSType = 0
+    func set(_ format: OSType) { lock.withLock { stored = format } }
+    var value: OSType { lock.withLock { stored } }
 }
