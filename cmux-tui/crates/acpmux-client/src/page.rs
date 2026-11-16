@@ -816,4 +816,61 @@ mod tests {
         assert!(driver.taken(4).is_ok());
         assert!(driver.held.is_none());
     }
+
+    #[test]
+    fn windows_and_whole_report_walk_completion_and_slot_membership() {
+        let mut driver = ListDriver::new();
+        driver.slots.insert("s".into(), "all".into());
+        driver.heads.insert("s".into(), Head { slot: "all".into(), before_key: None, edition: 0 });
+        let window = crate::wire::Window {
+            sid: "s".into(),
+            cursor: 1,
+            rows: vec![json!({"chatId":"c","origin":"local"})],
+            has_before: true,
+            has_after: false,
+            edition: 1,
+            origins: Vec::new(),
+            before_key: None,
+            after_key: None,
+        };
+        let event = driver.project(Change::Window(window)).unwrap().unwrap();
+        assert!(matches!(event, ListEvent::Rows { complete: false, slot, .. } if slot == "all"));
+        let whole = driver
+            .project(Change::Whole { sid: "s".into(), cursor: crate::wire::Cursor(2) })
+            .unwrap()
+            .unwrap();
+        assert!(matches!(whole, ListEvent::Rows { complete: false, slot, .. } if slot == "all"));
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("hasBefore"));
+        assert!(!json.contains("has_before"));
+    }
+
+    #[test]
+    fn question_error_stops_in_flight_question_and_allows_a_new_slot() {
+        let mut driver = ListDriver::new();
+        driver.questions.insert(
+            "q".into(),
+            Question {
+                sid: "s".into(),
+                request: Page::new("s", "list", crate::wire::PageSide::Before, 1),
+                direction: Direction::Before,
+                in_flight: true,
+                complete: false,
+                failed: false,
+                created: 1,
+            },
+        );
+        let event = driver
+            .project(Change::Error {
+                method: "page".into(),
+                sid: Some("s".into()),
+                id: Some("q".into()),
+                code: "list.lost".into(),
+            })
+            .unwrap()
+            .unwrap();
+        assert!(matches!(event, ListEvent::Error { id: Some(id), .. } if id == "q"));
+        assert!(!driver.questions["q"].in_flight);
+        assert!(driver.questions["q"].failed);
+    }
 }
