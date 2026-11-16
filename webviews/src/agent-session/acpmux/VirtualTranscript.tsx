@@ -1891,7 +1891,7 @@ function TranscriptView({
     const { top, delta } = scrollRef.current;
     if (drawn.at(top, delta, followNow, drawn.shown, drawn.warmAt) !== drawn.key) return false;
     // A commit's effect keeps the reader's idle stretch (jumpUp.ts `keepSoon`); a skipped one keeps it here.
-    idle.keepSoon();
+    idleKept.current.keepSoon();
     return true;
   };
   const setScrollAt = (top: number, delta = top - scrollRef.current.top) => {
@@ -1911,6 +1911,8 @@ function TranscriptView({
   /// reloads), the way back a press holds (a second press or Esc returns there), and the row lookups'
   /// hints.
   const [idle] = useState(() => new IdleTracker());
+  /// The same tracker, for the scroll handlers (a ref keeps them free of render values).
+  const idleKept = useRef(idle);
   // This chat's stretch (the last chat's is kept first, so coming straight back reads it).
   idle.open(sessionId, jumpButton);
 
