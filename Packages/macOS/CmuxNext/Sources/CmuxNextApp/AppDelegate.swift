@@ -343,7 +343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         if LaunchIdentity.ignoresCustomizations(keysHeld: NSEvent.modifierFlags.isSuperset(of: [.option, .shift])) { WebDevOverride.ignoreThisRun() }
         let registry = services.registry
-        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
+        let settings = SettingsController(writer: SettingsEditSender(services.daemon.settingsFile.edit(json:file:)), registry: registry, fileURL: launch.fileURL, launch: launch) // the home daemon writes the file
         settings.applyManagedFeaturesNow()
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
@@ -367,7 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bundleID: bundleID
             )
         )
-        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
+        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true, untilWritable: { [daemon = services.daemon] in await daemon.untilLive() }) // fresh-install Glass, theme rotation: written once the daemon is live
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
         let acpmux = QuitAgents.environment(services)
@@ -400,11 +400,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
         if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
-        // Agent-launched builds never take system-wide keys from the person's app.
-        if !environment.noActivate { services.globalHotKeys.start() }
-        // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.
-        if !environment.noActivate { services.menuBarExtra.follow(settings, background: services.background) }
+        // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
+        if !environment.noActivate { services.globalHotKeys.start(); services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
+        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(firstFrame); services.cache.cef.preload() } // a restored chat's page starts Chromium as the window builds: map its framework now, off main; CefInitialize waits for the first frame (CMUX-571)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
@@ -427,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            await settings.runLaunchMigrations(marker: .standard) // legacy keys, classic imports, stored defaults
+            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy keys, classic imports, stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)

@@ -1,0 +1,90 @@
+{
+  "family": "link_hints",
+  "owner": "app:cmux/link-hints",
+  "operations": [
+    {
+      "name": "link_hints.show",
+      "owner": "app:cmux/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "new_split": { "type": "boolean", "description": "Open the picked link in a new split." }
+        },
+        "required": []
+      },
+      "cli": { "path": "show", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link hints", "ja": "リンクヒント" } },
+      "docs": "Label every link of the focused browser tab; pick one in the Link Hints section.",
+      "since": "link_hints/1",
+      "export": "show"
+    },
+    {
+      "name": "link_hints.show_split",
+      "owner": "app:cmux/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": { "path": "show-split", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link hints: open in new split", "ja": "リンクヒント: 新しい分割で開く" } },
+      "docs": "Label every link of the focused browser tab; the picked link opens in a new split.",
+      "since": "link_hints/1",
+      "export": "showSplit"
+    },
+    {
+      "name": "link_hints.follow",
+      "owner": "app:cmux/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": { "type": "string", "minLength": 1, "maxLength": 8 },
+          "new_split": { "type": "boolean" }
+        },
+        "required": ["label"]
+      },
+      "cli": { "path": "follow", "visible": true },
+      "mcp": { "expose": "never" },
+      "docs": "Follow the link labeled label on the focused browser tab, in a new split with new_split.",
+      "since": "link_hints/1",
+      "export": "follow"
+    },
+    {
+      "name": "link_hints.clear",
+      "owner": "app:cmux/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": { "path": "clear", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link hints: clear", "ja": "リンクヒント: 消去" } },
+      "docs": "Remove the link labels from the focused browser tab.",
+      "since": "link_hints/1",
+      "export": "clear"
+    }
+  ]
+}
