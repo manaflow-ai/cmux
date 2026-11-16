@@ -76,33 +76,38 @@ if [[ -z "$BRANCH" ]] || ! git check-ref-format "refs/heads/$BRANCH" || [[ ! "$B
     echo "push-from-host: give the branch to push to, for example: $0 feat-cmux-next" >&2
     exit 2
 fi
+# Read once before any SSH, including explicit overrides. Missing or malformed policy cannot authorize a host.
+if ! REGISTRY_HOSTS="$(python3 - "$REGISTRY" <<'PYREG'
+import json, sys
+try:
+    with open(sys.argv[1]) as source:
+        machines = json.load(source)["machines"]
+    for name, machine in machines.items():
+        roles = set(machine.get("roles") or []) - set(machine.get("excluded_roles") or [])
+        lanes = machine.get("lanes") or {}
+        personal = (bool(machine.get("personal")) or bool(lanes.get("personal"))
+                    or bool(set(machine.get("roles") or []) & {"leo-apps", "leo-mac"})
+                    or machine.get("approval") == "leo-own")
+        if "mac-build" in roles and not personal:
+            print(name)
+except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+    print(f"push-from-host: fleet registry cannot be read: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+PYREG
+)"; then
+    exit 2
+fi
+while IFS= read -r candidate; do
+    [[ -z "$candidate" ]] || DEFAULT_HOSTS+=("$candidate")
+done <<< "$REGISTRY_HOSTS"
 if (( ${#HOSTS[@]} == 0 )); then
     if [[ -n "${CMUX_PUSH_HOST:-}" ]]; then
         read -r -a HOSTS <<< "$CMUX_PUSH_HOST"
-    else
-        if [[ -f "$REGISTRY" ]]; then
-            while IFS= read -r candidate; do
-                [[ -n "$candidate" ]] && DEFAULT_HOSTS+=("$candidate")
-            done < <(python3 - "$REGISTRY" <<'PY'
-import json, sys
-try:
-    registry = json.load(open(sys.argv[1]))
-except (OSError, ValueError, IndexError) as exc:
-    print(f"registry unreadable: {exc}", file=sys.stderr)
-    raise SystemExit(2)
-for name, machine in (registry.get("machines") or {}).items():
-    roles = set(machine.get("roles") or [])
-    personal = bool(machine.get("personal")) or bool(roles & {"leo-apps", "leo-mac"}) or machine.get("approval") == "leo-own"
-    if "mac-build" in roles and not personal:
-        print(name)
-PY
-            ) || {
-                echo "push-from-host: could not read mac-build hosts from $REGISTRY; no default host is used." >&2
-            }
-        else
-            echo "push-from-host: no fleet registry at $REGISTRY; no default host is used. Set CMUX_PUSH_HOST explicitly." >&2
-        fi
+    elif (( ${#DEFAULT_HOSTS[@]} > 0 )); then
         HOSTS=("${DEFAULT_HOSTS[@]}")
+    else
+        echo "push-from-host: no eligible mac-build hosts in $REGISTRY; nothing was sent." >&2
+        exit 2
     fi
 fi
 if [[ ! "$HOST_REPO" =~ ^[A-Za-z0-9._/-]+$ ]]; then
@@ -125,37 +130,18 @@ for spec in "${HOSTS[@]}"; do
         echo "push-from-host: host '$spec' has characters this script does not pass to a shell" >&2
         exit 2
     fi
-    if [[ -f "$REGISTRY" ]]; then
-        REGISTRY_STATUS="$(python3 - "$REGISTRY" "$candidate" <<'PY'
-import json, sys
-try:
-    registry = json.load(open(sys.argv[1]))
-    machine = (registry.get("machines") or {}).get(sys.argv[2])
-except (OSError, ValueError, IndexError):
-    print("unreadable")
-    raise SystemExit
-if machine is None:
-    print("unknown")
-else:
-    roles = set(machine.get("roles") or [])
-    personal = bool(machine.get("personal")) or bool(roles & {"leo-apps", "leo-mac"}) or machine.get("approval") == "leo-own"
-    print("personal" if personal else "allowed")
-PY
-        )"
-        case "$REGISTRY_STATUS" in
-            personal)
-                echo "push-from-host: skipping $candidate: the fleet registry marks it as a person's own machine." >&2
-                RESERVED+=("$candidate")
-                continue ;;
-            unknown)
-                echo "push-from-host: skipping $candidate: it is not declared in $REGISTRY." >&2
-                RESERVED+=("$candidate")
-                continue ;;
-            unreadable)
-                echo "push-from-host: skipping $candidate: the fleet registry cannot be read." >&2
-                RESERVED+=("$candidate")
-                continue ;;
-        esac
+    # Explicit host lists choose among the same registry-authorized builders; they cannot grant eligibility.
+    eligible=0
+    for registered in $REGISTRY_HOSTS; do
+        if [[ "${candidate#*@}" == "$registered" ]]; then
+            eligible=1
+            break
+        fi
+    done
+    if (( ! eligible )); then
+        echo "push-from-host: skipping $candidate: not an eligible mac-build host in the fleet registry (personal, excluded or unknown)." >&2
+        RESERVED+=("$candidate")
+        continue
     fi
     if [[ -n "$RESERVATIONS" ]]; then
         # The reader exits 0 for a free host and 1 for a reserved one, printing who holds it. ssh's user@ is not

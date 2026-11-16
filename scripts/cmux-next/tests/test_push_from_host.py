@@ -28,6 +28,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "push-from-host.sh"
 TOKEN = "test-token-never-printed"
 FAKE_SSH = """#!/bin/bash
 while [[ "$1" == -o ]]; do shift 2; done
+echo "$1" >> "$FAKE_SSH_LOG"
 shift  # the host
 export HOME="$FAKE_HOST_HOME"
 exec bash -c "$*"
@@ -91,7 +92,7 @@ class PushFromHostTests(unittest.TestCase):
             }
         }))
         self.env.update(PATH=f"{bin_dir}:{self.env.get('PATH', '')}", GIT_CONFIG_GLOBAL=str(config),
-                        GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home),
+                        GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home), FAKE_SSH_LOG=str(self.root / "ssh.log"),
                         CMUX_FLEET_RESERVATIONS=str(reservations), CMUX_FLEET_REGISTRY=str(registry))
         git_fixture_env.init_repo(self.origin, "--bare", env=self.env)
         self.run_ok("git", "clone", "--quiet", str(self.origin), str(self.work))
@@ -320,9 +321,56 @@ git config core.hooksPath "$common/cmux-git-hooks"
 
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.remote_head("personal-safe"), sha)
-        self.assertIn("skipping personal-mini: the fleet registry marks it as a person's own machine", done.stderr)
+        self.assertIn("skipping personal-mini: not an eligible mac-build host", done.stderr)
         self.assertIn(f"{sha} -> personal-safe through fake-host", done.stderr)
-        self.assertFalse((self.host_home / "personal-mini.log").exists())
+        self.assertNotIn("personal-mini", (self.root / "ssh.log").read_text())
+
+    def test_defaults_follow_registry_order_and_exclusions(self):
+        registry = Path(self.env["CMUX_FLEET_REGISTRY"])
+        registry.write_text(json.dumps({"machines": {
+            "personal-mini": {"roles": ["mac-build"], "personal": True},
+            "excluded-mini": {"roles": ["mac-build"], "excluded_roles": ["mac-build"]},
+            "capture-only": {"roles": ["capture"]},
+            "other-mini": {"roles": ["mac-build"]},
+        }}))
+        self.env.pop("CMUX_PUSH_HOST", None)
+        done = self.push("--which-host", "topic", hosts=())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "other-mini fun/cmux")
+        self.assertEqual((self.root / "ssh.log").read_text(), "other-mini\n")
+
+    def test_each_personal_marker_blocks_cli_and_environment_overrides_before_ssh(self):
+        registry = Path(self.env["CMUX_FLEET_REGISTRY"])
+        for marker in ({"personal": True}, {"approval": "leo-own"},
+                       {"roles": ["mac-build", "leo-apps"]},
+                       {"roles": ["mac-build", "leo-mac"]}, {"lanes": {"personal": True}},
+                       {"excluded_roles": ["mac-build"]}):
+            for source in ("cli", "env"):
+                with self.subTest(marker=marker, source=source):
+                    registry.write_text(json.dumps({"machines": {
+                        "personal-mini": dict({"roles": ["mac-build"]}, **marker)}}))
+                    self.env["CMUX_PUSH_HOST"] = "user@personal-mini:fun/cmux"
+                    hosts = ("user@personal-mini:fun/cmux",) if source == "cli" else ()
+                    done = self.push("--which-host", "topic", hosts=hosts)
+                    self.assertEqual(done.returncode, 2, done.stderr)
+                    self.assertFalse((self.root / "ssh.log").exists())
+
+    def test_missing_malformed_and_unknown_registry_hosts_fail_before_ssh(self):
+        registry = Path(self.env["CMUX_FLEET_REGISTRY"])
+        for contents in (None, "{", "{}", '{"machines": {}}'):
+            with self.subTest(contents=contents):
+                if contents is None:
+                    registry.unlink()
+                else:
+                    registry.write_text(contents)
+                done = self.push("--which-host", "topic")
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertFalse((self.root / "ssh.log").exists())
+
+    def test_user_at_host_preserves_registry_identity(self):
+        done = self.push("--which-host", "topic", hosts=("user@fake-host:fun/cmux",))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "user@fake-host fun/cmux")
 
 
 if __name__ == "__main__":
