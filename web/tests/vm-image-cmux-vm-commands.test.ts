@@ -7,7 +7,7 @@ import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
 import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
-import { imageLeftoversCommand, programChecksCommand, programProblems, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
+import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
 import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
@@ -190,6 +190,14 @@ describe("cmux VM image apt index", () => {
     expect(install).toContain(`'${bake.APT_DEB_DIR}/${deb.path.split("/").pop()}'`);
     expect(install).not.toMatch(/'[a-z0-9.+-]+=[^']+'/);
     await bashSyntax(install);
+  });
+
+  // Bake run 43939465959: #44696 bakes openbox (role display-wm) with the agent tools, and smoke still refused it.
+  test("smoke refuses openbox only on an image without the agent tools", async () => {
+    const command = rolesOffFontsOnCommand();
+    expect(command).toContain("{ test -x /opt/cmux/agent-tools/bin/cmux-cua || ! command -v openbox >/dev/null; }");
+    expect(command).toContain("! command -v ffmpeg >/dev/null");
+    await bashSyntax(command);
   });
 
   test("the fetch keeps a file with the locked sha256, takes the next mirror when one fails, and fails when none serves it", async () => {
