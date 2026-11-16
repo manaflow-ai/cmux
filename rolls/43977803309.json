@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43977803309",
+  "recorded_at": "2026-11-16T23:28:34Z",
+  "reason": "cmux-tui 2c70cdb725af changes the image's cmux-tui (pinned a5eb28648274)",
+  "dry_run": false,
+  "cmux_tui": "2c70cdb725afa790e72099d69f3953a2ddf6c8cc",
+  "fixes": [
+    {
+      "sha": "7f0aa909fa55430ce0c4dd6b04713819cad12530",
+      "mergedAt": "2026-11-16T14:16:05-08:00",
+      "subject": "Base reds: CEFPageRendererGC decodes off the main actor, RemoteVideoView's cursor shadow uses the theme token, action exports regenerated (#44406)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T23:28:34Z",
+    "snapshot_id": "sh-0637451eb3ed4fbcb82188649054544c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43977803309): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "720a7a66ec43aa519e6981cd215a2077a80d0e95",
+    "image": "cloud-native-auto-2c70cdb7-43977803309-1",
+    "revision": "ci-43977803309-1",
+    "at": "2026-11-16T23:28:34Z"
+  },
+  "rolled_back": false
+}
