@@ -432,6 +432,28 @@ def manifest_targets(text: str) -> dict[str, tuple[str, set[str], str | None]]:
     return targets
 
 
+_IMPORTS_CACHE: dict[Path, tuple[str, ...]] = {}
+
+
+def imported_modules(source: Path) -> tuple[str, ...]:
+    """The modules `source` imports, with comments and string contents masked: a test's golden source that says
+    `import X` imports nothing. Masking runs left to right and only blanks characters, so a masked line can match
+    IMPORT only where the raw line has `import` at the same offset: only the text up to the last raw line that says
+    `import` is masked (the whole file took about two minutes of CPU per run over every target, 2026-11-16, and timed
+    out the pre-push gate on a loaded two-core host). Cached per path: main() scans the same sources up to 3 times."""
+    if source not in _IMPORTS_CACHE:
+        text = source.read_text(encoding="utf-8", errors="replace")
+        last = text.rfind("import")
+        if last < 0:
+            _IMPORTS_CACHE[source] = ()
+        else:
+            end = text.find("\n", last)
+            prefix = text if end < 0 else text[:end]
+            _IMPORTS_CACHE[source] = tuple(match.group(5) for line in mask_swift_source(prefix).split("\n")
+                                           if (match := IMPORT.match(line)))
+    return _IMPORTS_CACHE[source]
+
+
 def undeclared_imports(text: str, package_root: Path) -> list[str]:
     """`Target: Module` for each local target a target's sources import without declaring it."""
     targets = manifest_targets(text)
@@ -439,11 +461,9 @@ def undeclared_imports(text: str, package_root: Path) -> list[str]:
     for name, (kind, declared, path) in targets.items():
         folder = package_root / (path or (("Tests" if kind == "testTarget" else "Sources") + "/" + name))
         for source in sorted(folder.rglob("*.swift")):
-            # Comments and string contents masked: a test's golden source that says `import X` imports nothing.
-            for line in mask_swift_source(source.read_text(encoding="utf-8", errors="replace")).split("\n"):
-                match = IMPORT.match(line)
-                if match and match.group(5) in targets and match.group(5) != name and match.group(5) not in declared:
-                    found.add(f"{name}: {match.group(5)}")
+            for module in imported_modules(source):
+                if module in targets and module != name and module not in declared:
+                    found.add(f"{name}: {module}")
     return sorted(found)
 
 
