@@ -1,7 +1,7 @@
 """test-ios.yml on a cmux-next lane: a person's re-run stays on the owned minis, the bot's re-run takes Blacksmith.
 
 Leo, 2026-11-16: "no required check waits past a bound on any owned label; past it, it moves to Blacksmith."
-The owned-pool rescue (scripts/ci/owned_pool_rescue.py, OWNED_WAIT_BOUND_SECONDS) moves a job past that bound with a
+The owned-pool rescue (OWNED_WAIT_BOUND_SECONDS on main) moves a job past that bound with a
 re-run of failed jobs as the bot. On a cmux-next lane the runner job overrode retry_runs_on with the owned label, so
 that re-run queued on the same minis again: run 43899971589 (PR #44053) attempt 2's ios-simulator-build (job
 133486478133) queued on [glaeda-std-xcode-26.6, glaeda-ios-sim] from 17:39Z, after attempt 1 waited from 15:48Z.
