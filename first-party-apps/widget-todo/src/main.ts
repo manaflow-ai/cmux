@@ -194,7 +194,10 @@ export function renderTodo(context: WidgetContext = {}): View {
               Icon(() => (showDone() ? "disclosure.expanded" : "disclosure.collapsed")).size(TYPE.caption).color(cmux.theme.text.secondary),
               Text(() => t("completed", "{count} Completed", { count: done().length })).font(TYPE.caption).color(cmux.theme.text.secondary),
               Spacer(),
-              () => (showDone() ? Button(t("clear", "Clear"), () => source.clearCompleted()).font(TYPE.caption) : null)
+              () => (showDone() ? Button(t("clear", "Clear"), () => {
+                    source.clearCompleted()
+                    setShowDone(false)
+                  }).font(TYPE.caption) : null)
             ])
               .cursor("pointer")
               .onTap(() => setShowDone((v) => !v)),

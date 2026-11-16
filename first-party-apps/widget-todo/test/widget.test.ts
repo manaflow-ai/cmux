@@ -214,6 +214,20 @@ function syncAll(...devices: Device[]) {
   for (const d of devices) d.host.emit("app.storage.changed", { keys: [...keys] })
 }
 
+/**
+ * A server that keeps, per key, whichever write reached it last, with no idea of the item's own
+ * times: devices are listed in the order their writes arrive.
+ */
+function syncLastArrival(...devicesInArrivalOrder: Device[]) {
+  const keys = new Set(devicesInArrivalOrder.flatMap((d) => [...d.storage.data.keys()]))
+  for (const key of keys) {
+    const last = devicesInArrivalOrder.filter((d) => d.storage.data.has(key)).at(-1)!
+    const value = last.storage.data.get(key)
+    for (const d of devicesInArrivalOrder) d.storage.data.set(key, structuredClone(value))
+  }
+  for (const d of devicesInArrivalOrder) d.host.emit("app.storage.changed", { keys: [...keys] })
+}
+
 describe("sync across two devices", () => {
   test("changes on each device show on the other; concurrent edits to different items both survive", async () => {
     const mac = launch(source, new Storage(), { now: AT })
@@ -267,11 +281,89 @@ describe("sync across two devices", () => {
     const d = launch(source, new Storage({ "item:a": item("a", "Call the dentist", 10) }))
     mount(d, "w", "medium")
     await d.host.settle(10)
-    // Another device's change arrives while the person checks the item off here.
+    // Another device's change arrives; the read it starts sees the list before the check-off below,
+    // and its answer is held back until after the check-off was saved.
+    const answers: Array<() => void> = []
+    const get = d.host.handlers["app.storage.get"]!
+    d.host.handlers["app.storage.get"] = (p, o) => {
+      const before = get(p, o)
+      return new Promise((resolve) => answers.push(() => resolve(before)))
+    }
     d.host.emit("app.storage.changed", {})
+    await d.host.settle(10)
+    expect(answers.length).toBe(1)
     d.host.dispatch("w", rowOf(d.host, "w", "Call the dentist"), "tap")
+    await d.host.settle(10)
+    expect(stored(d.storage)[0]).toMatchObject({ done: true })
+    d.host.handlers["app.storage.get"] = get
+    for (const answer of answers) answer()
     await d.host.settle(10)
     await fireTimers(d.host)
     expect(texts(d.host, "w")).toContain("0")
+    expect(stored(d.storage)[0]).toMatchObject({ done: true })
+  })
+
+  test("storage that keeps whichever write arrived last still ends at the newest change everywhere", async () => {
+    const seed = { "item:a": item("a", "Call the dentist", 10) }
+    const mac = launch(source, new Storage(seed), { now: AT + 2000 })
+    const phone = launch(source, new Storage(seed), { now: AT + 1000 })
+    for (const d of [mac, phone]) mount(d, "w", "medium")
+    await Promise.all([mac.host.settle(10), phone.host.settle(10)])
+    mac.host.dispatch("w", rowOf(mac.host, "w", "Call the dentist"), "menu", { path: [1] }) // deletes it at +2 s
+    phone.host.dispatch("w", rowOf(phone.host, "w", "Call the dentist"), "tap") // checks it at +1 s
+    await Promise.all([mac.host.settle(10), phone.host.settle(10), fireTimers(phone.host)])
+    // The phone's older check reaches the server last, so the server keeps it.
+    syncLastArrival(mac, phone)
+    await Promise.all([mac.host.settle(10), phone.host.settle(10)])
+    // The Mac sees an older version stored and writes its newer delete back; that write arrives last.
+    syncLastArrival(phone, mac)
+    await Promise.all([mac.host.settle(10), phone.host.settle(10)])
+    for (const d of [mac, phone]) {
+      expect(texts(d.host, "w")).toContain("Nothing to do")
+      expect(stored(d.storage)[0]).toMatchObject({ deleted: true })
+    }
+  })
+
+  test("a save that failed keeps its warning until a later read saves it again", async () => {
+    const d = launch(source)
+    mount(d, "w", "medium")
+    await d.host.settle(10)
+    const set = d.host.handlers["app.storage.set"]!
+    d.host.handlers["app.storage.set"] = () => ({ ok: false, body: { code: "storage.unavailable", message: "disk full", retryable: true } })
+    await type(d, "w", "Buy milk")
+    expect(texts(d.host, "w")).toContain("Couldn't save: disk full")
+    // A read that succeeds while the save is still missing does not hide the warning.
+    d.host.handlers["app.storage.set"] = (p, o) => (p.key.startsWith("item:") ? { ok: false, body: { code: "storage.unavailable", message: "disk full", retryable: true } } : set(p, o))
+    d.host.emit("app.storage.changed", {})
+    await d.host.settle(10)
+    expect(texts(d.host, "w")).toContain("Couldn't save: disk full")
+    // Once storage works again, the next read saves the item and the warning goes.
+    d.host.handlers["app.storage.set"] = set
+    d.host.emit("app.storage.changed", {})
+    await d.host.settle(10)
+    expect(texts(d.host, "w").some((t) => t.startsWith("Couldn't save"))).toBe(false)
+    expect(stored(d.storage)).toEqual([expect.objectContaining({ text: "Buy milk" })])
+    const restarted = launch(source, d.storage)
+    mount(restarted, "w", "medium")
+    await restarted.host.settle(10)
+    expect(texts(restarted.host, "w")).toContain("Buy milk")
+  })
+
+  test("Clear removes only the Completed section, not an item checked a moment ago", async () => {
+    const d = launch(source, new Storage({ "item:a": item("a", "Send the invoice", 10, true), "item:b": item("b", "Call the dentist", 11) }))
+    mount(d, "w", "large")
+    await d.host.settle(10)
+    const completed = rowOf(d.host, "w", "1 Completed")
+    d.host.dispatch("w", completed, "tap")
+    await d.host.settle(10)
+    d.host.dispatch("w", rowOf(d.host, "w", "Call the dentist"), "tap") // checked, still settling
+    await d.host.settle(10)
+    const clear = nodes(d.host, "w").find(([, n]) => n.type === "Button" && n.props.title === "Clear")?.[0]
+    expect(clear).toBeDefined()
+    d.host.dispatch("w", clear!, "tap")
+    await d.host.settle(10)
+    expect(d.storage.data.get("item:a")).toMatchObject({ deleted: true })
+    expect(d.storage.data.get("item:b")).toMatchObject({ done: true })
+    expect(d.storage.data.get("item:b")).not.toHaveProperty("deleted")
   })
 })

@@ -1,6 +1,9 @@
 // The list, shared by every placed tile of this widget: read from app storage once, changed here at
 // once, then saved item by item. A re-read (another device's change arriving, or a new mount) merges
-// with what is shown, item by item, so a save still in flight is never lost to an older read.
+// with what is shown, item by item, so a save still in flight is never lost to an older read, and
+// writes back every item whose shown copy is newer than the stored one. Storage that keeps whichever
+// write arrived last (as a synced store does) therefore still ends at the newest version on every
+// device, and a save that failed is retried on the next read.
 
 import { cmux, signal } from "cmux-extension-sdk"
 import { isItem, ITEM_PREFIX, itemKey, merge, TOMBSTONE_MS, type Item } from "./model.ts"
@@ -20,6 +23,8 @@ let device = ""
 let nextId = 0
 let reading: Promise<void> | null = null
 let readAgain = false
+/** Items whose last save failed: the warning stays up until each is saved. */
+const failed = new Set<string>()
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -59,9 +64,18 @@ export function reload(): Promise<void> {
   }
   reading = readAll().then(
     (stored) => {
-      setItems((shown) => merge(shown.values(), stored))
+      const now = Date.now()
+      const kept = new Map(stored.map((i) => [i.id, i]))
+      const merged = merge(items().values(), stored)
+      // A removal past the tombstone window is gone from storage (readAll deleted it): forget it here too.
+      for (const [id, item] of merged) if (item.deleted && now - item.updated > TOMBSTONE_MS) merged.delete(id)
+      setItems(merged)
       setLoaded(true)
-      setProblem(null)
+      for (const item of merged.values()) {
+        const was = kept.get(item.id)
+        if (!was || was.updated !== item.updated || was.by !== item.by) save(item)
+      }
+      if (failed.size === 0) setProblem(null)
     },
     (error: unknown) => {
       setLoaded(true)
@@ -92,13 +106,23 @@ export function start() {
   }
 }
 
+function save(item: Item) {
+  cmux.storage.set(itemKey(item.id), item).then(
+    () => {
+      failed.delete(item.id)
+      if (failed.size === 0) setProblem(null)
+    },
+    (error: unknown) => {
+      failed.add(item.id)
+      setProblem(message(error))
+    }
+  )
+}
+
 /** Shows `next` at once, then saves it. */
 function put(next: Item) {
   setItems((all) => new Map(all).set(next.id, next))
-  cmux.storage.set(itemKey(next.id), next).then(
-    () => setProblem(null),
-    (error: unknown) => setProblem(message(error))
-  )
+  save(next)
 }
 
 function stamp(item: Item, change: Partial<Item>): Item {
@@ -151,6 +175,8 @@ export function remove(id: string) {
   put(stamp(item, { deleted: true }))
 }
 
+/** Removes the done items in the Completed section; one checked a moment ago (still shown, faded) stays. */
 export function clearCompleted() {
-  for (const item of items().values()) if (item.done && !item.deleted) remove(item.id)
+  const shown = settling()
+  for (const item of items().values()) if (item.done && !item.deleted && !shown.has(item.id)) remove(item.id)
 }

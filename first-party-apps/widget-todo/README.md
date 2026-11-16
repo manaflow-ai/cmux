@@ -28,9 +28,13 @@ deleted?}`, in the app's storage (`storage:local`). Every placed tile shares one
 The model (`src/model.ts`) is built for a synced store: two devices that change different items
 never overwrite each other (one key each), and the same item changed on both resolves to the later
 change (`updated`, ties by the writing device's id `by`). A delete is a tombstone (`deleted: true`)
-so it does not come back from a device that missed it; tombstones older than 30 days are dropped.
+so it does not come back from a device that missed it; tombstones older than 30 days are dropped
+(a device offline longer than that can bring a deleted item back).
 The widget re-reads and merges on `app.storage.changed` (the event synced storage sends when another
-device changed the app's keys), and a read never undoes a change made while it was in flight.
+device changed the app's keys), and a read never undoes a change made while it was in flight. After
+each read it writes back every item whose shown copy is newer than the stored one, so storage that
+keeps whichever write arrived last still ends at the newest version on every device, and a save that
+failed is retried; its warning stays until it is saved.
 
 Today cmux has no synced app storage: `app.storage.*` is a local SQLite table per app
 (`cmux-tui/crates/cmux-tui-core/src/apps/storage.rs`), and `storage:synced` is an allowed scope

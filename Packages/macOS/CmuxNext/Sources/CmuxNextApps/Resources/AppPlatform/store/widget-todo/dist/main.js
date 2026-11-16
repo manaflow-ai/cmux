@@ -2461,6 +2461,7 @@
   var nextId = 0;
   var reading = null;
   var readAgain = false;
+  var failed = new Set;
   var message = (error) => error instanceof Error ? error.message : String(error);
   function deviceId() {
     if (!device)
@@ -2493,9 +2494,21 @@
       return reading;
     }
     reading = readAll().then((stored) => {
-      setItems((shown) => merge(shown.values(), stored));
+      const now = Date.now();
+      const kept = new Map(stored.map((i) => [i.id, i]));
+      const merged = merge(items().values(), stored);
+      for (const [id, item] of merged)
+        if (item.deleted && now - item.updated > TOMBSTONE_MS)
+          merged.delete(id);
+      setItems(merged);
       setLoaded(true);
-      setProblem(null);
+      for (const item of merged.values()) {
+        const was = kept.get(item.id);
+        if (!was || was.updated !== item.updated || was.by !== item.by)
+          save(item);
+      }
+      if (failed.size === 0)
+        setProblem(null);
     }, (error) => {
       setLoaded(true);
       setProblem(message(error));
@@ -2518,9 +2531,19 @@
       cmux.events.on("app.storage.changed", () => void reload());
     } catch {}
   }
+  function save(item) {
+    cmux.storage.set(itemKey(item.id), item).then(() => {
+      failed.delete(item.id);
+      if (failed.size === 0)
+        setProblem(null);
+    }, (error) => {
+      failed.add(item.id);
+      setProblem(message(error));
+    });
+  }
   function put(next) {
     setItems((all) => new Map(all).set(next.id, next));
-    cmux.storage.set(itemKey(next.id), next).then(() => setProblem(null), (error) => setProblem(message(error)));
+    save(next);
   }
   function stamp(item, change) {
     return { ...item, ...change, updated: Math.max(Date.now(), item.updated + 1), by: deviceId() };
@@ -2568,8 +2591,9 @@
     put(stamp(item, { deleted: true }));
   }
   function clearCompleted() {
+    const shown = settling();
     for (const item of items().values())
-      if (item.done && !item.deleted)
+      if (item.done && !item.deleted && !shown.has(item.id))
         remove(item.id);
   }
   var TYPE = { bigNumber: 34, smallNumber: 28, title: 15, label: 13, body: 13, caption: 12, footnote: 11 };
@@ -2692,7 +2716,10 @@
           Icon(() => showDone() ? "disclosure.expanded" : "disclosure.collapsed").size(TYPE.caption).color(cmux.theme.text.secondary),
           Text(() => t("completed", "{count} Completed", { count: done().length })).font(TYPE.caption).color(cmux.theme.text.secondary),
           Spacer(),
-          () => showDone() ? Button(t("clear", "Clear"), () => source.clearCompleted()).font(TYPE.caption) : null
+          () => showDone() ? Button(t("clear", "Clear"), () => {
+            source.clearCompleted();
+            setShowDone(false);
+          }).font(TYPE.caption) : null
         ]).cursor("pointer").onTap(() => setShowDone((v) => !v)),
         rows(source, shownDone, size)
       ]) : null,
