@@ -82,7 +82,9 @@ class LinuxRunnerLabelsTests(unittest.TestCase):
             f"${{{{ {OWNER} || vars.CI_CLOUD_OVERFLOW_SAVED && ({FORK} && 'blacksmith-2vcpu-ubuntu-2404' || "
             f"fromJSON(vars.RUNNER_POOLS).linux_8) || ({FORK} && 'blacksmith-2vcpu-ubuntu-2404' || "
             "fromJSON(vars.RUNNER_POOLS).linux_2) }}")
-        self.assertEqual(len(self.check()), 1)
+        forks = [p for p in self.check() if "fork branch names" in p]
+        self.assertEqual(len(forks), 1, forks)
+        self.assertIn("its pool starts with 'blacksmith-8vcpu-ubuntu-2404'", forks[0])
         lrl.fix(self.tree.dir)
         text = path.read_text()
         self.assertIn("'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8", text)
