@@ -231,6 +231,10 @@ PY
   output "passed_packages=$directory"
 }
 
+# The packages this lane tests whole when a pull request changes one of their inputs. A Swift test
+# target no pull request check runs is listed in scripts/ci/swift-test-targets.json with its reason
+# (scripts/ci/swift_test_coverage.py, hq#11644); the rows after CmuxPhonePush passed `suite` on an
+# owned Mac at ccc9958672bf before they joined.
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
@@ -239,6 +243,19 @@ select_packages() {
     CmuxIrxTransport
     CmuxUpdater
     CmuxPhonePush
+    CmuxComputerUseHelper
+    CmuxConnectivityTelemetry
+    CmuxDeviceHub
+    CmuxHomeCore
+    CmuxHomeRender
+    CmuxMobileBilling
+    CmuxMobileSupport
+    CmuxMobileTunnel
+    CmuxRemote
+    CmuxScreenKit
+    CmuxTabsKit
+    CmuxVNCWebRTC
+    GlassHost
   )
 
   changed="$work/changed-files.txt"
