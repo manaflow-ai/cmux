@@ -1347,7 +1347,6 @@ mod gate_failed_tests {
 #[cfg(test)]
 mod unreadable_line_tests {
     use super::*;
-    use std::io::Write;
 
     fn in_bound_line(row: &GateRow) -> Value {
         let value = row.god_max.unwrap_or(1.0).min(1.0);
@@ -1365,18 +1364,20 @@ mod unreadable_line_tests {
     #[test]
     fn a_line_the_home_cannot_read_fails_its_row_only_and_the_report_is_written() {
         let broken = "v2.pr01.append_time";
-        let mut measures = tempfile::NamedTempFile::new().unwrap();
+        let mut lines = String::new();
         for row in GATE_ROWS.iter().filter(|row| row.measured) {
             let mut line = in_bound_line(row);
             if row.name == broken {
                 line.as_object_mut().unwrap().remove("small_p95");
             }
-            writeln!(measures, "{line}").unwrap();
+            lines.push_str(&format!("{line}\n"));
         }
-        writeln!(measures, "not json").unwrap();
+        lines.push_str("not json\n");
         let unknown =
             json!({"name": "v2.pr99.unknown", "small_p95": 1, "god_p95": 1, "unit": "ns"});
-        writeln!(measures, "{unknown}").unwrap();
+        lines.push_str(&format!("{unknown}\n"));
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        fs::write(measures.path(), &lines).unwrap();
         let output = tempfile::NamedTempFile::new().unwrap();
         let error =
             print_report_with_mode(&[measures.path().to_path_buf()], Some(output.path()), true)
@@ -1404,15 +1405,17 @@ mod unreadable_line_tests {
             .iter()
             .find(|row| row.measured && row.ratio_all.is_some() && row.name != duplicate.name)
             .unwrap();
-        let mut measures = tempfile::NamedTempFile::new().unwrap();
+        let mut lines = String::new();
         for row in GATE_ROWS.iter().filter(|row| row.measured) {
             let mut line = in_bound_line(row);
             if row.name == needs_all.name {
                 line.as_object_mut().unwrap().remove("god_p95_all");
             }
-            writeln!(measures, "{line}").unwrap();
+            lines.push_str(&format!("{line}\n"));
         }
-        writeln!(measures, "{}", in_bound_line(duplicate)).unwrap();
+        lines.push_str(&format!("{}\n", in_bound_line(duplicate)));
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        fs::write(measures.path(), &lines).unwrap();
         let (value, stops) = report_value(&[measures.path().to_path_buf()], true).unwrap();
         assert!(stops);
         assert_eq!(status_of(&value, duplicate.name)["status"], "failed");
