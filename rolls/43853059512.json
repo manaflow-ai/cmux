@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43853059512",
+  "recorded_at": "2026-11-16T11:10:19Z",
+  "reason": "cmux-tui 354ac70ce252 changes the image's cmux-tui (pinned f3f5654adf3b)",
+  "dry_run": false,
+  "cmux_tui": "354ac70ce252f74ac76845c87a0ca1e3f6758ca4",
+  "fixes": [
+    {
+      "sha": "354ac70ce252f74ac76845c87a0ca1e3f6758ca4",
+      "mergedAt": "2026-11-16T02:38:16-08:00",
+      "subject": "Extension SDK: page.read, page.hints, page.follow; reader mode and link hints as example extensions (#44229)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T11:10:19Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
