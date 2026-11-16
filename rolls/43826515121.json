@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43826515121",
+  "recorded_at": "2026-11-16T08:03:00Z",
+  "reason": "cmux-tui 2a9cba423c03 changes the image's cmux-tui (pinned 6b4c16bebe65)",
+  "dry_run": false,
+  "cmux_tui": "2a9cba423c03bfc6dc0b9f371ac5e253232ebe64",
+  "fixes": [
+    {
+      "sha": "2a9cba423c03bfc6dc0b9f371ac5e253232ebe64",
+      "mergedAt": "2026-11-15T23:33:22-08:00",
+      "subject": "Leo collection: the Leo look (dusk, daylight, neon) as opt-in customize profiles, and the collection's front door (#44176)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T08:03:00Z",
+    "snapshot_id": "sh-7efa99a9a7bf4c61a4b1a18ed035139d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43826515121): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a4ae0a42e896144fc06d7a99a7783709f1629591",
+    "image": "cloud-native-auto-2a9cba42-43826515121-1",
+    "revision": "ci-43826515121-1",
+    "at": "2026-11-16T08:03:00Z"
+  },
+  "rolled_back": false
+}
