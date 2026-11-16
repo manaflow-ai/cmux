@@ -1,6 +1,6 @@
 use super::{
-    BufferedRow, DiskSnapshot, HEADER_BYTES, PAGE_BYTES, SnapshotPiece, TRAILER_BYTES, read_at,
-    read_u32,
+    BufferedRow, DiskSnapshot, HEADER_BYTES, PAGE_BYTES, Position, SnapshotPiece, TRAILER_BYTES,
+    read_at, read_u32,
 };
 use crate::index::{ReadSide, SortKey, Summary, codec};
 use std::io;

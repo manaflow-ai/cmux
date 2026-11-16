@@ -162,7 +162,8 @@ impl<'a> Cursor<'a> {
         if entry.activity != after.last_activity {
             return Ok(entry.activity > after.last_activity);
         }
-        let key = SortKey::of(&self.row(entry)?);
+        let row = self.row(entry)?;
+        let key = SortKey::of(row.as_ref());
         Ok(key < *after || (!request.inclusive && key == *after))
     }
 
