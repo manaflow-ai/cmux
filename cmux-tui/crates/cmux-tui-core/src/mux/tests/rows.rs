@@ -98,6 +98,33 @@ fn rows_persist_across_restart_outside_the_viewport_record() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// The stored chain has the ratio 0.6 and the row records say 700 and 300.
+/// Load rewrites the column's chain from the heights, so the screen's own
+/// tree must be the projection of the loaded columns. A pane zoom writes the
+/// screen as it was loaded: it must pass the store's layout check.
+#[test]
+fn a_commit_after_load_keeps_rows_whose_heights_differ_from_the_stored_ratio() {
+    let (root, session) = seed("loaded-ratio", |screen| {
+        screen.viewport.columns[0].rows = vec![row(9, 700), row(1, 300)];
+    });
+    let mux = open_restart_mux(&root, &session);
+    let pane = mux.with_state(|state| state.workspaces[0].screens[0].active_pane);
+    let zoom = mux.zoom_pane(Some(pane), ZoomMode::Toggle).unwrap();
+    mux.shutdown();
+    drop(mux);
+
+    let screen = stored_screen(&root, &session);
+    assert_eq!(screen.zoomed_pane.is_some(), zoom.zoomed, "the zoom is stored");
+    assert_eq!(screen.viewport.columns[0].rows, vec![row(9, 700), row(1, 300)]);
+
+    let mux = open_restart_mux(&root, &session);
+    let heights = first_column_rows(&mux).iter().map(|(_, height)| *height).collect::<Vec<_>>();
+    assert_eq!(heights, vec![700, 300]);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// A build without `rows-v1` may rewrite the screen; records that no longer
 /// match the stored chain are dropped and the column loads as one row.
 #[test]
