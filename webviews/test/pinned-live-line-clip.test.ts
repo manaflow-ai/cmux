@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
-import { drawPinned, pinLiveLine } from "../src/agent-session/acpmux/conversation/pinnedLiveLine";
+import { drawPinned, pinLiveLine, refreshPinned } from "../src/agent-session/acpmux/conversation/pinnedLiveLine";
 
 test.each(["finish", "cancel"])("the pinned line clips a gliding reply and clears the clip on %s", async (event) => {
   const dom = new JSDOM(
@@ -52,6 +52,43 @@ test.each(["finish", "cancel"])("the pinned line clips a gliding reply and clear
   } finally {
     pinLiveLine(thread, false);
     await settleReact();
+    if (previous) Object.defineProperty(globalThis, "HTMLElement", previous);
+    else Reflect.deleteProperty(globalThis, "HTMLElement");
+    dom.window.close();
+  }
+});
+
+test("a placement refresh with the same chase offset skips the animation walk", () => {
+  const dom = new JSDOM(
+    "<!doctype html><main><article>Reply</article><article data-row-id=thinking-live>Thinking</article></main>",
+  );
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "HTMLElement");
+  globalThis.HTMLElement = dom.window.HTMLElement;
+  const thread = dom.window.document.querySelector<HTMLElement>("main")!;
+  const [reply, line] = [...thread.children] as HTMLElement[];
+  for (const [node, top] of [
+    [reply!, 0],
+    [line!, 100],
+  ] as const) {
+    node.className = "acpmux-row";
+    Object.defineProperty(node, "offsetTop", { value: top });
+    Object.defineProperty(node, "offsetHeight", { value: 100 });
+    node.getAnimations = () => [];
+  }
+  let threadReads = 0;
+  thread.getAnimations = () => {
+    threadReads += 1;
+    return [];
+  };
+  try {
+    pinLiveLine(thread, true);
+    const before = threadReads;
+    thread.style.translate = "0 12px";
+    refreshPinned(thread);
+    refreshPinned(thread);
+    expect(threadReads - before).toBe(1);
+  } finally {
+    pinLiveLine(thread, false);
     if (previous) Object.defineProperty(globalThis, "HTMLElement", previous);
     else Reflect.deleteProperty(globalThis, "HTMLElement");
     dom.window.close();

@@ -5074,16 +5074,17 @@ function TranscriptView({
           heightAt: (index) => placedGeometry.heightAt(index),
           mounted: mountedRanges,
         };
-    tailGlide.current?.place(
-      thread.current,
-      tailGlides && chasing,
-      tailAnchor,
-      chasing && followingRef.current,
-      pinLive ? LIVE_THINKING : undefined,
-      carry,
-      placedRows,
-    );
-    refreshPinned(thread.current);
+    const tailGlideStarted =
+      tailGlide.current?.place(
+        thread.current,
+        tailGlides && chasing,
+        tailAnchor,
+        chasing && followingRef.current,
+        pinLive ? LIVE_THINKING : undefined,
+        carry,
+        placedRows,
+      ) ?? false;
+    refreshPinned(thread.current, tailGlideStarted);
     finishCarry(thread.current, carry, (px) => {
       const style = thread.current ? getComputedStyle(thread.current) : undefined;
       const floor = cssTimeMs(style?.getPropertyValue("--agent-motion-arrive") ?? "") ?? MOTION_MS.quick;

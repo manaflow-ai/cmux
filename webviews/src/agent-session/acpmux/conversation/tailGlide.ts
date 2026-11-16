@@ -174,7 +174,7 @@ export type TailGlide = {
     pinned?: string,
     carry?: PinCarry,
     placed?: PlacedRows,
-  ): void;
+  ): boolean;
   /// Ends what plays, the rows drawn at their places, and forgets where they were.
   stop(): void;
   /// The reader took the view: what plays holds where it is drawn (as the follow chase does).
@@ -346,19 +346,19 @@ export function createTailGlide(): TailGlide {
       }
       if (!thread || !track || foldMs(thread) <= 0) {
         last = undefined;
-        return;
+        return false;
       }
       const before = last;
       const now = placement(thread, placed ?? placedFromPage(thread));
       last = now;
-      if (!before || !glide || anchor === undefined) return;
+      if (!before || !glide || anchor === undefined) return false;
       const toIndex = now.placed.indexOf(anchor);
       const fromIndex = before.placed.indexOf(anchor);
       if (toIndex < 0 || fromIndex < 0 || !isMounted(now.placed, toIndex) || !isMounted(before.placed, fromIndex))
-        return;
-      if (typeof thread.animate !== "function") return;
+        return false;
+      if (typeof thread.animate !== "function") return false;
       const look = tailGlideLook(thread);
-      if (look === "jump") return;
+      if (look === "jump") return false;
       const anchorMoved = topIn(now, toIndex) - topIn(before, fromIndex);
       // Each row's index in the last pass's placement: where the row before it was, one further on
       // (rows come and go at the tail, so that holds), else looked up among the rows mounted then,
@@ -396,7 +396,7 @@ export function createTailGlide(): TailGlide {
           const held = carry && !carry.used && carry.id === id ? carry.y : 0;
           if (moved !== 0 || held) moving.push({ id, moved, held });
         }
-      if (!moving.length) return;
+      if (!moving.length) return false;
       // Read from the page now: the rows that move, each row still gliding from an earlier pass (it
       // starts again from where it is drawn, on this pass's clock, so the whole tail moves as one), and
       // below, the rows that lie across where those start.
@@ -413,7 +413,7 @@ export function createTailGlide(): TailGlide {
         const row = rowOf(thread, now.placed, id);
         if (row) parts.push(read(row, id, moved, -moved - held));
       }
-      if (!parts.length) return;
+      if (!parts.length) return false;
       const inParts = new Set(parts.map((part) => part.row));
       for (const row of onRow.keys()) {
         const id = row.dataset.rowId;
@@ -437,7 +437,7 @@ export function createTailGlide(): TailGlide {
         look,
         parts.reduce((most, part) => Math.max(most, Math.abs(part.start)), 0),
       );
-      if (!(ms > 0)) return;
+      if (!(ms > 0)) return false;
       if (carry && parts.some((part) => part.row.dataset.rowId === carry.id)) carry.used = true;
       const timed = { duration: ms, easing };
       /// This pass's glide on each row: the clips over a row guard the glide it plays now.
@@ -498,6 +498,7 @@ export function createTailGlide(): TailGlide {
         }
         if (over.length) clipOn(upper.row, over, timed);
       }
+      return slides.size > 0;
     },
   };
 }

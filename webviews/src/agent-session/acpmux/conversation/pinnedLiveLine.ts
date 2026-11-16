@@ -55,6 +55,10 @@ type Pinned = {
   /// What the line was held back by as last painted, noted as the placement pass begins
   /// (`notePinPass`): the pass's own chase moves `x` before the pin is let go in it.
   painted?: number;
+  /// The last thread offset refreshed by the placement pass. Token commits often do not move the
+  /// chase; skip the subtree animation/style walk in that case. Animation completion forces a
+  /// refresh below, so this cache cannot leave a stale clip behind.
+  refreshedX?: number;
   /// The reader took the view: the line and its clips hold where they are drawn.
   held?: boolean;
 };
@@ -198,7 +202,7 @@ export function drawPinned(thread: HTMLElement, x: number): void {
       const done = () => {
         slide.removeEventListener("finish", done);
         slide.removeEventListener("cancel", done);
-        refreshPinned(thread);
+        refreshPinned(thread, true);
       };
       slide.addEventListener("finish", done);
       slide.addEventListener("cancel", done);
@@ -215,8 +219,14 @@ export function drawPinned(thread: HTMLElement, x: number): void {
 }
 
 /// A placement pass started or retargeted tail glides after taking the pin: update its clips before paint.
-export function refreshPinned(thread: HTMLElement | null): void {
-  if (thread) drawPinned(thread, threadY(thread));
+export function refreshPinned(thread: HTMLElement | null, force = false): void {
+  if (!thread) return;
+  const rows = pinned.get(thread);
+  if (!rows) return;
+  const x = threadY(thread);
+  if (!force && rows.refreshedX === x) return;
+  rows.refreshedX = x;
+  drawPinned(thread, x);
 }
 
 /// The placement pass begins: what the pin holds the line back by now is what the reader sees. A
