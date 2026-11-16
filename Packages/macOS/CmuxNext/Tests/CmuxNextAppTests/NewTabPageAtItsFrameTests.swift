@@ -49,9 +49,9 @@ struct NewTabPageAtItsFrameTests {
         }
     }
 
-    /// A page view that the tab store built or adopted since the setup: its tab's key, and what it was then (its
-    /// engine, if its tab is a New Tab page, if its tab was the pane's selection).
-    typealias BuiltPage = (key: String, note: String)
+    /// A page view that the tab store built or adopted since the setup: its tab's key, if its tab was the pane's
+    /// selection then, and what it was then in words (its engine, if its tab is a New Tab page, the selection).
+    typealias BuiltPage = (key: String, selected: Bool, note: String)
 
     /// The app with an empty pool of prewarmed pages, so each New Tab page is made cold. `body` gets the pane that
     /// Cmd-T opens in, its window, and the count of page views built since the setup.
@@ -64,7 +64,7 @@ struct NewTabPageAtItsFrameTests {
 
     /// `withAnEmptyPool` with each built page view by its tab, in the order of the builds.
     private static func withThePagesOfAnEmptyPool(_ install: String,
-                                                  _ body: (AppServices, NSWindow, PaneController, () -> [BuiltPage]) async throws -> Void) async throws {
+                                                  _ body: (AppServices, NSWindow, PaneController, @escaping () -> [BuiltPage]) async throws -> Void) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: install)
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
@@ -78,8 +78,9 @@ struct NewTabPageAtItsFrameTests {
             tabs.onPageBuilt = { key in
                 let engine = tabs.existingView(key)?.engineName ?? "no view"
                 let kind = tabs.isNewTabPage(key) ? "a New Tab page" : "no New Tab page"
-                let selected = pane.stripModel.selectedID?.rawValue == key ? "the pane's selection" : "not the pane's selection"
-                pages.append((key: key, note: "\(engine), \(kind), \(selected)"))
+                let isSelected = pane.stripModel.selectedID?.rawValue == key
+                let selected = isSelected ? "the pane's selection" : "not the pane's selection"
+                pages.append((key: key, selected: isSelected, note: "\(engine), \(kind), \(selected)"))
                 engines.append(engine)
                 wired?(key)
             }
@@ -123,8 +124,10 @@ struct NewTabPageAtItsFrameTests {
 
     /// The tab closes in the turn of its key: no frame showed it, and no page view is made for it. The close gives
     /// the pane's selection back to a tab that the pane had before the key; a page view for THAT tab at the frame is
-    /// the frame rule itself and is no fault. So each page view here must be for a tab that the pane had before the
-    /// key, and the failure names each built page by its tab.
+    /// the frame rule itself and is no fault. So each page view here must be for a tab of the pane: one that the pane
+    /// had before the key, or the one that the pane had selected when the view was made (the store can give a tab a
+    /// new key meanwhile). The closed tab is neither, and it must not be in the pane again: the pane has as many tabs
+    /// after the 2 frames as before the key. The failure names each built page by its tab.
     @Test func aNewTabClosedBeforeItsFrameMakesNoPage() async throws {
         try await Self.withThePagesOfAnEmptyPool("cn-page-at-frame-close") { services, _, pane, pages in
             let had = pane.stripModel.tabs.map(\.id.rawValue)
@@ -148,8 +151,9 @@ struct NewTabPageAtItsFrameTests {
             state += "page views at the close \(atTheClose), after frame 1 \(atFrameOne), after frame 2 \(built.count): \(built); "
             state += "the pane's tabs now \(tabsNow), its selection \(selectedNow), its shown tab \(shownNow)"
             print("state-of-test: NewTabPageAtItsFrameTests cn-page-at-frame-close: \(state)")
-            let notOfThePane = built.filter { !had.contains($0.key) }
-            #expect(notOfThePane.isEmpty, "\(notOfThePane.count) page views were made for a tab that the pane did not have before the key: \(state)")
+            #expect(tabsNow.count == had.count, "the pane has \(tabsNow.count) tabs after the close, and had \(had.count) before the key: \(state)")
+            let notOfThePane = built.filter { !had.contains($0.key) && !$0.selected }
+            #expect(notOfThePane.isEmpty, "\(notOfThePane.count) page views were made for a tab that is not the pane's: \(state)")
         }
     }
 
