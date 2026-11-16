@@ -125,9 +125,11 @@ struct NewTabPageAtItsFrameTests {
     /// The tab closes in the turn of its key: no frame showed it, and no page view is made for it. The close gives
     /// the pane's selection back to a tab that the pane had before the key; a page view for THAT tab at the frame is
     /// the frame rule itself and is no fault. So each page view here must be for a tab of the pane: one that the pane
-    /// had before the key, or the one that the pane had selected when the view was made (the store can give a tab a
-    /// new key meanwhile). The closed tab is neither, and it must not be in the pane again: the pane has as many tabs
-    /// after the 2 frames as before the key. The failure names each built page by its tab.
+    /// had before the key, or one that the pane had selected when the view was made AND still has after the 2 frames
+    /// (the store can give a tab a new key meanwhile). The closed tab was the pane's selection in the key's own turn,
+    /// so the selection alone lets no page view pass, and the test asserts first that no page view exists before the
+    /// close. The closed tab must not be in the pane again: the pane has as many tabs after the 2 frames as before
+    /// the key. The failure names each built page by its tab.
     @Test func aNewTabClosedBeforeItsFrameMakesNoPage() async throws {
         try await Self.withThePagesOfAnEmptyPool("cn-page-at-frame-close") { services, _, pane, pages in
             let had = pane.stripModel.tabs.map(\.id.rawValue)
@@ -136,6 +138,7 @@ struct NewTabPageAtItsFrameTests {
             let made = try #require(pane.stripModel.selectedID, "the open selected no tab")
             try #require(services.agentTabs.isNewTabPage(made.rawValue), "the open did not select its New Tab page")
             try #require(!had.contains(made.rawValue), "the open selected a tab that the pane had before the key")
+            #expect(pages().isEmpty, "\(pages().count) page views were made in the key's own turn, before the close: \(pages())")
             pane.close([made])
             #expect(pane.stripModel.selectedID != made, "the closed tab is still the pane's selection")
             let atTheClose = pages().count
@@ -152,7 +155,7 @@ struct NewTabPageAtItsFrameTests {
             state += "the pane's tabs now \(tabsNow), its selection \(selectedNow), its shown tab \(shownNow)"
             print("state-of-test: NewTabPageAtItsFrameTests cn-page-at-frame-close: \(state)")
             #expect(tabsNow.count == had.count, "the pane has \(tabsNow.count) tabs after the close, and had \(had.count) before the key: \(state)")
-            let notOfThePane = built.filter { !had.contains($0.key) && !$0.selected }
+            let notOfThePane = built.filter { !had.contains($0.key) && !($0.selected && tabsNow.contains($0.key)) }
             #expect(notOfThePane.isEmpty, "\(notOfThePane.count) page views were made for a tab that is not the pane's: \(state)")
         }
     }
