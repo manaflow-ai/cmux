@@ -20,6 +20,7 @@ use super::{Conn, Origin};
 use crate::app_launch::{LaunchRequest, Refusal};
 use crate::hub::{Control, Hub};
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,8 +32,10 @@ pub(super) const LIST: &str = "_acpmux/app_list";
 pub const AUDIT_FILE: &str = "app-audit.jsonl";
 
 /// How long a peer may take beyond the launch's own wait: its link, its folder scan.
+// timeout: on top of the launch's own wait; past it the machine is reported unreachable.
 const PEER_SLACK: Duration = Duration::from_secs(15);
 /// How long a peer's list may take.
+// timeout: a peer's folder scan is bounded by MAX_APPS; past it the machine is unreachable.
 const LIST_BUDGET: Duration = Duration::from_secs(20);
 
 pub(super) async fn handle(
@@ -69,7 +72,7 @@ async fn here(conn: &Conn, m: &str, params: &Value, own: &str) -> Result<Value, 
         let mut list = tokio::task::spawn_blocking(crate::app_launch::list)
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?;
-        list["machine"] = json!(own);
+        list.set("machine", json!(own));
         return Ok(list);
     }
     let request = match LaunchRequest::from_params(params) {
@@ -86,7 +89,7 @@ async fn here(conn: &Conn, m: &str, params: &Value, own: &str) -> Result<Value, 
         Ok(launched) => {
             audit(conn, params, own, Ok(&launched.app.path.to_string_lossy()));
             let mut reply = launched.json();
-            reply["machine"] = json!(own);
+            reply.set("machine", json!(own));
             Ok(reply)
         }
         Err(refusal) => {
@@ -146,7 +149,7 @@ async fn forward(
     };
     match answer {
         Ok(mut reply) => {
-            reply["machine"] = json!(peer.name);
+            reply.set("machine", json!(peer.name));
             Ok(reply)
         }
         // An acpmux from before app launch.
@@ -199,12 +202,12 @@ fn audit(conn: &Conn, params: &Value, own: &str, outcome: Result<&str, &str>) {
     });
     match outcome {
         Ok(path) => {
-            line["ok"] = json!(true);
-            line["path"] = json!(path);
+            line.set("ok", json!(true));
+            line.set("path", json!(path));
         }
         Err(reason) => {
-            line["ok"] = json!(false);
-            line["reason"] = json!(reason);
+            line.set("ok", json!(false));
+            line.set("reason", json!(reason));
         }
     }
     crate::xhost_audit::append_line(&crate::config::home().join(AUDIT_FILE), &line);

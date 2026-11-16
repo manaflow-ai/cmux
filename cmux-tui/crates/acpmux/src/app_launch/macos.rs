@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 /// LaunchServices' list of the apps it runs.
 const LSAPPINFO: &str = "/usr/bin/lsappinfo";
 /// How long `lsappinfo list` may take.
+// timeout: one local LaunchServices query; past it the list shows nothing running.
 const LSAPPINFO_BUDGET: Duration = Duration::from_secs(3);
 
 /// The folders apps are found in, in the order a name is looked up.

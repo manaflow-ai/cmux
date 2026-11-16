@@ -11,14 +11,18 @@
 
 use std::time::Duration;
 
+#[cfg(test)]
+use cmux_json::JsonSet as _;
 use cmux_process::{Command as Process, Stdio};
 use serde_json::json;
 
 use super::{AppCommand, GlobalArgs, OutputMode, UsageError};
 
 /// What acpmux bounds a list by (`LIST_BUDGET`, server/app_launch.rs).
+// timeout: mirrors acpmux's LIST_BUDGET so the CLI never outwaits the daemon.
 const LIST_BUDGET: Duration = Duration::from_secs(20);
 /// Past acpmux's own deadline, how long before the child is ended.
+// timeout: on top of acpmux's own deadline, only for a hung child.
 const OUTER_SLACK: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +51,10 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let launch = rest.first().is_some_and(|verb| verb == "launch");
     let words = rest.get(1..).unwrap_or_default();
     let (options, args) = match words.iter().position(|word| word == "--") {
-        Some(at) if launch => (&words[..at], words[at + 1..].to_vec()),
+        Some(at) if launch => {
+            let (options, rest) = words.split_at(at);
+            (options, rest.get(1..).unwrap_or_default().to_vec())
+        }
         Some(_) => return Err(usage()),
         None => (words, Vec::new()),
     };
@@ -57,7 +64,7 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let mut app = None;
     let mut index = 0;
     while index < options.len() {
-        let word = options[index].as_str();
+        let Some(word) = options.get(index).map(String::as_str) else { break };
         let (name, inline) = match word.split_once('=') {
             Some((name, value)) if name.starts_with("--") => (name, Some(value.to_owned())),
             _ => (word, None),
@@ -157,18 +164,18 @@ impl Command {
             Self::Launch { on, activate, hidden, new, wait, app, args } => {
                 let mut p = json!({ "app": app });
                 if !args.is_empty() {
-                    p["args"] = json!(args);
+                    p.set("args", json!(args));
                 }
                 for (key, set) in [("activate", activate), ("hidden", hidden), ("new", new)] {
                     if *set {
-                        p[key] = json!(true);
+                        p.set(key, json!(true));
                     }
                 }
                 if let Some(wait) = wait {
-                    p["waitMs"] = json!(wait.saturating_mul(1000));
+                    p.set("waitMs", json!(wait.saturating_mul(1000)));
                 }
                 if let Some(on) = on {
-                    p["machine"] = json!(on);
+                    p.set("machine", json!(on));
                 }
                 ("_acpmux/app_launch", p)
             }

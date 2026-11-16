@@ -9,6 +9,7 @@
 //! line says what to run next (`--json`: an object with `ok: false`, `reason`, `next`).
 
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use crate::cli::output::print_json;
@@ -65,14 +66,14 @@ pub(crate) fn launch_params(args: &LaunchArgs) -> Value {
         [("activate", args.activate), ("hidden", args.hidden), ("new", args.new_instance)]
     {
         if on {
-            p[key] = json!(true);
+            p.set(key, json!(true));
         }
     }
     if let Some(wait) = args.wait {
-        p["waitMs"] = json!(wait.saturating_mul(1000));
+        p.set("waitMs", json!(wait.saturating_mul(1000)));
     }
     if let Some(machine) = &args.machine {
-        p["machine"] = json!(machine);
+        p.set("machine", json!(machine));
     }
     p
 }

@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// How long `systemctl --user show-environment` may take.
+// timeout: one local systemd query; past it there is no desktop session to open in.
 const SYSTEMCTL_BUDGET: Duration = Duration::from_secs(2);
 /// How long a launch watches its program for an exit at once (a missing library, a bad flag).
+// timeout: only how long a launch looks for an at-once failure; the app keeps running past it.
 const EARLY_EXIT: Duration = Duration::from_millis(700);
 /// The session variables a desktop app needs.
 const SESSION_VARS: &[&str] = &[
@@ -103,6 +105,7 @@ impl Session {
                 }
                 // A launcher that hands off and exits (a single-instance app's second copy).
                 Ok(Some(_)) => return Ok(None),
+                // timeout: a poll interval inside EARLY_EXIT, not a deadline.
                 Ok(None) => std::thread::sleep(Duration::from_millis(50)),
                 Err(e) => return Err(Refusal::Failed(e.to_string())),
             }

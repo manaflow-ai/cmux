@@ -14,6 +14,7 @@
 //!
 //! Every blocking step here has a deadline; the caller runs it off the async runtime.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -29,13 +30,12 @@ mod resolve;
 pub use resolve::resolve;
 
 /// The longest a launch waits for its app's process to show, unless the caller asks less.
+// timeout: an app that has not shown in 15 s is reported, with --wait up to MAX_WAIT.
 pub const DEFAULT_WAIT: Duration = Duration::from_secs(15);
 /// The longest any caller may ask a launch to wait.
 pub const MAX_WAIT: Duration = Duration::from_secs(60);
 /// The most arguments one launch passes.
 const MAX_ARGS: usize = 256;
-/// The most bytes of arguments one launch passes.
-const MAX_ARG_BYTES: usize = 64 * 1024;
 /// The most apps a list reads, so a folder full of bundles never makes a read unbounded.
 pub(crate) const MAX_APPS: usize = 4000;
 
@@ -133,9 +133,6 @@ impl LaunchRequest {
         }
         if self.args.len() > MAX_ARGS {
             return Err(Refusal::Invalid(format!("more than {MAX_ARGS} arguments")));
-        }
-        if self.args.iter().map(String::len).sum::<usize>() > MAX_ARG_BYTES {
-            return Err(Refusal::Invalid(format!("the arguments are over {MAX_ARG_BYTES} bytes")));
         }
         if self.args.iter().any(|a| a.contains('\0')) {
             return Err(Refusal::Invalid("an argument holds a NUL byte".into()));
@@ -261,6 +258,7 @@ pub fn launch(request: &LaunchRequest) -> Result<Launched, Refusal> {
                     request.wait.as_millis()
                 )));
             }
+            // timeout: a poll interval inside the request's deadline, not a deadline.
             std::thread::sleep(Duration::from_millis(150));
         },
     };
@@ -289,8 +287,8 @@ pub fn list() -> Value {
         .map(|app| {
             let pids: Vec<u32> = matching(app, &running).map(|r| r.pid).collect();
             let mut row = app.json();
-            row["running"] = json!(!pids.is_empty());
-            row["pids"] = json!(pids);
+            row.set("running", json!(!pids.is_empty()));
+            row.set("pids", json!(pids));
             row
         })
         .collect();
