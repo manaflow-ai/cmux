@@ -98,6 +98,8 @@ export function sceneStyle(props: SceneProps): SceneStyle {
   style.backgroundColor = sceneColor(props.background);
   style.color = sceneColor(props.color);
   style.borderRadius = sceneNumber(props.cornerRadius);
+  // `.clipped()`: the node's content (a child's slide or glow) stays inside its frame and corners.
+  if (props.clipped === true) style.overflow = "hidden";
   if (sceneColor(props.borderColor)) {
     style.borderColor = sceneColor(props.borderColor);
     style.borderStyle = "solid";

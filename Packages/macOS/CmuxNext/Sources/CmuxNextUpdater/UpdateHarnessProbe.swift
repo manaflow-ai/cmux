@@ -1,16 +1,15 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextCompat
-import CmuxNextUpdater
 import CmuxNextWakeups
 
-/// The App half of the update harness (``UpdateHarness``, DEV only): marks
+/// The probe half of the update harness (``UpdateHarness``, DEV only): marks
 /// when the update card first says Installing, the next two display
 /// refreshes from then (the click's visible feedback), each main window's close during the update quit, and the
 /// app's terminate. The harness reads the marks; no product behavior
 /// depends on them.
 @MainActor
-final class UpdateHarnessProbe {
+package final class UpdateHarnessProbe {
     private static var shared: UpdateHarnessProbe?
     private let harness: UpdateHarness
     private var observation: Task<Void, Never>?
@@ -24,7 +23,7 @@ final class UpdateHarnessProbe {
     }
 
     /// Starts the probe when this build is a harness copy; no-op otherwise.
-    static func install(updater: UpdaterService) {
+    package static func install(updater: UpdaterService) {
         guard shared == nil, let harness = UpdateHarness.current else { return }
         let probe = UpdateHarnessProbe(harness: harness)
         shared = probe

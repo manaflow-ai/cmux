@@ -12,7 +12,9 @@ One SDK, two languages, one version (1.0.0), made from the runtime's own tables 
 | Gives | places (`section`, `pane`, `newTab`, `chatWidget`, `command`), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
 
 The working example is [`examples/extensions/activity`](../../../examples/extensions/activity):
-a sidebar section and a pane, built only against this SDK.
+a sidebar section and a pane, built only against this SDK. A pane can also be your own HTML
+page (`render: web`): [`examples/extensions/web-pane`](../../../examples/extensions/web-pane)
+calls cmux through `cmux-extension-sdk/web`, with the same scopes as a script.
 
 ## Make one
 
@@ -86,6 +88,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `.trim({from?, to})` | Draws that fraction of a stroked shape's outline (ring gauges; a circle starts at 12 o'clock, clockwise). |
 | `.loop({effect, period?, amount?})` | `pulse`, `breathe`, `spin`, `float`, `wiggle`, `bounce`, `shimmer`, run forever by cmux with no JS (`Loop`). |
 | `.transition(t)` | `fade`, `scale`, `slide`, `pop`: how the node enters when created and leaves when removed (`Transition`). |
+| `.clipped()` | Clip the node's content (children, a sliding transition) to its frame and corner radius. |
 | `Particles({preset, colors?, rate?, burst?})` | `confetti`, `sparkles`, `rain`, `snow`, `embers`, `stars`, filling its frame; each increase of `burst` fires one burst. Loops, particles and springs stop or go instant under Reduce Motion and `ui.animationSpeed: off`. |
 | `SDK_VERSION`, `API_VERSION`, `RUNTIME_VERSION` | Versions (below). |
 

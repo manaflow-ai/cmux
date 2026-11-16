@@ -499,6 +499,8 @@ interface CmuxView {
   loop(v: Bindable<CmuxLoop | null>): this
   /** How the node enters when created and leaves when removed (kept on screen until its exit ends). */
   transition(v: Bindable<CmuxTransition | null>): this
+  /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
+  clipped(v?: Bindable<boolean>): this
 }
 /** \`move\`, \`appear\`, \`disappear\`, \`fade\`: the design-token springs and fade; \`snappy\` = spring 0.3 s / 0.8; \`bouncy\` = spring 0.45 s / 0.6. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
 type CmuxMotion =

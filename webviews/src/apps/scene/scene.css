@@ -154,6 +154,11 @@
   background: color-mix(in srgb, currentColor 14%, transparent);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* A badge keeps its one line, as the native badge does: the row's text gives way first. */
+.cmux-app-scene-badge {
+  flex: none;
 }
 .cmux-app-scene-unread {
   flex: none;

@@ -7,28 +7,30 @@ import type { SceneNode } from "./store";
 /** The longest step one frame advances the field (a frame after a stall does not jump). */
 const MAX_FRAME_SECONDS = 0.05;
 
-/** Resolves theme tokens (`accent`, `var(--...)`) to colors a canvas can paint, through the canvas's
- * own computed `color`. */
+/** Resolves theme tokens (`accent`, `var(--...)`) to colors a canvas can paint: every color is
+ * written to a hidden probe first and all are read after, so the style resolves once. */
 function canvasColors(canvas: HTMLCanvasElement, value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
-  const view = canvas.ownerDocument.defaultView;
+  const doc = canvas.ownerDocument;
+  const view = doc.defaultView;
   if (!view) return null;
   const colors = value
     .slice(0, 16)
-    .map((item) => sceneColor(item))
-    .filter((c): c is string => !!c);
-  if (!colors.length) return null;
-  // Write every probe first, then read them all: one style pass, not one per color. The probes sit
-  // inside the canvas (fallback content), so they inherit its tokens and are never drawn.
+    .map(sceneColor)
+    .filter((color): color is string => !!color);
+  if (colors.length === 0) return null;
+  const holder = doc.createElement("span");
+  holder.hidden = true;
   const probes = colors.map((color) => {
-    const probe = canvas.ownerDocument.createElement("span");
+    const probe = doc.createElement("span");
     probe.style.color = color;
     return probe;
   });
-  canvas.append(...probes);
-  const out = probes.map((probe, i) => view.getComputedStyle(probe).color || colors[i]!);
-  for (const probe of probes) probe.remove();
-  return out;
+  holder.append(...probes);
+  canvas.parentElement?.append(holder);
+  const resolved = probes.map((probe, index) => view.getComputedStyle(probe).color || colors[index]!);
+  holder.remove();
+  return resolved;
 }
 
 /**

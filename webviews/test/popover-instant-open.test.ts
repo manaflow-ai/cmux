@@ -302,6 +302,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place, and the row above one that glides down shows its new part as the room opens (a clip on the same clock); transcript rows, never a menu",
   },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
+  "src/apps/scene/useSceneMotion.ts": {
+    count: 3,
+    what: "an extension scene node's own `.animation` value changes and `.transition` enter and exit (js/ABI.md Motion): content the extension author asked for, never app chrome or a menu",
+  },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/session-info/foldMotion.ts": {
     count: 2,
