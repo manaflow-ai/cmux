@@ -323,6 +323,41 @@ public final class CreationInputBuffer {
         events.append((event, terminal ?? own ?? workspace))
     }
 
+    /// Whether a close key that is typed now acts at once on what it closes. A close key does (held, it ran later with the
+    /// other keys), with one case that waits (decision of 2026-11-16: an act never runs before the act of a key that the
+    /// person pressed before it): the Close Tab key while this hold keeps a key that makes or closes a tab. That key is
+    /// held behind it as any other key, and the hold's end pairs it with its New Tab key
+    /// (``reduceTabKeys(dropsLoneClose:kind:)``). `key`: whether the typed key's action is a close action, and what it does
+    /// to the tabs (``TabKey``). `kind`: what a held key does to the tabs.
+    public func closeKeyActsNow(_ key: (closes: Bool, tabKey: TabKey?), kind: (NSEvent) -> TabKey?) -> Bool {
+        key.closes && !(key.tabKey == .closes && events.contains { kind($0.event) != nil })
+    }
+
+    /// Reduces the held keys by their own meaning before an end of the hold runs them (decision of 2026-11-16: an act
+    /// never runs before the act of a key that the person pressed before it). This is the one rule for a held Close Tab
+    /// key, and each end of the hold uses it:
+    /// - A Close Tab key cancels the newest New Tab key before it that is not cancelled yet, and the two go together:
+    ///   the person's keys asked for no change and get none, and the close key can take no other tab.
+    /// - A key of another kind was typed for the tab of the New Tab key before it. It stops the pairing: the New Tab keys
+    ///   before it pair with no later Close Tab key, and those keys run in the order of the keys.
+    /// - `dropsLoneClose` (a forced end: the held keys run at the thing that has the focus then): a Close Tab key with no
+    ///   New Tab key that it can cancel goes too. It is a lost key, and it never closes a tab that was there before the
+    ///   keys.
+    /// `kind`: what a held key does to the tabs. Returns how many pairs went and how many lone Close Tab keys were lost.
+    public func reduceTabKeys(dropsLoneClose: Bool, kind: (NSEvent) -> TabKey?) -> (pairs: Int, lost: Int) {
+        var open: [Int] = [], gone: Set<Int> = [], pairs = 0, lost = 0
+        for (index, key) in events.enumerated() {
+            switch kind(key.event) {
+            case .makes?: open.append(index)
+            case .closes?:
+                if let made = open.popLast() { gone.formUnion([made, index]); pairs += 1 } else if dropsLoneClose { gone.insert(index); lost += 1 }
+            case nil: open.removeAll()
+            }
+        }
+        if !gone.isEmpty { events = events.enumerated().filter { !gone.contains($0.offset) }.map(\.element) }
+        return (pairs, lost)
+    }
+
     /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest creation) before the
     /// keys held now. Each keeps the terminal it was typed for, also when it came from another hold: only the keys of
     /// `issuer`'s lane (the lane of the key that started the creation; nil: no lane) move to the new creation, as the

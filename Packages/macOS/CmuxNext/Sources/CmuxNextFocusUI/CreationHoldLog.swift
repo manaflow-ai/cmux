@@ -14,6 +14,20 @@ public nonisolated struct CreationHoldLog: Equatable, Sendable {
     /// Held keys that ran again for a terminal that was gone, since the last hold's end began (``wentWithTerminal(_:)``).
     private var gone = 0
 
+    /// At the ends of this log's holds, since the log began: the pairs of a held New Tab key and the held Close Tab key
+    /// after it that went together, and the held Close Tab keys that a forced end dropped, which are lost keys
+    /// (``CreationInputBuffer/reduceTabKeys(dropsLoneClose:kind:)``).
+    public private(set) var cancelledTabKeyPairs = 0, lostCloseKeys = 0
+
+    /// The two counts by their names in `debug.focus`.
+    public var tabKeyCounts: [String: Int] { ["cancelled_pairs": cancelledTabKeyPairs, "lost_close_keys": lostCloseKeys] }
+
+    /// A hold's end reduced its held keys: `counts.pairs` pairs went together, `counts.lost` lone Close Tab keys were dropped.
+    public mutating func tabKeysReduced(_ counts: (pairs: Int, lost: Int)) {
+        (cancelledTabKeyPairs, lostCloseKeys) = (cancelledTabKeyPairs + counts.pairs, lostCloseKeys + counts.lost)
+        if counts.lost > 0 { Self.logger.notice("\(counts.lost, privacy: .public) held Close Tab key(s) dropped at a forced end of a creation hold: lost keys") }
+    }
+
     /// Tabs whose page hold ended at its bound: their page may never come, so no new page hold opens for them.
     public private(set) var pageExpired: Set<String> = []
 

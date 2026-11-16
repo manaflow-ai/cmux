@@ -81,6 +81,8 @@ struct TextBetweenANewTabKeyAndACloseTabKeyTests {
                 try await Rows.settle(keys, in: window, services: services)
             } catch { failure = error }
             Rows.check(keys, "a held New Tab key that makes terminals, a New Tab key, text, a Close Tab key", lateAnswers: 1)
+            let counted = AHoldsEndCountsItsTabKeyPairsAndLostCloseKeysTests.counts(services)
+            #expect(counted == [0, 0], "the debug read counts \(counted) (want 0 cancelled pairs, then 0 lost Close Tab keys: the keys ran as the person pressed them); \(keys.said)")
             if failure == nil {
                 let showing = try await Self.terminals(showing: text, services)
                 #expect(showing.isEmpty,
@@ -125,6 +127,8 @@ struct TextBetweenANewTabKeyAndACloseTabKeyTests {
             #expect(close == .kept, "the Close Tab key that came after a kept New Tab key and text was not kept by the hold; \(keys.said)")
             #expect(gone.isEmpty && keys.oldTabsClosedAfterANewTabKey.isEmpty, "the keys closed \(gone), tabs that were there before the first key; \(keys.said)")
             #expect(new.count == 1, "at the end \(new.count) new tabs (want 1, the tab of the New Tab key): \(new); \(keys.said)")
+            let counted = AHoldsEndCountsItsTabKeyPairsAndLostCloseKeysTests.counts(services)
+            #expect(counted == [0, 1], "the debug read counts \(counted) (want 0 cancelled pairs, then 1 lost Close Tab key); \(keys.said)")
             holds.resolve(ticket, landed: false, in: window)
             if failure == nil {
                 let showing = try await Self.terminals(showing: text, services)
