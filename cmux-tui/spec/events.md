@@ -1777,6 +1777,42 @@ Example:
 {"event":"agent-cli-frame","surface":1,"stream":"9b1c…","frame":12,"base":11,"cols":100,"rows":32,"data":"AQAAAQ...","cursor_x":4,"cursor_y":30,"cursor_visible":true}
 ```
 
+### agent-cli-lean
+
+| Field | Value |
+| --- | --- |
+| event | `agent-cli-lean` |
+| status | implemented |
+| since | protocol 12, capability `agent-cli-hybrid-v2` |
+
+Payload:
+
+```text
+object{event:"agent-cli-lean",surface:Id,f:Base64}
+```
+
+Meaning: An `agent-cli-frame` in the lean form, for a connection that declared
+`agent-cli-hybrid-v2` as well as `agent-cli-hybrid-v1`: the same frames, paced
+the same, with everything in `f` (`cmux_agent_cli_render::lean`). `f` starts
+with a flags varint (1 keyframe, 2 head, 4 numbered, 8 cursor, 16 cursor
+visible). A head (the connection's first frame, a keyframe, a new size) carries
+the stream id (length, UTF-8), `cols` and `rows`; a numbered frame carries
+`frame`, then `base` unless it is a keyframe; an unnumbered frame is the last
+one plus one, on top of it; a cursor frame carries `cursor_x`, `cursor_y`. Then
+zigzag `shift`, the span count and the spans: `row`, `col`, `len << 1 | set`;
+a set span names its style by index into a table the connection builds (an
+index one past its end brings `fg`, `bg`, `attrs` and adds them), then its
+cells: a printable ASCII byte, 0 for the empty half of a wide glyph, 1 for any
+other text (length, UTF-8), or 2 for a run (count, then one cell). The style
+table and the numbering start over on each connection. A viewer resumes with
+`hybrid_stream` and `hybrid_frame` as for `agent-cli-frame`.
+
+Example:
+
+```json
+{"event":"agent-cli-lean","surface":1,"f":"HAEJAwEAAQ..."}
+```
+
 ### resized
 
 | Field | Value |
