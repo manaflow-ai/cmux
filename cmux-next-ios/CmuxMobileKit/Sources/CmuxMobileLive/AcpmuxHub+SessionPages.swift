@@ -1,5 +1,6 @@
 import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
+import CmuxMobileTransport
 import Foundation
 import OSLog
 
