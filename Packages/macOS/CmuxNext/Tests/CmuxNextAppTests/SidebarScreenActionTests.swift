@@ -15,6 +15,11 @@ import Testing
         return CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-" + id), title: "A project with a long descriptive title", directory: "~/Projects"))])
     }
 
+    /// Every view in the row's whole subtree whose identifier ends in `.screen`.
+    static func screenControls(in view: NSView) -> [NSView] {
+        view.subviews.flatMap { sub in (sub.accessibilityIdentifier().hasSuffix(".screen") ? [sub] : []) + screenControls(in: sub) }
+    }
+
     static var examples: [CmuxNextSidebar.SidebarSection] {
         [section("local", name: "This Mac", kind: SidebarMachine.Kind.local),
          section("mac", name: "A very long Mac Studio device name", kind: SidebarMachine.Kind.server, device: "device-mac"),
@@ -34,7 +39,7 @@ import Testing
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
         let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-local"))] as? WorkspaceRowView)
-        #expect(row.interactiveSubviews.allSatisfy { !($0.accessibilityIdentifier() ?? "").hasSuffix(".screen") })
+        #expect(Self.screenControls(in: row).isEmpty)
         #expect(!list.rowViews.values.contains { $0 is ListHeaderRowView })
         #expect(intents.isEmpty)
         #expect(!list.rowViews.values.contains { $0 is SectionHeaderRowView })
@@ -61,7 +66,7 @@ import Testing
                     row.isHovered = hovered
                     row.needsLayout = true
                     row.layoutSubtreeIfNeeded()
-                    let screen = row.interactiveSubviews.filter { ($0.accessibilityIdentifier() ?? "").hasSuffix(".screen") }
+                    let screen = Self.screenControls(in: row)
                     #expect(screen.isEmpty, "a workspace row has no screen button")
                 }
             }
