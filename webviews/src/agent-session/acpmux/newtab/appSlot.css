@@ -7,7 +7,10 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  min-height: calc(var(--text-heading--line-height) + 6px);
+  /* One heading line and a step of air, about the minimal template's empty room (screen.css
+     .nt-composer-room), on the spacing scale. */
+  min-height: var(--text-heading--line-height);
+  padding-top: 8px;
 }
 .nt-app-slot {
   width: min(100%, var(--cv-column, 720px));

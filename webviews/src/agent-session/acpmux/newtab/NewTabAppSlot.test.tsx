@@ -11,8 +11,12 @@ import type { PageClient, PageHandler } from "../../../pages/shared/pageClient";
 import { pageError } from "../../../pages/shared/pageClient";
 import type { SceneEvent } from "../../../apps/scene/panelsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
+import { until } from "../../../../test/support/until";
 import { newTabHost, pickedNewTabApp } from "../newTabModel";
 import { NewTabAppSlot } from "./NewTabAppSlot";
+
+/// One turn of the event loop inside act, so the deadline's timer can fire and React flushes what it did.
+const turn = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -150,9 +154,7 @@ test("a host that never answers: the slot gives up at its deadline and leaves no
   host.hang = true;
   const { container, root, gone } = await render(host, 30);
   expect(gone).toEqual([]);
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 60));
-  });
+  await until(() => gone.length > 0, turn);
   expect(gone).toHaveLength(1);
   expect(gone[0]).toContain("did not draw");
   expect(slot(container)?.hasAttribute("data-gone")).toBe(true);
@@ -162,9 +164,7 @@ test("a host that never answers: the slot gives up at its deadline and leaves no
 test("a mounted scene that never draws is stopped at the deadline (unmounted at the host)", async () => {
   const host = new Host();
   const { root, gone } = await render(host, 30);
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 60));
-  });
+  await until(() => gone.length > 0, turn);
   expect(gone).toHaveLength(1);
   expect(host.ops("unmount").map((call) => call.params)).toEqual([{ mount_id: "m1" }]);
   await act(async () => root.unmount());
