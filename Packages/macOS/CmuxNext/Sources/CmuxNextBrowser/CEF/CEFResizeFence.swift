@@ -106,8 +106,8 @@ final class CEFResizeFence {
     /// `CALayerTreeCoordinator` and WebKit use it): the render server holds this transaction's commit of that context,
     /// and the ones after it, until every send right of the port is gone.
     static func createFencePort(layer: CALayer) -> mach_port_t? {
-        let contextGetter = NSSelectorFromString("context")
-        let create = NSSelectorFromString("createFencePort")
+        let contextGetter = #selector(CEFFenceSPI.cmuxContext)
+        let create = #selector(CEFFenceSPI.cmuxCreateFencePort)
         guard layer.responds(to: contextGetter),
               let context = layer.perform(contextGetter)?.takeUnretainedValue() as? NSObject,
               context.responds(to: create) else { return nil }
@@ -116,6 +116,15 @@ final class CEFResizeFence {
         let port = call(context, create)
         return port == mach_port_t(MACH_PORT_NULL) ? nil : port
     }
+}
+
+/// The two QuartzCore SPI selectors ``CEFResizeFence/createFencePort(layer:)`` sends, named at compile time: no object
+/// conforms, and each send is behind `responds(to:)`, so an OS without them gets no fence instead of an exception.
+@objc private protocol CEFFenceSPI {
+    /// `-[CALayer context]`: the `CAContext` of the layer's tree.
+    @objc(context) func cmuxContext() -> NSObject?
+    /// `-[CAContext createFencePort]`.
+    @objc(createFencePort) func cmuxCreateFencePort() -> mach_port_t
 }
 
 /// The fork's `done` for a joined page: `context` is a retained ``CEFResizeFenceDone``.
