@@ -132,6 +132,33 @@ export function isCommandLabel(value: unknown): boolean {
   return rule.program !== undefined || rule.match !== undefined;
 }
 
+/**
+ * One `actions.<id>` entry the app's parser takes with no diagnostic: a `command` with a non-blank
+ * command, or an `agent` of one word, and a known `target` when present. The Swift rule is
+ * `ConfigActionsSetting.accepts` (ConfigActionParser).
+ */
+export function isConfigAction(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const fields = value as Record<string, unknown>;
+  const trimmed = (key: string) => (typeof fields[key] === "string" ? (fields[key] as string).trim() : "");
+  const type = trimmed("type") || (fields.agent !== undefined ? "agent" : "command");
+  const runs =
+    type === "command" ? trimmed("command") !== "" : type === "agent" ? /^\S+$/.test(trimmed("agent")) : false;
+  const target = fields.target;
+  return runs && (target === undefined || target === "newTabInCurrentPane" || target === "currentTerminal");
+}
+
+/** `sidebar.sections.hidden` / `order`: at most 256 distinct ids of 1 to 128 characters (`SidebarSectionIDsSetting`). */
+export function isSidebarSectionIds(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 256) return false;
+  const seen = new Set<string>();
+  return value.every((id) => {
+    if (typeof id !== "string" || id === "" || [...id].length > 128 || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
 /** Returns null when `value` is valid for `row`, otherwise a short English reason. */
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
@@ -159,6 +186,17 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     return typeof value === "string" && row.pattern !== undefined && new RegExp(row.pattern).test(value)
       ? null
       : "expected an app id, publisher/name in lowercase letters, digits and -";
+  }
+  if (row.validation === "domain:config_actions") {
+    return typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.values(value).every(isConfigAction)
+      ? null
+      : "expected an object of actions by id, each with a command or an agent";
+  }
+  if (row.validation === "domain:sidebar_section_ids") {
+    return isSidebarSectionIds(value) ? null : "expected a list of at most 256 distinct section ids";
   }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";

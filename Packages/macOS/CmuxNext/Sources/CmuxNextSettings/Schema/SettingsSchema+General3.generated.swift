@@ -168,6 +168,16 @@ extension GeneralSettingsSchema {
                 keywords: ["palette", "alias", "shortcut", "command"]
             ).hiddenFromSettingsPage("action ids; cmux.json only"),
             SettingDescriptor(
+                ConfigActionsSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.actions", "Custom Commands"),
+                help: SettingsText.keyed("settings.actions.help", "Commands of your own by id, each with a title and a shell command (or an agent), shown in the command palette."),
+                kind: .text,
+                default: ConfigActionsSetting.fallback,
+                keywords: ["palette", "action", "command", "custom", "shell", "script"]
+            ).hiddenFromSettingsPage("command objects by id; cmux.json only"),
+            SettingDescriptor(
                 PaletteRankingSetting.pinsPath,
                 section: .general,
                 group: group,

@@ -54,6 +54,11 @@ current loose/group list. Unknown ids, malformed values, duplicate ids, and
 oversized lists produce diagnostics and leave document placement intact.
 The selected workspace always keeps its section and row visible.
 
+`sidebar.sections.hidden` and `sidebar.sections.order` are settings rows
+(`cmux settings set`, `cmux customize schema`), so a customize profile sets
+them like any other key: `"settings": {"sidebar.sections.hidden": ["recents"]}`.
+Both take at most 256 distinct ids of 1 to 128 characters; an agent may set them.
+
 ## Rows, sections, density, and scope
 
 The native row content and density tokens remain the existing sidebar design.
