@@ -18,7 +18,6 @@ pub(in crate::index) struct KinRequest<'a> {
     pub root: &'a RowKey,
     pub cold_before: u64,
     pub after: Option<&'a SortKey>,
-    pub inclusive: bool,
     pub limit: usize,
     pub physical_bytes: usize,
     pub position: Option<Position>,
@@ -49,15 +48,22 @@ pub(in crate::index) struct KinRead<T> {
 }
 
 impl<T> KinRead<T> {
-    fn unavailable() -> Self {
-        Self { result: KinResult::Unavailable, io: KinIo::default(), position: None }
+    fn unavailable(position: Option<Position>) -> Self {
+        Self {
+            result: KinResult::Unavailable,
+            io: KinIo {
+                bytes: position.map_or(0, |position| position.bytes_read),
+                ..KinIo::default()
+            },
+            position,
+        }
     }
 }
 
 impl DiskSnapshot {
     pub(in crate::index) fn read_cold_family(&self, request: KinRequest<'_>) -> KinRead<KinPiece> {
         let Some(table) = self.kin_table.as_ref().filter(|table| table.is_usable()) else {
-            return KinRead::unavailable();
+            return KinRead::unavailable(request.position);
         };
         let mut cursor = Cursor::new(self, table, &request);
         let result = (|| {
@@ -96,13 +102,12 @@ impl DiskSnapshot {
         cold_before: u64,
     ) -> KinRead<bool> {
         let Some(table) = self.kin_table.as_ref().filter(|table| table.is_usable()) else {
-            return KinRead::unavailable();
+            return KinRead::unavailable(None);
         };
         let request = KinRequest {
             root,
             cold_before,
             after: None,
-            inclusive: false,
             limit: 1,
             physical_bytes: PAGE_BYTES,
             position: None,
@@ -187,15 +192,18 @@ mod tests {
         (directory, disk, root)
     }
 
-    fn request<'a>(root: &'a RowKey, after: Option<&'a SortKey>) -> KinRequest<'a> {
+    fn request<'a>(
+        disk: &DiskSnapshot,
+        root: &'a RowKey,
+        after: Option<&'a SortKey>,
+    ) -> KinRequest<'a> {
         KinRequest {
             root,
             cold_before: 2,
             after,
-            inclusive: false,
             limit: 10,
             physical_bytes: PAGE_BYTES,
-            position: None,
+            position: after.map(|key| disk.seek_position(key, false).unwrap()),
         }
     }
 
@@ -228,7 +236,8 @@ mod tests {
     fn cold_kin_equal_activity_cursor_seeks_without_scanning_the_tie() {
         let (_directory, disk, root) = fixture(11_000);
         let cursor = SortKey { last_activity: 1, row: RowKey::new("local", "row-10989") };
-        let answer = disk.read_cold_family(request(&root, Some(&cursor)));
+        let before = super::super::read_probe();
+        let answer = disk.read_cold_family(request(&disk, &root, Some(&cursor)));
         let KinResult::Ready(piece) = answer.result else { panic!("table cursor failed") };
         let ids: Vec<_> = piece.rows.iter().map(|row| row.row.chat_id.clone()).collect();
         assert_eq!(
@@ -237,33 +246,69 @@ mod tests {
         );
         assert!(!piece.has_after);
         assert!(piece.has_before);
-        assert!(answer.io.frames < 40);
+        assert_eq!(answer.io.frames, 10, "placement reads no candidate frame");
+        assert_eq!(answer.io.bytes, super::super::read_probe().0 - before.0);
         assert!(answer.io.bytes <= PAGE_BYTES);
         assert_eq!(answer.io.directory_pages, 1);
         assert!(answer.io.search_pages <= 8); // ceil(log2(ceil(11_000/127))) + 1
     }
 
     #[test]
+    fn cold_kin_unavailable_table_preserves_position_and_charged_seek() {
+        for disabled in [false, true] {
+            let (_directory, disk, root) = fixture(20);
+            let mut disk = Arc::try_unwrap(disk).unwrap();
+            if disabled {
+                disk.kin_table.as_ref().unwrap().disable(&std::io::Error::other("test"));
+            } else {
+                disk.kin_table = None;
+            }
+            let anchor = SortKey { last_activity: 1, row: RowKey::new("local", "row-00005") };
+            let before = super::super::read_probe();
+            let answer = disk.read_cold_family(request(&disk, &root, Some(&anchor)));
+            assert!(matches!(answer.result, KinResult::Unavailable));
+            let position = answer.position.expect("fallback must not restart at the first row");
+            assert!(position.bytes_read > 0);
+            assert_eq!(answer.io.bytes, position.bytes_read);
+            let page = disk
+                .read_piece_from_position(
+                    position,
+                    crate::index::ReadSide::After,
+                    1,
+                    PAGE_BYTES - answer.io.bytes,
+                    answer.io.bytes,
+                )
+                .unwrap();
+            assert_eq!(page.rows.first().unwrap().chat_id, "row-00006");
+            assert_eq!(page.bytes_read, super::super::read_probe().0 - before.0);
+            assert!(page.bytes_read <= PAGE_BYTES);
+        }
+    }
+
+    #[test]
     fn cold_kin_budget_exhaustion_keeps_the_table_usable() {
         let (_directory, disk, root) = fixture(1);
-        let mut ask = request(&root, None);
+        let mut ask = request(&disk, &root, None);
         ask.physical_bytes = 8192;
         let answer = disk.read_cold_family(ask);
         assert!(matches!(answer.result, KinResult::BudgetExhausted));
         assert_eq!(answer.io.bytes, 8192);
         assert!(disk.has_kin_table());
-        assert!(matches!(disk.read_cold_family(request(&root, None)).result, KinResult::Ready(_)));
+        assert!(matches!(
+            disk.read_cold_family(request(&disk, &root, None)).result,
+            KinResult::Ready(_)
+        ));
     }
 
     #[test]
     fn cold_kin_crc_valid_bad_slot_is_set_aside() {
         let (directory, disk, root) = fixture(1);
         rewrite_page(&directory, 0, |page| page[..4].copy_from_slice(&u32::MAX.to_le_bytes()));
-        let answer = disk.read_cold_family(request(&root, None));
+        let answer = disk.read_cold_family(request(&disk, &root, None));
         assert!(matches!(answer.result, KinResult::Unavailable));
         assert_eq!(answer.io.bytes, 4096);
         assert!(!disk.has_kin_table());
-        assert_eq!(disk.read_cold_family(request(&root, None)).io.bytes, 0);
+        assert_eq!(disk.read_cold_family(request(&disk, &root, None)).io.bytes, 0);
     }
 
     #[test]
@@ -271,7 +316,7 @@ mod tests {
         for (byte, value) in [(30, 0), (30, 65), (31, 0), (31, 3), (31, 2)] {
             let (directory, disk, root) = fixture(1);
             rewrite_page(&directory, 1, |page| page[byte] = value);
-            let answer = disk.read_cold_family(request(&root, None));
+            let answer = disk.read_cold_family(request(&disk, &root, None));
             assert!(matches!(answer.result, KinResult::Unavailable));
             assert_eq!(answer.io.bytes, 8192);
             assert!(!disk.has_kin_table());
@@ -293,7 +338,7 @@ mod tests {
         for offset in [0, u64::MAX] {
             let (directory, disk, root) = fixture(1);
             rewrite_page(&directory, 1, |page| page[16..24].copy_from_slice(&offset.to_le_bytes()));
-            let answer = disk.read_cold_family(request(&root, None));
+            let answer = disk.read_cold_family(request(&disk, &root, None));
             assert!(matches!(answer.result, KinResult::Unavailable));
             assert_eq!(answer.io.frames, 0);
             assert!(!disk.has_kin_table());
@@ -310,7 +355,7 @@ mod tests {
         file.seek(SeekFrom::Start(offset + 8)).unwrap();
         file.write_all(&[255]).unwrap();
         file.sync_all().unwrap();
-        let answer = disk.read_cold_family(request(&root, None));
+        let answer = disk.read_cold_family(request(&disk, &root, None));
         let KinResult::Ready(piece) = answer.result else { panic!("verified prefix lost") };
         assert_eq!(piece.rows.len(), 1);
         assert_eq!(piece.rows[0].row.chat_id, "row-00000");
@@ -319,9 +364,9 @@ mod tests {
         assert_eq!(answer.io.frames, 2);
         assert!(!disk.has_kin_table());
         let next = SortKey::of(&piece.rows[0].row);
-        let retry = disk.read_cold_family(request(&root, Some(&next)));
+        let retry = disk.read_cold_family(request(&disk, &root, Some(&next)));
         assert!(matches!(retry.result, KinResult::Unavailable));
-        assert_eq!(retry.io.bytes, 0);
+        assert_eq!(retry.io.bytes, retry.position.unwrap().bytes_read);
     }
 
     #[test]
@@ -342,7 +387,7 @@ mod tests {
         file.seek(SeekFrom::Start(offset)).unwrap();
         file.write_all(&byte).unwrap();
         file.sync_all().unwrap();
-        let mut ask = request(&root, None);
+        let mut ask = request(&disk, &root, None);
         ask.limit = 400;
         let answer = disk.read_cold_family(ask);
         let KinResult::Ready(piece) = answer.result else { panic!("verified prefix lost") };
@@ -353,8 +398,8 @@ mod tests {
         assert!(answer.io.bytes <= PAGE_BYTES);
         assert!(!disk.has_kin_table());
         let next = SortKey::of(&piece.rows[253].row);
-        let retry = disk.read_cold_family(request(&root, Some(&next)));
+        let retry = disk.read_cold_family(request(&disk, &root, Some(&next)));
         assert!(matches!(retry.result, KinResult::Unavailable));
-        assert_eq!(retry.io.bytes, 0);
+        assert_eq!(retry.io.bytes, retry.position.unwrap().bytes_read);
     }
 }

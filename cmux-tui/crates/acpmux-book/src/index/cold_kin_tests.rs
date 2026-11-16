@@ -142,8 +142,14 @@ fn cold_table_prefix_failure_continues_with_the_pager_cursor() {
     let mut indexed = SummaryIndex::from_disk(DiskSnapshot::open(&snapshot).unwrap(), 1);
     indexed.raise_cold_before(100);
     let filter = cold_filter(&root.key());
+    let before = snapshot::read_probe();
     let first =
         indexed.read_page(None, ReadSide::After, false, 400, PAGE_BYTES, Some(&filter)).unwrap();
+    let after = snapshot::read_probe();
+    assert_eq!(after.0 - before.0, first.bytes_read);
+    assert_eq!(after.2 - before.2, 1);
+    assert_eq!(first.rows.len(), 254);
+    assert_eq!(first.after_key, first.rows.last().map(|row| SortKey::of(row)));
     assert!(!first.closure, "a damaged table page cannot claim closure");
     assert!(first.has_after);
     assert!(first.bytes_read <= PAGE_BYTES);
@@ -173,9 +179,13 @@ fn cold_table_placement_failure_leaves_budget_for_the_pager() {
     sidecar.write_all(&byte).unwrap();
     sidecar.sync_all().unwrap();
 
+    let before = snapshot::read_probe();
     let page = indexed
         .read_page(None, ReadSide::After, false, 400, PAGE_BYTES, Some(&cold_filter(&root)))
         .unwrap();
+    let after = snapshot::read_probe();
+    assert_eq!(after.0 - before.0, page.bytes_read);
+    assert_eq!(after.2 - before.2, 1);
     assert!(!page.closure);
     assert!(!page.rows.is_empty());
     assert!(page.bytes_read <= PAGE_BYTES);
@@ -188,13 +198,39 @@ fn snapshot_without_table_is_served_by_the_pager() {
     let before = snapshot::read_probe();
     let (mut rows, _, bytes) = collect_pages(&indexed, &cold_filter(&root));
     let after = snapshot::read_probe();
-    // Preserve the existing pager's direct-kin semantics. Deep fallback
-    // traversal is an explicit design dependency, tracked in #44443.
+    // The pager keeps its direct-kin semantics. The client follows each cold
+    // row when a walk has any non-closure page (decision 392).
     let mut expected: Vec<_> =
         expected.into_iter().filter(|id| !id.starts_with("cold-grand-")).collect();
     rows.sort();
     expected.sort();
     assert_eq!(rows, expected);
+    // Force several asks on a snapshot that never had a sidecar: losing the
+    // saved seek position would restart the first page forever.
+    let mut anchor = None;
+    let mut paged = Vec::new();
+    for _ in 0..16 {
+        let before = snapshot::read_probe();
+        let page = indexed
+            .read_page(
+                anchor.as_ref(),
+                ReadSide::After,
+                false,
+                2,
+                PAGE_BYTES,
+                Some(&cold_filter(&root)),
+            )
+            .unwrap();
+        assert_eq!(snapshot::read_probe().0 - before.0, page.bytes_read);
+        paged.extend(page.rows.iter().map(|row| row.chat_id.clone()));
+        if !page.has_after {
+            break;
+        }
+        assert_ne!(anchor, page.after_key);
+        anchor = page.after_key;
+    }
+    paged.sort();
+    assert_eq!(paged, expected);
     assert_eq!(after.1, before.1, "no table served this request");
     assert!(bytes <= PAGE_BYTES);
     assert!(

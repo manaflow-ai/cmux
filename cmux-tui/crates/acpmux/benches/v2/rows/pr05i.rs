@@ -15,7 +15,7 @@ pub const ROWS: &[GateRow] = &[
     GateRow {
         pr: "5i",
         name: "v2.pr05i.cold_family_bytes",
-        done_when: "A cold family page for eight cold kin rows reads no more than 1.2x the physical bytes of the same page from the snapshot pager.",
+        done_when: "A table-served cold family walk for eight kin (two under a cold parent) at 11,000 snapshot rows reads no more than 1.2x the physical bytes of the same walk at 20 rows.",
         measured: false,
         ratio: 1.2,
         ratio_all: None,
@@ -24,7 +24,7 @@ pub const ROWS: &[GateRow] = &[
     GateRow {
         pr: "5i",
         name: "v2.pr05i.cold_family",
-        done_when: "A cold family page for eight cold kin rows has wall p95 no more than 1.2x the same page from the snapshot pager.",
+        done_when: "A table-served cold family walk for eight kin at 11,000 snapshot rows has wall p95 within 1.2x the same walk at 20 rows; every cold page carries closure and no per-cold-row ask is needed.",
         measured: false,
         ratio: 1.2,
         ratio_all: None,
@@ -33,7 +33,7 @@ pub const ROWS: &[GateRow] = &[
     GateRow {
         pr: "5i",
         name: "v2.pr05i.cold_unread",
-        done_when: "coldUnread for the last hot page of a family with no cold kin has wall p95 no more than 1.2x the same snapshot pager check.",
+        done_when: "coldUnread for the last hot page of a family with no cold kin at 11,000 snapshot rows is false and has wall p95 within 1.2x the same table lookup at 20 rows.",
         measured: false,
         ratio: 1.2,
         ratio_all: None,

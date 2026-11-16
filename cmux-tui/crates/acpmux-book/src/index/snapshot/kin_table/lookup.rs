@@ -1,15 +1,19 @@
 //! One directory page and one entry-page cache per request. A short bucket
 //! needs one entry page; a long bucket needs at most ceil(log2(pages)) + 1
-//! search pages, then one page per 127 entries walked. Equal-activity cursors
-//! compare decoded row keys by binary search, never scan an entire tie.
+//! search pages, then one page per 127 entries walked. Cursor placement uses
+//! the snapshot seek's offset, so a run of equal activity reads no extra frames.
+//! At most one snapshot seek + one directory page + ceil(log2(pages)) + 1
+//! entry pages are charged before rows. For 2^21 pages and an 80,032-byte
+//! seek, placement costs 174,240 bytes, leaving 87,904 of the 256-KiB ask
+//! for frames even if the last search page fails and the pager takes over.
 use super::{
     ENTRIES_PER_PAGE, ENTRY_BYTES, Entry, FAMILY_KIND, FORK_KIND, MAX_DEPTH, PAGE_BYTES,
     SLOTS_PER_PAGE, Table, invalid, key_fingerprint, read_u32,
 };
+use crate::index::Summary;
 use crate::index::snapshot::kin_read::{KinIo, KinRequest};
 use crate::index::snapshot::read::Frame;
 use crate::index::snapshot::{DiskSnapshot, HEADER_BYTES, TRAILER_BYTES};
-use crate::index::{SortKey, Summary};
 use std::io;
 use std::sync::Arc;
 
@@ -37,6 +41,7 @@ pub(in crate::index::snapshot) struct Cursor<'a> {
     fingerprint: (u64, u32),
     cold_before: u64,
     position_offset: Option<u64>,
+    preceding: Option<Entry>,
     budget: usize,
     start: u64,
     end: u64,
@@ -68,6 +73,7 @@ impl<'a> Cursor<'a> {
                 ..KinIo::default()
             },
             position_offset: request.position.map(|position| position.offset),
+            preceding: None,
         }
     }
 
@@ -95,6 +101,9 @@ impl<'a> Cursor<'a> {
     }
 
     pub fn seek(&mut self, request: &KinRequest<'_>) -> Result<(), Failure> {
+        if request.after.is_some() && self.position_offset.is_none() {
+            return Err(invalid("kin cursor without snapshot position").into());
+        }
         if self.table.header.entries == 0 {
             return Ok(());
         }
@@ -124,7 +133,7 @@ impl<'a> Cursor<'a> {
             let middle = left + (right - left) / 2;
             let last = ((middle + 1) * width).min(self.end) - 1;
             let entry = self.entry(last, Phase::Search)?;
-            if self.before(entry, request)? {
+            if self.before(entry)? {
                 left = middle + 1;
             } else {
                 right = middle;
@@ -135,7 +144,7 @@ impl<'a> Cursor<'a> {
         while low < high {
             let middle = low + (high - low) / 2;
             let entry = self.entry(middle, Phase::Search)?;
-            if self.before(entry, request)? {
+            if self.before(entry)? {
                 low = middle + 1;
             } else {
                 high = middle;
@@ -145,26 +154,21 @@ impl<'a> Cursor<'a> {
         Ok(())
     }
 
-    fn before(&mut self, entry: Entry, request: &KinRequest<'_>) -> Result<bool, Failure> {
-        if entry.hash != self.fingerprint.0 {
-            return Ok(entry.hash < self.fingerprint.0);
-        }
-        self.check_fingerprint(entry)?;
-        if entry.activity >= self.cold_before {
-            return Ok(true);
-        }
-        if let Some(offset) = self.position_offset {
-            return Ok(entry.offset < offset);
-        }
-        let Some(after) = request.after else {
-            return Ok(false);
+    fn before(&mut self, entry: Entry) -> Result<bool, Failure> {
+        let before = if entry.hash != self.fingerprint.0 {
+            entry.hash < self.fingerprint.0
+        } else {
+            self.check_fingerprint(entry)?;
+            entry.activity >= self.cold_before
+                || self.position_offset.is_some_and(|offset| entry.offset < offset)
         };
-        if entry.activity != after.last_activity {
-            return Ok(entry.activity > after.last_activity);
+        if before {
+            // Both binary searches advance their lower endpoint. The last
+            // entry found before the endpoint is its immediate predecessor;
+            // retain it so has_before needs no extra page outside placement.
+            self.preceding = Some(entry);
         }
-        let row = self.row(entry)?;
-        let key = SortKey::of(row.as_ref());
-        Ok(key < *after || (!request.inclusive && key == *after))
+        Ok(before)
     }
 
     fn entry(&mut self, position: u64, phase: Phase) -> Result<Entry, Failure> {
@@ -228,16 +232,10 @@ impl<'a> Cursor<'a> {
         Ok(row)
     }
 
-    pub fn has_before(&mut self) -> Result<bool, Failure> {
-        if self.at <= self.start {
-            return Ok(false);
-        }
-        let entry = self.entry(self.at - 1, Phase::Walk)?;
+    pub fn has_before(&self) -> Result<bool, Failure> {
+        let Some(entry) = self.preceding else { return Ok(false) };
         if entry.hash != self.fingerprint.0 || entry.activity >= self.cold_before {
             return Ok(false);
-        }
-        if let Some(offset) = self.position_offset {
-            return Ok(entry.offset < offset);
         }
         self.check_fingerprint(entry)?;
         Ok(true)
@@ -292,3 +290,7 @@ fn ordered(left: Entry, right: Entry) -> io::Result<()> {
     }
     Ok(())
 }
+
+// The sparse-file fixture relies on the Unix filesystem hole semantics.
+#[cfg(all(test, unix))]
+mod position_tests;

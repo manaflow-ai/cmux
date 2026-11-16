@@ -16,6 +16,78 @@ struct Table {
     snapshot_held: bool,
 }
 
+type FamilyReply = ((String, bool), Vec<FamilyPage>);
+
+/// A small family-page fixture for mixed table/pager walks.  Each family ask
+/// has an explicit sequence of pages, so a test can model a table prefix
+/// followed by a pager rest (or a snapshot changing between asks) without
+/// coupling the client tests to the daemon's page splitter.
+struct Scripted {
+    replies: Vec<FamilyReply>,
+    asks: Vec<(String, bool)>,
+}
+
+impl Scripted {
+    fn new(replies: Vec<FamilyReply>) -> Self {
+        Self { replies, asks: Vec::new() }
+    }
+
+    fn page(rows: Vec<Summary>, cold_unread: bool, closure: bool) -> FamilyPage {
+        FamilyPage { rows, cold_unread, closure, deeper: Vec::new() }
+    }
+}
+
+impl Family for Scripted {
+    fn family(
+        &mut self,
+        root: &RowKey,
+        cold: bool,
+        each: &mut dyn FnMut(FamilyPage) -> ControlFlow<()>,
+    ) -> io::Result<()> {
+        let key = (root.chat_id.to_string(), cold);
+        self.asks.push(key.clone());
+        let Some((_, pages)) = self.replies.iter_mut().find(|(candidate, _)| *candidate == key)
+        else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("no scripted reply for {key:?}"),
+            ));
+        };
+        for page in pages.iter().map(|page| FamilyPage {
+            rows: page.rows.clone(),
+            cold_unread: page.cold_unread,
+            closure: page.closure,
+            deeper: page.deeper.clone(),
+        }) {
+            if each(page).is_break() {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn scripted_row(id: &str, parent: Option<&str>) -> Summary {
+    let mut row = Summary::new(id);
+    row.origin = "local".into();
+    row.parent = parent.map(|parent| RowKey::new("local", parent));
+    row
+}
+
+fn scripted_replies(cold: Vec<(&str, Vec<FamilyPage>)>) -> Vec<FamilyReply> {
+    let mut replies: Vec<FamilyReply> =
+        vec![(("root".into(), false), vec![Scripted::page(Vec::new(), true, false)])];
+    replies.extend(cold.into_iter().map(|(root, pages)| ((root.into(), true), pages)));
+    // Every cold row that is queued for a mixed walk must be askable.  The
+    // default hot answer is empty but advertises a cold snapshot part, as the
+    // daemon does when a snapshot is present.
+    let roots: Vec<String> = replies.iter().map(|((root, _), _)| root.clone()).collect();
+    for root in roots.into_iter().filter(|root| root != "root") {
+        replies.push(((root, false), vec![Scripted::page(Vec::new(), true, false)]));
+    }
+    replies
+}
+
 fn key(row: &Summary) -> RowKey {
     RowKey::new(row.origin.as_str(), row.chat_id.as_str())
 }
@@ -194,4 +266,105 @@ fn a_hot_only_walk_asks_no_cold_part_though_every_page_says_cold_unread() {
     let found = kin(&mut table, "root", 256, true).unwrap();
     assert_eq!(ids(&found), ["a", "g", "b", "d"]);
     assert!(table.asks.contains(&("root".to_owned(), true)));
+}
+
+/// A cold walk whose pages all carry the table's closure does not ask below
+/// each listed cold row.  `deeper` remains the only follow-up mechanism.
+#[test]
+fn a_table_closure_walk_makes_no_per_cold_row_asks() {
+    let cold_a = scripted_row("cold-a", Some("root"));
+    let cold_b = scripted_row("cold-b", Some("root"));
+    let mut list = Scripted::new(scripted_replies(vec![(
+        "root",
+        vec![Scripted::page(vec![cold_a], true, true), Scripted::page(vec![cold_b], true, true)],
+    )]));
+    let found = kin(&mut list, "root", 256, true).unwrap();
+    assert_eq!(ids(&found), ["cold-a", "cold-b"]);
+    assert_eq!(list.asks, [("root".to_owned(), false), ("root".to_owned(), true)]);
+}
+
+/// A table prefix lists a cold parent and the pager rest drops its grandchild.
+/// The mixed walk asks below the parent after the page sequence and recovers it.
+#[test]
+fn a_table_prefix_then_pager_rest_finds_cold_grandchild() {
+    let parent = scripted_row("parent", Some("root"));
+    let sibling = scripted_row("sibling", Some("root"));
+    let grandchild = scripted_row("grandchild", Some("parent"));
+    let mut list = Scripted::new(scripted_replies(vec![
+        (
+            "root",
+            vec![
+                // The table prefix lists the parent; the pager rest has only
+                // an unrelated sibling.  The grandchild is absent here.
+                Scripted::page(vec![parent], true, true),
+                Scripted::page(vec![sibling], true, false),
+            ],
+        ),
+        // The client must ask below the cold parent to recover the dropped
+        // grandchild after observing the pager page.
+        ("parent", vec![Scripted::page(vec![grandchild], true, true)]),
+        ("sibling", vec![Scripted::page(Vec::new(), false, false)]),
+        ("grandchild", vec![Scripted::page(Vec::new(), false, false)]),
+    ]));
+    let found = kin(&mut list, "root", 256, true).unwrap();
+    assert_eq!(ids(&found), ["parent", "sibling", "grandchild"]);
+    assert!(list.asks.contains(&("parent".to_owned(), true)));
+}
+
+/// An empty pager page can have dropped a grandchild from the root walk.
+/// Asking below the parent from the earlier table page still finds
+/// that grandchild, with no duplicate in the result.
+#[test]
+fn an_empty_pager_page_and_dropped_grandchild_are_recovered_by_parent_ask() {
+    let parent = scripted_row("parent", Some("root"));
+    let grandchild = scripted_row("grandchild", Some("parent"));
+    let mut list = Scripted::new(scripted_replies(vec![
+        (
+            "root",
+            vec![
+                // The table lists the parent, then a pager page has no row;
+                // the grandchild is deliberately dropped from this walk.
+                Scripted::page(vec![parent], true, true),
+                Scripted::page(Vec::new(), true, false),
+            ],
+        ),
+        ("parent", vec![Scripted::page(vec![grandchild], true, true)]),
+        ("grandchild", vec![Scripted::page(Vec::new(), false, false)]),
+    ]));
+    let found = kin(&mut list, "root", 256, true).unwrap();
+    assert_eq!(ids(&found), ["parent", "grandchild"]);
+    assert_eq!(found.iter().filter(|row| row.chat_id == "grandchild").count(), 1);
+    assert!(list.asks.contains(&("parent".to_owned(), true)));
+}
+
+/// If a pager serves the first page and a new table serves later root pages,
+/// the grandchild remains discoverable even when its position
+/// sorts inside the earlier pager pages.
+#[test]
+fn a_pager_first_then_table_later_snapshot_finds_sorted_grandchild() {
+    let mut parent = scripted_row("parent", Some("root"));
+    parent.last_activity = 2;
+    let mut grandchild = scripted_row("grandchild", Some("parent"));
+    grandchild.last_activity = 3;
+    let sibling = scripted_row("sibling", Some("root"));
+    let mut list = Scripted::new(scripted_replies(vec![
+        (
+            "root",
+            vec![
+                // The pager serves the first page with the parent.  A later
+                // table page contains a sibling, while the grandchild sorts
+                // inside the earlier pager range and is not listed.
+                Scripted::page(vec![parent], true, false),
+                Scripted::page(vec![sibling], true, true),
+            ],
+        ),
+        // The table becomes available for the follow-up ask under the parent
+        // after the pager served the root page.
+        ("parent", vec![Scripted::page(vec![grandchild], true, true)]),
+        ("sibling", vec![Scripted::page(Vec::new(), false, false)]),
+        ("grandchild", vec![Scripted::page(Vec::new(), false, false)]),
+    ]));
+    let found = kin(&mut list, "root", 256, true).unwrap();
+    assert_eq!(ids(&found), ["parent", "sibling", "grandchild"]);
+    assert!(list.asks.contains(&("parent".to_owned(), true)));
 }

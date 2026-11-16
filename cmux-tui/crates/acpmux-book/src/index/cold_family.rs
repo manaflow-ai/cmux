@@ -59,7 +59,6 @@ impl SummaryIndex {
             root,
             cold_before: self.cold_before(),
             after: anchor,
-            inclusive,
             limit,
             physical_bytes: super::snapshot::PAGE_BYTES,
             position,

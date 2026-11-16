@@ -163,6 +163,11 @@ fn assert_family(page: &IndexPage) {
         ]
     );
     assert!(!page.has_after);
+    // All eight kin, including both grandchildren, finish this walk in one
+    // table-served page. The client follows only deeper for a closure walk;
+    // this page therefore requires zero per-cold-row asks (decision 392).
+    assert!(page.closure);
+    assert!(page.deeper.is_empty());
 }
 
 fn sample_bytes(index: &SummaryIndex, root: &RowKey) -> usize {

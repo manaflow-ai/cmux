@@ -1215,6 +1215,28 @@ mod tests {
     }
 
     #[test]
+    fn cold_family_closure_defaults_off_and_old_readers_ignore_it() {
+        let old = serde_json::json!({"sid":"s","rows":[],"hasBefore":false,"hasAfter":false});
+        let mut page: PageResult<serde_json::Value> = serde_json::from_value(old).unwrap();
+        assert!(!page.closure);
+        assert!(serde_json::to_value(&page).unwrap().get("closure").is_none());
+        page.closure = true;
+        let value = serde_json::to_value(&page).unwrap();
+        assert_eq!(value.get("closure"), Some(&serde_json::Value::Bool(true)));
+        let decoded: PageResult<serde_json::Value> = serde_json::from_value(value.clone()).unwrap();
+        assert!(decoded.closure);
+        // Older PageResult decoders have no deny_unknown_fields annotation.
+        #[derive(Deserialize)]
+        struct OldPage {
+            sid: String,
+            rows: Vec<serde_json::Value>,
+        }
+        let decoded: OldPage = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.sid, "s");
+        assert!(decoded.rows.is_empty());
+    }
+
+    #[test]
     fn decoder_handles_chunks_and_rejects_oversized_frames() {
         let frame = Frame::json(FrameKind::Window, &serde_json::json!({"seq": 7})).unwrap();
         let encoded = frame.encode();

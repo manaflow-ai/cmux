@@ -74,9 +74,9 @@ pub struct Rows {
     pub unknown: Vec<ListKey>,
     /// A family read's hot part has kin in the snapshot's part (said on its last page).
     pub cold_unread: bool,
-    /// Every cold page in this family walk came from the ancestor-closure table.
+    /// This cold family page came entirely from the ancestor-closure table.
     pub closure: bool,
-    /// A family read's rows at the depth bound (64) that have hot children of their own.
+    /// Follow-up roots: depth-bound rows, or cold rows with hot children.
     pub deeper: Vec<ListKey>,
 }
 

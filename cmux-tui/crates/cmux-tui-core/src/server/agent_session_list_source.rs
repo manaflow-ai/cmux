@@ -121,9 +121,11 @@ pub(crate) struct FamilyPage {
     pub(crate) rows: Vec<Summary>,
     /// The hot part's kin go on in the snapshot's part.
     pub(crate) cold_unread: bool,
-    /// Every cold page in this family walk came from the table closure.
+    /// This cold page came from the table's ancestor closure.  If any page in
+    /// a walk lacks this marker, the caller asks under every cold row listed
+    /// by that walk after the pages finish.
     pub(crate) closure: bool,
-    /// Rows of this page at the depth bound that have hot children of their own.
+    /// Follow-up roots: depth-bound rows, or cold rows with hot children.
     pub(crate) deeper: Vec<RowKey>,
 }
 
@@ -173,15 +175,16 @@ impl Family for Source {
 /// (decisions 137 and 140), at most `max`, in the order the asks found them. Each ask is one
 /// `family` filter: its hot part, then its snapshot part when the hot part says `coldUnread`.
 /// The rows a hot part leaves out are asked for again under their own key: those under a row at
-/// the depth bound (`deeper`), and those under a cold row (a cold row's own kin, hot or cold, are
-/// in neither part of its parent's answer). A peer's row is never one, nor a row under one: v1's
+/// the depth bound (`deeper`), and cold rows with hot children. Pager walks also
+/// need asks under cold rows to find descendants beyond a cold parent. A peer's row is never one, nor a row under one: v1's
 /// readers (`agent_session_children::descendants`, `chief_work::family`) leave peers out.
 ///
-/// With `with_cold` false no snapshot part is asked, whatever a page says (decision 301): the
-/// hub says `coldUnread` whenever its snapshot is not empty, not when the key has cold kin, and
-/// a cold part is the snapshot's pager, read to its end at 256 KiB a request. So a hot-only
-/// read costs the hot kin alone, and a cold one about (closed rows / 400) requests a pass, for
-/// 1 + (cold rows found) passes.
+/// With `with_cold` false no snapshot part is asked, whatever a page says (decision 301). When
+/// the cold pages all carry `closure`, their ancestor table supplies the whole cold walk and
+/// only `deeper` rows are followed. A pager page, a table failure, or a mixed walk without
+/// closure queues every cold row listed by that walk for a follow-up ask, preserving the old
+/// conservative behavior. With no usable table, `coldUnread` remains the conservative
+/// indication that the snapshot is nonempty; a table can prove that the key has no cold kin.
 pub(crate) fn kin(
     list: &mut impl Family,
     root: &str,
