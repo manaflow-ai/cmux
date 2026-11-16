@@ -279,7 +279,8 @@ pub struct TerminalHostAdoption<'a> {
     /// daemon binary).
     pub host_binary: Option<PathBuf>,
     /// The wait for the PTY fence of the dead host, with its cancel
-    /// ([`PtyFenceWait`]). The default has no observer.
+    /// ([`PtyFenceWait`]): the owner keeps a clone and cancels the wait when
+    /// the terminal closes or the owner shuts down.
     pub fence_wait: PtyFenceWait,
 }
 
@@ -392,6 +393,18 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
     let record_path =
         crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
     let predecessor = predecessor(&record_path, &adoption.identity)?;
+    // A host that a signal ended lets go of its liveness lease a moment
+    // before its PTY fence. The replacement takes the fence in one try, so
+    // it starts only when the dead host let go of it (decision of
+    // 2026-11-16). A stopped host reads as live: no wait, and its fence
+    // refuses the replacement as before.
+    if let Some(dead) = &predecessor
+        && terminal_host_record_liveness(&record_path, dead).ok()
+            == Some(TerminalHostLiveness::Dead)
+        && !adoption.fence_wait.wait_released(&record_path, &terminal_hex, &incarnation.to_hex())?
+    {
+        anyhow::bail!("the wait for the PTY of the dead terminal host was cancelled");
+    }
     let options = adoption.options;
     let launch = HostLaunchAdopt {
         launch: HostLaunch {
