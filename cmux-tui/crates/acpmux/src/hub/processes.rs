@@ -123,10 +123,11 @@ impl ProcessTableMethods for ProcessTable {
     fn fold(
         &mut self,
         context: &ProcessContext,
-        params: &Value,
-        at: u64,
+        record: &EventRecord,
         output: Option<&str>,
     ) -> Option<Process> {
+        let params = record.msg.get("params").unwrap_or(&Value::Null);
+        let at = record.at;
         let update = params.get("update")?;
         let text = |k: &str| update.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
         let tool = text("toolCallId")?;
@@ -562,7 +563,7 @@ impl Hub {
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("in", "background_task_update") => {
                     let params = e.msg.get("params").unwrap_or(&Value::Null);
-                    table.fold(&context, params, e.at, None);
+                    table.fold(&context, &e, None);
                 }
                 ("mux", "process_update") => {
                     let process = e.msg.get("process").cloned().unwrap_or(Value::Null);
@@ -599,7 +600,7 @@ impl Hub {
             let mut table = self.process_table(session);
             let process = if rec.seq > table.through {
                 table.through = rec.seq;
-                table.fold(&context, params, rec.at, output)
+                table.fold(&context, rec, output)
             } else {
                 // The first read of the log folded this record already: its
                 // change is logged here, once. The log has no output file,
