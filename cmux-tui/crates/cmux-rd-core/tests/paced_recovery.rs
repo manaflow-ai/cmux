@@ -88,7 +88,7 @@ fn before(s: &Scenario) -> Vec<(u64, usize)> {
     let floor = s.target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
     let window = INTERVAL_US as f64 * 0.5;
     let mut out = Vec::new();
-    let mut spread = |from: u64, bytes: usize, out: &mut Vec<(u64, usize)>| {
+    let spread = |from: u64, bytes: usize, out: &mut Vec<(u64, usize)>| {
         let rate = floor.max(bytes as f64 / window);
         let burst = rate * BURST_US as f64;
         let mut sent = 0.0;
@@ -125,7 +125,8 @@ fn a_keyframe_and_its_repairs_through_a_shallow_bottleneck_lose_less_paced() {
     println!(
         "target_mbps keyframe_kb capacity_mbps buffer_ms | dropped before / paced | last delivered ms before / paced"
     );
-    let mut total = (0, 0);
+    // Drops on links the pacing rate fits (2.5 x target at most the capacity).
+    let mut fits = (0, 0);
     for s in &scenarios {
         let (old, new) = (before(s), paced(s));
         assert_eq!(old.len(), new.len(), "same datagrams");
@@ -140,13 +141,16 @@ fn a_keyframe_and_its_repairs_through_a_shallow_bottleneck_lose_less_paced() {
                 buf / 1000.0,
             );
             assert!(d_new <= d_old, "pacing lost more: {d_new} > {d_old}");
-            total.0 += d_old;
-            total.1 += d_new;
+            if s.target_bps as f64 * PACING_FACTOR <= cap {
+                fits.0 += d_old;
+                fits.1 += d_new;
+            }
         }
     }
-    println!("total dropped: before {} paced {}", total.0, total.1);
-    // At 2.5 x a target under half the capacity nothing is lost; before, the
-    // keyframe burst overflowed every one of these links.
-    assert_eq!(total.1, 0, "paced keyframe or repairs were dropped");
-    assert!(total.0 > 0);
+    println!("dropped where the pacing rate fits: before {} paced {}", fits.0, fits.1);
+    // Where 2.5 x the target fits the link, nothing paced is lost; before, the keyframe
+    // burst overflowed those links. (A 50 Mbps target on a 100 Mbps link paces above
+    // the capacity: there pacing only has to lose no more than before.)
+    assert_eq!(fits.1, 0, "paced keyframe or repairs were dropped");
+    assert!(fits.0 > 0);
 }
