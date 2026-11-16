@@ -151,16 +151,16 @@ probe() {
 # seed OUT SIDE: one more launch of SIDE's copy with SIDE's home, in which launch-ready-seed.py makes the stress3
 # session and quits with Keep Sessions. The probe ends when the app does; its 600 s settle is only a backstop.
 seed() {
-  local out="$1" side="$2" launch status
+  local out="$1" side="$2" launch status probed
   rm -f "$out/home-$side/app.sock" # the priming launch's: the seed waits for this launch's own socket
   probe "$out" "$side" seed 600 0 >"$out/seed-$side.probe" &
   launch=$!
   GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$out/home-$side/app.sock" \
     2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
   status=${PIPESTATUS[0]}
-  wait "$launch"
+  wait "$launch"; probed=$?
   cat "$out/seed-$side.probe"
-  [[ "$status" == 0 ]]
+  [[ "$status" == 0 && "$probed" == 0 ]]
 }
 
 # quiesce APP SIDE LABEL: before a launch, wait until no process of APP's previous run is left (the app and its

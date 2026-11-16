@@ -6,14 +6,17 @@
 SOCKET is the app's release control socket (launch-ready.swift starts the app with CMUX_NEXT_SOCKET_PATH
 HOME_ROOT/app.sock and CMUX_NEXT_SOCKET_MODE allowAll). Only release socket methods: `snapshot.get` and `action.run`.
 
-It opens windows until there are --windows (newWindow), then puts --workspaces workspaces in them, as evenly as it can,
-each made in its own window (workspace.newAtBottom aimed at `window:<id>`, a terminal each). Then it shows Home in
-the front window (home.show), as the small session's front is on its relaunches, so both sessions time the same
-front, and ends the app with Quit and Keep Sessions, so the next launch with the same home is a person's relaunch
-of a 3-window, 60-workspace session (cmuxterm-hq docs/design/launch-shell-first.md, stage 1).
+It opens windows until there are --windows (newWindow), then makes --workspaces workspaces (workspace.newAtBottom, a
+terminal each; the new id from the reply's `created`) and moves each to its window, as evenly as it can
+(moveWorkspaceToWindow, `workspace:<id>` with the `window` argument), reading the window's members back after each
+move. Then it shows Home in the front window (home.show acts on the active one), as the small session's front is
+on its relaunches, so both sessions time the same front. On every way out it ends the app with Quit and Keep
+Sessions, so the next launch with the same home is a person's relaunch of a 3-window, 60-workspace session
+(cmuxterm-hq docs/design/launch-shell-first.md, stage 1).
 
-Prints one `LR-SEED {json}` line: windows, workspaces per window, the front, how long it took, and `error` when the
-session it made is not that shape. Exit 0 when the shape holds, 1 when not, 2 when the socket never answered.
+Prints one `LR-SEED {json}` line: windows, this seed's workspaces in each window, the front, how long it took, and
+`error` when the session it made is not that shape. Exit 0 when the shape holds, 1 when not, 2 when the socket never
+answered.
 """
 import argparse, json, socket, sys, time
 
@@ -47,6 +50,74 @@ def wait(check, seconds, step=0.1):
     return None
 
 
+class Seed:
+    def __init__(self, path, windows, workspaces):
+        self.path, self.count, self.total = path, windows, workspaces
+        self.row = {"windows_asked": windows, "workspaces_asked": workspaces}
+        self.keys = {}
+
+    def topology(self):
+        reply = rpc(self.path, "snapshot.get", timeout=10)
+        return (reply.get("topology") or {}) if isinstance(reply, dict) and not reply.get("error") else {}
+
+    def window_ids(self):
+        return [w.get("id") for w in self.topology().get("windows") or [] if w.get("id")]
+
+    def members(self, window):
+        found = next((w for w in self.topology().get("windows") or [] if w.get("id") == window), {})
+        return set(found.get("workspaces") or [])
+
+    def action(self, name, target=None, args=None, timeout=60):
+        params = {"action": name, "origin": "script", "focus": True, "args": args or {}}
+        if target:
+            params["target"] = target
+        reply = rpc(self.path, "action.run", params, timeout=timeout)
+        if isinstance(reply, dict) and reply.get("error"):
+            raise RuntimeError(f"{name}{' ' + target if target else ''}: {str(reply['error'])[:200]}")
+        return reply if isinstance(reply, dict) else {}
+
+    def build(self):
+        """Raises RuntimeError naming the step that failed."""
+        windows = self.window_ids()
+        while len(windows) < self.count:
+            self.action("newWindow")
+            made = wait(lambda: next((w for w in self.window_ids() if w not in windows), None), 30)
+            if not made:
+                raise RuntimeError(f"newWindow made no window in 30 s (windows {windows})")
+            windows.append(made)
+        windows = windows[: self.count]
+        self.keys = {w.get("id"): w.get("key") or w.get("id") for w in self.topology().get("windows") or []}
+        ours = {w: set() for w in windows}
+        for index in range(self.total):
+            window = windows[index * len(windows) // self.total]
+            created = [c for c in self.action("workspace.newAtBottom").get("created") or [] if str(c).startswith("ws_")]
+            if len(created) != 1:
+                raise RuntimeError(f"workspace.newAtBottom (workspace {index + 1}) created {created}, not one workspace")
+            workspace = created[0]
+            if workspace not in self.members(window):
+                # The handler matches the window's model key (WindowState.id), which the target resolver also names it by.
+                self.action("moveWorkspaceToWindow", target=f"workspace:{workspace}",
+                            args={"window": f"window:{self.keys.get(window, window)}"})
+                if not wait(lambda: workspace in self.members(window), 10):
+                    raise RuntimeError(f"workspace {workspace} is not in window {window} 10 s after the move")
+            ours[window].add(workspace)
+        self.action("home.show")
+        final = self.topology()
+        listed = {w.get("id"): set(w.get("workspaces") or []) for w in final.get("windows") or []}
+        mine = set().union(*ours.values())
+        self.row.update(windows=len(listed), front=(final.get("focus") or {}).get("window"),
+                        ours_per_window=[len(listed.get(w, set()) & mine) for w in windows],
+                        members_per_window=[len(listed.get(w, set())) for w in windows])
+        problems = []
+        if len(listed) < self.count:
+            problems.append(f"{len(listed)} windows, not {self.count}")
+        if sum(self.row["ours_per_window"]) < self.total or min(self.row["ours_per_window"]) < self.total // self.count:
+            problems.append(f"this seed's workspaces per window {self.row['ours_per_window']}, not {self.total} spread "
+                            f"over {self.count}")
+        if problems:
+            raise RuntimeError("; ".join(problems))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("socket")
@@ -54,72 +125,22 @@ def main(argv=None):
     parser.add_argument("--workspaces", type=int, default=60)
     args = parser.parse_args(argv)
     started = time.monotonic()
-    row = {"windows_asked": args.windows, "workspaces_asked": args.workspaces}
-
-    def done(code, error=None):
-        if error:
-            row["error"] = error
-        row["seed_ms"] = round((time.monotonic() - started) * 1000)
-        print("LR-SEED " + json.dumps(row, sort_keys=True), flush=True)
-        return code
-
-    def topology():
-        reply = rpc(args.socket, "snapshot.get", timeout=10)
-        return (reply.get("topology") or {}) if isinstance(reply, dict) and not reply.get("error") else {}
-
-    def action(name, target=None, timeout=60):
-        params = {"action": name, "origin": "script", "focus": True}
-        if target:
-            params["target"] = target
-        return rpc(args.socket, "action.run", params, timeout=timeout)
-
-    def refused(reply):
-        return isinstance(reply, dict) and reply.get("error")
-
-    if not wait(lambda: topology().get("loaded") and topology().get("windows"), 120, 0.25):
-        return done(2, "the control socket never answered with a loaded topology and a window in 120 s")
-    windows = [w["id"] for w in topology()["windows"]]
-    while len(windows) < args.windows:
-        reply = action("newWindow")
-        if refused(reply):
-            return done(1, f"newWindow: {str(reply['error'])[:200]}")
-        made = wait(lambda: next((w["id"] for w in topology().get("windows") or [] if w["id"] not in windows), None), 30)
-        if not made:
-            return done(1, f"newWindow made no window in 30 s (windows {windows})")
-        windows.append(made)
-    windows = windows[: args.windows]
-    known = {w["id"] for w in topology().get("workspaces") or []}
-    made_in = {w: 0 for w in windows}
-    for index in range(args.workspaces):
-        window = windows[index * len(windows) // args.workspaces]
-        reply = action("workspace.newAtBottom", target=f"window:{window}")
-        if refused(reply):
-            return done(1, f"workspace.newAtBottom in {window} (workspace {index + 1}): {str(reply['error'])[:200]}")
-        fresh = wait(lambda: [w["id"] for w in topology().get("workspaces") or [] if w["id"] not in known], 30)
-        if not fresh:
-            return done(1, f"workspace {index + 1} never appeared in 30 s")
-        known.update(fresh)
-        made_in[window] += 1
-    reply = action("home.show", target=f"window:{windows[0]}")
-    if refused(reply):
-        return done(1, f"home.show: {str(reply['error'])[:200]}")
-    final = topology()
-    shown = {w["id"]: w for w in final.get("windows") or []}
-    row.update(windows=len(shown), made_per_window=list(made_in.values()),
-               workspaces=len([w for w in final.get("workspaces") or [] if (w.get("screens") or [])]),
-               members_per_window=[len(shown.get(w, {}).get("workspaces") or []) for w in windows],
-               front=(final.get("focus") or {}).get("window"), home_window=windows[0])
-    problems = []
-    if len(shown) < args.windows:
-        problems.append(f"{len(shown)} windows, not {args.windows}")
-    if row["workspaces"] < args.workspaces:
-        problems.append(f"{row['workspaces']} workspaces with a pane, not {args.workspaces}")
-    if any(count < args.workspaces // args.windows for count in row["members_per_window"]):
-        problems.append(f"a window lists fewer than {args.workspaces // args.windows} workspaces: {row['members_per_window']}")
-    time.sleep(1)  # measurement script: the session's save after the last change, before the quit
-    reply = rpc(args.socket, "action.run", {"action": "quitKeepSessions", "origin": "script"}, timeout=20)
-    row["quit"] = str(reply.get("error"))[:200] if refused(reply) else "ok"
-    return done(1 if problems else 0, "; ".join(problems) or None)
+    seed, code = Seed(args.socket, args.windows, args.workspaces), 0
+    if not wait(lambda: seed.topology().get("loaded") and seed.topology().get("windows"), 120, 0.25):
+        seed.row["error"], code = "the control socket never answered with a loaded topology and a window in 120 s", 2
+    else:
+        try:
+            seed.build()
+        except RuntimeError as error:
+            seed.row["error"], code = str(error), 1
+        finally:
+            time.sleep(1)  # measurement script: the session's save after the last change, before the quit
+            # The app may end before it answers; then the reply is a read error, not a refused quit.
+            reply = rpc(args.socket, "action.run", {"action": "quitKeepSessions", "origin": "script"}, timeout=20)
+            seed.row["quit"] = str(reply["error"])[:200] if isinstance(reply, dict) and reply.get("error") else "ok"
+    seed.row["seed_ms"] = round((time.monotonic() - started) * 1000)
+    print("LR-SEED " + json.dumps(seed.row, sort_keys=True), flush=True)
+    return code
 
 
 if __name__ == "__main__":
