@@ -153,7 +153,9 @@ public final class CEFEngine: BrowserEngine {
 
     /// Holds every Chromium start's `CefInitialize` until `gate` opens (the first window frame), so a
     /// framework `preload` mapped at launch never puts `CefInitialize` ahead of that frame (CMUX-571).
-    public func initializeAfter(_ gate: FirstFrameGate) {
+    /// nil holds nothing: a launch that wants Chromium ready before its first frame (its visible
+    /// restored pane is a Chromium chat) passes nil, and its start runs `CefInitialize` at once.
+    public func initializeAfter(_ gate: FirstFrameGate?) {
         CEFRuntime.shared.initializeAfter = gate
     }
 
