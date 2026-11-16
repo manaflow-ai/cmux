@@ -236,7 +236,8 @@ async fn collect_while_open(hub: &Arc<Hub>) {
     let mut done = std::collections::BTreeSet::new();
     loop {
         let pass = collect(hub, &mut done).await;
-        tracing::info!(pinned = %pass.get("pinned").unwrap_or(&Value::Null), "consent: enrollment collection pass");
+        let pinned = pass.get("pinned").cloned().unwrap_or_default();
+        tracing::info!(%pinned, "consent: enrollment collection pass");
         let now = crate::store::now_ms();
         let open = with_authority(move |authority| consent_grant::window_open(authority, now))
             .await
