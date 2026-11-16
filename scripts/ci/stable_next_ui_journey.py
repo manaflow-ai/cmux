@@ -298,8 +298,8 @@ def journey(process, socket_path, env, app, out, report) -> list[str]:
     return Journey(process, Path(socket_path), env, Path(app), Path(out) if out else None, report).run()
 
 
-# The fresh home's login keychain (fresh_home_launch_smoke.login_keychain); projection_check.py and
-# relaunch_restore_check.py reach it as ui.login_keychain.
+# The fresh home's login keychain (fresh_home_launch_smoke.login_keychain). Callers that load the smoke
+# themselves call theirs: this module loads its own copy, whose CannotRun their main does not catch.
 login_keychain = smoke.login_keychain
 
 
