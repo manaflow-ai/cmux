@@ -16,7 +16,14 @@ The sources of the acts, and their limits (each row says which it used):
            launcher's usual launch (the app never takes the keyboard) and each key-down is one call at its time by
            this script's clock, into a window that is not key; that form has no repeat flag, so a film with a held
            key is `not_run` in it. `auto` (the default) = `activate`, and if its preflight fails, one new launch as
-           `one-key`. Each launch and each film's row say the form.
+           `one-key`. Each launch and each film's row say the form. The launcher starts the app's binary directly,
+           and on a display Mac such a process did not become the active app; so the `activate` form then asks
+           LaunchServices one time (`open BUNDLE`, as a click on the Dock icon of an app that runs), and `PREFLIGHT activate:`
+           says what made the app active (`by=launch`, `open`, `none`), which app is frontmost, and which
+           instances of the app run. With `by=none` the `activate` form is not run (`forms_not_run` in the report
+           and in each row that is not of that form) and `one-key` is next. A second instance after the open ends
+           that launch and each launch after it; it gets one SIGTERM if launchd started it, so it does not stay in
+           the session of the Mac.
   pointer  `debug.mouse`: mouse events on the app's own queue, one request for each step of a drag, paced by this
            script; the system pointer does not move in the film. The row has the step rate of the app's input journal.
   action   `action.run`, for an act with no default key; its label says so.
@@ -33,10 +40,14 @@ The virtual display of the entry script is 1x: a film has 1 pixel for each point
 The preflight: directly after each launch and before the session is made, one of each thing that a film needs runs
 in a workspace of its own and is read back (`preflight`, 2 minutes at most): the display link's frames, the
 recorder's frames, one new tab and its close, one split, one zoom in and out, each key as a film sends it. One that
-the app refuses, or that changes nothing, prints the app's own words (`PREFLIGHT <name> FAILED: ...`) and ends that
-launch; with no other launch form left the run ends at once with exit 1. So a fault of the key path costs minutes,
-not a session and a list of films with no motion in them. In a film, a key or an action that the app refuses makes
-the film `not_run` with the app's words.
+the app refuses, or that changes nothing, prints the app's own words (`PREFLIGHT <name> FAILED: ...`, with what the
+app said of the key) and ends that launch; with no other launch form left the run ends at once with exit 1. So a
+fault of the key path costs minutes, not a session and a list of films with no motion in them. The zoom is the one
+check that does not end the launch, and the 2 minutes do not count it: its key is sent after the split's new pane is
+settled, and if the key changes nothing, the zoom is made by `action.run toggleSplitZoom`; each film with a zoom then
+says `zoom by action.run, not by a key` in its row and in its `keys` words. If the action changes nothing too, only
+the films with a zoom are `not_run`. In a film, a key or an action that the app refuses makes the film `not_run`
+with the app's words.
 
   pane-motion-films.py --app <cmux DEV tag.app> --films kinds [--workspaces N --live-shells K] --out DIR
   pane-motion-films.py --films list
@@ -45,7 +56,7 @@ the film `not_run` with the app's words.
 made; 2 = some are made and some are not; 1 = the preflight failed, or no film is made; 3 = not run (no app, an id
 that is not known).
 """
-import argparse, importlib.util, json, os, re, shutil, subprocess, sys, threading, time, traceback
+import argparse, importlib.util, json, os, platform, re, shutil, signal, subprocess, sys, threading, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NEXT = os.path.join(HERE, "..", "cmux-next")
@@ -62,6 +73,7 @@ KEY = {"d": 2, "h": 4, "x": 7, "c": 8, "b": 11, "w": 13, "r": 15, "t": 17, "1": 
 MODIFIERS = ("ctrl", "opt", "shift", "cmd")
 NAMES = {"return": "Enter", "`": "backtick", "=": "=", "-": "-"}
 ONE_KEY = "one key for each call, no repeat flag, the script's clock"
+ZOOM_CHORD, ZOOM_ACTION, BY_ACTION = "cmd+shift+return", "toggleSplitZoom", "zoom by action.run, not by a key"
 LAUNCH_FORMS = {"auto": ["activate", "one-key"], "activate": ["activate"], "one-key": ["one-key"]}
 PREFLIGHT_S = 120
 LEAD_S, MIN_FILM_S, TAKE_S = 1.0, 4.5, 30
@@ -97,7 +109,7 @@ def film(ident, title, setup, acts, **more):
     return {"id": ident, "title": title, "setup": setup, "acts": acts, **more}
 
 
-ZOOM = [K("cmd+shift+return"), W(1.6), K("cmd+shift+return")]
+ZOOM = [K(ZOOM_CHORD), W(1.6), K(ZOOM_CHORD)]
 CANVAS, CANVAS_OFF = [K("ctrl+cmd+c"), W(1.2)], [K("ctrl+cmd+c"), W(0.6)]
 FILMS = [made for kind in "TBAM" for made in (
     film(f"{kind}-D", f"Cmd-D on {KINDS[kind]}", kind, [K("cmd+d")]),
@@ -178,7 +190,7 @@ def send_keys(rpc, form, chord, key_window="shell", presses=1, gap_ms=250, repea
         if "error" not in said:
             time.sleep((said.get("duration_ms") or 0) / 1000 + 0.05)  # the sequence plays in the app for this long
         return said
-    said = {"key_source": ONE_KEY, "key_window": key_window, "handled_by": []}
+    said = {"key_source": ONE_KEY, "key_window": key_window, "handled_by": [], "trace": []}
     if repeats:
         return {**said, "error": "a held key needs the key sequence of the `activate` launch form: this form has no repeat"}
     names, start = chord.split("+"), time.monotonic()
@@ -187,16 +199,39 @@ def send_keys(rpc, form, chord, key_window="shell", presses=1, gap_ms=250, repea
         time.sleep(max(0.0, start + i * gap_ms / 1000 - time.monotonic()))  # key-down to key-down, as the sequence
         reply = rpc("debug.key", {"key": key, "modifiers": mods, **({"target": "page"} if key_window == "page" else {})})
         reply = reply if isinstance(reply, dict) else {"error": f"debug.key: {reply}"}
+        said["handled_by"].append(f"{reply.get('handled_by')}: {reply.get('action')}")
+        said["trace"] += [str(line)[:160] for line in (reply.get("trace") or [])[:6]]
         # `refused_action`: the app took the key for that action and the action did not run.
         error = reply.get("error") or (reply.get("refused_action") and f"the app did not run {reply['refused_action']}")
         if error:
             return {**said, "error": str(error)}
-        said["handled_by"].append(f"{reply.get('handled_by')}: {reply.get('action')}")
     return {**said, "duration_ms": round((time.monotonic() - start) * 1000, 1)}
 
 
-def label(act):
-    """The words of one act for the film's bar, or "" for a wait."""
+def app_said(said):
+    """What the app answered to the keys of one `send_keys` call, for a PREFLIGHT line. A key sequence plays after
+    its call returns, so the app says of it only that it is scheduled."""
+    if "handled_by" in said:
+        return f"the app's reply to each key (handled_by: action) = {said['handled_by']}, trace = {said.get('trace') or []}"
+    return "a key sequence, " + ", ".join(f"{k} = {said[k]}" for k in ("scheduled", "key_window", "duration_ms") if k in said)
+
+
+def dry_run(rpc, chord):
+    """What the app's key router would do with the first key of `chord` (`debug.key` with `dry_run`: nothing runs),
+    for the FAILED line of a key sequence: the app says of a sequence only that it is scheduled."""
+    names = chord.split("+")
+    try:
+        reply = rpc("debug.key", {"key": names[-1].split(",")[0], "modifiers": [{"opt": "option"}.get(n, n) for n in names if n in MODIFIERS], "dry_run": True})
+    except Exception as error:  # noqa: BLE001  a fault of this read must not hide the fault that it is for
+        reply = f"not read: {error!r}"
+    return f"a dry run of the key (the key router's decision; nothing runs) = {(json.dumps(reply, default=str) if isinstance(reply, dict) else str(reply))[:400]}"
+
+
+def label(act, zoom="key"):
+    """The words of one act for the film's bar, or "" for a wait. With `zoom` = BY_ACTION the zoom key is not sent:
+    the words say what makes the zoom."""
+    if act[0] == "keys" and act[1] == ZOOM_CHORD and zoom == BY_ACTION:
+        return f"action {ZOOM_ACTION} ({BY_ACTION})"
     if act[0] == "keys":
         _, chord, presses, _, hold = act
         names = chord.split("+")
@@ -242,6 +277,10 @@ class PreflightFailed(RuntimeError):
     pass
 
 
+class SecondInstance(PreflightFailed):
+    """A second instance of the app runs after the LaunchServices open: no other launch form, no film."""
+
+
 def place(app):
     """The `activate` form: the app reads no window placement at its launch, so the window gets the launcher's frame
     (its x, y from the top left of the main screen's visible frame) here. Returns the frame, or why not."""
@@ -255,35 +294,140 @@ def place(app):
     return reply.get("frame") if isinstance(reply, dict) and reply.get("frame") else f"not placed: {str(reply)[:160]}"
 
 
+def front_app():
+    """The frontmost app of this session by LaunchServices (`lsappinfo front`, then its name and its pid), or the
+    tool's own words when it gives none."""
+    try:
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, errors="replace", timeout=5).stdout.strip()
+        name, pid = (subprocess.run(["/usr/bin/lsappinfo", "info", "-only", only, asn], capture_output=True, text=True, errors="replace",
+                                    timeout=5).stdout.strip() for only in ("name", "pid"))
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        return f"not read ({str(error)[:80]})"
+    named, numbered = re.search(r'=\s*"([^"]*)"', name), re.search(r'"?pid"?\s*=\s*(\d+)', pid)
+    return f"{named.group(1) if named else (name or asn)[:60] or 'none'} (pid {numbered.group(1) if numbered else 'not read'})"
+
+
+def instances(binary):
+    """The running instances of the app `binary`, as {pid: (its parent's pid, the first 120 characters of its
+    command)}: each process of that exact path that is not a child of another process of it (LaunchServices starts an
+    instance under launchd, pid 1; this run's instance is a child of this script). None when `ps` gave no list (no
+    answer in 10 s, an exit that is not 0, words that do not parse): that fault is printed, and the caller then
+    counts nothing and sends no signal."""
+    try:
+        done = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True, errors="replace", timeout=10)
+        if done.returncode:
+            raise OSError(f"exit {done.returncode}: {done.stderr.strip()[:120]}")
+        paths = {binary, os.path.realpath(binary)}
+        rows = (line.split(None, 2) for line in done.stdout.splitlines())
+        own = {int(row[0]): (int(row[1]), row[2][:120]) for row in rows
+               if len(row) == 3 and any(row[2] == path or row[2].startswith(path + " ") for path in paths)}
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        print(f"PREFLIGHT activate: ps gave no list of the app's instances: {str(error)[:200]}", flush=True)
+        return None
+    return {pid: row for pid, row in sorted(own.items()) if row[0] not in own}
+
+
+def activate(app, form):
+    """Prints `PREFLIGHT activate: by=... app_active=... key_window=... front=... instances=N (pids [...])` and
+    returns it; then one line for each instance (its parent and its command). The launcher starts the app's binary
+    directly, and on a display Mac such a process did not become the active app. So in the `activate` form, if the
+    app is not active after its launch: ONE LaunchServices open of the bundle (`open BUNDLE`; for an app that runs,
+    the open makes that instance the active app, as a click on its Dock icon does; close-flash-bench.py activates its
+    app the same way), then 10 s for `app_active`. `by` = `launch` (active with no open), `open`, `none` (not
+    active: the whole `debug.focus` reply is printed, and PreflightFailed with the line), `not asked` (the `one-key`
+    form: its launch never takes the keyboard). A `ps` that gives no list is `instances=not read`: it ends nothing.
+
+    A second instance: a pid in the list after the open that was not in the list before it and is not the process
+    of this launch. It raises SecondInstance with the line: the run ends there, and no film is made with an app on
+    the display that is not this run's. Such a pid gets ONE SIGTERM from this function (no other signal, no second
+    try) only when the list before the open was read, the process of this launch was in it (so the list is proven),
+    and the pid's parent is pid 1 (what LaunchServices starts): it would stay in the session after the run. In each
+    other case the line says `SIGTERM not sent` with the cause. Not of this function: at the end of each launch the
+    launcher's stop ends each process of this bundle path that still runs (SIGTERM, then SIGKILL), as it always did."""
+    focus = lambda: (lambda reply: reply if isinstance(reply, dict) else {})(app.rpc("debug.focus"))
+    own = getattr(getattr(app, "process", None), "pid", None)
+    by, asked, before = "not asked", False, None
+    if form == "activate":
+        by = "launch"
+        if not focus().get("app_active"):
+            asked, before = True, instances(app.binary)
+            try:
+                opened = subprocess.run(["/usr/bin/open", app.app], capture_output=True, text=True, errors="replace", timeout=30)
+                if opened.returncode:
+                    print(f"PREFLIGHT activate: open exit {opened.returncode}: {opened.stderr.strip()[:200]}", flush=True)
+            except (OSError, subprocess.SubprocessError, ValueError) as error:
+                print(f"PREFLIGHT activate: open did not run: {str(error)[:200]}", flush=True)
+            by = "open" if STRESS.wait(lambda: focus().get("app_active"), 10, step=0.25) else "none"
+    seen, front = focus(), front_app()  # the front app first: the list of instances is then new when a signal goes
+    running = instances(app.binary)
+    listed = lambda table: "not read" if table is None else sorted(table)
+    inner = ([f"pids {listed(running)}"] if running is not None else []) + ([f"before the open: {listed(before)}"] if asked else [])
+    line = (f"PREFLIGHT activate: by={by} app_active={str(bool(seen.get('app_active'))).lower()} key_window={seen.get('key_window') or 'none'} "
+            f"front={front} instances={'not read' if running is None else len(running)}" + (f" ({'; '.join(inner)})" if inner else ""))
+    print(line, flush=True)
+    for pid, (parent, command) in (running or {}).items():
+        print(f"PREFLIGHT activate: instance pid {pid}: parent {parent}, command {command}", flush=True)
+    new = [pid for pid in (running or {}) if pid not in (before or {}) and pid != own] if asked else []
+    if new:
+        unproven = ("the list before the open was not read" if before is None
+                    else f"the launched pid {own} was not in the list before the open" if own not in before else "")
+        ended = []
+        for pid in new:
+            parent, command = running[pid]
+            why = unproven or (f"its parent is pid {parent}, not pid 1" if parent != 1 else "")
+            if not why:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError as error:
+                    why = str(error)[:80]
+            ended.append(f"pid {pid} (parent {parent}, command {command}): SIGTERM {f'not sent ({why})' if why else 'sent'}")
+        stop = f"a second instance of the app runs after the open; one SIGTERM to each one that launchd started: {'; '.join(ended)}; the run ends here"
+        print("PREFLIGHT activate: " + stop, flush=True)
+        raise SecondInstance(f"{line}: {stop}")
+    if by == "none":
+        print("PREFLIGHT activate: debug.focus = " + json.dumps(seen, default=str)[:2000], flush=True)
+        raise PreflightFailed(line)
+    return line
+
+
 def preflight(app, st, out, mbps, form, display):
     """One of each thing that a film needs, in a workspace of its own, each read back: `frames`, `record`, `new-tab`,
     `close-tab`, `split`, `zoom`, the keys in the launch's key form. Prints the state of the launch, then
-    `PREFLIGHT <name> ok: <what was read>` for each, then returns the display link's reply; the first that fails
-    prints the app's words, `debug.focus` and the window's frame, and raises. PREFLIGHT_S at most."""
+    `PREFLIGHT <name> ok: <what was read>` for each, then returns (the display link's reply, what makes a zoom); the
+    first that fails prints the app's words, `debug.focus` and the window's frame, and raises. The zoom does not
+    raise: it is "key", else BY_ACTION (the key changed nothing and `action.run` did), else "none: <why>". PREFLIGHT_S
+    at most for the checks that can end the launch; the settle wait and the zoom are after that bound and have their
+    own (so a slow zoom costs only the films with a zoom)."""
     rpc, began, name = app.rpc, time.monotonic(), "launch"
 
-    def wait(test, bound, step):
-        return STRESS.wait(test, max(0.2, min(bound, began + PREFLIGHT_S - time.monotonic())), step=step)
+    def wait(test, bound, step, cut=True):
+        """`cut`: the bound ends with the preflight's PREFLIGHT_S."""
+        return STRESS.wait(test, max(0.2, min(bound, began + PREFLIGHT_S - time.monotonic())) if cut else bound, step=step)
 
-    def fail(said):
-        late = f" (the preflight's {PREFLIGHT_S} s are over)" if time.monotonic() - began > PREFLIGHT_S else ""
-        print(f"PREFLIGHT {name} FAILED: {str(said)[:400]}{late}", flush=True)
+    def failed(said):
+        late = f" (the preflight's {PREFLIGHT_S} s are over)" if name not in ("settle", "zoom") and time.monotonic() - began > PREFLIGHT_S else ""
+        print(f"PREFLIGHT {name} FAILED: {str(said)[:1200]}{late}", flush=True)
         print("PREFLIGHT focus: " + json.dumps(rpc("debug.focus"))[:2000], flush=True)
         print("PREFLIGHT window: " + json.dumps(rpc("debug.window_frame", {}))[:600], flush=True)
-        raise PreflightFailed(f"{name}: {str(said)[:300]}")
+        return f"{name}: {str(said)[:300]}"
+
+    def fail(said):
+        raise PreflightFailed(failed(said))
 
     def ok(said):
         print(f"PREFLIGHT {name} ok: {said}", flush=True)
 
-    def key(chord, read, want, unit):
-        """One chord as a film sends it; `read()` must become `want` in 10 s."""
+    def key(chord, read, want, unit, must=True):
+        """One chord as a film sends it; `read()` must become `want` in 10 s. Returns "" when it did; when it did
+        not: raises with `must`, else prints the same lines and returns the fault."""
         before = read()
         said = send_keys(rpc, form, chord)
-        if said.get("error"):
-            fail(said["error"])
-        if not wait(lambda: read() == want(before), 10, 0.05):
-            fail(f"{unit} {before} -> {read()} in 10 s, not {want(before)}")
-        ok(f"{unit} {before} -> {read()}")
+        fault = said.get("error") or (not wait(lambda: read() == want(before), 10, 0.05, cut=must) and f"{unit} {before} -> {read()} in 10 s, not {want(before)}")
+        if fault:
+            fault = f"{fault}; {app_said(said)}" + (f"; {dry_run(rpc, chord)}" if form == "activate" else "")
+            return fail(fault) if must else failed(fault)
+        ok(f"{unit} {before} -> {read()}; {app_said(said)}")
+        return ""
 
     focus = rpc("debug.focus")
     focus = focus if isinstance(focus, dict) else {}
@@ -324,21 +468,51 @@ def preflight(app, st, out, mbps, form, display):
     zoomed = lambda: sum(1 for s in (st.workspace(workspace) or {}).get("screens") or [] if s.get("zoomed_pane"))
     for name, chord, count, want, unit in (
             ("new-tab", "cmd+t", tabs, lambda n: n + 1, "tabs"), ("close-tab", "cmd+w", tabs, lambda n: n - 1, "tabs"),
-            ("split", "cmd+d", panes, lambda n: n + 1, "panes"), ("zoom", "cmd+shift+return", zoomed, lambda n: 1, "zoomed panes"),
-            ("zoom", "cmd+shift+return", zoomed, lambda n: 0, "zoomed panes")):
+            ("split", "cmd+d", panes, lambda n: n + 1, "panes")):
         key(chord, count, want, unit)
+    # The bound is for the checks above, which can end the launch. The settle wait and the zoom are after it.
+    name, spent = "time", time.monotonic() - began
+    if spent > PREFLIGHT_S:
+        fail(f"each check before the zoom passed, in {spent:.0f} s")
+    # A film zooms a layout that is made and settled. So the zoom key waits for the split's new pane: 2 reads with
+    # the same panes, each with a tab, none of them the app's stand-in for a tab that the daemon does not have yet.
+    name, waited = "settle", time.monotonic()
+    shape = lambda: [(p.get("id"), [t.get("id") for t in p.get("tabs") or []]) for p in st.panes(st.workspace(workspace))]
+
+    def still():
+        one = shape()
+        if not all(tabs and not any(str(t).startswith(STRESS.PROVISIONAL_TAB) for t in tabs) for _, tabs in one):
+            return None
+        time.sleep(0.3)  # between the 2 reads
+        return one if shape() == one else None
+    settled = wait(still, 15, 0.1, cut=False)
+    print(f"PREFLIGHT settle {'ok' if settled else 'not reached in 15 s (the zoom key is sent now)'}: {len(shape())} panes, "
+          f"{time.monotonic() - waited:.1f} s after the split" + ("" if settled else f"; the panes and their tabs = {shape()}"[:700]), flush=True)
+    name, zoom = "zoom", "key"
+    turn = lambda n: 0 if n else 1
+    fault = key(ZOOM_CHORD, zoomed, turn, "zoomed panes", must=False) or key(ZOOM_CHORD, zoomed, turn, "zoomed panes", must=False)
+    if fault:
+        # The key changed nothing: the same motion by the action, on the pane that has the focus in this window.
+        zoom, target = BY_ACTION, (st.window_showing(workspace) or {}).get("focused_pane")
+        for _ in range(2):
+            before = zoomed()
+            reply = st.action(ZOOM_ACTION, target=f"pane:{target}" if target else None)
+            refusal = isinstance(reply, dict) and reply.get("error")
+            if refusal or not wait(lambda: zoomed() == turn(before), 10, 0.05, cut=False):
+                unchanged = f"zoomed panes {before} -> {zoomed()} in 10 s, not {turn(before)}; the action's reply = {json.dumps(reply, default=str)[:300]}"
+                zoom = "none: " + failed(f"by action.run also: {refusal or unchanged}; the key: {fault}")
+                break
+            ok(f"zoomed panes {before} -> {zoomed()}, {BY_ACTION}")
     st.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
     st.made.clear()
-    name = "time"
-    if time.monotonic() - began > PREFLIGHT_S:
-        fail(f"each check passed, in {time.monotonic() - began:.0f} s")
-    print(f"PREFLIGHT passed: frames, record, new-tab, close-tab, split, zoom in {time.monotonic() - began:.0f} s", flush=True)
-    return link
+    print(f"PREFLIGHT passed: frames, record, new-tab, close-tab, split in {spent:.0f} s; zoom = {zoom[:200]}", flush=True)
+    return link, zoom
 
 
 class Films:
     def __init__(self, app, opts, mock, form):
         self.app, self.opts, self.mock, self.form = app, opts, mock, form
+        self.zoom = "key"  # the preflight's word: "key", BY_ACTION, or "none: <why>"
         self.st = STRESS.Stress(app.rpc)
         self.program = redraw_program(opts.program)
         self.main_window = next(iter(self.windows()), None)
@@ -470,8 +644,14 @@ class Films:
             if act[0] == "wait":
                 time.sleep(act[1])  # the pause between 2 acts of the film
                 continue
-            row = {"label": label(act), "at_s": round(time.monotonic() - clock, 3)}
-            if act[0] == "keys":
+            row = {"label": label(act, self.zoom), "at_s": round(time.monotonic() - clock, 3)}
+            if act[0] == "keys" and act[1] == ZOOM_CHORD and self.zoom == BY_ACTION:
+                # The preflight's zoom key changed nothing in this launch: the zoom of the film's focused pane by the action.
+                reply = self.st.action(ZOOM_ACTION, target=f"pane:{focus}")
+                row["zoom"] = BY_ACTION
+                if isinstance(reply, dict) and reply.get("error"):
+                    row["error"] = str(reply["error"])[:160]
+            elif act[0] == "keys":
                 _, chord, presses, gap, hold = act
                 # "tabs": the key-down and its repeats close all but 2 tabs of the pane, so the pane stays.
                 delay, every = self.opts.repeat_delay_ms, max(self.opts.repeat_ms, 1)
@@ -497,12 +677,16 @@ class Films:
     def take(self, spec):
         """One film: the row for films.json."""
         st, rpc, opts = self.st, self.app.rpc, self.opts
+        zooms = any(act[0] == "keys" and act[1] == ZOOM_CHORD for part in ("pre", "acts", "post") for act in spec.get(part, ()))
         row = {"id": spec["id"], "title": spec["title"], "setup": spec["setup"], "status": "not_run", "crop": spec.get("crop", "window"),
-               "keys": ", ".join(filter(None, (label(a) for a in spec["acts"]))), "agent_page_mock": self.mock, "launch_form": self.form}
+               "keys": ", ".join(filter(None, (label(a, self.zoom) for a in spec["acts"]))), "agent_page_mock": self.mock, "launch_form": self.form,
+               **({"zoom": self.zoom[:400]} if zooms else {})}
         workspaces, windows = {w["id"] for w in st.workspaces()}, self.windows()
         try:
             if self.left() < 90:
                 raise RuntimeError("no time left in the step")
+            if zooms and self.zoom not in ("key", BY_ACTION):
+                raise RuntimeError(f"the preflight's zoom changed nothing, by the key and by action.run: {self.zoom}")
             if spec["setup"] in MOCK_SETUPS and not self.mock:
                 raise RuntimeError("this launch has the page mock off: a chat thread streams only under the mock")
             workspace, panes, streams = self.build(spec, row)
@@ -620,6 +804,11 @@ def main():
     report = {"films": [], "failures": [], "launches": [], "limits": LIMITS, "key_repeat_ms": [opts.repeat_delay_ms, opts.repeat_ms], "mbps": opts.mbps,
               "alt_screen": "not read: no debug call says if a terminal is on its alternate screen"}
     forms = list(LAUNCH_FORMS[opts.launch_form])
+    try:
+        report["host"] = f"macOS {platform.mac_ver()[0] or 'not read'}, {platform.machine()}, python {platform.python_version()}"
+    except Exception as error:  # noqa: BLE001  a line for a reader of the log: its fault must not end the run before a film
+        report["host"] = f"not read ({error!r})"
+    print("PREFLIGHT host: " + report["host"], flush=True)
     for mock, idents in plan:
         if not idents:
             continue
@@ -634,11 +823,11 @@ def main():
                     launch_films(opts, mock, idents, report, began, forms[0])
                     break
                 except (PreflightFailed, bench_launch.LaunchError) as error:
-                    if len(forms) == 1:
+                    if len(forms) == 1 or isinstance(error, SecondInstance):
                         raise
                     # This launch again, and each launch after it, in the next form.
                     print(f"PREFLIGHT next form: {forms[1]} (the {forms[0]} form failed: {getattr(error, 'reason', error)})", flush=True)
-                    forms.pop(0)
+                    report.setdefault("forms_not_run", {})[forms.pop(0)] = str(getattr(error, "reason", error))
         except PreflightFailed as error:  # its PREFLIGHT lines are printed: no session, no film, no other launch
             reason = report["preflight_failed"] = f"the preflight failed (launch form {forms[0]}): {error}"
         except bench_launch.LaunchError as error:  # the launcher printed its BENCH-LAUNCH line
@@ -649,8 +838,13 @@ def main():
         if reason:
             report["failures"].append(f"page mock {'on' if mock else 'off'}: {reason}")
         done = {row["id"] for row in report["films"]}
-        report["films"] += [{"id": i, "status": "not_run", "agent_page_mock": mock, "reason": reason[:400]} for i in idents if i not in done]
+        report["films"] += [{"id": i, "status": "not_run", "agent_page_mock": mock, "reason": reason[:800]} for i in idents if i not in done]
     report["launch_form"] = forms[0]
+    for row in report["films"]:
+        # Why this film is not a film of that form, in the app's or the check's words; not on a film that is of that form.
+        other = {form: why for form, why in report.get("forms_not_run", {}).items() if row.get("launch_form") != form}
+        if other:
+            row["forms_not_run"] = other
     with open(os.path.join(opts.out, "films.json"), "w") as f:
         json.dump(report, f, indent=1)
     made = sum(1 for r in report["films"] if r["status"] == "made")
@@ -673,9 +867,11 @@ def launch_films(opts, mock, idents, report, began, form):
         maker = Films(app, opts, mock, form)
         report["redraw_program"], report["stream_program"] = maker.program[0], "ping"
         try:
+            facts["activate"] = activate(app, form)
             if form == "activate":
                 facts["window"] = place(app)
-            link = preflight(app, maker.st, opts.out, opts.mbps, form, opts.display)
+            link, maker.zoom = preflight(app, maker.st, opts.out, opts.mbps, form, opts.display)
+            facts["zoom"] = maker.zoom
         except PreflightFailed as error:
             facts["preflight"] = f"failed: {error}"
             raise
