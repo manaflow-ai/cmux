@@ -65,7 +65,8 @@ pub fn asked(auth: crate::server::ConnAuth, control: Control, params: &Value) ->
     auth.peer_daemon()
         && owner(auth, control, params)
         && (params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true))
-            || named_approve_all(params))
+            || (params.pointer("/_meta/acpmux/vmBoundary") != Some(&Value::Bool(false))
+                && named_approve_all(params)))
 }
 
 /// Whether a forwarded start explicitly carries the full-access policy. The policy is accepted
@@ -290,6 +291,7 @@ mod tests {
             json!({"_meta": {"acpmux": {"policy": "workspace-write"}}}),
             json!({"policy": 42}),
             json!({"policy": "approve-all", "_meta": {"acpmux": {"policy": "ask"}}}),
+            json!({"policy": "approve-all", "_meta": {"acpmux": {"vmBoundary": false}}}),
         ] {
             assert!(!asked(ConnAuth::PeerToken, Control::Peer, &params), "{params}");
         }
