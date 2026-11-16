@@ -6,7 +6,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// Reads this Mac's cursor shape for ``ScreenCursorShape``: the image every
-/// app sees (`NSCursor.currentSystemCursor`), only when the window server's
+/// app sees (`NSCursor.currentSystem`), only when the window server's
 /// cursor seed changes (the private `CGSCurrentCursorSeed`, looked up at run
 /// time; without it, at most every ``fallbackInterval``). A shape that did
 /// not change costs one seed read.
@@ -60,7 +60,7 @@ final class ScreenCursorReader {
     }
 
     @MainActor static func renderCurrent(on display: CGRect) -> Rendered? {
-        guard let cursor = NSCursor.currentSystemCursor else { return nil }
+        guard let cursor = NSCursor.currentSystem else { return nil }
         let size = cursor.image.size
         guard size.width > 0, size.height > 0 else { return nil }
         let scale = min(backingScale(of: display), CGFloat(ScreenCursorShape.maxSide) / max(size.width, size.height))
