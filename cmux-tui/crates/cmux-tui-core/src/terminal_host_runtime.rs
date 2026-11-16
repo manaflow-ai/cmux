@@ -7276,6 +7276,26 @@ mod unix {
         }
 
         #[test]
+        fn termination_reads_the_exit_of_a_host_that_already_ended() {
+            let (mut attachment, mut host) = input_ack_surface_fixture();
+            let exit = TerminalExit {
+                outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                exited_at_ms: 1,
+            };
+            // The host queues its exit and ends before the daemon sends the legacy
+            // Terminate: the link is fully closed, so that send fails with EPIPE.
+            write_frame(&mut host, &Frame::new(MessageKind::Exit, encode_terminal_exit(&exit)))
+                .unwrap();
+            drop(host);
+
+            let record = attachment
+                .terminate_and_wait_for_exit()
+                .expect("a host that ended after its exit frame still reports its exit");
+
+            assert_eq!(record, TerminalHostExitRecord::new(&attachment.identity(), exit));
+        }
+
+        #[test]
         fn default_host_cell_metrics_initialize_both_terminal_backends() {
             let size = pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap();
             assert_eq!(
