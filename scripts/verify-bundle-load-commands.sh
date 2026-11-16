@@ -89,6 +89,22 @@ is_allowed_load_path() {
   esac
 }
 
+# One reviewed exemption. "cmux Remote (dev).app" is a pinned, team-signed asset
+# (scripts/cmux-next/cmux-remote-dev.pin.json) whose bytes are never re-signed or
+# changed, and its executable carries the LC_RPATH of the Xcode Swift toolchain that
+# linked it. That rpath names a directory only a build Mac has; under the hardened
+# runtime's library validation only team-signed libraries (and the OS's) load from
+# any rpath, so it cannot load foreign code. Only that executable and only LC_RPATH
+# entries under an Xcode toolchain pass. build-cmux-remote-dev.sh now deletes the
+# rpath; remove this exemption once the pin is rebuilt by it.
+PINNED_CMUX_REMOTE="$APP_ROOT/Contents/Library/cmux Remote (dev).app/Contents/MacOS/cmux-remote"
+is_pinned_cmux_remote_toolchain_rpath() {
+  local binary="$1" command="$2" load_path="$3"
+  [[ "$binary" == "$PINNED_CMUX_REMOTE" && "$command" == LC_RPATH ]] || return 1
+  case "/$load_path/" in */../*|*/./*) return 1 ;; esac
+  [[ "$load_path" =~ ^/Applications/Xcode[^/]*\.app/Contents/Developer/Toolchains/[^/]+ ]]
+}
+
 # otool reads "name(member)" as an archive member, so a path with parentheses
 # (CEF's "<app> Helper (GPU).app" helpers) is inspected through a plain alias.
 OTOOL_ALIAS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-load-commands.XXXXXX")"
@@ -110,6 +126,10 @@ check_macho() {
 
   while IFS=$'\t' read -r command load_path; do
     [[ -n "$load_path" ]] || continue
+    if is_pinned_cmux_remote_toolchain_rpath "$binary" "$command" "$load_path"; then
+      echo "note: pinned cmux Remote (dev) executable keeps its Xcode toolchain $command until the pin is rebuilt: $load_path"
+      continue
+    fi
     if ! is_allowed_load_path "$binary" "$load_path"; then
       echo "error: $binary has $command outside the app/system roots: $load_path" >&2
       echo "  allowed absolute roots: /usr/lib, /System; bundle-internal paths must be @-relative" >&2

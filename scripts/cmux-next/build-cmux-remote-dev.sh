@@ -46,6 +46,24 @@ app="$work/$APP_NAME.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources/Licenses"
 cp "$bin_dir/$EXECUTABLE" "$app/Contents/MacOS/$EXECUTABLE"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$app/Contents/MacOS/$EXECUTABLE" 2>/dev/null || true
+# SwiftPM's link adds an LC_RPATH into the Xcode Swift toolchain (".../Toolchains/
+# XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx"), a directory only this build Mac has;
+# verify-bundle-load-commands.sh refuses it in a shipped app (nightly run 43860904558).
+rpaths() {
+  otool -l "$1" | awk '$1 == "cmd" { cmd = $2; next }
+    cmd == "LC_RPATH" && $1 == "path" { p = $0; sub(/^[[:space:]]*path[[:space:]]+/, "", p); sub(/[[:space:]]+\(offset [0-9]+\)$/, "", p); print p; cmd = "" }'
+}
+while IFS= read -r rpath; do
+  case "$rpath" in
+    /Applications/Xcode*.app/Contents/Developer/Toolchains/*|*/Toolchains/*.xctoolchain/*)
+      install_name_tool -delete_rpath "$rpath" "$app/Contents/MacOS/$EXECUTABLE" ;;
+  esac
+done < <(rpaths "$app/Contents/MacOS/$EXECUTABLE")
+if rpaths "$app/Contents/MacOS/$EXECUTABLE" | grep -v -E '^/(usr/lib|System)(/|$)' | grep -q '^/'; then
+  echo "error: cmux-remote keeps an absolute LC_RPATH outside /usr/lib and /System:" >&2
+  rpaths "$app/Contents/MacOS/$EXECUTABLE" >&2
+  exit 1
+fi
 for bundle in "$bin_dir"/*.bundle; do cp -R "$bundle" "$app/Contents/Resources/"; done
 cp "$sdk/lib/libcua_driver_sdk.dylib" "$app/Contents/Frameworks/"
 # The WebRTC binary target SwiftPM linked (a dynamic framework), shipped as a plain dylib: a fleet

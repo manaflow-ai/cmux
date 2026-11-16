@@ -63,6 +63,21 @@
       "notices": ["section:manual-cmux-cua-engine", "section:rust-cmux-cua", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
+      "path": "Contents/Library/cmux Remote (dev).app/Contents/MacOS/cmux-remote",
+      "what": "cmux Remote, the pinned team-signed app embed-cmux-remote-dev.sh embeds (cmux-remote-dev.pin.json, built by build-cmux-remote-dev.sh): first-party Swift (Packages/macOS/CmuxRemote and the CmuxComputerUseHelper, CmuxDeviceHub, CmuxVNCWebRTC and CmuxVNC packages, no third-party Swift package, no Rust); it loads libWebRTC.dylib and libcua_driver_sdk.dylib beside it. Its Resources/Licenses/README.txt names the GPL and both libraries",
+      "notices": ["first-party", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt"]
+    },
+    {
+      "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libWebRTC.dylib",
+      "what": "the WebRTC.framework binary CmuxVNCWebRTC links (stasel/WebRTC 154.0.0, libwebrtc M154, the same build as Contents/Frameworks/WebRTC.framework), copied as a plain dylib by build-cmux-remote-dev.sh; its BoringSSL, Opus, libvpx, libsrtp, Abseil, dav1d, libaom, libyuv, protobuf-lite and PFFFT notices are in Chromium 154's CREDITS.html",
+      "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+    },
+    {
+      "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib",
+      "what": "upstream Cua Driver's cua-driver-sdk (trycua/cua at the cua-driver-sdk.pin.json tag, MIT, Rust built by rustc 1.97.1), the Computer Use worker's driver; build-cmux-remote-dev.sh copies the SDK's licenses folder (upstream LICENSE.md, the Rust workspace's THIRD_PARTY_NOTICES.md, the linked Cargo crates) into cmux Remote's Resources/Licenses",
+      "notices": ["section:manual-cmux-cua-engine", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/LICENSE-cua.md", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/THIRD_PARTY_NOTICES-rust.md", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/cargo-dependencies.txt", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
       "path": "Contents/Resources/bin/cmux",
       "what": "the cmux CLI and daemon (cmux-tui crates; acpmux, libghostty-vt, the browser host and the app host are linked in, the hosts run by argv[0] as bin/cmux-browser-host and bin/cmux-app-host links; check_ghostty_vt_notices.py checks libghostty-vt's Zig packages)",
       "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration", "section:rust-cmux-browser-host", "section:manual-cmux-browser-host-runtime-javascript", "section:rust-cmux-app-host"]

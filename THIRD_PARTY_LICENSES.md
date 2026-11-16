@@ -261,6 +261,14 @@ This software is based in part on the work of the FreeType Team (FreeType 2.13.2
 - **Copyright:** Copyright (c) 2025 Cua AI, Inc.
 - **Source:** https://github.com/manaflow-ai/cmux-cua
 
+`Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib` is
+upstream Cua Driver's in-process library (the cua-driver-sdk crate of
+https://github.com/trycua/cua at the `scripts/cmux-next/cua-driver-sdk.pin.json` tag, built
+by rustc 1.97.1), under the same license and copyright. cmux Remote carries upstream's
+`LICENSE.md` (as `LICENSE-cua.md`), its Rust workspace's `THIRD_PARTY_NOTICES.md` (as
+`THIRD_PARTY_NOTICES-rust.md`) and the list of the Cargo crates the library links
+(`cargo-dependencies.txt`) in its `Contents/Resources/Licenses`.
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -1080,7 +1088,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   `Packages/Shared/CmuxVNCWebRTC/Package.swift`); the text below is that archive's `LICENSE`
 
 `Contents/Frameworks/WebRTC.framework` carries Mac Screen streams (CmuxScreenKit and
-CmuxVNCWebRTC). libwebrtc links third-party code from Chromium's tree: BoringSSL, Opus,
+CmuxVNCWebRTC), and `Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libWebRTC.dylib`
+is the same framework binary, shipped as a plain dylib for cmux Remote's Screen Sharing
+worker (CmuxVNCWebRTC, `scripts/cmux-next/build-cmux-remote-dev.sh`). libwebrtc links third-party code from Chromium's tree: BoringSSL, Opus,
 libvpx, libsrtp, Abseil, dav1d, the Alliance for Open Media Video Codec (libaom), libyuv,
 Protocol Buffers [Lite] and PFFFT. Their notices are in Chromium's `CREDITS.html` for the
 same milestone (Chromium 154), bundled at
@@ -1134,6 +1144,8 @@ unchanged, for each rustc that built one of its binaries:
   no binary in this app is known to be built by rustc 1.91.0 since the app
   stopped linking iroh-ffi; the reviewed file still ships, for any Rust
   binary built by that rustc
+- `Contents/Resources/toolchain-licenses/rust-1.97.1/COPYRIGHT-library.html`:
+  `Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib`
 - `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
   `bin/cmux-diff-sidecar`
 
