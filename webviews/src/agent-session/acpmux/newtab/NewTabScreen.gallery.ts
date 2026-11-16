@@ -677,7 +677,7 @@ export default agentPaneEntry({
       play: (ctx) => wrapPrompt(ctx, true),
     },
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: the composer and its chips, then three centered create buttons, and under the page the two look dots. No greeting and no widgets.",
+      note: "Minimal, New Tab's default layout: the composer and its chips, then three centered create buttons, without a look switcher, greeting or widgets.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
@@ -688,9 +688,9 @@ export default agentPaneEntry({
           throw new Error("an unset NewTabScreen template did not render Minimal");
         const extra = ctx.document.querySelector(".nt-greeting, .nt-stage, .nt-cards");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
-        // The look dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
-        const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
-        if (dots !== 2) throw new Error(`the minimal page shows ${dots} dots, not the two`);
+        if (ctx.document.querySelector(".nt-style")) throw new Error("the minimal page shows a look switcher");
+        if (ctx.document.querySelector(".nt-composer[data-composer-look]"))
+          throw new Error("the minimal page did not keep Claude's look");
         const create = ctx.document.querySelector(".nt-create");
         if (create?.querySelectorAll("button[data-create]").length !== 3)
           throw new Error("Minimal is missing its three create buttons");
@@ -698,9 +698,9 @@ export default agentPaneEntry({
           throw new Error("the create buttons do not follow the composer and its chips");
       },
     },
-    "minimal-codex-create": {
+    "minimal-saved-codex-create": {
       composerLook: "codex",
-      note: "Codex Minimal keeps the three create buttons centered below the composer tray and its chips.",
+      note: "A saved Codex preference keeps Claude Minimal and its three centered create buttons.",
       ready: newTab({ template: "minimal" }),
       snapshot: reasoningChat(),
     },
@@ -762,7 +762,7 @@ export default agentPaneEntry({
       },
     },
     "layout-codex-tabs-above": {
-      note: "Codex-style comparison: project and machine context sit above the composer, with the model name and a free Fast bolt together in the model picker.",
+      note: "Minimal keeps project, machine and model controls below the composer, with a free Fast bolt in the model picker.",
       ready: newTab({ template: "minimal" }),
       snapshot: noChat(manySessions(12)),
     },

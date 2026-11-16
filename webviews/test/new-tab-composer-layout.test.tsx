@@ -1,5 +1,5 @@
 // New Tab preserves the shared composer controls. The model always sits in the footer;
-// Claude may place location in that row while Codex keeps its tray above the box.
+// Its appearance stays Claude regardless of the saved chat composer look.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -86,6 +86,7 @@ async function mount(
     snapshot?: AcpmuxSnapshot;
     onCommands?(harness: string, cwd?: string): void;
     template?: "cards";
+    accessory?: React.ReactNode;
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -103,6 +104,7 @@ async function mount(
         startCwd="/Users/you/src/app"
         projects={[{ cwd: "/Users/you/src/app", label: "app" }]}
         chips={Chips}
+        accessory={options.accessory}
         onCommands={options.onCommands}
         onAsk={noop}
         onOpen={noop}
@@ -155,28 +157,24 @@ test("the New Tab card keeps Send in the box and model in the footer", async () 
   expect(composer.querySelector(".acpmux-composer-foot .acpmux-chips")).not.toBeNull();
 });
 
-// Leo 2026-10-29 (#27956, which takes back #24519's one row): "project and cloudness at the top".
-// The Claude split keeps the mode and model in the quiet row under the box and heads the box with
-// the folder/computer, as Codex does.
-test("Claude New Tab location heads the box and the model keeps the quiet row under it", async () => {
-  const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
-  act(() => setComposerLook("claude", { remember: false }));
-  await mount({ template: "cards" });
-  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
-  const row = composer.querySelector<HTMLElement>(".nt-foot .acpmux-composer-foot")!;
-  expect(row.querySelector(".acpmux-chips")).not.toBeNull();
-  expect(row.querySelector(".acpmux-composer-context")).toBeNull();
-  expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
-  expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
-
-  // Codex's look splits as Claude's too: the mode and model in the quiet row under the box (Leo
-  // 2026-11-01: "we already have a good version"); only its tray over the box differs.
-  act(() => setComposerLook("codex", { remember: false }));
-  expect(composer.querySelector(".nt-above .acpmux-composer-context")).not.toBeNull();
-  expect(composer.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
-  expect(composer.querySelector(".nt-box .nt-pickers .acpmux-chips")).toBeNull();
-  expect(composer.querySelector(".nt-box .acpmux-composer-context")).toBeNull();
-  act(() => setComposerLook("claude", { remember: false }));
+test("New Tab keeps Claude and its controls when the saved chat look is Codex", async () => {
+  const { savedComposerLook, setComposerLook, useComposerLook } =
+    await import("../src/agent-session/acpmux/composerLook");
+  function ControlLook() {
+    return <span data-control-look={useComposerLook()} />;
+  }
+  act(() => setComposerLook("codex"));
+  for (const template of [undefined, "cards"] as const) {
+    await mount({ template, accessory: <ControlLook /> });
+    const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+    expect(composer.dataset.composerLook ?? "claude").toBe("claude");
+    expect(composer.querySelector("[data-control-look=claude]")).not.toBeNull();
+    expect(composer.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+    expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
+    expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
+    expect(savedComposerLook()).toBe("codex");
+  }
+  act(() => setComposerLook("claude"));
 });
 
 test("suggestions mirror the box-to-chip text gap at every density and zoom", async () => {
