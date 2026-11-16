@@ -7,7 +7,8 @@ pub fn merge_mux_meta(v: &mut Value, fields: Value) {
     if !meta.is_object() {
         *meta = json!({});
     }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    let Some(meta) = meta.as_object_mut() else { return };
+    let mux = meta.entry("acpmux").or_insert_with(|| json!({}));
     if !mux.is_object() {
         *mux = json!({});
     }
