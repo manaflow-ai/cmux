@@ -49,11 +49,12 @@ export function MachineLinkStatus({
   // The link a Reconnect was pressed on: it reads as in flight until it answers or the link moves on
   // its own (another state or machine), whichever comes first.
   const [pressed, setPressed] = useState<string>();
-  // Automatic connecting/reconnecting never needs a progress line. An offline link with a
-  // recovery action, sign-in or update is said only after the existing ten-second bound.
-  const waits = link !== null && link.link !== "connected";
+  // Automatic connecting/reconnecting never needs a progress line (Leo, 2026-11-16: "pls no messages
+  // like this"). An offline link is said only after the existing ten-second bound. A refused sign-in
+  // or an update the machine needs (`stuck`) needs a person, so it is said at once.
+  const waits = link !== null && link.link !== "connected" && !link.stuck;
   const due = useLinkDownSaid(waits, link?.since, quietMs);
-  const quiet = waits && (!due || (link.link === "connecting" && !link.stuck));
+  const quiet = waits && (!due || link.link === "connecting");
   // The last words said, kept while they fold away on a link that came back, so the fold-out shows
   // what was said rather than "Connected" (state derived during render, not in an effect).
   const words = link ? linkWords(link, t) : "";

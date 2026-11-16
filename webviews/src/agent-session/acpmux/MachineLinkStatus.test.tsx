@@ -90,14 +90,12 @@ test("an offline link stays quiet before the bound and offers Reconnect once it 
   expect(reconnected).toBe(1);
 });
 
-test("sign-in and update failures wait for the duration bound and then keep their instruction", async () => {
+test("sign-in and update failures need a person, so they are said at once with their instruction", async () => {
   const container = installDom();
   root = createRoot(container);
   for (const why of ["authFailed", "updateRequired"] as const) {
     const link: PeerLink = { machine: "remote", link: "offline", stuck: true, why };
     await act(async () => root!.render(<MachineLinkStatus link={link} quietMs={10_000} />));
-    expect(container.querySelector("[data-said]")).toBeNull();
-    await act(async () => root!.render(<MachineLinkStatus link={link} quietMs={0} />));
     expect(container.querySelector("[data-said]")).not.toBeNull();
     expect(container.textContent).toContain(why === "authFailed" ? "Sign-in needed" : "Update required");
   }

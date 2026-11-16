@@ -101,10 +101,11 @@ test("it shows the host's machines under their headers, then Add Machine…", as
   expect(host.querySelectorAll(".machines-row")).toHaveLength(sampleRows.length + joinedRows.length);
   expect(host.querySelector(".machines-row .machines-name")?.textContent).toBe("This Mac");
   expect(host.querySelector(".machines-add")?.textContent).toBe("Add Machine…");
-  // Compact: a paused machine says so at its trailing edge; a connecting one has a spinner and no word.
+  // Compact: a paused machine says so at its trailing edge; a connecting one stays quiet, with no
+  // spinner and no word (Leo, 2026-11-16: "pls no messages like this").
   expect(rowNamed("night-batch").querySelector(".machines-state-trailing")?.textContent).toBe("Paused");
   expect(rowNamed("night-batch").querySelector(".machines-spinner")).toBeNull();
-  expect(rowNamed("gpu-box").querySelector(".machines-spinner")).not.toBeNull();
+  expect(rowNamed("gpu-box").querySelector(".machines-spinner")).toBeNull();
   expect(rowNamed("gpu-box").querySelector(".machines-state")).toBeNull();
   expect(rowNamed("linux-box").title).toBe("Last check: Keep it up to date needs attention");
 });

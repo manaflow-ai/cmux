@@ -169,7 +169,7 @@ export function ChatUnavailableState({
       )}
     </div>
   );
-  if (line || unavailable.reason === "offline")
+  if (line)
     return (
       <div
         className="acpmux-link-missing acpmux-unavailable-line"
@@ -195,7 +195,7 @@ export function ChatUnavailableState({
       className="acpmux-empty acpmux-unavailable"
       data-unavailable={unavailable.reason}
       // A paused machine is a calm state, never an alert (a resume is one click or one send away).
-      role={unavailable.reason === "paused" ? "status" : "alert"}
+      role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
       data-enter="fade"
     >
       <svg

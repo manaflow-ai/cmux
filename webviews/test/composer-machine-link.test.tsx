@@ -141,21 +141,24 @@ test("a peer chat's row says each link state in the sidebar's words, in one elem
   expect(element?.getAttribute("aria-label")).toBe("walk-remote · Connected");
   expect(reconnect()).toBeNull();
 
-  for (const [state, link_, words] of [
-    ["connecting", "connecting", "Connecting…"],
-    ["reconnecting", "connecting", "Reconnecting…"],
-    ["restarting", "connecting", "Reconnecting…"],
-    ["degraded", "connecting", "Reconnecting…"],
-    ["offline", "offline", "Offline"],
-  ] as const) {
+  // Automatic recovery keeps the plain dot with no words (Leo, 2026-11-16: "pls no messages like this").
+  for (const state of ["connecting", "reconnecting", "restarting", "degraded"]) {
     await render(started("walk-remote", state));
     expect(link(), state).toBe(element);
-    expect(link()?.dataset.link, state).toBe(link_);
-    expect(link()?.hasAttribute("data-said"), state).toBe(true);
-    expect(said(), state).toBe(`walk-remote${words}`);
-    expect(link()?.getAttribute("aria-label"), state).toBe(`walk-remote · ${words}`);
-    expect(reconnect() !== null, state).toBe(false);
+    expect(link()?.dataset.link, state).toBe("connecting");
+    expect(link()?.hasAttribute("data-said"), state).toBe(false);
+    expect(link()?.hasAttribute("data-quiet"), state).toBe(true);
+    expect(link()?.getAttribute("aria-label"), state).toBe("walk-remote");
+    expect(host.querySelector(".acpmux-machine-link-spinner"), state).toBeNull();
+    expect(reconnect(), state).toBeNull();
   }
+  await render(started("walk-remote", "offline"));
+  expect(link()).toBe(element);
+  expect(link()?.dataset.link).toBe("offline");
+  expect(link()?.hasAttribute("data-said")).toBe(true);
+  expect(said()).toBe("walk-remoteOffline");
+  expect(link()?.getAttribute("aria-label")).toBe("walk-remote · Offline");
+  expect(reconnect()).toBeNull();
 
   // Back: the words fold away, the same element keeps the dot.
   await render(started("walk-remote", "connected"));
@@ -199,13 +202,15 @@ test("a paused Cloud peer that was connected draws no Reconnecting spinner", asy
   expect(host.querySelector(".acpmux-composer-foot")?.textContent ?? "").not.toContain("Reconnecting");
 });
 
-test("an open Cloud chat whose link drops with no banner keeps its warning in the footer", async () => {
-  // The chat is still read from its machine (no Mac's copy, so no peer copy banner): the footer is the
-  // only place that says the link is coming back.
+test("an open Cloud chat whose link drops with no banner keeps the quiet dot in the footer", async () => {
+  // The chat is still read from its machine (no Mac's copy, so no peer copy banner): an automatic
+  // reconnect keeps the dot and says nothing (Leo, 2026-11-16: "pls no messages like this").
   await render(started("dev-vm-2", "connected", "cloud"));
   await render(started("dev-vm-2", "reconnecting", "cloud"));
   expect(link()?.dataset.link).toBe("connecting");
-  expect(said()).toBe("dev-vm-2Reconnecting…");
+  expect(link()?.hasAttribute("data-quiet")).toBe(true);
+  expect(link()?.hasAttribute("data-said")).toBe(false);
+  expect(host.querySelector(".acpmux-composer-foot")?.textContent ?? "").not.toContain("Reconnecting");
 });
 
 test("a Cloud peer whose sign-in or build needs a person still says so", async () => {
@@ -239,7 +244,7 @@ function linked(peer: string, link: string, since: number, extra: Partial<Acpmux
   return { ...snapshot, peerLinks: { [peer]: { link, since } }, ...extra } as AcpmuxSnapshot;
 }
 
-test("a link that just dropped keeps the plain dot, with no spinner or words, until the bound, then says it once", async () => {
+test("a link that just dropped keeps the plain dot, with no spinner or words; only an offline one past the bound is said", async () => {
   jest.useFakeTimers();
   setLinkDownSaidMs(LINK_DOWN_SAID_MS);
   await render(started("walk-remote", "connected"));
@@ -261,8 +266,13 @@ test("a link that just dropped keeps the plain dot, with no spinner or words, un
   await act(async () => void jest.advanceTimersByTime(3_999));
   expect(link()?.hasAttribute("data-said")).toBe(false);
   await act(async () => void jest.advanceTimersByTime(1));
+  // Automatic reconnecting stays quiet past the bound (Leo, 2026-11-16: "pls no messages like this").
+  expect(link()?.hasAttribute("data-said")).toBe(false);
+  expect(link()?.hasAttribute("data-quiet")).toBe(true);
+  // The same drop going offline is past the bound, so it is said at once.
+  await render(linked("walk-remote", "offline", Date.now()));
   expect(link()?.hasAttribute("data-said")).toBe(true);
-  expect(said()).toBe("walk-remoteReconnecting…");
+  expect(said()).toBe("walk-remoteOffline");
 });
 
 test("a link acpmux has had down past the bound is said at once", async () => {
