@@ -67,8 +67,16 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   session's D-Bus and `DISPLAY`/`XAUTHORITY`/`XDG_SESSION_TYPE` (see the unit file).
 - Capture: X11 sessions stream the X screen (`--display`, else `$DISPLAY`, else `:0`;
   `--xauthority` or `XAUTHORITY`). A Wayland session (`XDG_SESSION_TYPE=wayland`) uses the
-  portal backend (xdg-desktop-portal ScreenCast and PipeWire); until that backend is built in,
-  its sessions end with "portal capture not built in". `--capture x11|portal` overrides.
+  portal backend (xdg-desktop-portal ScreenCast and PipeWire, feature `portal`); a build
+  without it ends those sessions with "portal capture not built in". `--capture x11|portal`
+  overrides.
+- Wayland grant: `enable` asks the portal once, while the person joining is at the screen
+  (its dialog), and saves the restore token in `~/.config/cmux/screen-host/`; every later
+  share restores it with no dialog. Unless `--view-only`, it asks for a RemoteDesktop
+  session (keyboard and pointer too) where the portal can keep that grant (RemoteDesktop
+  version 2 or later), so control works on Wayland; otherwise the desktop is shared view
+  only. A grant the person revoked makes the next share show the dialog once, then it is
+  saved again. `cmux-rd linux-host grant [--control]` makes the grant again by itself.
 - Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
   yet; its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened
