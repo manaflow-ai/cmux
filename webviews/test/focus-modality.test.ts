@@ -276,6 +276,9 @@ describe("the build gate", () => {
     );
     // Inside :not() the gate negates with it, so it cannot move.
     expect(gateFocusVisible(".a:not(:focus-visible) ~ .b")).toBe(`.a:not(:focus-visible${g}) ~ .b`);
+    // A subject pseudo-element other than one plain one at the end keeps the gate in place (valid CSS).
+    expect(gateFocusVisible(".a:focus-visible + .b:before")).toBe(`.a:focus-visible${g} + .b:before`);
+    expect(gateFocusVisible(".a:focus-visible ~ .b::after:hover")).toBe(`.a:focus-visible${g} ~ .b::after:hover`);
     // A `+` or `~` inside parentheses, brackets or a string is no combinator.
     expect(gateFocusVisible(".r:nth-child(2n+1):focus-visible")).toBe(`.r:nth-child(2n+1):focus-visible${g}`);
     expect(gateFocusVisible('[data-x~="y"]:focus-visible')).toBe(`[data-x~="y"]:focus-visible${g}`);
