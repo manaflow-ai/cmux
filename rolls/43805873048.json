@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43805873048",
+  "recorded_at": "2026-11-16T04:53:17Z",
+  "reason": "cmux-tui 60a0aa220604 changes the image's cmux-tui (pinned f6f07d9c7b45)",
+  "dry_run": false,
+  "cmux_tui": "60a0aa2206041695cc479279b5e6ed29c02dac25",
+  "fixes": [
+    {
+      "sha": "60a0aa2206041695cc479279b5e6ed29c02dac25",
+      "mergedAt": "2026-11-15T20:26:46-08:00",
+      "subject": "acpmux conn: a late credit or unsub for a sid the connection ended needs no reply room (#44125)"
+    },
+    {
+      "sha": "baa190426dfaa6913c8b8acfe7619d9bb646b946",
+      "mergedAt": "2026-11-15T20:26:26-08:00",
+      "subject": "Cloud first pass: edits on the machine to a partial copy of a git repo come back (hq#11697) (#44122)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T04:53:17Z",
+    "snapshot_id": "sh-9b711d901845466e99800ef2213f8fe3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43805873048): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "379e8982edc0bba4f9819d8768971acab6f1d48c",
+    "image": "cloud-native-auto-60a0aa22-43805873048-1",
+    "revision": "ci-43805873048-1",
+    "at": "2026-11-16T04:53:17Z"
+  },
+  "rolled_back": false
+}
