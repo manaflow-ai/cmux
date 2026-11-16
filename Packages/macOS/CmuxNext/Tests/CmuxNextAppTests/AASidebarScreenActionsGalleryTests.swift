@@ -100,6 +100,14 @@ import Testing
                 }
             }
         }
+        // One file for `cmux-ci run --artifact`, as the nested-groups gallery bundles its stills.
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.currentDirectoryURL = AANestedGroupsGalleryTests.packageRoot
+        tar.arguments = ["cf", "sidebar-screen-actions-gallery.tar", "sidebar-screen-actions-gallery"]
+        try tar.run()
+        tar.waitUntilExit()
+        #expect(tar.terminationStatus == 0)
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
