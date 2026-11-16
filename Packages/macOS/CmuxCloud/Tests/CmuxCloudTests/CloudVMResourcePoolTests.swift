@@ -180,6 +180,28 @@ struct CloudVMResourcePoolTests {
         #expect(legacy.limits.maxMemoryMb == 16 * 1_024)
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/44362: a team deal up to
+    /// 64 GiB / 32 vCPU resized only to 16 GiB / 8 vCPU.
+    @Test
+    func validatorAllowsATeamDealUpToTheLadderTop() throws {
+        let plan = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "team",
+            "maxMemoryMb": 64 * 1_024,
+            "maxVcpus": 32,
+            "memoryOptionsMb": [4096, 8192, 16384, 24576, 32768, 65536],
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(plan.limits.maxMemoryMb == 64 * 1_024)
+        #expect(plan.limits.maxVcpus == 32)
+        let violation = CloudVMResizePlanValidator().violation(
+            target: CloudVMResizeShape(vcpus: 32, memoryMb: 64 * 1_024),
+            current: CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1_024),
+            usesResourcePool: false,
+            limits: plan.limits
+        )
+        #expect(violation == nil)
+    }
+
     @Test
     func validatorCapsAdvertisedDiskAtTheCurrentPlanCeiling() throws {
         let pro = try CloudVMResizePlanValidator().plan(from: [
