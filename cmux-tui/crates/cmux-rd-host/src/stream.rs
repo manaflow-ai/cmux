@@ -648,6 +648,7 @@ impl MediaSession {
         let mut sorted: Vec<f64> = self.encode_ms.iter().copied().collect();
         sorted.sort_by(f64::total_cmp);
         let encode_ms_p50 = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
+        let queue = carrier.media_queue_stats();
         let stats = Control::Stats {
             kbps: self.encoder.kbps(),
             frames: stats.frames,
@@ -655,6 +656,20 @@ impl MediaSession {
             cpu_pct,
             encode_ms_p50,
             loss_pct: stats.loss * 100.0,
+            queue_frames: queue.map(|s| s.queue_frames),
+            queue_datagrams: queue.map(|s| s.queue_datagrams),
+            queue_dropped_frames: queue.map(|s| s.dropped_frames),
+            queue_dropped_datagrams: queue.map(|s| s.dropped_datagrams),
+            queue_dropped_replaced_frames: queue.map(|s| s.dropped_replaced_frames),
+            queue_dropped_replaced_datagrams: queue.map(|s| s.dropped_replaced_datagrams),
+            queue_dropped_evicted_for_protected_frames: queue
+                .map(|s| s.dropped_evicted_for_protected_frames),
+            queue_dropped_evicted_for_protected_datagrams: queue
+                .map(|s| s.dropped_evicted_for_protected_datagrams),
+            queue_dropped_rejected_protected_frames: queue
+                .map(|s| s.dropped_rejected_protected_frames),
+            queue_dropped_rejected_protected_datagrams: queue
+                .map(|s| s.dropped_rejected_protected_datagrams),
         };
         let _ = carrier.send_control(&stats);
     }

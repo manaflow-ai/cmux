@@ -23,7 +23,7 @@
 
 use crate::args::Opts;
 use crate::capture_backend::CaptureBackend;
-use crate::carrier::{Carrier, Incoming, LinkCarrier};
+use crate::carrier::{Carrier, Incoming, LinkCarrier, MediaQueueStats};
 use crate::stream::{MediaSession, SessionCfg};
 use crate::wire::Control;
 use crate::Res;
@@ -230,8 +230,16 @@ impl Carrier for ServeCarrier {
         self.link.path_rtt_us()
     }
 
+    fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+        self.link.media_queue_stats()
+    }
+
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
         self.link.send_datagram(datagram)
+    }
+
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()> {
+        self.link.send_datagram_frame(datagrams, droppable)
     }
 
     fn send_control(&mut self, control: &Control) -> io::Result<()> {
