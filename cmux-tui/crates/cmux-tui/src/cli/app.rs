@@ -1087,7 +1087,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 print!("{line}");
                 return Ran::Done(0);
             }
-            Ran::Done(super::wire::print_local_success(&value, global.output))
+            let code = super::wire::print_local_success(&value, global.output);
+            // A masked capture says what its grey areas are, so nobody reads one as a blank pane.
+            if global.output == OutputMode::Human
+                && let Some(note) = page::masked_note(&params, &value)
+            {
+                println!("{note}");
+            }
+            Ran::Done(code)
         }
         // `not_found` with no `reason` is the app saying it has no such CLI action; with one, the
         // action ran and its target names nothing, which goes to the caller as an error.

@@ -2301,3 +2301,21 @@ fn the_ping_gets_only_what_is_left_of_the_deadline() {
     assert_eq!(windows.len(), 1, "{windows:?}");
     assert!(windows.iter().all(|window| *window <= Duration::from_millis(110)), "{windows:?}");
 }
+
+/// An agent's `cmux window screenshot` of Home came back grey and was read as a blank pane: the
+/// grey is the app's privacy mask. The CLI's line names the masked areas for every screenshot
+/// verb; a raw capture, an empty list or another action adds nothing.
+#[test]
+fn a_masked_screenshot_says_what_its_grey_areas_are() {
+    let masked = json!({ "id": "run_1", "result": { "path": "/tmp/s.png", "masked": 2, "masked_areas": ["chat", "home"] } });
+    for action in ["window screenshot", "pane screenshot", "tab screenshot"] {
+        let note = page::masked_note(&json!({ "action": action }), &masked).expect(action);
+        assert!(note.contains("chat, home"), "{action}: {note}");
+        assert!(note.contains("not blank"), "{action}: {note}");
+    }
+    let raw = json!({ "result": { "path": "/tmp/s.png" } });
+    assert_eq!(page::masked_note(&json!({ "action": "window screenshot" }), &raw), None);
+    let none = json!({ "result": { "path": "/tmp/s.png", "masked": 0, "masked_areas": [] } });
+    assert_eq!(page::masked_note(&json!({ "action": "window screenshot" }), &none), None);
+    assert_eq!(page::masked_note(&json!({ "action": "window close" }), &masked), None);
+}

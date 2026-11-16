@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 /// `debug.home`: the local conversation projection (plans/cmux-next/home.md) and whether Home is
@@ -50,6 +51,9 @@ enum DebugHome {
         let tabs = workspace?.screens.flatMap(\.panes).flatMap(\.tabs) ?? []
         let setup: CmuxNextSettings.JSONValue = .object([
             "step": .string(home.homeWorkspaceStep),
+            // The Chief tab's own step, read against the owner's live state (HomeChiefTabStep).
+            "chief_step": .string(home.chiefTabStep.text(session: home.chief.home.session, connected: home.chief.connection != nil,
+                                                          servesLocal: home.chief.supports(DaemonCapability.localConversations.rawValue))),
             "workspace": workspace.map { .string($0.id) } ?? .null,
             "kind": workspace?.kind.map(CmuxNextSettings.JSONValue.string) ?? .null,
             "tab_kinds": .array(tabs.map { .string(String(describing: $0.kind)) }),
