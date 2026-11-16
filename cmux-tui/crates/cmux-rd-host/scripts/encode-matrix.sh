@@ -22,7 +22,9 @@ variants="${VARIANTS:-shipped=}"
 mkdir -p "$(dirname "$out")"
 : >"$out"
 
-cargo build --release --quiet --manifest-path "$here/Cargo.toml" --bin cmux-rd
+# No capture backend is needed (no PipeWire headers on the pool): the encoder and the bench.
+cargo build --release --quiet --manifest-path "$here/Cargo.toml" --bin cmux-rd \
+  --no-default-features --features "${FEATURES:-bench openh264}"
 bin="$(cargo metadata --format-version 1 --no-deps --manifest-path "$here/Cargo.toml" |
   python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/cmux-rd"
 

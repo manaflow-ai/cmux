@@ -34,13 +34,53 @@ pub struct DamageEvent {
     pub rect: Rect,
 }
 
+/// How pixels come back from the X server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Readback {
+    /// MIT-SHM into a segment both sides map: 1.06 ms for a 1080p frame (fleet Linux pool).
+    Shm,
+    /// The core protocol's GetImage, every pixel through the socket: 19.9 ms for the same
+    /// frame, 20x the capture floor. Only when the server refuses a shared segment (a
+    /// display over TCP, no MIT-SHM, a sandbox that blocks memfd).
+    Core,
+}
+
+impl Readback {
+    /// The host status's `capture_backend` word.
+    pub fn name(self) -> &'static str {
+        match self {
+            Readback::Shm => "xshm",
+            Readback::Core => "getimage",
+        }
+    }
+}
+
+/// Whether the X server on `conn` takes a shared segment; `Err` says why not.
+pub fn shm_works(conn: &RustConnection, len: usize) -> Res<ShmSeg> {
+    ShmSeg::new(conn, len)
+}
+
+/// What the capture logs once when XShm is refused.
+pub fn core_fallback_warning(display: &str, why: &dyn std::fmt::Display) -> String {
+    format!(
+        "cmux-rd: warning: XShm refused on {display} ({why}); capturing with core GetImage, \
+         about 20x slower (19.9 ms against 1.06 ms per 1080p frame). Run the host on the \
+         display's own machine with MIT-SHM enabled."
+    )
+}
+
 pub struct Capturer {
     conn: RustConnection,
     root: Window,
+    display: String,
     pub width: u32,
     pub height: u32,
     /// Made at the first grab: a damage-only connection never reads pixels back.
     shm: Option<ShmSeg>,
+    /// Set at the first grab.
+    readback: Option<Readback>,
+    /// Core GetImage's copy of the last rect.
+    core: Vec<u8>,
 }
 
 impl Capturer {
@@ -60,7 +100,21 @@ impl Capturer {
             let id = conn.generate_id()?;
             conn.damage_create(id, screen.root, ReportLevel::RAW_RECTANGLES)?.check()?;
         }
-        Ok(Self { conn, root: screen.root, width, height, shm: None })
+        Ok(Self {
+            conn,
+            root: screen.root,
+            display: display.to_owned(),
+            width,
+            height,
+            shm: None,
+            readback: None,
+            core: Vec::new(),
+        })
+    }
+
+    /// How this connection reads pixels back, once it has grabbed (else `None`).
+    pub fn readback(&self) -> Option<Readback> {
+        self.readback
     }
 
     pub fn fd(&self) -> RawFd {
@@ -84,19 +138,34 @@ impl Capturer {
         Ok(())
     }
 
-    /// Reads back `r` (even-aligned) into the shared segment; returns BGRX rows with stride `r.w * 4`.
+    /// Reads back `r` (even-aligned); returns BGRX rows with stride `r.w * 4`. The first grab
+    /// picks the readback: XShm, else core GetImage with a warning on stderr.
     pub fn grab(&mut self, r: Rect) -> Res<&[u8]> {
-        if self.shm.is_none() {
+        if self.readback.is_none() {
             let len = self.width as usize * self.height as usize * 4;
-            self.shm = Some(ShmSeg::new(&self.conn, len)?);
+            self.readback = Some(match shm_works(&self.conn, len) {
+                Ok(seg) => {
+                    self.shm = Some(seg);
+                    Readback::Shm
+                }
+                Err(e) => {
+                    eprintln!("{}", core_fallback_warning(&self.display, &e));
+                    Readback::Core
+                }
+            });
         }
-        let shm = self.shm.as_ref().ok_or("no shared memory segment")?;
-        let fmt = u8::from(ImageFormat::Z_PIXMAP);
-        self.conn
-            .shm_get_image(
-                self.root, r.x as i16, r.y as i16, r.w as u16, r.h as u16, !0, fmt, shm.seg, 0,
-            )?
-            .reply()?;
-        Ok(&shm.as_slice()[..(r.w * r.h * 4) as usize])
+        let len = (r.w * r.h * 4) as usize;
+        let fmt = ImageFormat::Z_PIXMAP;
+        let (x, y, w, h) = (r.x as i16, r.y as i16, r.w as u16, r.h as u16);
+        if let Some(shm) = self.shm.as_ref() {
+            self.conn.shm_get_image(self.root, x, y, w, h, !0, fmt.into(), shm.seg, 0)?.reply()?;
+            return Ok(&shm.as_slice()[..len]);
+        }
+        let reply = self.conn.get_image(fmt, self.root, x, y, w, h, !0)?.reply()?;
+        if reply.data.len() < len {
+            return Err(format!("GetImage returned {} bytes, want {len}", reply.data.len()).into());
+        }
+        self.core = reply.data;
+        Ok(&self.core[..len])
     }
 }

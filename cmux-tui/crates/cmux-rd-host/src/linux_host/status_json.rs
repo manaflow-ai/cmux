@@ -9,6 +9,7 @@
 
 use super::consent::LocalConsent;
 use super::identity::{self, Account, Device};
+use crate::capture::Readback;
 use crate::capture_backend::{x_display, CaptureBackend};
 use serde_json::{json, Value};
 
@@ -21,7 +22,8 @@ pub fn gather(now_ms: u64) -> Facts {
     // An unreadable device file is an identity to set up again, not "never enabled".
     let enabled = matches!(device, Some(Ok(Some(_)) | Err(_)));
     let backend = super::host_capture(identity::runtime_dir().ok().as_deref());
-    let idle = Capture { backend, usable: false, size: None, portal_granted: false };
+    let idle =
+        Capture { backend, usable: false, size: None, portal_granted: false, readback: None };
     let Some(dir) = dir.filter(|_| enabled) else {
         return Facts { enabled, setup_ok: false, consent: None, capture: idle };
     };
@@ -45,24 +47,40 @@ fn probe_capture(backend: CaptureBackend) -> Capture {
             let display = x_display(None, None, std::env::var("DISPLAY").ok().as_deref());
             // Only a local display is probed: a `host:N` display is a TCP connection.
             let local = display.starts_with(':') || display.starts_with("unix:");
-            let size = local.then(|| x11_root_size(&display)).flatten();
-            Capture { backend, usable: !local || size.is_some(), size, portal_granted: false }
+            let probe = local.then(|| x11_probe(&display)).flatten();
+            Capture {
+                backend,
+                usable: !local || probe.is_some(),
+                size: probe.map(|(size, _)| size),
+                portal_granted: false,
+                readback: probe.map(|(_, readback)| readback),
+            }
         }
         CaptureBackend::Portal => Capture {
             backend,
             usable: backend.available().is_ok() && session_bus(),
             size: None,
             portal_granted: portal_token_saved(),
+            readback: None,
         },
     }
 }
 
-/// The root window size of the X display, when it accepts a connection.
-fn x11_root_size(display: &str) -> Option<(u32, u32)> {
+/// The root window size of the X display, when it accepts a connection, and how a capture
+/// would read its pixels back (a one-page shared segment, freed when the connection closes).
+fn x11_probe(display: &str) -> Option<((u32, u32), Readback)> {
     use x11rb::connection::Connection;
     let (conn, screen) = x11rb::connect(Some(display)).ok()?;
     let root = conn.setup().roots.get(screen)?;
-    Some((root.width_in_pixels.into(), root.height_in_pixels.into()))
+    let size = (root.width_in_pixels.into(), root.height_in_pixels.into());
+    let readback = match crate::capture::shm_works(&conn, 4096) {
+        Ok(_) => Readback::Shm,
+        Err(e) => {
+            eprintln!("{}", crate::capture::core_fallback_warning(display, &e));
+            Readback::Core
+        }
+    };
+    Some((size, readback))
 }
 
 /// Whether there is a session bus to reach the portal on (no call is made).
@@ -108,6 +126,8 @@ pub struct Capture {
     pub size: Option<(u32, u32)>,
     /// A portal restore token is saved, so Start needs nobody at the screen.
     pub portal_granted: bool,
+    /// X11: how a capture reads pixels back here, when the display answered.
+    pub readback: Option<Readback>,
 }
 
 /// The `cmux.screen-share.status/1` document for `facts`, `version` being this binary's.
@@ -145,10 +165,16 @@ pub fn status_json(facts: &Facts, version: &str) -> Value {
         }),
         _ => Value::Null,
     };
+    // `getimage` is a capture 20x slower than `xshm`: the status says so, not only a log.
+    let capture_backend = match (capture.backend, capture.readback) {
+        (CaptureBackend::Portal, _) => Some("portal"),
+        (CaptureBackend::X11, readback) => readback.map(Readback::name),
+    };
     json!({
         "schema": SCHEMA,
         "platform": "linux",
         "state": state,
+        "capture_backend": capture_backend,
         "control": facts.enabled && applies_input && consent.is_some_and(|c| c.full),
         "display": display,
         "helperVersion": version,
@@ -165,7 +191,23 @@ mod tests {
     const VIEW: LocalConsent = LocalConsent { view: true, full: false };
 
     fn x11(size: Option<(u32, u32)>) -> Capture {
-        Capture { backend: CaptureBackend::X11, usable: true, size, portal_granted: false }
+        Capture {
+            backend: CaptureBackend::X11,
+            usable: true,
+            size,
+            portal_granted: false,
+            readback: Some(Readback::Shm),
+        }
+    }
+
+    #[test]
+    fn a_core_getimage_capture_says_so_in_the_status() {
+        let v = status_json(&ready(FULL, x11(Some((1920, 1080)))), "v");
+        assert_eq!(v["capture_backend"], "xshm");
+        let slow = Capture { readback: Some(Readback::Core), ..x11(Some((1920, 1080))) };
+        assert_eq!(status_json(&ready(FULL, slow), "v")["capture_backend"], "getimage");
+        let unknown = Capture { readback: None, usable: false, ..x11(None) };
+        assert_eq!(status_json(&ready(FULL, unknown), "v")["capture_backend"], Value::Null);
     }
 
     fn ready(consent: LocalConsent, capture: Capture) -> Facts {
@@ -185,6 +227,7 @@ mod tests {
                 "schema": "cmux.screen-share.status/1",
                 "platform": "linux",
                 "state": "granted",
+                "capture_backend": "xshm",
                 "control": true,
                 "display": {"capture": "x11", "width": 1920, "height": 1080},
                 "helperVersion": "1.2.3",
@@ -265,8 +308,10 @@ mod tests {
             usable: true,
             size: None,
             portal_granted: false,
+            readback: None,
         };
         let v = status_json(&ready(FULL, portal.clone()), "v");
+        assert_eq!(v["capture_backend"], "portal");
         assert_eq!(v["state"], "needs_grant");
         assert_eq!(missing(&v), ["portal_grant"]);
         // The portal applies no input: control allowed is still view only.
@@ -298,6 +343,7 @@ mod tests {
                 usable: true,
                 size: None,
                 portal_granted: false,
+                readback: None,
             },
         };
         let v = status_json(&facts, "v");
@@ -313,8 +359,13 @@ mod tests {
                     for backend in [CaptureBackend::X11, CaptureBackend::Portal] {
                         for usable in [false, true] {
                             for portal_granted in [false, true] {
-                                let capture =
-                                    Capture { backend, usable, size: None, portal_granted };
+                                let capture = Capture {
+                                    backend,
+                                    usable,
+                                    size: None,
+                                    portal_granted,
+                                    readback: None,
+                                };
                                 let facts = Facts { enabled, setup_ok, consent, capture };
                                 let v = status_json(&facts, "v");
                                 let granted = v["state"] == "granted";

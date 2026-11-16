@@ -28,9 +28,13 @@ struct Band<'a> {
     v: &'a mut [u8],
 }
 
-/// The converter threads for this machine: [`threads_for_cores`] of its cores.
+/// The converter threads for this machine: [`threads_for_cores`] of the cores this process
+/// may run on (its affinity and cgroup quota), read once.
 pub fn convert_threads() -> usize {
-    threads_for_cores(std::thread::available_parallelism().map_or(1, |n| n.get()))
+    static THREADS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *THREADS.get_or_init(|| {
+        threads_for_cores(std::thread::available_parallelism().map_or(1, |n| n.get()))
+    })
 }
 
 /// One thread up to two cores, where a second thread only competes with the encoder and
