@@ -82,9 +82,9 @@ encoder; never bundled). `run` serves each approved session (step 4).
    control: media arrives, the stop ends it), and uploads the installable `cmux-rd.exe`
    (features `link,openh264`).
 
-Not yet: the cursor is not drawn into the frame (GDI `BitBlt` leaves it out; WGC or Desktop
-Duplication's pointer shape is the fix), one capture spans the whole virtual screen (no
-display picker), and `max_width` is not applied.
+The mouse pointer is drawn into each frame (`GetCursorInfo` and `DrawIconEx` after the
+`BitBlt`, which leaves it out). Not yet: one capture spans the whole screen (no display
+picker), and `max_width` is not applied.
 
 ## Consent
 

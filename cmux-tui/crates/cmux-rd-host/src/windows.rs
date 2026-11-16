@@ -28,6 +28,9 @@ use windows_sys::Win32::Graphics::Gdi::{
     HGDIOBJ, HORZRES, SRCCOPY, VERTRES,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    DrawIconEx, GetCursorInfo, GetIconInfo, CURSORINFO, CURSOR_SHOWING, DI_NORMAL, ICONINFO,
+};
 
 #[cfg(feature = "bench")]
 mod loopback;
@@ -131,6 +134,7 @@ impl GdiCapture {
         if copied == 0 {
             return Err("Windows screen capture: BitBlt failed".into());
         }
+        self.draw_cursor();
         let mut info: BITMAPINFO = unsafe { zeroed() };
         info.bmiHeader = BITMAPINFOHEADER {
             biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -170,6 +174,52 @@ impl GdiCapture {
             return Err("Windows screen capture: GetDIBits failed".into());
         }
         Ok(&self.pixels)
+    }
+
+    /// `BitBlt` copies the desktop without the mouse pointer, so the viewer would see none.
+    /// Draws the current pointer into the copy at its hotspot. A hidden pointer (a touch
+    /// screen, a full-screen game) or a failed call leaves the frame without one.
+    fn draw_cursor(&self) {
+        let mut cursor: CURSORINFO = unsafe { zeroed() };
+        cursor.cbSize = size_of::<CURSORINFO>() as u32;
+        // SAFETY: `cursor` is a valid CURSORINFO with its size set.
+        if unsafe { GetCursorInfo(&mut cursor) } == 0
+            || cursor.flags & CURSOR_SHOWING == 0
+            || cursor.hCursor.is_null()
+        {
+            return;
+        }
+        let mut icon: ICONINFO = unsafe { zeroed() };
+        // SAFETY: the cursor handle comes from GetCursorInfo; GetIconInfo hands us copies of
+        // its bitmaps, which are deleted right below.
+        let (hot_x, hot_y) = if unsafe { GetIconInfo(cursor.hCursor, &mut icon) } != 0 {
+            unsafe {
+                if !icon.hbmMask.is_null() {
+                    DeleteObject(icon.hbmMask as HGDIOBJ);
+                }
+                if !icon.hbmColor.is_null() {
+                    DeleteObject(icon.hbmColor as HGDIOBJ);
+                }
+            }
+            (icon.xHotspot as i32, icon.yHotspot as i32)
+        } else {
+            (0, 0)
+        };
+        // SAFETY: the memory DC holds our bitmap; screen coordinates match it because the
+        // copy starts at the desktop's origin.
+        unsafe {
+            DrawIconEx(
+                self.memory,
+                cursor.ptScreenPos.x - hot_x,
+                cursor.ptScreenPos.y - hot_y,
+                cursor.hCursor,
+                0,
+                0,
+                0,
+                std::ptr::null_mut(),
+                DI_NORMAL,
+            );
+        }
     }
 }
 
