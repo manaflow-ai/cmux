@@ -40,6 +40,7 @@ fn config(dir: &Path, script: &str) -> Config {
         stop_grace: Duration::from_millis(300),
         kill_after: Duration::from_millis(300),
         lease_wait: Duration::from_secs(5),
+        token_read_deadline: Duration::from_secs(30),
         refresh_delay: |_| Duration::from_secs(3600),
         check: |_| Ok(()),
     }
@@ -50,6 +51,8 @@ struct Harness {
     lines: mpsc::UnboundedReceiver<String>,
     done: tokio::task::JoinHandle<i32>,
     socket: String,
+    /// The text of every `log` line read so far.
+    logs: Vec<String>,
 }
 
 impl Harness {
@@ -61,7 +64,7 @@ impl Harness {
             let _ = sink.send(line);
         });
         let done = tokio::spawn(supervise(config, input, out));
-        Self { app: Some(app), lines, done, socket }
+        Self { app: Some(app), lines, done, socket, logs: Vec::new() }
     }
 
     /// Sends one app line; a supervisor that already exited (a stop with no
@@ -86,7 +89,23 @@ impl Harness {
             .await
             .unwrap_or_else(|_| panic!("no {key} line"))
             .unwrap_or_else(|| panic!("the supervisor ended before a {key} line"));
-        serde_json::from_str(&line).expect("a JSON line")
+        let value: Value = serde_json::from_str(&line).expect("a JSON line");
+        if let Some(text) = value.get("log").and_then(Value::as_str) {
+            self.logs.push(text.to_owned());
+        }
+        value
+    }
+
+    /// Reads lines until a `log` line whose text starts with `prefix`; the
+    /// texts of every `log` line read so far, that one last.
+    async fn log(&mut self, prefix: &str) -> Vec<String> {
+        loop {
+            let value = self.next(&format!("log {prefix:?}")).await;
+            if value.get("log").and_then(Value::as_str).is_some_and(|text| text.starts_with(prefix))
+            {
+                return self.logs.clone();
+            }
+        }
     }
 
     /// The next line that has `key`, skipping others.
@@ -450,4 +469,115 @@ fn the_serve_argv_parses() {
         None
     );
     assert_eq!(parse(&["supervise", "--socket", "/tmp/a.sock"].map(str::to_owned)), None);
+}
+
+/// A token read the app never answers fails at its deadline instead of
+/// holding the lease and every connect forever (2026-11-15: every Cloud chat
+/// start waited 180 s on such a read); the next connect reads again.
+#[tokio::test]
+async fn an_unanswered_token_read_fails_at_its_deadline_and_the_next_connect_reads_again() {
+    let dir = scratch("unanswered");
+    let mut config = config(&dir, &format!("{READY}\ncat >/dev/null"));
+    config.token_read_deadline = Duration::from_millis(300);
+    let mut serve = Harness::start(config);
+    serve.connect(1);
+    let first = serve.read().await;
+    let resumed = serve.expect("resume").await;
+    assert_eq!(resumed["resume"], json!([1]));
+    assert_eq!(resumed["error"]["kind"], "helper_not_running", "{resumed}");
+    assert_eq!(launches(&dir), 0, "no child without a token");
+    serve.token(first, "t-late");
+    serve.none("resume", Duration::from_millis(200)).await;
+    serve.connect(2);
+    let second = serve.read().await;
+    assert_ne!(second, first);
+    serve.token(second, "t-2");
+    let resumed = serve.expect("resume").await;
+    assert_eq!(resumed, json!({"resume": [2], "socket": serve.socket}));
+    assert_eq!(serve.end().await, 0);
+    assert_eq!(launches(&dir), 1);
+}
+
+/// A JWT-shaped access token, as the app's `env` carries it.
+const JWT: &str =
+    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJlLXNpZ25hdHVyZQ";
+
+/// Each link step of a good connect writes one `log` line the app puts in
+/// its unified log (category `cloud.carrier`): the connect, the child's
+/// start, the socket ready. None holds the token.
+#[tokio::test]
+async fn every_link_step_writes_one_log_line_without_the_token() {
+    let dir = scratch("log-steps");
+    let mut serve = Harness::start(config(&dir, &format!("{READY}\ncat >/dev/null")));
+    serve.connect(1);
+    let read = serve.read().await;
+    serve.token(read, JWT);
+    let logs = serve.log("socket ready for connect 1").await;
+    let connect = logs.iter().position(|text| text == "connect 1").expect("a connect line");
+    let started = logs
+        .iter()
+        .position(|text| text.starts_with("serve child ") && text.ends_with(" started"))
+        .expect("a child start line");
+    assert!(connect < started && started < logs.len() - 1, "in step order: {logs:?}");
+    assert_eq!(logs.iter().filter(|text| text.starts_with("connect ")).count(), 1, "{logs:?}");
+    for text in &logs {
+        assert!(!text.contains("eyJ") && !text.contains(JWT), "a token in {text:?}");
+        assert!(text.chars().count() <= wire::LOG_MAX, "{text:?}");
+    }
+    assert_eq!(serve.end().await, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A failed connect names its reason in the log: the child's refusal, the
+/// connect's failure and the child's exit code.
+#[tokio::test]
+async fn a_failed_connect_logs_its_reason_and_the_childs_exit() {
+    let dir = scratch("log-failure");
+    let script = r#"printf '{"ok":false,"error_code":"bad_request","error_detail":"Unix socket path %s is already leased","route":"carrier"}\n' "$1" >&2
+exit 64"#;
+    let mut serve = Harness::start(config(&dir, script));
+    serve.connect(1);
+    let read = serve.read().await;
+    serve.token(read, JWT);
+    let logs = serve.log("connect 1 failed: ").await;
+    let failed = logs.last().expect("the failure line");
+    // A leased socket is the clear "socket taken" failure (`serve_machine::socket_taken`).
+    assert!(failed.contains("another cmux is serving"), "the reason: {failed:?}");
+    // The child's exit comes before or after the failed connect.
+    let exited = |text: &String| text.contains(" exited with code ");
+    let mut exit = logs.iter().find(|text| exited(text)).cloned();
+    while exit.is_none() {
+        exit = serve.log("serve child ").await.last().filter(|text| exited(text)).cloned();
+    }
+    let exit = exit.unwrap_or_default();
+    assert!(exit.ends_with("exited with code 64"), "{:?}", serve.logs);
+    for text in &serve.logs {
+        assert!(!text.contains("eyJ"), "a token in {text:?}");
+    }
+    assert_eq!(serve.end().await, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_log_line_is_one_bounded_line_with_no_credential() {
+    let text = wire::log_text(&format!("refused: bearer {JWT}\nnext"));
+    assert_eq!(text, "refused: bearer [redacted] next");
+    let key = "key=QUJDREVGR0hJSktMTU5PUFFSU1RVVldY/WVphYmNkZWZnaGlqa2xtbm9w+cXJzdA==";
+    assert_eq!(wire::log_text(key), "[redacted]", "standard base64 with `/` and `+`");
+    let path = "/var/folders/ab/cdefghijklmnopqrstuvwxyz0123/T/cmux-link-0123456789ab.sock";
+    assert_eq!(wire::log_text(&format!("unsafe socket {path}")), format!("unsafe socket {path}"));
+    let long = wire::log_text(&"word ".repeat(200));
+    assert_eq!(long.chars().count(), wire::LOG_MAX);
+    assert!(long.ends_with('…'));
+    let kept = wire::log_text(
+        "connect 3 failed: {\"kind\":\"disconnected\",\"reason\":\"relay\"} vm_abc123",
+    );
+    assert_eq!(
+        kept,
+        "connect 3 failed: {\"kind\":\"disconnected\",\"reason\":\"relay\"} vm_abc123"
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&wire::log_line("stop")).expect("JSON"),
+        json!({"log": "stop"})
+    );
 }

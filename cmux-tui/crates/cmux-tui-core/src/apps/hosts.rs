@@ -239,7 +239,10 @@ impl Supervisor {
             },
             move |exit| {
                 if let Some(me) = me_exit.upgrade() {
-                    me.on_host_exit(&key_exit, generation, exit);
+                    match exit {
+                        Ok(exit) => me.on_host_exit(&key_exit, generation, exit),
+                        Err(error) => me.on_host_start_failed(&key_exit, generation, &error),
+                    }
                 }
             },
         );
@@ -353,10 +356,12 @@ impl Supervisor {
         outs
     }
 
-    /// Arms the idle stop once a live host has no mounts and no runs. A
-    /// preview host stops at once.
+    /// Arms the idle stop once a live host has no mounts and no runs, unless
+    /// its `activation` keeps it up (`activation.rs`). A preview host stops
+    /// at once.
     pub(super) fn idle_check_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
-        let busy = inner.mounts.values().any(|m| m.host == *key);
+        let busy =
+            inner.mounts.values().any(|m| m.host == *key) || self.resident_locked(inner, key);
         let Some(host) = inner.hosts.get_mut(key) else { return vec![] };
         let live = matches!(host.state, HostState::Starting | HostState::Running);
         if busy
@@ -384,7 +389,10 @@ impl Supervisor {
 
     fn idle_fired(&self, key: &HostKey, generation: u64) {
         let mut inner = self.inner.lock().unwrap();
-        let busy = inner.mounts.values().any(|m| m.host == *key);
+        // A host that became resident after its timer was armed (an
+        // `onEvent` app that subscribed) is kept: the timer only ends.
+        let busy =
+            inner.mounts.values().any(|m| m.host == *key) || self.resident_locked(&inner, key);
         if let Some(host) = inner.hosts.get_mut(key)
             && host.generation == generation
             && host.idle.take().is_some()
@@ -399,7 +407,7 @@ impl Supervisor {
         self.emit(outs);
     }
 
-    fn stop_host_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
+    pub(super) fn stop_host_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
         let Some(host) = inner.hosts.get_mut(key) else { return vec![] };
         if let Some(timer) = host.idle.take() {
             self.timers.cancel(timer);
@@ -524,7 +532,8 @@ impl Supervisor {
             }
             FromHost::Unsubscribe { sub } => {
                 inner.hosts.get_mut(key).expect("host").subs.remove(&sub);
-                vec![]
+                // An `onEvent` host with no subscription left may idle out.
+                self.idle_check_locked(inner, key)
             }
             FromHost::Log { level, message } => self.log_locked(inner, &key.app, &level, message),
             FromHost::Done { cb, ok, body } => {
@@ -575,12 +584,39 @@ impl Supervisor {
         }
         let host = inner.hosts.get_mut(key).expect("host");
         let inventory = stream == super::subscriptions::INVENTORY_STREAM;
+        let liveness = Out::StreamLiveness { key: key.clone(), sub, stream: stream.clone() };
         host.subs.insert(sub, stream);
-        if inventory || inner.events_started {
+        if inventory {
             return vec![];
         }
+        if inner.events_started {
+            return vec![liveness];
+        }
         inner.events_started = true;
-        vec![Out::StartEvents]
+        vec![Out::StartEvents, liveness]
+    }
+
+    /// The host's process did not start (`HostProcess::spawn` starts it on
+    /// the host's own thread, off this lock): the host fails, its mounts
+    /// with it, as an app that cannot run.
+    pub(super) fn on_host_start_failed(
+        &self,
+        key: &HostKey,
+        generation: u64,
+        error: &std::io::Error,
+    ) {
+        let outs = {
+            let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if inner.hosts.get(key).is_none_or(|h| h.generation != generation) {
+                return;
+            }
+            let reason = format!("spawn: {error}");
+            let mut outs = self.cancel_provider_calls_locked(&mut inner, key, "host_exited");
+            outs.extend(self.fail_host_locked(&mut inner, key, &reason));
+            outs.extend(Self::inventory_demand_locked(&mut inner));
+            outs
+        };
+        self.emit(outs);
     }
 
     pub(super) fn on_host_exit(&self, key: &HostKey, generation: u64, exit: Exit) {
@@ -601,7 +637,11 @@ impl Supervisor {
                 .map(|r| Out::Respond(r, Err(ApiError::new("apps.host", exit.describe()))))
                 .collect();
             outs.extend(self.cancel_provider_calls_locked(&mut inner, key, "host_exited"));
-            let has_work = queued || inner.mounts.values().any(|m| m.host == *key);
+            // A background app (`activation.rs`) has work with no view: its
+            // crash goes through the backoff and the crash limit.
+            let has_work = queued
+                || inner.mounts.values().any(|m| m.host == *key)
+                || (!key.preview && self.background_wanted(&inner, &key.app, false));
             match state {
                 HostState::Restarting => {
                     mark_reset(&mut inner, key);
@@ -666,8 +706,9 @@ impl Supervisor {
             if host.generation != generation || host.state != HostState::Waiting {
                 return;
             }
-            let has_work =
-                !host.queued_runs.is_empty() || inner.mounts.values().any(|m| m.host == *key);
+            let has_work = !host.queued_runs.is_empty()
+                || inner.mounts.values().any(|m| m.host == *key)
+                || (!key.preview && self.background_wanted(&inner, &key.app, false));
             if !has_work {
                 inner.hosts.remove(key);
                 return;
@@ -695,6 +736,20 @@ impl Supervisor {
         };
         inner.good_tried.insert(key.app.clone(), print);
         vec![out]
+    }
+
+    /// The answer to `OpRouter::stream_live` for one new subscription, if it is still current.
+    pub(super) fn send_liveness(&self, key: &HostKey, sub: u64, stream: &str, live: bool) {
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(host) = inner.hosts.get(key) else { return };
+        if host.subs.get(&sub).map(String::as_str) != Some(stream)
+            || !Self::stream_readable(&inner, key, host, stream)
+        {
+            return;
+        }
+        if let Some(process) = &host.process {
+            process.send(&ToHost::Event { sub, body: json!({ "live": live }) });
+        }
     }
 
     /// Delivers a daemon change event to every subscribed host.
@@ -725,6 +780,7 @@ pub(super) fn new_host() -> Host {
         ready_at: None,
         inflight: 0,
         print: None,
+        background: false,
     }
 }
 

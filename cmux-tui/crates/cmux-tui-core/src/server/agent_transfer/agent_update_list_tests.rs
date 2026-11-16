@@ -166,8 +166,11 @@ fn v2_pr07c_update_plan() {
         let counts = v2_threads(&proxy.path).expect("the gate's daemon serves the list");
         let wall = started.elapsed().as_nanos();
         assert_eq!(counts, (0, 0), "the gate's chats are idle");
+        // The sample's connections end before its bytes are read (`Counted::settled`).
+        runtime.block_on(proxy.settled()).unwrap();
         (wall, u128::from(proxy.sent() - before))
     };
+    let fds = list_daemon::open_fds();
     let (mut small_wall, mut small_bytes, mut god_wall, mut god_bytes) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for _ in 0..5 {
@@ -184,6 +187,7 @@ fn v2_pr07c_update_plan() {
         small_bytes.push(sb);
         god_wall.push(gw);
         god_bytes.push(gb);
+        list_daemon::assert_fds_given_back("v2.pr07c.update_plan_wall", fds);
     }
     let name = "v2.pr07c.update_plan_bytes";
     let (small, god) = emit(name, &small_bytes, &god_bytes, "bytes");

@@ -3,6 +3,23 @@
 version = 4
 
 [[package]]
+name = "acpmux-client"
+version = "1.0.0"
+dependencies = [
+ "acpmux-list-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "acpmux-list-types"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -91,6 +108,7 @@ dependencies = [
 name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
+ "acpmux-client",
  "cbindgen",
  "cmux-action-catalog",
  "cmux-agent-pane-policy",

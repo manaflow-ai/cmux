@@ -171,6 +171,22 @@ impl Authority {
     }
 
     pub(super) fn set(&self, surface: &str, granted: bool) -> Result<Consent> {
+        let user = if surface == super::cloud_join::SIGNED_IN_MACHINES {
+            super::cloud_join::machine_user_id()
+        } else {
+            None
+        };
+        self.set_as(surface, granted, user)
+    }
+
+    /// [`Self::set`], with the account (hub user id) this machine is joined as: what a
+    /// `signedInMachines` answer is for.
+    pub(super) fn set_as(
+        &self,
+        surface: &str,
+        granted: bool,
+        user: Option<String>,
+    ) -> Result<Consent> {
         self.prepare()?;
         // Serialize read/modify/write across app tags; disjoint grant changes
         // must never resurrect a concurrently revoked surface.
@@ -180,6 +196,17 @@ impl Authority {
         match surface {
             "screen" => consent.screen = state,
             "control" => consent.control = state,
+            super::cloud_join::SIGNED_IN_MACHINES => {
+                anyhow::ensure!(
+                    !granted || user.is_some(),
+                    "this machine is not joined to an account"
+                );
+                consent.signed_in_machines = state;
+                // Any answer (Allow, Not now, a later Off) is the one ask this machine gets, for
+                // the account it is joined as.
+                consent.signed_in_machines_answered_at = Some(crate::store::now_ms().to_string());
+                consent.signed_in_machines_user = user;
+            }
             _ => anyhow::bail!("unknown consent surface"),
         }
         if granted {
@@ -193,14 +220,38 @@ impl Authority {
     }
 
     pub(super) fn refused(&self, surface: &str) -> Result<()> {
-        anyhow::ensure!(matches!(surface, "screen" | "control"), "unknown consent surface");
+        self.refused_from(surface, None)
+    }
+
+    /// [`Self::refused`], naming the machine that asked (`from`, a host the hub lists) when one
+    /// is known, so the app's ask says which of the person's machines wants in.
+    pub(super) fn refused_from(&self, surface: &str, from: Option<&str>) -> Result<()> {
+        self.refused_by(surface, from, None)
+    }
+
+    /// [`Self::refused_from`], naming the account (hub user id) the ask was made for, which
+    /// [`for_account`] keeps it to.
+    pub(super) fn refused_by(
+        &self,
+        surface: &str,
+        from: Option<&str>,
+        user: Option<&str>,
+    ) -> Result<()> {
+        anyhow::ensure!(super::cloud_join::is_consent_surface(surface), "unknown consent surface");
         self.prepare()?;
-        crate::config::write_atomic(
-            &self.root.join("refusal.json"),
-            &serde_json::to_vec(
-                &json!({"event":"consent_refused","code":"consent_required","surface":surface,"at":crate::store::now_ms()}),
-            )?,
-        )
+        let mut record = serde_json::Map::new();
+        record.insert("event".into(), json!("consent_refused"));
+        record.insert("code".into(), json!("consent_required"));
+        record.insert("surface".into(), json!(surface));
+        record.insert("at".into(), json!(crate::store::now_ms()));
+        if let Some(from) = from.filter(|from| !from.is_empty()) {
+            // A host name from the hub's book, bounded so the record stays small.
+            record.insert("from".into(), json!(from.chars().take(128).collect::<String>()));
+        }
+        if let Some(user) = user {
+            record.insert("user".into(), json!(user));
+        }
+        crate::config::write_atomic(&self.root.join("refusal.json"), &serde_json::to_vec(&record)?)
     }
 
     #[cfg(unix)]
@@ -219,6 +270,30 @@ impl Authority {
     fn lock(&self) -> Result<HeldLock> {
         anyhow::bail!("consent unavailable")
     }
+}
+
+/// A consent status as it holds for `account`, the account (hub user id) this machine is joined
+/// as now: a `signedInMachines` grant or answer given for another account (or for none) reads as
+/// not given, and a `signedInMachines` ask made for another account is dropped, so after a
+/// switch nothing is granted, the app shows no old ask, and the next request is asked again.
+/// `signedInMachinesUser` is left as written. Screen and control are unchanged.
+pub(crate) fn for_account(mut status: Value, account: Option<&str>) -> Value {
+    let sim = super::cloud_join::SIGNED_IN_MACHINES;
+    let mine = |user: Option<&Value>| account.is_some() && user.and_then(Value::as_str) == account;
+    if let Some(consent) = status.get_mut("consent").and_then(Value::as_object_mut)
+        && !mine(consent.get("signedInMachinesUser"))
+    {
+        consent.insert(sim.into(), json!("none"));
+        consent.insert("signedInMachinesAnsweredAt".into(), Value::Null);
+    }
+    let refusal = status.get("lastRefusal");
+    if refusal.and_then(|r| r.get("surface")).and_then(Value::as_str) == Some(sim)
+        && !mine(refusal.and_then(|r| r.get("user")))
+        && let Some(status) = status.as_object_mut()
+    {
+        status.insert("lastRefusal".into(), Value::Null);
+    }
+    status
 }
 
 /// The enrollment marker; with `by`, only sign-in joins made it.
@@ -241,16 +316,24 @@ fn exists(path: &Path) -> Result<bool> {
 
 #[cfg(unix)]
 fn account_home() -> Result<PathBuf> {
+    // The kernel uid, never HOME or a tag's env.
+    // SAFETY: geteuid has no preconditions.
+    home_of_uid(unsafe { libc::geteuid() })
+}
+
+/// The OS account home of `uid`, from the account database.
+#[cfg(unix)]
+pub(super) fn home_of_uid(uid: libc::uid_t) -> Result<PathBuf> {
     use std::ffi::{CStr, OsStr};
     use std::os::unix::ffi::OsStrExt;
     let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
     let mut result = std::ptr::null_mut();
     let mut buffer = vec![0u8; 64 * 1024];
     // SAFETY: all output pointers refer to live buffers; returned strings remain
-    // valid until buffer drops. Use the kernel uid, never HOME or a tag's env.
+    // valid until buffer drops.
     let code = unsafe {
         libc::getpwuid_r(
-            libc::geteuid(),
+            uid,
             entry.as_mut_ptr(),
             buffer.as_mut_ptr().cast(),
             buffer.len(),

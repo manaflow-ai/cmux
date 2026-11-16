@@ -200,7 +200,7 @@ import QuartzCore
         model.sections = sections
         model.collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id)) // as `SidebarModel(sections:)` sets them
         (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
-        (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
+        model.expanded = host.model.expanded
         model.detailedStatus = host.model.detailedStatus
         model.showsTimestamps = host.model.showsTimestamps
         (model.showsColors, model.colorIndicator) = (host.model.showsColors, host.model.colorIndicator)

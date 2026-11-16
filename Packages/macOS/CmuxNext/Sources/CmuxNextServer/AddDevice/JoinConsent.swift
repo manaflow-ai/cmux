@@ -10,6 +10,10 @@ public nonisolated enum JoinConsentSurface: String, CaseIterable, Equatable, Sen
     case screen
     /// Other team machines move the pointer and type here.
     case control
+    /// The person's other Macs signed in to this account open workspaces and terminals here
+    /// (acpmux's `signedInMachines`, which gates the cmux-tui session circuit). Asked once on this Mac,
+    /// at the first New Workspace aimed at it; a sign-in alone grants nothing.
+    case signedInMachines
 }
 
 /// `acpmux host join --status --json`: the parts This Mac shows. The consent comes from acpmux itself
@@ -59,24 +63,53 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
     /// acpmux's `consentRequired`: this machine is joined, so its surfaces need consent; nil from an
     /// acpmux that does not send it.
     public var consentRequired: Bool?
+    /// The person's other Macs signed in to this account may open workspaces here (`signedInMachines`).
+    public var signedInMachines: Bool
+    /// The machine that asked last, as acpmux recorded it (`lastRefusal.from`, a host the hub lists).
+    public var lastRefusalFrom: String?
+    /// The last refusal is a `signedInMachines` ask nobody answered since acpmux recorded it: acpmux
+    /// records that ask only while this Mac's account has no answer, and any answer (Allow, Not now, a
+    /// later Off) comes after it.
+    public var signedInMachinesAskOpen: Bool
+    /// When acpmux recorded the last refusal, a `signedInMachines` one (its milliseconds); nil otherwise.
+    public var lastRefusalAt: Double?
 
-    public init(screen: Bool = false, control: Bool = false, lastRefusal: JoinConsentSurface? = nil, consentRequired: Bool? = nil) {
+    public init(screen: Bool = false, control: Bool = false, lastRefusal: JoinConsentSurface? = nil, consentRequired: Bool? = nil,
+                signedInMachines: Bool = false, lastRefusalFrom: String? = nil, signedInMachinesAskOpen: Bool = false,
+                lastRefusalAt: Double? = nil) {
         self.screen = screen
         self.control = control
         self.lastRefusal = lastRefusal
         self.consentRequired = consentRequired
+        self.signedInMachines = signedInMachines
+        self.lastRefusalFrom = lastRefusalFrom
+        self.signedInMachinesAskOpen = signedInMachinesAskOpen
+        self.lastRefusalAt = lastRefusalAt
     }
 
     /// The record in a result; nil without a `consent` object. Only the word `granted` is on.
     public static func parse(_ result: [String: Any]) -> JoinConsentRecord? {
         guard let consent = result["consent"] as? [String: Any] else { return nil }
-        let refusal = (result["lastRefusal"] as? [String: Any])?["surface"] as? String
+        let refusal = result["lastRefusal"] as? [String: Any]
+        let surface = (refusal?["surface"] as? String).flatMap(JoinConsentSurface.init(rawValue:))
+        let from = (refusal?["from"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(128)) }
+        // Both times are acpmux's milliseconds: the refusal's a number, the answer's a string.
+        let askedAt = (refusal?["at"] as? NSNumber)?.doubleValue
+        let answeredAt = (consent["signedInMachinesAnsweredAt"] as? String).flatMap(Double.init)
+        let open = surface == .signedInMachines && askedAt.map { asked in answeredAt.map { $0 < asked } ?? true } == true
         return JoinConsentRecord(screen: consent["screen"] as? String == "granted", control: consent["control"] as? String == "granted",
-                                 lastRefusal: refusal.flatMap(JoinConsentSurface.init(rawValue:)),
-                                 consentRequired: result["consentRequired"] as? Bool)
+                                 lastRefusal: surface, consentRequired: result["consentRequired"] as? Bool,
+                                 signedInMachines: consent["signedInMachines"] as? String == "granted", lastRefusalFrom: from,
+                                 signedInMachinesAskOpen: open, lastRefusalAt: surface == .signedInMachines ? askedAt : nil)
     }
 
-    public func allows(_ surface: JoinConsentSurface) -> Bool { surface == .screen ? screen : control }
+    public func allows(_ surface: JoinConsentSurface) -> Bool {
+        switch surface {
+        case .screen: screen
+        case .control: control
+        case .signedInMachines: signedInMachines
+        }
+    }
 }
 
 /// One connection to this Mac's acpmux for the consent record (the app's ``AcpmuxPersonLine``). acpmux
@@ -138,7 +171,8 @@ public nonisolated struct JoinConsentGrantTicket: Sendable {
     }
 }
 
-/// A team machine's screen or control request that acpmux refused with `consent_required`.
+/// A request acpmux refused with `consent_required`: a team machine's screen or control, or one of the person's
+/// other Macs asking to open a workspace here (`signedInMachines`).
 public nonisolated struct JoinConsentRefusal: Equatable, Sendable {
     public var requester: String
     public var surface: JoinConsentSurface
@@ -198,7 +232,7 @@ public struct JoinConsentServices {
     }
 }
 
-/// This Mac's join consent: the two switches of Settings > Devices, the one-time sheet on the first
+/// This Mac's join consent: the switches of Settings > Devices, the one-time sheet on the first
 /// refused request, and Mac Screen's gate. Turning a switch on needs a line acpmux proved as the person
 /// (``JoinConsentLine/isPerson``). It reads only when asked (Settings opening, the app coming forward,
 /// a write, a Mac Screen ticket).
@@ -246,6 +280,9 @@ public final class JoinConsentModel {
     /// A read was asked for while a write was in flight (and dropped): the write reads again before it
     /// ends, so a change acpmux made meanwhile is never lost behind the write's own read.
     @ObservationIgnored private var askedDuringWrite = false
+    /// The `signedInMachines` ask (acpmux's refusal time) the sheet already showed: it shows again only for
+    /// a newer ask, so a Not now whose write failed doesn't bring it back on every read.
+    @ObservationIgnored private var shownSignedInAsk: Double?
 
     /// What the app follows for the model (the Labs switch, acpmux's folder); cancelled with the model.
     @ObservationIgnored public var following: Task<Void, Never>? {
@@ -338,8 +375,18 @@ public final class JoinConsentModel {
         let gone = !enabled || reading.status?.credentialPresent == false || reading.status?.revoked == true
         if gone, ask != nil { dismissAsk() }
         // acpmux refused a team machine for a surface still off: the first such refusal shows the sheet.
-        if shown, let surface = reading.consent?.lastRefusal, reading.consent?.allows(surface) == false {
-            refused(JoinConsentRefusal(requester: JoinConsentStrings.teamMachine, surface: surface))
+        // One of the person's other Macs asking for a workspace shows it while that ask is unanswered
+        // (acpmux keeps the answer), naming the Mac when acpmux recorded it, unless the sheet already
+        // showed that ask here.
+        if shown, let record = reading.consent, let surface = record.lastRefusal, !record.allows(surface) {
+            if surface == .signedInMachines {
+                if record.signedInMachinesAskOpen, record.lastRefusalAt != shownSignedInAsk,
+                   refused(JoinConsentRefusal(requester: record.lastRefusalFrom ?? JoinConsentStrings.otherMac, surface: surface)) {
+                    shownSignedInAsk = record.lastRefusalAt
+                }
+            } else {
+                refused(JoinConsentRefusal(requester: JoinConsentStrings.teamMachine, surface: surface))
+            }
         }
     }
 
@@ -386,7 +433,11 @@ public final class JoinConsentModel {
 
     private static func narrowed(_ record: JoinConsentRecord, _ surface: JoinConsentSurface) -> JoinConsentRecord {
         var record = record
-        if surface == .screen { record.screen = false } else { record.control = false }
+        switch surface {
+        case .screen: record.screen = false
+        case .control: record.control = false
+        case .signedInMachines: record.signedInMachines = false
+        }
         record.consentRequired = nil
         return record
     }
@@ -470,23 +521,30 @@ public final class JoinConsentModel {
     }
 
     /// acpmux refused a team machine's request with `consent_required`: the first one on this Mac
-    /// shows the sheet, once. Later ones, or any while the Labs switch is off, show nothing.
-    public func refused(_ refusal: JoinConsentRefusal) {
-        guard services.enabled(), ask == nil, !services.askShown() else { return }
-        services.markAskShown()
+    /// shows the sheet, once. Later ones, or any while the Labs switch is off, show nothing. A
+    /// `signedInMachines` ask is asked once by acpmux, which keeps its answer per account, so it does not
+    /// take or spend this Mac's one screen-or-control ask. True when the sheet showed it.
+    @discardableResult
+    public func refused(_ refusal: JoinConsentRefusal) -> Bool {
+        let once = refusal.surface != .signedInMachines
+        guard services.enabled(), ask == nil, !once || !services.askShown() else { return false }
+        if once { services.markAskShown() }
         ask = refusal
         askError = nil
         present(true)
+        return true
     }
 
     /// The sheet's Deny or Allow. Allow writes through the same person path as the switch; when it does
     /// not take, the sheet stays up with the reason. While a write is in flight both buttons are disabled
-    /// and a press does nothing, so a Deny never closes the sheet over a grant still landing.
+    /// and a press does nothing, so a Deny never closes the sheet over a grant still landing. Not now on a
+    /// `signedInMachines` ask closes the sheet at once and writes the answer (off), so acpmux asks no more.
     @discardableResult
     public func answer(allow: Bool) async -> String? {
         guard let refusal = ask, !writing else { return nil }
         guard allow, services.enabled() else {
             dismissAsk()
+            if refusal.surface == .signedInMachines, services.enabled() { return await set(.signedInMachines, on: false) }
             return nil
         }
         if let error = await set(refusal.surface, on: true) {
@@ -565,12 +623,14 @@ public nonisolated struct JoinConsentStrings {
         switch surface {
         case .screen: s("devices.join.screen", "Screen sharing")
         case .control: s("devices.join.control", "Control")
+        case .signedInMachines: s("devices.join.signedInMachines", "Your other Macs")
         }
     }
     static func switchHelp(_ surface: JoinConsentSurface) -> String {
         switch surface {
         case .screen: s("devices.join.screenHelp", "Your team's machines can see this screen")
         case .control: s("devices.join.controlHelp", "Your team's machines can move the pointer and type here")
+        case .signedInMachines: s("devices.join.signedInMachinesHelp", "Your other Macs signed in to this account can open workspaces and terminals here")
         }
     }
     static var onFailed: String { s("devices.join.onFailed", "Still off: this Mac could not confirm it was you") }
@@ -582,6 +642,7 @@ public nonisolated struct JoinConsentStrings {
         switch surface {
         case .screen: s("devices.join.confirm.screen", "allow your team's machines to see this Mac's screen")
         case .control: s("devices.join.confirm.control", "allow your team's machines to control this Mac")
+        case .signedInMachines: s("devices.join.confirm.signedInMachines", "allow your other Macs signed in to this account to open workspaces on this Mac")
         }
     }
     static var offFailed: String { s("devices.join.offFailed", "It could not be turned off. Try again.") }
@@ -589,25 +650,34 @@ public nonisolated struct JoinConsentStrings {
         s("devices.join.unread", "This Mac could not read what it allows, so Mac Screen is refused until it can. The switches come back when it reads again.")
     }
     static var busy: String { s("devices.join.busy", "Still saving the last change. Try again in a moment.") }
-    static var revokeAll: String { s("devices.join.revokeAll", "Turn Off Screen Sharing and Control") }
+    static var revokeAll: String { s("devices.join.revokeAllSurfaces", "Turn All Off") }
     static var unsupported: String { s("devices.join.unsupported", "Still off: this Mac's cmux needs an update before you can allow this") }
     /// Who asked, when acpmux recorded only the refusal.
     static var teamMachine: String { s("devices.join.ask.teamMachine", "A machine on your team") }
+    /// Who asked for a workspace, when acpmux did not record which Mac.
+    static var otherMac: String { s("devices.join.ask.otherMac", "One of your other Macs") }
 
     // The one-time sheet.
     static func askTitle(_ refusal: JoinConsentRefusal) -> String {
         switch refusal.surface {
         case .screen: String(format: s("devices.join.ask.screen", "%@ asked to see this screen."), refusal.requester)
         case .control: String(format: s("devices.join.ask.control", "%@ asked to control this Mac."), refusal.requester)
+        case .signedInMachines:
+            String(format: s("devices.join.ask.signedInMachines", "%@ asked to open a workspace on this Mac."), refusal.requester)
         }
     }
     static func askQuestion(_ surface: JoinConsentSurface) -> String {
         switch surface {
         case .screen: s("devices.join.ask.screenQuestion", "Allow screen sharing from your team's machines?")
         case .control: s("devices.join.ask.controlQuestion", "Allow control from your team's machines?")
+        case .signedInMachines: s("devices.join.ask.signedInMachinesQuestion", "Allow your other Macs signed in to this account to open workspaces here?")
         }
     }
     static var askNote: String { s("devices.join.ask.note", "You can change this later in Settings > Devices.") }
     static var deny: String { s("devices.join.ask.deny", "Deny") }
+    /// The sheet's decline: Not now for a workspace ask (it is answered once), Deny otherwise.
+    static func decline(_ surface: JoinConsentSurface) -> String {
+        surface == .signedInMachines ? s("devices.join.ask.notNow", "Not now") : deny
+    }
     static var allow: String { s("devices.join.ask.allow", "Allow") }
 }

@@ -355,8 +355,12 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                                 Some(Control::Credit(sid, state.credit(credit)?))
                             }
                             Request::Unsub(unsub) => {
-                                state.unsubscribe(&unsub.sid);
-                                Some(Control::End(unsub.sid))
+                                if state.unsubscribe(&unsub.sid) {
+                                    Some(Control::End(unsub.sid))
+                                } else {
+                                    state.unsubscribe_ended(&unsub.sid);
+                                    Some(Control::EndedHere)
+                                }
                             }
                             _ => return Err(poisoned()),
                         }
@@ -368,6 +372,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                         Control::Credit(sid, Some(cursor)) => source.resume(&sid, cursor),
                         Control::Credit(_, None) => {},
                         Control::End(sid) => source.end(&sid),
+                        Control::EndedHere => {}
                     }
                     continue;
                 }
@@ -406,6 +411,8 @@ fn poisoned() -> ConnError {
 enum Control {
     Credit(String, Option<Cursor>),
     End(String),
+    /// An unsub of a sid the connection ended itself: its source was ended then.
+    EndedHere,
 }
 
 /// What a frame is, read once off the socket.
@@ -452,9 +459,12 @@ fn known_control(frame: &Frame, state: &ConnectionState) -> bool {
     {
         return false;
     }
+    // A sid the connection ended itself is known too: its late credit or unsub is answered with
+    // nothing, so it needs no reply room either.
+    let known = |sid: &str| state.subscriptions.contains_key(sid) || state.ended_here(sid);
     match frame.decode_json::<Request>() {
-        Ok(Request::Credit(credit)) => state.subscriptions.contains_key(&credit.sid),
-        Ok(Request::Unsub(unsub)) => state.subscriptions.contains_key(&unsub.sid),
+        Ok(Request::Credit(credit)) => known(&credit.sid),
+        Ok(Request::Unsub(unsub)) => known(&unsub.sid),
         _ => false,
     }
 }
@@ -531,10 +541,15 @@ fn process_frame(
             }
         }
         Request::Unsub(unsub) => {
-            if !state.lock().map_err(|_| poisoned())?.unsubscribe(&unsub.sid) {
+            let mut held = state.lock().map_err(|_| poisoned())?;
+            if held.unsubscribe(&unsub.sid) {
+                drop(held);
+                source.end(&unsub.sid);
+            } else if !held.unsubscribe_ended(&unsub.sid) {
+                // A sid this connection ended itself was ended at its source then: only a sid
+                // it never had is unknown.
                 return Err(ConnError::UnknownSubscription(unsub.sid));
             }
-            source.end(&unsub.sid);
         }
         Request::Page(page) => {
             require_surface(&page.stream, surfaces)?;
@@ -606,13 +621,9 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
         Request::Blob(_) => {
             Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
         }
+        // Decision 266: the mirror's `live` walk, or this machine's rows by `all` or `keys`.
         Request::Page(page) => {
-            if page.stream.as_str() != "list"
-                || page.view != Some(crate::wire::ListView::Live)
-                || page.filter.is_some()
-                || page.keys.is_some()
-                || page.turns
-            {
+            if crate::hub::peer_page_shape(page).is_none() {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),
                 ));

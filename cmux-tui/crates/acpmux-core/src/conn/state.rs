@@ -21,6 +21,8 @@ pub struct ConnectionMetrics {
     unanswered: AtomicUsize,
     peak_unanswered: AtomicUsize,
     failed_replies: AtomicUsize,
+    after_end: AtomicUsize,
+    ends_forgotten: AtomicUsize,
 }
 impl ConnectionMetrics {
     pub fn queued_bytes(&self) -> usize {
@@ -48,6 +50,16 @@ impl ConnectionMetrics {
     /// Later replies that did not fit the budget; each ended its connection.
     pub fn failed_replies(&self) -> usize {
         self.failed_replies.load(Ordering::Relaxed)
+    }
+    /// `unsub` and `credit` requests for a sid this connection ended itself, answered with
+    /// nothing: the client sent them before it read the end.
+    pub fn after_end(&self) -> usize {
+        self.after_end.load(Ordering::Relaxed)
+    }
+    /// Sids the connection ended itself and stopped remembering, the oldest first, once
+    /// [`MAX_SUBSCRIPTIONS`] were kept. A late request for one is `unknown_sid` again.
+    pub fn ends_forgotten(&self) -> usize {
+        self.ends_forgotten.load(Ordering::Relaxed)
     }
 }
 
@@ -114,6 +126,10 @@ pub struct ConnectionState {
     outside: usize,
     pub(super) metrics: Arc<ConnectionMetrics>,
     ended: Vec<String>,
+    /// The sids this connection ended itself (`dropped`, `source_failed`) that the client has
+    /// not unsubscribed or reused, at most [`MAX_SUBSCRIPTIONS`]: a client's `unsub` or `credit`
+    /// may be on the wire when the end is queued, and is not an error.
+    ended_here: VecDeque<String>,
     reserved: usize,
     /// The room a request answered later holds for its reply until the reply is queued.
     held: usize,
@@ -141,6 +157,7 @@ impl ConnectionState {
             outside: 0,
             metrics: Arc::new(ConnectionMetrics::default()),
             ended: Vec::new(),
+            ended_here: VecDeque::new(),
             reserved: 0,
             held: 0,
             unanswered: 0,
@@ -195,6 +212,7 @@ impl ConnectionState {
         if self.subscriptions.contains_key(&sid) {
             return Err(ConnError::DuplicateSubscription(sid));
         }
+        self.ended_here.retain(|ended| *ended != sid);
         let control = Arc::new(SubscriptionControl::default());
         control.known.store(cursor.is_some(), Ordering::Release);
         let cursor = cursor.unwrap_or_default();
@@ -225,8 +243,27 @@ impl ConnectionState {
             false
         }
     }
-    /// Returns a cursor only when new credit revives a stopped source.
+    /// A sid this connection ended itself and still keeps.
+    pub(super) fn ended_here(&self, sid: &str) -> bool {
+        self.ended_here.iter().any(|ended| ended == sid)
+    }
+    /// The client's `unsub` of a sid this connection ended itself: it is forgotten, and the
+    /// request is answered with nothing. False for a sid the connection never ended.
+    pub(super) fn unsubscribe_ended(&mut self, sid: &str) -> bool {
+        let Some(at) = self.ended_here.iter().position(|ended| ended == sid) else {
+            return false;
+        };
+        self.ended_here.remove(at);
+        self.metrics.after_end.fetch_add(1, Ordering::Relaxed);
+        true
+    }
+    /// Returns a cursor only when new credit revives a stopped source. Credit for a sid this
+    /// connection ended itself is taken and does nothing.
     pub fn credit(&mut self, credit: Credit) -> Result<Option<Cursor>, ConnError> {
+        if !self.subscriptions.contains_key(&credit.sid) && self.ended_here.contains(&credit.sid) {
+            self.metrics.after_end.fetch_add(1, Ordering::Relaxed);
+            return Ok(None);
+        }
         let sub = self
             .subscriptions
             .get_mut(&credit.sid)
@@ -457,6 +494,11 @@ impl ConnectionState {
         let cursor = Cursor(sub.control.written.load(Ordering::Acquire));
         self.notices += 1;
         self.ended.push(sid.to_owned());
+        if self.ended_here.len() == MAX_SUBSCRIPTIONS {
+            self.ended_here.pop_front();
+            self.metrics.ends_forgotten.fetch_add(1, Ordering::Relaxed);
+        }
+        self.ended_here.push_back(sid.to_owned());
         let held =
             notice_frame(sid, Some(Cursor(u64::MAX)), &kind).map_or(0, |frame| frame.encoded_len());
         self.outside = self.outside.saturating_add(held);

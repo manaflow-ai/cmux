@@ -138,14 +138,16 @@ import Testing
         await serve.stop()
     }
 
-    /// A supervisor that exits fails the connects it held; the next connect starts another.
+    /// A supervisor that exits fails the connects it held with its status and last stderr line; the next
+    /// connect starts another.
     @Test func aSupervisorThatExitsFailsItsConnectsAndTheNextStartsAnother() async throws {
-        let cli = try Self.standIn(answer: "exit 3")
+        let cli = try Self.standIn(answer: "echo 'cmux: no such verb' >&2; exit 3")
         let folder = cli.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: folder) }
         let serve = CloudCarrierServe(connector: try Self.connector(cli), socket: Self.socket)
-        await #expect(throws: CloudLinkError.helperNotRunning(reason: "cmux carrier serve exited")) { try await serve.socketPath() }
-        await #expect(throws: CloudLinkError.helperNotRunning(reason: "cmux carrier serve exited")) { try await serve.socketPath() }
+        let exited = CloudLinkError.helperNotRunning(reason: "cmux carrier supervise exited with status 3; its last stderr line: cmux: no such verb")
+        await #expect(throws: exited) { try await serve.socketPath() }
+        await #expect(throws: exited) { try await serve.socketPath() }
         #expect(Self.text(folder, "launches").split(separator: "\n").count == 2)
         await serve.stop()
     }
@@ -161,6 +163,23 @@ import Testing
         #expect(answer == .failure(.init(code: "cloud.machine.paused", message: "vm_abc123 is paused; resume it first")))
         #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("launches").path), "no supervisor started")
         await link.close()
+    }
+
+    /// A line longer than the pipe takes at once (a token answer is ~1.5 KB, past `PIPE_BUF`) goes in whole
+    /// as the child reads; before, the one non-blocking write took a part, the rest was dropped and the
+    /// supervisor never saw its answer.
+    @Test func aLongLineGoesInWholeWhileTheChildReads() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ccs-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let out = folder.appendingPathComponent("stdin")
+        let child = ChildProcess(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", #"sleep 0.3; cat > "$0""#, out.path])
+        try child.startHoldingInput()
+        let line = String(repeating: "x", count: 256 * 1024)
+        #expect(child.writeInput(line: line, patience: .seconds(10)), "the whole line went in")
+        child.closeInput()
+        _ = await child.waitForExit()
+        #expect((try? Data(contentsOf: out).count) == line.utf8.count + 1)
     }
 
     @Test func everyLinkErrorRoundTripsOnTheSupervisorsWire() {

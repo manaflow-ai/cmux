@@ -10,6 +10,7 @@ import { composerStatePlays } from "../composerStatePlays";
 import { paneLanguage, translateKey } from "../i18n";
 import { newTabComposerTrailingGap } from "./composerGap.experiment";
 import { createStripLabelsFit } from "./createStripFit";
+import { MODEL_PICKER } from "../composerSelectors";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
@@ -582,8 +583,8 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: reasoningChat(),
       play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-picker-button") !== null);
-        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(MODEL_PICKER) !== null);
+        await ctx.click({ selector: MODEL_PICKER });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols-tune [role="switch"]') !== null);
       },
     },
@@ -1442,6 +1443,46 @@ export default agentPaneEntry({
         } finally {
           popover.style.width = width;
         }
+      },
+    },
+    "omnibar-start-agent": {
+      note: 'Lawrence 2026-11-13 ("launch claude code/codex/opencode in certain directories"): "codex cmux" leads with Codex in each cmux folder, above Ask; Return starts Codex there.',
+      ready: newTab({ omnibar: FF_OMNIBAR, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "codex cmux", (rows) =>
+          rows[0]?.type === "launch" && rows[0].title.startsWith("Codex") ? undefined : "Codex does not lead",
+        );
+      },
+    },
+    "omnibar-sections": {
+      note: "The ranked sections: the exact name and Ask lead, then Open, Chats (the chats the index finds), Start an agent and History, each under its heading.",
+      ready: newTab({
+        omnibar: {
+          ...FF_OMNIBAR,
+          history: [{ url: "https://github.com/manaflow-ai/cmux", title: "manaflow-ai/cmux: the terminal for agents" }],
+        },
+        projects: WIDGET_PROJECTS,
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "cmux", (rows) =>
+          rows.some((row) => row.type === "chat") && rows.some((row) => row.type === "launch")
+            ? undefined
+            : "no chat or start rows",
+        );
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-popover .nt-section").length >= 2);
+      },
+    },
+    "omnibar-folder-complete": {
+      note: "A typed path completes from the folder's subfolders (folder.complete, asked once the field stays still); Tab fills the folder in.",
+      ready: newTab({ omnibar: FF_OMNIBAR, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(manySessions(3)),
+      native: { "chats.page": allChatsPage, "folder.complete": { folders: ["cmux", "cmux-web", "manaflow", "notes"] } },
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "claude ~/src/", (rows) =>
+          rows.filter((row) => row.type === "launch").length >= 2 ? undefined : "no folder rows",
+        );
       },
     },
     "suggestions-url": {

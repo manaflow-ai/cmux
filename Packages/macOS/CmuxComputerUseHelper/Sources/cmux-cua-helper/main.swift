@@ -12,6 +12,10 @@ signal(SIGPIPE, SIG_IGN)
 if CommandLine.arguments.contains(where: { $0.hasPrefix(TakeoverBench.flag) }) {
     exit(TakeoverBench().main(arguments: CommandLine.arguments))
 }
+// Dev measurement only: real mouse moves under this app's grants (the hover card bench).
+if CommandLine.arguments.contains(PointerGlide.flag) {
+    exit(PointerGlide().main(arguments: CommandLine.arguments))
+}
 let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.cua.dev"
 // Before any thread starts and before the driver loads.
 HelperEnvironment(helperBundleID: bundleID).apply()
