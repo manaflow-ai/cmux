@@ -80,3 +80,12 @@ struct CMUXBuildSpaceStateTests {
         #expect(refusal.localizedDescription == text)
     }
 }
+
+/// What every process a build launches gets as `CMUX_BUILD_SPACE`: never nothing for a misconfigured dev build.
+@Suite struct CMUXBuildSpaceChildEnvironmentTests {
+    @Test func eachStateGivesItsChildValue() {
+        #expect(CMUXBuildSpaceState(devBuild: true, devTag: "my-tag").childEnvironmentValue == "dev:my-tag")
+        #expect(CMUXBuildSpaceState(devBuild: false, devTag: nil).childEnvironmentValue == nil)
+        #expect(CMUXBuildSpaceState(devBuild: true, devTag: nil).childEnvironmentValue == "unusable")
+    }
+}

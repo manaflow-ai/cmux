@@ -25,6 +25,13 @@ import Testing
         }
     }
 
+    /// A DEV build with no usable tag never lets its children fall back to nightly's data: they get a value that is
+    /// not a space, which every Rust cloud client refuses (cmux-tui `cmux-build-space`).
+    @Test func anUntaggedDevBuildsChildrenGetARefusingValue() {
+        #expect(Self.launch("com.cmuxterm.app.debug").terminalEnvironment["CMUX_BUILD_SPACE"] == "unusable")
+        #expect(Self.launch("com.cmuxterm.app.debug", tag: "---").terminalEnvironment["CMUX_BUILD_SPACE"] == "unusable")
+    }
+
     /// Another cmux's space, inherited from its terminal, is stripped at launch (it is replaced by this build's).
     @Test func anInheritedBuildSpaceIsStripped() {
         let inherited = ["CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.other", "CMUX_BUILD_SPACE": "dev:other"]
