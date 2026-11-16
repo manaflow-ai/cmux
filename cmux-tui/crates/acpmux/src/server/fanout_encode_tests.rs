@@ -145,10 +145,9 @@ async fn one_round(round: usize) {
 /// drop 60 s).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_fan_out_task_that_dies_ends_its_connection() {
-    let id = "fanout-dies-chat";
+    let id = &format!("{}chat", super::fanout::tests::PANIC_PREFIX);
     let (hub, session) = hub_with_chat(id);
     let (_input, mut outgoing) = attached(&hub, id).await;
-    super::fanout::tests::mark_panic(id);
     hub.append(&session, "in", "agent_message_chunk", chunk(id, 0));
     tokio::time::timeout(Duration::from_secs(20), async {
         while outgoing.recv().await.is_some() {}

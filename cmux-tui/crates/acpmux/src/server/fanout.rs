@@ -128,19 +128,12 @@ pub(super) fn ended(conn: &Conn, ended: Result<(), tokio::task::JoinError>) {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use std::collections::HashSet;
-    use std::sync::Mutex;
-
-    /// Chats whose next delivery panics the fan-out task (a test's own chat id, so parallel
-    /// tests never trip each other).
-    static PANIC_ON: Mutex<Option<HashSet<String>>> = Mutex::new(None);
-
-    pub(in crate::server) fn mark_panic(session: &str) {
-        PANIC_ON.lock().unwrap().get_or_insert_with(HashSet::new).insert(session.to_owned());
-    }
+    /// A chat id with this prefix panics the fan-out task at its first delivery: no shared state,
+    /// so parallel tests never trip each other (the test-hooks check, cmux#41350).
+    pub(in crate::server) const PANIC_PREFIX: &str = "fanout-test-panic-";
 
     pub(super) fn panic_if_marked(session: &str) {
-        if PANIC_ON.lock().unwrap().as_ref().is_some_and(|marked| marked.contains(session)) {
+        if session.starts_with(PANIC_PREFIX) {
             panic!("fan-out test panic for {session}");
         }
     }
