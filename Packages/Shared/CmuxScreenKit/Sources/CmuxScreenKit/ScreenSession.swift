@@ -105,6 +105,50 @@ public final class ScreenSession {
         hostCapabilities = Set(capabilities)
     }
 
+    /// What the stream's host last said about sharing its screen (its `status` message):
+    /// nil until it says something (an older host never does); cleared on each connect.
+    public private(set) var shareStatus: ScreenShareStatus?
+    /// A screen stream connected ``noPictureDelay`` ago and not one frame has been
+    /// decoded: the view says so instead of showing a black picture.
+    public private(set) var noPicture = false
+    /// How long a connected stream may show no picture before the view says so.
+    public nonisolated static let noPictureDelay: Duration = .seconds(2)
+    /// When the running stream connected (the no-picture clock).
+    @ObservationIgnored private var streamConnectedAt: ContinuousClock.Instant?
+
+    /// The host can't share its screen (a `status` it can't be viewed with): the view
+    /// shows the host's sentence on a card, never a black picture. Sticks until the
+    /// next ``connect()``, whatever ends the stream after it.
+    public var cannotShare: Bool { shareStatus.map { !$0.canView } ?? false }
+
+    /// The host's sentence when it shares view only (`needs_accessibility`): the
+    /// picture stays and the view shows it as a small note.
+    public var viewOnlyNote: String? {
+        guard let shareStatus, shareStatus.canView, shareStatus.state != "ready", !shareStatus.message.isEmpty else { return nil }
+        return shareStatus.message
+    }
+
+    /// Whether a connected stream still shows no picture: `framesDecoded` is 0
+    /// `connectedFor` after it connected, at least ``noPictureDelay``.
+    public nonisolated static func showsNoPicture(framesDecoded: Double, connectedFor: Duration) -> Bool {
+        framesDecoded == 0 && connectedFor >= noPictureDelay
+    }
+
+    /// The host's `status`, from the running stream's viewer. One it can't be viewed with
+    /// stops the stream for good (the host ends the session right after, and a reconnect
+    /// would only show black again): the session fails with the host's sentence.
+    package func receiveShareStatus(_ status: ScreenShareStatus) {
+        shareStatus = status
+        guard !status.canView else { return }
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectStarted = nil
+        reconnectAttempts = 0
+        isReconnecting = false
+        disconnect(silently: true)
+        phase = .failed(message: status.message, needsSignIn: false)
+    }
+
     /// The Mac takes pixel scrolling (``scrollPixels(dx:dy:)``).
     public var supportsPixelScroll: Bool { hostCapabilities.contains(ScreenHostMessage.pixelScrollCapability) }
     /// The Mac pastes images sent from here (``pasteImage(_:type:)``): a
@@ -291,6 +335,7 @@ public final class ScreenSession {
     public func connect() {
         guard !isClosed else { return }
         disconnect(silently: true)
+        shareStatus = nil
         phase = .connecting
         if let makeSignaling {
             guard let signaling = makeSignaling() else {
@@ -414,6 +459,12 @@ public final class ScreenSession {
                 self.onTelepointers?(person, agent)
             }
         }
+        viewer.onShareStatus = { [weak self, weak viewer] status in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receiveShareStatus(status)
+            }
+        }
         viewer.onState = { [weak self, weak viewer] message in
             Task { @MainActor in
                 guard let self, let message, self.stream === viewer else { return }
@@ -432,6 +483,8 @@ public final class ScreenSession {
                 if let fps = displayMaximumFrameRate { viewer.setDisplayFrameRate(fps) }
                 if drawsPointers { viewer.drawPointers() }
                 viewer.setQuality(preferences.quality)
+                stats.framesDecoded = 0
+                streamConnectedAt = ContinuousClock.now
                 phase = .connected(VNCServerInfo(width: 0, height: 0, name: name, nativeFormat: .bgrx,
                                                  protocolMinor: 8, securityType: 0))
                 await pollStreamStats(viewer)
@@ -531,7 +584,8 @@ public final class ScreenSession {
     /// The app came back to the foreground: a stream that dropped while it
     /// was suspended reconnects right away.
     public func resumeIfNeeded() {
-        guard isStream, !isClosed else { return }
+        // A host that can't share stays on its card until the person retries.
+        guard isStream, !isClosed, !cannotShare else { return }
         switch phase {
         case .failed(_, false), .ended:
             reconnectAttempts = 0
@@ -564,6 +618,8 @@ public final class ScreenSession {
             next.framesDecoded = video.framesDecoded
             next.framesDropped = video.framesDropped
             stats = next
+            let waiting = streamConnectedAt.map { Self.showsNoPicture(framesDecoded: next.framesDecoded, connectedFor: .now - $0) } ?? false
+            if noPicture != waiting { noPicture = waiting }
             lastBytes = video.bytesReceived
             lastTime = now
         }
@@ -606,6 +662,8 @@ public final class ScreenSession {
             Task.detached { stream.close(sendBye: sendBye) }
         }
         stream = nil
+        streamConnectedAt = nil
+        if noPicture { noPicture = false }
         onTelepointers?(nil, nil)
         stats.targetFps = nil
         if !silently { phase = .ended }

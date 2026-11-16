@@ -118,7 +118,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
         if name.stringValue != model.name { name.stringValue = model.name }
         let session = model.session
         let live = model.isLive
-        statsSlot = session != nil && live
+        // Stats only over a picture: never "fps · KB/s" over a black screen.
+        statsSlot = session != nil && live && model.hasFrame
         if statsSlot, let session {
             stats.stringValue = session.preferences.showStats ? Self.statsLine(session) : session.stats.latencyMs.map { String(format: "%.0f ms", $0) } ?? "— ms"
         }
