@@ -7,7 +7,10 @@ of a page in WebKit read as a time of the default engine. A bench that times a p
 
   - reads the page's engine from the app after the timed press (`debug.agent_pane {action: engine}`: `cef`, or
     `webkit:<reason>`) and keeps it in the row as `page_engine` (`page_engine`); a row of a command that opens a
-    browser page names its engine itself (`engine`), and that word is its `page_engine` (`judge_created`);
+    browser page or a viewer's page names the engine of the focused pane's browser tab itself (`engine`: `cef`,
+    `webkit`, or `none` with no browser tab there), and that word is its `page_engine` (`judge_created`);
+  - with an asked engine, takes a page row whose engine is not named (`none`) as an error of the row too: its
+    page is in one of the two engines, and the row does not say which;
   - with an asked engine (`cef` or `webkit`), takes a row of another engine as an error of the row: its times and
     its frames move to `other_engine`, so each summary counts the row as a missed run and no percentile holds its
     numbers (`judge`);
@@ -80,10 +83,12 @@ def judge_created(row, wanted, opens, read):
                    was not read is no number, also when the page was not ready.
       `workspace`  Cmd-N: a New Tab page or a terminal. `read()` as for `tab`; with no ready page and no engine
                    the row is left as it is (a terminal has no page).
-      `page`       a browser page (a link, a browser split, a browser workspace, a viewer). The app's row names
-                   the engine of the focused pane's browser itself (`engine`: `cef`, `webkit`, or `none` when that
-                   pane shows no browser: a viewer's page, or a page in a pane with no focus). `none` is kept as
-                   the row's `page_engine` and is not judged: the engine of that page is not known.
+      `page`       a browser page (a link, a browser split, a browser workspace) or a viewer's page (a diff, the
+                   GitHub page). The app's row names the engine of the focused pane's browser tab itself
+                   (`engine`: `cef`, `webkit`, or `none` when that pane shows no browser tab: a viewer's page
+                   always, or a browser in a pane with no focus). `none` is kept as the row's `page_engine`. With
+                   an asked engine it is no number: that page is a page view in one of the two engines, and the
+                   row does not say which. A measure of a viewer's page asks for `any`.
       None         no page: nothing is read and nothing is judged.
 
     A `tab` or `workspace` row that showed nothing, and a `page` row with no page time, get no `page_engine`."""
@@ -97,19 +102,30 @@ def judge_created(row, wanted, opens, read):
             return row
         name = row.get("engine")
         row["page_engine"] = name if isinstance(name, str) and name else "unknown: the row named no engine"
-        return judge(row, wanted)
+        return judge(row, wanted, page=True)
     return row
 
 
+def unavailable_word(value):
+    """The app's `unavailable` word of `debug.cef` as text: its code, and its detail when it has one. The app
+    sends null (None here: Chromium is not unavailable) or an object with `code` and `detail`."""
+    if not value:
+        return None
+    if isinstance(value, dict):
+        code, detail = value.get("code") or "no code", value.get("detail")
+        return f"{code}: {detail}"[:200] if detail else str(code)
+    return str(value)[:200]
+
+
 def chromium_word(reply):
-    """The app's own word on Chromium from `debug.cef`: the engine's state, why it is unavailable (None when it is
-    not), and the browser tabs' default engine (a setting; the engine of a measured page is the row's
-    `page_engine`). `{"error": ...}` when the app gave no answer."""
+    """The app's own word on Chromium from `debug.cef`: the engine's state, why it is unavailable (`unavailable_word`;
+    None when it is not), and the browser tabs' default engine (a setting; the engine of a measured page is the
+    row's `page_engine`). `{"error": ...}` when the app gave no answer."""
     if not isinstance(reply, dict):
         return {"error": "no reply"}
     if reply.get("error") and "state" not in reply:
         return {"error": str(reply["error"])[:160]}
-    return {"state": reply.get("state"), "unavailable": reply.get("unavailable"),
+    return {"state": reply.get("state"), "unavailable": unavailable_word(reply.get("unavailable")),
             "browser_default_engine": reply.get("default_engine")}
 
 

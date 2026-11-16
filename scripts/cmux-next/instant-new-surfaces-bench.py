@@ -44,12 +44,15 @@ the bench.
 
 The engine (bench_page_engine.py): each `new_tab` and `new_workspace` row has `page_engine`, the engine of the
 page that the key opened, read from the app after the timed press (`cef`, `webkit:<reason>`, `native` with
-`--native-new-tab`, `unknown: <why>` when the focused pane shows no page). A row of a command that opens a browser
-page (`link_right`, `split_browser`, `browser_workspace` and the others with a page time) names its engine itself,
-and that word is its `page_engine` (`cef`, `webkit`, or `none` when the focused pane shows no browser: a viewer's
-page, or a page in a pane with no focus; `none` is not judged). `--page-engine cef|webkit` takes a row of another
-engine as an error of the row: its times and its frames move to `other_engine` and the row counts as a missed run;
-a Cmd-T row whose engine was not read is refused too (the default `any` judges no row). Each launch prints the app's own word on Chromium (`CHROMIUM ...`), and the
+`--native-new-tab`, `unknown: <why>` when the focused pane shows no page). A row of a command with a page time
+(`link_right`, `split_browser`, `browser_workspace`, the diff commands, `github_right` and the others) names the
+engine of the focused pane's browser tab itself, and that word is its `page_engine`: `cef`, `webkit`, or `none`
+when that pane shows no browser tab (a diff's page and the GitHub page always: they are a viewer's page view, in
+Chromium or in WebKit, and the row does not say which; also a browser in a pane with no focus).
+`--page-engine cef|webkit` takes a row of another engine as an error of the row: its times and its frames move to
+`other_engine` and the row counts as a missed run; a Cmd-T row whose engine was not read and a page row that says
+`none` are refused too. The default `any` judges no row: a measure of a diff's page or the GitHub page asks for it
+(with cmux-ci: `--arg=--page-engine=any`). Each launch prints the app's own word on Chromium (`CHROMIUM ...`), and the
 run's end prints the rows of each engine (`PAGE-ENGINE ...`); the JSON has both (`chromium`, `page_engines`).
 The read comes after the row's times. As each `debug.agent_pane` action, it stops WebKit from pausing that page's
 web view while another window covers it; a debug build's bench launch has done that for each page already.
@@ -93,7 +96,8 @@ parser.add_argument("--slow-wait", type=float, default=40, help="slow phase: sec
 parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
 parser.add_argument("--page-engine", default="any", choices=bench_page_engine.WANTED,
                     help="the engine that a New Tab page and a browser page must show in (bench_page_engine.py): a row of "
-                         "another engine is an error of the row, not a number; any (the default) judges no row")
+                         "another engine, and a page row that names no engine (a diff's page, the GitHub page), is an "
+                         "error of the row, not a number; any (the default) judges no row")
 parser.add_argument("--arms", default=None,
                     help="the arms to time (bench_arms.py; default warm,quick,cold, or warm alone with --budget-frames: a "
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
