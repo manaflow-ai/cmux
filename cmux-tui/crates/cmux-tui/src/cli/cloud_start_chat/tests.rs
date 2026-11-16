@@ -2851,6 +2851,16 @@ fn a_drill_whose_start_answers_past_its_deadline_sends_nothing() {
         panic!("a late start went on: {:?}", fake.ran)
     };
     assert_ne!(error["code"], "carrier_fault.no_credential", "{error}");
+    // The partial record names the step it stopped in and what that step took, beside the start's own stages:
+    // a timeout never hides where the drill stopped.
+    let drill = &error["details"]["drill"];
+    assert_eq!(drill["stopped_in"], "start", "{error}");
+    assert_eq!(drill["steps"][0]["step"], "start", "{error}");
+    assert_eq!(drill["steps"][0]["ok"], false, "{error}");
+    assert!(drill["steps"][0]["ms"].as_u64().is_some_and(|ms| ms >= 60_000), "{error}");
+    assert_eq!(drill["timeout_ms"], 60_000, "{error}");
+    assert_eq!((drill["events"].clone(), drill["resumes"].clone()), (json!([]), json!([])));
+    assert!(error["details"]["stages_ms"]["steps"].is_array(), "{error}");
     assert!(fake.called.is_empty(), "nothing after the start: {:?}", fake.called);
     assert_eq!(fake.ran.len(), 2, "no exec, no send: {:?}", fake.ran);
 }
