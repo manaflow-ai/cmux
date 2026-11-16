@@ -170,16 +170,16 @@ fn pull_based(
         bail!("{} is not a folder", local.display());
     }
     let git = GitDirs::of(&local)?;
-    let manifest_name = if git.is_some() { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
     let mut remote = Remote::connect(socket)?;
-    let manifest_path = format!("{remote_root}/{manifest_name}");
+    // A fresh base (Transfer to This Mac, seed fetch) stands for "nothing was pushed"; otherwise the
+    // machine's record, the plain one included for a git folder's first pass past the copy's limits.
     let keeps_record = fresh.as_ref().is_none_or(|(_, adopt)| *adopt);
-    let manifest = match fresh {
-        Some((fresh, _)) => fresh,
-        None => {
-            let record = remote.read(&manifest_path)?;
-            base::trusted(&local, remote_root, record.as_deref())?
+    let (manifest_path, manifest, plain_in_git) = match fresh {
+        Some((fresh, _)) => {
+            let name = if git.is_some() { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
+            (format!("{remote_root}/{name}"), fresh, false)
         }
+        None => base::machine_record(&mut remote, &local, remote_root, git.is_some())?,
     };
     let staging = Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
     let root = Dir::open(&local)?;
@@ -378,7 +378,7 @@ fn pull_based(
 
     let mut git_plan: Option<GitPlan> = None;
     let mut reasons = Vec::new();
-    if let Some(dirs) = &git {
+    if let Some(dirs) = git.as_ref().filter(|_| !plain_in_git) {
         let at = git_back::Where { folder: &local, common_dir: &dirs.common, staging: &staging.0 };
         match git_back::plan(&mut remote, remote_root, &at, &manifest, &hooks)? {
             Ok(plan) => git_plan = plan,

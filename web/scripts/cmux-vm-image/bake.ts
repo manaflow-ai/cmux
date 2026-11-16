@@ -127,6 +127,7 @@ import { aptUpdateCommand } from "./apt-update";
 import {
   baseInputTree,
   cachedInstallCommand,
+  imageInputsSha256,
   imagePackagesCommand,
   layerLabel,
   isAppProgram,
@@ -1146,6 +1147,17 @@ export function layerFlags(options: BakeOptions): string[] {
   return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree"].filter((f): f is string => Boolean(f));
 }
 
+/**
+ * The image's inputs_sha256 (layers.ts imageInputsSha256) from the lock, this bake's layerFlags and the input
+ * tree. The full and the layered bake both call this, so one lock gives one value. Undefined where the key would
+ * not cover the image: --dev-tree carries a checkout of this commit, and --update-lock can rewrite the lock
+ * mid-bake. The platform then falls back to the image's id@revision.
+ */
+export function bakeInputsSha256(options: BakeOptions, lockText: string, inputTree: string): string | undefined {
+  if (options.devTree || options.updateLock) return undefined;
+  return imageInputsSha256(lockText, layerFlags(options), inputTree);
+}
+
 /** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
 async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Array<{ id: string; slug?: string | null }>> {
   const all: Array<{ id: string; slug?: string | null }> = [];
@@ -1215,10 +1227,19 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       agentToolsFiles(lock);
       result.desktop = desktopRecord(lock);
     }
+    // The full bake records the key too, but needs no git for it: without the tree it records none.
+    let inputTree: string | undefined;
+    try {
+      inputTree = baseInputTree(REPO_ROOT);
+    } catch (error) {
+      if (options.layered) throw error;
+      L.log(`no inputs_sha256: ${String(error)}`);
+    }
+    if (inputTree !== undefined) result.inputsSha256 = bakeInputsSha256(options, lockText, inputTree);
     if (options.layered) {
       // layers.ts: system -> agents -> app. A cached layer is reused by its slug; a missing one is built on its
       // parent and kept (its builder is on a ledger of its own, which the run's cleanup never reads).
-      const keys = layerKeys(lockText, layerFlags(options), baseInputTree(REPO_ROOT));
+      const keys = layerKeys(lockText, layerFlags(options), inputTree!);
       const layerLedger = new Ledger(path.join(options.outDir, "layers", "resources.tsv"));
       const snapshots = await allSnapshots(fs);
       const layers: Array<Record<string, unknown>> = [];

@@ -846,11 +846,21 @@ export class MockSettingsProvider {
   libraryRefusal: string | null = null;
   /** Every library change the page ran, in order (tests). */
   readonly libraryRuns: LibraryRun[] = [];
+  /** Holds each `customize library list` until it settles; the read answers the library as it was
+   * when the read began (a test's slow read that a change overtakes). */
+  libraryReadHold: Promise<void> | null = null;
 
   /** `cmux --json customize library VERB`: the listing, or the CLI's error envelope as the host
    * answers it (a refusal is an answer, not a failed call). */
-  private runLibrary(run: LibraryRun): { library?: LibraryListing; code?: string; message?: string } {
-    if (run.verb === "list") return { library: this.library };
+  private runLibrary(
+    run: LibraryRun,
+  ):
+    | { library?: LibraryListing; code?: string; message?: string }
+    | Promise<{ library?: LibraryListing; code?: string; message?: string }> {
+    if (run.verb === "list") {
+      const listed = this.library;
+      return this.libraryReadHold ? this.libraryReadHold.then(() => ({ library: listed })) : { library: listed };
+    }
     this.libraryRuns.push(run);
     if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
     const next = runLibrary(this.library, run);

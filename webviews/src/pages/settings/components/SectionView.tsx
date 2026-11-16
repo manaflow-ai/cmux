@@ -85,7 +85,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   cloudEnvironments: () => <CloudEnvironmentsCard />,
   cloudModels: (focus) => <CloudModelsCard focus={focus} />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
-  customizeLibrary: () => <CustomizeLibraryCard />,
+  customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
   keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,
   tailnet: () => <TailnetCard />,
   models: (focus) => <ModelsCard focus={focus} />,

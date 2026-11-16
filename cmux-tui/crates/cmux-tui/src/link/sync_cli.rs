@@ -1114,8 +1114,7 @@ fn push_inner(
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
-    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local))
-        .then(|| size_cap::Cap::of(&local));
+    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
     let mut set = local::collect(&local, rules, cap)?;
     let before = set.files.len();
     let in_git = set.git;

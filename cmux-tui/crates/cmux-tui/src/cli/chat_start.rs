@@ -257,7 +257,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     let start = match parsed {
         Ok(Parsed::Help) => {
-            print!("{USAGE}");
+            // The cmux app's `chat …` verbs too (cli/app_action_help.rs).
+            let usage = super::app_action_help::append("chat", USAGE);
+            print!("{}", usage.as_deref().unwrap_or(USAGE));
             return Some(0);
         }
         Ok(Parsed::Run(start)) => start,
