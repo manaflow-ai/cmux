@@ -601,7 +601,10 @@ impl Hub {
         // (`peer_snapshot/restore.rs`). A flush that failed fails it however far the log reads.
         let short = last < through;
         // A page taken whole is a try that stopped short on purpose: held for the next page,
-        // as a try the disk stopped is, and the owner goes on from `lastSeq`.
+        // as a try the disk stopped is, and the owner goes on from `lastSeq`. It returns before
+        // anything below (the parked records, `recover_pending`, `settle_restored`), and its
+        // `append_failed` keeps `restore_records` from recovering: no record but the copy's goes
+        // in between pages, so the next page starts where this one ended.
         if short && flush_failed.is_none() && failed.is_none() && last >= page_end {
             return Err(page_taken(session, last, through));
         }
