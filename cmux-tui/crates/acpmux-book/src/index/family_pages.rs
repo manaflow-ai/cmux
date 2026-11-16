@@ -162,6 +162,7 @@ impl SummaryIndex {
             parent_steps,
             lookups,
             deeper,
+            foreign: Vec::new(),
         })
     }
 }

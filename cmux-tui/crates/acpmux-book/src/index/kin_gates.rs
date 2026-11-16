@@ -263,6 +263,7 @@ fn kin_table_write_gate() {
     use std::io::Read;
 
     const ROWS: usize = 11_000;
+    const ENTRIES: u64 = (ROWS - 1) as u64;
     const WRITE_SAMPLES: usize = 20;
 
     fn fixture() -> SummaryIndex {
@@ -273,40 +274,13 @@ fn kin_table_write_gate() {
         for n in 0..ROWS - 1 {
             let mut child = row(format!("kin-child-{n:05}"), 2 + n as u64);
             child.state = "closed".to_owned();
-            // A four-way tree exercises the external closure joins. The old
-            // fixture put every row directly under one root and never timed
-            // the multilevel path that the sidecar writes.
-            child.parent = if n < 4 {
-                Some(root_key.clone())
-            } else {
-                Some(RowKey::new("local", format!("kin-child-{:05}", n / 4 - 1)))
-            };
+            child.parent = Some(root_key.clone());
             index = index.apply(n as u64 + 2, child);
         }
         index
     }
 
-    fn expected_entries() -> u64 {
-        // Nodes are numbered root=0 and child n=n+1; parent=(node-1)/4.
-        // Every closed child contributes one entry for each ancestor.
-        (0..ROWS - 1)
-            .map(|n| {
-                let mut node = n + 1;
-                let mut depth = 0u64;
-                while node != 0 {
-                    depth += 1;
-                    node = (node - 1) / 4;
-                }
-                depth
-            })
-            .sum()
-    }
-
-    fn write_once(
-        index: &SummaryIndex,
-        with_table: bool,
-        entries_expected: u64,
-    ) -> (u128, KinWriteStats) {
+    fn write_once(index: &SummaryIndex, with_table: bool) -> (u128, KinWriteStats) {
         let directory = tempfile::tempdir().unwrap();
         let snapshot = directory.path().join("index.snap");
         let table = directory.path().join("index.snap.kin");
@@ -343,7 +317,7 @@ fn kin_table_write_gate() {
             let mut header = [0u8; 4096];
             std::fs::File::open(&table).unwrap().read_exact(&mut header).unwrap();
             let entries = u64::from_le_bytes(header[40..48].try_into().unwrap());
-            assert_eq!(entries, entries_expected, "sidecar closure count");
+            assert_eq!(entries, ENTRIES, "sidecar closure count");
             let bytes = std::fs::metadata(&table).unwrap().len();
             assert!(bytes <= entries * 64 + 3 * 4096);
         }
@@ -352,7 +326,6 @@ fn kin_table_write_gate() {
 
     let index = fixture();
     assert_eq!(index.len(), ROWS);
-    let entries_expected = expected_entries();
     let mut small = Vec::new();
     let mut god = Vec::new();
     for round in 0..ROUNDS {
@@ -363,8 +336,8 @@ fn kin_table_write_gate() {
         let mut closure_samples = Vec::with_capacity(WRITE_SAMPLES);
         let mut pages_samples = Vec::with_capacity(WRITE_SAMPLES);
         for _ in 0..WRITE_SAMPLES {
-            let (first_ns, first_stats) = write_once(&index, first, entries_expected);
-            let (second_ns, second_stats) = write_once(&index, second, entries_expected);
+            let (first_ns, first_stats) = write_once(&index, first);
+            let (second_ns, second_stats) = write_once(&index, second);
             let stats = if first {
                 table_samples.push(first_ns);
                 baseline_samples.push(second_ns);
@@ -393,4 +366,172 @@ fn kin_table_write_gate() {
     gate_rounds::report("v2.pr05i.table_write", &[("small", &small), ("god", &god)]);
     emit("v2.pr05i.table_write", small_p95, god_p95, None, "ns");
     assert!(god_p95 as f64 <= small_p95 as f64 * 1.5);
+}
+
+#[test]
+#[ignore = "release gate"]
+fn kin_table_depth_gate() {
+    use super::snapshot::KinWriteStats;
+    use std::io::Read;
+
+    const ROWS: usize = 11_000;
+    const WRITE_SAMPLES: usize = 20;
+
+    fn fixture(four_way: bool) -> SummaryIndex {
+        let mut root = row("kin-depth-root", 1);
+        root.state = "closed".to_owned();
+        let root_key = root.key();
+        let mut index = SummaryIndex::new().apply(1, root);
+        for n in 0..ROWS - 1 {
+            let mut child = row(format!("kin-depth-child-{n:05}"), 2 + n as u64);
+            child.state = "closed".to_owned();
+            child.parent = if four_way && n >= 4 {
+                Some(RowKey::new("local", format!("kin-depth-child-{:05}", n / 4 - 1)))
+            } else {
+                Some(root_key.clone())
+            };
+            index = index.apply(n as u64 + 2, child);
+        }
+        index
+    }
+
+    fn expected_entries(four_way: bool) -> u64 {
+        if !four_way {
+            return (ROWS - 1) as u64;
+        }
+        (0..ROWS - 1)
+            .map(|n| {
+                let mut node = n + 1;
+                let mut depth = 0u64;
+                while node != 0 {
+                    depth += 1;
+                    node = (node - 1) / 4;
+                }
+                depth
+            })
+            .sum()
+    }
+
+    fn write_once(
+        index: &SummaryIndex,
+        with_table: bool,
+        entries_expected: u64,
+    ) -> (u64, KinWriteStats) {
+        let directory = tempfile::tempdir().unwrap();
+        let snapshot = directory.path().join("index.snap");
+        let table = directory.path().join("index.snap.kin");
+        let started = Instant::now();
+        let stats = if with_table {
+            SortedSnapshot::write_stream_generation_with_table(StreamGeneration {
+                path: &snapshot,
+                seq: index.seq(),
+                log_offset: 0,
+                log_name: None,
+                covered_generation: 0,
+                meta: SnapshotMeta::default(),
+                rows: index.merged_rows(),
+                table_path: Some(&table),
+            })
+            .unwrap()
+        } else {
+            SortedSnapshot::write_stream_generation(
+                &snapshot,
+                index.seq(),
+                0,
+                None,
+                0,
+                SnapshotMeta::default(),
+                index.merged_rows(),
+            )
+            .unwrap();
+            KinWriteStats { stream_ns: started.elapsed().as_nanos(), ..KinWriteStats::default() }
+        };
+        let written = DiskSnapshot::open(&snapshot).unwrap().unwrap();
+        assert_eq!(written.len(), ROWS as u64, "snapshot row count");
+        if with_table {
+            let mut header = [0u8; 4096];
+            std::fs::File::open(&table).unwrap().read_exact(&mut header).unwrap();
+            let entries = u64::from_le_bytes(header[40..48].try_into().unwrap());
+            assert_eq!(entries, entries_expected, "sidecar closure count");
+            (entries, stats)
+        } else {
+            (0, stats)
+        }
+    }
+
+    let flat = fixture(false);
+    let tree = fixture(true);
+    let flat_entries = expected_entries(false);
+    let tree_entries = expected_entries(true);
+    let mut tableless_stream = Vec::new();
+    let mut tree_stream = Vec::new();
+    let mut flat_table = Vec::new();
+    let mut tree_table = Vec::new();
+    for round in 0..ROUNDS {
+        let mut tableless_samples = Vec::with_capacity(WRITE_SAMPLES);
+        let mut tree_samples = Vec::with_capacity(WRITE_SAMPLES);
+        let mut flat_table_samples = Vec::with_capacity(WRITE_SAMPLES);
+        let mut tree_table_samples = Vec::with_capacity(WRITE_SAMPLES);
+        for _ in 0..WRITE_SAMPLES {
+            let (first, second) = if round % 2 == 0 { (false, true) } else { (true, false) };
+            let (first_entries, first_stats) = if first {
+                write_once(&tree, true, tree_entries)
+            } else {
+                write_once(&flat, true, flat_entries)
+            };
+            let (second_entries, second_stats) = if second {
+                write_once(&tree, true, tree_entries)
+            } else {
+                write_once(&flat, true, flat_entries)
+            };
+            let (flat_entries_seen, flat_stats, tree_entries_seen, tree_stats) = if first {
+                (second_entries, second_stats, first_entries, first_stats)
+            } else {
+                (first_entries, first_stats, second_entries, second_stats)
+            };
+            assert_eq!(flat_entries_seen, flat_entries);
+            assert_eq!(tree_entries_seen, tree_entries);
+            let (_, baseline_stats) = write_once(&flat, false, 0);
+            tableless_samples.push(baseline_stats.stream_ns);
+            tree_samples.push(tree_stats.stream_ns);
+            flat_table_samples
+                .push((flat_stats.closure_ns + flat_stats.pages_ns) / flat_entries_seen as u128);
+            tree_table_samples
+                .push((tree_stats.closure_ns + tree_stats.pages_ns) / tree_entries_seen as u128);
+        }
+        eprintln!(
+            "GATE_WRITE_PHASE row=v2.pr05i.table_depth round={} tableless_stream_p95={} tree_stream_p95={} flat_table_entry_p95={} tree_table_entry_p95={} unit=ns",
+            round + 1,
+            gate_rounds::p95(&tableless_samples),
+            gate_rounds::p95(&tree_samples),
+            gate_rounds::p95(&flat_table_samples),
+            gate_rounds::p95(&tree_table_samples),
+        );
+        tableless_stream.push(tableless_samples);
+        tree_stream.push(tree_samples);
+        flat_table.push(flat_table_samples);
+        tree_table.push(tree_table_samples);
+    }
+    gate_rounds::report(
+        "v2.pr05i.table_depth.stream",
+        &[("tableless", &tableless_stream), ("tree", &tree_stream)],
+    );
+    gate_rounds::report(
+        "v2.pr05i.table_depth.table",
+        &[("flat", &flat_table), ("tree", &tree_table)],
+    );
+    let tableless_stream_p95 = best_p95(&tableless_stream);
+    let tree_stream_p95 = best_p95(&tree_stream);
+    let flat_table_p95 = best_p95(&flat_table);
+    let tree_table_p95 = best_p95(&tree_table);
+    emit("v2.pr05i.table_depth", tableless_stream_p95, tree_stream_p95, None, "ns");
+    assert!(
+        tree_table_p95 as f64 / tree_entries as f64
+            <= flat_table_p95 as f64 / flat_entries as f64 * 1.2,
+        "table per-entry {tree_table_p95}/{tree_entries} > {flat_table_p95}/{flat_entries} * 1.2"
+    );
+    assert!(
+        tree_stream_p95 as f64 <= tableless_stream_p95 as f64 * 1.2,
+        "stream {tree_stream_p95} > {tableless_stream_p95} * 1.2"
+    );
 }

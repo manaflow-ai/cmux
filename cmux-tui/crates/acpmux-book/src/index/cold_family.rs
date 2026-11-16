@@ -5,6 +5,34 @@ use super::{IndexPage, ListFilter, MAX_KIN_DEPTH, RowKey, SortKey, Summary, Summ
 use std::io;
 
 impl SummaryIndex {
+    /// A snapshot row can be absent from the hot index while one of its
+    /// current ancestors is already known to be a peer.  Keep that stale path
+    /// explicit so the family reader does not turn it into local kin.
+    fn current_foreign_path(&self, row: &Summary, root: &RowKey) -> bool {
+        let mut child = row.key();
+        let mut parent = row.parent.clone();
+        for _ in 0..MAX_KIN_DEPTH {
+            if child == *root {
+                return false;
+            }
+            let Some(parent_key) = parent else { return false };
+            if child.origin != parent_key.origin {
+                return true;
+            }
+            if parent_key == *root {
+                return false;
+            }
+            let Some(ancestor) = self.get_row(&parent_key) else {
+                // The snapshot entry remains authoritative once the live path
+                // reaches a cold ancestor (decision 415).
+                return false;
+            };
+            child = parent_key;
+            parent = ancestor.parent.clone();
+        }
+        false
+    }
+
     /// A missing cold ancestor leaves the capture's edge authoritative. A hot
     /// ancestor can prove that this captured descendant has since moved away.
     fn captured_descendant(&self, row: &Summary, root: &RowKey, steps: &mut usize) -> bool {
@@ -94,6 +122,7 @@ impl SummaryIndex {
             parent_steps: 0,
             lookups: 0,
             deeper: Vec::new(),
+            foreign: Vec::new(),
         };
         let mut bytes = 0usize;
         for candidate in piece.rows {
@@ -125,6 +154,9 @@ impl SummaryIndex {
             page.after_key = Some(sort.clone());
             if visible {
                 page.lookups += 1;
+                if candidate.foreign || self.current_foreign_path(&row, root) {
+                    page.foreign.push(sort.clone());
+                }
                 if usize::from(candidate.depth) == MAX_KIN_DEPTH
                     || self.kin().children(&key).is_some_and(|children| !children.is_empty())
                 {

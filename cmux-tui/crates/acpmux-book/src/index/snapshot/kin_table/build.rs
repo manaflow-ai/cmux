@@ -2,7 +2,8 @@
 
 use super::sort::{Record, SortedFile, Sorter};
 use super::{
-    ENTRY_BYTES, Entry, FAMILY_KIND, FORK_KIND, MAX_DEPTH, invalid, key_fingerprint, take_bytes,
+    DEPTH_CROSS_ORIGIN, DEPTH_MASK, ENTRY_BYTES, Entry, FAMILY_KIND, FORK_KIND, MAX_DEPTH, invalid,
+    key_fingerprint, take_bytes,
 };
 use crate::index::Summary;
 use std::cmp::Ordering;
@@ -15,16 +16,24 @@ type Fingerprint = (u64, u32);
 struct Edge {
     child: Fingerprint,
     parent: Fingerprint,
+    cross_origin: bool,
 }
 
 impl Record for Edge {
-    const WIDTH: usize = 24;
+    const WIDTH: usize = 25;
     fn encode(self, mut bytes: &mut [u8]) -> io::Result<()> {
         write_fingerprint(self.child, &mut bytes)?;
-        write_fingerprint(self.parent, &mut bytes)
+        write_fingerprint(self.parent, &mut bytes)?;
+        bytes.write_all(&[u8::from(self.cross_origin)])
     }
     fn decode(mut bytes: &[u8]) -> io::Result<Self> {
-        Ok(Self { child: read_fingerprint(&mut bytes)?, parent: read_fingerprint(&mut bytes)? })
+        let child = read_fingerprint(&mut bytes)?;
+        let parent = read_fingerprint(&mut bytes)?;
+        let [cross_origin] = take_bytes(&mut bytes)?;
+        if cross_origin > 1 {
+            return Err(invalid("kin origin crossing"));
+        }
+        Ok(Self { child, parent, cross_origin: cross_origin != 0 })
     }
 }
 
@@ -84,13 +93,23 @@ impl Ord for EntryRecord {
     fn cmp(&self, other: &Self) -> Ordering {
         let entry = self.0;
         let other = other.0;
-        (entry.hash, entry.offset, entry.check, entry.kind, entry.depth, entry.activity, entry.len)
+        (
+            entry.hash,
+            entry.offset,
+            entry.check,
+            entry.kind,
+            entry.depth & DEPTH_MASK,
+            entry.depth & DEPTH_CROSS_ORIGIN == 0,
+            entry.activity,
+            entry.len,
+        )
             .cmp(&(
                 other.hash,
                 other.offset,
                 other.check,
                 other.kind,
-                other.depth,
+                other.depth & DEPTH_MASK,
+                other.depth & DEPTH_CROSS_ORIGIN == 0,
                 other.activity,
                 other.len,
             ))
@@ -158,9 +177,10 @@ impl Builder {
             && parent != &key
         {
             let child = key_fingerprint(&key, FAMILY_KIND);
+            let cross_origin = key.origin != parent.origin;
             let parent = key_fingerprint(parent, FAMILY_KIND);
             // Ineligible rows still supply edges for a descendant's ancestor path.
-            self.edges.push(Edge { child, parent })?;
+            self.edges.push(Edge { child, parent, cross_origin })?;
             // A pinned or live row contributes its edge above, but it
             // cannot itself be cold under this snapshot. Do not enqueue its
             // own level record: descendants still join through this edge,
@@ -168,7 +188,10 @@ impl Builder {
             // through every closure level.
             if eligible {
                 self.first_level.push(Level {
-                    entry: entry(parent, FAMILY_KIND),
+                    entry: Entry {
+                        depth: 1 | if cross_origin { DEPTH_CROSS_ORIGIN } else { 0 },
+                        ..entry(parent, FAMILY_KIND)
+                    },
                     own: child,
                     eligible,
                 })?;
@@ -208,7 +231,9 @@ impl Builder {
                     let mut entry = record.entry;
                     entry.hash = edge.parent.0;
                     entry.check = edge.parent.1;
-                    entry.depth = depth + 1;
+                    entry.depth = (depth + 1)
+                        | (record.entry.depth & DEPTH_CROSS_ORIGIN)
+                        | if edge.cross_origin { DEPTH_CROSS_ORIGIN } else { 0 };
                     next.push(Level { entry, own: record.own, eligible: record.eligible })?;
                 }
             }
@@ -275,7 +300,7 @@ mod tests {
 
     #[test]
     fn fixed_records_reject_every_truncation_without_panicking() {
-        check_truncated_record(Edge { child: (1, 2), parent: (3, 4) });
+        check_truncated_record(Edge { child: (1, 2), parent: (3, 4), cross_origin: true });
         let entry = Entry {
             hash: 5,
             activity: 6,

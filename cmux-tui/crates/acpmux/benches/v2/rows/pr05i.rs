@@ -14,6 +14,15 @@ pub const ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "5i",
+        name: "v2.pr05i.table_depth",
+        done_when: "For 11,000 closed rows, four-way kin-table closure plus page time per entry stays within 1.2x of the flat fixture and stream time stays within 1.2x; both table headers report the expected entry counts.",
+        measured: false,
+        ratio: 1.2,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "5i",
         name: "v2.pr05i.cold_family_bytes",
         done_when: "A table-served cold family walk for eight kin (two under a cold parent) at 11,000 snapshot rows reads no more than 1.2x the physical bytes of the same walk at 20 rows.",
         measured: false,

@@ -33,7 +33,16 @@ impl Scripted {
     }
 
     fn page(rows: Vec<Summary>, cold_unread: bool, closure: bool) -> FamilyPage {
-        FamilyPage { rows, cold_unread, closure, deeper: Vec::new() }
+        FamilyPage { rows, cold_unread, closure, deeper: Vec::new(), foreign: Vec::new() }
+    }
+
+    fn foreign_page(
+        rows: Vec<Summary>,
+        cold_unread: bool,
+        closure: bool,
+        foreign: Vec<RowKey>,
+    ) -> FamilyPage {
+        FamilyPage { rows, cold_unread, closure, deeper: Vec::new(), foreign }
     }
 }
 
@@ -58,6 +67,7 @@ impl Family for Scripted {
             cold_unread: page.cold_unread,
             closure: page.closure,
             deeper: page.deeper.clone(),
+            foreign: page.foreign.clone(),
         }) {
             if each(page).is_break() {
                 break;
@@ -160,14 +170,15 @@ impl Family for Table {
                 cold_unread: false,
                 closure: false,
                 deeper: Vec::new(),
+                foreign: Vec::new(),
             }
         } else {
             let (rows, deeper) = self.hot(root);
             let cold_unread = self.snapshot_held || !self.cold(root).is_empty();
-            FamilyPage { rows, cold_unread, closure: false, deeper }
+            FamilyPage { rows, cold_unread, closure: false, deeper, foreign: Vec::new() }
         };
         // Two rows a page, so the walk is paged.
-        let FamilyPage { rows, cold_unread, closure: _, deeper } = page;
+        let FamilyPage { rows, cold_unread, closure: _, deeper, foreign: _ } = page;
         let pages: Vec<Vec<Summary>> = rows.chunks(2).map(<[Summary]>::to_vec).collect();
         let last = pages.len().saturating_sub(1);
         for (at, rows) in pages.into_iter().enumerate() {
@@ -177,6 +188,7 @@ impl Family for Table {
                 cold_unread: tail && cold_unread,
                 closure: false,
                 deeper: if tail { deeper.clone() } else { Vec::new() },
+                foreign: Vec::new(),
             };
             if each(page).is_break() {
                 return Ok(());
@@ -280,6 +292,82 @@ fn a_table_closure_walk_makes_no_per_cold_row_asks() {
     )]));
     let found = kin(&mut list, "root", 256, true).unwrap();
     assert_eq!(ids(&found), ["cold-a", "cold-b"]);
+    assert_eq!(list.asks, [("root".to_owned(), false), ("root".to_owned(), true)]);
+}
+
+#[test]
+fn a_foreign_closure_row_and_deeper_key_are_left_out_and_never_asked() {
+    let mut child = scripted_row("child", Some("peer-parent"));
+    child.origin = "local".to_owned();
+    let child_key = key(&child);
+    let mut page = foreign_page(vec![child], true, false, vec![child_key.clone()]);
+    page.deeper.push(child_key);
+    let mut list = Scripted::new(vec![
+        (("root".into(), false), vec![Scripted::page(Vec::new(), true, false)]),
+        (("root".into(), true), vec![page]),
+    ]);
+    let found = kin(&mut list, "root", 256, true).unwrap();
+    assert!(found.is_empty());
+    assert_eq!(list.asks, [("root".to_owned(), false), ("root".to_owned(), true)]);
+}
+
+#[test]
+fn a_local_child_of_a_peer_is_left_out_when_it_sorts_before_the_peer() {
+    let peer = scripted_row("peer-parent", Some("root"));
+    let mut child = scripted_row("child", Some("peer-parent"));
+    child.origin = "local".to_owned();
+    let child_key = key(&child);
+    let mut page = foreign_page(vec![child, peer], true, true, vec![child_key]);
+    page.deeper.push(RowKey::new("local", "child"));
+    let mut list = Scripted::new(vec![
+        (("root".into(), false), vec![Scripted::page(Vec::new(), true, false)]),
+        (("root".into(), true), vec![page]),
+    ]);
+    let found = kin(&mut list, "root", 256, true).unwrap();
+    assert!(found.is_empty());
+    assert_eq!(list.asks, [("root".to_owned(), false), ("root".to_owned(), true)]);
+}
+
+#[test]
+fn a_pager_local_child_of_a_peer_is_left_out_before_or_after_the_peer() {
+    let peer = scripted_row("peer-parent", Some("root"));
+    let mut child = scripted_row("child", Some("peer-parent"));
+    child.origin = "local".to_owned();
+    let mut list = Scripted::new(vec![
+        (("root".into(), false), vec![Scripted::page(Vec::new(), true, false)]),
+        (
+            ("root".into(), true),
+            vec![Scripted::page(vec![child.clone(), peer.clone()], true, false)],
+        ),
+        (("child".into(), false), vec![Scripted::page(Vec::new(), false, false)]),
+        (("peer-parent".into(), false), vec![Scripted::page(Vec::new(), false, false)]),
+    ]);
+    let found = kin(&mut list, "root", 256, true).unwrap();
+    assert!(found.is_empty(), "pager must match closure peer exclusion");
+    assert!(!list.asks.contains(&("child".to_owned(), false)));
+}
+
+#[test]
+fn a_transitive_foreign_grandchild_is_left_out_when_it_sorts_before_its_parent() {
+    let peer = scripted_row("peer-parent", Some("root"));
+    let mut parent = scripted_row("local-parent", Some("peer-parent"));
+    parent.origin = "local".to_owned();
+    let mut grandchild = scripted_row("local-grandchild", Some("local-parent"));
+    grandchild.origin = "local".to_owned();
+    let parent_key = key(&parent);
+    let grandchild_key = key(&grandchild);
+    let page = foreign_page(
+        vec![grandchild, parent, peer],
+        true,
+        true,
+        vec![grandchild_key.clone(), parent_key.clone()],
+    );
+    let mut list = Scripted::new(vec![
+        (("root".into(), false), vec![Scripted::page(Vec::new(), true, false)]),
+        (("root".into(), true), vec![page]),
+    ]);
+    let found = kin(&mut list, "root", 256, true).unwrap();
+    assert!(found.is_empty());
     assert_eq!(list.asks, [("root".to_owned(), false), ("root".to_owned(), true)]);
 }
 

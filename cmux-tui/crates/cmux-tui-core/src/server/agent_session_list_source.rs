@@ -127,6 +127,8 @@ pub(crate) struct FamilyPage {
     pub(crate) closure: bool,
     /// Follow-up roots: depth-bound rows, or cold rows with hot children.
     pub(crate) deeper: Vec<RowKey>,
+    /// Listed closure rows whose captured ancestry crosses an origin.
+    pub(crate) foreign: Vec<RowKey>,
 }
 
 /// What [`kin`] asks: one `family` filter, its hot part or with `cold` the snapshot's, page by
@@ -161,6 +163,11 @@ impl Family for Source {
                     cold_unread: page.cold_unread,
                     closure: page.closure,
                     deeper,
+                    foreign: page
+                        .foreign
+                        .iter()
+                        .map(|key| RowKey::new(&*key.origin, &*key.chat_id))
+                        .collect(),
                 };
                 if each(page).is_break() {
                     break;
@@ -201,6 +208,9 @@ pub(crate) fn kin(
         if found.len() >= max {
             break;
         }
+        if left_out.contains(&key) {
+            continue;
+        }
         if !asked.insert(key.clone()) {
             continue;
         }
@@ -216,11 +226,14 @@ pub(crate) fn kin(
                 if cold {
                     cold_closure &= page.closure;
                 }
+                let foreign = page.foreign.iter().cloned().collect::<HashSet<_>>();
                 asks.extend(page.deeper);
                 for row in page.rows {
                     let row_key = RowKey::new(row.origin.as_str(), row.chat_id.as_str());
                     // A hot part is depth first, so a row's parent came before it.
                     if row.origin != "local"
+                        || foreign.contains(&row_key)
+                        || row.parent.as_ref().is_some_and(|parent| parent.origin != "local")
                         || row.parent.as_ref().is_some_and(|parent| left_out.contains(parent))
                     {
                         left_out.insert(row_key);

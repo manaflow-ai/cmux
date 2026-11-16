@@ -1,6 +1,7 @@
 //! Bounded optional kin reads. Failure receipts include every attempted byte;
 //! the index decides whether the remaining request budget permits its fallback.
 use super::kin_table::lookup::{Cursor, Failure};
+use super::kin_table::{DEPTH_CROSS_ORIGIN, DEPTH_MASK};
 use super::{DiskSnapshot, PAGE_BYTES, Position};
 use crate::index::{RowKey, SortKey, Summary};
 use std::sync::Arc;
@@ -26,6 +27,7 @@ pub(in crate::index) struct KinRequest<'a> {
 pub(in crate::index) struct KinRow {
     pub row: Arc<Summary>,
     pub depth: u8,
+    pub foreign: bool,
 }
 
 pub(in crate::index) struct KinPiece {
@@ -91,7 +93,11 @@ impl DiskSnapshot {
                     return Ok(KinPiece { rows, has_before, has_after: true, closure: true });
                 }
                 match cursor.row(entry) {
-                    Ok(row) => rows.push(KinRow { row, depth: entry.depth }),
+                    Ok(row) => rows.push(KinRow {
+                        row,
+                        depth: entry.depth & DEPTH_MASK,
+                        foreign: entry.depth & DEPTH_CROSS_ORIGIN != 0,
+                    }),
                     Err(error) if !rows.is_empty() => {
                         return Ok(verified_prefix(table, rows, has_before, error));
                     }

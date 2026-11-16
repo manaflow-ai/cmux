@@ -318,6 +318,7 @@ impl PageProvider for FakeProvider {
             cold_unread: false,
             closure: false,
             deeper: Vec::new(),
+            foreign: Vec::new(),
             before_key: None,
             after_key: None,
             missing: Vec::new(),

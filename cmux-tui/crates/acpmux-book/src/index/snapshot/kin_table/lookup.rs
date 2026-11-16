@@ -7,8 +7,8 @@
 //! seek, placement costs 174,240 bytes, leaving 87,904 of the 256-KiB ask
 //! for frames even if the last search page fails and the pager takes over.
 use super::{
-    ENTRIES_PER_PAGE, ENTRY_BYTES, Entry, FAMILY_KIND, FORK_KIND, MAX_DEPTH, PAGE_BYTES,
-    SLOTS_PER_PAGE, Table, invalid, key_fingerprint, read_u32,
+    DEPTH_MASK, ENTRIES_PER_PAGE, ENTRY_BYTES, Entry, FAMILY_KIND, FORK_KIND, MAX_DEPTH,
+    PAGE_BYTES, SLOTS_PER_PAGE, Table, invalid, key_fingerprint, read_u32,
 };
 use crate::index::snapshot::kin_read::{KinIo, KinRequest};
 use crate::index::snapshot::read::Frame;
@@ -216,6 +216,13 @@ impl<'a> Cursor<'a> {
             && cached.len == entry.len
             && cached.activity == entry.activity
         {
+            // The same frame may be referenced by several ancestor entries.
+            // A cache hit still has to enforce the depth-one parent claim;
+            // otherwise a deeper entry could bless a malformed depth-one
+            // reference without rereading the frame.
+            if (entry.depth & DEPTH_MASK) == 1 && row.parent.as_ref() != Some(&self.root) {
+                return Err(invalid("kin depth-one frame parent").into());
+            }
             return Ok(row.clone());
         }
         self.charge(usize::from(entry.len))?;
@@ -232,7 +239,7 @@ impl<'a> Cursor<'a> {
             }
             _ => return Err(invalid("kin referenced frame").into()),
         };
-        if entry.depth == 1 && row.parent.as_ref() != Some(&self.root) {
+        if (entry.depth & DEPTH_MASK) == 1 && row.parent.as_ref() != Some(&self.root) {
             return Err(invalid("kin depth-one frame parent").into());
         }
         self.row_cache = Some((entry, row.clone()));
@@ -284,7 +291,7 @@ fn slot_for(hash: u64, slots: u32) -> u32 {
 
 fn validate(entry: Entry, data_end: u64) -> io::Result<()> {
     if !matches!(entry.kind, FAMILY_KIND | FORK_KIND)
-        || !(1..=MAX_DEPTH).contains(&entry.depth)
+        || !(1..=MAX_DEPTH).contains(&(entry.depth & DEPTH_MASK))
         || entry.offset < HEADER_BYTES as u64
         || entry.len < 12
         || usize::from(entry.len) > crate::index::MAX_INDEX_RECORD_BYTES + TRAILER_BYTES

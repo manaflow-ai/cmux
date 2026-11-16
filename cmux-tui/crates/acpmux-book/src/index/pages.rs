@@ -31,6 +31,10 @@ pub struct IndexPage {
     /// Continue `family` at these rows: the hot walk's depth boundary, or a
     /// listed cold row with hot children or a depth-64 table entry.
     pub deeper: Vec<SortKey>,
+    /// Rows listed by a closure entry whose captured ancestry crosses an origin.
+    /// They remain in the bounded page so the wire can advance, but readers must
+    /// not treat them as members of the requested local family.
+    pub foreign: Vec<SortKey>,
 }
 
 impl SummaryIndex {
@@ -376,6 +380,7 @@ impl SummaryIndex {
             parent_steps,
             lookups,
             deeper: Vec::new(),
+            foreign: Vec::new(),
         })
     }
 }

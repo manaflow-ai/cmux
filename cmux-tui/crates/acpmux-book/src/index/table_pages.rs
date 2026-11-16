@@ -231,6 +231,7 @@ impl SummaryIndex {
             parent_steps: 0,
             lookups: if folder_rows.is_some() { 1 } else { rows_read },
             deeper: Vec::new(),
+            foreign: Vec::new(),
         })
     }
 }

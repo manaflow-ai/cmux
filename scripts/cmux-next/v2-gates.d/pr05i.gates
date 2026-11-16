@@ -1,5 +1,6 @@
 # The gates for row 5i cold kin snapshot reads.
 book kin_table_write_gate
+book kin_table_depth_gate
 book cold_family_gate
 book cold_family_bytes_gate
 book cold_unread_gate

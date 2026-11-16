@@ -44,15 +44,26 @@ fn open_table(path: &Path, seq: u64, count: u64, head_crc: u32) -> Table {
 }
 
 fn entry_order(left: &Entry, right: &Entry) -> Ordering {
-    (left.hash, left.offset, left.check, left.depth, left.kind, left.activity, left.len).cmp(&(
-        right.hash,
-        right.offset,
-        right.check,
-        right.depth,
-        right.kind,
-        right.activity,
-        right.len,
-    ))
+    (
+        left.hash,
+        left.offset,
+        left.check,
+        left.depth & DEPTH_MASK,
+        left.depth & DEPTH_CROSS_ORIGIN == 0,
+        left.kind,
+        left.activity,
+        left.len,
+    )
+        .cmp(&(
+            right.hash,
+            right.offset,
+            right.check,
+            right.depth & DEPTH_MASK,
+            right.depth & DEPTH_CROSS_ORIGIN == 0,
+            right.kind,
+            right.activity,
+            right.len,
+        ))
 }
 
 fn entries(table: &Table) -> Vec<Entry> {
@@ -81,10 +92,13 @@ fn expected_entries(rows: &[Summary]) -> Vec<Entry> {
         if let Some(mut ancestor) = row.parent.clone()
             && ancestor != row.key()
         {
+            let mut child_origin = row.key().origin.clone();
+            let mut crossed_origin = false;
             for depth in 1..=MAX_DEPTH {
                 if ancestor == row.key() {
                     break;
                 }
+                crossed_origin |= child_origin != ancestor.origin;
                 let (hash, check) = key_fingerprint(&ancestor, FAMILY_KIND);
                 if eligible {
                     expected.push(Entry {
@@ -93,12 +107,13 @@ fn expected_entries(rows: &[Summary]) -> Vec<Entry> {
                         offset: offset(index),
                         check,
                         len: TEST_ROW_LEN as u16,
-                        depth,
+                        depth: depth | if crossed_origin { DEPTH_CROSS_ORIGIN } else { 0 },
                         kind: FAMILY_KIND,
                     });
                 }
                 let Some(parent) = by_key.get(&ancestor) else { break };
                 let Some(next) = parent.parent.clone() else { break };
+                child_origin = ancestor.origin.clone();
                 ancestor = next;
             }
         }
@@ -194,8 +209,8 @@ fn forest_entries_match_ancestor_oracle_with_depth_and_hot_bridges() {
     let mut actual = entries(&table);
     actual.sort_unstable_by(entry_order);
     assert_eq!(actual, expected_entries(&rows));
-    assert!(actual.iter().any(|entry| entry.depth == MAX_DEPTH));
-    assert!(!actual.iter().any(|entry| entry.depth > MAX_DEPTH));
+    assert!(actual.iter().any(|entry| entry.depth & DEPTH_MASK == MAX_DEPTH));
+    assert!(!actual.iter().any(|entry| entry.depth & DEPTH_MASK > MAX_DEPTH));
 }
 
 #[test]
@@ -235,6 +250,69 @@ fn cycle_closure_deduplicates_nearest_ancestors_without_self_rows() {
                 && entry.check == check
         }));
     }
+}
+
+#[test]
+fn mixed_origin_closure_marks_each_crossing_path_once() {
+    let mut peer_root = row("peer-root", 1);
+    peer_root.origin = "peer".to_owned();
+    let mut peer_child = row("peer-child", 2);
+    peer_child.origin = "peer".to_owned();
+    peer_child.parent = Some(peer_root.key());
+    let mut local_child = row("local-child", 3);
+    local_child.parent = Some(peer_child.key());
+    let mut local_grandchild = row("local-grandchild", 4);
+    local_grandchild.parent = Some(local_child.key());
+    let rows = [peer_root, peer_child, local_child, local_grandchild];
+    let (_directory, path) = write_table(&rows, 47, TEST_HEAD_CRC);
+    let table = open_table(&path, 47, rows.len() as u64, TEST_HEAD_CRC);
+    let actual = entries(&table);
+    let (peer_hash, peer_check) = key_fingerprint(&RowKey::new("peer", "peer-root"), FAMILY_KIND);
+    let (child_hash, child_check) =
+        key_fingerprint(&RowKey::new("peer", "peer-child"), FAMILY_KIND);
+    let local_child_entry = actual
+        .iter()
+        .find(|entry| {
+            entry.offset == offset(2) && entry.hash == child_hash && entry.check == child_check
+        })
+        .expect("local child under peer");
+    assert_eq!(local_child_entry.depth & DEPTH_MASK, 1);
+    assert_ne!(local_child_entry.depth & DEPTH_CROSS_ORIGIN, 0);
+    let local_grandchild_peer = actual
+        .iter()
+        .find(|entry| {
+            entry.offset == offset(3) && entry.hash == peer_hash && entry.check == peer_check
+        })
+        .expect("grandchild under peer root");
+    assert_eq!(local_grandchild_peer.depth & DEPTH_MASK, 3);
+    assert_ne!(local_grandchild_peer.depth & DEPTH_CROSS_ORIGIN, 0);
+    let peer_entry = actual
+        .iter()
+        .find(|entry| {
+            entry.offset == offset(1) && entry.hash == child_hash && entry.check == child_check
+        })
+        .expect("peer child under peer root");
+    assert_eq!(peer_entry.depth & DEPTH_MASK, 1);
+    assert_eq!(peer_entry.depth & DEPTH_CROSS_ORIGIN, 0);
+}
+
+#[test]
+fn peer_origin_asked_key_keeps_same_origin_rows_local() {
+    let mut root = row("peer-root", 1);
+    root.origin = "peer".to_owned();
+    let mut child = row("peer-child", 2);
+    child.origin = "peer".to_owned();
+    child.parent = Some(root.key());
+    let rows = [root, child];
+    let (_directory, path) = write_table(&rows, 48, TEST_HEAD_CRC);
+    let table = open_table(&path, 48, rows.len() as u64, TEST_HEAD_CRC);
+    let root_hash = key_fingerprint(&RowKey::new("peer", "peer-root"), FAMILY_KIND).0;
+    let child_entry = entries(&table)
+        .into_iter()
+        .find(|entry| entry.hash == root_hash)
+        .expect("peer-origin family entry");
+    assert_eq!(child_entry.depth & DEPTH_MASK, 1);
+    assert_eq!(child_entry.depth & DEPTH_CROSS_ORIGIN, 0);
 }
 
 #[test]
@@ -345,6 +423,21 @@ fn another_snapshot_binding_is_rejected_without_poisoning_a_valid_table() {
         .unwrap()
         .expect("matching binding remains usable");
     assert_eq!(table.header.entries, 0);
+}
+
+#[test]
+fn version_one_table_is_rejected_and_left_for_the_pager() {
+    let rows = [row("one", 1), row("two", 2)];
+    let (_directory, path) = write_table(&rows, 13, TEST_HEAD_CRC);
+    let mut file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
+    let mut header = [0; TEST_PAGE_BYTES];
+    std::io::Read::read_exact(&mut file, &mut header).unwrap();
+    header[8..12].copy_from_slice(&1_u32.to_le_bytes());
+    header[TEST_PAGE_BYTES - 4..]
+        .copy_from_slice(&crc32fast::hash(&header[..TEST_PAGE_BYTES - 4]).to_le_bytes());
+    file.seek(SeekFrom::Start(0)).unwrap();
+    file.write_all(&header).unwrap();
+    assert!(Table::open(&path, binding(13, rows.len() as u64, TEST_HEAD_CRC)).unwrap().is_none());
 }
 
 #[test]

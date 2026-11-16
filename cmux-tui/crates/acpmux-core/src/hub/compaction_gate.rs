@@ -92,6 +92,15 @@ fn row(id: impl Into<String>, activity: u64) -> Summary {
     row
 }
 
+fn tree_row(index: u64, activity: u64) -> Summary {
+    let mut row = row(format!("row-{index:05}"), activity);
+    row.state = "closed".to_owned();
+    if index > 0 {
+        row.parent = Some(RowKey::new("local", format!("row-{:05}", (index - 1) / 4)));
+    }
+    row
+}
+
 #[test]
 fn matched_rounds_do_not_compare_different_stretches() {
     let mut observations = Vec::new();
@@ -118,9 +127,17 @@ fn matched_rounds_do_not_compare_different_stretches() {
 #[ignore = "1M changes and timing; run in release with --ignored --nocapture"]
 async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     let dir = tempfile::tempdir().unwrap();
+    let tree_fixture = std::env::var_os("V2_PR05I_TREE_COMPACTION").is_some();
     let mut index = SummaryIndex::new();
     for n in 0..11_000 {
-        index = index.apply(n + 1, row(format!("row-{n:05}"), 11_000 - n));
+        index = index.apply(
+            n + 1,
+            if tree_fixture {
+                tree_row(n, 11_000 - n)
+            } else {
+                row(format!("row-{n:05}"), 11_000 - n)
+            },
+        );
     }
     SortedSnapshot::write(dir.path().join("index.snap"), &index).unwrap();
     drop(index);
@@ -165,8 +182,13 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
             BATCH.min(MAX_CHANGES - changes)
         };
         for n in 0..count {
-            hub.submit(row(format!("row-{:05}", (changes + n) % 11_000), 1_000_000 + changes + n))
-                .unwrap();
+            let index = (changes + n) % 11_000;
+            hub.submit(if tree_fixture {
+                tree_row(index, 1_000_000 + changes + n)
+            } else {
+                row(format!("row-{index:05}"), 1_000_000 + changes + n)
+            })
+            .unwrap();
         }
         let (next, running, phase, elapsed) = tokio::task::spawn_blocking(move || {
             let running = writer.compaction.is_some()
@@ -329,18 +351,29 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
         stats.completed, stats.peak_excess_bytes, stats.duration_ns,
     );
     eprintln!("{line}");
+    if tree_fixture {
+        let entries = fs::read(dir.path().join("index.snap.kin"))
+            .ok()
+            .and_then(|bytes| {
+                bytes.get(40..48).map(|bytes| u64::from_le_bytes(bytes.try_into().ok()?))
+            })
+            .unwrap_or(0);
+        eprintln!("PR5i compaction_fixture=four_way_closed kin_entries={entries}");
+    }
     if let Ok(path) = std::env::var("V2_GATE_OUT") {
         writeln!(fs::OpenOptions::new().create(true).append(true).open(path).unwrap(), "{line}")
             .unwrap();
     }
-    assert!(
-        outside_rounds[ROUNDS - 1] <= outside_rounds[0].saturating_mul(12) / 10,
-        "outside rounds slowed: first={}ns fifth={}ns rounds={outside_rounds:?}",
-        outside_rounds[0],
-        outside_rounds[ROUNDS - 1]
-    );
-    assert!(god <= small.saturating_mul(12) / 10, "during={god}ns outside={small}ns");
-    assert!(all <= small.saturating_mul(2), "all during={all}ns outside={small}ns");
+    if !tree_fixture {
+        assert!(
+            outside_rounds[ROUNDS - 1] <= outside_rounds[0].saturating_mul(12) / 10,
+            "outside rounds slowed: first={}ns fifth={}ns rounds={outside_rounds:?}",
+            outside_rounds[0],
+            outside_rounds[ROUNDS - 1]
+        );
+        assert!(god <= small.saturating_mul(12) / 10, "during={god}ns outside={small}ns");
+        assert!(all <= small.saturating_mul(2), "all during={all}ns outside={small}ns");
+    }
     drop((hub, writer));
     let (restored, _) = Hub::open(dir.path(), 19, || 17).unwrap();
     assert_eq!(restored.snapshot().seq(), 11_000 + changes);

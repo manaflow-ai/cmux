@@ -78,6 +78,8 @@ pub struct Rows {
     pub closure: bool,
     /// Follow-up roots: depth-bound rows, or cold rows with hot children.
     pub deeper: Vec<ListKey>,
+    /// Listed rows that cross an origin in the serving snapshot closure.
+    pub foreign: Vec<ListKey>,
 }
 
 /// A connection upgraded to the list surface.
@@ -495,6 +497,7 @@ where
                     cold_unread: reply.cold_unread,
                     closure: reply.closure,
                     deeper: reply.deeper,
+                    foreign: reply.foreign,
                     ..Rows::default()
                 }))
             }

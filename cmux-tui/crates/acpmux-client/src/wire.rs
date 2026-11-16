@@ -540,6 +540,10 @@ pub struct PageResult<T> {
     pub closure: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deeper: Vec<ListKey>,
+    /// Keys whose closure ancestry crosses another origin. These rows are
+    /// present only to advance the bounded pager; family readers skip them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub foreign: Vec<ListKey>,
     #[serde(default)]
     pub before_key: Option<ListKey>,
     #[serde(default)]
