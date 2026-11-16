@@ -78,7 +78,7 @@ final class NewTabInputCoordinator {
             guard let window else { return false }
             if incoming != nil { return true }
             guard let pane, pane.view.window === window, !pane.view.isHiddenOrHasHiddenAncestor else { return false }
-            guard let key = pane.currentTabKey else { return !shown }
+            guard let key = pane.currentTabKey else { return !shown || pane.stripModel.selectedID.map { pane.services.agentTabs.isNewTabPage($0.rawValue) } == true } // or its page waits for its frame (`PaneController.apply`)
             if pane.services.agentTabs.isNewTabPage(key) || LocalPageTab.page(of: key) == .nativeNewTab { return true }
             return !shown && key == opened
         }
@@ -307,7 +307,7 @@ final class NewTabInputCoordinator {
     func didShow(in window: NSWindow?) { if let window { held(in: window)?.shown = true } }
 
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
-    func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
+    func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), (entry.pane?.currentTabKey ?? entry.pane?.stripModel.selectedID?.rawValue) == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
 
     /// The opening failed: the hold ends with no field ready (see the class comment).
     func cancel(in window: NSWindow?) { if let window { release(in: window, why: "open failed") } }
