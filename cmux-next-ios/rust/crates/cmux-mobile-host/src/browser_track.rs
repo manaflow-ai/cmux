@@ -278,7 +278,12 @@ mod tests {
                 let out = engine
                     .encoded(
                         &req,
-                        Some(Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now }),
+                        Some(Encoded {
+                            access_unit: au,
+                            idr: req.force_idr,
+                            t_capture_us: now,
+                            ltr_token: None,
+                        }),
                         now,
                     )
                     .unwrap();
@@ -326,7 +331,12 @@ mod tests {
         let out = engine
             .encoded(
                 &req,
-                Some(Encoded { access_unit: vec![0, 0, 0, 1, 0x65, 1, 2, 3], idr: true, t_capture_us: 0 }),
+                Some(Encoded {
+                    access_unit: vec![0, 0, 0, 1, 0x65, 1, 2, 3],
+                    idr: true,
+                    t_capture_us: 0,
+                    ltr_token: None,
+                }),
                 now,
             )
             .unwrap();
