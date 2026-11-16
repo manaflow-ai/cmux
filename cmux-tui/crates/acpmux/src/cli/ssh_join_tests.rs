@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::*;
 
@@ -54,6 +55,8 @@ struct FakeHub {
     /// This computer's ledger of minted tokens.
     ledger: Mutex<Vec<ledger::Entry>>,
     revoked: Mutex<Vec<String>>,
+    /// When set, the new token's machine is listed only once the join redeemed it.
+    redeemed: Option<std::sync::Arc<AtomicBool>>,
 }
 
 impl FakeHub {
@@ -66,6 +69,7 @@ impl FakeHub {
             others: Vec::new(),
             ledger: Mutex::new(Vec::new()),
             revoked: Mutex::new(Vec::new()),
+            redeemed: None,
         }
     }
 }
@@ -103,7 +107,8 @@ impl Hub for FakeHub {
                     row
                 })
                 .collect();
-            if self.reports {
+            let redeemed = self.redeemed.as_ref().is_none_or(|r| r.load(Ordering::SeqCst));
+            if self.reports && redeemed {
                 rows.push(Row {
                     machine_id: "machine_01".into(),
                     name: "gcp-3".into(),
@@ -572,4 +577,185 @@ fn a_hub_refusal_names_the_next_step_its_code_means() {
         one_line(&failure);
         assert!(!failure.next.contains("owner"), "{status}: {failure:?}");
     }
+}
+
+/// A far machine as the real join script answers it: the probe prints `host join --status` when
+/// acpmux is there, and the script, on a machine that holds a live credential, redeems the token
+/// only with `CMUX_JOIN_REPLACE=1`; else it says "already joined; nothing redeemed" and exits 0.
+struct JoinedVm {
+    /// The probe's status line; None for an acpmux that prints none.
+    status: Option<String>,
+    redeemed: std::sync::Arc<AtomicBool>,
+    installs: Mutex<Vec<String>>,
+}
+
+impl JoinedVm {
+    /// Joined as `machine_id` with its daemon `up`; None prints no status.
+    fn new(machine_id: Option<&str>, up: bool) -> Self {
+        Self {
+            status: machine_id.map(|id| {
+                format!(
+                    r#"{{"credentialPresent":true,"machineId":"{id}","revoked":false,"joinIncomplete":false,"cloned":false,"daemonRunning":{up}}}"#
+                )
+            }),
+            redeemed: std::sync::Arc::new(AtomicBool::new(false)),
+            installs: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl Ssh for JoinedVm {
+    fn run<'a>(
+        &'a self,
+        plan: SshPlan,
+        line: &'a mut (dyn FnMut(&str) + Send),
+    ) -> BoxFut<'a, std::io::Result<Ran>> {
+        Box::pin(async move {
+            let remote = plan.argv.last().cloned().unwrap_or_default();
+            if plan.stdin.is_none() {
+                let mut out = format!("Linux x86_64\nssh-ed25519 {KEY_A} root@ubuntu\n");
+                if let Some(status) = &self.status {
+                    out.push_str(status);
+                    out.push('\n');
+                }
+                return Ok(ok(&out));
+            }
+            self.installs.lock().unwrap().push(remote.clone());
+            let said = if remote.contains("CMUX_JOIN_REPLACE=1") {
+                self.redeemed.store(true, Ordering::SeqCst);
+                "cmux join: joined as gcp-3"
+            } else {
+                "cmux join: already joined; nothing redeemed (CMUX_JOIN_REPLACE=1 swaps the credential)"
+            };
+            line(said);
+            Ok(Ran { code: 0, stdout: String::new(), stderr: vec![said.to_owned()] })
+        })
+    }
+}
+
+fn fresh(mut row: Row) -> Row {
+    row.last_heartbeat_ms = Some(now_ms());
+    row
+}
+
+async fn run_on(ssh: &JoinedVm, hub: &FakeHub) -> Outcome {
+    join(&request("gcp-3"), ssh, hub, &mut |_| {}).await
+}
+
+/// Door A live rerun (huge-blue/door-a-join-timing, ultra1, 2026-11-16, at 0ec97f7e): a re-add
+/// with the same name, ssh destination and host key a minute after the first. The VM's join said
+/// "already joined; nothing redeemed (CMUX_JOIN_REPLACE=1 swaps the credential)", then the add
+/// waited 60 s for the new token's machine and failed `no_report`. A machine already joined to
+/// this account with its daemon up is kept: its record is the answer (`alreadyJoined`), no token
+/// is minted, the join script never runs, and a stale record an earlier failed add left under
+/// the same name on the same machine still goes.
+#[tokio::test(start_paused = true)]
+async fn a_readd_of_a_machine_joined_to_this_account_keeps_its_record_and_mints_nothing() {
+    let vm = JoinedVm::new(Some("machine_old"), true);
+    let hub = FakeHub {
+        others: vec![
+            fresh(earlier("machine_old", "gcp-3", "join_old")),
+            earlier("machine_older", "gcp-3", "join_older"),
+        ],
+        redeemed: Some(vm.redeemed.clone()),
+        ..FakeHub::up()
+    };
+    hub.remember(entry("join_old", "gcp-3", KEY_A));
+    hub.remember(entry("join_older", "gcp-3", KEY_A));
+    let started = tokio::time::Instant::now();
+    let outcome = run_on(&vm, &hub).await;
+    assert!(outcome.ok, "{outcome:?}");
+    assert_eq!(outcome.machine.as_ref().map(|m| m.machine_id.as_str()), Some("machine_old"));
+    assert_eq!(outcome.to_value()["alreadyJoined"], true, "{outcome:?}");
+    assert_eq!(outcome.replaced, ["machine_older"]);
+    assert_eq!(*hub.mints.lock().unwrap(), 0, "no token minted");
+    assert!(vm.installs.lock().unwrap().is_empty(), "the join script never ran");
+    assert!(started.elapsed() < CONNECT_EVERY, "it waited {:?}", started.elapsed());
+}
+
+/// The same for a machine this person's hub lists that this computer did not add (a pasted join
+/// line): kept, nothing minted.
+#[tokio::test(start_paused = true)]
+async fn a_machine_joined_to_this_account_another_way_is_kept() {
+    let vm = JoinedVm::new(Some("machine_pasted"), true);
+    let hub = FakeHub {
+        others: vec![fresh(earlier("machine_pasted", "ubuntu", "join_pasted"))],
+        redeemed: Some(vm.redeemed.clone()),
+        ..FakeHub::up()
+    };
+    let outcome = run_on(&vm, &hub).await;
+    assert!(outcome.ok, "{outcome:?}");
+    assert_eq!(outcome.machine.as_ref().map(|m| m.name.as_str()), Some("ubuntu"));
+    assert_eq!(*hub.mints.lock().unwrap(), 0, "no token minted");
+}
+
+/// A machine joined to an account this person's list does not show: the new token swaps its
+/// credential (`CMUX_JOIN_REPLACE=1`), so it is redeemed, none is left unused, and the machine
+/// reports with it.
+#[tokio::test(start_paused = true)]
+async fn a_machine_joined_to_another_account_swaps_its_credential() {
+    let vm = JoinedVm::new(Some("machine_someone_else"), true);
+    let hub = FakeHub { redeemed: Some(vm.redeemed.clone()), ..FakeHub::up() };
+    let outcome = run_on(&vm, &hub).await;
+    assert!(outcome.ok, "{outcome:?}");
+    assert_eq!(outcome.machine.as_ref().map(|m| m.machine_id.as_str()), Some("machine_01"));
+    assert_eq!(*hub.mints.lock().unwrap(), 1);
+    assert!(vm.redeemed.load(Ordering::SeqCst), "the new token was redeemed");
+    assert!(outcome.replaced.is_empty(), "another account's record is never touched");
+}
+
+/// Joined to this account but its daemon down: the record is not serving, so the join swaps the
+/// credential (the script restarts the daemon onto it) and the old record goes.
+#[tokio::test(start_paused = true)]
+async fn a_machine_whose_daemon_is_down_swaps_its_credential_and_replaces_the_record() {
+    let vm = JoinedVm::new(Some("machine_old"), false);
+    let hub = FakeHub {
+        others: vec![earlier("machine_old", "gcp-3", "join_old")],
+        redeemed: Some(vm.redeemed.clone()),
+        ..FakeHub::up()
+    };
+    let outcome = run_on(&vm, &hub).await;
+    assert!(outcome.ok, "{outcome:?}");
+    assert_eq!(outcome.machine.as_ref().map(|m| m.machine_id.as_str()), Some("machine_01"));
+    assert_eq!(outcome.replaced, ["machine_old"]);
+}
+
+/// An acpmux whose probe prints no status, on a machine already joined: the script's "already
+/// joined; nothing redeemed" fails the add at once (the new token's machine never comes), not
+/// after a minute's wait with doctor as the next step.
+#[tokio::test(start_paused = true)]
+async fn a_join_that_redeemed_nothing_fails_at_once_and_not_as_no_report() {
+    let vm = JoinedVm::new(None, true);
+    let hub = FakeHub {
+        others: vec![fresh(earlier("machine_old", "gcp-3", "join_old"))],
+        redeemed: Some(vm.redeemed.clone()),
+        ..FakeHub::up()
+    };
+    let started = tokio::time::Instant::now();
+    let outcome = run_on(&vm, &hub).await;
+    let f = failure(&outcome);
+    assert_eq!(serde_json::to_value(f.kind).unwrap(), "already_joined", "{f:?}");
+    assert!(!f.next.contains("doctor"), "{f:?}");
+    assert!(started.elapsed() < CONNECT_EVERY, "it waited {:?}", started.elapsed());
+    one_line(f);
+}
+
+/// No report with the new token while the hub lists this same machine reporting under an earlier
+/// join: its daemon is up, so the next step is not doctor.
+#[tokio::test(start_paused = true)]
+async fn no_report_from_a_machine_listed_and_up_does_not_send_to_doctor() {
+    let mut ssh = FakeSsh::new(vec![probed(KEY_A), ok("")]);
+    ssh.lines = vec!["cmux join: joined as gcp-3"];
+    let hub = FakeHub {
+        reports: false,
+        others: vec![fresh(earlier("machine_old", "gcp-3", "join_old"))],
+        ..FakeHub::up()
+    };
+    hub.remember(entry("join_old", "gcp-3", KEY_A));
+    let (outcome, _) = run("gcp-3", &ssh, &hub).await;
+    let f = failure(&outcome);
+    assert_eq!(f.kind, Kind::NoReport);
+    assert!(!f.next.contains("doctor"), "{f:?}");
+    assert!(f.next.contains("gcp-3"), "{f:?}");
+    one_line(f);
 }
