@@ -6072,7 +6072,7 @@ export class AcpmuxDirectClient {
       return;
     }
     this.quietChecks = 0;
-    this.armQuietWatch();
+    if (this.workingNow()) this.armQuietWatch();
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.opening || !this.hasConnected) return;
     if (this.attachedGeneration !== this.selectionGeneration) return;
@@ -7721,8 +7721,8 @@ export class AcpmuxDirectClient {
       this.summary = { ...this.summary, ...session, loopEpisode: session.loopEpisode ?? null };
       // Built when sent, after the record it follows: it settles the turn the records folded.
       this.settleTurnWithHost();
-      // The chat may run now (a prompt sent elsewhere): its quiet is watched from here.
-      if (this.quietTimer === undefined) this.armQuietWatch();
+      // The chat may run now (a prompt sent elsewhere): its quiet is watched from here. One at rest arms nothing.
+      if (this.quietTimer === undefined && this.workingNow()) this.armQuietWatch();
       // A harness restart or a new conversation names a new native root without a rebuild: the
       // fold learns it now, or a record naming it as a parent would not repair its child. One
       // that records already folded named (a retired root, too) drew rows that are now wrong:
