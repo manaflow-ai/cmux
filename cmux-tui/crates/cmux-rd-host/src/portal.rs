@@ -1046,7 +1046,7 @@ impl crate::desktop::FrameSource for PortalFrames {
                 r.y as usize,
                 r.w as usize,
                 r.h as usize,
-                2,
+                cmux_encode::convert_threads(),
             );
         }
         Ok(())
