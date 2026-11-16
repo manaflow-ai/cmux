@@ -1,0 +1,16 @@
+{
+  "title": "Key Style Vim: j, k, G, gg and / move through the New Tab list; Esc leaves the field",
+  "settings": {"app": {"keyStyle": "vim"}},
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "A New Tab", "cmux": ["action", "run", "newTab"], "wait": 4},
+    {"title": "Esc: the field gives the list the keyboard", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 1},
+    {"title": "j: next row", "rpc": {"method": "debug.key", "params": {"key": "j"}}, "wait": 0.8},
+    {"title": "j: next row", "rpc": {"method": "debug.key", "params": {"key": "j"}}, "wait": 0.8},
+    {"title": "k: previous row", "rpc": {"method": "debug.key", "params": {"key": "k"}}, "wait": 0.8},
+    {"title": "G: last row", "rpc": {"method": "debug.key", "params": {"key": "G"}}, "wait": 0.8},
+    {"title": "g", "rpc": {"method": "debug.key", "params": {"key": "g"}}, "wait": 0.3},
+    {"title": "gg: first row", "rpc": {"method": "debug.key", "params": {"key": "g"}}, "wait": 0.8},
+    {"title": "/: back to the field", "rpc": {"method": "debug.key", "params": {"key": "/"}}, "wait": 1}
+  ]
+}
